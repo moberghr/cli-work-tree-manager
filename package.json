@@ -1,0 +1,36 @@
+{
+  "name": "work-tree",
+  "version": "0.1.0",
+  "description": "Cross-platform Git worktree manager for multiple repositories",
+  "type": "module",
+  "bin": {
+    "work2": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/bin.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": ["git", "worktree", "cli"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "cross-spawn": "^7.0.6",
+    "glob": "^11.0.1",
+    "inquirer": "^12.3.2",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^22.13.4",
+    "@types/yargs": "^17.0.33",
+    "tsup": "^8.3.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

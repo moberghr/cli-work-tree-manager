@@ -1,0 +1,204 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadConfig } from '../core/config.js';
+import { parseWorktreeList, getCurrentBranch } from '../core/git.js';
+import { resolveProjectTarget } from '../core/resolve.js';
+
+type Done = (completions: string[]) => void;
+
+/**
+ * Dynamic completion handler for yargs.
+ * Called when the user presses TAB (via --get-yargs-completions).
+ *
+ * argv._ = ['<scriptName>', '<command>', '<arg1>', ...., '<current>']
+ * We skip the script name and the trailing current word to get the "completed" args.
+ */
+export function completionHandler(
+  current: string,
+  argv: Record<string, unknown>,
+  done: Done,
+): void {
+  const rawArgs = argv._ as string[];
+
+  // Skip the script name (first element) and the trailing current word (last element)
+  const args = rawArgs.slice(1, -1);
+  const command = args[0] as string | undefined;
+
+  const config = loadConfig();
+  if (!config) {
+    done([]);
+    return;
+  }
+
+  if (!command) {
+    done(
+      ['tree', 'remove', 'list', 'init', 'config', 'completion'].filter(
+        (c) => c.startsWith(current),
+      ),
+    );
+    return;
+  }
+
+  switch (command) {
+    case 'config':
+      completeConfig(args, current, config, done);
+      return;
+
+    case 'tree':
+    case 'remove':
+    case 'list':
+      completeTreeRemoveList(command, args, current, config, done);
+      return;
+
+    default:
+      done([]);
+  }
+}
+
+function completeConfig(
+  args: string[],
+  current: string,
+  config: NonNullable<ReturnType<typeof loadConfig>>,
+  done: Done,
+): void {
+  const subAction = args[1] as string | undefined;
+
+  if (!subAction) {
+    const actions = [
+      'add',
+      'list',
+      'remove',
+      'show',
+      'edit',
+      'addgroup',
+      'removegroup',
+      'regengroup',
+    ];
+    done(actions.filter((a) => a.startsWith(current)));
+    return;
+  }
+
+  if (subAction === 'remove' && args.length === 2) {
+    const aliases = Object.keys(config.repos);
+    done(aliases.filter((a) => a.startsWith(current)));
+    return;
+  }
+
+  if (
+    (subAction === 'removegroup' || subAction === 'regengroup') &&
+    args.length === 2
+  ) {
+    const groups = Object.keys(config.groups);
+    done(groups.filter((g) => g.startsWith(current)));
+    return;
+  }
+
+  if (subAction === 'addgroup' && args.length >= 3) {
+    const alreadyUsed = args.slice(2);
+    const aliases = Object.keys(config.repos).filter(
+      (a) => !alreadyUsed.includes(a),
+    );
+    done(aliases.filter((a) => a.startsWith(current)));
+    return;
+  }
+
+  done([]);
+}
+
+function completeTreeRemoveList(
+  command: string,
+  args: string[],
+  current: string,
+  config: NonNullable<ReturnType<typeof loadConfig>>,
+  done: Done,
+): void {
+  const targetName = args[1] as string | undefined;
+
+  if (!targetName) {
+    const names = [
+      ...Object.keys(config.repos),
+      ...Object.keys(config.groups),
+    ];
+    done(names.filter((n) => n.startsWith(current)));
+    return;
+  }
+
+  if (args.length === 2) {
+    const target = resolveProjectTarget(targetName, config);
+    if (!target) {
+      done([]);
+      return;
+    }
+
+    if (target.isGroup) {
+      if (command === 'remove') {
+        completeGroupRemoveBranches(target.name, current, config, done);
+      } else {
+        const firstAlias = target.repoAliases[0];
+        completeRepoBranches(firstAlias, current, config, done);
+      }
+    } else {
+      completeRepoBranches(targetName, current, config, done);
+    }
+    return;
+  }
+
+  done([]);
+}
+
+function completeRepoBranches(
+  alias: string,
+  current: string,
+  config: NonNullable<ReturnType<typeof loadConfig>>,
+  done: Done,
+): void {
+  const repoPath = config.repos[alias];
+  if (!repoPath || !fs.existsSync(repoPath)) {
+    done([]);
+    return;
+  }
+
+  const worktrees = parseWorktreeList(repoPath);
+  const branches = worktrees
+    .map((wt) => wt.branch)
+    .filter((b): b is string => !!b && b.startsWith(current));
+  done(branches);
+}
+
+function completeGroupRemoveBranches(
+  groupName: string,
+  current: string,
+  config: NonNullable<ReturnType<typeof loadConfig>>,
+  done: Done,
+): void {
+  const groupDir = path.join(config.worktreesRoot, groupName);
+  if (!fs.existsSync(groupDir)) {
+    done([]);
+    return;
+  }
+
+  try {
+    const branchDirs = fs
+      .readdirSync(groupDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const bdPath = path.join(groupDir, d.name);
+        try {
+          const subDirs = fs
+            .readdirSync(bdPath, { withFileTypes: true })
+            .filter((sd) => sd.isDirectory() && sd.name !== '.git');
+          for (const sd of subDirs) {
+            const branch = getCurrentBranch(path.join(bdPath, sd.name));
+            if (branch) return branch;
+          }
+        } catch {
+          // ignore
+        }
+        return d.name;
+      });
+
+    done(branchDirs.filter((b) => b.startsWith(current)));
+  } catch {
+    done([]);
+  }
+}

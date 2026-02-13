@@ -1,64 +1,70 @@
 # Work - Git Worktree Manager
 
-A PowerShell tool for managing git worktrees across multiple repositories. Create isolated workspaces per branch, manage multi-repo groups, and launch Claude Code automatically.
+A cross-platform CLI tool for managing git worktrees across multiple repositories. Create isolated workspaces per branch, manage multi-repo groups, and launch Claude Code automatically.
 
 ## Installation
 
-1. Clone this repository
-2. Dot-source the script in your PowerShell profile (`$PROFILE`):
+Requires **Node.js 18+** and **Git**.
 
-```powershell
-. C:\path\to\work-tree\work.ps1
+```bash
+# Clone and install globally
+git clone <repo-url> work-tree
+cd work-tree
+npm install
+npm run build
+npm link
 ```
 
-3. Run initial setup:
+This registers the `work2` command globally.
 
-```powershell
-work init
+Run initial setup:
+
+```bash
+work2 init
 ```
 
 This walks you through configuring:
 - **Worktrees root** — where all worktrees are created
-- **Repositories** — each gets an alias (e.g., `ai` → `C:\repos\ai-service`)
+- **Repositories** — each gets an alias (e.g., `ai` → `/home/user/repos/ai-service`)
 
 ## Quick Start
 
-```powershell
+```bash
 # Create a worktree and launch Claude Code
-work tree ai feature/login
+work2 tree ai feature/login
 
-# Create a worktree and open the .sln in your IDE
-work tree ai feature/login open
+# Create a worktree and open VS Code
+work2 tree ai feature/login --open
 
 # List all active worktrees
-work list
+work2 list
 
 # Remove a worktree (blocks if uncommitted/unpushed changes)
-work remove ai feature/login
+work2 remove ai feature/login
 
 # Force remove
-work remove ai feature/login -Force
+work2 remove ai feature/login --force
 ```
 
 ## Configuration
 
 Manage repos and groups without editing JSON directly:
 
-```powershell
+```bash
 # Add a repository
-work config add frontend C:\repos\frontend-app
+work2 config add frontend /path/to/frontend-app
 
 # Remove a repository
-work config remove frontend
+work2 config remove frontend
 
 # List all repos and groups
-work config list
+work2 config list
 
 # View raw config
-work config show
+work2 config show
 
 # Open config in editor
-work config edit
+work2 config edit
 ```
 
 Configuration is stored at `~/.work/config.json`.
@@ -69,7 +75,7 @@ New worktrees automatically get copies of files matching patterns in `copyFiles`
 
 - `*.Development.json` — local dev settings
 - `*.Local.json` — local overrides
-- `.claude\settings.local.json` — Claude Code local settings
+- `.claude/settings.local.json` — Claude Code local settings
 
 Edit the config to customize which files are copied.
 
@@ -77,21 +83,21 @@ Edit the config to customize which files are copied.
 
 Groups let you create a single worktree workspace containing multiple repositories, useful when a feature spans several repos.
 
-```powershell
+```bash
 # Create a group
-work config addgroup mygroup api frontend shared-lib
+work2 config addgroup mygroup api frontend shared-lib
 
 # Create worktrees for all repos in the group
-work tree mygroup feature/new-checkout
+work2 tree mygroup feature/new-checkout
 
 # Remove all worktrees in the group
-work remove mygroup feature/new-checkout
+work2 remove mygroup feature/new-checkout
 
 # Regenerate the combined CLAUDE.md for a group
-work config regengroup mygroup
+work2 config regengroup mygroup
 
 # Delete a group
-work config removegroup mygroup
+work2 config removegroup mygroup
 ```
 
 Group worktrees are organized as:
@@ -100,36 +106,48 @@ Group worktrees are organized as:
 <worktreesRoot>/
   mygroup/
     feature-new-checkout/
-      api/              ← worktree for api repo
-      frontend/         ← worktree for frontend repo
-      shared-lib/       ← worktree for shared-lib repo
-      CLAUDE.md         ← auto-generated combined instructions
+      api/              <- worktree for api repo
+      frontend/         <- worktree for frontend repo
+      shared-lib/       <- worktree for shared-lib repo
+      CLAUDE.md         <- auto-generated combined instructions
 ```
 
 When creating a group, a combined `CLAUDE.md` is generated using Claude CLI by merging each repo's individual `CLAUDE.md`.
 
 ## Tab Completion
 
-Full tab completion is registered automatically when the script is loaded. Completions are context-aware:
+Add one line to your shell profile for context-aware completions (commands, project names, branches):
 
-- Commands: `tree`, `remove`, `list`, `init`, `config`
-- Config actions: `add`, `remove`, `addgroup`, `removegroup`, `regengroup`, `list`, `show`, `edit`
-- Project/group names from your config
-- Branch names from existing worktrees
-- Switches: `-Force`, `-Unsafe`
+**PowerShell** — add to `$PROFILE`:
+
+```powershell
+work2 completion --shell powershell | Out-String | Invoke-Expression
+```
+
+**Bash** — add to `~/.bashrc`:
+
+```bash
+eval "$(work2 completion)"
+```
+
+**Zsh** — add to `~/.zshrc`:
+
+```bash
+eval "$(work2 completion)"
+```
 
 ## Unsafe Mode
 
 Skip Claude Code permission checks when launching:
 
-```powershell
-work tree ai feature/hotfix -Unsafe
+```bash
+work2 tree ai feature/hotfix --unsafe
 ```
 
 This passes `--dangerously-skip-permissions` to the Claude CLI.
 
 ## Requirements
 
-- PowerShell 5.1+
+- Node.js 18+
 - Git
 - [Claude Code CLI](https://claude.ai/code) (for automatic Claude launching and group CLAUDE.md generation)

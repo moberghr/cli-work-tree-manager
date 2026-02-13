@@ -4,33 +4,56 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A PowerShell-based Git worktree manager (`work.ps1`) that simplifies creating, listing, and removing git worktrees across multiple repositories. It supports both single-repo and multi-repo "group" worktrees, with automatic Claude Code launching.
+A cross-platform TypeScript CLI (`work2`) for managing git worktrees across multiple repositories. Supports single-repo and multi-repo "group" worktrees with automatic Claude Code launching. Installed globally via `npm link`.
 
-## Usage
+## Commands
 
-The script is dot-sourced into a PowerShell session to register the `work` function and its tab completer:
-
-```powershell
-. .\work.ps1
+```bash
+npm run build          # Bundle with tsup → dist/bin.js
+npm run dev            # Run directly via tsx (no build needed)
+npm test               # Run all tests with vitest
+npm run test:watch     # Watch mode
+npx vitest run tests/core/resolve.test.ts  # Single test file
 ```
+
+After building, `work2` is available globally (via `npm link`). Rebuild after source changes.
 
 ## Architecture
 
-**Single file:** `work.ps1` contains all logic — no modules, no dependencies beyond Git and PowerShell.
+### Module Flow
 
-**Configuration:** Stored at `~/.work/config.json`. Schema:
+```
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,config,init}.ts
+                                       ↓
+                                  core/worktree.ts (atomic operations)
+                                  ├── core/git.ts (git wrapper)
+                                  ├── core/copy-files.ts (glob-based file copying)
+                                  └── core/resolve.ts (group vs repo dispatch)
+```
+
+### Key Design
+
+- **Atomic building blocks:** `createSingleWorktree()` and `removeSingleWorktree()` in `core/worktree.ts` handle one repo. Group operations loop over these with rollback on failure.
+- **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
+- **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
+- **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
+
+### Configuration
+
+Stored at `~/.work/config.json`. Schema in `core/config.ts`:
 - `worktreesRoot` — parent directory for all worktrees
-- `repos` — map of alias to repo path (e.g., `{"ai": "C:\\repos\\ai-service"}`)
-- `groups` — map of group name to array of repo aliases
-- `copyFiles` — glob patterns for files to copy from main repo into new worktrees (e.g., local dev settings, `.claude/settings.local.json`)
+- `repos` — map of alias → repo path
+- `groups` — map of group name → array of repo aliases
+- `copyFiles` — glob patterns for files to copy into new worktrees (e.g., local dev settings)
 
-**Key design patterns:**
-- `New-SingleWorktree` / `Remove-SingleWorktree` are the atomic building blocks — they handle one repo's worktree. Group operations loop over these with rollback on failure.
-- Branch resolution order: local exists → remote exists (creates tracking branch) → neither (creates new branch).
-- `Resolve-ProjectTarget` is the dispatcher that determines if a name is a group or single repo, returning a uniform object with `IsGroup`, `Name`, and `RepoAliases`.
-- Group worktrees live at `<worktreesRoot>/<groupName>/<branch-dir>/` with each repo as a subdirectory. Single-repo worktrees live at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`.
-- Branch directory names use `-` instead of `/` (e.g., `feature/login` → `feature-login`).
+### Build
 
-**Group CLAUDE.md generation:** `Generate-GroupClaudeMd` pipes each repo's CLAUDE.md into `claude -p` to produce a combined CLAUDE.md for multi-repo workspaces. Falls back to a concatenated template if the Claude CLI call fails.
+tsup bundles `src/bin.ts` → `dist/bin.js` as ESM with shebang. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild.
 
-**Tab completion:** A single native completer (`Register-ArgumentCompleter -Native`) handles all positional and switch completions context-sensitively based on cursor position and preceding arguments.
+### Color Forcing
+
+`bin.ts` sets `chalk.level = 1` when chalk detects level 0, because Windows `.cmd` shims don't preserve TTY detection. Respects `NO_COLOR` env var.
+
+### Tab Completions
+
+`completions/index.ts` provides dynamic completions via yargs' `--get-yargs-completions`. The handler receives `argv._` as `['<scriptName>', ...args, '<current>']` — skip first and last to get completed args.
