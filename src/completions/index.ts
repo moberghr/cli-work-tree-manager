@@ -132,12 +132,7 @@ function completeTreeRemoveList(
     }
 
     if (target.isGroup) {
-      if (command === 'remove') {
-        completeGroupRemoveBranches(target.name, current, config, done);
-      } else {
-        const firstAlias = target.repoAliases[0];
-        completeRepoBranches(firstAlias, current, config, done);
-      }
+      completeGroupBranches(target.name, target.repoAliases, current, config, done);
     } else {
       completeRepoBranches(targetName, current, config, done);
     }
@@ -166,8 +161,9 @@ function completeRepoBranches(
   done(branches);
 }
 
-function completeGroupRemoveBranches(
+function completeGroupBranches(
   groupName: string,
+  repoAliases: string[],
   current: string,
   config: NonNullable<ReturnType<typeof loadConfig>>,
   done: Done,
@@ -184,16 +180,14 @@ function completeGroupRemoveBranches(
       .filter((d) => d.isDirectory())
       .map((d) => {
         const bdPath = path.join(groupDir, d.name);
-        try {
-          const subDirs = fs
-            .readdirSync(bdPath, { withFileTypes: true })
-            .filter((sd) => sd.isDirectory() && sd.name !== '.git');
-          for (const sd of subDirs) {
-            const branch = getCurrentBranch(path.join(bdPath, sd.name));
+        for (const alias of repoAliases) {
+          const repoPath = config.repos[alias];
+          if (!repoPath) continue;
+          const subPath = path.join(bdPath, path.basename(repoPath));
+          if (fs.existsSync(subPath)) {
+            const branch = getCurrentBranch(subPath);
             if (branch) return branch;
           }
-        } catch {
-          // ignore
         }
         return d.name;
       });

@@ -1,4 +1,10 @@
+import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
+import {
+  setupCompletions,
+  printCompletionResults,
+  printManualInstructions,
+} from '../core/setup-completions.js';
 
 const POWERSHELL_SCRIPT = `
 Register-ArgumentCompleter -CommandName work2 -Native -ScriptBlock {
@@ -47,12 +53,32 @@ export const completionCommand: CommandModule = {
   command: 'completion',
   describe: 'Generate shell completion script',
   builder: (yargs) =>
-    yargs.option('shell', {
-      describe: 'Shell type',
-      choices: ['bash', 'powershell', 'ps'] as const,
-      type: 'string',
-    }),
+    yargs
+      .option('shell', {
+        describe: 'Shell type',
+        choices: ['bash', 'powershell', 'ps'] as const,
+        type: 'string',
+      })
+      .option('install', {
+        describe: 'Install completions into shell profile(s)',
+        type: 'boolean',
+        default: false,
+      }),
   handler: (argv) => {
+    if (argv.install) {
+      const results = setupCompletions();
+      if (results.length > 0) {
+        printCompletionResults(results);
+        console.log('');
+        console.log(
+          chalk.gray('  Restart your shell for completions to take effect.'),
+        );
+      } else {
+        printManualInstructions();
+      }
+      return;
+    }
+
     const shell = argv.shell as string | undefined;
 
     if (shell === 'powershell' || shell === 'ps') {

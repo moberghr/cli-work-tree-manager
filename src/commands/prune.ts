@@ -34,6 +34,7 @@ export const pruneCommand: CommandModule = {
     const force = argv.force as boolean;
 
     const config = ensureConfig();
+    console.log(chalk.gray('Scanning worktrees for merged branches...\n'));
     const prunable = collectPrunable(config);
 
     if (prunable.length === 0) {
@@ -141,16 +142,12 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
         if (!branch) branch = currentBranch;
 
         const merged = isBranchMerged(currentBranch, repoPath);
-        if (merged) {
-          console.log(
-            chalk.gray(`  ${alias}: merged`),
-          );
-        } else {
-          console.log(
-            chalk.gray(`  ${alias}: not merged`),
-          );
-          allMerged = false;
-        }
+        console.log(
+          chalk.gray(
+            `  ${groupName}/${branch} [${alias}]: ${merged ? 'merged' : 'not merged'}`,
+          ),
+        );
+        if (!merged) allMerged = false;
 
         repos.push({ alias, repoPath, worktreePath: subWorktreePath });
       }
@@ -187,7 +184,13 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
       // Skip if already covered by a group entry
       if (groupCoveredKeys.has(`${alias}:${wt.branch}`)) continue;
 
-      if (isBranchMerged(wt.branch, repoPath)) {
+      const merged = isBranchMerged(wt.branch, repoPath);
+      console.log(
+        chalk.gray(
+          `  ${alias}/${wt.branch}: ${merged ? 'merged' : 'not merged'}`,
+        ),
+      );
+      if (merged) {
         prunable.push({
           type: 'single',
           target: alias,

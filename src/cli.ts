@@ -31,6 +31,7 @@ function showHelp() {
   console.log('  work2 recent --resume                               - Resume a session');
   console.log('  work2 prune                                         - Remove merged worktrees');
   console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
+  console.log('  work2 completion --install                          - Install shell completions');
   console.log('');
   console.log(chalk.green('Config Actions:'));
   console.log('  work2 config add <alias> <path>                     - Add a repository');

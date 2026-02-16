@@ -132,7 +132,15 @@ When creating a group, a combined `CLAUDE.md` is generated using Claude CLI by m
 
 ## Tab Completion
 
-Add one line to your shell profile for context-aware completions (commands, project names, branches):
+Completions are automatically installed during `work2 init`. You can also install them standalone:
+
+```bash
+work2 completion --install
+```
+
+This detects your available shells and appends the completion line to each profile. On Windows, both PowerShell 7 and PowerShell 5.1 are set up. On Unix, your default shell (bash/zsh) is detected from `$SHELL`.
+
+**Manual setup** — if auto-install doesn't work, add one line to your shell profile:
 
 **PowerShell** — add to `$PROFILE`:
 

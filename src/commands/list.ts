@@ -109,36 +109,30 @@ export const listCommand: CommandModule = {
         ),
       );
 
+      const repoAliases = config.groups[groupName] ?? [];
+
       for (const bdName of branchDirs) {
         const bdPath = path.join(groupDir, bdName);
 
-        // Try to determine the actual branch name from a sub-worktree
-        let repoSubDirs: string[];
-        try {
-          repoSubDirs = fs
-            .readdirSync(bdPath, { withFileTypes: true })
-            .filter((d) => d.isDirectory() && d.name !== '.git')
-            .map((d) => d.name);
-        } catch {
-          repoSubDirs = [];
-        }
-
+        // Determine the actual branch name from the first sub-worktree
         let actualBranch: string | null = null;
-        for (const rdName of repoSubDirs) {
-          const rdPath = path.join(bdPath, rdName);
-          const branch = getCurrentBranch(rdPath);
-          if (branch) {
-            actualBranch = branch;
-            break;
+        for (const alias of repoAliases) {
+          const rdPath = path.join(bdPath, alias);
+          if (fs.existsSync(rdPath)) {
+            const branch = getCurrentBranch(rdPath);
+            if (branch) {
+              actualBranch = branch;
+              break;
+            }
           }
         }
 
         const displayBranch = actualBranch || bdName;
         console.log(`  ${displayBranch}`);
         console.log(chalk.gray(`    ${bdPath}`));
-        if (repoSubDirs.length > 0) {
+        if (repoAliases.length > 0) {
           console.log(
-            chalk.gray(`    Repos: ${repoSubDirs.join(', ')}`),
+            chalk.gray(`    Repos: ${repoAliases.join(', ')}`),
           );
         }
       }

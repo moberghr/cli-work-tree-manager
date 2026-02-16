@@ -10,6 +10,11 @@ import {
   type WorkConfig,
 } from '../core/config.js';
 import { isGitRepo } from '../core/git.js';
+import {
+  setupCompletions,
+  printCompletionResults,
+  printManualInstructions,
+} from '../core/setup-completions.js';
 
 export const initCommand: CommandModule = {
   command: 'init',
@@ -135,6 +140,28 @@ export const initCommand: CommandModule = {
 
     console.log('');
     console.log(chalk.green(`Configuration saved to: ${configPath}`));
+
+    // Tab completions
+    console.log('');
+    console.log(chalk.green('Tab Completions'));
+    const installCompletions = await confirm({
+      message: 'Set up tab completions?',
+      default: true,
+    });
+
+    if (installCompletions) {
+      const results = setupCompletions();
+      if (results.length > 0) {
+        printCompletionResults(results);
+        console.log('');
+        console.log(
+          chalk.gray('  Restart your shell for completions to take effect.'),
+        );
+      } else {
+        printManualInstructions();
+      }
+    }
+
     console.log('');
     console.log(
       chalk.cyan('You\'re all set! Try: work2 tree <project> <branch>'),

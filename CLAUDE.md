@@ -29,7 +29,8 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
                                   ├── core/git.ts (git wrapper)
                                   ├── core/copy-files.ts (glob-based file copying)
                                   ├── core/resolve.ts (group vs repo dispatch)
-                                  └── core/history.ts (session tracking)
+                                  ├── core/history.ts (session tracking)
+                                  └── core/setup-completions.ts (shell profile detection & install)
 ```
 
 ### Key Design
@@ -61,4 +62,6 @@ tsup bundles `src/bin.ts` → `dist/bin.js` as ESM with shebang. All npm depende
 
 ### Tab Completions
 
-`completions/index.ts` provides dynamic completions via yargs' `--get-yargs-completions`. The handler receives `argv._` as `['<scriptName>', ...args, '<current>']` — skip first and last to get completed args.
+`completions/index.ts` provides dynamic completions via yargs' `--get-yargs-completions`. The handler receives `argv._` as `['<scriptName>', ...args, '<current>']` — skip first and last to get completed args. For groups, branch completions read from the group's directory on disk (not individual repo worktree lists).
+
+`core/setup-completions.ts` handles auto-installing completion lines into shell profiles. Called during `work2 init` and available standalone via `work2 completion --install`. Detects PowerShell 7/5.1 on Windows (via `[Environment]::GetFolderPath('MyDocuments')`) and bash/zsh on Unix (via `$SHELL`). Idempotent — uses a `# work2 tab completions` marker to skip if already present.
