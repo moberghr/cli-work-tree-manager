@@ -104,7 +104,7 @@ function printSessionStatus(session: WorktreeSession): void {
     const branch = getCurrentBranch(wtPath);
     if (!branch) continue;
 
-    const merged = isBranchMerged(branch, wtPath);
+    const { merged } = isBranchMerged(branch, wtPath);
     const changes = getStatus(wtPath);
     const unpushed = getUnpushedCommits(wtPath);
 

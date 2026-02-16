@@ -85,7 +85,7 @@ describe('isBranchMerged', () => {
     git(['checkout', 'main'], tmpDir);
     git(['merge', 'feature/done', '--no-gpg-sign'], tmpDir);
 
-    expect(isBranchMerged('feature/done', tmpDir)).toBe(true);
+    expect(isBranchMerged('feature/done', tmpDir).merged).toBe(true);
   });
 
   it('returns false when branch is not merged', () => {
@@ -95,7 +95,7 @@ describe('isBranchMerged', () => {
     git(['add', '.'], tmpDir);
     git(['commit', '-m', 'wip', '--no-gpg-sign'], tmpDir);
 
-    expect(isBranchMerged('feature/wip', tmpDir)).toBe(false);
+    expect(isBranchMerged('feature/wip', tmpDir).merged).toBe(false);
   });
 
   it('uses explicit baseBranch when provided', () => {
@@ -109,9 +109,9 @@ describe('isBranchMerged', () => {
     git(['merge', 'feature/x', '--no-gpg-sign'], tmpDir);
 
     // Not merged into main
-    expect(isBranchMerged('feature/x', tmpDir)).toBe(false);
+    expect(isBranchMerged('feature/x', tmpDir).merged).toBe(false);
     // But merged into develop
-    expect(isBranchMerged('feature/x', tmpDir, 'develop')).toBe(true);
+    expect(isBranchMerged('feature/x', tmpDir, 'develop').merged).toBe(true);
   });
 
   it('falls back to master when main does not exist', () => {
@@ -131,7 +131,7 @@ describe('isBranchMerged', () => {
     git(['checkout', 'master'], repoDir);
     git(['merge', 'feature/y', '--no-gpg-sign'], repoDir);
 
-    expect(isBranchMerged('feature/y', repoDir)).toBe(true);
+    expect(isBranchMerged('feature/y', repoDir).merged).toBe(true);
   });
 });
 

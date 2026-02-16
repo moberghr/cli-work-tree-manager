@@ -80,6 +80,15 @@ export function run(argv: string[]) {
     .completion('__completions', false as any, completionHandler)
     .demandCommand(1, 'You need to specify a command. Run work2 --help for usage.')
     .strict()
+    .fail((msg, err) => {
+      if (err?.name === 'ExitPromptError') {
+        console.log('\nCancelled.');
+        process.exit(0);
+      }
+      if (msg) console.error(msg);
+      if (err) console.error(err);
+      process.exit(1);
+    })
     .help()
     .alias('h', 'help')
     .version()

@@ -103,22 +103,62 @@ export function getStatus(cwd: string): string {
   return result.stdout;
 }
 
-/** Check if a branch has been merged into a base branch. */
+/** Get the default branch from origin/HEAD (e.g. "main" or "master"). */
+export function getDefaultBranch(cwd: string): string | null {
+  const result = git(['symbolic-ref', 'refs/remotes/origin/HEAD'], cwd);
+  if (result.exitCode === 0 && result.stdout) {
+    // Output is like "refs/remotes/origin/main"
+    return result.stdout.replace(/^refs\/remotes\/origin\//, '');
+  }
+  return null;
+}
+
+export interface MergeCheckResult {
+  merged: boolean;
+  /** The base ref it matched against (e.g. "origin/main"), or null if not merged. */
+  into: string | null;
+}
+
 export function isBranchMerged(
   branch: string,
   cwd: string,
   baseBranch?: string,
-): boolean {
-  const bases = baseBranch ? [baseBranch] : ['main', 'master'];
+): MergeCheckResult {
+  const defaultBranch = getDefaultBranch(cwd);
+  const bases = baseBranch
+    ? [baseBranch]
+    : [defaultBranch, 'main', 'master'].filter(
+        (b): b is string => b !== null,
+      );
 
-  for (const base of bases) {
-    if (!localBranchExists(base, cwd)) continue;
+  // Deduplicate (e.g. default branch is "main" which is already in the list)
+  const uniqueBases = [...new Set(bases)];
 
-    const result = git(['merge-base', '--is-ancestor', branch, base], cwd);
-    if (result.exitCode === 0) return true;
+  for (const base of uniqueBases) {
+    // Check remote base branch first (most up-to-date after fetch)
+    if (remoteBranchExists(base, cwd)) {
+      const result = git(['merge-base', '--is-ancestor', branch, `origin/${base}`], cwd);
+      if (result.exitCode === 0) return { merged: true, into: `origin/${base}` };
+    }
+
+    // Fall back to local base branch
+    if (localBranchExists(base, cwd)) {
+      const result = git(['merge-base', '--is-ancestor', branch, base], cwd);
+      if (result.exitCode === 0) return { merged: true, into: base };
+    }
   }
 
-  return false;
+  return { merged: false, into: null };
+}
+
+/** Fetch latest remote refs for a repo and ensure origin/HEAD is set. */
+export function fetchRemote(cwd: string): void {
+  git(['fetch', '--quiet'], cwd);
+
+  // Ensure origin/HEAD is set so getDefaultBranch works
+  if (!getDefaultBranch(cwd)) {
+    git(['remote', 'set-head', 'origin', '--auto'], cwd);
+  }
 }
 
 /** Check for unpushed commits. Returns the log output or empty string. */

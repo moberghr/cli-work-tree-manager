@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import { checkbox } from '@inquirer/prompts';
 import type { CommandModule } from 'yargs';
 import { ensureConfig, type WorkConfig } from '../core/config.js';
-import { parseWorktreeList, isBranchMerged, getCurrentBranch } from '../core/git.js';
+import { parseWorktreeList, isBranchMerged, getCurrentBranch, getStatus, fetchRemote } from '../core/git.js';
 import { removeSingleWorktree } from '../core/worktree.js';
 import { removeSession } from '../core/history.js';
 
@@ -67,6 +67,7 @@ export const pruneCommand: CommandModule = {
       selected = await checkbox({
         message: 'Select merged worktrees to remove',
         choices,
+        pageSize: choices.length,
       });
 
       if (selected.length === 0) {
@@ -92,6 +93,14 @@ export const pruneCommand: CommandModule = {
 
 function collectPrunable(config: WorkConfig): PrunableEntry[] {
   const prunable: PrunableEntry[] = [];
+
+  // Fetch all repos upfront so merge checks use up-to-date remote refs
+  for (const [alias, repoPath] of Object.entries(config.repos)) {
+    if (!fs.existsSync(repoPath)) continue;
+    console.log(chalk.gray(`  Fetching ${alias}...`));
+    fetchRemote(repoPath);
+  }
+  console.log('');
 
   // Track branches already covered by a group so we don't double-list them
   const groupCoveredKeys = new Set<string>();
@@ -141,11 +150,23 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
 
         if (!branch) branch = currentBranch;
 
-        const merged = isBranchMerged(currentBranch, repoPath);
+        // Check for uncommitted changes first
+        const changes = getStatus(subWorktreePath);
+        if (changes) {
+          console.log(
+            `  ${chalk.gray(`${groupName}/${branch} [${alias}]:`)} ${chalk.yellow('has uncommitted changes')}`,
+          );
+          allMerged = false;
+          repos.push({ alias, repoPath, worktreePath: subWorktreePath });
+          continue;
+        }
+
+        const { merged, into } = isBranchMerged(currentBranch, repoPath);
+        const status = merged
+          ? chalk.green(`merged into ${into}`)
+          : chalk.red('not merged');
         console.log(
-          chalk.gray(
-            `  ${groupName}/${branch} [${alias}]: ${merged ? 'merged' : 'not merged'}`,
-          ),
+          `  ${chalk.gray(`${groupName}/${branch} [${alias}]:`)} ${status}`,
         );
         if (!merged) allMerged = false;
 
@@ -184,11 +205,21 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
       // Skip if already covered by a group entry
       if (groupCoveredKeys.has(`${alias}:${wt.branch}`)) continue;
 
-      const merged = isBranchMerged(wt.branch, repoPath);
+      // Check for uncommitted changes first
+      const changes = getStatus(wt.path);
+      if (changes) {
+        console.log(
+          `  ${chalk.gray(`${alias}/${wt.branch}:`)} ${chalk.yellow('has uncommitted changes')}`,
+        );
+        continue;
+      }
+
+      const { merged, into } = isBranchMerged(wt.branch, repoPath);
+      const status = merged
+        ? chalk.green(`merged into ${into}`)
+        : chalk.red('not merged');
       console.log(
-        chalk.gray(
-          `  ${alias}/${wt.branch}: ${merged ? 'merged' : 'not merged'}`,
-        ),
+        `  ${chalk.gray(`${alias}/${wt.branch}:`)} ${status}`,
       );
       if (merged) {
         prunable.push({

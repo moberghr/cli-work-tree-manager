@@ -117,7 +117,9 @@ export const listCommand: CommandModule = {
         // Determine the actual branch name from the first sub-worktree
         let actualBranch: string | null = null;
         for (const alias of repoAliases) {
-          const rdPath = path.join(bdPath, alias);
+          const repoPath = config.repos[alias];
+          if (!repoPath) continue;
+          const rdPath = path.join(bdPath, path.basename(repoPath));
           if (fs.existsSync(rdPath)) {
             const branch = getCurrentBranch(rdPath);
             if (branch) {
