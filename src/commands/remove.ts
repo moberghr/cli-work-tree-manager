@@ -12,6 +12,7 @@ export const removeCommand: CommandModule = {
   describe: 'Remove a worktree',
   builder: (yargs) =>
     yargs
+      .showHelpOnFail(true)
       .positional('target', {
         describe: 'Project alias or group name',
         type: 'string',

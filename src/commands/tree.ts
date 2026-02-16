@@ -17,6 +17,7 @@ export const treeCommand: CommandModule = {
   describe: 'Create or switch to a worktree and launch Claude Code',
   builder: (yargs) =>
     yargs
+      .showHelpOnFail(true)
       .positional('target', {
         describe: 'Project alias or group name',
         type: 'string',

@@ -18,6 +18,7 @@ export const configCommand: CommandModule = {
   describe: 'Manage configuration',
   builder: (yargs) =>
     yargs
+      .showHelpOnFail(true)
       .positional('action', {
         describe: 'Config action to perform',
         choices: [
