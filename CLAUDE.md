@@ -23,7 +23,7 @@ After building, `work2` is available globally (via `npm link`). Rebuild after so
 ### Module Flow
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,config,init}.ts
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,config,init}.ts
                                        ↓
                                   core/worktree.ts (atomic operations)
                                   ├── core/git.ts (git wrapper)

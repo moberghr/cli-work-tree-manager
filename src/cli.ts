@@ -7,6 +7,7 @@ import { removeCommand } from './commands/remove.js';
 import { listCommand } from './commands/list.js';
 import { statusCommand } from './commands/status.js';
 import { recentCommand } from './commands/recent.js';
+import { pruneCommand } from './commands/prune.js';
 import { completionCommand } from './commands/completion.js';
 import { completionHandler } from './completions/index.js';
 
@@ -28,6 +29,8 @@ function showHelp() {
   console.log('  work2 status --prune                                - Remove stale entries');
   console.log('  work2 recent [count]                                - List recent sessions');
   console.log('  work2 recent --resume                               - Resume a session');
+  console.log('  work2 prune                                         - Remove merged worktrees');
+  console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
   console.log('');
   console.log(chalk.green('Config Actions:'));
   console.log('  work2 config add <alias> <path>                     - Add a repository');
@@ -70,6 +73,7 @@ export function run(argv: string[]) {
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)
+    .command(pruneCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

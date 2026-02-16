@@ -54,6 +54,12 @@ work2 recent
 
 # Resume a recent session interactively
 work2 recent --resume
+
+# Remove worktrees for merged branches (interactive picker)
+work2 prune
+
+# Remove all merged worktrees without prompting
+work2 prune --force
 ```
 
 ## Configuration
@@ -177,6 +183,18 @@ work2 recent 20
 work2 recent --resume
 work2 recent --resume --unsafe
 ```
+
+### Prune
+
+```bash
+# Interactively select and remove worktrees whose branches are merged into main/master
+work2 prune
+
+# Remove all merged worktrees without prompting
+work2 prune --force
+```
+
+For groups, all sub-repos must be merged for the group to appear in the list. Per-repo merge status is printed during scanning.
 
 ## Unsafe Mode
 
