@@ -10,9 +10,10 @@ import {
   removeSingleWorktree,
 } from '../core/worktree.js';
 import { openVSCode, launchClaude } from '../utils/platform.js';
+import { upsertSession } from '../core/history.js';
 
 export const treeCommand: CommandModule = {
-  command: 'tree <target> <branch>',
+  command: 'tree <target> [branch]',
   describe: 'Create or switch to a worktree and launch Claude Code',
   builder: (yargs) =>
     yargs
@@ -22,9 +23,8 @@ export const treeCommand: CommandModule = {
         demandOption: true,
       })
       .positional('branch', {
-        describe: 'Branch name (e.g., feature/login)',
+        describe: 'Branch name (e.g., feature/login). Omit to work on the base repo.',
         type: 'string',
-        demandOption: true,
       })
       .option('open', {
         describe: 'Open VS Code in the worktree after creation',
@@ -38,7 +38,7 @@ export const treeCommand: CommandModule = {
       }),
   handler: (argv) => {
     const targetName = argv.target as string;
-    const branchName = argv.branch as string;
+    const branchName = argv.branch as string | undefined;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
 
@@ -56,6 +56,12 @@ export const treeCommand: CommandModule = {
         ),
       );
       process.exitCode = 1;
+      return;
+    }
+
+    // No branch specified — work directly on the base repo
+    if (!branchName) {
+      handleBaseRepo(target, targetName, config, open, unsafe);
       return;
     }
 
@@ -86,6 +92,42 @@ export const treeCommand: CommandModule = {
     }
   },
 };
+
+function handleBaseRepo(
+  target: NonNullable<ReturnType<typeof resolveProjectTarget>>,
+  targetName: string,
+  config: ReturnType<typeof ensureConfig>,
+  open: boolean,
+  unsafe: boolean,
+): void {
+  if (target.isGroup) {
+    // For groups, launch Claude in each base repo? That doesn't make sense.
+    // Just tell the user to specify a branch for groups.
+    console.error('Branch is required for group targets.');
+    console.log(
+      chalk.yellow(`Usage: work2 tree ${targetName} <branch>`),
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const repoPath = config.repos[targetName];
+  if (!fs.existsSync(repoPath)) {
+    console.error(`Repository path does not exist: ${repoPath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(chalk.cyan(`Working on base repo: ${targetName}`));
+  console.log(`Repo path: ${repoPath}`);
+
+  if (open) {
+    openVSCode(repoPath);
+  }
+
+  console.log('Starting Claude Code...');
+  launchClaude(repoPath, unsafe);
+}
 
 function handleGroupTree(
   groupName: string,
@@ -213,6 +255,10 @@ function handleGroupTree(
     }
   }
 
+  // Track session
+  const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
+  upsertSession(groupName, true, branchName, allPaths);
+
   // Launch Claude in the group root
   console.log(`Worktree path: ${groupWorktreePath}`);
   console.log('Starting Claude Code...');
@@ -264,6 +310,8 @@ function handleSingleTree(
   if (open) {
     openVSCode(workTreePath);
   }
+
+  upsertSession(targetName, false, branchName, [workTreePath]);
 
   console.log(`Worktree path: ${workTreePath}`);
   console.log('Starting Claude Code...');

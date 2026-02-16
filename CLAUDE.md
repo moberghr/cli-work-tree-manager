@@ -23,12 +23,13 @@ After building, `work2` is available globally (via `npm link`). Rebuild after so
 ### Module Flow
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,config,init}.ts
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,config,init}.ts
                                        ↓
                                   core/worktree.ts (atomic operations)
                                   ├── core/git.ts (git wrapper)
                                   ├── core/copy-files.ts (glob-based file copying)
-                                  └── core/resolve.ts (group vs repo dispatch)
+                                  ├── core/resolve.ts (group vs repo dispatch)
+                                  └── core/history.ts (session tracking)
 ```
 
 ### Key Design
@@ -37,6 +38,10 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,config,init}.ts
 - **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
 - **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
 - **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
+
+### Session Tracking
+
+`core/history.ts` stores worktree sessions in `~/.work/history.json`. Keyed by `target + branch`. The `tree` command calls `upsertSession()` before launching Claude; `remove` calls `removeSession()` on success. The `status` command reads history + live git info; `recent` lists sessions sorted by last access.
 
 ### Configuration
 

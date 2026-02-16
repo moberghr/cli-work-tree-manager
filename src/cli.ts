@@ -5,6 +5,8 @@ import { initCommand } from './commands/init.js';
 import { treeCommand } from './commands/tree.js';
 import { removeCommand } from './commands/remove.js';
 import { listCommand } from './commands/list.js';
+import { statusCommand } from './commands/status.js';
+import { recentCommand } from './commands/recent.js';
 import { completionCommand } from './commands/completion.js';
 import { completionHandler } from './completions/index.js';
 
@@ -22,6 +24,10 @@ function showHelp() {
   console.log('  work2 tree <project|group> <branch> --unsafe        - Skip Claude permission checks');
   console.log('  work2 remove <project|group> <branch>               - Remove worktree');
   console.log('  work2 remove <project|group> <branch> --force       - Force remove worktree');
+  console.log('  work2 status [project|group] [branch]               - Show worktree status');
+  console.log('  work2 status --prune                                - Remove stale entries');
+  console.log('  work2 recent [count]                                - List recent sessions');
+  console.log('  work2 recent --resume                               - Resume a session');
   console.log('');
   console.log(chalk.green('Config Actions:'));
   console.log('  work2 config add <alias> <path>                     - Add a repository');
@@ -62,6 +68,8 @@ export function run(argv: string[]) {
     .command(treeCommand)
     .command(removeCommand)
     .command(listCommand)
+    .command(statusCommand)
+    .command(recentCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git, parseWorktreeList, isGitRepo, getCurrentBranch, localBranchExists } from '../../src/core/git.js';
+import { git, parseWorktreeList, isGitRepo, getCurrentBranch, localBranchExists, isBranchMerged } from '../../src/core/git.js';
 
 let tmpDir: string;
 
@@ -71,6 +71,67 @@ describe('localBranchExists', () => {
   it('returns false for non-existing branch', () => {
     initRepo();
     expect(localBranchExists('nonexistent', tmpDir)).toBe(false);
+  });
+});
+
+describe('isBranchMerged', () => {
+  it('returns true when branch is ancestor of main', () => {
+    initRepo();
+    // Create a feature branch from main, then merge it
+    git(['checkout', '-b', 'feature/done'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'feat.txt'), 'feature');
+    git(['add', '.'], tmpDir);
+    git(['commit', '-m', 'feature work', '--no-gpg-sign'], tmpDir);
+    git(['checkout', 'main'], tmpDir);
+    git(['merge', 'feature/done', '--no-gpg-sign'], tmpDir);
+
+    expect(isBranchMerged('feature/done', tmpDir)).toBe(true);
+  });
+
+  it('returns false when branch is not merged', () => {
+    initRepo();
+    git(['checkout', '-b', 'feature/wip'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'wip.txt'), 'wip');
+    git(['add', '.'], tmpDir);
+    git(['commit', '-m', 'wip', '--no-gpg-sign'], tmpDir);
+
+    expect(isBranchMerged('feature/wip', tmpDir)).toBe(false);
+  });
+
+  it('uses explicit baseBranch when provided', () => {
+    initRepo();
+    git(['checkout', '-b', 'develop'], tmpDir);
+    git(['checkout', '-b', 'feature/x'], tmpDir);
+    fs.writeFileSync(path.join(tmpDir, 'x.txt'), 'x');
+    git(['add', '.'], tmpDir);
+    git(['commit', '-m', 'x', '--no-gpg-sign'], tmpDir);
+    git(['checkout', 'develop'], tmpDir);
+    git(['merge', 'feature/x', '--no-gpg-sign'], tmpDir);
+
+    // Not merged into main
+    expect(isBranchMerged('feature/x', tmpDir)).toBe(false);
+    // But merged into develop
+    expect(isBranchMerged('feature/x', tmpDir, 'develop')).toBe(true);
+  });
+
+  it('falls back to master when main does not exist', () => {
+    // Create repo with master as default branch
+    const repoDir = tmpDir;
+    git(['init', '-b', 'master'], repoDir);
+    git(['config', 'user.email', 'test@test.com'], repoDir);
+    git(['config', 'user.name', 'Test'], repoDir);
+    fs.writeFileSync(path.join(repoDir, 'README.md'), '# test');
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], repoDir);
+
+    git(['checkout', '-b', 'feature/y'], repoDir);
+    fs.writeFileSync(path.join(repoDir, 'y.txt'), 'y');
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'y', '--no-gpg-sign'], repoDir);
+    git(['checkout', 'master'], repoDir);
+    git(['merge', 'feature/y', '--no-gpg-sign'], repoDir);
+
+    expect(isBranchMerged('feature/y', repoDir)).toBe(true);
   });
 });
 

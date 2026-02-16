@@ -44,6 +44,16 @@ work2 remove ai feature/login
 
 # Force remove
 work2 remove ai feature/login --force
+
+# Check status of tracked worktrees (merge status, changes, timestamps)
+work2 status
+work2 status ai feature/login
+
+# List recent sessions
+work2 recent
+
+# Resume a recent session interactively
+work2 recent --resume
 ```
 
 ## Configuration
@@ -134,6 +144,38 @@ eval "$(work2 completion)"
 
 ```bash
 eval "$(work2 completion)"
+```
+
+## Session Tracking
+
+Every `work2 tree` call records the worktree in `~/.work/history.json`. This enables two commands:
+
+### Status
+
+```bash
+# Show all tracked worktrees with merge status, uncommitted changes, unpushed commits
+work2 status
+
+# Filter to a specific project or branch
+work2 status ai
+work2 status ai feature/login
+
+# Remove stale entries (worktree paths that no longer exist on disk)
+work2 status --prune
+```
+
+### Recent
+
+```bash
+# List 10 most recent sessions
+work2 recent
+
+# Show more
+work2 recent 20
+
+# Interactively pick a session and resume Claude Code in it
+work2 recent --resume
+work2 recent --resume --unsafe
 ```
 
 ## Unsafe Mode

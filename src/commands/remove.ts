@@ -5,6 +5,7 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
 import { removeSingleWorktree } from '../core/worktree.js';
+import { removeSession } from '../core/history.js';
 
 export const removeCommand: CommandModule = {
   command: 'remove <target> <branch>',
@@ -115,7 +116,9 @@ function handleGroupRemove(
     }
   }
 
-  if (!allRemoved) {
+  if (allRemoved) {
+    removeSession(groupName, branchName);
+  } else {
     console.log('');
     console.log(
       chalk.yellow(
@@ -177,7 +180,9 @@ function handleSingleRemove(
     branchName,
     force,
   );
-  if (!removed) {
+  if (removed) {
+    removeSession(targetName, branchName);
+  } else {
     console.log('');
     console.log(
       chalk.yellow(

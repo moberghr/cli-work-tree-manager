@@ -103,6 +103,24 @@ export function getStatus(cwd: string): string {
   return result.stdout;
 }
 
+/** Check if a branch has been merged into a base branch. */
+export function isBranchMerged(
+  branch: string,
+  cwd: string,
+  baseBranch?: string,
+): boolean {
+  const bases = baseBranch ? [baseBranch] : ['main', 'master'];
+
+  for (const base of bases) {
+    if (!localBranchExists(base, cwd)) continue;
+
+    const result = git(['merge-base', '--is-ancestor', branch, base], cwd);
+    if (result.exitCode === 0) return true;
+  }
+
+  return false;
+}
+
 /** Check for unpushed commits. Returns the log output or empty string. */
 export function getUnpushedCommits(cwd: string): string {
   const branch = getCurrentBranch(cwd);
