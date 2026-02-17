@@ -25,6 +25,14 @@ export interface CompletionResult {
 const PS_COMPLETION_LINE =
   'work2 completion --shell powershell | Out-String | Invoke-Expression';
 const BASH_COMPLETION_LINE = 'eval "$(work2 completion)"';
+const FISH_COMPLETION_SCRIPT = `# work2 tab completions
+function __work2_complete
+    set -l cmd (commandline -opc)
+    set -l cur (commandline -ct)
+    work2 --get-yargs-completions $cmd $cur 2>/dev/null
+end
+
+complete -c work2 -f -a '(__work2_complete)'`;
 const MARKER = '# work2 tab completions';
 
 /** Get the Windows Documents folder, handling OneDrive redirection. */
@@ -89,7 +97,17 @@ export function detectShellProfiles(): ShellProfile[] {
     const shell = process.env.SHELL ?? '';
     const home = os.homedir();
 
-    if (shell.includes('zsh')) {
+    if (shell.includes('fish')) {
+      // Fish uses a dedicated completions directory
+      const fishConfigDir = process.env.XDG_CONFIG_HOME
+        ? path.join(process.env.XDG_CONFIG_HOME, 'fish')
+        : path.join(home, '.config', 'fish');
+      profiles.push({
+        shell: 'Fish',
+        profilePath: path.join(fishConfigDir, 'completions', 'work2.fish'),
+        completionLine: FISH_COMPLETION_SCRIPT,
+      });
+    } else if (shell.includes('zsh')) {
       profiles.push({
         shell: 'Zsh',
         profilePath: path.join(home, '.zshrc'),
@@ -111,6 +129,7 @@ export function detectShellProfiles(): ShellProfile[] {
 export function installCompletionLine(profile: ShellProfile): CompletionResult {
   try {
     let createdFile = false;
+    const isFish = profile.shell === 'Fish';
 
     if (fs.existsSync(profile.profilePath)) {
       const content = fs.readFileSync(profile.profilePath, 'utf-8');
@@ -124,8 +143,14 @@ export function installCompletionLine(profile: ShellProfile): CompletionResult {
     // Ensure parent directory exists
     fs.mkdirSync(path.dirname(profile.profilePath), { recursive: true });
 
-    const snippet = `\n${MARKER}\n${profile.completionLine}\n`;
-    fs.appendFileSync(profile.profilePath, snippet);
+    if (isFish) {
+      // Fish: write the complete completion script to its own file
+      fs.writeFileSync(profile.profilePath, profile.completionLine + '\n');
+    } else {
+      // Bash/Zsh/PowerShell: append to profile file
+      const snippet = `\n${MARKER}\n${profile.completionLine}\n`;
+      fs.appendFileSync(profile.profilePath, snippet);
+    }
 
     return { profile, status: createdFile ? 'created-file' : 'installed' };
   } catch (err) {
@@ -180,4 +205,7 @@ export function printManualInstructions(): void {
   console.log('');
   console.log(chalk.gray('  Bash/Zsh — add to ~/.bashrc or ~/.zshrc:'));
   console.log(`    ${BASH_COMPLETION_LINE}`);
+  console.log('');
+  console.log(chalk.gray('  Fish — run:'));
+  console.log(`    work2 completion --shell fish > ~/.config/fish/completions/work2.fish`);
 }

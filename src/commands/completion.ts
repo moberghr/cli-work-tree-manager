@@ -49,6 +49,17 @@ complete -o bashdefault -o default -F _work2_yargs_completions work2
 ###-end-work2-completions-###
 `.trim();
 
+const FISH_SCRIPT = `
+# work2 tab completions
+function __work2_complete
+    set -l cmd (commandline -opc)
+    set -l cur (commandline -ct)
+    work2 --get-yargs-completions $cmd $cur 2>/dev/null
+end
+
+complete -c work2 -f -a '(__work2_complete)'
+`.trim();
+
 export const completionCommand: CommandModule = {
   command: 'completion',
   describe: 'Generate shell completion script',
@@ -56,7 +67,7 @@ export const completionCommand: CommandModule = {
     yargs
       .option('shell', {
         describe: 'Shell type',
-        choices: ['bash', 'powershell', 'ps'] as const,
+        choices: ['bash', 'fish', 'powershell', 'ps'] as const,
         type: 'string',
       })
       .option('install', {
@@ -83,6 +94,8 @@ export const completionCommand: CommandModule = {
 
     if (shell === 'powershell' || shell === 'ps') {
       console.log(POWERSHELL_SCRIPT);
+    } else if (shell === 'fish') {
+      console.log(FISH_SCRIPT);
     } else {
       // Default to bash (also works for zsh)
       console.log(BASH_SCRIPT);
