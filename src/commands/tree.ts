@@ -13,7 +13,7 @@ import { openVSCode, launchClaude } from '../utils/platform.js';
 import { upsertSession } from '../core/history.js';
 
 export const treeCommand: CommandModule = {
-  command: 'tree <target> [branch]',
+  command: ['tree <target> [branch]', 't <target> [branch]'],
   describe: 'Create or switch to a worktree and launch Claude Code',
   builder: (yargs) =>
     yargs
