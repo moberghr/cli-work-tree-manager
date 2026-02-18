@@ -91,8 +91,19 @@ export const pruneCommand: CommandModule = {
   },
 };
 
+interface ScanEntry {
+  target: string;
+  branch: string;
+  merged: boolean;
+  into: string | null;
+  hasChanges: boolean;
+  /** Sub-label for group repos, e.g. "[straumur]" */
+  subLabel?: string;
+}
+
 function collectPrunable(config: WorkConfig): PrunableEntry[] {
   const prunable: PrunableEntry[] = [];
+  const scanResults: ScanEntry[] = [];
 
   // Fetch all repos upfront so merge checks use up-to-date remote refs
   for (const [alias, repoPath] of Object.entries(config.repos)) {
@@ -133,43 +144,30 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
         const subWorktreePath = path.join(branchDirPath, repoName);
 
         if (!fs.existsSync(subWorktreePath)) {
-          // Sub-repo dir missing — could be partially cleaned up
           continue;
         }
 
         const currentBranch = getCurrentBranch(subWorktreePath);
         if (!currentBranch) {
           allMerged = false;
-          console.log(
-            chalk.gray(
-              `  ${groupName}/${branchDir}/${repoName}: could not determine branch`,
-            ),
-          );
           continue;
         }
 
         if (!branch) branch = currentBranch;
 
-        // Check for uncommitted changes first
-        const changes = getStatus(subWorktreePath);
-        if (changes) {
-          console.log(
-            `  ${chalk.gray(`${groupName}/${branch} [${alias}]:`)} ${chalk.yellow('has uncommitted changes')}`,
-          );
-          allMerged = false;
-          repos.push({ alias, repoPath, worktreePath: subWorktreePath });
-          continue;
-        }
-
         const { merged, into } = isBranchMerged(currentBranch, repoPath);
-        const status = merged
-          ? chalk.green(`merged into ${into}`)
-          : chalk.red('not merged');
-        console.log(
-          `  ${chalk.gray(`${groupName}/${branch} [${alias}]:`)} ${status}`,
-        );
-        if (!merged) allMerged = false;
+        const changes = getStatus(subWorktreePath);
 
+        scanResults.push({
+          target: groupName,
+          branch,
+          merged,
+          into,
+          hasChanges: !!changes,
+          subLabel: alias,
+        });
+
+        if (!merged) allMerged = false;
         repos.push({ alias, repoPath, worktreePath: subWorktreePath });
       }
 
@@ -181,7 +179,6 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
           repos,
         });
 
-        // Mark individual repo+branch pairs as covered by this group
         for (const r of repos) {
           groupCoveredKeys.add(`${r.alias}:${branch}`);
         }
@@ -197,30 +194,21 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
     const normalizedRepoPath = path.resolve(repoPath);
 
     for (const wt of worktrees) {
-      // Skip the base worktree (the main repo checkout)
       if (path.resolve(wt.path) === normalizedRepoPath) continue;
-
       if (!wt.branch) continue;
-
-      // Skip if already covered by a group entry
       if (groupCoveredKeys.has(`${alias}:${wt.branch}`)) continue;
 
-      // Check for uncommitted changes first
-      const changes = getStatus(wt.path);
-      if (changes) {
-        console.log(
-          `  ${chalk.gray(`${alias}/${wt.branch}:`)} ${chalk.yellow('has uncommitted changes')}`,
-        );
-        continue;
-      }
-
       const { merged, into } = isBranchMerged(wt.branch, repoPath);
-      const status = merged
-        ? chalk.green(`merged into ${into}`)
-        : chalk.red('not merged');
-      console.log(
-        `  ${chalk.gray(`${alias}/${wt.branch}:`)} ${status}`,
-      );
+      const changes = getStatus(wt.path);
+
+      scanResults.push({
+        target: alias,
+        branch: wt.branch,
+        merged,
+        into,
+        hasChanges: !!changes,
+      });
+
       if (merged) {
         prunable.push({
           type: 'single',
@@ -232,7 +220,38 @@ function collectPrunable(config: WorkConfig): PrunableEntry[] {
     }
   }
 
+  // Print scan results grouped by target, merged first
+  printScanResults(scanResults);
+
   return prunable;
+}
+
+function printScanResults(results: ScanEntry[]): void {
+  // Group by target
+  const byTarget = new Map<string, ScanEntry[]>();
+  for (const r of results) {
+    const entries = byTarget.get(r.target) ?? [];
+    entries.push(r);
+    byTarget.set(r.target, entries);
+  }
+
+  for (const [target, entries] of byTarget) {
+    // Sort: not merged first, then merged
+    entries.sort((a, b) => (a.merged === b.merged ? 0 : a.merged ? 1 : -1));
+
+    console.log(chalk.cyan(`${target}:`));
+    for (const e of entries) {
+      const parts: string[] = [];
+      parts.push(e.merged ? chalk.green(`merged into ${e.into}`) : chalk.red('not merged'));
+      if (e.hasChanges) parts.push(chalk.yellow('uncommitted changes'));
+
+      const label = e.subLabel
+        ? `${e.branch} [${e.subLabel}]`
+        : e.branch;
+      console.log(`  ${chalk.gray(`${label}:`)} ${parts.join(', ')}`);
+    }
+    console.log('');
+  }
 }
 
 function removeSingleEntry(entry: PrunableEntry): void {
