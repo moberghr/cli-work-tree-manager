@@ -25,6 +25,7 @@ export interface CompletionResult {
 const PS_COMPLETION_LINE =
   'work2 completion --shell powershell | Out-String | Invoke-Expression';
 const BASH_COMPLETION_LINE = 'eval "$(work2 completion)"';
+const ZSH_COMPLETION_LINE = 'eval "$(work2 completion --shell zsh)"';
 const FISH_COMPLETION_SCRIPT = `# work2 tab completions
 function __work2_complete
     set -l cmd (commandline -opc)
@@ -111,7 +112,7 @@ export function detectShellProfiles(): ShellProfile[] {
       profiles.push({
         shell: 'Zsh',
         profilePath: path.join(home, '.zshrc'),
-        completionLine: BASH_COMPLETION_LINE,
+        completionLine: ZSH_COMPLETION_LINE,
       });
     } else if (shell.includes('bash')) {
       profiles.push({

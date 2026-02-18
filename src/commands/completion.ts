@@ -49,6 +49,25 @@ complete -o bashdefault -o default -F _work2_yargs_completions work2
 ###-end-work2-completions-###
 `.trim();
 
+const ZSH_SCRIPT = `
+###-begin-work2-completions-###
+autoload -Uz bashcompinit 2>/dev/null && bashcompinit 2>/dev/null
+_work2_yargs_completions()
+{
+    local cur_word args type_list
+    cur_word="\${COMP_WORDS[COMP_CWORD]}"
+    args=("\${COMP_WORDS[@]}")
+    type_list=$(work2 --get-yargs-completions "\${args[@]}")
+    COMPREPLY=( $(compgen -W "\${type_list}" -- \${cur_word}) )
+    if [ \${#COMPREPLY[@]} -eq 0 ]; then
+      COMPREPLY=()
+    fi
+    return 0
+}
+complete -o default -F _work2_yargs_completions work2
+###-end-work2-completions-###
+`.trim();
+
 const FISH_SCRIPT = `
 # work2 tab completions
 function __work2_complete
@@ -67,7 +86,7 @@ export const completionCommand: CommandModule = {
     yargs
       .option('shell', {
         describe: 'Shell type',
-        choices: ['bash', 'fish', 'powershell', 'ps'] as const,
+        choices: ['bash', 'zsh', 'fish', 'powershell', 'ps'] as const,
         type: 'string',
       })
       .option('install', {
@@ -94,10 +113,11 @@ export const completionCommand: CommandModule = {
 
     if (shell === 'powershell' || shell === 'ps') {
       console.log(POWERSHELL_SCRIPT);
+    } else if (shell === 'zsh') {
+      console.log(ZSH_SCRIPT);
     } else if (shell === 'fish') {
       console.log(FISH_SCRIPT);
     } else {
-      // Default to bash (also works for zsh)
       console.log(BASH_SCRIPT);
     }
   },
