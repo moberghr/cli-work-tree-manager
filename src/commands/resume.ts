@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
-import { loadHistory, getRecentSessions } from '../core/history.js';
+import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
 import { launchClaude } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
 
@@ -36,15 +36,18 @@ export const resumeCommand: CommandModule = {
       return;
     }
 
+    const choices = valid.map((s) => {
+      const typeTag = s.isGroup ? '[group]' : '[repo]';
+      return {
+        name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(s.lastAccessedAt)})`,
+        value: s,
+      };
+    });
+
     const choice = await select({
       message: 'Select a session to resume:',
-      choices: valid.map((s) => {
-        const typeTag = s.isGroup ? '[group]' : '[repo]';
-        return {
-          name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(s.lastAccessedAt)})`,
-          value: s,
-        };
-      }),
+      choices,
+      pageSize: choices.length,
     });
 
     // Find first existing path
@@ -54,6 +57,8 @@ export const resumeCommand: CommandModule = {
       process.exitCode = 1;
       return;
     }
+
+    upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
     console.log(chalk.cyan(`Resuming in: ${launchPath}`));
     console.log('Starting Claude Code...');
