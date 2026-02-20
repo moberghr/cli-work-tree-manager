@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A cross-platform TypeScript CLI (`work2`) for managing git worktrees across multiple repositories. Supports single-repo and multi-repo "group" worktrees with automatic Claude Code launching. Installed globally via `npm link`.
 
-## Commands
+## Development
 
 ```bash
 npm run build          # Bundle with tsup → dist/bin.js
@@ -17,6 +17,28 @@ npx vitest run tests/core/resolve.test.ts  # Single test file
 ```
 
 After building, `work2` is available globally (via `npm link`). Rebuild after source changes.
+
+## CLI Commands
+
+```
+work2 init                                          # Interactive first-time setup
+work2 tree|t <target> <branch> [--open] [--unsafe]  # Create/switch to worktree
+work2 remove <target> <branch> [--force]            # Remove worktree
+work2 list [target]                                 # List worktrees
+work2 status [target] [branch] [--prune]            # Show worktree status
+work2 recent [count] [--resume] [--unsafe]          # List/resume recent sessions
+work2 prune [--force]                               # Remove merged worktrees
+work2 completion [--install]                        # Shell completions
+
+work2 config add <alias> <path>                     # Add a repository
+work2 config remove <alias>                         # Remove a repository
+work2 config list                                   # List repos and groups
+work2 config group add <name> <alias1> <alias2> ... # Create a group
+work2 config group remove <name>                    # Remove a group
+work2 config group regen <name>                     # Regenerate group CLAUDE.md
+work2 config show                                   # Show raw config JSON
+work2 config edit                                   # Open config in editor
+```
 
 ## Architecture
 

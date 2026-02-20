@@ -101,7 +101,7 @@ Groups let you create a single worktree workspace containing multiple repositori
 
 ```bash
 # Create a group
-work2 config addgroup mygroup api frontend shared-lib
+work2 config group add mygroup api frontend shared-lib
 
 # Create worktrees for all repos in the group
 work2 tree mygroup feature/new-checkout
@@ -110,10 +110,10 @@ work2 tree mygroup feature/new-checkout
 work2 remove mygroup feature/new-checkout
 
 # Regenerate the combined CLAUDE.md for a group
-work2 config regengroup mygroup
+work2 config group regen mygroup
 
 # Delete a group
-work2 config removegroup mygroup
+work2 config group remove mygroup
 ```
 
 Group worktrees are organized as:

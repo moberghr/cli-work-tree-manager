@@ -25,9 +25,7 @@ export const configCommand: CommandModule = {
           'add',
           'remove',
           'list',
-          'addgroup',
-          'removegroup',
-          'regengroup',
+          'group',
           'show',
           'edit',
         ] as const,
@@ -55,14 +53,8 @@ export const configCommand: CommandModule = {
       case 'list':
         handleList();
         break;
-      case 'addgroup':
-        handleAddGroup(extra);
-        break;
-      case 'removegroup':
-        handleRemoveGroup(extra);
-        break;
-      case 'regengroup':
-        handleRegenGroup(extra);
+      case 'group':
+        handleGroup(extra);
         break;
       case 'show':
         handleShow();
@@ -164,11 +156,28 @@ function handleList(): void {
   console.log('');
 }
 
+function handleGroup(args: string[]): void {
+  const [subAction, ...rest] = args;
+  switch (subAction) {
+    case 'add':
+      handleAddGroup(rest);
+      break;
+    case 'remove':
+      handleRemoveGroup(rest);
+      break;
+    case 'regen':
+      handleRegenGroup(rest);
+      break;
+    default:
+      showGroupHelp();
+  }
+}
+
 function handleAddGroup(args: string[]): void {
   const [groupName, ...repoAliases] = args;
   if (!groupName) {
     console.error(
-      'Usage: work2 config addgroup <name> <alias1> <alias2> [alias3...]',
+      'Usage: work2 config group add <name> <alias1> <alias2> [alias3...]',
     );
     process.exitCode = 1;
     return;
@@ -178,7 +187,7 @@ function handleAddGroup(args: string[]): void {
     console.error('A group must contain at least 2 repository aliases.');
     console.log(
       chalk.yellow(
-        'Usage: work2 config addgroup <name> <alias1> <alias2> [alias3...]',
+        'Usage: work2 config group add <name> <alias1> <alias2> [alias3...]',
       ),
     );
     process.exitCode = 1;
@@ -237,7 +246,7 @@ function handleAddGroup(args: string[]): void {
 function handleRemoveGroup(args: string[]): void {
   const [groupName] = args;
   if (!groupName) {
-    console.error('Usage: work2 config removegroup <name>');
+    console.error('Usage: work2 config group remove <name>');
     process.exitCode = 1;
     return;
   }
@@ -266,7 +275,7 @@ function handleRemoveGroup(args: string[]): void {
 function handleRegenGroup(args: string[]): void {
   const [groupName] = args;
   if (!groupName) {
-    console.error('Usage: work2 config regengroup <name>');
+    console.error('Usage: work2 config group regen <name>');
     process.exitCode = 1;
     return;
   }
@@ -319,24 +328,33 @@ function showConfigHelp(): void {
     '  add <alias> <path>                    - Add a repository',
   );
   console.log(
-    '  list                                  - List all configured repositories and groups',
-  );
-  console.log(
     '  remove <alias>                        - Remove a repository',
   );
   console.log(
-    '  addgroup <name> <alias1> <alias2> ... - Create a repository group',
+    '  list                                  - List all configured repositories and groups',
   );
   console.log(
-    '  removegroup <name>                    - Remove a repository group',
-  );
-  console.log(
-    '  regengroup <name>                     - Regenerate group CLAUDE.md',
+    '  group <sub>                           - Manage groups (add, remove, regen)',
   );
   console.log(
     '  show                                  - Show configuration file contents',
   );
   console.log(
     '  edit                                  - Open configuration file in editor',
+  );
+}
+
+function showGroupHelp(): void {
+  console.log(chalk.yellow('Usage: work2 config group <action>'));
+  console.log('');
+  console.log(chalk.green('Actions:'));
+  console.log(
+    '  add <name> <alias1> <alias2> [...]    - Create a repository group',
+  );
+  console.log(
+    '  remove <name>                         - Remove a repository group',
+  );
+  console.log(
+    '  regen <name>                          - Regenerate group CLAUDE.md',
   );
 }

@@ -68,13 +68,11 @@ function completeConfig(
   if (!subAction) {
     const actions = [
       'add',
-      'list',
       'remove',
+      'list',
+      'group',
       'show',
       'edit',
-      'addgroup',
-      'removegroup',
-      'regengroup',
     ];
     done(actions.filter((a) => a.startsWith(current)));
     return;
@@ -86,21 +84,34 @@ function completeConfig(
     return;
   }
 
-  if (
-    (subAction === 'removegroup' || subAction === 'regengroup') &&
-    args.length === 2
-  ) {
-    const groups = Object.keys(config.groups);
-    done(groups.filter((g) => g.startsWith(current)));
-    return;
-  }
+  if (subAction === 'group') {
+    const groupSub = args[2] as string | undefined;
 
-  if (subAction === 'addgroup' && args.length >= 3) {
-    const alreadyUsed = args.slice(2);
-    const aliases = Object.keys(config.repos).filter(
-      (a) => !alreadyUsed.includes(a),
-    );
-    done(aliases.filter((a) => a.startsWith(current)));
+    if (!groupSub) {
+      const subs = ['add', 'remove', 'regen'];
+      done(subs.filter((s) => s.startsWith(current)));
+      return;
+    }
+
+    if (
+      (groupSub === 'remove' || groupSub === 'regen') &&
+      args.length === 3
+    ) {
+      const groups = Object.keys(config.groups);
+      done(groups.filter((g) => g.startsWith(current)));
+      return;
+    }
+
+    if (groupSub === 'add' && args.length >= 4) {
+      const alreadyUsed = args.slice(3);
+      const aliases = Object.keys(config.repos).filter(
+        (a) => !alreadyUsed.includes(a),
+      );
+      done(aliases.filter((a) => a.startsWith(current)));
+      return;
+    }
+
+    done([]);
     return;
   }
 
