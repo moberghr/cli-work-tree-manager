@@ -26,7 +26,8 @@ work2 tree|t <target> <branch> [--open] [--unsafe]  # Create/switch to worktree
 work2 remove <target> <branch> [--force]            # Remove worktree
 work2 list [target]                                 # List worktrees
 work2 status [target] [branch] [--prune]            # Show worktree status
-work2 recent [count] [--resume] [--unsafe]          # List/resume recent sessions
+work2 recent [count]                                # List recent sessions
+work2 resume [--unsafe]                             # Resume a recent session
 work2 prune [--force]                               # Remove merged worktrees
 work2 completion [--install]                        # Shell completions
 

@@ -7,6 +7,7 @@ import { removeCommand } from './commands/remove.js';
 import { listCommand } from './commands/list.js';
 import { statusCommand } from './commands/status.js';
 import { recentCommand } from './commands/recent.js';
+import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
 import { completionCommand } from './commands/completion.js';
 import { completionHandler } from './completions/index.js';
@@ -28,17 +29,18 @@ function showHelp() {
   console.log('  work2 status [project|group] [branch]               - Show worktree status');
   console.log('  work2 status --prune                                - Remove stale entries');
   console.log('  work2 recent [count]                                - List recent sessions');
-  console.log('  work2 recent --resume                               - Resume a session');
+  console.log('  work2 resume                                        - Resume a recent session');
   console.log('  work2 prune                                         - Remove merged worktrees');
   console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
   console.log('  work2 completion --install                          - Install shell completions');
   console.log('');
   console.log(chalk.green('Config Actions:'));
   console.log('  work2 config add <alias> <path>                     - Add a repository');
-  console.log('  work2 config addgroup <name> <alias1> <alias2> ...  - Create a repository group');
-  console.log('  work2 config removegroup <name>                     - Remove a repository group');
-  console.log('  work2 config regengroup <name>                      - Regenerate group CLAUDE.md');
+  console.log('  work2 config remove <alias>                         - Remove a repository');
   console.log('  work2 config list                                   - List repos and groups');
+  console.log('  work2 config group add <name> <alias1> <alias2> ... - Create a repository group');
+  console.log('  work2 config group remove <name>                    - Remove a repository group');
+  console.log('  work2 config group regen <name>                     - Regenerate group CLAUDE.md');
   console.log('');
   console.log(chalk.green('Examples:'));
   console.log('  work2 init');
@@ -50,10 +52,9 @@ function showHelp() {
   console.log('  work2 remove ai feature/login');
   console.log('');
   console.log(chalk.gray('  # Groups (multi-repo worktrees):'));
-  console.log('  work2 config addgroup fullstack api frontend');
+  console.log('  work2 config group add fullstack api frontend');
   console.log('  work2 tree fullstack feature/login');
   console.log('  work2 remove fullstack feature/login');
-  console.log('  work2 config regengroup fullstack');
   console.log('');
 }
 
@@ -74,6 +75,7 @@ export function run(argv: string[]) {
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)
+    .command(resumeCommand)
     .command(pruneCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions

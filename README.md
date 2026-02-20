@@ -53,7 +53,7 @@ work2 status ai feature/login
 work2 recent
 
 # Resume a recent session interactively
-work2 recent --resume
+work2 resume
 
 # Remove worktrees for merged branches (interactive picker)
 work2 prune
@@ -188,8 +188,8 @@ work2 recent
 work2 recent 20
 
 # Interactively pick a session and resume Claude Code in it
-work2 recent --resume
-work2 recent --resume --unsafe
+work2 resume
+work2 resume --unsafe
 ```
 
 ### Prune
