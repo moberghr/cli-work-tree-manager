@@ -33,6 +33,9 @@ This walks you through configuring:
 # Create a worktree and launch Claude Code
 work2 tree ai feature/login
 
+# Create a worktree branching from a specific base branch
+work2 tree ai feature/login --base develop
+
 # Create a worktree and open VS Code
 work2 tree ai feature/login --open
 
