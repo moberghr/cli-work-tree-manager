@@ -22,7 +22,7 @@ After building, `work2` is available globally (via `npm link`). Rebuild after so
 
 ```
 work2 init                                          # Interactive first-time setup
-work2 tree|t <target> <branch> [--open] [--unsafe]  # Create/switch to worktree
+work2 tree|t <target> <branch> [--base <branch>] [--open] [--unsafe]  # Create/switch to worktree
 work2 remove <target> <branch> [--force]            # Remove worktree
 work2 list [target]                                 # List worktrees
 work2 status [target] [branch] [--prune]            # Show worktree status

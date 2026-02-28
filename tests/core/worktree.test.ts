@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git, parseWorktreeList, getCurrentBranch } from '../../src/core/git.js';
+import { git, parseWorktreeList, getCurrentBranch, localBranchExists } from '../../src/core/git.js';
 import { createSingleWorktree, removeSingleWorktree } from '../../src/core/worktree.js';
 import type { WorkConfig } from '../../src/core/config.js';
 
@@ -81,6 +81,54 @@ describe('createSingleWorktree', () => {
     createSingleWorktree(repoDir, wtPath, 'feature/copy', configWithCopy);
 
     expect(fs.existsSync(path.join(wtPath, 'appsettings.Development.json'))).toBe(true);
+  });
+
+  describe('with baseBranch', () => {
+    it('creates new branch from a base branch', () => {
+      // Create a base branch with a unique commit
+      git(['checkout', '-b', 'base-branch'], repoDir);
+      fs.writeFileSync(path.join(repoDir, 'base-file.txt'), 'from base');
+      git(['add', '.'], repoDir);
+      git(['commit', '-m', 'base commit', '--no-gpg-sign'], repoDir);
+      git(['checkout', 'main'], repoDir);
+
+      const wtPath = path.join(wtDir, 'feature-from-base');
+      const result = createSingleWorktree(repoDir, wtPath, 'feature/from-base', config, 'base-branch');
+
+      expect(result).toBe(true);
+      expect(fs.existsSync(wtPath)).toBe(true);
+      expect(getCurrentBranch(wtPath)).toBe('feature/from-base');
+      // The new branch should have the file from the base branch
+      expect(fs.existsSync(path.join(wtPath, 'base-file.txt'))).toBe(true);
+    });
+
+    it('fails when target branch already exists locally', () => {
+      // Create the target branch first
+      git(['checkout', '-b', 'existing-branch'], repoDir);
+      git(['checkout', 'main'], repoDir);
+
+      const wtPath = path.join(wtDir, 'existing-branch');
+      const result = createSingleWorktree(repoDir, wtPath, 'existing-branch', config, 'main');
+
+      expect(result).toBe(false);
+      expect(fs.existsSync(wtPath)).toBe(false);
+    });
+
+    it('fails when base branch does not exist', () => {
+      const wtPath = path.join(wtDir, 'feature-no-base');
+      const result = createSingleWorktree(repoDir, wtPath, 'feature/no-base', config, 'nonexistent-branch');
+
+      expect(result).toBe(false);
+      expect(fs.existsSync(wtPath)).toBe(false);
+    });
+
+    it('without baseBranch still creates from HEAD (regression)', () => {
+      const wtPath = path.join(wtDir, 'feature-no-base-arg');
+      const result = createSingleWorktree(repoDir, wtPath, 'feature/no-base-arg', config);
+
+      expect(result).toBe(true);
+      expect(getCurrentBranch(wtPath)).toBe('feature/no-base-arg');
+    });
   });
 });
 

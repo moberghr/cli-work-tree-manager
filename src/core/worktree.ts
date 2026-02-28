@@ -17,12 +17,17 @@ import { copyConfigFiles } from './copy-files.js';
 /**
  * Create a single git worktree for one repo.
  * Returns true on success, false on failure.
+ *
+ * When `baseBranch` is provided, the new branch is created from that base
+ * instead of HEAD. Only valid for new branches — errors if the target branch
+ * already exists locally or on remote.
  */
 export function createSingleWorktree(
   repoPath: string,
   worktreePath: string,
   branchName: string,
   config: WorkConfig,
+  baseBranch?: string,
 ): boolean {
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
@@ -69,6 +74,16 @@ export function createSingleWorktree(
   const hasLocal = localBranchExists(branchName, repoPath);
   const hasRemote = remoteBranchExists(branchName, repoPath);
 
+  // --base requires a brand-new branch
+  if (baseBranch && (hasLocal || hasRemote)) {
+    console.log(
+      chalk.red(
+        `  Cannot use --base: branch '${branchName}' already exists ${hasLocal ? 'locally' : 'on remote'}`,
+      ),
+    );
+    return false;
+  }
+
   // Pull latest changes if branch exists locally
   if (hasLocal) {
     console.log(`  Pulling latest changes for ${branchName}...`);
@@ -102,6 +117,25 @@ export function createSingleWorktree(
         repoPath,
       );
     }
+  } else if (baseBranch) {
+    // Validate the base branch exists
+    const baseLocal = localBranchExists(baseBranch, repoPath);
+    const baseRemote = remoteBranchExists(baseBranch, repoPath);
+
+    if (!baseLocal && !baseRemote) {
+      console.log(
+        chalk.red(
+          `  Base branch '${baseBranch}' does not exist locally or on remote`,
+        ),
+      );
+      return false;
+    }
+
+    const baseRef = baseLocal ? baseBranch : `origin/${baseBranch}`;
+    result = git(
+      ['worktree', 'add', worktreePath, '-b', branchName, baseRef],
+      repoPath,
+    );
   } else {
     result = git(
       ['worktree', 'add', worktreePath, '-b', branchName],

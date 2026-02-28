@@ -3,7 +3,11 @@ import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
-import { parseWorktreeList } from '../core/git.js';
+import {
+  parseWorktreeList,
+  localBranchExists,
+  remoteBranchExists,
+} from '../core/git.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
 import {
   createSingleWorktree,
@@ -36,14 +40,31 @@ export const treeCommand: CommandModule = {
         describe: 'Launch Claude with --dangerously-skip-permissions',
         type: 'boolean',
         default: false,
+      })
+      .option('base', {
+        describe: 'Create the new branch from this base branch instead of HEAD',
+        type: 'string',
       }),
   handler: (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string | undefined;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
+    const baseBranch = argv.base as string | undefined;
 
     const config = ensureConfig();
+
+    // --base requires a branch name
+    if (baseBranch && !branchName) {
+      console.error('--base requires a branch name');
+      console.log(
+        chalk.yellow(
+          `Usage: work2 tree ${targetName} <branch> --base ${baseBranch}`,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
 
     // Resolve project target
     const target = resolveProjectTarget(targetName, config);
@@ -79,6 +100,7 @@ export const treeCommand: CommandModule = {
         config,
         open,
         unsafe,
+        baseBranch,
       );
     } else {
       handleSingleTree(
@@ -89,6 +111,7 @@ export const treeCommand: CommandModule = {
         config,
         open,
         unsafe,
+        baseBranch,
       );
     }
   },
@@ -139,12 +162,55 @@ function handleGroupTree(
   config: ReturnType<typeof ensureConfig>,
   open: boolean,
   unsafe: boolean,
+  baseBranch?: string,
 ): void {
   const groupWorktreePath = path.join(
     worktreesRoot,
     groupName,
     workTreeDirName,
   );
+
+  // Pre-validate --base across all repos before creating anything
+  if (baseBranch) {
+    const missingBase: string[] = [];
+    const branchExists: string[] = [];
+
+    for (const alias of repoAliases) {
+      const repoPath = config.repos[alias];
+
+      // Base branch must exist in all repos
+      if (
+        !localBranchExists(baseBranch, repoPath) &&
+        !remoteBranchExists(baseBranch, repoPath)
+      ) {
+        missingBase.push(alias);
+      }
+
+      // Target branch must NOT exist in any repo
+      if (
+        localBranchExists(branchName, repoPath) ||
+        remoteBranchExists(branchName, repoPath)
+      ) {
+        branchExists.push(alias);
+      }
+    }
+
+    if (missingBase.length > 0) {
+      console.error(
+        `Base branch '${baseBranch}' not found in: ${missingBase.join(', ')}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    if (branchExists.length > 0) {
+      console.error(
+        `Cannot use --base: branch '${branchName}' already exists in: ${branchExists.join(', ')}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
 
   console.log(
     chalk.cyan(`Creating group worktree: ${groupName}/${branchName}`),
@@ -173,6 +239,7 @@ function handleGroupTree(
       subWorktreePath,
       branchName,
       config,
+      baseBranch,
     );
 
     if (success) {
@@ -274,6 +341,7 @@ function handleSingleTree(
   config: ReturnType<typeof ensureConfig>,
   open: boolean,
   unsafe: boolean,
+  baseBranch?: string,
 ): void {
   const repoPath = config.repos[targetName];
   const repoName = path.basename(repoPath);
@@ -290,6 +358,13 @@ function handleSingleTree(
   const existing = worktrees.find((wt) => wt.branch === branchName);
 
   if (existing) {
+    if (baseBranch) {
+      console.error(
+        `Cannot use --base: worktree for '${branchName}' already exists at ${existing.path}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     console.log(`Worktree already exists at: ${existing.path}`);
     workTreePath = existing.path;
   } else {
@@ -298,6 +373,7 @@ function handleSingleTree(
       workTreePath,
       branchName,
       config,
+      baseBranch,
     );
     if (!success) {
       process.exitCode = 1;

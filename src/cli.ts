@@ -22,6 +22,7 @@ function showHelp() {
   console.log('  work2 config <action>                               - Manage configuration');
   console.log('  work2 list [project|group]                          - List all worktrees');
   console.log('  work2 tree|t <project|group> <branch>               - Create/switch to worktree');
+  console.log('  work2 tree <project|group> <branch> --base <branch> - Create from a specific base branch');
   console.log('  work2 tree <project|group> <branch> --open          - Also open VS Code');
   console.log('  work2 tree <project|group> <branch> --unsafe        - Skip Claude permission checks');
   console.log('  work2 remove <project|group> <branch>               - Remove worktree');
