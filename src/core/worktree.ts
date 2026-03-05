@@ -97,8 +97,10 @@ export function createSingleWorktree(
 
   // Create worktree
   let result;
+  let branchSource: 'local' | 'remote' | 'new' = 'new';
   if (hasLocal || hasRemote) {
     if (hasRemote && !hasLocal) {
+      branchSource = 'remote';
       result = git(
         [
           'worktree',
@@ -112,6 +114,7 @@ export function createSingleWorktree(
         repoPath,
       );
     } else {
+      branchSource = 'local';
       result = git(
         ['worktree', 'add', worktreePath, branchName],
         repoPath,
@@ -154,6 +157,16 @@ export function createSingleWorktree(
   // Copy configuration files from main repo
   if (config.copyFiles && config.copyFiles.length > 0) {
     copyConfigFiles(repoPath, worktreePath, config.copyFiles);
+  }
+
+  if (branchSource === 'remote') {
+    console.log(chalk.cyan(`  Tracking remote branch origin/${branchName}`));
+  } else if (branchSource === 'local') {
+    console.log(chalk.cyan(`  Using existing local branch ${branchName}`));
+  } else if (baseBranch) {
+    console.log(chalk.cyan(`  Created new branch ${branchName} from ${baseBranch}`));
+  } else {
+    console.log(chalk.cyan(`  Created new branch ${branchName}`));
   }
 
   console.log(chalk.green(`  Created worktree: ${worktreePath}`));
