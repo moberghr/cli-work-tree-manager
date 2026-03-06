@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
@@ -51,12 +52,15 @@ export const resumeCommand: CommandModule = {
     });
 
     // Find first existing path
-    const launchPath = choice.paths.find((p) => fs.existsSync(p));
-    if (!launchPath) {
+    const firstExisting = choice.paths.find((p) => fs.existsSync(p));
+    if (!firstExisting) {
       console.error('Session path no longer exists.');
       process.exitCode = 1;
       return;
     }
+
+    // For groups, launch in the parent directory (group root), not a single repo subfolder
+    const launchPath = choice.isGroup ? path.dirname(firstExisting) : firstExisting;
 
     upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
