@@ -18,10 +18,20 @@ export interface SidebarProps {
   branchInput?: { value: string } | null;
 }
 
+export interface PrPaneProps {
+  prRows: SidebarRow[];
+  cursor: number;
+  focused: boolean;
+  localBranches: Set<string>;
+  width: number;
+  height: number;
+}
+
 export type SidebarRow =
   | { type: 'header'; label: string }
   | { type: 'session'; session: WorktreeSession }
-  | { type: 'project'; name: string; isGroup: boolean };
+  | { type: 'project'; name: string; isGroup: boolean }
+  | { type: 'pr'; pr: PullRequestInfo };
 
 export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
   if (sessions.length === 0) return [];
@@ -55,6 +65,48 @@ export function buildProjectRows(projects: Array<{ name: string; isGroup: boolea
   return rows;
 }
 
+export function buildPrRows(prMap: BranchPrMap): SidebarRow[] {
+  // Collect all PRs, grouped by repoAlias
+  const byRepo = new Map<string, PullRequestInfo[]>();
+  for (const prs of prMap.values()) {
+    for (const pr of prs) {
+      if (!byRepo.has(pr.repoAlias)) byRepo.set(pr.repoAlias, []);
+      byRepo.get(pr.repoAlias)!.push(pr);
+    }
+  }
+
+  if (byRepo.size === 0) return [{ type: 'header', label: 'No open PRs' }];
+
+  const rows: SidebarRow[] = [];
+  // Deduplicate PRs by number+repo
+  const seen = new Set<string>();
+  for (const [repo, prs] of byRepo) {
+    rows.push({ type: 'header', label: repo });
+    for (const pr of prs) {
+      const key = `${repo}:${pr.number}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push({ type: 'pr', pr });
+    }
+  }
+
+  return rows;
+}
+
+export function countSelectable(rows: SidebarRow[]): number {
+  return rows.filter((r) => r.type !== 'header').length;
+}
+
+export function cursorToRow(rows: SidebarRow[], cursor: number): SidebarRow | undefined {
+  let idx = 0;
+  for (const row of rows) {
+    if (row.type === 'header') continue;
+    if (idx === cursor) return row;
+    idx++;
+  }
+  return undefined;
+}
+
 function sessionKey(s: WorktreeSession): string {
   return `${s.target}:${s.branch}`;
 }
@@ -69,14 +121,14 @@ function hyperlink(url: string, text: string): string {
   return `\x1B]8;;${url}\x07${text}\x1B]8;;\x07`;
 }
 
+function ownershipLen(pr: PullRequestInfo): number {
+  if (pr.isMine) return 2;
+  if (pr.myReview !== 'NONE') return 2;
+  return 0;
+}
+
 function singlePrBadgeLength(pr: PullRequestInfo): number {
-  const numLen = 1 + String(pr.number).length;
-  let checksLen = 0;
-  if (pr.checksStatus === 'SUCCESS') checksLen = 2;
-  else if (pr.checksStatus === 'FAILURE') checksLen = 2;
-  else if (pr.checksStatus === 'PENDING') checksLen = 2;
-  const draftLen = pr.isDraft ? 6 : 0;
-  return numLen + checksLen + draftLen;
+  return 1 + String(pr.number).length;
 }
 
 function prBadgesLength(prs: PullRequestInfo[]): number {
@@ -86,13 +138,7 @@ function prBadgesLength(prs: PullRequestInfo[]): number {
 
 function PrBadge({ pr }: { pr: PullRequestInfo }): React.ReactElement {
   return (
-    <>
-      <Text color="blue">{hyperlink(pr.url, `#${pr.number}`)}</Text>
-      {pr.checksStatus === 'SUCCESS' && <Text color="green"> ✓</Text>}
-      {pr.checksStatus === 'FAILURE' && <Text color="red"> ✗</Text>}
-      {pr.checksStatus === 'PENDING' && <Text color="yellow"> ●</Text>}
-      {pr.isDraft && <Text dimColor> draft</Text>}
-    </>
+    <Text color="blue">{hyperlink(pr.url, `#${pr.number}`)}</Text>
   );
 }
 
@@ -205,63 +251,89 @@ function ProjectRow({
   );
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, width, height, branchInput }: SidebarProps) {
-  const borderColor = focused ? 'cyan' : 'gray';
+function PrListRow({
+  pr,
+  selected,
+  focused,
+  local,
+  width,
+}: {
+  pr: PullRequestInfo;
+  selected: boolean;
+  focused: boolean;
+  local: boolean;
+  width: number;
+}): React.ReactElement {
+  const marker = selected && focused ? '›' : ' ';
+  const numStr = `#${pr.number}`;
+  const checksChar = pr.checksStatus === 'SUCCESS' ? '✓' : pr.checksStatus === 'FAILURE' ? '✗' : pr.checksStatus === 'PENDING' ? '●' : '';
+  const checksColor = pr.checksStatus === 'SUCCESS' ? 'green' : pr.checksStatus === 'FAILURE' ? 'red' : 'yellow';
+  const checksLen = checksChar ? 2 : 0;
+  const rvwLen = ownershipLen(pr);
+  const localLen = local ? 6 : 0; // " local"
+  const fixedOverhead = 4 + numStr.length + checksLen + rvwLen + localLen;
+  const branchBudget = Math.max(4, width - fixedOverhead);
+  const branchColor = pr.isDraft ? undefined : 'green';
+
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color={selected && focused ? 'cyan' : undefined}>{marker}</Text>
+      <Text> </Text>
+      <Text color={branchColor} dimColor={pr.isDraft}>{truncate(pr.branch, branchBudget)}</Text>
+      {local && <Text color="cyan"> local</Text>}
+      <Box flexGrow={1} />
+      {pr.isMine && <Text color="magenta">★ </Text>}
+      {!pr.isMine && pr.myReview === 'APPROVED' && <Text color="green">✔ </Text>}
+      {!pr.isMine && (pr.myReview === 'CHANGES_REQUESTED' || pr.myReview === 'COMMENTED') && <Text color="red">✎ </Text>}
+      <Text color={pr.isDraft ? undefined : 'blue'} dimColor={pr.isDraft}>{hyperlink(pr.url, numStr)}</Text>
+      {checksChar && <Text color={checksColor}> {checksChar}</Text>}
+    </Box>
+  );
+}
+
+/** Bordered pane that renders rows inside a box frame. */
+function BorderedPane({
+  rows: sidebarRows,
+  cursor,
+  focused,
+  borderColor,
+  width,
+  height,
+  renderRow,
+}: {
+  rows: SidebarRow[];
+  cursor: number;
+  focused: boolean;
+  borderColor: string;
+  width: number;
+  height: number;
+  renderRow: (row: SidebarRow, idx: number, selected: boolean) => React.ReactNode;
+}): React.ReactElement {
   const innerWidth = width - 2;
   const contentHeight = height - 2;
 
-  const rows: React.ReactNode[] = [];
+  const rendered: React.ReactNode[] = [];
   let selectableIdx = 0;
   for (let i = 0; i < contentHeight; i++) {
     if (i >= sidebarRows.length) {
-      rows.push(<EmptyRow key={i} width={innerWidth} />);
+      rendered.push(<EmptyRow key={i} width={innerWidth} />);
       continue;
     }
-
     const row = sidebarRows[i];
     if (row.type === 'header') {
-      rows.push(<HeaderRow key={i} label={row.label} width={innerWidth} />);
-    } else if (row.type === 'session') {
-      const s = row.session;
+      rendered.push(<HeaderRow key={i} label={row.label} width={innerWidth} />);
+    } else {
       const sel = selectableIdx === cursor;
       selectableIdx++;
-      const key = sessionKey(s);
-
-      rows.push(
-        <SessionRow
-          key={i}
-          session={s}
-          selected={sel}
-          focused={focused}
-          status={statusMap.get(key) ?? 'stopped'}
-          conflicts={conflictCounts.get(key) ?? 0}
-          merged={mergedSet.has(key)}
-          prs={prMap.get(s.branch) ?? []}
-          width={innerWidth}
-        />,
-      );
-    } else if (row.type === 'project') {
-      const sel = selectableIdx === cursor;
-      selectableIdx++;
-
-      rows.push(
-        <ProjectRow
-          key={i}
-          name={row.name}
-          isGroup={row.isGroup}
-          selected={sel}
-          focused={focused}
-          branchInput={branchInput}
-          width={innerWidth}
-        />,
-      );
+      rendered.push(renderRow(row, i, sel));
     }
   }
 
   return (
     <Box flexDirection="column" width={width}>
       <Text color={borderColor}>{'┌' + '─'.repeat(innerWidth) + '┐'}</Text>
-      {rows.map((row, i) => (
+      {rendered.map((row, i) => (
         <Box key={i}>
           <Text color={borderColor}>│</Text>
           {row}
@@ -270,5 +342,85 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
       ))}
       <Text color={borderColor}>{'└' + '─'.repeat(innerWidth) + '┘'}</Text>
     </Box>
+  );
+}
+
+export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, width, height, branchInput }: SidebarProps) {
+  const borderColor = focused ? 'cyan' : 'gray';
+  const innerWidth = width - 2;
+
+  return (
+    <BorderedPane
+      rows={sidebarRows}
+      cursor={cursor}
+      focused={focused}
+      borderColor={borderColor}
+      width={width}
+      height={height}
+      renderRow={(row, i, sel) => {
+        if (row.type === 'session') {
+          const s = row.session;
+          const key = sessionKey(s);
+          return (
+            <SessionRow
+              key={i}
+              session={s}
+              selected={sel}
+              focused={focused}
+              status={statusMap.get(key) ?? 'stopped'}
+              conflicts={conflictCounts.get(key) ?? 0}
+              merged={mergedSet.has(key)}
+              prs={prMap.get(s.branch) ?? []}
+              width={innerWidth}
+            />
+          );
+        }
+        if (row.type === 'project') {
+          return (
+            <ProjectRow
+              key={i}
+              name={row.name}
+              isGroup={row.isGroup}
+              selected={sel}
+              focused={focused}
+              branchInput={branchInput}
+              width={innerWidth}
+            />
+          );
+        }
+        return <EmptyRow key={i} width={innerWidth} />;
+      }}
+    />
+  );
+}
+
+export function PrPane({ prRows, cursor, focused, localBranches, width, height }: PrPaneProps) {
+  const borderColor = focused ? 'cyan' : 'gray';
+  const innerWidth = width - 2;
+
+  return (
+    <BorderedPane
+      rows={prRows}
+      cursor={cursor}
+      focused={focused}
+      borderColor={borderColor}
+      width={width}
+      height={height}
+      renderRow={(row, i, sel) => {
+        if (row.type === 'pr') {
+          return (
+            <PrListRow
+              key={i}
+              pr={row.pr}
+              selected={sel}
+              focused={focused}
+              local={localBranches.has(row.pr.branch)}
+              width={innerWidth}
+            />
+          );
+        }
+        return <EmptyRow key={i} width={innerWidth} />;
+      }}
+    />
   );
 }

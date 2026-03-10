@@ -16,7 +16,12 @@ import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/p
 import { PtySession } from '../tui/session.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
-import { Sidebar, buildSessionRows, buildProjectRows, type SidebarRow } from './Sidebar.js';
+import {
+  Sidebar, PrPane,
+  buildSessionRows, buildProjectRows, buildPrRows,
+  countSelectable, cursorToRow,
+  type SidebarRow,
+} from './Sidebar.js';
 import { TerminalPane } from './TerminalPane.js';
 import { StatusBar } from './StatusBar.js';
 
@@ -25,12 +30,13 @@ const TAB_KEY = '\t';
 const RENDER_INTERVAL_MS = 16;
 
 enum Focus {
-  SIDEBAR,
+  SESSIONS,
+  PRS,
   TERMINAL,
 }
 
-/** Sidebar can show sessions (default) or projects (when creating new worktree). */
-enum SidebarMode {
+/** Top pane can show sessions (default) or projects (when creating new worktree). */
+enum TopPaneMode {
   SESSIONS,
   PROJECTS,
   BRANCH_INPUT,
@@ -60,18 +66,12 @@ function loadProjects(): Array<{ name: string; isGroup: boolean }> {
   return projects;
 }
 
-function countSelectable(rows: SidebarRow[]): number {
-  return rows.filter((r) => r.type !== 'header').length;
-}
-
-function cursorToRow(rows: SidebarRow[], cursor: number): SidebarRow | undefined {
-  let idx = 0;
-  for (const row of rows) {
-    if (row.type === 'header') continue;
-    if (idx === cursor) return row;
-    idx++;
+/** Find the best project target for a repo alias: prefer group if it belongs to one. */
+function repoToProject(repoAlias: string, config: { repos: Record<string, string>; groups: Record<string, string[]> }): string {
+  for (const [groupName, aliases] of Object.entries(config.groups)) {
+    if (aliases.includes(repoAlias)) return groupName;
   }
-  return undefined;
+  return repoAlias;
 }
 
 interface AppProps {
@@ -80,11 +80,12 @@ interface AppProps {
 }
 
 export function App({ unsafe, onExit }: AppProps) {
-  const [focus, setFocus] = useState(Focus.SIDEBAR);
+  const [focus, setFocus] = useState(Focus.SESSIONS);
   const [sessions, setSessions] = useState<WorktreeSession[]>(loadSessions);
   const [projects] = useState(loadProjects);
   const [config] = useState(() => loadConfig());
-  const [cursor, setCursor] = useState(0);
+  const [sessionCursor, setSessionCursor] = useState(0);
+  const [prCursor, setPrCursor] = useState(0);
   const [conflictCounts, setConflictCounts] = useState<Map<string, number>>(new Map());
   const [mergedSet, setMergedSet] = useState<Set<string>>(new Set());
   const [prMap, setPrMap] = useState<BranchPrMap>(new Map());
@@ -95,32 +96,38 @@ export function App({ unsafe, onExit }: AppProps) {
   const [message, setMessage] = useState('');
   const [termLines, setTermLines] = useState<string[]>([]);
   const [statusVersion, setStatusVersion] = useState(0);
-  const [sidebarMode, setSidebarMode] = useState(SidebarMode.SESSIONS);
+  const [topPaneMode, setTopPaneMode] = useState(TopPaneMode.SESSIONS);
   const [branchInput, setBranchInput] = useState<{ projectName: string; value: string } | null>(null);
-  const [savedCursor, setSavedCursor] = useState(0);
+  const [savedSessionCursor, setSavedSessionCursor] = useState(0);
 
+  const localBranches = useMemo(() => new Set(sessions.map((s) => s.branch)), [sessions]);
   const sessionRows = useMemo(() => buildSessionRows(sessions), [sessions]);
   const projectRows = useMemo(() => buildProjectRows(projects), [projects]);
-  const sidebarRows = sidebarMode === SidebarMode.SESSIONS ? sessionRows : projectRows;
+  const prRows = useMemo(() => buildPrRows(prMap), [prMap]);
+  const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
 
   const ptySessions = useRef(new Map<string, PtySession>());
   const renderPending = useRef(false);
   const focusRef = useRef(focus);
   const activeKeyRef = useRef(activeKey);
-  const cursorRef = useRef(cursor);
+  const sessionCursorRef = useRef(sessionCursor);
+  const prCursorRef = useRef(prCursor);
   const sessionsRef = useRef(sessions);
-  const sidebarModeRef = useRef(sidebarMode);
+  const topPaneModeRef = useRef(topPaneMode);
   const branchInputRef = useRef(branchInput);
-  const sidebarRowsRef = useRef(sidebarRows);
+  const topRowsRef = useRef(topRows);
+  const prRowsRef = useRef(prRows);
 
   // Keep refs in sync
   focusRef.current = focus;
   activeKeyRef.current = activeKey;
-  cursorRef.current = cursor;
+  sessionCursorRef.current = sessionCursor;
+  prCursorRef.current = prCursor;
   sessionsRef.current = sessions;
-  sidebarModeRef.current = sidebarMode;
+  topPaneModeRef.current = topPaneMode;
   branchInputRef.current = branchInput;
-  sidebarRowsRef.current = sidebarRows;
+  topRowsRef.current = topRows;
+  prRowsRef.current = prRows;
 
   // Layout — reactive to terminal resize
   const [dims, setDims] = useState(() => ({
@@ -133,6 +140,9 @@ export function App({ unsafe, onExit }: AppProps) {
   const termWidth = cols - sidebarWidth;
   const termInner = termWidth - 2;
   const contentHeight = rows - 1; // status bar
+  // Split left column: 60% sessions, 40% PRs (min 5 rows each)
+  const prPaneHeight = Math.max(5, Math.floor(contentHeight * 0.4));
+  const sessionPaneHeight = contentHeight - prPaneHeight;
 
   // Update terminal title — icon + count per state, hide if 0
   useEffect(() => {
@@ -225,7 +235,6 @@ export function App({ unsafe, onExit }: AppProps) {
     setSyncing(true);
 
     (async () => {
-      // Fetch all repos in parallel + check gh availability
       const [, ghOk] = await Promise.all([
         config
           ? Promise.all(
@@ -239,11 +248,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
       if (cancelled) return;
       setSyncing(false);
-
-      // Refresh sessions with up-to-date remote refs
       refreshSessions();
-
-      // Fetch PRs if gh is available
       setGhAvailable(ghOk);
     })();
 
@@ -293,21 +298,29 @@ export function App({ unsafe, onExit }: AppProps) {
     }
   }, [termInner, contentHeight, scheduleTerminalRender]);
 
-  /** Move cursor within current sidebar rows. */
-  const moveCursor = useCallback((delta: number) => {
-    const max = countSelectable(sidebarRowsRef.current) - 1;
+  /** Move cursor within the top (session/project) pane. */
+  const moveSessionCursor = useCallback((delta: number) => {
+    const max = countSelectable(topRowsRef.current) - 1;
     if (max < 0) return;
-    const next = Math.max(0, Math.min(max, cursorRef.current + delta));
-    setCursor(next);
+    const next = Math.max(0, Math.min(max, sessionCursorRef.current + delta));
+    setSessionCursor(next);
 
-    // Auto-switch display if in sessions mode and landing on a session
-    if (sidebarModeRef.current === SidebarMode.SESSIONS) {
-      const row = cursorToRow(sidebarRowsRef.current, next);
+    // Auto-switch display if in sessions mode
+    if (topPaneModeRef.current === TopPaneMode.SESSIONS) {
+      const row = cursorToRow(topRowsRef.current, next);
       if (row?.type === 'session') {
         switchDisplay(row.session);
       }
     }
   }, [switchDisplay]);
+
+  /** Move cursor within the PR pane. */
+  const movePrCursor = useCallback((delta: number) => {
+    const max = countSelectable(prRowsRef.current) - 1;
+    if (max < 0) return;
+    const next = Math.max(0, Math.min(max, prCursorRef.current + delta));
+    setPrCursor(next);
+  }, []);
 
   /** Connect a PTY to the display and focus on it. */
   const connectPty = useCallback((key: string, pty: PtySession) => {
@@ -340,7 +353,7 @@ export function App({ unsafe, onExit }: AppProps) {
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
-        setFocus(Focus.SIDEBAR);
+        setFocus(Focus.SESSIONS);
         setTermLines([]);
         setMessage(`Session exited: ${s.target} / ${s.branch}`);
       }
@@ -362,13 +375,13 @@ export function App({ unsafe, onExit }: AppProps) {
     connectPty(key, pty);
   }, [startPtyForSession, connectPty]);
 
-  const syncCursorToActive = useCallback(() => {
+  const syncSessionCursorToActive = useCallback(() => {
     if (!activeKeyRef.current) return;
     let selectableIdx = 0;
-    for (const row of sidebarRowsRef.current) {
+    for (const row of topRowsRef.current) {
       if (row.type === 'header') continue;
       if (row.type === 'session' && sessionKey(row.session) === activeKeyRef.current) {
-        setCursor(selectableIdx);
+        setSessionCursor(selectableIdx);
         return;
       }
       selectableIdx++;
@@ -378,8 +391,8 @@ export function App({ unsafe, onExit }: AppProps) {
   /** Spawn `work2 tree` in a PTY. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string) => {
     // Return to sessions view
-    setSidebarMode(SidebarMode.SESSIONS);
-    setCursor(savedCursor);
+    setTopPaneMode(TopPaneMode.SESSIONS);
+    setSessionCursor(savedSessionCursor);
 
     const key = `${projectName}:${branchName}`;
     const args = ['tree', projectName, branchName];
@@ -398,7 +411,7 @@ export function App({ unsafe, onExit }: AppProps) {
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
-        setFocus(Focus.SIDEBAR);
+        setFocus(Focus.SESSIONS);
         setTermLines([]);
       }
       setStatusVersion((v) => v + 1);
@@ -413,18 +426,18 @@ export function App({ unsafe, onExit }: AppProps) {
     setStatusVersion((v) => v + 1);
     setMessage(`Creating: ${projectName}/${branchName}...`);
     connectPty(key, pty);
-  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedCursor]);
+  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor]);
 
   // Raw stdin input handling
   useEffect(() => {
     const handler = (data: Buffer) => {
       const key = data.toString('utf8');
 
-      // Branch input mode
+      // Branch input mode (top pane)
       if (branchInputRef.current) {
         if (key === '\x1B' || key === '\x03') {
           setBranchInput(null);
-          setSidebarMode(SidebarMode.PROJECTS);
+          setTopPaneMode(TopPaneMode.PROJECTS);
           setMessage('Esc to go back');
           return;
         }
@@ -447,23 +460,37 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
+      // Tab: cycle focus SESSIONS → PRS → TERMINAL → SESSIONS
       if (key === TAB_KEY) {
-        if (sidebarModeRef.current !== SidebarMode.SESSIONS) return; // no tab in project picker
-        const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
-        if (focusRef.current === Focus.SIDEBAR && activePty && !activePty.exited) {
-          setFocus(Focus.TERMINAL);
+        if (topPaneModeRef.current !== TopPaneMode.SESSIONS) return;
+        if (focusRef.current === Focus.SESSIONS) {
+          if (countSelectable(prRowsRef.current) > 0) {
+            setFocus(Focus.PRS);
+          } else {
+            const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+            if (activePty && !activePty.exited) setFocus(Focus.TERMINAL);
+          }
+        } else if (focusRef.current === Focus.PRS) {
+          const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+          if (activePty && !activePty.exited) {
+            setFocus(Focus.TERMINAL);
+          } else {
+            setFocus(Focus.SESSIONS);
+            syncSessionCursorToActive();
+          }
         } else {
-          setFocus(Focus.SIDEBAR);
-          syncCursorToActive();
+          setFocus(Focus.SESSIONS);
+          syncSessionCursorToActive();
         }
         setMessage('');
         return;
       }
 
+      // Terminal mode
       if (focusRef.current === Focus.TERMINAL) {
         if (key === DETACH_KEY) {
-          setFocus(Focus.SIDEBAR);
-          syncCursorToActive();
+          setFocus(Focus.SESSIONS);
+          syncSessionCursorToActive();
           setMessage('');
           return;
         }
@@ -471,24 +498,23 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      // Sidebar navigation
+      // --- Left pane navigation ---
       setMessage('');
 
-      // Project picker mode
-      if (sidebarModeRef.current === SidebarMode.PROJECTS) {
+      // Project picker mode (top pane)
+      if (topPaneModeRef.current === TopPaneMode.PROJECTS) {
         if (key === '\x1B' || key === '\x03' || key === 'q') {
-          // Escape/q — back to sessions
-          setSidebarMode(SidebarMode.SESSIONS);
-          setCursor(savedCursor);
+          setTopPaneMode(TopPaneMode.SESSIONS);
+          setSessionCursor(savedSessionCursor);
           setMessage('');
           return;
         }
-        if (key === '\x1B[A' || key === 'k') { moveCursor(-1); return; }
-        if (key === '\x1B[B' || key === 'j') { moveCursor(1); return; }
+        if (key === '\x1B[A' || key === 'k') { moveSessionCursor(-1); return; }
+        if (key === '\x1B[B' || key === 'j') { moveSessionCursor(1); return; }
         if (key === '\r') {
-          const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+          const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
           if (row?.type === 'project') {
-            setSidebarMode(SidebarMode.BRANCH_INPUT);
+            setTopPaneMode(TopPaneMode.BRANCH_INPUT);
             setBranchInput({ projectName: row.name, value: '' });
             setMessage('Type branch name, Enter to create, Esc to cancel');
           }
@@ -497,7 +523,70 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      // Sessions mode
+      // PR pane focused
+      if (focusRef.current === Focus.PRS) {
+        if (key === '\x1B[A' || key === 'k') { movePrCursor(-1); return; }
+        if (key === '\x1B[B' || key === 'j') { movePrCursor(1); return; }
+
+        if (key === '\r') {
+          const row = cursorToRow(prRowsRef.current, prCursorRef.current);
+          if (row?.type === 'pr' && config) {
+            const pr = row.pr;
+            const projectName = repoToProject(pr.repoAlias, config);
+
+            // Check if any session already has this branch (regardless of target name)
+            const existing = sessionsRef.current.find(
+              (s) => s.branch === pr.branch,
+            );
+            if (existing) {
+              setFocus(Focus.SESSIONS);
+              activateSession(existing);
+              setMessage(`Resumed: ${existing.target}/${pr.branch}`);
+            } else {
+              handleCreateWorktree(projectName, pr.branch);
+            }
+          }
+          return;
+        }
+
+        if (key === '\x03' || key === 'q') {
+          for (const pty of ptySessions.current.values()) pty.dispose();
+          ptySessions.current.clear();
+          onExit();
+          return;
+        }
+
+        if (key === 'g') {
+          if (syncing) return;
+          setSyncing(true);
+          setMessage('Syncing...');
+          (async () => {
+            if (config) {
+              await Promise.all(
+                Object.values(config.repos).map((repoPath) =>
+                  fetchRemoteAsync(repoPath).catch(() => {}),
+                ),
+              );
+            }
+            refreshSessions();
+            refreshPrs();
+            setSyncing(false);
+            if (!ghAvailable) setMessage('Synced');
+          })();
+          return;
+        }
+
+        if (key === 'r') {
+          refreshSessions();
+          refreshPrs();
+          if (!ghAvailable) setMessage('Refreshed');
+          return;
+        }
+
+        return;
+      }
+
+      // Sessions pane focused
       if (key === '\x03' || key === 'q') {
         for (const pty of ptySessions.current.values()) pty.dispose();
         ptySessions.current.clear();
@@ -505,11 +594,11 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      if (key === '\x1B[A' || key === 'k') { moveCursor(-1); return; }
-      if (key === '\x1B[B' || key === 'j') { moveCursor(1); return; }
+      if (key === '\x1B[A' || key === 'k') { moveSessionCursor(-1); return; }
+      if (key === '\x1B[B' || key === 'j') { moveSessionCursor(1); return; }
 
       if (key === '\r') {
-        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
         if (row?.type === 'session') {
           activateSession(row.session);
         }
@@ -517,7 +606,7 @@ export function App({ unsafe, onExit }: AppProps) {
       }
 
       if (key === 'd') {
-        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
         if (row?.type !== 'session') return;
 
         const s = row.session;
@@ -535,17 +624,15 @@ export function App({ unsafe, onExit }: AppProps) {
       }
 
       if (key === 'n') {
-        // Enter project picker
-        setSavedCursor(cursorRef.current);
-        setSidebarMode(SidebarMode.PROJECTS);
-        setCursor(0);
+        setSavedSessionCursor(sessionCursorRef.current);
+        setTopPaneMode(TopPaneMode.PROJECTS);
+        setSessionCursor(0);
         setMessage('Select project, Esc to cancel');
         return;
       }
 
       if (key === '.') {
-        // Open in editor
-        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
         if (row?.type !== 'session') return;
         const s = row.session;
         const existing = s.paths.find((p) => fs.existsSync(p));
@@ -558,8 +645,7 @@ export function App({ unsafe, onExit }: AppProps) {
       }
 
       if (key === 'u') {
-        // Rebase onto main
-        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
         if (row?.type !== 'session') return;
         const s = row.session;
         const existing = s.paths.find((p) => fs.existsSync(p));
@@ -579,9 +665,7 @@ export function App({ unsafe, onExit }: AppProps) {
         if (syncing) return;
         setSyncing(true);
         setMessage('Syncing...');
-
         (async () => {
-          // Fetch all repos in parallel
           if (config) {
             await Promise.all(
               Object.values(config.repos).map((repoPath) =>
@@ -607,7 +691,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, refreshPrs, moveCursor, syncCursorToActive, handleCreateWorktree, savedCursor, config, computeConflictsAndMerged, syncing]);
+  }, [onExit, activateSession, refreshSessions, refreshPrs, moveSessionCursor, movePrCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
 
   // Resize handling
   useEffect(() => {
@@ -637,18 +721,28 @@ export function App({ unsafe, onExit }: AppProps) {
   return (
     <Box flexDirection="column" width={cols} height={rows}>
       <Box flexDirection="row" height={contentHeight}>
-        <Sidebar
-          sidebarRows={sidebarRows}
-          cursor={cursor}
-          focused={focus === Focus.SIDEBAR}
-          statusMap={statusMap}
-          conflictCounts={conflictCounts}
-          mergedSet={mergedSet}
-          prMap={prMap}
-          width={sidebarWidth}
-          height={contentHeight}
-          branchInput={branchInput}
-        />
+        <Box flexDirection="column" width={sidebarWidth}>
+          <Sidebar
+            sidebarRows={topRows}
+            cursor={sessionCursor}
+            focused={focus === Focus.SESSIONS}
+            statusMap={statusMap}
+            conflictCounts={conflictCounts}
+            mergedSet={mergedSet}
+            prMap={prMap}
+            width={sidebarWidth}
+            height={sessionPaneHeight}
+            branchInput={branchInput}
+          />
+          <PrPane
+            prRows={prRows}
+            cursor={prCursor}
+            focused={focus === Focus.PRS}
+            localBranches={localBranches}
+            width={sidebarWidth}
+            height={prPaneHeight}
+          />
+        </Box>
         <TerminalPane
           lines={termLines}
           width={termWidth}

@@ -207,6 +207,30 @@ work2 prune --force
 
 For groups, all sub-repos must be merged for the group to appear in the list. Per-repo merge status is printed during scanning.
 
+## Interactive Dashboard
+
+```bash
+work2 dash
+```
+
+An interactive terminal UI for managing all your worktree sessions. Features:
+
+- **Split-pane layout** — sessions pane (top-left) and PR pane (bottom-left) with an embedded terminal (right)
+- **GitHub PR integration** — shows all open PRs across configured repos with status indicators:
+  - ★ your PR, ✔ you approved, ✎ you reviewed with comments/changes
+  - ✓ checks passing, ✗ checks failing or merge conflict, ● checks pending
+  - Draft PRs shown with dimmed text
+  - PRs matching local worktrees marked with `local`
+- **Merged branch detection** — worktrees with merged branches are flagged
+- **Auto-sync** — fetches all remotes and PR data on startup
+- **Create worktrees from PRs** — select a PR to create/resume a worktree for its branch
+- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `g` syncs
+
+```bash
+# Launch with --unsafe to skip Claude permission checks
+work2 dash --unsafe
+```
+
 ## Unsafe Mode
 
 Skip Claude Code permission checks when launching:
@@ -222,3 +246,4 @@ This passes `--dangerously-skip-permissions` to the Claude CLI.
 - Node.js 18+
 - Git
 - [Claude Code CLI](https://claude.ai/code) (for automatic Claude launching and group CLAUDE.md generation)
+- [GitHub CLI (`gh`)](https://cli.github.com/) (optional, for PR integration in dashboard)

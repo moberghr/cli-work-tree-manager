@@ -20,7 +20,7 @@ export function StatusBar({ message, syncing }: StatusBarProps) {
   return (
     <Box>
       <Text dimColor>
-        {' tab focus  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  r refresh  q quit '}
+        {' tab pane  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  q quit '}
       </Text>
       <Text dimColor>{'['}</Text>
       <Text color="green">●</Text>

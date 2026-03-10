@@ -54,11 +54,12 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
                                   ├── core/copy-files.ts (glob-based file copying)
                                   ├── core/resolve.ts (group vs repo dispatch)
                                   ├── core/history.ts (session tracking)
+                                  ├── core/pr.ts (GitHub PR fetching via gh CLI)
                                   ├── core/setup-completions.ts (shell profile detection & install)
                                   │
                                   tui-ink/ (Ink/React TUI for `work2 dash`)
                                   ├── App.tsx (main layout, keyboard handling, session management)
-                                  ├── Sidebar.tsx (session list with status indicators)
+                                  ├── Sidebar.tsx (session list, PR pane, bordered pane components)
                                   ├── TerminalPane.tsx (renders xterm content to terminal)
                                   ├── StatusBar.tsx (keybinding hints)
                                   ├── renderer-lines.ts (line-based terminal rendering)
@@ -82,8 +83,11 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 
 - **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
 - **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
-- **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped). `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
+- **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped) and a separate PR pane. `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
+- **Split-pane layout:** The left column is split into a sessions pane (top) and a PR pane (bottom). Each pane has independent focus and cursor. Tab cycles focus between sessions, PRs, and the terminal.
+- **GitHub PR integration:** `core/pr.ts` fetches open PRs via `gh pr list` for all configured repos. Shows check status (✓/✗/●), merge conflict detection, personal review state (✔/✎), draft status (dimmed), and ownership (★). Selecting a PR in the PR pane creates/resumes a worktree for that branch.
 - **New worktree creation:** Users can create new worktrees directly from the dashboard via a branch picker flow.
+- **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR data is loaded.
 
 ### Session Tracking
 
