@@ -15,7 +15,7 @@ export class PtySession {
   onExit?: (code: number) => void;
   onStatusChange?: () => void;
 
-  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }) {
+  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }, aiCommand?: string) {
     this.cwd = cwd;
     this.terminal = new Terminal({
       cols,
@@ -34,10 +34,14 @@ export class PtySession {
       spawnCmd = isWindows ? 'cmd.exe' : command.cmd;
       spawnArgs = isWindows ? ['/c', command.cmd, ...command.args] : command.args;
     } else {
-      // Default: launch claude
-      const args = unsafe ? ['--dangerously-skip-permissions'] : [];
-      spawnCmd = isWindows ? 'cmd.exe' : 'claude';
-      spawnArgs = isWindows ? ['/c', 'claude', ...args] : args;
+      // Launch configured AI tool (default: claude)
+      const tool = aiCommand ?? 'claude';
+      const parts = tool.split(/\s+/);
+      const toolCmd = parts[0];
+      const toolArgs = parts.slice(1);
+      if (unsafe) toolArgs.push('--dangerously-skip-permissions');
+      spawnCmd = isWindows ? 'cmd.exe' : toolCmd;
+      spawnArgs = isWindows ? ['/c', toolCmd, ...toolArgs] : toolArgs;
     }
 
     this.pty = pty.spawn(spawnCmd, spawnArgs, {

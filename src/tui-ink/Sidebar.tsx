@@ -4,12 +4,15 @@ import chalk from 'chalk';
 import { timeAgo } from '../utils/format.js';
 import type { WorktreeSession } from '../core/history.js';
 import type { SessionStatus } from '../tui/session.js';
+import type { PullRequestInfo, BranchPrMap } from '../core/pr.js';
 
 export interface SidebarProps {
   sidebarRows: SidebarRow[];
   cursor: number;
   focused: boolean;
   statusMap: Map<string, SessionStatus>;
+  conflictCounts: Map<string, number>;
+  prMap: BranchPrMap;
   width: number;
   height: number;
   branchInput?: { value: string } | null;
@@ -63,8 +66,12 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
+/** Strip ANSI SGR and OSC 8 hyperlink sequences to get visible length. */
 function visibleLength(str: string): number {
-  return str.replace(/\x1B\[[0-9;]*m/g, '').length;
+  return str
+    .replace(/\x1B\]8;;[^\x07]*\x07/g, '') // OSC 8 hyperlinks
+    .replace(/\x1B\[[0-9;]*m/g, '')         // SGR sequences
+    .length;
 }
 
 /** Pad or truncate an ANSI string to exactly `width` visible characters. */
@@ -77,6 +84,16 @@ function fitToWidth(str: string, width: number): string {
   let i = 0;
   while (i < str.length && count < width) {
     if (str[i] === '\x1B') {
+      // OSC 8 hyperlink: \x1B]8;;...\x07
+      if (str[i + 1] === ']') {
+        const end = str.indexOf('\x07', i);
+        if (end !== -1) {
+          out += str.slice(i, end + 1);
+          i = end + 1;
+          continue;
+        }
+      }
+      // SGR: \x1B[...m
       const end = str.indexOf('m', i);
       if (end !== -1) {
         out += str.slice(i, end + 1);
@@ -92,7 +109,42 @@ function fitToWidth(str: string, width: number): string {
   return out;
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height, branchInput }: SidebarProps) {
+/** Wrap text in an OSC 8 terminal hyperlink. */
+function hyperlink(url: string, text: string): string {
+  return `\x1B]8;;${url}\x07${text}\x1B]8;;\x07`;
+}
+
+function formatSinglePrBadge(pr: PullRequestInfo): string {
+  const num = hyperlink(pr.url, chalk.blue(`#${pr.number}`));
+  let checks = '';
+  if (pr.checksStatus === 'SUCCESS') checks = ' ' + chalk.green('ok');
+  else if (pr.checksStatus === 'FAILURE') checks = ' ' + chalk.red('fail');
+  else if (pr.checksStatus === 'PENDING') checks = ' ' + chalk.yellow('...');
+  const draft = pr.isDraft ? chalk.gray(' draft') : '';
+  return `${num}${checks}${draft}`;
+}
+
+function singlePrBadgeLength(pr: PullRequestInfo): number {
+  const numLen = 1 + String(pr.number).length;
+  let checksLen = 0;
+  if (pr.checksStatus === 'SUCCESS') checksLen = 3;
+  else if (pr.checksStatus === 'FAILURE') checksLen = 5;
+  else if (pr.checksStatus === 'PENDING') checksLen = 4;
+  const draftLen = pr.isDraft ? 6 : 0;
+  return numLen + checksLen + draftLen;
+}
+
+function formatPrBadges(prs: PullRequestInfo[]): string {
+  return prs.map(formatSinglePrBadge).join(' ');
+}
+
+function prBadgesLength(prs: PullRequestInfo[]): number {
+  if (prs.length === 0) return 0;
+  // Each badge + 1 space separator between them
+  return prs.reduce((sum, pr) => sum + singlePrBadgeLength(pr), 0) + (prs.length - 1);
+}
+
+export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, prMap, width, height, branchInput }: SidebarProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
@@ -123,14 +175,20 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height
       else if (status === 'running') dot = chalk.green('●');
       else dot = chalk.gray('○');
 
+      const conflicts = conflictCounts.get(key);
+      const conflictStr = conflicts ? chalk.red(` !${conflicts}`) : '';
+      const prs = prMap.get(s.branch) ?? [];
+      const prStr = prs.length > 0 ? ' ' + formatPrBadges(prs) : '';
       const agoStr = timeAgo(s.lastAccessedAt);
-      const fixedOverhead = 5 + agoStr.length;
+      const conflictLen = conflicts ? 2 + String(conflicts).length : 0;
+      const prLen = prs.length > 0 ? 1 + prBadgesLength(prs) : 0;
+      const fixedOverhead = 5 + agoStr.length + conflictLen + prLen;
       const branchBudget = Math.max(4, innerWidth - fixedOverhead);
 
       const branch = chalk.green(truncate(s.branch, branchBudget));
       const ago = chalk.gray(agoStr);
 
-      const line = fitToWidth(`  ${marker}${dot} ${branch} ${ago}`, innerWidth);
+      const line = fitToWidth(`  ${marker}${dot} ${branch}${conflictStr}${prStr} ${ago}`, innerWidth);
       rows.push(<Text key={i}>{line}</Text>);
     } else if (row.type === 'project') {
       const sel = selectableIdx === cursor;

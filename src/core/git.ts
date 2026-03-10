@@ -161,6 +161,36 @@ export function fetchRemote(cwd: string): void {
   }
 }
 
+/** Rebase a branch onto the default branch. Returns error message or null on success. */
+export function rebaseOntoMain(branch: string, cwd: string): string | null {
+  const defaultBranch = getDefaultBranch(cwd) ?? 'main';
+  // Fetch latest first
+  git(['fetch', '--quiet'], cwd);
+  const base = remoteBranchExists(defaultBranch, cwd) ? `origin/${defaultBranch}` : defaultBranch;
+  const result = git(['rebase', base, branch], cwd);
+  if (result.exitCode !== 0) {
+    // Abort the failed rebase
+    git(['rebase', '--abort'], cwd);
+    return result.stderr || 'Rebase failed';
+  }
+  return null;
+}
+
+/** Count merge conflicts between a branch and the default branch. Returns 0 if clean. */
+export function countConflicts(branch: string, cwd: string): number {
+  const defaultBranch = getDefaultBranch(cwd) ?? 'main';
+  const base = remoteBranchExists(defaultBranch, cwd) ? `origin/${defaultBranch}` : defaultBranch;
+
+  // Use merge-tree to simulate merge without changing worktree
+  const mergeBase = git(['merge-base', base, branch], cwd);
+  if (mergeBase.exitCode !== 0) return 0;
+
+  const result = git(['merge-tree', mergeBase.stdout, base, branch], cwd);
+  // Count conflict markers in merge-tree output
+  const conflicts = (result.stdout.match(/^<<<<<<<$/gm) || []).length;
+  return conflicts;
+}
+
 /** Check for unpushed commits. Returns the log output or empty string. */
 export function getUnpushedCommits(cwd: string): string {
   const branch = getCurrentBranch(cwd);

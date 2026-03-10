@@ -54,7 +54,19 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
                                   ├── core/copy-files.ts (glob-based file copying)
                                   ├── core/resolve.ts (group vs repo dispatch)
                                   ├── core/history.ts (session tracking)
-                                  └── core/setup-completions.ts (shell profile detection & install)
+                                  ├── core/setup-completions.ts (shell profile detection & install)
+                                  │
+                                  tui-ink/ (Ink/React TUI for `work2 dash`)
+                                  ├── App.tsx (main layout, keyboard handling, session management)
+                                  ├── Sidebar.tsx (session list with status indicators)
+                                  ├── TerminalPane.tsx (renders xterm content to terminal)
+                                  ├── StatusBar.tsx (keybinding hints)
+                                  ├── renderer-lines.ts (line-based terminal rendering)
+                                  └── index.tsx (Ink entry point)
+                                  │
+                                  tui/ (PTY and hook infrastructure)
+                                  ├── session.ts (PtySession — node-pty + @xterm/headless)
+                                  └── hooks.ts (HookServer — receives Claude Code lifecycle events)
 ```
 
 ### Key Design
@@ -63,6 +75,15 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
 - **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
 - **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
 - **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
+
+### TUI Dashboard (`work2 dash`)
+
+An interactive terminal UI built with Ink (React for CLI). Features a sidebar listing all worktree sessions and an embedded terminal pane showing the selected session's Claude Code instance.
+
+- **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
+- **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
+- **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped). `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
+- **New worktree creation:** Users can create new worktrees directly from the dashboard via a branch picker flow.
 
 ### Session Tracking
 

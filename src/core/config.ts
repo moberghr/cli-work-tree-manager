@@ -7,6 +7,12 @@ export interface WorkConfig {
   repos: Record<string, string>;
   groups: Record<string, string[]>;
   copyFiles: string[];
+  /** AI tool command to launch in worktrees. Default: "claude" */
+  aiCommand?: string;
+  /** Editor command for opening worktrees. Default: "code" */
+  editor?: string;
+  /** Auto-delete merged worktrees on refresh. Default: false */
+  autoDeleteOnMerge?: boolean;
 }
 
 export function getConfigDir(): string {
@@ -35,6 +41,9 @@ export function loadConfig(): WorkConfig | null {
       repos: parsed.repos ?? {},
       groups: parsed.groups ?? {},
       copyFiles: parsed.copyFiles ?? [],
+      aiCommand: parsed.aiCommand,
+      editor: parsed.editor,
+      autoDeleteOnMerge: parsed.autoDeleteOnMerge,
     };
   } catch {
     return null;

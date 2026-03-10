@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Box } from 'ink';
 import fs from 'node:fs';
 import path from 'node:path';
+import spawn from 'cross-spawn';
 import {
   loadHistory,
   getRecentSessions,
@@ -10,6 +11,9 @@ import {
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
+import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemote } from '../core/git.js';
+import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
+import { removeSingleWorktree } from '../core/worktree.js';
 import { PtySession } from '../tui/session.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
@@ -80,7 +84,12 @@ export function App({ unsafe, onExit }: AppProps) {
   const [focus, setFocus] = useState(Focus.SIDEBAR);
   const [sessions, setSessions] = useState<WorktreeSession[]>(loadSessions);
   const [projects] = useState(loadProjects);
+  const [config] = useState(() => loadConfig());
   const [cursor, setCursor] = useState(0);
+  const [conflictCounts, setConflictCounts] = useState<Map<string, number>>(new Map());
+  const [prMap, setPrMap] = useState<BranchPrMap>(new Map());
+  const [ghAvailable, setGhAvailable] = useState(false);
+  const prFetching = useRef(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [termLines, setTermLines] = useState<string[]>([]);
@@ -140,9 +149,70 @@ export function App({ unsafe, onExit }: AppProps) {
     process.stdout.write(`\x1B]0;${title}\x07`);
   }, [statusVersion, activeKey]);
 
-  const refreshSessions = useCallback(() => {
-    setSessions(loadSessions());
+  const computeConflicts = useCallback((sessionList: WorktreeSession[]) => {
+    const counts = new Map<string, number>();
+    for (const s of sessionList) {
+      const existing = s.paths.find((p) => fs.existsSync(p));
+      if (!existing || !s.branch) continue;
+      try {
+        const c = countConflicts(s.branch, existing);
+        if (c > 0) counts.set(sessionKey(s), c);
+      } catch { /* ignore */ }
+    }
+    setConflictCounts(counts);
   }, []);
+
+  const refreshPrs = useCallback(() => {
+    if (!ghAvailable || !config || prFetching.current) return;
+    prFetching.current = true;
+    setMessage('Loading PRs...');
+    fetchAllPullRequests(config.repos)
+      .then((prs) => {
+        setPrMap(prs);
+        setMessage('');
+      })
+      .catch(() => {})
+      .finally(() => { prFetching.current = false; });
+  }, [ghAvailable, config]);
+
+  /** Auto-delete merged sessions if enabled. Returns names of deleted sessions. */
+  const autoDeleteMerged = useCallback((sessionList: WorktreeSession[]): string[] => {
+    if (!config?.autoDeleteOnMerge) return [];
+    const deleted: string[] = [];
+
+    for (const s of sessionList) {
+      if (!s.branch) continue;
+      const existing = s.paths.find((p) => fs.existsSync(p));
+      if (!existing) continue;
+
+      // Don't auto-delete sessions with running PTYs
+      const k = sessionKey(s);
+      if (ptySessions.current.has(k) && !ptySessions.current.get(k)!.exited) continue;
+
+      try {
+        const repoPath = s.isGroup ? existing : existing;
+        const { merged } = isBranchMerged(s.branch, repoPath);
+        if (merged) {
+          removeSingleWorktree(repoPath, existing, s.branch, true);
+          removeSession(s.target, s.branch);
+          deleted.push(`${s.target}/${s.branch}`);
+        }
+      } catch { /* ignore */ }
+    }
+
+    return deleted;
+  }, [config]);
+
+  const refreshSessions = useCallback(() => {
+    const updated = loadSessions();
+    const deleted = autoDeleteMerged(updated);
+    const final = deleted.length > 0 ? loadSessions() : updated;
+    setSessions(final);
+    computeConflicts(final);
+    if (deleted.length > 0) {
+      setMessage(`Auto-deleted ${deleted.length} merged: ${deleted.join(', ')}`);
+    }
+  }, [computeConflicts, autoDeleteMerged]);
 
   const buildStatusMap = useCallback(() => {
     const map = new Map<string, 'stopped' | 'running' | 'idle'>();
@@ -173,6 +243,21 @@ export function App({ unsafe, onExit }: AppProps) {
     }
     return undefined;
   }, []);
+
+  // Check gh availability then fetch PRs
+  useEffect(() => {
+    let cancelled = false;
+    isGhAvailable().then((available) => {
+      if (cancelled) return;
+      setGhAvailable(available);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch PRs once gh is confirmed available
+  useEffect(() => {
+    if (ghAvailable) refreshPrs();
+  }, [ghAvailable, refreshPrs]);
 
   // Hook server
   useEffect(() => {
@@ -253,7 +338,7 @@ export function App({ unsafe, onExit }: AppProps) {
     }
 
     const dir = s.isGroup ? path.dirname(existing) : existing;
-    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe);
+    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand);
     ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
 
@@ -462,16 +547,64 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
+      if (key === '.') {
+        // Open in editor
+        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        if (row?.type !== 'session') return;
+        const s = row.session;
+        const existing = s.paths.find((p) => fs.existsSync(p));
+        if (!existing) { setMessage('Session path no longer exists'); return; }
+        const dir = s.isGroup ? path.dirname(existing) : existing;
+        const editor = config?.editor ?? 'code';
+        spawn(editor, [dir], { detached: true, stdio: 'ignore' }).unref();
+        setMessage(`Opened in ${editor}: ${s.branch}`);
+        return;
+      }
+
+      if (key === 'u') {
+        // Rebase onto main
+        const row = cursorToRow(sidebarRowsRef.current, cursorRef.current);
+        if (row?.type !== 'session') return;
+        const s = row.session;
+        const existing = s.paths.find((p) => fs.existsSync(p));
+        if (!existing) { setMessage('Session path no longer exists'); return; }
+        setMessage(`Rebasing ${s.branch}...`);
+        const err = rebaseOntoMain(s.branch, existing);
+        if (err) {
+          setMessage(`Rebase failed: ${err}`);
+        } else {
+          setMessage(`Rebased ${s.branch} onto main`);
+          computeConflicts(sessionsRef.current);
+        }
+        return;
+      }
+
+      if (key === 'g') {
+        // Git sync: fetch all repos + refresh everything
+        setMessage('Syncing git...');
+        if (config) {
+          for (const repoPath of Object.values(config.repos)) {
+            try { fetchRemote(repoPath); } catch { /* ignore */ }
+          }
+        }
+        refreshSessions();
+        refreshPrs();
+        // Message will be cleared by refreshPrs when done, or show sync result
+        if (!ghAvailable) setMessage('Synced');
+        return;
+      }
+
       if (key === 'r') {
         refreshSessions();
-        setMessage('Refreshed');
+        refreshPrs();
+        if (!ghAvailable) setMessage('Refreshed');
         return;
       }
     };
 
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, moveCursor, syncCursorToActive, handleCreateWorktree, savedCursor]);
+  }, [onExit, activateSession, refreshSessions, refreshPrs, moveCursor, syncCursorToActive, handleCreateWorktree, savedCursor, config, computeConflicts]);
 
   // Resize handling
   useEffect(() => {
@@ -506,6 +639,8 @@ export function App({ unsafe, onExit }: AppProps) {
           cursor={cursor}
           focused={focus === Focus.SIDEBAR}
           statusMap={statusMap}
+          conflictCounts={conflictCounts}
+          prMap={prMap}
           width={sidebarWidth}
           height={contentHeight}
           branchInput={branchInput}

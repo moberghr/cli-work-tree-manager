@@ -18,7 +18,7 @@ export function StatusBar({ message }: StatusBarProps) {
   return (
     <Box>
       <Text dimColor>
-        {' tab focus  j/k nav  enter start  n new  d remove  r refresh  q quit  '}
+        {' tab focus  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  r refresh  q quit  '}
       </Text>
       <Text dimColor>{'['}</Text>
       <Text>{chalk.green('●')}</Text>
