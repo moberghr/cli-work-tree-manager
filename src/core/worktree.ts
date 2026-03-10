@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import type { WorkConfig } from './config.js';
+import { getConfigDir } from './config.js';
+import { resolveProjectTarget } from './resolve.js';
+import { upsertSession } from './history.js';
 import {
   git,
   parseWorktreeList,
@@ -235,5 +238,228 @@ export function removeSingleWorktree(
       console.log(chalk.red(`  ${result.stderr}`));
     }
     return false;
+  }
+}
+
+/**
+ * Result of setupWorktree — everything needed to launch an AI session.
+ */
+export interface WorktreeSetupResult {
+  /** Directory to launch the AI tool in. */
+  launchDir: string;
+  /** All worktree paths created/found (for session tracking). */
+  paths: string[];
+  /** Whether the target is a group. */
+  isGroup: boolean;
+}
+
+/**
+ * High-level worktree setup: resolve target, create worktree(s), copy group
+ * CLAUDE.md, and record the session. Used by both the CLI command and the TUI.
+ *
+ * Returns the setup result on success, or null on failure.
+ */
+export function setupWorktree(
+  targetName: string,
+  branchName: string,
+  config: WorkConfig,
+  baseBranch?: string,
+): WorktreeSetupResult | null {
+  const target = resolveProjectTarget(targetName, config);
+  if (!target) return null;
+
+  const workTreeDirName = branchName.replace(/\//g, '-');
+
+  if (target.isGroup) {
+    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, baseBranch);
+  } else {
+    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, baseBranch);
+  }
+}
+
+function setupGroupWorktree(
+  groupName: string,
+  repoAliases: string[],
+  branchName: string,
+  workTreeDirName: string,
+  config: WorkConfig,
+  baseBranch?: string,
+): WorktreeSetupResult | null {
+  const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
+
+  // Pre-validate --base across all repos before creating anything
+  if (baseBranch) {
+    const missingBase: string[] = [];
+    const branchExists: string[] = [];
+
+    for (const alias of repoAliases) {
+      const repoPath = config.repos[alias];
+      if (!localBranchExists(baseBranch, repoPath) && !remoteBranchExists(baseBranch, repoPath)) {
+        missingBase.push(alias);
+      }
+      if (localBranchExists(branchName, repoPath) || remoteBranchExists(branchName, repoPath)) {
+        branchExists.push(alias);
+      }
+    }
+
+    if (missingBase.length > 0) {
+      console.error(`Base branch '${baseBranch}' not found in: ${missingBase.join(', ')}`);
+      return null;
+    }
+    if (branchExists.length > 0) {
+      console.error(`Cannot use --base: branch '${branchName}' already exists in: ${branchExists.join(', ')}`);
+      return null;
+    }
+  }
+
+  console.log(chalk.cyan(`Creating group worktree: ${groupName}/${branchName}`));
+  console.log(chalk.gray(`Directory: ${groupWorktreePath}`));
+  console.log('');
+
+  fs.mkdirSync(groupWorktreePath, { recursive: true });
+
+  const createdWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
+
+  for (const alias of repoAliases) {
+    const repoPath = config.repos[alias];
+    const repoName = path.basename(repoPath);
+    const subWorktreePath = path.join(groupWorktreePath, repoName);
+
+    console.log(chalk.cyan(`[${alias}] (${repoName}):`));
+    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, baseBranch);
+
+    if (success) {
+      createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
+    } else {
+      // Rollback
+      console.log('');
+      console.log(chalk.yellow('Rolling back created worktrees due to failure...'));
+      for (const wt of createdWorktrees) {
+        removeSingleWorktree(wt.repoPath, wt.worktreePath, branchName, true);
+      }
+      try {
+        if (fs.readdirSync(groupWorktreePath).length === 0) {
+          fs.rmSync(groupWorktreePath, { recursive: true, force: true });
+        }
+      } catch { /* */ }
+      console.error('Failed to create group worktree. Changes have been rolled back.');
+      return null;
+    }
+  }
+
+  // Copy group CLAUDE.md
+  const configDir = getConfigDir();
+  const claudeMdSrc = path.join(configDir, `${groupName}.claude.md`);
+  const claudeMdDest = path.join(groupWorktreePath, 'CLAUDE.md');
+
+  if (fs.existsSync(claudeMdSrc)) {
+    fs.copyFileSync(claudeMdSrc, claudeMdDest);
+    console.log('');
+    console.log(chalk.green('Copied group CLAUDE.md to worktree root'));
+  } else {
+    console.log('');
+    console.log(chalk.yellow(`Warning: Group CLAUDE.md not found at ${claudeMdSrc}`));
+    console.log(chalk.yellow(`Run 'work2 config regengroup ${groupName}' to generate it.`));
+  }
+
+  const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
+  upsertSession(groupName, true, branchName, allPaths);
+
+  console.log('');
+  console.log(`Branch: ${branchName}`);
+
+  return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true };
+}
+
+function setupSingleWorktree(
+  targetName: string,
+  branchName: string,
+  workTreeDirName: string,
+  config: WorkConfig,
+  baseBranch?: string,
+): WorktreeSetupResult | null {
+  const repoPath = config.repos[targetName];
+  const repoName = path.basename(repoPath);
+  let workTreePath = path.join(config.worktreesRoot, repoName, workTreeDirName);
+
+  if (!fs.existsSync(repoPath)) {
+    console.error(`Repository path does not exist: ${repoPath}`);
+    return null;
+  }
+
+  // Check for existing worktree at any path
+  const worktrees = parseWorktreeList(repoPath);
+  const existing = worktrees.find((wt) => wt.branch === branchName);
+
+  if (existing) {
+    if (baseBranch) {
+      console.error(`Cannot use --base: worktree for '${branchName}' already exists at ${existing.path}`);
+      return null;
+    }
+    console.log(`Worktree already exists at: ${existing.path}`);
+    workTreePath = existing.path;
+  } else {
+    const success = createSingleWorktree(repoPath, workTreePath, branchName, config, baseBranch);
+    if (!success) return null;
+  }
+
+  upsertSession(targetName, false, branchName, [workTreePath]);
+
+  console.log(`Branch: ${branchName}`);
+
+  return { launchDir: workTreePath, paths: [workTreePath], isGroup: false };
+}
+
+/**
+ * Remove all worktrees for a session and clean up.
+ * Returns true if all worktrees were successfully removed.
+ * When force=false, stops on uncommitted/unpushed changes.
+ */
+export function teardownWorktree(
+  target: string,
+  isGroup: boolean,
+  branch: string,
+  config: WorkConfig,
+  force: boolean = true,
+): boolean {
+  const workTreeDirName = branch.replace(/\//g, '-');
+
+  if (isGroup && config.groups[target]) {
+    const aliases = config.groups[target];
+    const groupWorktreePath = path.join(config.worktreesRoot, target, workTreeDirName);
+    let allRemoved = true;
+
+    for (const alias of aliases) {
+      const repoPath = config.repos[alias];
+      if (!repoPath) continue;
+      const repoName = path.basename(repoPath);
+      const subWorktreePath = path.join(groupWorktreePath, repoName);
+      console.log(chalk.cyan(`[${alias}] (${repoName}):`));
+      if (!removeSingleWorktree(repoPath, subWorktreePath, branch, force)) {
+        allRemoved = false;
+      }
+    }
+
+    // Clean up group CLAUDE.md and empty parent dir
+    const claudeMd = path.join(groupWorktreePath, 'CLAUDE.md');
+    try { if (fs.existsSync(claudeMd)) fs.unlinkSync(claudeMd); } catch { /* */ }
+    try {
+      if (fs.existsSync(groupWorktreePath) && fs.readdirSync(groupWorktreePath).length === 0) {
+        fs.rmSync(groupWorktreePath, { recursive: true, force: true });
+        console.log(chalk.green(`Cleaned up group directory: ${groupWorktreePath}`));
+      }
+    } catch { /* */ }
+
+    return allRemoved;
+  } else {
+    const repoPath = config.repos[target];
+    if (repoPath) {
+      const worktrees = parseWorktreeList(repoPath);
+      const wt = worktrees.find((w) => w.branch === branch);
+      if (wt) {
+        return removeSingleWorktree(repoPath, wt.path, branch, force);
+      }
+    }
+    return true;
   }
 }

@@ -24,7 +24,10 @@ export function openVSCode(dir: string): void {
 export function launchClaude(
   cwd: string,
   unsafe: boolean = false,
+  initialPrompt?: string,
 ): void {
-  const args = unsafe ? ['--dangerously-skip-permissions'] : [];
+  const args: string[] = [];
+  if (unsafe) args.push('--dangerously-skip-permissions');
+  if (initialPrompt) args.push(initialPrompt);
   spawn.sync('claude', args, { cwd, stdio: 'inherit' });
 }

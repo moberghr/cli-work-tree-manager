@@ -4,6 +4,7 @@ import { timeAgo } from '../utils/format.js';
 import type { WorktreeSession } from '../core/history.js';
 import type { SessionStatus } from '../tui/session.js';
 import type { PullRequestInfo, BranchPrMap } from '../core/pr.js';
+import type { JiraIssue } from '../core/jira.js';
 
 export interface SidebarProps {
   sidebarRows: SidebarRow[];
@@ -27,11 +28,20 @@ export interface PrPaneProps {
   height: number;
 }
 
+export interface JiraPaneProps {
+  jiraRows: SidebarRow[];
+  cursor: number;
+  focused: boolean;
+  width: number;
+  height: number;
+}
+
 export type SidebarRow =
   | { type: 'header'; label: string }
   | { type: 'session'; session: WorktreeSession }
   | { type: 'project'; name: string; isGroup: boolean }
-  | { type: 'pr'; pr: PullRequestInfo };
+  | { type: 'pr'; pr: PullRequestInfo }
+  | { type: 'jira'; issue: JiraIssue };
 
 export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
   if (sessions.length === 0) return [];
@@ -61,6 +71,27 @@ export function buildProjectRows(projects: Array<{ name: string; isGroup: boolea
   rows.push({ type: 'header', label: 'Select project' });
   for (const p of projects) {
     rows.push({ type: 'project', name: p.name, isGroup: p.isGroup });
+  }
+  return rows;
+}
+
+export function buildJiraRows(issues: JiraIssue[]): SidebarRow[] {
+  if (issues.length === 0) return [{ type: 'header', label: 'No Jira issues' }];
+
+  // Group by status
+  const byStatus = new Map<string, JiraIssue[]>();
+  for (const issue of issues) {
+    const status = issue.status || 'Unknown';
+    if (!byStatus.has(status)) byStatus.set(status, []);
+    byStatus.get(status)!.push(issue);
+  }
+
+  const rows: SidebarRow[] = [];
+  for (const [status, group] of byStatus) {
+    rows.push({ type: 'header', label: status });
+    for (const issue of group) {
+      rows.push({ type: 'jira', issue });
+    }
   }
   return rows;
 }
@@ -313,20 +344,49 @@ function BorderedPane({
   const innerWidth = width - 2;
   const contentHeight = height - 2;
 
+  // Find the row index of the cursor-selected item so we can scroll to it
+  let cursorRowIdx = 0;
+  let selectableCount = 0;
+  for (let i = 0; i < sidebarRows.length; i++) {
+    if (sidebarRows[i].type !== 'header') {
+      if (selectableCount === cursor) {
+        cursorRowIdx = i;
+        break;
+      }
+      selectableCount++;
+    }
+  }
+
+  // Compute scroll offset to keep cursor visible (with 1-row margin)
+  let scrollOffset = 0;
+  if (sidebarRows.length > contentHeight) {
+    if (cursorRowIdx >= contentHeight - 1) {
+      scrollOffset = Math.min(
+        cursorRowIdx - contentHeight + 2,
+        sidebarRows.length - contentHeight,
+      );
+    }
+  }
+
   const rendered: React.ReactNode[] = [];
   let selectableIdx = 0;
+  // Count selectables before the visible window to get the right index
+  for (let i = 0; i < scrollOffset; i++) {
+    if (sidebarRows[i].type !== 'header') selectableIdx++;
+  }
   for (let i = 0; i < contentHeight; i++) {
-    if (i >= sidebarRows.length) {
+    const rowIdx = scrollOffset + i;
+    if (rowIdx >= sidebarRows.length) {
       rendered.push(<EmptyRow key={i} width={innerWidth} />);
       continue;
     }
-    const row = sidebarRows[i];
+    const row = sidebarRows[rowIdx];
     if (row.type === 'header') {
       rendered.push(<HeaderRow key={i} label={row.label} width={innerWidth} />);
     } else {
       const sel = selectableIdx === cursor;
       selectableIdx++;
-      rendered.push(renderRow(row, i, sel));
+      rendered.push(renderRow(row, rowIdx, sel));
     }
   }
 
@@ -394,6 +454,40 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
   );
 }
 
+function statusColor(status: string): string | undefined {
+  const lower = status.toLowerCase();
+  if (lower.includes('progress') || lower.includes('review')) return 'cyan';
+  if (lower.includes('done') || lower.includes('closed')) return 'green';
+  return 'yellow';
+}
+
+function JiraListRow({
+  issue,
+  selected,
+  focused,
+  width,
+}: {
+  issue: JiraIssue;
+  selected: boolean;
+  focused: boolean;
+  width: number;
+}): React.ReactElement {
+  const marker = selected && focused ? '›' : ' ';
+  const keyLen = issue.key.length;
+  const summaryBudget = Math.max(4, width - keyLen - 5);
+
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color={selected && focused ? 'cyan' : undefined}>{marker}</Text>
+      <Text> </Text>
+      <Text color={statusColor(issue.status)}>{issue.url ? hyperlink(issue.url, issue.key) : issue.key}</Text>
+      <Text> </Text>
+      <Text>{truncate(issue.summary, summaryBudget)}</Text>
+    </Box>
+  );
+}
+
 export function PrPane({ prRows, cursor, focused, localBranches, width, height }: PrPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
@@ -415,6 +509,36 @@ export function PrPane({ prRows, cursor, focused, localBranches, width, height }
               selected={sel}
               focused={focused}
               local={localBranches.has(row.pr.branch)}
+              width={innerWidth}
+            />
+          );
+        }
+        return <EmptyRow key={i} width={innerWidth} />;
+      }}
+    />
+  );
+}
+
+export function JiraPane({ jiraRows, cursor, focused, width, height }: JiraPaneProps) {
+  const borderColor = focused ? 'cyan' : 'gray';
+  const innerWidth = width - 2;
+
+  return (
+    <BorderedPane
+      rows={jiraRows}
+      cursor={cursor}
+      focused={focused}
+      borderColor={borderColor}
+      width={width}
+      height={height}
+      renderRow={(row, i, sel) => {
+        if (row.type === 'jira') {
+          return (
+            <JiraListRow
+              key={i}
+              issue={row.issue}
+              selected={sel}
+              focused={focused}
               width={innerWidth}
             />
           );

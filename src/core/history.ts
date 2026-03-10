@@ -11,7 +11,7 @@ export interface WorktreeSession {
   lastAccessedAt: string;
 }
 
-function getHistoryPath(): string {
+export function getHistoryPath(): string {
   return path.join(getConfigDir(), 'history.json');
 }
 

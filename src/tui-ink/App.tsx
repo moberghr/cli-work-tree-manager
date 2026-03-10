@@ -1,24 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Box } from 'ink';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import spawn from 'cross-spawn';
 import {
   loadHistory,
   getRecentSessions,
-  removeSession,
   upsertSession,
+  getHistoryPath,
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
 import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
+import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
 import { PtySession } from '../tui/session.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
-  Sidebar, PrPane,
-  buildSessionRows, buildProjectRows, buildPrRows,
+  Sidebar, PrPane, JiraPane,
+  buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows,
   countSelectable, cursorToRow,
   type SidebarRow,
 } from './Sidebar.js';
@@ -32,6 +35,7 @@ const RENDER_INTERVAL_MS = 16;
 enum Focus {
   SESSIONS,
   PRS,
+  JIRA,
   TERMINAL,
 }
 
@@ -74,6 +78,36 @@ function repoToProject(repoAlias: string, config: { repos: Record<string, string
   return repoAlias;
 }
 
+function mechanicalSlug(summary: string): string {
+  return summary
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 50);
+}
+
+function generateSlug(summary: string): Promise<string> {
+  const fallback = mechanicalSlug(summary);
+  return new Promise((resolve) => {
+    const child = execFile(
+      'claude',
+      ['-p', '--model', 'haiku'],
+      { encoding: 'utf-8', timeout: 10000 },
+      (err, stdout) => {
+        const result = stdout?.trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '')
+          .replace(/^-|-$/g, '');
+        resolve(result || fallback);
+      },
+    );
+    child.stdin?.write(
+      `Generate a short git branch slug (max 40 chars, lowercase, hyphens only) for: ${summary}\nOutput ONLY the slug, nothing else.`,
+    );
+    child.stdin?.end();
+  });
+}
+
 interface AppProps {
   unsafe: boolean;
   onExit: () => void;
@@ -86,6 +120,10 @@ export function App({ unsafe, onExit }: AppProps) {
   const [config] = useState(() => loadConfig());
   const [sessionCursor, setSessionCursor] = useState(0);
   const [prCursor, setPrCursor] = useState(0);
+  const [jiraCursor, setJiraCursor] = useState(0);
+  const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
+  const [acliAvailable, setAcliAvailable] = useState(false);
+  const jiraFetching = useRef(false);
   const [conflictCounts, setConflictCounts] = useState<Map<string, number>>(new Map());
   const [mergedSet, setMergedSet] = useState<Set<string>>(new Set());
   const [prMap, setPrMap] = useState<BranchPrMap>(new Map());
@@ -98,12 +136,15 @@ export function App({ unsafe, onExit }: AppProps) {
   const [statusVersion, setStatusVersion] = useState(0);
   const [topPaneMode, setTopPaneMode] = useState(TopPaneMode.SESSIONS);
   const [branchInput, setBranchInput] = useState<{ projectName: string; value: string } | null>(null);
+  const [pendingBranch, setPendingBranch] = useState<string | null>(null);
+  const [pendingJiraIssue, setPendingJiraIssue] = useState<JiraIssue | null>(null);
   const [savedSessionCursor, setSavedSessionCursor] = useState(0);
 
   const localBranches = useMemo(() => new Set(sessions.map((s) => s.branch)), [sessions]);
   const sessionRows = useMemo(() => buildSessionRows(sessions), [sessions]);
   const projectRows = useMemo(() => buildProjectRows(projects), [projects]);
   const prRows = useMemo(() => buildPrRows(prMap), [prMap]);
+  const jiraRows = useMemo(() => buildJiraRows(jiraIssues), [jiraIssues]);
   const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
 
   const ptySessions = useRef(new Map<string, PtySession>());
@@ -112,6 +153,8 @@ export function App({ unsafe, onExit }: AppProps) {
   const activeKeyRef = useRef(activeKey);
   const sessionCursorRef = useRef(sessionCursor);
   const prCursorRef = useRef(prCursor);
+  const jiraCursorRef = useRef(jiraCursor);
+  const jiraRowsRef = useRef(jiraRows);
   const sessionsRef = useRef(sessions);
   const topPaneModeRef = useRef(topPaneMode);
   const branchInputRef = useRef(branchInput);
@@ -123,9 +166,15 @@ export function App({ unsafe, onExit }: AppProps) {
   activeKeyRef.current = activeKey;
   sessionCursorRef.current = sessionCursor;
   prCursorRef.current = prCursor;
+  jiraCursorRef.current = jiraCursor;
+  jiraRowsRef.current = jiraRows;
   sessionsRef.current = sessions;
   topPaneModeRef.current = topPaneMode;
   branchInputRef.current = branchInput;
+  const pendingBranchRef = useRef(pendingBranch);
+  pendingBranchRef.current = pendingBranch;
+  const pendingJiraIssueRef = useRef(pendingJiraIssue);
+  pendingJiraIssueRef.current = pendingJiraIssue;
   topRowsRef.current = topRows;
   prRowsRef.current = prRows;
 
@@ -140,9 +189,10 @@ export function App({ unsafe, onExit }: AppProps) {
   const termWidth = cols - sidebarWidth;
   const termInner = termWidth - 2;
   const contentHeight = rows - 1; // status bar
-  // Split left column: 60% sessions, 40% PRs (min 5 rows each)
-  const prPaneHeight = Math.max(5, Math.floor(contentHeight * 0.4));
-  const sessionPaneHeight = contentHeight - prPaneHeight;
+  // Split left column into 3 panes
+  const jiraPaneHeight = acliAvailable ? Math.max(5, Math.floor(contentHeight * 0.25)) : 0;
+  const prPaneHeight = Math.max(5, Math.floor((contentHeight - jiraPaneHeight) * 0.45));
+  const sessionPaneHeight = contentHeight - prPaneHeight - jiraPaneHeight;
 
   // Update terminal title — icon + count per state, hide if 0
   useEffect(() => {
@@ -193,6 +243,15 @@ export function App({ unsafe, onExit }: AppProps) {
       .finally(() => { prFetching.current = false; });
   }, [ghAvailable, config]);
 
+  const refreshJira = useCallback(() => {
+    if (!acliAvailable || jiraFetching.current) return;
+    jiraFetching.current = true;
+    fetchMyJiraIssues()
+      .then((issues) => setJiraIssues(issues))
+      .catch(() => {})
+      .finally(() => { jiraFetching.current = false; });
+  }, [acliAvailable]);
+
   const refreshSessions = useCallback(() => {
     const updated = loadSessions();
     setSessions(updated);
@@ -216,7 +275,11 @@ export function App({ unsafe, onExit }: AppProps) {
       renderPending.current = false;
       try {
         const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2);
-        setTermLines(lines);
+        setTermLines((prev) => {
+          // Deduplicate: skip setState if content hasn't changed
+          if (prev.length === lines.length && prev.every((l, i) => l === lines[i])) return prev;
+          return lines;
+        });
       } catch { /* buffer not ready */ }
     }, RENDER_INTERVAL_MS);
   }, [termInner, contentHeight]);
@@ -235,7 +298,7 @@ export function App({ unsafe, onExit }: AppProps) {
     setSyncing(true);
 
     (async () => {
-      const [, ghOk] = await Promise.all([
+      const [, ghOk, acliOk] = await Promise.all([
         config
           ? Promise.all(
               Object.values(config.repos).map((repoPath) =>
@@ -244,21 +307,37 @@ export function App({ unsafe, onExit }: AppProps) {
             )
           : Promise.resolve(),
         isGhAvailable(),
+        isAcliAvailable(),
       ]);
 
       if (cancelled) return;
       setSyncing(false);
       refreshSessions();
       setGhAvailable(ghOk);
+      setAcliAvailable(acliOk);
     })();
 
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Watch history file for changes (e.g. when work2 tree creates a new session)
+  useEffect(() => {
+    const historyPath = getHistoryPath();
+    try {
+      const watcher = fs.watch(historyPath, () => refreshSessions());
+      return () => watcher.close();
+    } catch { /* file may not exist yet */ }
+  }, [refreshSessions]);
+
   // Fetch PRs once gh is confirmed available
   useEffect(() => {
     if (ghAvailable) refreshPrs();
   }, [ghAvailable, refreshPrs]);
+
+  // Fetch Jira issues once acli is confirmed available
+  useEffect(() => {
+    if (acliAvailable) refreshJira();
+  }, [acliAvailable, refreshJira]);
 
   // Hook server
   useEffect(() => {
@@ -320,6 +399,14 @@ export function App({ unsafe, onExit }: AppProps) {
     if (max < 0) return;
     const next = Math.max(0, Math.min(max, prCursorRef.current + delta));
     setPrCursor(next);
+  }, []);
+
+  /** Move cursor within the Jira pane. */
+  const moveJiraCursor = useCallback((delta: number) => {
+    const max = countSelectable(jiraRowsRef.current) - 1;
+    if (max < 0) return;
+    const next = Math.max(0, Math.min(max, jiraCursorRef.current + delta));
+    setJiraCursor(next);
   }, []);
 
   /** Connect a PTY to the display and focus on it. */
@@ -388,15 +475,48 @@ export function App({ unsafe, onExit }: AppProps) {
     }
   }, []);
 
-  /** Spawn `work2 tree` in a PTY. */
-  const handleCreateWorktree = useCallback((projectName: string, branchName: string) => {
-    // Return to sessions view
+  /** Spawn `work2 tree` in a PTY — output appears in the right pane. */
+  const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
     setTopPaneMode(TopPaneMode.SESSIONS);
     setSessionCursor(savedSessionCursor);
 
     const key = `${projectName}:${branchName}`;
     const args = ['tree', projectName, branchName];
     if (unsafe) args.push('--unsafe');
+
+    // If created from a Jira issue, write prompt to temp file and pass --prompt-file
+    if (jiraIssue) {
+      const prompt = [
+        `Read Jira issue ${jiraIssue.key} (${jiraIssue.url}) and plan how to implement it.`,
+        '',
+        '1. Read the Jira issue details to understand requirements, acceptance criteria, and context.',
+        '',
+        '2. Analyze the codebase to understand:',
+        '   - Which files/components will need to be modified',
+        '   - Existing patterns and conventions to follow',
+        '   - Dependencies and related code',
+        '   - Potential impact areas',
+        '',
+        '3. Present a structured implementation plan:',
+        '',
+        '   **Summary**: Brief overview of what the issue requires.',
+        '',
+        '   **Affected Areas**: List the files, components, or modules that will need changes.',
+        '',
+        '   **Implementation Approach**:',
+        '   - For simple issues (bug fixes, small features): provide a single clear approach with step-by-step details.',
+        '   - For complex issues (new features, architectural changes): present 2-3 alternative approaches, each with Description, Pros, Cons, and Effort (Low/Medium/High). Include a Recommendation with reasoning.',
+        '',
+        '   **Key Considerations**: Security, performance, testing requirements, migration needs, backwards compatibility.',
+        '',
+        '   **Next Steps**: Ordered list of implementation tasks, ready to be executed.',
+        '',
+        '4. Ask if I want to proceed with the recommended approach, choose a different one, get more details, or make adjustments.',
+      ].join('\n');
+      const tmpFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
+      fs.writeFileSync(tmpFile, prompt, 'utf-8');
+      args.push('--prompt-file', tmpFile);
+    }
 
     const pty = new PtySession(
       process.cwd(),
@@ -460,24 +580,23 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      // Tab: cycle focus SESSIONS → PRS → TERMINAL → SESSIONS
+      // Tab: cycle focus SESSIONS → PRS → JIRA → TERMINAL → SESSIONS
       if (key === TAB_KEY) {
         if (topPaneModeRef.current !== TopPaneMode.SESSIONS) return;
+        const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+        const hasTerminal = activePty && !activePty.exited;
+
         if (focusRef.current === Focus.SESSIONS) {
-          if (countSelectable(prRowsRef.current) > 0) {
-            setFocus(Focus.PRS);
-          } else {
-            const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
-            if (activePty && !activePty.exited) setFocus(Focus.TERMINAL);
-          }
+          if (countSelectable(prRowsRef.current) > 0) setFocus(Focus.PRS);
+          else if (countSelectable(jiraRowsRef.current) > 0) setFocus(Focus.JIRA);
+          else if (hasTerminal) setFocus(Focus.TERMINAL);
         } else if (focusRef.current === Focus.PRS) {
-          const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
-          if (activePty && !activePty.exited) {
-            setFocus(Focus.TERMINAL);
-          } else {
-            setFocus(Focus.SESSIONS);
-            syncSessionCursorToActive();
-          }
+          if (countSelectable(jiraRowsRef.current) > 0) setFocus(Focus.JIRA);
+          else if (hasTerminal) setFocus(Focus.TERMINAL);
+          else { setFocus(Focus.SESSIONS); syncSessionCursorToActive(); }
+        } else if (focusRef.current === Focus.JIRA) {
+          if (hasTerminal) setFocus(Focus.TERMINAL);
+          else { setFocus(Focus.SESSIONS); syncSessionCursorToActive(); }
         } else {
           setFocus(Focus.SESSIONS);
           syncSessionCursorToActive();
@@ -506,6 +625,8 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === '\x1B' || key === '\x03' || key === 'q') {
           setTopPaneMode(TopPaneMode.SESSIONS);
           setSessionCursor(savedSessionCursor);
+          setPendingBranch(null);
+          setPendingJiraIssue(null);
           setMessage('');
           return;
         }
@@ -514,12 +635,90 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === '\r') {
           const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
           if (row?.type === 'project') {
-            setTopPaneMode(TopPaneMode.BRANCH_INPUT);
-            setBranchInput({ projectName: row.name, value: '' });
-            setMessage('Type branch name, Enter to create, Esc to cancel');
+            const issue = pendingJiraIssueRef.current;
+            if (issue) {
+              // Jira flow: generate slug then create worktree in PTY
+              setPendingJiraIssue(null);
+              setMessage(`Generating branch name for ${issue.key}...`);
+              const keyLower = issue.key.toLowerCase();
+              generateSlug(issue.summary).then((slug) => {
+                const branchName = `task/${keyLower}-${slug}`;
+                handleCreateWorktree(row.name, branchName, issue);
+              });
+            } else if (pendingBranchRef.current) {
+              const branch = pendingBranchRef.current;
+              setPendingBranch(null);
+              handleCreateWorktree(row.name, branch);
+            } else {
+              setTopPaneMode(TopPaneMode.BRANCH_INPUT);
+              setBranchInput({ projectName: row.name, value: '' });
+              setMessage('Type branch name, Enter to create, Esc to cancel');
+            }
           }
           return;
         }
+        return;
+      }
+
+      // Jira pane focused
+      if (focusRef.current === Focus.JIRA) {
+        if (key === '\x1B[A' || key === 'k') { moveJiraCursor(-1); return; }
+        if (key === '\x1B[B' || key === 'j') { moveJiraCursor(1); return; }
+
+        if (key === '\r') {
+          const row = cursorToRow(jiraRowsRef.current, jiraCursorRef.current);
+          if (row?.type === 'jira') {
+            const issue = row.issue;
+
+            // Check if any existing session matches this issue key
+            const keyLower = issue.key.toLowerCase();
+            const existing = sessionsRef.current.find((s) =>
+              s.branch.includes(keyLower),
+            );
+            if (existing) {
+              setFocus(Focus.SESSIONS);
+              activateSession(existing);
+              setMessage(`Resumed: ${existing.target}/${existing.branch}`);
+            } else {
+              // Show project picker immediately; slug generation happens after selection
+              setPendingJiraIssue(issue);
+              setSavedSessionCursor(sessionCursorRef.current);
+              setFocus(Focus.SESSIONS);
+              setTopPaneMode(TopPaneMode.PROJECTS);
+              setSessionCursor(0);
+              setMessage(`Select project for ${issue.key}`);
+            }
+          }
+          return;
+        }
+
+        if (key === '\x03' || key === 'q') {
+          for (const pty of ptySessions.current.values()) pty.dispose();
+          ptySessions.current.clear();
+          onExit();
+          return;
+        }
+
+        if (key === 'g') {
+          if (syncing) return;
+          setSyncing(true);
+          setMessage('Syncing...');
+          (async () => {
+            if (config) {
+              await Promise.all(
+                Object.values(config.repos).map((repoPath) =>
+                  fetchRemoteAsync(repoPath).catch(() => {}),
+                ),
+              );
+            }
+            refreshSessions();
+            refreshPrs();
+            refreshJira();
+            setSyncing(false);
+          })();
+          return;
+        }
+
         return;
       }
 
@@ -570,6 +769,7 @@ export function App({ unsafe, onExit }: AppProps) {
             }
             refreshSessions();
             refreshPrs();
+            refreshJira();
             setSyncing(false);
             if (!ghAvailable) setMessage('Synced');
           })();
@@ -579,6 +779,7 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === 'r') {
           refreshSessions();
           refreshPrs();
+          refreshJira();
           if (!ghAvailable) setMessage('Refreshed');
           return;
         }
@@ -617,9 +818,30 @@ export function App({ unsafe, onExit }: AppProps) {
           setActiveKey(null);
           setTermLines([]);
         }
-        removeSession(s.target, s.branch);
-        setMessage(`Removed: ${s.target} / ${s.branch}`);
-        refreshSessions();
+        setMessage(`Removing: ${s.target} / ${s.branch}...`);
+
+        // Spawn work2 remove in a PTY so output shows in the right pane
+        const removeKey = `remove:${s.target}:${s.branch}`;
+        const removePty = new PtySession(
+          process.cwd(),
+          termInner,
+          contentHeight - 2,
+          false,
+          { cmd: 'work2', args: ['remove', s.target, s.branch, '--force'] },
+        );
+        ptySessions.current.set(removeKey, removePty);
+        removePty.onExit = () => {
+          ptySessions.current.delete(removeKey);
+          if (activeKeyRef.current === removeKey) {
+            setActiveKey(null);
+            setTermLines([]);
+          }
+          setStatusVersion((v) => v + 1);
+          refreshSessions();
+          setMessage(`Removed: ${s.target} / ${s.branch}`);
+        };
+        removePty.onStatusChange = () => setStatusVersion((v) => v + 1);
+        connectPty(removeKey, removePty);
         return;
       }
 
@@ -675,6 +897,7 @@ export function App({ unsafe, onExit }: AppProps) {
           }
           refreshSessions();
           refreshPrs();
+          refreshJira();
           setSyncing(false);
           if (!ghAvailable) setMessage('Synced');
         })();
@@ -684,6 +907,7 @@ export function App({ unsafe, onExit }: AppProps) {
       if (key === 'r') {
         refreshSessions();
         refreshPrs();
+        refreshJira();
         if (!ghAvailable) setMessage('Refreshed');
         return;
       }
@@ -691,7 +915,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, refreshPrs, moveSessionCursor, movePrCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
+  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, moveSessionCursor, movePrCursor, moveJiraCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
 
   // Resize handling
   useEffect(() => {
@@ -742,6 +966,15 @@ export function App({ unsafe, onExit }: AppProps) {
             width={sidebarWidth}
             height={prPaneHeight}
           />
+          {jiraPaneHeight > 0 && (
+            <JiraPane
+              jiraRows={jiraRows}
+              cursor={jiraCursor}
+              focused={focus === Focus.JIRA}
+              width={sidebarWidth}
+              height={jiraPaneHeight}
+            />
+          )}
         </Box>
         <TerminalPane
           lines={termLines}
@@ -751,7 +984,7 @@ export function App({ unsafe, onExit }: AppProps) {
           placeholder={placeholder}
         />
       </Box>
-      <StatusBar message={message} syncing={syncing} />
+      <StatusBar message={message} pane={focus === Focus.TERMINAL ? 'terminal' : focus === Focus.PRS ? 'prs' : focus === Focus.JIRA ? 'jira' : 'sessions'} syncing={syncing} />
     </Box>
   );
 }
