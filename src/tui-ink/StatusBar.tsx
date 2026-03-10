@@ -18,13 +18,14 @@ export function StatusBar({ message }: StatusBarProps) {
   return (
     <Box>
       <Text dimColor>
-        {' tab focus  j/k nav  enter start  d remove  r refresh  q quit  '}
+        {' tab focus  j/k nav  enter start  n new  d remove  r refresh  q quit  '}
       </Text>
+      <Text dimColor>{'['}</Text>
       <Text>{chalk.green('●')}</Text>
       <Text dimColor>{' working  '}</Text>
       <Text>{chalk.yellow('◆')}</Text>
       <Text dimColor>{' needs input  '}</Text>
-      <Text dimColor>{'○ stopped'}</Text>
+      <Text dimColor>{'○ stopped]'}</Text>
     </Box>
   );
 }

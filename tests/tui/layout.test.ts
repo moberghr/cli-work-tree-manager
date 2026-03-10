@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSidebarRows } from '../../src/tui-ink/Sidebar.js';
+import { buildSessionRows, buildProjectRows } from '../../src/tui-ink/Sidebar.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 function makeSession(target: string, branch: string, isGroup = false): WorktreeSession {
@@ -12,9 +12,9 @@ function makeSession(target: string, branch: string, isGroup = false): WorktreeS
   };
 }
 
-describe('buildSidebarRows', () => {
+describe('buildSessionRows', () => {
   it('returns empty array for empty sessions', () => {
-    expect(buildSidebarRows([])).toEqual([]);
+    expect(buildSessionRows([])).toEqual([]);
   });
 
   it('groups sessions by target with headers', () => {
@@ -23,7 +23,7 @@ describe('buildSidebarRows', () => {
       makeSession('api', 'feature-b'),
       makeSession('frontend', 'main'),
     ];
-    const rows = buildSidebarRows(sessions);
+    const rows = buildSessionRows(sessions);
 
     expect(rows).toHaveLength(5); // 2 headers + 3 sessions
     expect(rows[0]).toEqual({ type: 'header', label: 'api (repo)' });
@@ -35,7 +35,7 @@ describe('buildSidebarRows', () => {
 
   it('labels groups correctly', () => {
     const sessions = [makeSession('fullstack', 'dev', true)];
-    const rows = buildSidebarRows(sessions);
+    const rows = buildSessionRows(sessions);
 
     expect(rows[0]).toEqual({ type: 'header', label: 'fullstack (group)' });
   });
@@ -46,10 +46,29 @@ describe('buildSidebarRows', () => {
       makeSession('b', 'b2'),
       makeSession('b', 'b3'),
     ];
-    const rows = buildSidebarRows(sessions);
+    const rows = buildSessionRows(sessions);
     const indices = rows
       .filter((r) => r.type === 'session')
       .map((r) => (r as any).sessionIndex);
     expect(indices).toEqual([0, 1, 2]);
+  });
+});
+
+describe('buildProjectRows', () => {
+  it('returns empty array for empty projects', () => {
+    expect(buildProjectRows([])).toEqual([]);
+  });
+
+  it('includes header and project entries', () => {
+    const projects = [
+      { name: 'api', isGroup: false },
+      { name: 'fullstack', isGroup: true },
+    ];
+    const rows = buildProjectRows(projects);
+
+    expect(rows).toHaveLength(3); // 1 header + 2 projects
+    expect(rows[0]).toEqual({ type: 'header', label: 'Select project' });
+    expect(rows[1]).toMatchObject({ type: 'project', name: 'api', isGroup: false });
+    expect(rows[2]).toMatchObject({ type: 'project', name: 'fullstack', isGroup: true });
   });
 });

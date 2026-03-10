@@ -15,7 +15,7 @@ export class PtySession {
   onExit?: (code: number) => void;
   onStatusChange?: () => void;
 
-  constructor(cwd: string, cols: number, rows: number, unsafe: boolean) {
+  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }) {
     this.cwd = cwd;
     this.terminal = new Terminal({
       cols,
@@ -25,22 +25,30 @@ export class PtySession {
     });
 
     const isWindows = process.platform === 'win32';
-    const args = unsafe ? ['--dangerously-skip-permissions'] : [];
 
-    // On Windows, claude is a .cmd shim — spawn via cmd.exe
-    this.pty = pty.spawn(
-      isWindows ? 'cmd.exe' : 'claude',
-      isWindows ? ['/c', 'claude', ...args] : args,
-      {
-        name: 'xterm-256color',
-        cwd,
-        cols,
-        rows,
-        env: Object.fromEntries(
-          Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
-        ),
-      },
-    );
+    let spawnCmd: string;
+    let spawnArgs: string[];
+
+    if (command) {
+      // Custom command (e.g. work2 tree)
+      spawnCmd = isWindows ? 'cmd.exe' : command.cmd;
+      spawnArgs = isWindows ? ['/c', command.cmd, ...command.args] : command.args;
+    } else {
+      // Default: launch claude
+      const args = unsafe ? ['--dangerously-skip-permissions'] : [];
+      spawnCmd = isWindows ? 'cmd.exe' : 'claude';
+      spawnArgs = isWindows ? ['/c', 'claude', ...args] : args;
+    }
+
+    this.pty = pty.spawn(spawnCmd, spawnArgs, {
+      name: 'xterm-256color',
+      cwd,
+      cols,
+      rows,
+      env: Object.fromEntries(
+        Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
+      ),
+    });
 
     this.pty.onData((data) => {
       this.terminal.write(data);

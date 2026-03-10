@@ -6,20 +6,21 @@ import type { WorktreeSession } from '../core/history.js';
 import type { SessionStatus } from '../tui/session.js';
 
 export interface SidebarProps {
-  sessions: WorktreeSession[];
   sidebarRows: SidebarRow[];
   cursor: number;
   focused: boolean;
   statusMap: Map<string, SessionStatus>;
   width: number;
   height: number;
+  branchInput?: { value: string } | null;
 }
 
 export type SidebarRow =
   | { type: 'header'; label: string }
-  | { type: 'session'; session: WorktreeSession; sessionIndex: number };
+  | { type: 'session'; session: WorktreeSession; sessionIndex: number }
+  | { type: 'project'; name: string; isGroup: boolean };
 
-export function buildSidebarRows(sessions: WorktreeSession[]): SidebarRow[] {
+export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
   if (sessions.length === 0) return [];
 
   const groups = new Map<string, WorktreeSession[]>();
@@ -43,6 +44,16 @@ export function buildSidebarRows(sessions: WorktreeSession[]): SidebarRow[] {
   return rows;
 }
 
+export function buildProjectRows(projects: Array<{ name: string; isGroup: boolean }>): SidebarRow[] {
+  if (projects.length === 0) return [];
+  const rows: SidebarRow[] = [];
+  rows.push({ type: 'header', label: 'Select project' });
+  for (const p of projects) {
+    rows.push({ type: 'project', name: p.name, isGroup: p.isGroup });
+  }
+  return rows;
+}
+
 function sessionKey(s: WorktreeSession): string {
   return `${s.target}:${s.branch}`;
 }
@@ -61,7 +72,6 @@ function fitToWidth(str: string, width: number): string {
   const vis = visibleLength(str);
   if (vis === width) return str;
   if (vis < width) return str + ' '.repeat(width - vis);
-  // Truncate respecting ANSI codes
   let out = '';
   let count = 0;
   let i = 0;
@@ -82,12 +92,13 @@ function fitToWidth(str: string, width: number): string {
   return out;
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height }: SidebarProps) {
+export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height, branchInput }: SidebarProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
 
   const rows: React.ReactNode[] = [];
+  let selectableIdx = 0;
   for (let i = 0; i < contentHeight; i++) {
     if (i >= sidebarRows.length) {
       rows.push(<Text key={i}>{' '.repeat(innerWidth)}</Text>);
@@ -99,9 +110,10 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height
       const label = truncate(row.label, innerWidth - 1);
       const line = fitToWidth(chalk.yellow.bold(` ${label}`), innerWidth);
       rows.push(<Text key={i}>{line}</Text>);
-    } else {
+    } else if (row.type === 'session') {
       const s = row.session;
-      const sel = row.sessionIndex === cursor;
+      const sel = selectableIdx === cursor;
+      selectableIdx++;
       const key = sessionKey(s);
       const status = statusMap.get(key) ?? 'stopped';
 
@@ -112,7 +124,6 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height
       else dot = chalk.gray('○');
 
       const agoStr = timeAgo(s.lastAccessedAt);
-      // Fixed chars: "  " + marker + dot + " " + " " + ago
       const fixedOverhead = 5 + agoStr.length;
       const branchBudget = Math.max(4, innerWidth - fixedOverhead);
 
@@ -121,6 +132,23 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, width, height
 
       const line = fitToWidth(`  ${marker}${dot} ${branch} ${ago}`, innerWidth);
       rows.push(<Text key={i}>{line}</Text>);
+    } else if (row.type === 'project') {
+      const sel = selectableIdx === cursor;
+      selectableIdx++;
+      const marker = sel && focused ? chalk.cyan('›') : ' ';
+      const typeTag = row.isGroup ? chalk.gray('(group)') : chalk.gray('(repo)');
+      const name = chalk.magenta(truncate(row.name, innerWidth - 15));
+
+      // Show branch input inline if this row is selected and input is active
+      if (branchInput && sel) {
+        const prompt = `  ${marker} ${name} ${chalk.cyan('branch:')} `;
+        const inputVal = branchInput.value + chalk.gray('█');
+        const line = fitToWidth(`${prompt}${inputVal}`, innerWidth);
+        rows.push(<Text key={i}>{line}</Text>);
+      } else {
+        const line = fitToWidth(`  ${marker} ${name} ${typeTag}`, innerWidth);
+        rows.push(<Text key={i}>{line}</Text>);
+      }
     }
   }
 
