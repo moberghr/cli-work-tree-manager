@@ -28,6 +28,7 @@ work2 list [target]                                 # List worktrees
 work2 status [target] [branch] [--prune]            # Show worktree status
 work2 recent [count]                                # List recent sessions
 work2 resume [--unsafe]                             # Resume a recent session
+work2 dash [--unsafe]                               # Interactive session dashboard (TUI)
 work2 prune [--force]                               # Remove merged worktrees
 work2 completion [--install]                        # Shell completions
 
@@ -46,7 +47,7 @@ work2 config edit                                   # Open config in editor
 ### Module Flow
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,config,init}.ts
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init}.ts
                                        ↓
                                   core/worktree.ts (atomic operations)
                                   ├── core/git.ts (git wrapper)

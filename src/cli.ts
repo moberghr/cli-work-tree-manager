@@ -9,6 +9,7 @@ import { statusCommand } from './commands/status.js';
 import { recentCommand } from './commands/recent.js';
 import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
+import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { completionHandler } from './completions/index.js';
 
@@ -31,6 +32,7 @@ function showHelp() {
   console.log('  work2 status --prune                                - Remove stale entries');
   console.log('  work2 recent [count]                                - List recent sessions');
   console.log('  work2 resume                                        - Resume a recent session');
+  console.log('  work2 dash                                          - Interactive session dashboard');
   console.log('  work2 prune                                         - Remove merged worktrees');
   console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
   console.log('  work2 completion --install                          - Install shell completions');
@@ -78,6 +80,7 @@ export function run(argv: string[]) {
     .command(recentCommand)
     .command(resumeCommand)
     .command(pruneCommand)
+    .command(dashCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

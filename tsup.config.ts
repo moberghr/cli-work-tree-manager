@@ -15,6 +15,11 @@ export default defineConfig({
     '@inquirer/prompts',
     'yargs',
     'yargs/helpers',
+    'node-pty',
+    '@xterm/headless',
+    'ink',
+    'react',
+    'react/jsx-runtime',
   ],
   banner: {
     js: '#!/usr/bin/env node',
