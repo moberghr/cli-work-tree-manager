@@ -22,7 +22,7 @@ After building, `work2` is available globally (via `npm link`). Rebuild after so
 
 ```
 work2 init                                          # Interactive first-time setup
-work2 tree|t <target> <branch> [--base <branch>] [--open] [--unsafe]  # Create/switch to worktree
+work2 tree|t <target> <branch> [--base <branch>] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>]  # Create/switch to worktree
 work2 remove <target> <branch> [--force]            # Remove worktree
 work2 list [target]                                 # List worktrees
 work2 status [target] [branch] [--prune]            # Show worktree status
@@ -49,12 +49,13 @@ work2 config edit                                   # Open config in editor
 ```
 bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init}.ts
                                        ↓
-                                  core/worktree.ts (atomic operations)
+                                  core/worktree.ts (atomic + high-level operations)
                                   ├── core/git.ts (git wrapper)
                                   ├── core/copy-files.ts (glob-based file copying)
                                   ├── core/resolve.ts (group vs repo dispatch)
                                   ├── core/history.ts (session tracking)
                                   ├── core/pr.ts (GitHub PR fetching via gh CLI)
+                                  ├── core/jira.ts (Jira issue fetching via acli)
                                   ├── core/setup-completions.ts (shell profile detection & install)
                                   │
                                   tui-ink/ (Ink/React TUI for `work2 dash`)
@@ -72,7 +73,7 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
 
 ### Key Design
 
-- **Atomic building blocks:** `createSingleWorktree()` and `removeSingleWorktree()` in `core/worktree.ts` handle one repo. Group operations loop over these with rollback on failure.
+- **Shared core operations:** `setupWorktree()` and `teardownWorktree()` in `core/worktree.ts` are the high-level entry points used by both the CLI commands and the TUI. They resolve targets, create/remove worktrees, handle group CLAUDE.md, and manage sessions. Low-level building blocks are `createSingleWorktree()` and `removeSingleWorktree()` which handle one repo with rollback on failure.
 - **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
 - **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
 - **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
@@ -84,10 +85,13 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 - **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
 - **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
 - **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped) and a separate PR pane. `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
-- **Split-pane layout:** The left column is split into a sessions pane (top) and a PR pane (bottom). Each pane has independent focus and cursor. Tab cycles focus between sessions, PRs, and the terminal.
+- **4-pane layout:** The left column is split into sessions (top), PRs (middle), and Jira (bottom). The right side is an embedded terminal. Each pane has independent focus and cursor. Tab cycles focus: sessions → PRs → Jira → terminal. All panes support scrolling when content overflows.
 - **GitHub PR integration:** `core/pr.ts` fetches open PRs via `gh pr list` for all configured repos. Shows check status (✓/✗/●), merge conflict detection, personal review state (✔/✎), draft status (dimmed), and ownership (★). Selecting a PR in the PR pane creates/resumes a worktree for that branch.
-- **New worktree creation:** Users can create new worktrees directly from the dashboard via a branch picker flow.
-- **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR data is loaded.
+- **Jira integration:** `core/jira.ts` fetches issues assigned to the current user via `acli` (Atlassian CLI). Issues are grouped by status. Selecting a Jira issue prompts project selection, generates a branch slug (via Claude haiku), creates a worktree via `work2 tree` in a PTY, and sends a structured planning prompt to Claude Code via `--prompt-file`.
+- **New worktree creation:** Users can create new worktrees directly from the dashboard via a project/branch picker flow, from a PR, or from a Jira issue.
+- **Reactive session detection:** Uses `fs.watch` on `history.json` to detect new sessions created externally (e.g., `work2 tree` in another terminal).
+- **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR/Jira data is loaded.
+- **Context-sensitive status bar:** Shows different keybinding hints depending on which pane is focused.
 
 ### Session Tracking
 

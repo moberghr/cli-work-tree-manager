@@ -39,6 +39,9 @@ work2 tree ai feature/login --base develop
 # Create a worktree and open VS Code
 work2 tree ai feature/login --open
 
+# Create a worktree with an initial prompt for Claude
+work2 tree ai feature/login --prompt "Implement the login page"
+
 # List all active worktrees
 work2 list
 
@@ -215,16 +218,17 @@ work2 dash
 
 An interactive terminal UI for managing all your worktree sessions. Features:
 
-- **Split-pane layout** — sessions pane (top-left) and PR pane (bottom-left) with an embedded terminal (right)
+- **4-pane layout** — sessions (top-left), PRs (middle-left), Jira (bottom-left), embedded terminal (right)
 - **GitHub PR integration** — shows all open PRs across configured repos with status indicators:
   - ★ your PR, ✔ you approved, ✎ you reviewed with comments/changes
   - ✓ checks passing, ✗ checks failing or merge conflict, ● checks pending
   - Draft PRs shown with dimmed text
   - PRs matching local worktrees marked with `local`
+- **Jira integration** — shows issues assigned to you (via `acli`), grouped by status. Select an issue to create a worktree with an auto-generated branch name and a structured planning prompt sent to Claude
 - **Merged branch detection** — worktrees with merged branches are flagged
-- **Auto-sync** — fetches all remotes and PR data on startup
-- **Create worktrees from PRs** — select a PR to create/resume a worktree for its branch
-- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `g` syncs
+- **Auto-sync** — fetches all remotes, PR, and Jira data on startup
+- **Create worktrees from PRs or Jira** — select a PR or Jira issue to create/resume a worktree for it
+- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `u` rebase, `g` syncs
 
 ```bash
 # Launch with --unsafe to skip Claude permission checks
@@ -247,3 +251,4 @@ This passes `--dangerously-skip-permissions` to the Claude CLI.
 - Git
 - [Claude Code CLI](https://claude.ai/code) (for automatic Claude launching and group CLAUDE.md generation)
 - [GitHub CLI (`gh`)](https://cli.github.com/) (optional, for PR integration in dashboard)
+- [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/) (optional, for Jira integration in dashboard)
