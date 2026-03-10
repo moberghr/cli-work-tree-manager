@@ -1,16 +1,18 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import chalk from 'chalk';
 
 export interface StatusBarProps {
   message: string;
+  syncing?: boolean;
 }
 
-export function StatusBar({ message }: StatusBarProps) {
+export function StatusBar({ message, syncing }: StatusBarProps) {
   if (message) {
     return (
       <Box>
         <Text color="yellow"> {message}</Text>
+        {syncing && <Box flexGrow={1} />}
+        {syncing && <Text color="cyan"> syncing</Text>}
       </Box>
     );
   }
@@ -18,14 +20,16 @@ export function StatusBar({ message }: StatusBarProps) {
   return (
     <Box>
       <Text dimColor>
-        {' tab focus  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  r refresh  q quit  '}
+        {' tab focus  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  r refresh  q quit '}
       </Text>
       <Text dimColor>{'['}</Text>
-      <Text>{chalk.green('●')}</Text>
+      <Text color="green">●</Text>
       <Text dimColor>{' working  '}</Text>
-      <Text>{chalk.yellow('◆')}</Text>
+      <Text color="yellow">◆</Text>
       <Text dimColor>{' needs input  '}</Text>
       <Text dimColor>{'○ stopped]'}</Text>
+      {syncing && <Box flexGrow={1} />}
+      {syncing && <Text color="cyan"> syncing</Text>}
     </Box>
   );
 }

@@ -1,4 +1,5 @@
 import spawn from 'cross-spawn';
+import { execFile } from 'node:child_process';
 
 export interface GitResult {
   stdout: string;
@@ -156,6 +157,19 @@ export function fetchRemote(cwd: string): void {
   git(['fetch', '--quiet'], cwd);
 
   // Ensure origin/HEAD is set so getDefaultBranch works
+  if (!getDefaultBranch(cwd)) {
+    git(['remote', 'set-head', 'origin', '--auto'], cwd);
+  }
+}
+
+/** Async version of fetchRemote — non-blocking. */
+export async function fetchRemoteAsync(cwd: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('git', ['fetch', '--quiet'], { cwd, timeout: 30000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
   if (!getDefaultBranch(cwd)) {
     git(['remote', 'set-head', 'origin', '--auto'], cwd);
   }

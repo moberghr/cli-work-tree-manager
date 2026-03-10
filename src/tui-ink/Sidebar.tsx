@@ -1,6 +1,5 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import chalk from 'chalk';
 import { timeAgo } from '../utils/format.js';
 import type { WorktreeSession } from '../core/history.js';
 import type { SessionStatus } from '../tui/session.js';
@@ -12,6 +11,7 @@ export interface SidebarProps {
   focused: boolean;
   statusMap: Map<string, SessionStatus>;
   conflictCounts: Map<string, number>;
+  mergedSet: Set<string>;
   prMap: BranchPrMap;
   width: number;
   height: number;
@@ -20,7 +20,7 @@ export interface SidebarProps {
 
 export type SidebarRow =
   | { type: 'header'; label: string }
-  | { type: 'session'; session: WorktreeSession; sessionIndex: number }
+  | { type: 'session'; session: WorktreeSession }
   | { type: 'project'; name: string; isGroup: boolean };
 
 export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
@@ -33,14 +33,12 @@ export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
   }
 
   const rows: SidebarRow[] = [];
-  let sessionIndex = 0;
 
   for (const [target, group] of groups) {
     const typeTag = group[0].isGroup ? 'group' : 'repo';
     rows.push({ type: 'header', label: `${target} (${typeTag})` });
     for (const session of group) {
-      rows.push({ type: 'session', session, sessionIndex });
-      sessionIndex++;
+      rows.push({ type: 'session', session });
     }
   }
 
@@ -66,85 +64,148 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
-/** Strip ANSI SGR and OSC 8 hyperlink sequences to get visible length. */
-function visibleLength(str: string): number {
-  return str
-    .replace(/\x1B\]8;;[^\x07]*\x07/g, '') // OSC 8 hyperlinks
-    .replace(/\x1B\[[0-9;]*m/g, '')         // SGR sequences
-    .length;
-}
-
-/** Pad or truncate an ANSI string to exactly `width` visible characters. */
-function fitToWidth(str: string, width: number): string {
-  const vis = visibleLength(str);
-  if (vis === width) return str;
-  if (vis < width) return str + ' '.repeat(width - vis);
-  let out = '';
-  let count = 0;
-  let i = 0;
-  while (i < str.length && count < width) {
-    if (str[i] === '\x1B') {
-      // OSC 8 hyperlink: \x1B]8;;...\x07
-      if (str[i + 1] === ']') {
-        const end = str.indexOf('\x07', i);
-        if (end !== -1) {
-          out += str.slice(i, end + 1);
-          i = end + 1;
-          continue;
-        }
-      }
-      // SGR: \x1B[...m
-      const end = str.indexOf('m', i);
-      if (end !== -1) {
-        out += str.slice(i, end + 1);
-        i = end + 1;
-        continue;
-      }
-    }
-    out += str[i];
-    count++;
-    i++;
-  }
-  out += '\x1B[0m';
-  return out;
-}
-
 /** Wrap text in an OSC 8 terminal hyperlink. */
 function hyperlink(url: string, text: string): string {
   return `\x1B]8;;${url}\x07${text}\x1B]8;;\x07`;
 }
 
-function formatSinglePrBadge(pr: PullRequestInfo): string {
-  const num = hyperlink(pr.url, chalk.blue(`#${pr.number}`));
-  let checks = '';
-  if (pr.checksStatus === 'SUCCESS') checks = ' ' + chalk.green('ok');
-  else if (pr.checksStatus === 'FAILURE') checks = ' ' + chalk.red('fail');
-  else if (pr.checksStatus === 'PENDING') checks = ' ' + chalk.yellow('...');
-  const draft = pr.isDraft ? chalk.gray(' draft') : '';
-  return `${num}${checks}${draft}`;
-}
-
 function singlePrBadgeLength(pr: PullRequestInfo): number {
   const numLen = 1 + String(pr.number).length;
   let checksLen = 0;
-  if (pr.checksStatus === 'SUCCESS') checksLen = 3;
-  else if (pr.checksStatus === 'FAILURE') checksLen = 5;
-  else if (pr.checksStatus === 'PENDING') checksLen = 4;
+  if (pr.checksStatus === 'SUCCESS') checksLen = 2;
+  else if (pr.checksStatus === 'FAILURE') checksLen = 2;
+  else if (pr.checksStatus === 'PENDING') checksLen = 2;
   const draftLen = pr.isDraft ? 6 : 0;
   return numLen + checksLen + draftLen;
 }
 
-function formatPrBadges(prs: PullRequestInfo[]): string {
-  return prs.map(formatSinglePrBadge).join(' ');
-}
-
 function prBadgesLength(prs: PullRequestInfo[]): number {
   if (prs.length === 0) return 0;
-  // Each badge + 1 space separator between them
   return prs.reduce((sum, pr) => sum + singlePrBadgeLength(pr), 0) + (prs.length - 1);
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, prMap, width, height, branchInput }: SidebarProps) {
+function PrBadge({ pr }: { pr: PullRequestInfo }): React.ReactElement {
+  return (
+    <>
+      <Text color="blue">{hyperlink(pr.url, `#${pr.number}`)}</Text>
+      {pr.checksStatus === 'SUCCESS' && <Text color="green"> ✓</Text>}
+      {pr.checksStatus === 'FAILURE' && <Text color="red"> ✗</Text>}
+      {pr.checksStatus === 'PENDING' && <Text color="yellow"> ●</Text>}
+      {pr.isDraft && <Text dimColor> draft</Text>}
+    </>
+  );
+}
+
+function EmptyRow({ width }: { width: number }): React.ReactElement {
+  return <Text>{' '.repeat(width)}</Text>;
+}
+
+function HeaderRow({ label, width }: { label: string; width: number }): React.ReactElement {
+  const text = ` ${truncate(label, width - 3)} `;
+  const lineLen = Math.max(0, width - text.length);
+  return (
+    <Box width={width}>
+      <Text color="yellow" bold>{text}</Text>
+      <Text dimColor>{'─'.repeat(lineLen)}</Text>
+    </Box>
+  );
+}
+
+function SessionRow({
+  session: s,
+  selected,
+  focused,
+  status,
+  conflicts,
+  merged,
+  prs,
+  width,
+}: {
+  session: WorktreeSession;
+  selected: boolean;
+  focused: boolean;
+  status: SessionStatus;
+  conflicts: number;
+  merged: boolean;
+  prs: PullRequestInfo[];
+  width: number;
+}): React.ReactElement {
+  const dotChar = status === 'idle' ? '◆' : status === 'running' ? '●' : '○';
+  const dotColor = status === 'idle' ? 'yellow' : status === 'running' ? 'green' : 'gray';
+  const agoStr = timeAgo(s.lastAccessedAt);
+
+  const mergedLen = merged ? 8 : 0; // " merged"
+  const conflictLen = conflicts > 0 ? 2 + String(conflicts).length : 0;
+  const prLen = prs.length > 0 ? 1 + prBadgesLength(prs) : 0;
+  const fixedOverhead = 5 + agoStr.length + mergedLen + conflictLen + prLen;
+  const branchBudget = Math.max(4, width - fixedOverhead);
+
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color={selected && focused ? 'cyan' : undefined}>{selected && focused ? '›' : ' '}</Text>
+      <Text color={dotColor}>{dotChar}</Text>
+      <Text> </Text>
+      <Text color="green">{truncate(s.branch, branchBudget)}</Text>
+      {merged && <Text color="magenta"> merged</Text>}
+      {conflicts > 0 && <Text color="red"> !{conflicts}</Text>}
+      {prs.map((pr, i) => (
+        <React.Fragment key={i}>
+          <Text> </Text>
+          <PrBadge pr={pr} />
+        </React.Fragment>
+      ))}
+      <Box flexGrow={1} />
+      <Text dimColor>{agoStr}</Text>
+    </Box>
+  );
+}
+
+function ProjectRow({
+  name,
+  isGroup,
+  selected,
+  focused,
+  branchInput,
+  width,
+}: {
+  name: string;
+  isGroup: boolean;
+  selected: boolean;
+  focused: boolean;
+  branchInput?: { value: string } | null;
+  width: number;
+}): React.ReactElement {
+  const marker = selected && focused ? '›' : ' ';
+
+  if (branchInput && selected) {
+    return (
+      <Box width={width}>
+        <Text>  </Text>
+        <Text color="cyan">{marker}</Text>
+        <Text> </Text>
+        <Text color="magenta">{truncate(name, width - 15)}</Text>
+        <Text> </Text>
+        <Text color="cyan">branch:</Text>
+        <Text> {branchInput.value}</Text>
+        <Text dimColor>█</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color={selected && focused ? 'cyan' : undefined}>{marker}</Text>
+      <Text> </Text>
+      <Text color="magenta">{truncate(name, width - 15)}</Text>
+      <Text> </Text>
+      <Text dimColor>{isGroup ? '(group)' : '(repo)'}</Text>
+    </Box>
+  );
+}
+
+export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, width, height, branchInput }: SidebarProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
@@ -153,60 +214,47 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
   let selectableIdx = 0;
   for (let i = 0; i < contentHeight; i++) {
     if (i >= sidebarRows.length) {
-      rows.push(<Text key={i}>{' '.repeat(innerWidth)}</Text>);
+      rows.push(<EmptyRow key={i} width={innerWidth} />);
       continue;
     }
 
     const row = sidebarRows[i];
     if (row.type === 'header') {
-      const label = truncate(row.label, innerWidth - 1);
-      const line = fitToWidth(chalk.yellow.bold(` ${label}`), innerWidth);
-      rows.push(<Text key={i}>{line}</Text>);
+      rows.push(<HeaderRow key={i} label={row.label} width={innerWidth} />);
     } else if (row.type === 'session') {
       const s = row.session;
       const sel = selectableIdx === cursor;
       selectableIdx++;
       const key = sessionKey(s);
-      const status = statusMap.get(key) ?? 'stopped';
 
-      const marker = sel && focused ? chalk.cyan('›') : ' ';
-      let dot: string;
-      if (status === 'idle') dot = chalk.yellow('◆');
-      else if (status === 'running') dot = chalk.green('●');
-      else dot = chalk.gray('○');
-
-      const conflicts = conflictCounts.get(key);
-      const conflictStr = conflicts ? chalk.red(` !${conflicts}`) : '';
-      const prs = prMap.get(s.branch) ?? [];
-      const prStr = prs.length > 0 ? ' ' + formatPrBadges(prs) : '';
-      const agoStr = timeAgo(s.lastAccessedAt);
-      const conflictLen = conflicts ? 2 + String(conflicts).length : 0;
-      const prLen = prs.length > 0 ? 1 + prBadgesLength(prs) : 0;
-      const fixedOverhead = 5 + agoStr.length + conflictLen + prLen;
-      const branchBudget = Math.max(4, innerWidth - fixedOverhead);
-
-      const branch = chalk.green(truncate(s.branch, branchBudget));
-      const ago = chalk.gray(agoStr);
-
-      const line = fitToWidth(`  ${marker}${dot} ${branch}${conflictStr}${prStr} ${ago}`, innerWidth);
-      rows.push(<Text key={i}>{line}</Text>);
+      rows.push(
+        <SessionRow
+          key={i}
+          session={s}
+          selected={sel}
+          focused={focused}
+          status={statusMap.get(key) ?? 'stopped'}
+          conflicts={conflictCounts.get(key) ?? 0}
+          merged={mergedSet.has(key)}
+          prs={prMap.get(s.branch) ?? []}
+          width={innerWidth}
+        />,
+      );
     } else if (row.type === 'project') {
       const sel = selectableIdx === cursor;
       selectableIdx++;
-      const marker = sel && focused ? chalk.cyan('›') : ' ';
-      const typeTag = row.isGroup ? chalk.gray('(group)') : chalk.gray('(repo)');
-      const name = chalk.magenta(truncate(row.name, innerWidth - 15));
 
-      // Show branch input inline if this row is selected and input is active
-      if (branchInput && sel) {
-        const prompt = `  ${marker} ${name} ${chalk.cyan('branch:')} `;
-        const inputVal = branchInput.value + chalk.gray('█');
-        const line = fitToWidth(`${prompt}${inputVal}`, innerWidth);
-        rows.push(<Text key={i}>{line}</Text>);
-      } else {
-        const line = fitToWidth(`  ${marker} ${name} ${typeTag}`, innerWidth);
-        rows.push(<Text key={i}>{line}</Text>);
-      }
+      rows.push(
+        <ProjectRow
+          key={i}
+          name={row.name}
+          isGroup={row.isGroup}
+          selected={sel}
+          focused={focused}
+          branchInput={branchInput}
+          width={innerWidth}
+        />,
+      );
     }
   }
 

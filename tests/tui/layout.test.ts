@@ -27,10 +27,10 @@ describe('buildSessionRows', () => {
 
     expect(rows).toHaveLength(5); // 2 headers + 3 sessions
     expect(rows[0]).toEqual({ type: 'header', label: 'api (repo)' });
-    expect(rows[1]).toMatchObject({ type: 'session', sessionIndex: 0 });
-    expect(rows[2]).toMatchObject({ type: 'session', sessionIndex: 1 });
+    expect(rows[1]).toMatchObject({ type: 'session', session: sessions[0] });
+    expect(rows[2]).toMatchObject({ type: 'session', session: sessions[1] });
     expect(rows[3]).toEqual({ type: 'header', label: 'frontend (repo)' });
-    expect(rows[4]).toMatchObject({ type: 'session', sessionIndex: 2 });
+    expect(rows[4]).toMatchObject({ type: 'session', session: sessions[2] });
   });
 
   it('labels groups correctly', () => {
@@ -40,17 +40,16 @@ describe('buildSessionRows', () => {
     expect(rows[0]).toEqual({ type: 'header', label: 'fullstack (group)' });
   });
 
-  it('assigns sequential sessionIndex across groups', () => {
+  it('preserves session objects across groups', () => {
     const sessions = [
       makeSession('a', 'b1'),
       makeSession('b', 'b2'),
       makeSession('b', 'b3'),
     ];
     const rows = buildSessionRows(sessions);
-    const indices = rows
-      .filter((r) => r.type === 'session')
-      .map((r) => (r as any).sessionIndex);
-    expect(indices).toEqual([0, 1, 2]);
+    const sessionRows = rows
+      .filter((r): r is Extract<typeof r, { type: 'session' }> => r.type === 'session');
+    expect(sessionRows.map((r) => r.session)).toEqual([sessions[0], sessions[1], sessions[2]]);
   });
 });
 

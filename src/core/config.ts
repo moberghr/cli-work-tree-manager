@@ -11,8 +11,6 @@ export interface WorkConfig {
   aiCommand?: string;
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
-  /** Auto-delete merged worktrees on refresh. Default: false */
-  autoDeleteOnMerge?: boolean;
 }
 
 export function getConfigDir(): string {
@@ -43,7 +41,6 @@ export function loadConfig(): WorkConfig | null {
       copyFiles: parsed.copyFiles ?? [],
       aiCommand: parsed.aiCommand,
       editor: parsed.editor,
-      autoDeleteOnMerge: parsed.autoDeleteOnMerge,
     };
   } catch {
     return null;
