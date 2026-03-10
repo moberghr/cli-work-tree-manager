@@ -32,6 +32,10 @@ const DETACH_KEY = '\x1D'; // Ctrl+]
 const TAB_KEY = '\t';
 const RENDER_INTERVAL_MS = 16;
 
+// SGR mouse: \x1b[<button;col;rowM or \x1b[<button;col;rowm
+// Button 64 = scroll up, 65 = scroll down
+const MOUSE_SGR_RE = /\x1b\[<(\d+);(\d+);(\d+)[Mm]/;
+
 enum Focus {
   SESSIONS,
   PRS,
@@ -133,6 +137,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [termLines, setTermLines] = useState<string[]>([]);
+  const termScrollBack = useRef(0);
   const [statusVersion, setStatusVersion] = useState(0);
   const [topPaneMode, setTopPaneMode] = useState(TopPaneMode.SESSIONS);
   const [branchInput, setBranchInput] = useState<{ projectName: string; value: string } | null>(null);
@@ -274,14 +279,26 @@ export function App({ unsafe, onExit }: AppProps) {
     setTimeout(() => {
       renderPending.current = false;
       try {
+        // If scrolled back, don't auto-update (user is reading scrollback)
+        if (termScrollBack.current > 0) return;
         const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2);
         setTermLines((prev) => {
-          // Deduplicate: skip setState if content hasn't changed
           if (prev.length === lines.length && prev.every((l, i) => l === lines[i])) return prev;
           return lines;
         });
       } catch { /* buffer not ready */ }
     }, RENDER_INTERVAL_MS);
+  }, [termInner, contentHeight]);
+
+  /** Re-render terminal at current scroll offset. */
+  const renderTermAtScroll = useCallback(() => {
+    if (!activeKeyRef.current) return;
+    const pty = ptySessions.current.get(activeKeyRef.current);
+    if (!pty || pty.exited) return;
+    try {
+      const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2, termScrollBack.current);
+      setTermLines(lines);
+    } catch { /* */ }
   }, [termInner, contentHeight]);
 
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
@@ -290,6 +307,12 @@ export function App({ unsafe, onExit }: AppProps) {
       if (path.resolve(pty.cwd).toLowerCase() === normalized) return pty;
     }
     return undefined;
+  }, []);
+
+  // Enable SGR mouse tracking for scroll wheel support
+  useEffect(() => {
+    process.stdout.write('\x1b[?1000h\x1b[?1006h');
+    return () => { process.stdout.write('\x1b[?1000l\x1b[?1006l'); };
   }, []);
 
   // Initial sync: fetch remotes, check gh, then refresh everything
@@ -359,6 +382,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const k = sessionKey(s);
     if (activeKeyRef.current === k) return;
 
+    termScrollBack.current = 0;
     if (activeKeyRef.current) {
       ptySessions.current.get(activeKeyRef.current)?.setOutputHandler(undefined);
     }
@@ -475,16 +499,17 @@ export function App({ unsafe, onExit }: AppProps) {
     }
   }, []);
 
-  /** Spawn `work2 tree` in a PTY — output appears in the right pane. */
+  /** Spawn `work2 tree --no-launch` in a PTY to set up the worktree (visible output),
+   *  then on success launch Claude in a separate PTY session. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
     setTopPaneMode(TopPaneMode.SESSIONS);
     setSessionCursor(savedSessionCursor);
 
     const key = `${projectName}:${branchName}`;
-    const args = ['tree', projectName, branchName];
-    if (unsafe) args.push('--unsafe');
+    const setupArgs = ['tree', projectName, branchName, '--setup-only'];
 
-    // If created from a Jira issue, write prompt to temp file and pass --prompt-file
+    // Build prompt args for the Claude session (used after setup completes)
+    let promptFile: string | undefined;
     if (jiraIssue) {
       const prompt = [
         `Read Jira issue ${jiraIssue.key} (${jiraIssue.url}) and plan how to implement it.`,
@@ -513,45 +538,121 @@ export function App({ unsafe, onExit }: AppProps) {
         '',
         '4. Ask if I want to proceed with the recommended approach, choose a different one, get more details, or make adjustments.',
       ].join('\n');
-      const tmpFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
-      fs.writeFileSync(tmpFile, prompt, 'utf-8');
-      args.push('--prompt-file', tmpFile);
+      promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
+      fs.writeFileSync(promptFile, prompt, 'utf-8');
     }
 
-    const pty = new PtySession(
+    // Phase 1: Run setup in PTY (output visible in terminal pane)
+    const setupPty = new PtySession(
       process.cwd(),
       termInner,
       contentHeight - 2,
-      unsafe,
-      { cmd: 'work2', args },
+      false,
+      { cmd: 'work2', args: setupArgs },
     );
-    ptySessions.current.set(key, pty);
+    ptySessions.current.set(key, setupPty);
 
-    pty.onExit = (code: number) => {
+    setupPty.onExit = (code: number) => {
       ptySessions.current.delete(key);
-      if (activeKeyRef.current === key) {
-        setActiveKey(null);
-        setFocus(Focus.SESSIONS);
-        setTermLines([]);
-      }
       setStatusVersion((v) => v + 1);
       refreshSessions();
-      if (code === 0) {
-        setMessage(`Created: ${projectName}/${branchName}`);
-      } else {
-        setMessage(`Failed to create worktree (exit ${code})`);
+
+      if (code !== 0) {
+        if (activeKeyRef.current === key) {
+          setActiveKey(null);
+          setFocus(Focus.SESSIONS);
+          setTermLines([]);
+        }
+        if (promptFile) try { fs.unlinkSync(promptFile); } catch { /* */ }
+        return;
       }
+
+      // Phase 2: Setup succeeded — show output briefly, then start Claude
+      refreshSessions();
+
+      // Force a final render of setup output before starting Claude
+      try {
+        const finalLines = renderBufferLines(setupPty.terminal.buffer.active, termInner, contentHeight - 2);
+        setTermLines(finalLines);
+      } catch { /* */ }
+
+      // Brief delay so user sees the setup output before Claude takes over
+      setTimeout(() => {
+        // Re-run work2 tree (will detect existing worktree and just launch Claude)
+        const launchArgs = ['tree', projectName, branchName];
+        if (unsafe) launchArgs.push('--unsafe');
+        if (promptFile) launchArgs.push('--prompt-file', promptFile);
+
+        const claudePty = new PtySession(
+          process.cwd(),
+          termInner,
+          contentHeight - 2,
+          false,
+          { cmd: 'work2', args: launchArgs },
+        );
+        ptySessions.current.set(key, claudePty);
+
+        claudePty.onExit = () => {
+          ptySessions.current.delete(key);
+          if (activeKeyRef.current === key) {
+            setActiveKey(null);
+            setFocus(Focus.SESSIONS);
+            setTermLines([]);
+            setMessage(`Session exited: ${projectName} / ${branchName}`);
+          }
+          setStatusVersion((v) => v + 1);
+        };
+        claudePty.onStatusChange = () => setStatusVersion((v) => v + 1);
+        setStatusVersion((v) => v + 1);
+        connectPty(key, claudePty);
+      }, 1500);
     };
-    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
+    setupPty.onStatusChange = () => setStatusVersion((v) => v + 1);
     setStatusVersion((v) => v + 1);
     setMessage(`Creating: ${projectName}/${branchName}...`);
-    connectPty(key, pty);
-  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor]);
+    connectPty(key, setupPty);
+  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, startPtyForSession, savedSessionCursor]);
 
   // Raw stdin input handling
   useEffect(() => {
     const handler = (data: Buffer) => {
       const key = data.toString('utf8');
+
+      // Mouse wheel: scroll the pane under the cursor
+      const mouseMatch = MOUSE_SGR_RE.exec(key);
+      if (mouseMatch) {
+        const button = parseInt(mouseMatch[1], 10);
+        const col = parseInt(mouseMatch[2], 10);
+        const row = parseInt(mouseMatch[3], 10);
+        if (button === 64 || button === 65) {
+          const delta = button === 64 ? -1 : 1;
+          // Determine which pane the mouse is over based on column and row
+          if (col <= sidebarWidth) {
+            // Left column — determine which pane by row
+            if (row <= sessionPaneHeight) {
+              moveSessionCursor(delta);
+            } else if (row <= sessionPaneHeight + prPaneHeight) {
+              movePrCursor(delta);
+            } else if (jiraPaneHeight > 0) {
+              moveJiraCursor(delta);
+            }
+          } else {
+            // Right column (terminal) — scroll through scrollback buffer
+            const pty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+            if (pty && !pty.exited) {
+              const maxScroll = pty.terminal.buffer.active.baseY;
+              const newScroll = Math.max(0, Math.min(maxScroll, termScrollBack.current - delta * 3));
+              if (newScroll !== termScrollBack.current) {
+                termScrollBack.current = newScroll;
+                renderTermAtScroll();
+              }
+            }
+          }
+          return;
+        }
+        // Ignore other mouse events (clicks, etc.)
+        return;
+      }
 
       // Branch input mode (top pane)
       if (branchInputRef.current) {
@@ -613,6 +714,8 @@ export function App({ unsafe, onExit }: AppProps) {
           setMessage('');
           return;
         }
+        // Reset scroll to bottom when typing
+        termScrollBack.current = 0;
         ptySessions.current.get(activeKeyRef.current!)?.write(key);
         return;
       }

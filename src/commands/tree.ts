@@ -42,18 +42,26 @@ export const treeCommand: CommandModule = {
       .option('prompt-file', {
         describe: 'File containing the initial prompt (deleted after reading)',
         type: 'string',
+      })
+      .option('setup-only', {
+        describe: 'Set up worktree only, do not launch the AI tool',
+        type: 'boolean',
+        default: false,
+        hidden: true,
       }),
   handler: (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string | undefined;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
+    const noLaunch = argv['setup-only'] as boolean;
     const baseBranch = argv.base as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
     let initialPrompt = argv.prompt as string | undefined;
 
     // --prompt-file takes precedence: read and delete the temp file
-    if (promptFile) {
+    // (skip when --setup-only since a subsequent launch will need the file)
+    if (promptFile && !noLaunch) {
       try {
         initialPrompt = fs.readFileSync(promptFile, 'utf-8');
         fs.unlinkSync(promptFile);
@@ -110,8 +118,10 @@ export const treeCommand: CommandModule = {
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
       console.log(`Repo path: ${repoPath}`);
       if (open) openVSCode(repoPath);
-      console.log('Starting Claude Code...');
-      launchClaude(repoPath, unsafe, initialPrompt);
+      if (!noLaunch) {
+        console.log('Starting Claude Code...');
+        launchClaude(repoPath, unsafe, initialPrompt);
+      }
       return;
     }
 
@@ -129,7 +139,9 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
-    console.log('Starting Claude Code...');
-    launchClaude(result.launchDir, unsafe, initialPrompt);
+    if (!noLaunch) {
+      console.log('Starting Claude Code...');
+      launchClaude(result.launchDir, unsafe, initialPrompt);
+    }
   },
 };

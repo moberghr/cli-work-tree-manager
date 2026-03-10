@@ -112,13 +112,14 @@ function pushColorSgr(params: number[], mode: number, color: number, isBg: boole
 
 /**
  * Render the visible portion of an xterm buffer as an array of ANSI-styled lines.
+ * @param scrollBack - number of lines scrolled back from the bottom (0 = live view)
  */
-export function renderBufferLines(buffer: any, cols: number, rows: number): string[] {
+export function renderBufferLines(buffer: any, cols: number, rows: number, scrollBack: number = 0): string[] {
   const lines: string[] = [];
   const nullCell = buffer.getNullCell();
 
   for (let y = 0; y < rows; y++) {
-    const lineIdx = buffer.baseY + y;
+    const lineIdx = buffer.baseY + y - scrollBack;
     const line = buffer.getLine(lineIdx);
     let prevAttrs: CellAttrs | null = null;
 
