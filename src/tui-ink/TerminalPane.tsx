@@ -7,9 +7,10 @@ export interface TerminalPaneProps {
   height: number;
   focused: boolean;
   placeholder?: string;
+  title?: string;
 }
 
-export function TerminalPane({ lines, width, height, focused, placeholder }: TerminalPaneProps) {
+export function TerminalPane({ lines, width, height, focused, placeholder, title }: TerminalPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
@@ -43,7 +44,7 @@ export function TerminalPane({ lines, width, height, focused, placeholder }: Ter
 
   return (
     <Box flexDirection="column" width={width}>
-      <Text color={borderColor}>{'┌' + '─'.repeat(innerWidth) + '┐'}</Text>
+      <Text color={borderColor}>{title ? '┌─ ' + title + ' ' + '─'.repeat(Math.max(0, innerWidth - title.length - 3)) + '┐' : '┌' + '─'.repeat(innerWidth) + '┐'}</Text>
       {content.map((row, i) => (
         <Box key={i}>
           <Text color={borderColor}>{'│'}</Text>

@@ -329,6 +329,7 @@ function BorderedPane({
   cursor,
   focused,
   borderColor,
+  title,
   width,
   height,
   renderRow,
@@ -337,6 +338,7 @@ function BorderedPane({
   cursor: number;
   focused: boolean;
   borderColor: string;
+  title?: string;
   width: number;
   height: number;
   renderRow: (row: SidebarRow, idx: number, selected: boolean) => React.ReactNode;
@@ -390,9 +392,13 @@ function BorderedPane({
     }
   }
 
+  const topBorder = title
+    ? '┌─ ' + title + ' ' + '─'.repeat(Math.max(0, innerWidth - title.length - 3)) + '┐'
+    : '┌' + '─'.repeat(innerWidth) + '┐';
+
   return (
     <Box flexDirection="column" width={width}>
-      <Text color={borderColor}>{'┌' + '─'.repeat(innerWidth) + '┐'}</Text>
+      <Text color={borderColor}>{topBorder}</Text>
       {rendered.map((row, i) => (
         <Box key={i}>
           <Text color={borderColor}>│</Text>
@@ -415,6 +421,7 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
       cursor={cursor}
       focused={focused}
       borderColor={borderColor}
+      title="Worktrees"
       width={width}
       height={height}
       renderRow={(row, i, sel) => {
@@ -498,6 +505,7 @@ export function PrPane({ prRows, cursor, focused, localBranches, width, height }
       cursor={cursor}
       focused={focused}
       borderColor={borderColor}
+      title="Pull Requests"
       width={width}
       height={height}
       renderRow={(row, i, sel) => {
@@ -529,6 +537,7 @@ export function JiraPane({ jiraRows, cursor, focused, width, height }: JiraPaneP
       cursor={cursor}
       focused={focused}
       borderColor={borderColor}
+      title="Jira"
       width={width}
       height={height}
       renderRow={(row, i, sel) => {

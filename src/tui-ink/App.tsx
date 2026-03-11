@@ -1085,6 +1085,7 @@ export function App({ unsafe, onExit }: AppProps) {
           height={contentHeight}
           focused={focus === Focus.TERMINAL}
           placeholder={placeholder}
+          title="Terminal"
         />
       </Box>
       <StatusBar message={message} pane={focus === Focus.TERMINAL ? 'terminal' : focus === Focus.PRS ? 'prs' : focus === Focus.JIRA ? 'jira' : 'sessions'} syncing={syncing} />
