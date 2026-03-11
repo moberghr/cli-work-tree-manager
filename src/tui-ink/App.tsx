@@ -147,7 +147,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const termScrollBack = useRef(0);
   const [statusVersion, setStatusVersion] = useState(0);
   const [topPaneMode, setTopPaneMode] = useState(TopPaneMode.SESSIONS);
-  const [branchInput, setBranchInput] = useState<{ projectName: string; value: string } | null>(null);
+  const [branchInput, setBranchInput] = useState<{ projectName: string; value: string; isGroup: boolean } | null>(null);
   const [pendingBranch, setPendingBranch] = useState<string | null>(null);
   const [pendingJiraIssue, setPendingJiraIssue] = useState<JiraIssue | null>(null);
   const [pendingTask, setPendingTask] = useState<Task | null>(null);
@@ -538,6 +538,42 @@ export function App({ unsafe, onExit }: AppProps) {
     }
   }, []);
 
+  /** Launch Claude directly in the base repo (no worktree). */
+  const handleLaunchBaseRepo = useCallback((projectName: string) => {
+    setTopPaneMode(TopPaneMode.SESSIONS);
+    setSessionCursor(savedSessionCursor);
+
+    if (!config) return;
+    const repoPath = config.repos[projectName];
+    if (!repoPath || !fs.existsSync(repoPath)) {
+      setMessage(`Repo path not found for ${projectName}`);
+      return;
+    }
+
+    const branch = '(base)';
+    const key = `${projectName}:${branch}`;
+    upsertSession(projectName, false, branch, [repoPath]);
+    refreshSessions();
+
+    const pty = new PtySession(repoPath, termInner, contentHeight - 2, unsafe, undefined, config.aiCommand);
+    ptySessions.current.set(key, pty);
+
+    pty.onExit = () => {
+      ptySessions.current.delete(key);
+      if (activeKeyRef.current === key) {
+        setActiveKey(null);
+        setFocus(Focus.SESSIONS);
+        setTermLines([]);
+        setMessage(`Session exited: ${projectName} (base)`);
+      }
+      setStatusVersion((v) => v + 1);
+    };
+    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
+    setStatusVersion((v) => v + 1);
+    connectPty(key, pty);
+    setMessage(`Launched: ${projectName} (base repo)`);
+  }, [unsafe, termInner, contentHeight, connectPty, refreshSessions, savedSessionCursor, config]);
+
   /** Spawn `work2 tree --no-launch` in a PTY to set up the worktree (visible output),
    *  then on success launch Claude in a separate PTY session. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
@@ -695,12 +731,14 @@ export function App({ unsafe, onExit }: AppProps) {
           return;
         }
         if (key === '\r') {
-          const { projectName, value } = branchInputRef.current;
+          const { projectName, value, isGroup } = branchInputRef.current;
           setBranchInput(null);
           if (value.trim()) {
             handleCreateWorktree(projectName, value.trim());
+          } else if (!isGroup) {
+            handleLaunchBaseRepo(projectName);
           } else {
-            setMessage('Branch name cannot be empty');
+            setMessage('Branch name is required for groups');
           }
           return;
         }
@@ -753,6 +791,30 @@ export function App({ unsafe, onExit }: AppProps) {
       // --- Left pane navigation ---
       setMessage('');
 
+      // Global sync (G = shift+g) from any left pane
+      if (key === 'G') {
+        if (syncing) return;
+        setSyncing(true);
+        setMessage('Syncing all...');
+        (async () => {
+          if (config) {
+            await Promise.all(
+              Object.values(config.repos).map((repoPath) =>
+                fetchRemoteAsync(repoPath).catch(() => {}),
+              ),
+            );
+          }
+          refreshSessions();
+          refreshPrs();
+          refreshJira();
+          refreshTasks();
+          computeConflictsAndMerged(sessionsRef.current);
+          setSyncing(false);
+          setMessage('All synced');
+        })();
+        return;
+      }
+
       // Project picker mode (top pane)
       if (topPaneModeRef.current === TopPaneMode.PROJECTS) {
         if (key === '\x1B' || key === '\x03' || key === 'q') {
@@ -794,8 +856,10 @@ export function App({ unsafe, onExit }: AppProps) {
               handleCreateWorktree(row.name, branch);
             } else {
               setTopPaneMode(TopPaneMode.BRANCH_INPUT);
-              setBranchInput({ projectName: row.name, value: '' });
-              setMessage('Type branch name, Enter to create, Esc to cancel');
+              setBranchInput({ projectName: row.name, value: '', isGroup: row.isGroup });
+              setMessage(row.isGroup
+                ? 'Type branch name, Enter to create, Esc to cancel'
+                : 'Type branch name (empty for base repo), Enter to create, Esc to cancel');
             }
           }
           return;
@@ -900,6 +964,12 @@ export function App({ unsafe, onExit }: AppProps) {
           return;
         }
 
+        if (key === 'g') {
+          refreshTasks();
+          setMessage('Tasks refreshed');
+          return;
+        }
+
         if (key === '\x03' || key === 'q') {
           for (const pty of ptySessions.current.values()) pty.dispose();
           ptySessions.current.clear();
@@ -952,19 +1022,11 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === 'g') {
           if (syncing) return;
           setSyncing(true);
-          setMessage('Syncing...');
+          setMessage('Syncing Jira...');
           (async () => {
-            if (config) {
-              await Promise.all(
-                Object.values(config.repos).map((repoPath) =>
-                  fetchRemoteAsync(repoPath).catch(() => {}),
-                ),
-              );
-            }
-            refreshSessions();
-            refreshPrs();
-            refreshJira();
+            await refreshJira();
             setSyncing(false);
+            setMessage('Jira synced');
           })();
           return;
         }
@@ -1008,29 +1070,12 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === 'g') {
           if (syncing) return;
           setSyncing(true);
-          setMessage('Syncing...');
+          setMessage('Syncing PRs...');
           (async () => {
-            if (config) {
-              await Promise.all(
-                Object.values(config.repos).map((repoPath) =>
-                  fetchRemoteAsync(repoPath).catch(() => {}),
-                ),
-              );
-            }
-            refreshSessions();
-            refreshPrs();
-            refreshJira();
+            await refreshPrs();
             setSyncing(false);
-            if (!ghAvailable) setMessage('Synced');
+            setMessage('PRs synced');
           })();
-          return;
-        }
-
-        if (key === 'r') {
-          refreshSessions();
-          refreshPrs();
-          refreshJira();
-          if (!ghAvailable) setMessage('Refreshed');
           return;
         }
 
@@ -1136,7 +1181,7 @@ export function App({ unsafe, onExit }: AppProps) {
       if (key === 'g') {
         if (syncing) return;
         setSyncing(true);
-        setMessage('Syncing...');
+        setMessage('Syncing sessions...');
         (async () => {
           if (config) {
             await Promise.all(
@@ -1146,10 +1191,9 @@ export function App({ unsafe, onExit }: AppProps) {
             );
           }
           refreshSessions();
-          refreshPrs();
-          refreshJira();
+          computeConflictsAndMerged(sessionsRef.current);
           setSyncing(false);
-          if (!ghAvailable) setMessage('Synced');
+          setMessage('Sessions synced');
         })();
         return;
       }
@@ -1158,6 +1202,7 @@ export function App({ unsafe, onExit }: AppProps) {
         refreshSessions();
         refreshPrs();
         refreshJira();
+        refreshTasks();
         if (!ghAvailable) setMessage('Refreshed');
         return;
       }
