@@ -42,6 +42,11 @@ export const treeCommand: CommandModule = {
       .option('prompt-file', {
         describe: 'File containing the initial prompt (deleted after reading)',
         type: 'string',
+      })
+      .option('jira-key', {
+        describe: 'Link a Jira issue key to this worktree session',
+        type: 'string',
+        hidden: true,
       }),
   handler: (argv) => {
     const targetName = argv.target as string;
@@ -49,6 +54,7 @@ export const treeCommand: CommandModule = {
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
     const baseBranch = argv.base as string | undefined;
+    const jiraKey = argv['jira-key'] as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
     let initialPrompt = argv.prompt as string | undefined;
 
@@ -116,7 +122,7 @@ export const treeCommand: CommandModule = {
     }
 
     // Create/switch worktree via shared core logic
-    const result = setupWorktree(targetName, branchName, config, baseBranch);
+    const result = setupWorktree(targetName, branchName, config, baseBranch, jiraKey);
     if (!result) {
       process.exitCode = 1;
       return;

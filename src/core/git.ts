@@ -138,14 +138,23 @@ export function isBranchMerged(
   for (const base of uniqueBases) {
     // Check remote base branch first (most up-to-date after fetch)
     if (remoteBranchExists(base, cwd)) {
-      const result = git(['merge-base', '--is-ancestor', branch, `origin/${base}`], cwd);
-      if (result.exitCode === 0) return { merged: true, into: `origin/${base}` };
+      const baseRef = `origin/${base}`;
+      const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
+      if (branchInBase.exitCode === 0) {
+        // Branch is ancestor of base — but if base is also ancestor of branch,
+        // they're at the same commit (fresh branch, not actually merged)
+        const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
+        if (baseInBranch.exitCode !== 0) return { merged: true, into: baseRef };
+      }
     }
 
     // Fall back to local base branch
     if (localBranchExists(base, cwd)) {
-      const result = git(['merge-base', '--is-ancestor', branch, base], cwd);
-      if (result.exitCode === 0) return { merged: true, into: base };
+      const branchInBase = git(['merge-base', '--is-ancestor', branch, base], cwd);
+      if (branchInBase.exitCode === 0) {
+        const baseInBranch = git(['merge-base', '--is-ancestor', base, branch], cwd);
+        if (baseInBranch.exitCode !== 0) return { merged: true, into: base };
+      }
     }
   }
 

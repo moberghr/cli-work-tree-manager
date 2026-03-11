@@ -585,6 +585,7 @@ export function App({ unsafe, onExit }: AppProps) {
     if (unsafe) args.push('--unsafe');
 
     if (jiraIssue) {
+      args.push('--jira-key', jiraIssue.key);
       const prompt = [
         `Read Jira issue ${jiraIssue.key} (${jiraIssue.url}) and plan how to implement it.`,
         '',
@@ -954,10 +955,9 @@ export function App({ unsafe, onExit }: AppProps) {
           if (row?.type === 'jira') {
             const issue = row.issue;
 
-            // Check if any existing session matches this issue key
-            const keyLower = issue.key.toLowerCase();
+            // Check if any existing session is linked to this Jira issue
             const existing = sessionsRef.current.find((s) =>
-              s.branch.includes(keyLower),
+              s.jiraKey === issue.key,
             );
             if (existing) {
               setFocus(Focus.SESSIONS);

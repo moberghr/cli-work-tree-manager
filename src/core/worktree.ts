@@ -264,6 +264,7 @@ export function setupWorktree(
   branchName: string,
   config: WorkConfig,
   baseBranch?: string,
+  jiraKey?: string,
 ): WorktreeSetupResult | null {
   const target = resolveProjectTarget(targetName, config);
   if (!target) return null;
@@ -271,9 +272,9 @@ export function setupWorktree(
   const workTreeDirName = branchName.replace(/\//g, '-');
 
   if (target.isGroup) {
-    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, baseBranch);
+    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, baseBranch, jiraKey);
   } else {
-    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, baseBranch);
+    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, baseBranch, jiraKey);
   }
 }
 
@@ -284,6 +285,7 @@ function setupGroupWorktree(
   workTreeDirName: string,
   config: WorkConfig,
   baseBranch?: string,
+  jiraKey?: string,
 ): WorktreeSetupResult | null {
   const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
 
@@ -363,7 +365,7 @@ function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  upsertSession(groupName, true, branchName, allPaths);
+  upsertSession(groupName, true, branchName, allPaths, jiraKey);
 
   console.log('');
   console.log(`Branch: ${branchName}`);
@@ -377,6 +379,7 @@ function setupSingleWorktree(
   workTreeDirName: string,
   config: WorkConfig,
   baseBranch?: string,
+  jiraKey?: string,
 ): WorktreeSetupResult | null {
   const repoPath = config.repos[targetName];
   const repoName = path.basename(repoPath);
@@ -403,7 +406,7 @@ function setupSingleWorktree(
     if (!success) return null;
   }
 
-  upsertSession(targetName, false, branchName, [workTreePath]);
+  upsertSession(targetName, false, branchName, [workTreePath], jiraKey);
 
   console.log(`Branch: ${branchName}`);
 

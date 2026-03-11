@@ -9,6 +9,7 @@ export interface WorktreeSession {
   paths: string[];
   createdAt: string;
   lastAccessedAt: string;
+  jiraKey?: string;
 }
 
 export function getHistoryPath(): string {
@@ -55,6 +56,7 @@ export function upsertSession(
   isGroup: boolean,
   branch: string,
   paths: string[],
+  jiraKey?: string,
 ): void {
   const sessions = loadHistory();
   const existing = findSession(sessions, target, branch);
@@ -63,15 +65,18 @@ export function upsertSession(
   if (existing) {
     existing.paths = paths;
     existing.lastAccessedAt = now;
+    if (jiraKey) existing.jiraKey = jiraKey;
   } else {
-    sessions.push({
+    const session: WorktreeSession = {
       target,
       isGroup,
       branch,
       paths,
       createdAt: now,
       lastAccessedAt: now,
-    });
+    };
+    if (jiraKey) session.jiraKey = jiraKey;
+    sessions.push(session);
   }
 
   saveHistory(sessions);
