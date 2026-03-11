@@ -15,6 +15,13 @@ export function openInEditor(filePath: string): void {
   spawn.sync(editor, [filePath], { stdio: 'inherit' });
 }
 
+/** Open a URL in the default browser. */
+export function openUrl(url: string): void {
+  const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
+}
+
 /** Open VS Code in the given directory. */
 export function openVSCode(dir: string): void {
   spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit' });

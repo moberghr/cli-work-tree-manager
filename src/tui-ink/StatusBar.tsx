@@ -11,7 +11,7 @@ const PANE_HINTS: Record<StatusBarProps['pane'], string> = {
   sessions: ' tab pane  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  G sync all  q quit ',
   tasks: ' tab pane  j/k nav  enter toggle  a add  e edit  w worktree  d remove  g sync  G sync all  q quit ',
   prs: ' tab pane  j/k nav  enter checkout  g sync  G sync all  q quit ',
-  jira: ' tab pane  j/k nav  enter worktree  g sync  G sync all  q quit ',
+  jira: ' tab pane  j/k nav  enter worktree  o open  g sync  G sync all  q quit ',
   terminal: ' tab pane  ctrl+] detach ',
 };
 

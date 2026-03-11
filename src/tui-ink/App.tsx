@@ -17,6 +17,7 @@ import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
 import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
+import { openUrl } from '../utils/platform.js';
 import { PtySession } from '../tui/session.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
@@ -975,6 +976,15 @@ export function App({ unsafe, onExit }: AppProps) {
           return;
         }
 
+        if (key === 'o') {
+          const row = cursorToRow(jiraRowsRef.current, jiraCursorRef.current);
+          if (row?.type === 'jira' && row.issue.url) {
+            openUrl(row.issue.url);
+            setMessage(`Opened: ${row.issue.key}`);
+          }
+          return;
+        }
+
         if (key === '\x03' || key === 'q') {
           for (const pty of ptySessions.current.values()) pty.dispose();
           ptySessions.current.clear();
@@ -1093,6 +1103,7 @@ export function App({ unsafe, onExit }: AppProps) {
           if (activeKeyRef.current === removeKey) {
             setActiveKey(null);
             setTermLines([]);
+            setFocus(Focus.SESSIONS);
           }
           setStatusVersion((v) => v + 1);
           refreshSessions();
