@@ -574,17 +574,15 @@ export function App({ unsafe, onExit }: AppProps) {
     setMessage(`Launched: ${projectName} (base repo)`);
   }, [unsafe, termInner, contentHeight, connectPty, refreshSessions, savedSessionCursor, config]);
 
-  /** Spawn `work2 tree --no-launch` in a PTY to set up the worktree (visible output),
-   *  then on success launch Claude in a separate PTY session. */
+  /** Spawn `work2 tree` in a single PTY — sets up the worktree and launches Claude. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
     setTopPaneMode(TopPaneMode.SESSIONS);
     setSessionCursor(savedSessionCursor);
 
     const key = `${projectName}:${branchName}`;
-    const setupArgs = ['tree', projectName, branchName, '--setup-only'];
+    const args = ['tree', projectName, branchName];
+    if (unsafe) args.push('--unsafe');
 
-    // Build prompt args for the Claude session (used after setup completes)
-    let promptFile: string | undefined;
     if (jiraIssue) {
       const prompt = [
         `Read Jira issue ${jiraIssue.key} (${jiraIssue.url}) and plan how to implement it.`,
@@ -613,71 +611,36 @@ export function App({ unsafe, onExit }: AppProps) {
         '',
         '4. Ask if I want to proceed with the recommended approach, choose a different one, get more details, or make adjustments.',
       ].join('\n');
-      promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
+      const promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
+      args.push('--prompt-file', promptFile);
     }
 
-    // Phase 1: Run setup in PTY (output visible in terminal pane)
-    const setupPty = new PtySession(
+    const pty = new PtySession(
       process.cwd(),
       termInner,
       contentHeight - 2,
       false,
-      { cmd: 'work2', args: setupArgs },
+      { cmd: 'work2', args },
     );
-    ptySessions.current.set(key, setupPty);
+    ptySessions.current.set(key, pty);
 
-    setupPty.onExit = (code: number) => {
+    pty.onExit = () => {
       ptySessions.current.delete(key);
-      setStatusVersion((v) => v + 1);
-      refreshSessions();
-
-      if (code !== 0) {
-        if (activeKeyRef.current === key) {
-          setActiveKey(null);
-          setFocus(Focus.SESSIONS);
-          setTermLines([]);
-        }
-        if (promptFile) try { fs.unlinkSync(promptFile); } catch { /* */ }
-        return;
+      if (activeKeyRef.current === key) {
+        setActiveKey(null);
+        setFocus(Focus.SESSIONS);
+        setTermLines([]);
+        setMessage(`Session exited: ${projectName} / ${branchName}`);
       }
-
-      // Phase 2: Setup succeeded — launch Claude
-      refreshSessions();
-
-      const launchArgs = ['tree', projectName, branchName];
-      if (unsafe) launchArgs.push('--unsafe');
-      if (promptFile) launchArgs.push('--prompt-file', promptFile);
-
-      const claudePty = new PtySession(
-        process.cwd(),
-        termInner,
-        contentHeight - 2,
-        false,
-        { cmd: 'work2', args: launchArgs },
-      );
-      ptySessions.current.set(key, claudePty);
-
-      claudePty.onExit = () => {
-        ptySessions.current.delete(key);
-        if (activeKeyRef.current === key) {
-          setActiveKey(null);
-          setFocus(Focus.SESSIONS);
-          setTermLines([]);
-          setMessage(`Session exited: ${projectName} / ${branchName}`);
-        }
-        setStatusVersion((v) => v + 1);
-      };
-      claudePty.onStatusChange = () => setStatusVersion((v) => v + 1);
       setStatusVersion((v) => v + 1);
-      connectPty(key, claudePty);
-      setMessage(`Created: ${projectName}/${branchName}`);
+      refreshSessions();
     };
-    setupPty.onStatusChange = () => setStatusVersion((v) => v + 1);
+    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
     setStatusVersion((v) => v + 1);
     setMessage(`Creating: ${projectName}/${branchName}...`);
-    connectPty(key, setupPty);
-  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, startPtyForSession, savedSessionCursor]);
+    connectPty(key, pty);
+  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor]);
 
   // Raw stdin input handling
   useEffect(() => {
