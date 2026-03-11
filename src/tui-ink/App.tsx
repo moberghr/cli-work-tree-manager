@@ -1165,6 +1165,7 @@ export function App({ unsafe, onExit }: AppProps) {
             );
           }
           refreshSessions();
+          refreshPrs();
           computeConflictsAndMerged(sessionsRef.current);
           setSyncing(false);
           setMessage('Sessions synced');
