@@ -16,12 +16,13 @@ import { loadConfig } from '../core/config.js';
 import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
+import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
 import { PtySession } from '../tui/session.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
-  Sidebar, PrPane, JiraPane,
-  buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows,
+  Sidebar, PrPane, JiraPane, TaskPane,
+  buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows, buildTaskRows,
   countSelectable, cursorToRow,
   type SidebarRow,
 } from './Sidebar.js';
@@ -38,6 +39,7 @@ const MOUSE_SGR_RE = /\x1b\[<(\d+);(\d+);(\d+)[Mm]/;
 
 enum Focus {
   SESSIONS,
+  TASKS,
   PRS,
   JIRA,
   TERMINAL,
@@ -125,6 +127,11 @@ export function App({ unsafe, onExit }: AppProps) {
   const [sessionCursor, setSessionCursor] = useState(0);
   const [prCursor, setPrCursor] = useState(0);
   const [jiraCursor, setJiraCursor] = useState(0);
+  const [taskCursor, setTaskCursor] = useState(0);
+  const [tasks, setTasks] = useState<Task[]>(getTasks);
+  const [taskInput, setTaskInput] = useState<string | null>(null);
+  const [taskEditId, setTaskEditId] = useState<number | null>(null);
+  const taskEditIdRef = useRef(taskEditId);
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
   const [acliAvailable, setAcliAvailable] = useState(false);
   const jiraFetching = useRef(false);
@@ -143,6 +150,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const [branchInput, setBranchInput] = useState<{ projectName: string; value: string } | null>(null);
   const [pendingBranch, setPendingBranch] = useState<string | null>(null);
   const [pendingJiraIssue, setPendingJiraIssue] = useState<JiraIssue | null>(null);
+  const [pendingTask, setPendingTask] = useState<Task | null>(null);
   const [savedSessionCursor, setSavedSessionCursor] = useState(0);
 
   const localBranches = useMemo(() => new Set(sessions.map((s) => s.branch)), [sessions]);
@@ -150,6 +158,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const projectRows = useMemo(() => buildProjectRows(projects), [projects]);
   const prRows = useMemo(() => buildPrRows(prMap), [prMap]);
   const jiraRows = useMemo(() => buildJiraRows(jiraIssues), [jiraIssues]);
+  const taskRows = useMemo(() => buildTaskRows(tasks), [tasks]);
   const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
 
   const ptySessions = useRef(new Map<string, PtySession>());
@@ -160,6 +169,9 @@ export function App({ unsafe, onExit }: AppProps) {
   const prCursorRef = useRef(prCursor);
   const jiraCursorRef = useRef(jiraCursor);
   const jiraRowsRef = useRef(jiraRows);
+  const taskCursorRef = useRef(taskCursor);
+  const taskRowsRef = useRef(taskRows);
+  const taskInputRef = useRef(taskInput);
   const sessionsRef = useRef(sessions);
   const topPaneModeRef = useRef(topPaneMode);
   const branchInputRef = useRef(branchInput);
@@ -173,6 +185,10 @@ export function App({ unsafe, onExit }: AppProps) {
   prCursorRef.current = prCursor;
   jiraCursorRef.current = jiraCursor;
   jiraRowsRef.current = jiraRows;
+  taskCursorRef.current = taskCursor;
+  taskRowsRef.current = taskRows;
+  taskInputRef.current = taskInput;
+  taskEditIdRef.current = taskEditId;
   sessionsRef.current = sessions;
   topPaneModeRef.current = topPaneMode;
   branchInputRef.current = branchInput;
@@ -180,6 +196,8 @@ export function App({ unsafe, onExit }: AppProps) {
   pendingBranchRef.current = pendingBranch;
   const pendingJiraIssueRef = useRef(pendingJiraIssue);
   pendingJiraIssueRef.current = pendingJiraIssue;
+  const pendingTaskRef = useRef(pendingTask);
+  pendingTaskRef.current = pendingTask;
   topRowsRef.current = topRows;
   prRowsRef.current = prRows;
 
@@ -195,9 +213,10 @@ export function App({ unsafe, onExit }: AppProps) {
   const termInner = termWidth - 2;
   const contentHeight = rows - 1; // status bar
   // Split left column into 3 panes
-  const jiraPaneHeight = acliAvailable ? Math.max(5, Math.floor(contentHeight * 0.25)) : 0;
-  const prPaneHeight = Math.max(5, Math.floor((contentHeight - jiraPaneHeight) * 0.45));
-  const sessionPaneHeight = contentHeight - prPaneHeight - jiraPaneHeight;
+  const jiraPaneHeight = acliAvailable ? Math.max(5, Math.floor(contentHeight * 0.20)) : 0;
+  const taskPaneHeight = Math.max(5, Math.floor(contentHeight * 0.20));
+  const prPaneHeight = Math.max(5, Math.floor((contentHeight - jiraPaneHeight - taskPaneHeight) * 0.45));
+  const sessionPaneHeight = contentHeight - prPaneHeight - taskPaneHeight - jiraPaneHeight;
 
   // Update terminal title — icon + count per state, hide if 0
   useEffect(() => {
@@ -256,6 +275,10 @@ export function App({ unsafe, onExit }: AppProps) {
       .catch(() => {})
       .finally(() => { jiraFetching.current = false; });
   }, [acliAvailable]);
+
+  const refreshTasks = useCallback(() => {
+    setTasks(getTasks());
+  }, []);
 
   const refreshSessions = useCallback(() => {
     const updated = loadSessions();
@@ -352,6 +375,15 @@ export function App({ unsafe, onExit }: AppProps) {
     } catch { /* file may not exist yet */ }
   }, [refreshSessions]);
 
+  // Watch tasks file for external changes
+  useEffect(() => {
+    const tasksPath = getTasksPath_();
+    try {
+      const watcher = fs.watch(tasksPath, () => refreshTasks());
+      return () => watcher.close();
+    } catch { /* file may not exist yet */ }
+  }, [refreshTasks]);
+
   // Fetch PRs once gh is confirmed available
   useEffect(() => {
     if (ghAvailable) refreshPrs();
@@ -431,6 +463,13 @@ export function App({ unsafe, onExit }: AppProps) {
     if (max < 0) return;
     const next = Math.max(0, Math.min(max, jiraCursorRef.current + delta));
     setJiraCursor(next);
+  }, []);
+
+  const moveTaskCursor = useCallback((delta: number) => {
+    const max = countSelectable(taskRowsRef.current) - 1;
+    if (max < 0) return;
+    const next = Math.max(0, Math.min(max, taskCursorRef.current + delta));
+    setTaskCursor(next);
   }, []);
 
   /** Connect a PTY to the display and focus on it. */
@@ -567,45 +606,36 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      // Phase 2: Setup succeeded — show output briefly, then start Claude
+      // Phase 2: Setup succeeded — launch Claude
       refreshSessions();
 
-      // Force a final render of setup output before starting Claude
-      try {
-        const finalLines = renderBufferLines(setupPty.terminal.buffer.active, termInner, contentHeight - 2);
-        setTermLines(finalLines);
-      } catch { /* */ }
+      const launchArgs = ['tree', projectName, branchName];
+      if (unsafe) launchArgs.push('--unsafe');
+      if (promptFile) launchArgs.push('--prompt-file', promptFile);
 
-      // Brief delay so user sees the setup output before Claude takes over
-      setTimeout(() => {
-        // Re-run work2 tree (will detect existing worktree and just launch Claude)
-        const launchArgs = ['tree', projectName, branchName];
-        if (unsafe) launchArgs.push('--unsafe');
-        if (promptFile) launchArgs.push('--prompt-file', promptFile);
+      const claudePty = new PtySession(
+        process.cwd(),
+        termInner,
+        contentHeight - 2,
+        false,
+        { cmd: 'work2', args: launchArgs },
+      );
+      ptySessions.current.set(key, claudePty);
 
-        const claudePty = new PtySession(
-          process.cwd(),
-          termInner,
-          contentHeight - 2,
-          false,
-          { cmd: 'work2', args: launchArgs },
-        );
-        ptySessions.current.set(key, claudePty);
-
-        claudePty.onExit = () => {
-          ptySessions.current.delete(key);
-          if (activeKeyRef.current === key) {
-            setActiveKey(null);
-            setFocus(Focus.SESSIONS);
-            setTermLines([]);
-            setMessage(`Session exited: ${projectName} / ${branchName}`);
-          }
-          setStatusVersion((v) => v + 1);
-        };
-        claudePty.onStatusChange = () => setStatusVersion((v) => v + 1);
+      claudePty.onExit = () => {
+        ptySessions.current.delete(key);
+        if (activeKeyRef.current === key) {
+          setActiveKey(null);
+          setFocus(Focus.SESSIONS);
+          setTermLines([]);
+          setMessage(`Session exited: ${projectName} / ${branchName}`);
+        }
         setStatusVersion((v) => v + 1);
-        connectPty(key, claudePty);
-      }, 1500);
+      };
+      claudePty.onStatusChange = () => setStatusVersion((v) => v + 1);
+      setStatusVersion((v) => v + 1);
+      connectPty(key, claudePty);
+      setMessage(`Created: ${projectName}/${branchName}`);
     };
     setupPty.onStatusChange = () => setStatusVersion((v) => v + 1);
     setStatusVersion((v) => v + 1);
@@ -633,8 +663,10 @@ export function App({ unsafe, onExit }: AppProps) {
               moveSessionCursor(delta);
             } else if (row <= sessionPaneHeight + prPaneHeight) {
               movePrCursor(delta);
-            } else if (jiraPaneHeight > 0) {
+            } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
               moveJiraCursor(delta);
+            } else {
+              moveTaskCursor(delta);
             }
           } else {
             // Right column (terminal) — scroll through scrollback buffer
@@ -688,14 +720,12 @@ export function App({ unsafe, onExit }: AppProps) {
         const hasTerminal = activePty && !activePty.exited;
 
         if (focusRef.current === Focus.SESSIONS) {
-          if (countSelectable(prRowsRef.current) > 0) setFocus(Focus.PRS);
-          else if (countSelectable(jiraRowsRef.current) > 0) setFocus(Focus.JIRA);
-          else if (hasTerminal) setFocus(Focus.TERMINAL);
+          setFocus(Focus.PRS);
         } else if (focusRef.current === Focus.PRS) {
-          if (countSelectable(jiraRowsRef.current) > 0) setFocus(Focus.JIRA);
-          else if (hasTerminal) setFocus(Focus.TERMINAL);
-          else { setFocus(Focus.SESSIONS); syncSessionCursorToActive(); }
+          setFocus(acliAvailable ? Focus.JIRA : Focus.TASKS);
         } else if (focusRef.current === Focus.JIRA) {
+          setFocus(Focus.TASKS);
+        } else if (focusRef.current === Focus.TASKS) {
           if (hasTerminal) setFocus(Focus.TERMINAL);
           else { setFocus(Focus.SESSIONS); syncSessionCursorToActive(); }
         } else {
@@ -730,6 +760,7 @@ export function App({ unsafe, onExit }: AppProps) {
           setSessionCursor(savedSessionCursor);
           setPendingBranch(null);
           setPendingJiraIssue(null);
+          setPendingTask(null);
           setMessage('');
           return;
         }
@@ -739,6 +770,7 @@ export function App({ unsafe, onExit }: AppProps) {
           const row = cursorToRow(topRowsRef.current, sessionCursorRef.current);
           if (row?.type === 'project') {
             const issue = pendingJiraIssueRef.current;
+            const task = pendingTaskRef.current;
             if (issue) {
               // Jira flow: generate slug then create worktree in PTY
               setPendingJiraIssue(null);
@@ -747,6 +779,14 @@ export function App({ unsafe, onExit }: AppProps) {
               generateSlug(issue.summary).then((slug) => {
                 const branchName = `task/${keyLower}-${slug}`;
                 handleCreateWorktree(row.name, branchName, issue);
+              });
+            } else if (task) {
+              // Task flow: generate slug from task text
+              setPendingTask(null);
+              setMessage(`Generating branch name for task #${task.id}...`);
+              generateSlug(task.text).then((slug) => {
+                const branchName = `todo/${slug}`;
+                handleCreateWorktree(row.name, branchName);
               });
             } else if (pendingBranchRef.current) {
               const branch = pendingBranchRef.current;
@@ -760,6 +800,113 @@ export function App({ unsafe, onExit }: AppProps) {
           }
           return;
         }
+        return;
+      }
+
+      // Tasks pane focused
+      if (focusRef.current === Focus.TASKS) {
+        // Task input mode
+        if (taskInputRef.current !== null) {
+          if (key === '\x1B' || key === '\x03') {
+            setTaskInput(null);
+            setTaskEditId(null);
+            setMessage('');
+            return;
+          }
+          if (key === '\r') {
+            const text = taskInputRef.current.trim();
+            const editId = taskEditIdRef.current;
+            setTaskInput(null);
+            setTaskEditId(null);
+            if (text) {
+              if (editId !== null) {
+                editTask(editId, text);
+                refreshTasks();
+                setMessage(`Updated task #${editId}`);
+              } else {
+                addTask(text);
+                refreshTasks();
+                setMessage(`Added task: ${text}`);
+              }
+            }
+            return;
+          }
+          if (key === '\x7F' || key === '\b') {
+            setTaskInput((prev) => prev !== null ? prev.slice(0, -1) : null);
+            return;
+          }
+          if (key.charCodeAt(0) < 32) return;
+          setTaskInput((prev) => prev !== null ? prev + key : null);
+          return;
+        }
+
+        if (key === '\x1B[A' || key === 'k') { moveTaskCursor(-1); return; }
+        if (key === '\x1B[B' || key === 'j') { moveTaskCursor(1); return; }
+
+        // Toggle done/undone
+        if (key === '\r' || key === 'x') {
+          const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
+          if (row?.type === 'task') {
+            if (row.task.done) {
+              uncompleteTask(row.task.id);
+            } else {
+              completeTask(row.task.id);
+            }
+            refreshTasks();
+          }
+          return;
+        }
+
+        // Add new task
+        if (key === 'a') {
+          setTaskInput('');
+          setMessage('Type task, Enter to add, Esc to cancel');
+          return;
+        }
+
+        // Edit task
+        if (key === 'e') {
+          const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
+          if (row?.type === 'task') {
+            setTaskEditId(row.task.id);
+            setTaskInput(row.task.text);
+            setMessage('Edit task, Enter to save, Esc to cancel');
+          }
+          return;
+        }
+
+        // Create worktree for task
+        if (key === 'w') {
+          const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
+          if (row?.type === 'task') {
+            setPendingTask(row.task);
+            setSavedSessionCursor(sessionCursorRef.current);
+            setFocus(Focus.SESSIONS);
+            setTopPaneMode(TopPaneMode.PROJECTS);
+            setSessionCursor(0);
+            setMessage(`Select project for task #${row.task.id}`);
+          }
+          return;
+        }
+
+        // Remove task
+        if (key === 'd') {
+          const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
+          if (row?.type === 'task') {
+            removeTask(row.task.id);
+            refreshTasks();
+            setMessage(`Removed: ${row.task.text}`);
+          }
+          return;
+        }
+
+        if (key === '\x03' || key === 'q') {
+          for (const pty of ptySessions.current.values()) pty.dispose();
+          ptySessions.current.clear();
+          onExit();
+          return;
+        }
+
         return;
       }
 
@@ -1018,7 +1165,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, moveSessionCursor, movePrCursor, moveJiraCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
+  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, refreshTasks, moveSessionCursor, movePrCursor, moveJiraCursor, moveTaskCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
 
   // Resize handling
   useEffect(() => {
@@ -1078,6 +1225,14 @@ export function App({ unsafe, onExit }: AppProps) {
               height={jiraPaneHeight}
             />
           )}
+          <TaskPane
+            taskRows={taskRows}
+            cursor={taskCursor}
+            focused={focus === Focus.TASKS}
+            width={sidebarWidth}
+            height={taskPaneHeight}
+            taskInput={taskInput}
+          />
         </Box>
         <TerminalPane
           lines={termLines}
@@ -1088,7 +1243,7 @@ export function App({ unsafe, onExit }: AppProps) {
           title="Terminal"
         />
       </Box>
-      <StatusBar message={message} pane={focus === Focus.TERMINAL ? 'terminal' : focus === Focus.PRS ? 'prs' : focus === Focus.JIRA ? 'jira' : 'sessions'} syncing={syncing} />
+      <StatusBar message={message} pane={focus === Focus.TERMINAL ? 'terminal' : focus === Focus.PRS ? 'prs' : focus === Focus.JIRA ? 'jira' : focus === Focus.TASKS ? 'tasks' : 'sessions'} syncing={syncing} />
     </Box>
   );
 }

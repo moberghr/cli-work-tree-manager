@@ -5,6 +5,7 @@ import type { WorktreeSession } from '../core/history.js';
 import type { SessionStatus } from '../tui/session.js';
 import type { PullRequestInfo, BranchPrMap } from '../core/pr.js';
 import type { JiraIssue } from '../core/jira.js';
+import type { Task } from '../core/tasks.js';
 
 export interface SidebarProps {
   sidebarRows: SidebarRow[];
@@ -36,12 +37,22 @@ export interface JiraPaneProps {
   height: number;
 }
 
+export interface TaskPaneProps {
+  taskRows: SidebarRow[];
+  cursor: number;
+  focused: boolean;
+  width: number;
+  height: number;
+  taskInput?: string | null;
+}
+
 export type SidebarRow =
   | { type: 'header'; label: string }
   | { type: 'session'; session: WorktreeSession }
   | { type: 'project'; name: string; isGroup: boolean }
   | { type: 'pr'; pr: PullRequestInfo }
-  | { type: 'jira'; issue: JiraIssue };
+  | { type: 'jira'; issue: JiraIssue }
+  | { type: 'task'; task: Task };
 
 export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
   if (sessions.length === 0) return [];
@@ -91,6 +102,26 @@ export function buildJiraRows(issues: JiraIssue[]): SidebarRow[] {
     rows.push({ type: 'header', label: status });
     for (const issue of group) {
       rows.push({ type: 'jira', issue });
+    }
+  }
+  return rows;
+}
+
+export function buildTaskRows(tasks: Task[]): SidebarRow[] {
+  const open = tasks.filter((t) => !t.done);
+  const done = tasks.filter((t) => t.done);
+  if (open.length === 0 && done.length === 0) return [{ type: 'header', label: 'No tasks' }];
+
+  const rows: SidebarRow[] = [];
+  if (open.length > 0) {
+    for (const task of open) {
+      rows.push({ type: 'task', task });
+    }
+  }
+  if (done.length > 0) {
+    rows.push({ type: 'header', label: `Done (${done.length})` });
+    for (const task of done) {
+      rows.push({ type: 'task', task });
     }
   }
   return rows;
@@ -517,6 +548,119 @@ export function PrPane({ prRows, cursor, focused, localBranches, width, height }
               selected={sel}
               focused={focused}
               local={localBranches.has(row.pr.branch)}
+              width={innerWidth}
+            />
+          );
+        }
+        return <EmptyRow key={i} width={innerWidth} />;
+      }}
+    />
+  );
+}
+
+function TaskListRow({
+  task,
+  selected,
+  focused,
+  width,
+}: {
+  task: Task;
+  selected: boolean;
+  focused: boolean;
+  width: number;
+}): React.ReactElement {
+  const marker = selected && focused ? '›' : ' ';
+  const check = task.done ? '✓' : '○';
+  const checkColor = task.done ? 'green' : 'gray';
+  const idStr = `#${task.id}`;
+  const textBudget = Math.max(4, width - idStr.length - 7);
+
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color={selected && focused ? 'cyan' : undefined}>{marker}</Text>
+      <Text color={checkColor}>{check}</Text>
+      <Text> </Text>
+      <Text dimColor={task.done} strikethrough={task.done}>{truncate(task.text, textBudget)}</Text>
+      <Box flexGrow={1} />
+      <Text dimColor>{idStr}</Text>
+    </Box>
+  );
+}
+
+function TaskInputRow({ value, width }: { value: string; width: number }): React.ReactElement {
+  const budget = Math.max(4, width - 8);
+  return (
+    <Box width={width}>
+      <Text>  </Text>
+      <Text color="cyan">+ </Text>
+      <Text>{truncate(value, budget)}</Text>
+      <Text dimColor>█</Text>
+    </Box>
+  );
+}
+
+export function TaskPane({ taskRows, cursor, focused, width, height, taskInput }: TaskPaneProps) {
+  const borderColor = focused ? 'cyan' : 'gray';
+  const innerWidth = width - 2;
+  const contentHeight = height - 2;
+
+  // If input is active, render it manually at the top
+  if (taskInput !== null && taskInput !== undefined) {
+    const rendered: React.ReactNode[] = [];
+    rendered.push(<TaskInputRow key="input" value={taskInput} width={innerWidth} />);
+
+    let selectableIdx = 0;
+    for (let i = 0; i < contentHeight - 1 && i < taskRows.length; i++) {
+      const row = taskRows[i];
+      if (row.type === 'header') {
+        rendered.push(<HeaderRow key={`r${i}`} label={row.label} width={innerWidth} />);
+      } else if (row.type === 'task') {
+        rendered.push(
+          <TaskListRow key={`r${i}`} task={row.task} selected={false} focused={false} width={innerWidth} />,
+        );
+        selectableIdx++;
+      }
+    }
+    while (rendered.length < contentHeight) {
+      rendered.push(<EmptyRow key={`e${rendered.length}`} width={innerWidth} />);
+    }
+
+    const title = 'Tasks';
+    const topBorder = '┌─ ' + title + ' ' + '─'.repeat(Math.max(0, innerWidth - title.length - 3)) + '┐';
+
+    return (
+      <Box flexDirection="column" width={width}>
+        <Text color={borderColor}>{topBorder}</Text>
+        {rendered.map((row, i) => (
+          <Box key={i}>
+            <Text color={borderColor}>│</Text>
+            {row}
+            <Text color={borderColor}>│</Text>
+          </Box>
+        ))}
+        <Text color={borderColor}>{'└' + '─'.repeat(innerWidth) + '┘'}</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <BorderedPane
+      rows={taskRows}
+      cursor={cursor}
+      focused={focused}
+      borderColor={borderColor}
+      title="Tasks"
+      width={width}
+      height={height}
+      renderRow={(row, i, sel) => {
+        if (row.type === 'task') {
+          return (
+            <TaskListRow
+              key={i}
+              task={row.task}
+              selected={sel}
+              focused={focused}
               width={innerWidth}
             />
           );

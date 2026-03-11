@@ -210,6 +210,33 @@ work2 prune --force
 
 For groups, all sub-repos must be merged for the group to appear in the list. Per-repo merge status is printed during scanning.
 
+## Task Tracking
+
+Keep a local task list for things you want to work on:
+
+```bash
+# List open tasks
+work2 todo
+
+# Add a task
+work2 todo add "Refactor auth module"
+
+# Mark done / undo
+work2 todo done 1
+work2 todo undo 1
+
+# Edit a task
+work2 todo edit 1 "Refactor auth and session module"
+
+# Remove a task
+work2 todo rm 1
+
+# Show completed tasks too
+work2 todo --all
+```
+
+Tasks are stored locally in `~/.work/tasks.json`. They also appear in the dashboard's Tasks pane where you can manage them interactively and press `w` to create a worktree (`todo/<slug>` branch) for a task.
+
 ## Interactive Dashboard
 
 ```bash
@@ -218,7 +245,7 @@ work2 dash
 
 An interactive terminal UI for managing all your worktree sessions. Features:
 
-- **4-pane layout** — sessions (top-left), PRs (middle-left), Jira (bottom-left), embedded terminal (right)
+- **5-pane layout** — sessions, PRs, Jira, Tasks (left column), embedded terminal (right)
 - **GitHub PR integration** — shows all open PRs across configured repos with status indicators:
   - ★ your PR, ✔ you approved, ✎ you reviewed with comments/changes
   - ✓ checks passing, ✗ checks failing or merge conflict, ● checks pending
@@ -227,7 +254,8 @@ An interactive terminal UI for managing all your worktree sessions. Features:
 - **Jira integration** — shows issues assigned to you (via `acli`), grouped by status. Select an issue to create a worktree with an auto-generated branch name and a structured planning prompt sent to Claude
 - **Merged branch detection** — worktrees with merged branches are flagged
 - **Auto-sync** — fetches all remotes, PR, and Jira data on startup
-- **Create worktrees from PRs or Jira** — select a PR or Jira issue to create/resume a worktree for it
+- **Task management** — view, add, edit, complete, and remove tasks directly in the TUI. Press `w` on a task to create a worktree with a `todo/<slug>` branch
+- **Create worktrees from PRs, Jira, or tasks** — select a PR, Jira issue, or task to create/resume a worktree for it
 - **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `u` rebase, `g` syncs
 
 ```bash

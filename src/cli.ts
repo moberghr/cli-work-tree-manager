@@ -11,6 +11,7 @@ import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
 import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
+import { todoCommand } from './commands/todo.js';
 import { completionHandler } from './completions/index.js';
 
 function showHelp() {
@@ -35,6 +36,10 @@ function showHelp() {
   console.log('  work2 dash                                          - Interactive session dashboard');
   console.log('  work2 prune                                         - Remove merged worktrees');
   console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
+  console.log('  work2 todo                                          - List tasks');
+  console.log('  work2 todo add <text>                               - Add a task');
+  console.log('  work2 todo done <id>                                - Mark task complete');
+  console.log('  work2 todo rm <id>                                  - Remove a task');
   console.log('  work2 completion --install                          - Install shell completions');
   console.log('');
   console.log(chalk.green('Config Actions:'));
@@ -81,6 +86,7 @@ export function run(argv: string[]) {
     .command(resumeCommand)
     .command(pruneCommand)
     .command(dashCommand)
+    .command(todoCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

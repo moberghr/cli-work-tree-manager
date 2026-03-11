@@ -32,6 +32,14 @@ work2 dash [--unsafe]                               # Interactive session dashbo
 work2 prune [--force]                               # Remove merged worktrees
 work2 completion [--install]                        # Shell completions
 
+work2 todo                                          # List open tasks
+work2 todo add <text>                               # Add a task
+work2 todo done <id>                                # Mark task complete
+work2 todo undo <id>                                # Mark task incomplete
+work2 todo edit <id> <text>                         # Edit task text
+work2 todo rm <id>                                  # Remove a task
+work2 todo --all                                    # Show completed tasks too
+
 work2 config add <alias> <path>                     # Add a repository
 work2 config remove <alias>                         # Remove a repository
 work2 config list                                   # List repos and groups
@@ -47,13 +55,14 @@ work2 config edit                                   # Open config in editor
 ### Module Flow
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init}.ts
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo}.ts
                                        ↓
                                   core/worktree.ts (atomic + high-level operations)
                                   ├── core/git.ts (git wrapper)
                                   ├── core/copy-files.ts (glob-based file copying)
                                   ├── core/resolve.ts (group vs repo dispatch)
                                   ├── core/history.ts (session tracking)
+                                  ├── core/tasks.ts (local task/todo persistence)
                                   ├── core/pr.ts (GitHub PR fetching via gh CLI)
                                   ├── core/jira.ts (Jira issue fetching via acli)
                                   ├── core/setup-completions.ts (shell profile detection & install)
@@ -85,10 +94,11 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 - **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
 - **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
 - **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped) and a separate PR pane. `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
-- **4-pane layout:** The left column is split into sessions (top), PRs (middle), and Jira (bottom). The right side is an embedded terminal. Each pane has independent focus and cursor. Tab cycles focus: sessions → PRs → Jira → terminal. All panes support scrolling when content overflows.
+- **5-pane layout:** The left column is split into sessions (top), PRs, Jira, and Tasks (bottom). The right side is an embedded terminal. Each pane has a title and independent focus/cursor. Tab cycles focus in visual order: sessions → PRs → Jira → Tasks → terminal. All panes support scrolling when content overflows.
 - **GitHub PR integration:** `core/pr.ts` fetches open PRs via `gh pr list` for all configured repos. Shows check status (✓/✗/●), merge conflict detection, personal review state (✔/✎), draft status (dimmed), and ownership (★). Selecting a PR in the PR pane creates/resumes a worktree for that branch.
 - **Jira integration:** `core/jira.ts` fetches issues assigned to the current user via `acli` (Atlassian CLI). Issues are grouped by status. Selecting a Jira issue prompts project selection, generates a branch slug (via Claude haiku), creates a worktree via `work2 tree` in a PTY, and sends a structured planning prompt to Claude Code via `--prompt-file`.
-- **New worktree creation:** Users can create new worktrees directly from the dashboard via a project/branch picker flow, from a PR, or from a Jira issue.
+- **New worktree creation:** Users can create new worktrees directly from the dashboard via a project/branch picker flow, from a PR, from a Jira issue, or from a task (`w` key creates a `todo/<slug>` branch).
+- **Tasks pane:** Shows local tasks from `~/.work/tasks.json`. Supports add (`a`), edit (`e`), toggle done (`enter`/`x`), remove (`d`), and create worktree (`w`). File-watched for reactive updates from external changes.
 - **Reactive session detection:** Uses `fs.watch` on `history.json` to detect new sessions created externally (e.g., `work2 tree` in another terminal).
 - **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR/Jira data is loaded.
 - **Context-sensitive status bar:** Shows different keybinding hints depending on which pane is focused.
