@@ -1,5 +1,10 @@
 import chalk from 'chalk';
 import { run } from './cli.js';
+import { installConsoleLogger, debug } from './core/logger.js';
+
+// Install debug logging — all console.log/error/warn also write to ~/.work/debug.log
+installConsoleLogger();
+debug('--- work2 started', process.argv.slice(2).join(' '), '---');
 
 // Force color support — this is an interactive CLI, and some Windows terminals
 // (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims.

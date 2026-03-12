@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
+import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
@@ -32,6 +33,8 @@ export function createSingleWorktree(
   config: WorkConfig,
   baseBranch?: string,
 ): boolean {
+  debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
+
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
     if (isGitRepo(worktreePath)) {
@@ -150,6 +153,7 @@ export function createSingleWorktree(
   }
 
   if (result.exitCode !== 0) {
+    debug('git worktree add failed', { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
     console.log(chalk.red('  Failed to create worktree'));
     if (result.stderr) {
       console.log(chalk.red(`  ${result.stderr}`));
@@ -266,8 +270,9 @@ export function setupWorktree(
   baseBranch?: string,
   jiraKey?: string,
 ): WorktreeSetupResult | null {
+  debug('setupWorktree', { targetName, branchName, baseBranch, jiraKey });
   const target = resolveProjectTarget(targetName, config);
-  if (!target) return null;
+  if (!target) { debug('setupWorktree: target not found', targetName); return null; }
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 

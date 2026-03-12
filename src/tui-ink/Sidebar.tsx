@@ -97,10 +97,20 @@ export function buildJiraRows(issues: JiraIssue[]): SidebarRow[] {
     byStatus.get(status)!.push(issue);
   }
 
+  // Sort statuses: To Do first, then In Progress, then alphabetical
+  const statusOrder = (s: string) => {
+    const lower = s.toLowerCase();
+    if (lower === 'to do') return 0;
+    if (lower.includes('progress')) return 1;
+    if (lower.includes('review')) return 2;
+    return 3;
+  };
+  const sortedStatuses = [...byStatus.keys()].sort((a, b) => statusOrder(a) - statusOrder(b) || a.localeCompare(b));
+
   const rows: SidebarRow[] = [];
-  for (const [status, group] of byStatus) {
+  for (const status of sortedStatuses) {
     rows.push({ type: 'header', label: status });
-    for (const issue of group) {
+    for (const issue of byStatus.get(status)!) {
       rows.push({ type: 'jira', issue });
     }
   }

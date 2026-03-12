@@ -1,5 +1,6 @@
 import spawn from 'cross-spawn';
 import { execFile } from 'node:child_process';
+import { debug } from './logger.js';
 
 export interface GitResult {
   stdout: string;
@@ -9,17 +10,22 @@ export interface GitResult {
 
 /** Run a git command synchronously in the given cwd. */
 export function git(args: string[], cwd: string): GitResult {
+  debug('git', args.join(' '), `cwd=${cwd}`);
   const result = spawn.sync('git', args, {
     cwd,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  return {
+  const r = {
     stdout: (result.stdout ?? '').toString().trim(),
     stderr: (result.stderr ?? '').toString().trim(),
     exitCode: result.status ?? 1,
   };
+  if (r.exitCode !== 0) {
+    debug('git failed', { args, exitCode: r.exitCode, stderr: r.stderr });
+  }
+  return r;
 }
 
 export interface WorktreeEntry {
