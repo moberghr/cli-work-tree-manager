@@ -253,10 +253,14 @@ An interactive terminal UI for managing all your worktree sessions. Features:
   - PRs matching local worktrees marked with `local`
 - **Jira integration** — shows issues assigned to you (via `acli`), grouped by status. Select an issue to create a worktree with an auto-generated branch name and a structured planning prompt sent to Claude
 - **Merged branch detection** — worktrees with merged branches are flagged
-- **Auto-sync** — fetches all remotes, PR, and Jira data on startup
+- **Auto-sync** — fetches all remotes, PR, and Jira data on startup. `g` syncs the focused pane, `G` syncs everything
+- **Session resume** — returning to a worktree resumes the last Claude conversation (`--continue`)
+- **Active session indicator** — green `▸` marks the session currently shown in the terminal pane
 - **Task management** — view, add, edit, complete, and remove tasks directly in the TUI. Press `w` on a task to create a worktree with a `todo/<slug>` branch
-- **Create worktrees from PRs, Jira, or tasks** — select a PR, Jira issue, or task to create/resume a worktree for it
-- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `u` rebase, `g` syncs
+- **Base repo launch** — press `n`, select a project, and press Enter with an empty branch name to launch Claude on the base repo directly
+- **Create worktrees from PRs, Jira, or tasks** — select a PR, Jira issue, or task to create/resume a worktree for it. Press `o` on a Jira issue to open it in the browser
+- **Mouse support** — scroll wheel navigates panes, left-click switches focus between panes. Shift+drag for text selection
+- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `u` rebase, `g` syncs pane, `G` syncs all
 
 ```bash
 # Launch with --unsafe to skip Claude permission checks
@@ -272,6 +276,10 @@ work2 tree ai feature/hotfix --unsafe
 ```
 
 This passes `--dangerously-skip-permissions` to the Claude CLI.
+
+## Debug Logging
+
+All CLI output and internal debug messages are logged to `~/.work/debug.log` with timestamps. Useful for diagnosing worktree creation failures or hook issues. The log auto-rotates at 5MB.
 
 ## Requirements
 
