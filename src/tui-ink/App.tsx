@@ -509,7 +509,7 @@ export function App({ unsafe, onExit }: AppProps) {
     }
 
     const dir = s.isGroup ? path.dirname(existing) : existing;
-    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand);
+    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, true);
     ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
 
@@ -705,7 +705,26 @@ export function App({ unsafe, onExit }: AppProps) {
           }
           return;
         }
-        // Ignore other mouse events (clicks, etc.)
+        // Left click (button 0): focus the pane under cursor
+        if (button === 0) {
+          if (col <= sidebarWidth) {
+            if (row <= sessionPaneHeight) {
+              setFocus(Focus.SESSIONS);
+            } else if (row <= sessionPaneHeight + prPaneHeight) {
+              setFocus(Focus.PRS);
+            } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
+              setFocus(Focus.JIRA);
+            } else {
+              setFocus(Focus.TASKS);
+            }
+          } else {
+            const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+            if (activePty && !activePty.exited) setFocus(Focus.TERMINAL);
+          }
+          setMessage('');
+          return;
+        }
+        // Ignore other mouse events
         return;
       }
 
@@ -1246,6 +1265,7 @@ export function App({ unsafe, onExit }: AppProps) {
             conflictCounts={conflictCounts}
             mergedSet={mergedSet}
             prMap={prMap}
+            activeKey={activeKey}
             width={sidebarWidth}
             height={sessionPaneHeight}
             branchInput={branchInput}

@@ -15,7 +15,7 @@ export class PtySession {
   onExit?: (code: number) => void;
   onStatusChange?: () => void;
 
-  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }, aiCommand?: string) {
+  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }, aiCommand?: string, resume?: boolean) {
     this.cwd = cwd;
     this.terminal = new Terminal({
       cols,
@@ -40,6 +40,7 @@ export class PtySession {
       const toolCmd = parts[0];
       const toolArgs = parts.slice(1);
       if (unsafe) toolArgs.push('--dangerously-skip-permissions');
+      if (resume) toolArgs.push('--continue');
       spawnCmd = isWindows ? 'cmd.exe' : toolCmd;
       spawnArgs = isWindows ? ['/c', toolCmd, ...toolArgs] : toolArgs;
     }

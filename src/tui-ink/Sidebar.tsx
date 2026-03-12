@@ -15,6 +15,7 @@ export interface SidebarProps {
   conflictCounts: Map<string, number>;
   mergedSet: Set<string>;
   prMap: BranchPrMap;
+  activeKey: string | null;
   width: number;
   height: number;
   branchInput?: { value: string } | null;
@@ -237,6 +238,7 @@ function SessionRow({
   conflicts,
   merged,
   prs,
+  active,
   width,
 }: {
   session: WorktreeSession;
@@ -246,6 +248,7 @@ function SessionRow({
   conflicts: number;
   merged: boolean;
   prs: PullRequestInfo[];
+  active: boolean;
   width: number;
 }): React.ReactElement {
   const dotChar = status === 'idle' ? '◆' : status === 'running' ? '●' : '○';
@@ -258,10 +261,13 @@ function SessionRow({
   const fixedOverhead = 5 + agoStr.length + mergedLen + conflictLen + prLen;
   const branchBudget = Math.max(4, width - fixedOverhead);
 
+  const cursor = selected && focused ? '›' : active ? '▸' : ' ';
+  const cursorColor = selected && focused ? 'cyan' : active ? 'green' : undefined;
+
   return (
     <Box width={width}>
       <Text>  </Text>
-      <Text color={selected && focused ? 'cyan' : undefined}>{selected && focused ? '›' : ' '}</Text>
+      <Text color={cursorColor}>{cursor}</Text>
       <Text color={dotColor}>{dotChar}</Text>
       <Text> </Text>
       <Text color="green">{truncate(s.branch, branchBudget)}</Text>
@@ -452,7 +458,7 @@ function BorderedPane({
   );
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, width, height, branchInput }: SidebarProps) {
+export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, activeKey, width, height, branchInput }: SidebarProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
 
@@ -479,6 +485,7 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
               conflicts={conflictCounts.get(key) ?? 0}
               merged={mergedSet.has(key)}
               prs={prMap.get(s.branch) ?? []}
+              active={key === activeKey}
               width={innerWidth}
             />
           );
