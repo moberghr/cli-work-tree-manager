@@ -327,9 +327,22 @@ export function App({ unsafe, onExit }: AppProps) {
 
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
     const normalized = path.resolve(cwd).toLowerCase();
+
+    // Direct match on PTY cwd
     for (const pty of ptySessions.current.values()) {
       if (path.resolve(pty.cwd).toLowerCase() === normalized) return pty;
     }
+
+    // Match via session paths (handles PTYs spawned from a different cwd)
+    for (const s of sessionsRef.current) {
+      const match = s.paths.some((p) => normalized.startsWith(path.resolve(p).toLowerCase()));
+      if (match) {
+        const k = `${s.target}:${s.branch}`;
+        const pty = ptySessions.current.get(k);
+        if (pty && !pty.exited) return pty;
+      }
+    }
+
     return undefined;
   }, []);
 
