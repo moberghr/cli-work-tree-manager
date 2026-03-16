@@ -55,22 +55,46 @@ export type SidebarRow =
   | { type: 'jira'; issue: JiraIssue }
   | { type: 'task'; task: Task };
 
-export function buildSessionRows(sessions: WorktreeSession[]): SidebarRow[] {
+export function buildSessionRows(sessions: WorktreeSession[], statusMap?: Map<string, SessionStatus>): SidebarRow[] {
   if (sessions.length === 0) return [];
-
-  const groups = new Map<string, WorktreeSession[]>();
-  for (const s of sessions) {
-    if (!groups.has(s.target)) groups.set(s.target, []);
-    groups.get(s.target)!.push(s);
-  }
 
   const rows: SidebarRow[] = [];
 
-  for (const [target, group] of groups) {
-    const typeTag = group[0].isGroup ? 'group' : 'repo';
-    rows.push({ type: 'header', label: `${target} (${typeTag})` });
-    for (const session of group) {
+  // Split into active (running/idle PTY) and inactive sessions
+  const active: WorktreeSession[] = [];
+  const inactive: WorktreeSession[] = [];
+  for (const s of sessions) {
+    const key = `${s.target}:${s.branch}`;
+    const status = statusMap?.get(key);
+    if (status === 'running' || status === 'idle') {
+      active.push(s);
+    } else {
+      inactive.push(s);
+    }
+  }
+
+  // Active sessions first (flat list, no grouping needed)
+  if (active.length > 0) {
+    rows.push({ type: 'header', label: 'Active' });
+    for (const session of active) {
       rows.push({ type: 'session', session });
+    }
+  }
+
+  // Inactive sessions grouped by target
+  if (inactive.length > 0) {
+    const groups = new Map<string, WorktreeSession[]>();
+    for (const s of inactive) {
+      if (!groups.has(s.target)) groups.set(s.target, []);
+      groups.get(s.target)!.push(s);
+    }
+
+    for (const [target, group] of groups) {
+      const typeTag = group[0].isGroup ? 'group' : 'repo';
+      rows.push({ type: 'header', label: `${target} (${typeTag})` });
+      for (const session of group) {
+        rows.push({ type: 'session', session });
+      }
     }
   }
 

@@ -18,7 +18,7 @@ import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/p
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
 import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
 import { openUrl } from '../utils/platform.js';
-import { PtySession } from '../tui/session.js';
+import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
@@ -156,14 +156,22 @@ export function App({ unsafe, onExit }: AppProps) {
   const [savedSessionCursor, setSavedSessionCursor] = useState(0);
 
   const localBranches = useMemo(() => new Set(sessions.map((s) => s.branch)), [sessions]);
-  const sessionRows = useMemo(() => buildSessionRows(sessions), [sessions]);
   const projectRows = useMemo(() => buildProjectRows(projects), [projects]);
   const prRows = useMemo(() => buildPrRows(prMap), [prMap]);
   const jiraRows = useMemo(() => buildJiraRows(jiraIssues), [jiraIssues]);
   const taskRows = useMemo(() => buildTaskRows(tasks), [tasks]);
-  const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
 
   const ptySessions = useRef(new Map<string, PtySession>());
+  const sessionRows = useMemo(() => {
+    const sMap = new Map<string, SessionStatus>();
+    for (const [key, pty] of ptySessions.current) {
+      if (pty.exited) continue;
+      sMap.set(key, pty.idle ? 'idle' : 'running');
+    }
+    return buildSessionRows(sessions, sMap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, statusVersion]);
+  const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
   const renderPending = useRef(false);
   const focusRef = useRef(focus);
   const activeKeyRef = useRef(activeKey);
