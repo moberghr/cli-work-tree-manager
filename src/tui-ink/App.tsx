@@ -19,6 +19,7 @@ import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira
 import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
 import { openUrl } from '../utils/platform.js';
 import { PtySession } from '../tui/session.js';
+import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../tui/hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
@@ -488,6 +489,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
   /** Connect a PTY to the display and focus on it. */
   const connectPty = useCallback((key: string, pty: PtySession) => {
+    debug('connectPty', { key, exited: pty.exited, termInner, rows: contentHeight - 2 });
     if (activeKeyRef.current && activeKeyRef.current !== key) {
       ptySessions.current.get(activeKeyRef.current)?.setOutputHandler(undefined);
     }
@@ -497,11 +499,14 @@ export function App({ unsafe, onExit }: AppProps) {
     pty.setOutputHandler(() => scheduleTerminalRender(pty));
     try {
       setTermLines(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2));
-    } catch { /* */ }
+    } catch (err) {
+      debug('connectPty renderBufferLines error', err instanceof Error ? err.stack : String(err));
+    }
   }, [termInner, contentHeight, scheduleTerminalRender]);
 
   const startPtyForSession = useCallback((s: WorktreeSession, key: string) => {
     const existing = s.paths.find((p) => fs.existsSync(p));
+    debug('startPtyForSession', { target: s.target, branch: s.branch, isGroup: s.isGroup, paths: s.paths, existing, key });
     if (!existing) {
       setMessage('Session path no longer exists');
       refreshSessions();
@@ -509,17 +514,20 @@ export function App({ unsafe, onExit }: AppProps) {
     }
 
     const dir = s.isGroup ? path.dirname(existing) : existing;
-    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, true);
+    const hasConversation = fs.existsSync(path.join(dir, '.claude'));
+    debug('startPtyForSession launching PTY', { dir, termInner, rows: contentHeight - 2, unsafe, aiCommand: config?.aiCommand, resume: hasConversation });
+    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, hasConversation);
     ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
 
-    pty.onExit = () => {
+    pty.onExit = (code: number) => {
+      debug('onExit session PTY', { target: s.target, branch: s.branch, key, code });
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
         setFocus(Focus.SESSIONS);
         setTermLines([]);
-        setMessage(`Session exited: ${s.target} / ${s.branch}`);
+        setMessage(`Session exited: ${s.target} / ${s.branch} (code ${code})`);
       }
       setStatusVersion((v) => v + 1);
     };
@@ -572,13 +580,14 @@ export function App({ unsafe, onExit }: AppProps) {
     const pty = new PtySession(repoPath, termInner, contentHeight - 2, unsafe, undefined, config.aiCommand);
     ptySessions.current.set(key, pty);
 
-    pty.onExit = () => {
+    pty.onExit = (code: number) => {
+      debug('onExit base-repo PTY', { projectName, key, code });
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
         setFocus(Focus.SESSIONS);
         setTermLines([]);
-        setMessage(`Session exited: ${projectName} (base)`);
+        setMessage(`Session exited: ${projectName} (base) (code ${code})`);
       }
       setStatusVersion((v) => v + 1);
     };
@@ -649,13 +658,14 @@ export function App({ unsafe, onExit }: AppProps) {
     );
     ptySessions.current.set(key, pty);
 
-    pty.onExit = () => {
+    pty.onExit = (code: number) => {
+      debug('onExit work2-tree PTY', { projectName, branchName: branchName, key, code });
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
         setFocus(Focus.SESSIONS);
         setTermLines([]);
-        setMessage(`Session exited: ${projectName} / ${branchName}`);
+        setMessage(`Session exited: ${projectName} / ${branchName} (code ${code})`);
       }
       setStatusVersion((v) => v + 1);
       refreshSessions();
@@ -1139,7 +1149,8 @@ export function App({ unsafe, onExit }: AppProps) {
           { cmd: 'work2', args: ['remove', s.target, s.branch, '--force'] },
         );
         ptySessions.current.set(removeKey, removePty);
-        removePty.onExit = () => {
+        removePty.onExit = (code: number) => {
+          debug('onExit remove PTY', { target: s.target, branch: s.branch, removeKey, code });
           ptySessions.current.delete(removeKey);
           if (activeKeyRef.current === removeKey) {
             setActiveKey(null);

@@ -1,5 +1,6 @@
 import pty, { type IPty } from 'node-pty';
 import xtermHeadless from '@xterm/headless';
+import { debug } from '../core/logger.js';
 
 const { Terminal } = xtermHeadless;
 
@@ -12,6 +13,8 @@ export class PtySession {
   private outputHandler?: (data: string) => void;
   private _exited = false;
   private _idle = true;
+  private _outputBuffer = '';
+  private _loggedOutput = false;
   onExit?: (code: number) => void;
   onStatusChange?: () => void;
 
@@ -45,6 +48,7 @@ export class PtySession {
       spawnArgs = isWindows ? ['/c', toolCmd, ...toolArgs] : toolArgs;
     }
 
+    debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows, resume });
     this.pty = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cwd,
@@ -54,13 +58,26 @@ export class PtySession {
         Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
       ),
     });
+    debug('PtySession spawned pid=', this.pty.pid);
 
     this.pty.onData((data) => {
       this.terminal.write(data);
       this.outputHandler?.(data);
+      // Log first 500 chars of PTY output for debugging early exits
+      if (!this._loggedOutput) {
+        this._outputBuffer = (this._outputBuffer || '') + data;
+        if (this._outputBuffer.length > 500) {
+          debug('PtySession first output', { cwd, output: this._outputBuffer.slice(0, 500) });
+          this._loggedOutput = true;
+        }
+      }
     });
 
     this.pty.onExit(({ exitCode }) => {
+      if (!this._loggedOutput && this._outputBuffer) {
+        debug('PtySession output before exit', { cwd, output: this._outputBuffer.slice(0, 500) });
+      }
+      debug('PtySession exited', { cwd, exitCode });
       this._exited = true;
       this.onExit?.(exitCode);
     });
@@ -82,12 +99,18 @@ export class PtySession {
   }
 
   write(data: string) {
-    if (!this._exited) this.pty.write(data);
+    if (!this._exited) {
+      try { this.pty.write(data); } catch { /* PTY already exited */ }
+    }
   }
 
   resize(cols: number, rows: number) {
     if (!this._exited) {
-      this.pty.resize(cols, rows);
+      try {
+        this.pty.resize(cols, rows);
+      } catch {
+        // PTY already exited natively before our flag was set — ignore
+      }
       this.terminal.resize(cols, rows);
     }
   }
@@ -98,7 +121,9 @@ export class PtySession {
 
   dispose() {
     this.setOutputHandler(undefined);
-    if (!this._exited) this.pty.kill();
+    if (!this._exited) {
+      try { this.pty.kill(); } catch { /* PTY already exited */ }
+    }
     this.terminal.dispose();
   }
 }

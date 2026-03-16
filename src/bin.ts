@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import chalk from 'chalk';
 import { run } from './cli.js';
 import { installConsoleLogger, debug } from './core/logger.js';
+import { getConfigDir } from './core/config.js';
 
 // Install debug logging — all console.log/error/warn also write to ~/.work/debug.log
 installConsoleLogger();
@@ -17,6 +20,19 @@ function handleFatalError(err: unknown): void {
     console.log('\nCancelled.');
     process.exit(0);
   }
+  // node-pty can throw async errors for already-exited PTYs — non-fatal in dash mode
+  if (err instanceof Error && err.message?.includes('pty that has already exited')) {
+    try {
+      fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
+        `${new Date().toISOString()} [WARN] Ignored async node-pty error: ${err.message}\n`);
+    } catch { /* */ }
+    return;
+  }
+  try {
+    const msg = err instanceof Error ? err.stack || err.message : String(err);
+    fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
+      `${new Date().toISOString()} [FATAL] handleFatalError: ${msg}\n`);
+  } catch { /* */ }
   console.error(err);
   process.exit(1);
 }
