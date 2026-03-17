@@ -33,7 +33,7 @@ import { StatusBar } from './StatusBar.js';
 
 const DETACH_KEY = '\x1D'; // Ctrl+]
 const TAB_KEY = '\t';
-const RENDER_INTERVAL_MS = 16;
+const RENDER_INTERVAL_MS = 50;
 
 // SGR mouse: \x1b[<button;col;rowM or \x1b[<button;col;rowm
 // Button 64 = scroll up, 65 = scroll down
@@ -530,6 +530,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     pty.onExit = (code: number) => {
       debug('onExit session PTY', { target: s.target, branch: s.branch, key, code });
+      pty.dispose();
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
@@ -590,6 +591,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     pty.onExit = (code: number) => {
       debug('onExit base-repo PTY', { projectName, key, code });
+      pty.dispose();
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
@@ -668,6 +670,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     pty.onExit = (code: number) => {
       debug('onExit work2-tree PTY', { projectName, branchName: branchName, key, code });
+      pty.dispose();
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
         setActiveKey(null);
@@ -1159,6 +1162,7 @@ export function App({ unsafe, onExit }: AppProps) {
         ptySessions.current.set(removeKey, removePty);
         removePty.onExit = (code: number) => {
           debug('onExit remove PTY', { target: s.target, branch: s.branch, removeKey, code });
+          removePty.dispose();
           ptySessions.current.delete(removeKey);
           if (activeKeyRef.current === removeKey) {
             setActiveKey(null);
