@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import v8 from 'node:v8';
 import { execFile } from 'node:child_process';
 import spawn from 'cross-spawn';
 import {
@@ -1268,6 +1269,24 @@ export function App({ unsafe, onExit }: AppProps) {
     };
     process.stdout.on('resize', handler);
     return () => { process.stdout.removeListener('resize', handler); };
+  }, []);
+
+  // Periodic heap monitoring — log every 5 minutes to track memory growth
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const heap = process.memoryUsage();
+      const stats = v8.getHeapStatistics();
+      const activePtys = [...ptySessions.current.entries()].filter(([, p]) => !p.exited).length;
+      debug('HEAP', {
+        rss: Math.round(heap.rss / 1024 / 1024) + 'MB',
+        heapUsed: Math.round(heap.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(heap.heapTotal / 1024 / 1024) + 'MB',
+        external: Math.round(heap.external / 1024 / 1024) + 'MB',
+        heapLimit: Math.round(stats.heap_size_limit / 1024 / 1024) + 'MB',
+        activePtys,
+      });
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const statusMap = buildStatusMap();
