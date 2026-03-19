@@ -147,10 +147,17 @@ export function isBranchMerged(
       const baseRef = `origin/${base}`;
       const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
       if (branchInBase.exitCode === 0) {
-        // Branch is ancestor of base — but if base is also ancestor of branch,
-        // they're at the same commit (fresh branch, not actually merged)
-        const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
-        if (baseInBranch.exitCode !== 0) return { merged: true, into: baseRef };
+        // Branch is ancestor of base — but check it's not just a stale branch
+        // sitting on the base's history with no unique work.
+        // If merge-base(branch, base) == branch tip, the branch never diverged.
+        const mb = git(['merge-base', branch, baseRef], cwd);
+        const tip = git(['rev-parse', branch], cwd);
+        if (mb.exitCode === 0 && tip.exitCode === 0 && mb.stdout === tip.stdout) {
+          // Branch tip IS the merge-base — no unique commits, just behind base
+          continue;
+        }
+        // Branch has unique commits that are all in base — truly merged
+        return { merged: true, into: baseRef };
       }
     }
 
@@ -158,8 +165,12 @@ export function isBranchMerged(
     if (localBranchExists(base, cwd)) {
       const branchInBase = git(['merge-base', '--is-ancestor', branch, base], cwd);
       if (branchInBase.exitCode === 0) {
-        const baseInBranch = git(['merge-base', '--is-ancestor', base, branch], cwd);
-        if (baseInBranch.exitCode !== 0) return { merged: true, into: base };
+        const mb = git(['merge-base', branch, base], cwd);
+        const tip = git(['rev-parse', branch], cwd);
+        if (mb.exitCode === 0 && tip.exitCode === 0 && mb.stdout === tip.stdout) {
+          continue;
+        }
+        return { merged: true, into: base };
       }
     }
   }
