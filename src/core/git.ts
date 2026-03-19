@@ -120,39 +120,37 @@ export function getDefaultBranch(cwd: string): string | null {
   return null;
 }
 
+/** Result of checking a branch against a single base ref. */
+type MergeCheck = 'merged' | 'stale' | 'unrelated';
+
 /**
  * Check if a branch is truly merged into a base ref (not just a stale branch
  * sitting behind base with no unique commits).
  *
- * A stale branch's tip is on base's first-parent chain (main line).
- * A merged branch's tip is only reachable from base via a merge commit.
+ * Returns 'stale' if the branch tip is on the base's first-parent chain
+ * (no unique work). Returns 'merged' if the branch has unique commits that
+ * are all reachable from base. Returns 'unrelated' otherwise.
  */
-function isTrulyMerged(branch: string, baseRef: string, cwd: string): boolean {
+function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCheck {
   // 1. Branch must be an ancestor of base (all its commits are in base)
   const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
-  if (branchInBase.exitCode !== 0) return false;
+  if (branchInBase.exitCode !== 0) return 'unrelated';
 
-  // 2. If base is also ancestor of branch, they're at the same commit (not merged)
+  // 2. If base is also ancestor of branch, they're at the same commit
   const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
-  if (baseInBranch.exitCode === 0) return false;
+  if (baseInBranch.exitCode === 0) return 'stale';
 
   // 3. Check if branch tip is on base's first-parent chain (main line).
-  //    If so, the branch is just stale — it never diverged from base.
-  //    A truly merged branch's tip is only reachable via merge side-parents.
+  //    If so, the branch never diverged — it's just behind base.
   const tip = git(['rev-parse', branch], cwd);
-  if (tip.exitCode !== 0) return false;
-  const firstParent = git(['rev-list', '--first-parent', '--ancestry-path', `${tip.stdout}..${baseRef}`], cwd);
-  if (firstParent.exitCode !== 0) return false;
+  if (tip.exitCode !== 0) return 'unrelated';
 
-  // If ancestry-path via first-parent finds a path, the tip is on the main line → stale
-  // We need to check if the tip's CHILD in the first-parent chain has tip as first parent
-  // Simpler: check recent first-parent commits for the tip
   const mainLine = git(['rev-list', '--first-parent', '-n', '500', baseRef], cwd);
   if (mainLine.exitCode === 0 && mainLine.stdout.includes(tip.stdout)) {
-    return false; // tip is on the main line — stale, not merged
+    return 'stale';
   }
 
-  return true;
+  return 'merged';
 }
 
 export interface MergeCheckResult {
@@ -180,12 +178,16 @@ export function isBranchMerged(
     // Check remote base branch first (most up-to-date after fetch)
     if (remoteBranchExists(base, cwd)) {
       const baseRef = `origin/${base}`;
-      if (isTrulyMerged(branch, baseRef, cwd)) return { merged: true, into: baseRef };
+      const status = checkMergeStatus(branch, baseRef, cwd);
+      if (status === 'merged') return { merged: true, into: baseRef };
+      if (status === 'stale') return { merged: false, into: null };
     }
 
     // Fall back to local base branch
     if (localBranchExists(base, cwd)) {
-      if (isTrulyMerged(branch, base, cwd)) return { merged: true, into: base };
+      const status = checkMergeStatus(branch, base, cwd);
+      if (status === 'merged') return { merged: true, into: base };
+      if (status === 'stale') return { merged: false, into: null };
     }
   }
 
