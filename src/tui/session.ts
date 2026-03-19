@@ -23,7 +23,7 @@ export class PtySession {
     this.terminal = new Terminal({
       cols,
       rows,
-      scrollback: 1000,
+      scrollback: 200,
       allowProposedApi: true,
     });
 
@@ -112,6 +112,13 @@ export class PtySession {
         // PTY already exited natively before our flag was set — ignore
       }
       this.terminal.resize(cols, rows);
+    }
+  }
+
+  /** Clear scrollback buffer to free memory. */
+  clearScrollback() {
+    if (!this._exited) {
+      this.terminal.clear();
     }
   }
 

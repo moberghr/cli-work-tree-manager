@@ -15,9 +15,18 @@ export function TerminalPane({ lines, width, height, focused, placeholder, title
   const innerWidth = width - 2;
   const contentHeight = height - 2;
 
+  // Direct rendering mode — terminal content is written to stdout directly,
+  // so we only render the border frame here.
+  const isDirect = lines.length === 1 && lines[0] === '__direct__';
+
   const content: React.ReactNode[] = [];
 
-  if (lines.length === 0 && placeholder) {
+  if (isDirect) {
+    // Empty rows — actual content is painted directly to stdout
+    for (let i = 0; i < contentHeight; i++) {
+      content.push(<Text key={i}>{' '.repeat(innerWidth)}</Text>);
+    }
+  } else if (lines.length === 0 && placeholder) {
     // Center placeholder message
     for (let i = 0; i < contentHeight; i++) {
       const mid = Math.floor(contentHeight / 2);

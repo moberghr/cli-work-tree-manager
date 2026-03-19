@@ -307,6 +307,24 @@ export function App({ unsafe, onExit }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusVersion]);
 
+  /** Write terminal lines directly to stdout, bypassing Ink's React reconciler. */
+  const writeTermDirect = useCallback((lines: string[]) => {
+    const startCol = sidebarWidth + 2; // after sidebar border + left terminal border
+    const maxRows = contentHeight - 2;
+    const buf: string[] = [];
+    for (let i = 0; i < maxRows; i++) {
+      const row = i + 2; // 1-indexed, skip top border
+      buf.push(`\x1B[${row};${startCol}H`); // move cursor
+      if (i < lines.length) {
+        buf.push(lines[i]);
+      } else {
+        buf.push(' '.repeat(termInner));
+      }
+    }
+    buf.push('\x1B[?25l'); // keep cursor hidden
+    process.stdout.write(buf.join(''));
+  }, [sidebarWidth, contentHeight, termInner]);
+
   const scheduleTerminalRender = useCallback((pty: PtySession) => {
     if (renderPending.current) return;
     renderPending.current = true;
@@ -316,13 +334,10 @@ export function App({ unsafe, onExit }: AppProps) {
         // If scrolled back, don't auto-update (user is reading scrollback)
         if (termScrollBack.current > 0) return;
         const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2);
-        setTermLines((prev) => {
-          if (prev.length === lines.length && prev.every((l, i) => l === lines[i])) return prev;
-          return lines;
-        });
+        writeTermDirect(lines);
       } catch { /* buffer not ready */ }
     }, RENDER_INTERVAL_MS);
-  }, [termInner, contentHeight]);
+  }, [termInner, contentHeight, writeTermDirect]);
 
   /** Re-render terminal at current scroll offset. */
   const renderTermAtScroll = useCallback(() => {
@@ -330,10 +345,9 @@ export function App({ unsafe, onExit }: AppProps) {
     const pty = ptySessions.current.get(activeKeyRef.current);
     if (!pty || pty.exited) return;
     try {
-      const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2, termScrollBack.current);
-      setTermLines(lines);
+      writeTermDirect(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2, termScrollBack.current));
     } catch { /* */ }
-  }, [termInner, contentHeight]);
+  }, [termInner, contentHeight, writeTermDirect]);
 
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
     const normalized = path.resolve(cwd).toLowerCase();
@@ -450,12 +464,13 @@ export function App({ unsafe, onExit }: AppProps) {
       pty.resize(termInner, contentHeight - 2);
       pty.setOutputHandler(() => scheduleTerminalRender(pty));
       try {
-        setTermLines(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2));
+        writeTermDirect(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2));
+        setTermLines(['__direct__']); // signal to TerminalPane that direct rendering is active
       } catch { /* */ }
     } else {
       setTermLines([]);
     }
-  }, [termInner, contentHeight, scheduleTerminalRender]);
+  }, [termInner, contentHeight, scheduleTerminalRender, writeTermDirect]);
 
   /** Move cursor within the top (session/project) pane. */
   const moveSessionCursor = useCallback((delta: number) => {
@@ -507,7 +522,8 @@ export function App({ unsafe, onExit }: AppProps) {
     pty.resize(termInner, contentHeight - 2);
     pty.setOutputHandler(() => scheduleTerminalRender(pty));
     try {
-      setTermLines(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2));
+      writeTermDirect(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2));
+      setTermLines(['__direct__']);
     } catch (err) {
       debug('connectPty renderBufferLines error', err instanceof Error ? err.stack : String(err));
     }
@@ -1271,12 +1287,20 @@ export function App({ unsafe, onExit }: AppProps) {
     return () => { process.stdout.removeListener('resize', handler); };
   }, []);
 
-  // Periodic heap monitoring — log every 5 minutes to track memory growth
+  // Periodic heap monitoring and memory maintenance
   useEffect(() => {
     const interval = setInterval(() => {
       const heap = process.memoryUsage();
       const stats = v8.getHeapStatistics();
-      const activePtys = [...ptySessions.current.entries()].filter(([, p]) => !p.exited).length;
+      let activePtys = 0;
+      // Clear scrollback for non-active PTYs to free memory
+      for (const [key, pty] of ptySessions.current) {
+        if (pty.exited) continue;
+        activePtys++;
+        if (key !== activeKeyRef.current) {
+          pty.clearScrollback();
+        }
+      }
       debug('HEAP', {
         rss: Math.round(heap.rss / 1024 / 1024) + 'MB',
         heapUsed: Math.round(heap.heapUsed / 1024 / 1024) + 'MB',
