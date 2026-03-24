@@ -241,28 +241,21 @@ export function App({ unsafe, onExit }: AppProps) {
     process.stdout.write(`\x1B]0;${title}\x07`);
   }, [statusVersion, activeKey]);
 
-  const computeAbort = useRef<(() => void) | null>(null);
+  const computeGeneration = useRef(0);
   const computeConflictsAndMerged = useCallback((sessionList: WorktreeSession[]) => {
-    // Cancel any in-progress computation
-    computeAbort.current?.();
+    const generation = ++computeGeneration.current;
+    const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-    const counts = new Map<string, number>();
-    const merged = new Set<string>();
-    let i = 0;
-    let cancelled = false;
-    computeAbort.current = () => { cancelled = true; };
+    (async () => {
+      const counts = new Map<string, number>();
+      const merged = new Set<string>();
 
-    // Process one session per tick to keep the event loop responsive
-    const processNext = () => {
-      if (cancelled) return;
-      if (i >= sessionList.length) {
-        setConflictCounts(counts);
-        setMergedSet(merged);
-        return;
-      }
-      const s = sessionList[i++];
-      const existing = s.paths.find((p) => fs.existsSync(p));
-      if (existing && s.branch) {
+      for (const s of sessionList) {
+        if (computeGeneration.current !== generation) return; // cancelled
+        await tick(); // yield to keep UI responsive (git calls are sync)
+
+        const existing = s.paths.find((p) => fs.existsSync(p));
+        if (!existing || !s.branch) continue;
         const key = sessionKey(s);
         try {
           const c = countConflicts(s.branch, existing);
@@ -273,9 +266,12 @@ export function App({ unsafe, onExit }: AppProps) {
           if (isMerged) merged.add(key);
         } catch { /* ignore */ }
       }
-      setTimeout(processNext, 0);
-    };
-    setTimeout(processNext, 0);
+
+      if (computeGeneration.current === generation) {
+        setConflictCounts(counts);
+        setMergedSet(merged);
+      }
+    })();
   }, []);
 
   const refreshPrs = useCallback(() => {
