@@ -10,8 +10,6 @@ export class PtySession {
   readonly pty: IPty;
   readonly terminal: InstanceType<typeof Terminal>;
   readonly cwd: string;
-  /** Additional paths to match when looking up this PTY by cwd (e.g. worktree paths). */
-  searchPaths: string[] = [];
   private outputHandler?: (data: string) => void;
   private _exited = false;
   private _idle = true;

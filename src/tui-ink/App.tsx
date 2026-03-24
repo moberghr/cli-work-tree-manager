@@ -14,6 +14,7 @@ import {
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
+import { setupWorktree } from '../core/worktree.js';
 import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
@@ -353,24 +354,11 @@ export function App({ unsafe, onExit }: AppProps) {
 
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
     const normalized = path.resolve(cwd).toLowerCase();
-
-    // Direct match on PTY cwd or searchPaths
     for (const pty of ptySessions.current.values()) {
       if (pty.exited) continue;
-      if (path.resolve(pty.cwd).toLowerCase() === normalized) return pty;
-      if (pty.searchPaths.some((p) => normalized.startsWith(path.resolve(p).toLowerCase()))) return pty;
+      // Match if hook cwd is inside the PTY's launch directory
+      if (normalized.startsWith(path.resolve(pty.cwd).toLowerCase())) return pty;
     }
-
-    // Match via session paths (handles PTYs spawned from a different cwd)
-    for (const s of sessionsRef.current) {
-      const match = s.paths.some((p) => normalized.startsWith(path.resolve(p).toLowerCase()));
-      if (match) {
-        const k = `${s.target}:${s.branch}`;
-        const pty = ptySessions.current.get(k);
-        if (pty && !pty.exited) return pty;
-      }
-    }
-
     return undefined;
   }, []);
 
@@ -440,10 +428,7 @@ export function App({ unsafe, onExit }: AppProps) {
   useEffect(() => {
     const hookServer = new HookServer((cwd: string, event: HookEvent) => {
       const pty = findPtyByCwd(cwd);
-      if (!pty) {
-        debug('hook event no PTY match', { cwd, event, ptyCwds: [...ptySessions.current.entries()].map(([k, p]) => ({ key: k, cwd: p.cwd, exited: p.exited })) });
-        return;
-      }
+      if (!pty) return;
       if (event === 'stop' || event === 'notification') {
         pty.setIdle(true);
       } else if (event === 'prompt_submit') {
@@ -549,7 +534,6 @@ export function App({ unsafe, onExit }: AppProps) {
     const hasConversation = fs.existsSync(path.join(dir, '.claude'));
     debug('startPtyForSession launching PTY', { dir, termInner, rows: contentHeight - 2, unsafe, aiCommand: config?.aiCommand, resume: hasConversation });
     const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, hasConversation);
-    pty.searchPaths = [...s.paths, dir];
     ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
 
@@ -632,17 +616,27 @@ export function App({ unsafe, onExit }: AppProps) {
     setMessage(`Launched: ${projectName} (base repo)`);
   }, [unsafe, termInner, contentHeight, connectPty, refreshSessions, savedSessionCursor, config]);
 
-  /** Spawn `work2 tree` in a single PTY — sets up the worktree and launches Claude. */
+  /** Create a worktree and launch Claude directly in it. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
     setTopPaneMode(TopPaneMode.SESSIONS);
     setSessionCursor(savedSessionCursor);
 
-    const key = `${projectName}:${branchName}`;
-    const args = ['tree', projectName, branchName];
-    if (unsafe) args.push('--unsafe');
+    if (!config) { setMessage('No config loaded'); return; }
 
+    setMessage(`Creating worktree: ${projectName}/${branchName}...`);
+
+    // Setup worktree synchronously (creates dirs, copies files, registers session)
+    const result = setupWorktree(projectName, branchName, config, undefined, jiraIssue?.key);
+    if (!result) {
+      setMessage(`Failed to create worktree: ${projectName}/${branchName}`);
+      return;
+    }
+
+    refreshSessions();
+
+    // Build prompt file for Jira issues
+    let promptFile: string | undefined;
     if (jiraIssue) {
-      args.push('--jira-key', jiraIssue.key);
       const prompt = [
         `Read Jira issue ${jiraIssue.key} (${jiraIssue.url}) and determine how to handle it.`,
         '',
@@ -679,44 +673,25 @@ export function App({ unsafe, onExit }: AppProps) {
         '',
         '   - Ask if I want to proceed with the recommended approach, choose a different one, get more details, or make adjustments.',
       ].join('\n');
-      const promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
+      promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
-      args.push('--prompt-file', promptFile);
     }
 
-    const pty = new PtySession(
-      process.cwd(),
-      termInner,
-      contentHeight - 2,
-      false,
-      { cmd: 'work2', args },
-    );
-    // Compute expected worktree paths so hook events can match this PTY
-    if (config) {
-      const branchDir = branchName.replace(/\//g, '-');
-      const isGroup = !!config.groups[projectName];
-      if (isGroup) {
-        const groupRepos = config.groups[projectName];
-        pty.searchPaths = groupRepos.map((alias) => {
-          const repoPath = config.repos[alias];
-          const repoName = path.basename(repoPath);
-          return path.join(config.worktreesRoot, projectName, branchDir, repoName);
-        });
-        // Also add the group parent dir
-        pty.searchPaths.push(path.join(config.worktreesRoot, projectName, branchDir));
-      } else {
-        const repoPath = config.repos[projectName];
-        if (repoPath) {
-          const repoName = path.basename(repoPath);
-          pty.searchPaths = [path.join(config.worktreesRoot, repoName, branchDir)];
-        }
-      }
-      debug('handleCreateWorktree searchPaths', { key, searchPaths: pty.searchPaths });
-    }
+    // Launch Claude directly in the worktree
+    const key = `${projectName}:${branchName}`;
+    const tool = config.aiCommand ?? 'claude';
+    const toolParts = tool.split(/\s+/);
+    const toolCmd = toolParts[0];
+    const toolArgs = toolParts.slice(1);
+    if (unsafe) toolArgs.push('--dangerously-skip-permissions');
+    if (promptFile) toolArgs.push('--prompt-file', promptFile);
+
+    const pty = new PtySession(result.launchDir, termInner, contentHeight - 2, false,
+      { cmd: toolCmd, args: toolArgs });
     ptySessions.current.set(key, pty);
 
     pty.onExit = (code: number) => {
-      debug('onExit work2-tree PTY', { projectName, branchName: branchName, key, code });
+      debug('onExit session PTY', { projectName, branchName, key, code });
       pty.dispose();
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
@@ -726,13 +701,12 @@ export function App({ unsafe, onExit }: AppProps) {
         setMessage(`Session exited: ${projectName} / ${branchName} (code ${code})`);
       }
       setStatusVersion((v) => v + 1);
-      refreshSessions();
     };
     pty.onStatusChange = () => setStatusVersion((v) => v + 1);
     setStatusVersion((v) => v + 1);
-    setMessage(`Creating: ${projectName}/${branchName}...`);
+    setMessage(`Launched: ${projectName}/${branchName}`);
     connectPty(key, pty);
-  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor]);
+  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor, config]);
 
   // Raw stdin input handling
   useEffect(() => {
