@@ -13,7 +13,6 @@ import {
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
-import { setupWorktree } from '../core/worktree.js';
 import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
@@ -575,33 +574,14 @@ export function App({ unsafe, onExit }: AppProps) {
     setMessage(`Launched: ${projectName} (base repo)`);
   }, [unsafe, termInner, contentHeight, connectPty, refreshSessions, savedSessionCursor, config]);
 
-  /** Create a worktree and launch Claude directly in it. */
+  /** Create a worktree (visible in terminal pane) then launch Claude in it. */
   const handleCreateWorktree = useCallback((projectName: string, branchName: string, jiraIssue?: JiraIssue | null) => {
     setTopPaneMode(TopPaneMode.SESSIONS);
     setSessionCursor(savedSessionCursor);
 
     if (!config) { setMessage('No config loaded'); return; }
 
-    setMessage(`Creating worktree: ${projectName}/${branchName}...`);
-
-    // Setup worktree synchronously — suppress console output (Ink owns the screen)
-    const origLog = console.log;
-    const origError = console.error;
-    console.log = (...args: unknown[]) => { debug('setupWorktree:', ...args); };
-    console.error = (...args: unknown[]) => { debug('setupWorktree error:', ...args); };
-    let result: ReturnType<typeof setupWorktree>;
-    try {
-      result = setupWorktree(projectName, branchName, config, undefined, jiraIssue?.key);
-    } finally {
-      console.log = origLog;
-      console.error = origError;
-    }
-    if (!result) {
-      setMessage(`Failed to create worktree: ${projectName}/${branchName}`);
-      return;
-    }
-
-    refreshSessions();
+    const key = `${projectName}:${branchName}`;
 
     // Build prompt file for Jira issues
     let promptFile: string | undefined;
@@ -646,21 +626,64 @@ export function App({ unsafe, onExit }: AppProps) {
       fs.writeFileSync(promptFile, prompt, 'utf-8');
     }
 
-    // Launch Claude directly in the worktree
-    const key = `${projectName}:${branchName}`;
-    const tool = config.aiCommand ?? 'claude';
-    const toolParts = tool.split(/\s+/);
-    const toolCmd = toolParts[0];
-    const toolArgs = toolParts.slice(1);
-    if (unsafe) toolArgs.push('--dangerously-skip-permissions');
-    if (promptFile) toolArgs.push('--prompt-file', promptFile);
+    // Phase 1: Run `work2 tree --setup-only` in a PTY to show setup progress
+    const setupArgs = ['tree', projectName, branchName, '--setup-only'];
+    if (jiraIssue?.key) setupArgs.push('--jira-key', jiraIssue.key);
+    const setupPty = new PtySession(process.cwd(), termInner, contentHeight - 2, false,
+      { cmd: 'work2', args: setupArgs });
+    ptySessions.current.set(key, setupPty);
+    setStatusVersion((v) => v + 1);
 
-    const pty = new PtySession(result.launchDir, termInner, contentHeight - 2, false,
-      { cmd: toolCmd, args: toolArgs });
-    registerPty(key, pty, `Session exited: ${projectName} / ${branchName}`);
-    setMessage(`Launched: ${projectName}/${branchName}`);
-    connectPty(key, pty);
-  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor, config]);
+    setupPty.onExit = (code: number) => {
+      setupPty.dispose();
+      ptySessions.current.delete(key);
+
+      if (code !== 0) {
+        setMessage(`Failed to create worktree: ${projectName}/${branchName}`);
+        if (activeKeyRef.current === key) {
+          setActiveKey(null);
+          setFocus(Focus.SESSIONS);
+          setTermLines([]);
+        }
+        setStatusVersion((v) => v + 1);
+        return;
+      }
+
+      // Phase 2: Setup succeeded — refresh sessions and launch Claude in the worktree
+      refreshSessions();
+      const sessions = getRecentSessions(loadHistory(), 50);
+      const session = sessions.find((s) => s.target === projectName && s.branch === branchName);
+      if (!session) {
+        setMessage(`Worktree created but session not found: ${projectName}/${branchName}`);
+        setStatusVersion((v) => v + 1);
+        return;
+      }
+
+      const existing = session.paths.find((p) => fs.existsSync(p));
+      if (!existing) {
+        setMessage(`Worktree path not found after setup`);
+        setStatusVersion((v) => v + 1);
+        return;
+      }
+
+      const launchDir = session.isGroup ? path.dirname(existing) : existing;
+      const tool = config.aiCommand ?? 'claude';
+      const toolParts = tool.split(/\s+/);
+      const toolCmd = toolParts[0];
+      const toolArgs = toolParts.slice(1);
+      if (unsafe) toolArgs.push('--dangerously-skip-permissions');
+      if (promptFile) toolArgs.push('--prompt-file', promptFile);
+
+      const claudePty = new PtySession(launchDir, termInner, contentHeight - 2, false,
+        { cmd: toolCmd, args: toolArgs });
+      registerPty(key, claudePty, `Session exited: ${projectName} / ${branchName}`);
+      connectPty(key, claudePty);
+      setMessage(`Launched: ${projectName}/${branchName}`);
+    };
+
+    setMessage(`Creating: ${projectName}/${branchName}...`);
+    connectPty(key, setupPty);
+  }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, registerPty, savedSessionCursor, config]);
 
   // Raw stdin input handling
   useEffect(() => {

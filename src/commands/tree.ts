@@ -47,12 +47,19 @@ export const treeCommand: CommandModule = {
         describe: 'Link a Jira issue key to this worktree session',
         type: 'string',
         hidden: true,
+      })
+      .option('setup-only', {
+        describe: 'Create worktree without launching Claude (used by dashboard)',
+        type: 'boolean',
+        default: false,
+        hidden: true,
       }),
   handler: (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string | undefined;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
+    const setupOnly = argv['setup-only'] as boolean;
     const baseBranch = argv.base as string | undefined;
     const jiraKey = argv['jira-key'] as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
@@ -116,8 +123,10 @@ export const treeCommand: CommandModule = {
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
       console.log(`Repo path: ${repoPath}`);
       if (open) openVSCode(repoPath);
-      console.log('Starting Claude Code...');
-      launchClaude(repoPath, unsafe, initialPrompt);
+      if (!setupOnly) {
+        console.log('Starting Claude Code...');
+        launchClaude(repoPath, unsafe, initialPrompt);
+      }
       return;
     }
 
@@ -135,7 +144,9 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
-    console.log('Starting Claude Code...');
-    launchClaude(result.launchDir, unsafe, initialPrompt);
+    if (!setupOnly) {
+      console.log('Starting Claude Code...');
+      launchClaude(result.launchDir, unsafe, initialPrompt);
+    }
   },
 };
