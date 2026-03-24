@@ -25,7 +25,7 @@ import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
   buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows, buildTaskRows,
-  countSelectable, cursorToRow, sessionKey,
+  countSelectable, cursorToRow, visualRowToCursor, sessionKey,
   type SidebarRow,
 } from './Sidebar.js';
 import { TerminalPane } from './TerminalPane.js';
@@ -754,24 +754,24 @@ export function App({ unsafe, onExit }: AppProps) {
         // Left click (button 0): focus the pane under cursor and select the clicked row
         if (button === 0) {
           if (col <= sidebarWidth) {
+            // row is 1-indexed, each pane has a 1-row top border, so content starts at paneStart + 2
             if (row <= sessionPaneHeight) {
               setFocus(Focus.SESSIONS);
-              // row 1 = border, content starts at row 2, minus 1 for 0-index
-              const clickedIdx = row - 2;
-              if (clickedIdx >= 0) setSessionCursor(Math.min(clickedIdx, countSelectable(topRowsRef.current) - 1));
+              const visualIdx = row - 2; // skip top border
+              if (visualIdx >= 0) setSessionCursor(visualRowToCursor(topRowsRef.current, visualIdx));
             } else if (row <= sessionPaneHeight + prPaneHeight) {
               setFocus(Focus.PRS);
-              const clickedIdx = row - sessionPaneHeight - 2;
-              if (clickedIdx >= 0) setPrCursor(Math.min(clickedIdx, countSelectable(prRowsRef.current) - 1));
+              const visualIdx = row - sessionPaneHeight - 2;
+              if (visualIdx >= 0) setPrCursor(visualRowToCursor(prRowsRef.current, visualIdx));
             } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
               setFocus(Focus.JIRA);
-              const clickedIdx = row - sessionPaneHeight - prPaneHeight - 2;
-              if (clickedIdx >= 0) setJiraCursor(Math.min(clickedIdx, countSelectable(jiraRowsRef.current) - 1));
+              const visualIdx = row - sessionPaneHeight - prPaneHeight - 2;
+              if (visualIdx >= 0) setJiraCursor(visualRowToCursor(jiraRowsRef.current, visualIdx));
             } else {
               setFocus(Focus.TASKS);
               const taskStart = sessionPaneHeight + prPaneHeight + jiraPaneHeight;
-              const clickedIdx = row - taskStart - 2;
-              if (clickedIdx >= 0) setTaskCursor(Math.min(clickedIdx, countSelectable(taskRowsRef.current) - 1));
+              const visualIdx = row - taskStart - 2;
+              if (visualIdx >= 0) setTaskCursor(visualRowToCursor(taskRowsRef.current, visualIdx));
             }
           } else {
             const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;

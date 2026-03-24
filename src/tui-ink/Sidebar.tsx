@@ -194,6 +194,15 @@ export function countSelectable(rows: SidebarRow[]): number {
   return rows.filter((r) => r.type !== 'header').length;
 }
 
+/** Convert a visual row index (0-based position in the pane) to a selectable cursor index. */
+export function visualRowToCursor(rows: SidebarRow[], visualRow: number): number {
+  let selectableIdx = -1;
+  for (let i = 0; i <= visualRow && i < rows.length; i++) {
+    if (rows[i].type !== 'header') selectableIdx++;
+  }
+  return Math.max(0, selectableIdx);
+}
+
 export function cursorToRow(rows: SidebarRow[], cursor: number): SidebarRow | undefined {
   let idx = 0;
   for (const row of rows) {
