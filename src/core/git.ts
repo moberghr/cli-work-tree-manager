@@ -136,11 +136,20 @@ function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCh
   const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
   if (branchInBase.exitCode !== 0) return 'unrelated';
 
-  // 2. If base is also ancestor of branch, they're at the same commit (or branch is behind)
+  // 2. If base is also ancestor of branch, they're at the same commit
   const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
   if (baseInBranch.exitCode === 0) return 'stale';
 
-  // Branch is ancestor of base but base is not ancestor of branch → merged
+  // 3. Branch is ancestor of base — but is it on the main line (stale) or
+  //    only reachable via a merge commit (truly merged)?
+  //    A stale branch's tip sits directly on the first-parent chain.
+  const tip = git(['rev-parse', branch], cwd);
+  if (tip.exitCode !== 0) return 'unrelated';
+  const mainLine = git(['rev-list', '--first-parent', '-n', '500', baseRef], cwd);
+  if (mainLine.exitCode === 0 && mainLine.stdout.includes(tip.stdout)) {
+    return 'stale';
+  }
+
   return 'merged';
 }
 
