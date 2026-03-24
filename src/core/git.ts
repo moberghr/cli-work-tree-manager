@@ -136,20 +136,11 @@ function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCh
   const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
   if (branchInBase.exitCode !== 0) return 'unrelated';
 
-  // 2. If base is also ancestor of branch, they're at the same commit
+  // 2. If base is also ancestor of branch, they're at the same commit (or branch is behind)
   const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
   if (baseInBranch.exitCode === 0) return 'stale';
 
-  // 3. Check if branch tip is on base's first-parent chain (main line).
-  //    If so, the branch never diverged — it's just behind base.
-  const tip = git(['rev-parse', branch], cwd);
-  if (tip.exitCode !== 0) return 'unrelated';
-
-  const mainLine = git(['rev-list', '--first-parent', '-n', '500', baseRef], cwd);
-  if (mainLine.exitCode === 0 && mainLine.stdout.includes(tip.stdout)) {
-    return 'stale';
-  }
-
+  // Branch is ancestor of base but base is not ancestor of branch → merged
   return 'merged';
 }
 
