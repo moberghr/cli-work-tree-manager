@@ -241,24 +241,41 @@ export function App({ unsafe, onExit }: AppProps) {
     process.stdout.write(`\x1B]0;${title}\x07`);
   }, [statusVersion, activeKey]);
 
+  const computeAbort = useRef<(() => void) | null>(null);
   const computeConflictsAndMerged = useCallback((sessionList: WorktreeSession[]) => {
+    // Cancel any in-progress computation
+    computeAbort.current?.();
+
     const counts = new Map<string, number>();
     const merged = new Set<string>();
-    for (const s of sessionList) {
+    let i = 0;
+    let cancelled = false;
+    computeAbort.current = () => { cancelled = true; };
+
+    // Process one session per tick to keep the event loop responsive
+    const processNext = () => {
+      if (cancelled) return;
+      if (i >= sessionList.length) {
+        setConflictCounts(counts);
+        setMergedSet(merged);
+        return;
+      }
+      const s = sessionList[i++];
       const existing = s.paths.find((p) => fs.existsSync(p));
-      if (!existing || !s.branch) continue;
-      const key = sessionKey(s);
-      try {
-        const c = countConflicts(s.branch, existing);
-        if (c > 0) counts.set(key, c);
-      } catch { /* ignore */ }
-      try {
-        const { merged: isMerged } = isBranchMerged(s.branch, existing);
-        if (isMerged) merged.add(key);
-      } catch { /* ignore */ }
-    }
-    setConflictCounts(counts);
-    setMergedSet(merged);
+      if (existing && s.branch) {
+        const key = sessionKey(s);
+        try {
+          const c = countConflicts(s.branch, existing);
+          if (c > 0) counts.set(key, c);
+        } catch { /* ignore */ }
+        try {
+          const { merged: isMerged } = isBranchMerged(s.branch, existing);
+          if (isMerged) merged.add(key);
+        } catch { /* ignore */ }
+      }
+      setTimeout(processNext, 0);
+    };
+    setTimeout(processNext, 0);
   }, []);
 
   const refreshPrs = useCallback(() => {
