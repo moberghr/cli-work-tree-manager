@@ -354,9 +354,11 @@ export function App({ unsafe, onExit }: AppProps) {
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
     const normalized = path.resolve(cwd).toLowerCase();
 
-    // Direct match on PTY cwd
+    // Direct match on PTY cwd or searchPaths
     for (const pty of ptySessions.current.values()) {
+      if (pty.exited) continue;
       if (path.resolve(pty.cwd).toLowerCase() === normalized) return pty;
+      if (pty.searchPaths.some((p) => normalized.startsWith(path.resolve(p).toLowerCase()))) return pty;
     }
 
     // Match via session paths (handles PTYs spawned from a different cwd)
@@ -438,7 +440,10 @@ export function App({ unsafe, onExit }: AppProps) {
   useEffect(() => {
     const hookServer = new HookServer((cwd: string, event: HookEvent) => {
       const pty = findPtyByCwd(cwd);
-      if (!pty) return;
+      if (!pty) {
+        debug('hook event no PTY match', { cwd, event, ptyCwds: [...ptySessions.current.entries()].map(([k, p]) => ({ key: k, cwd: p.cwd, exited: p.exited })) });
+        return;
+      }
       if (event === 'stop' || event === 'notification') {
         pty.setIdle(true);
       } else if (event === 'prompt_submit') {
@@ -544,6 +549,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const hasConversation = fs.existsSync(path.join(dir, '.claude'));
     debug('startPtyForSession launching PTY', { dir, termInner, rows: contentHeight - 2, unsafe, aiCommand: config?.aiCommand, resume: hasConversation });
     const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, hasConversation);
+    pty.searchPaths = [...s.paths, dir];
     ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
 
@@ -685,6 +691,28 @@ export function App({ unsafe, onExit }: AppProps) {
       false,
       { cmd: 'work2', args },
     );
+    // Compute expected worktree paths so hook events can match this PTY
+    if (config) {
+      const branchDir = branchName.replace(/\//g, '-');
+      const isGroup = !!config.groups[projectName];
+      if (isGroup) {
+        const groupRepos = config.groups[projectName];
+        pty.searchPaths = groupRepos.map((alias) => {
+          const repoPath = config.repos[alias];
+          const repoName = path.basename(repoPath);
+          return path.join(config.worktreesRoot, projectName, branchDir, repoName);
+        });
+        // Also add the group parent dir
+        pty.searchPaths.push(path.join(config.worktreesRoot, projectName, branchDir));
+      } else {
+        const repoPath = config.repos[projectName];
+        if (repoPath) {
+          const repoName = path.basename(repoPath);
+          pty.searchPaths = [path.join(config.worktreesRoot, repoName, branchDir)];
+        }
+      }
+      debug('handleCreateWorktree searchPaths', { key, searchPaths: pty.searchPaths });
+    }
     ptySessions.current.set(key, pty);
 
     pty.onExit = (code: number) => {
