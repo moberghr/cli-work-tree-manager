@@ -584,8 +584,18 @@ export function App({ unsafe, onExit }: AppProps) {
 
     setMessage(`Creating worktree: ${projectName}/${branchName}...`);
 
-    // Setup worktree synchronously (creates dirs, copies files, registers session)
-    const result = setupWorktree(projectName, branchName, config, undefined, jiraIssue?.key);
+    // Setup worktree synchronously — suppress console output (Ink owns the screen)
+    const origLog = console.log;
+    const origError = console.error;
+    console.log = (...args: unknown[]) => { debug('setupWorktree:', ...args); };
+    console.error = (...args: unknown[]) => { debug('setupWorktree error:', ...args); };
+    let result: ReturnType<typeof setupWorktree>;
+    try {
+      result = setupWorktree(projectName, branchName, config, undefined, jiraIssue?.key);
+    } finally {
+      console.log = origLog;
+      console.error = origError;
+    }
     if (!result) {
       setMessage(`Failed to create worktree: ${projectName}/${branchName}`);
       return;
