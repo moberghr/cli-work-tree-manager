@@ -55,6 +55,20 @@ enum TopPaneMode {
 }
 
 
+/** Check if Claude has an existing conversation for a directory. */
+function hasClaudeConversation(dir: string): boolean {
+  try {
+    const resolved = path.resolve(dir);
+    const projectDir = resolved.replace(/[/\\:]/g, '-');
+    const claudeProjectPath = path.join(os.homedir(), '.claude', 'projects', projectDir);
+    if (!fs.existsSync(claudeProjectPath)) return false;
+    const files = fs.readdirSync(claudeProjectPath);
+    return files.some((f) => f.endsWith('.jsonl'));
+  } catch {
+    return false;
+  }
+}
+
 function loadSessions(): WorktreeSession[] {
   const all = loadHistory();
   return getRecentSessions(all, 50).filter((s) =>
@@ -533,20 +547,12 @@ export function App({ unsafe, onExit }: AppProps) {
     }
 
     const dir = s.isGroup ? path.dirname(existing) : existing;
-    const startTime = Date.now();
-    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, true);
+    const resume = hasClaudeConversation(dir);
+    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, resume);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
-    registerPty(key, pty, `Session exited: ${s.target} / ${s.branch}`, () => {
-      // If Claude exited quickly with --continue (no conversation found), retry without it
-      if (Date.now() - startTime < 10000) {
-        const retryPty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, false);
-        registerPty(key, retryPty, `Session exited: ${s.target} / ${s.branch}`);
-        connectPty(key, retryPty);
-        setMessage(`Started fresh: ${s.target} / ${s.branch}`);
-      }
-    });
+    registerPty(key, pty, `Session exited: ${s.target} / ${s.branch}`);
     return pty;
-  }, [unsafe, termInner, contentHeight, refreshSessions, registerPty, connectPty]);
+  }, [unsafe, termInner, contentHeight, refreshSessions, registerPty]);
 
   const activateSession = useCallback((s: WorktreeSession) => {
     const key = sessionKey(s);
