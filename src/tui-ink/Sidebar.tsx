@@ -204,7 +204,7 @@ export function cursorToRow(rows: SidebarRow[], cursor: number): SidebarRow | un
   return undefined;
 }
 
-function sessionKey(s: WorktreeSession): string {
+export function sessionKey(s: WorktreeSession): string {
   return `${s.target}:${s.branch}`;
 }
 

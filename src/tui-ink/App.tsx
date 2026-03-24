@@ -26,7 +26,7 @@ import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
   buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows, buildTaskRows,
-  countSelectable, cursorToRow,
+  countSelectable, cursorToRow, sessionKey,
   type SidebarRow,
 } from './Sidebar.js';
 import { TerminalPane } from './TerminalPane.js';
@@ -55,9 +55,6 @@ enum TopPaneMode {
   BRANCH_INPUT,
 }
 
-function sessionKey(s: WorktreeSession): string {
-  return `${s.target}:${s.branch}`;
-}
 
 function loadSessions(): WorktreeSession[] {
   const all = loadHistory();
@@ -495,6 +492,26 @@ export function App({ unsafe, onExit }: AppProps) {
     } catch { /* */ }
   }, [termInner, contentHeight, scheduleTerminalRender]);
 
+  /** Register a PTY: wire up exit/status handlers and track in the sessions map. */
+  const registerPty = useCallback((key: string, pty: PtySession, exitMessage: string, onExitExtra?: () => void) => {
+    ptySessions.current.set(key, pty);
+    pty.onExit = (code: number) => {
+      debug('onExit PTY', { key, code });
+      pty.dispose();
+      ptySessions.current.delete(key);
+      if (activeKeyRef.current === key) {
+        setActiveKey(null);
+        setFocus(Focus.SESSIONS);
+        setTermLines([]);
+        setMessage(`${exitMessage} (code ${code})`);
+      }
+      setStatusVersion((v) => v + 1);
+      onExitExtra?.();
+    };
+    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
+    setStatusVersion((v) => v + 1);
+  }, []);
+
   const startPtyForSession = useCallback((s: WorktreeSession, key: string) => {
     const existing = s.paths.find((p) => fs.existsSync(p));
     if (!existing) {
@@ -506,25 +523,10 @@ export function App({ unsafe, onExit }: AppProps) {
     const dir = s.isGroup ? path.dirname(existing) : existing;
     const hasConversation = fs.existsSync(path.join(dir, '.claude'));
     const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, hasConversation);
-    ptySessions.current.set(key, pty);
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
-
-    pty.onExit = (code: number) => {
-      debug('onExit session PTY', { target: s.target, branch: s.branch, key, code });
-      pty.dispose();
-      ptySessions.current.delete(key);
-      if (activeKeyRef.current === key) {
-        setActiveKey(null);
-        setFocus(Focus.SESSIONS);
-        setTermLines([]);
-        setMessage(`Session exited: ${s.target} / ${s.branch} (code ${code})`);
-      }
-      setStatusVersion((v) => v + 1);
-    };
-    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
-    setStatusVersion((v) => v + 1);
+    registerPty(key, pty, `Session exited: ${s.target} / ${s.branch}`);
     return pty;
-  }, [unsafe, termInner, contentHeight, refreshSessions]);
+  }, [unsafe, termInner, contentHeight, refreshSessions, registerPty]);
 
   const activateSession = useCallback((s: WorktreeSession) => {
     const key = sessionKey(s);
@@ -568,22 +570,7 @@ export function App({ unsafe, onExit }: AppProps) {
     refreshSessions();
 
     const pty = new PtySession(repoPath, termInner, contentHeight - 2, unsafe, undefined, config.aiCommand);
-    ptySessions.current.set(key, pty);
-
-    pty.onExit = (code: number) => {
-      debug('onExit base-repo PTY', { projectName, key, code });
-      pty.dispose();
-      ptySessions.current.delete(key);
-      if (activeKeyRef.current === key) {
-        setActiveKey(null);
-        setFocus(Focus.SESSIONS);
-        setTermLines([]);
-        setMessage(`Session exited: ${projectName} (base) (code ${code})`);
-      }
-      setStatusVersion((v) => v + 1);
-    };
-    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
-    setStatusVersion((v) => v + 1);
+    registerPty(key, pty, `Session exited: ${projectName} (base)`);
     connectPty(key, pty);
     setMessage(`Launched: ${projectName} (base repo)`);
   }, [unsafe, termInner, contentHeight, connectPty, refreshSessions, savedSessionCursor, config]);
@@ -660,22 +647,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     const pty = new PtySession(result.launchDir, termInner, contentHeight - 2, false,
       { cmd: toolCmd, args: toolArgs });
-    ptySessions.current.set(key, pty);
-
-    pty.onExit = (code: number) => {
-      debug('onExit session PTY', { projectName, branchName, key, code });
-      pty.dispose();
-      ptySessions.current.delete(key);
-      if (activeKeyRef.current === key) {
-        setActiveKey(null);
-        setFocus(Focus.SESSIONS);
-        setTermLines([]);
-        setMessage(`Session exited: ${projectName} / ${branchName} (code ${code})`);
-      }
-      setStatusVersion((v) => v + 1);
-    };
-    pty.onStatusChange = () => setStatusVersion((v) => v + 1);
-    setStatusVersion((v) => v + 1);
+    registerPty(key, pty, `Session exited: ${projectName} / ${branchName}`);
     setMessage(`Launched: ${projectName}/${branchName}`);
     connectPty(key, pty);
   }, [unsafe, termInner, contentHeight, refreshSessions, connectPty, savedSessionCursor, config]);
@@ -1171,21 +1143,10 @@ export function App({ unsafe, onExit }: AppProps) {
           false,
           { cmd: 'work2', args: ['remove', s.target, s.branch, '--force'] },
         );
-        ptySessions.current.set(removeKey, removePty);
-        removePty.onExit = (code: number) => {
-          debug('onExit remove PTY', { target: s.target, branch: s.branch, removeKey, code });
-          removePty.dispose();
-          ptySessions.current.delete(removeKey);
-          if (activeKeyRef.current === removeKey) {
-            setActiveKey(null);
-            setTermLines([]);
-            setFocus(Focus.SESSIONS);
-          }
-          setStatusVersion((v) => v + 1);
+        registerPty(removeKey, removePty, `Removed: ${s.target} / ${s.branch}`, () => {
           refreshSessions();
           setMessage(`Removed: ${s.target} / ${s.branch}`);
-        };
-        removePty.onStatusChange = () => setStatusVersion((v) => v + 1);
+        });
         connectPty(removeKey, removePty);
         return;
       }

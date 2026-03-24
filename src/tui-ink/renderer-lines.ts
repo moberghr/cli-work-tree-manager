@@ -84,12 +84,12 @@ function attrsToSgr(a: CellAttrs): string {
   return `\x1B[${params.join(';')}m`;
 }
 
-function pushColorSgr(params: number[], mode: number, color: number, isBg: boolean): void {
-  const CM_DEFAULT = 0;
-  const CM_P16 = 0x1000000;
-  const CM_P256 = 0x2000000;
-  const CM_RGB = 0x3000000;
+const CM_DEFAULT = 0;
+const CM_P16 = 0x1000000;
+const CM_P256 = 0x2000000;
+const CM_RGB = 0x3000000;
 
+function pushColorSgr(params: number[], mode: number, color: number, isBg: boolean): void {
   if (mode === CM_DEFAULT) return;
 
   const base = isBg ? 40 : 30;
