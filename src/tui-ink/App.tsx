@@ -308,7 +308,9 @@ export function App({ unsafe, onExit }: AppProps) {
   }, [statusVersion]);
 
   /** Write terminal lines directly to stdout, bypassing Ink's React reconciler. */
+  const lastDirectLines = useRef<string[]>([]);
   const writeTermDirect = useCallback((lines: string[]) => {
+    lastDirectLines.current = lines;
     const startCol = sidebarWidth + 2; // after sidebar border + left terminal border
     const maxRows = contentHeight - 2;
     const buf: string[] = [];
@@ -743,17 +745,27 @@ export function App({ unsafe, onExit }: AppProps) {
           }
           return;
         }
-        // Left click (button 0): focus the pane under cursor
+        // Left click (button 0): focus the pane under cursor and select the clicked row
         if (button === 0) {
           if (col <= sidebarWidth) {
             if (row <= sessionPaneHeight) {
               setFocus(Focus.SESSIONS);
+              // row 1 = border, content starts at row 2, minus 1 for 0-index
+              const clickedIdx = row - 2;
+              if (clickedIdx >= 0) setSessionCursor(Math.min(clickedIdx, countSelectable(topRowsRef.current) - 1));
             } else if (row <= sessionPaneHeight + prPaneHeight) {
               setFocus(Focus.PRS);
+              const clickedIdx = row - sessionPaneHeight - 2;
+              if (clickedIdx >= 0) setPrCursor(Math.min(clickedIdx, countSelectable(prRowsRef.current) - 1));
             } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
               setFocus(Focus.JIRA);
+              const clickedIdx = row - sessionPaneHeight - prPaneHeight - 2;
+              if (clickedIdx >= 0) setJiraCursor(Math.min(clickedIdx, countSelectable(jiraRowsRef.current) - 1));
             } else {
               setFocus(Focus.TASKS);
+              const taskStart = sessionPaneHeight + prPaneHeight + jiraPaneHeight;
+              const clickedIdx = row - taskStart - 2;
+              if (clickedIdx >= 0) setTaskCursor(Math.min(clickedIdx, countSelectable(taskRowsRef.current) - 1));
             }
           } else {
             const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
@@ -1112,6 +1124,15 @@ export function App({ unsafe, onExit }: AppProps) {
           return;
         }
 
+        if (key === 'o') {
+          const row = cursorToRow(prRowsRef.current, prCursorRef.current);
+          if (row?.type === 'pr' && row.pr.url) {
+            openUrl(row.pr.url);
+            setMessage(`Opened: ${row.pr.title}`);
+          }
+          return;
+        }
+
         if (key === '\x03' || key === 'q') {
           for (const pty of ptySessions.current.values()) pty.dispose();
           ptySessions.current.clear();
@@ -1312,6 +1333,20 @@ export function App({ unsafe, onExit }: AppProps) {
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Repaint direct terminal content after every Ink render (Ink overwrites the screen)
+  useEffect(() => {
+    if (activeKey && lastDirectLines.current.length > 0) {
+      // Small delay to ensure Ink has finished writing to stdout
+      setTimeout(() => {
+        if (activeKeyRef.current && lastDirectLines.current.length > 0) {
+          writeTermDirect(lastDirectLines.current);
+        }
+      }, 0);
+    } else {
+      lastDirectLines.current = [];
+    }
+  });
 
   const statusMap = buildStatusMap();
 
