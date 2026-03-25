@@ -134,11 +134,16 @@ type MergeCheck = 'merged' | 'stale' | 'unrelated';
 function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCheck {
   // 1. Branch must be an ancestor of base (all its commits are in base)
   const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
-  if (branchInBase.exitCode !== 0) return 'unrelated';
+  if (branchInBase.exitCode !== 0) {
+    // Not a regular merge — check for squash merge.
+    if (checkSquashMerged(branch, baseRef, cwd)) return 'merged';
+    return 'unrelated';
+  }
 
   // 2. If base is also ancestor of branch, they're at the same commit
+  //    (fast-forward merge or empty branch) — nothing left to merge.
   const baseInBranch = git(['merge-base', '--is-ancestor', baseRef, branch], cwd);
-  if (baseInBranch.exitCode === 0) return 'stale';
+  if (baseInBranch.exitCode === 0) return 'merged';
 
   // 3. Branch is ancestor of base — but is it on the main line (stale) or
   //    only reachable via a merge commit (truly merged)?
@@ -151,6 +156,28 @@ function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCh
   }
 
   return 'merged';
+}
+
+/**
+ * Detect squash merges by creating a temporary dangling commit that represents
+ * the branch's tree squashed onto the merge-base, then checking if that patch
+ * is already present in the base ref via `git cherry`.
+ */
+function checkSquashMerged(branch: string, baseRef: string, cwd: string): boolean {
+  const mb = git(['merge-base', baseRef, branch], cwd);
+  if (mb.exitCode !== 0) return false;
+
+  const tree = git(['rev-parse', `${branch}^{tree}`], cwd);
+  if (tree.exitCode !== 0) return false;
+
+  const dangling = git(['commit-tree', tree.stdout, '-p', mb.stdout, '-m', ''], cwd);
+  if (dangling.exitCode !== 0) return false;
+
+  const cherry = git(['cherry', baseRef, dangling.stdout], cwd);
+  if (cherry.exitCode !== 0) return false;
+
+  // If the output starts with "-", the patch is already in baseRef (squash-merged)
+  return cherry.stdout.startsWith('-');
 }
 
 export interface MergeCheckResult {

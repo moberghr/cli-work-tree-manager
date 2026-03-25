@@ -8,7 +8,7 @@ export type SessionStatus = 'stopped' | 'running' | 'idle';
 
 export class PtySession {
   readonly pty: IPty;
-  readonly terminal: InstanceType<typeof Terminal>;
+  terminal: InstanceType<typeof Terminal>;
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
@@ -69,6 +69,7 @@ export class PtySession {
         if (this._outputBuffer.length > 500) {
           debug('PtySession first output', { cwd, output: this._outputBuffer.slice(0, 500) });
           this._loggedOutput = true;
+          this._outputBuffer = '';
         }
       }
     });
@@ -77,6 +78,7 @@ export class PtySession {
       if (!this._loggedOutput && this._outputBuffer) {
         debug('PtySession output before exit', { cwd, output: this._outputBuffer.slice(0, 500) });
       }
+      this._outputBuffer = '';
       debug('PtySession exited', { cwd, exitCode });
       this._exited = true;
       this.onExit?.(exitCode);
@@ -119,6 +121,42 @@ export class PtySession {
   clearScrollback() {
     if (!this._exited) {
       this.terminal.clear();
+    }
+  }
+
+  /**
+   * Dispose the xterm Terminal and create a fresh one to fully release
+   * internal parser/buffer memory.  The visible viewport content is
+   * captured first and replayed into the new terminal so nothing looks
+   * different when the user switches back.
+   */
+  resetTerminal() {
+    if (this._exited) return;
+
+    const { cols, rows } = this.terminal;
+    const buf = this.terminal.buffer.active;
+
+    // Capture visible viewport lines as plain text
+    const viewportLines: string[] = [];
+    for (let y = 0; y < rows; y++) {
+      const line = buf.getLine(buf.baseY + y);
+      viewportLines.push(line ? line.translateToString(true) : '');
+    }
+
+    this.terminal.dispose();
+
+    this.terminal = new Terminal({
+      cols,
+      rows,
+      scrollback: 200,
+      allowProposedApi: true,
+    });
+
+    // Replay viewport content (skip trailing empty lines)
+    let lastNonEmpty = viewportLines.length - 1;
+    while (lastNonEmpty >= 0 && viewportLines[lastNonEmpty].trim() === '') lastNonEmpty--;
+    for (let i = 0; i <= lastNonEmpty; i++) {
+      this.terminal.write(viewportLines[i] + (i < lastNonEmpty ? '\r\n' : ''));
     }
   }
 

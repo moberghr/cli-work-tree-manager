@@ -33,7 +33,7 @@ import { StatusBar } from './StatusBar.js';
 
 const DETACH_KEY = '\x1D'; // Ctrl+]
 const TAB_KEY = '\t';
-const RENDER_INTERVAL_MS = 16;
+const RENDER_INTERVAL_MS = 50;
 
 // SGR mouse: \x1b[<button;col;rowM or \x1b[<button;col;rowm
 // Button 64 = scroll up, 65 = scroll down
@@ -1309,7 +1309,7 @@ export function App({ unsafe, onExit }: AppProps) {
       for (const [key, pty] of ptySessions.current) {
         if (pty.exited) continue;
         if (key !== activeKeyRef.current) {
-          pty.clearScrollback();
+          pty.resetTerminal();
         }
       }
     }, 5 * 60 * 1000);
