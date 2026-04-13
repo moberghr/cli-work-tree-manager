@@ -13,16 +13,19 @@ export interface WorkConfig {
    */
   aiCommand?: string;
   /**
-   * Per-tool flag overrides. Defaults match Claude Code. Set any value to
-   * an empty string to disable that flag for the configured tool.
+   * Per-tool flag overrides. Defaults come from the preset matching the
+   * binary in `aiCommand` (see AI_TOOL_PRESETS in core/ai-launcher.ts).
+   * Set any value to an empty string to disable that flag for the configured tool.
    */
   aiCommandFlags?: {
-    /** Flag for skipping permission checks. Default: "--dangerously-skip-permissions". */
+    /** Flag for skipping permission checks. */
     unsafe?: string;
-    /** Flag for resuming the most recent session. Default: "--continue". */
+    /** Flag for resuming the most recent session. */
     resume?: string;
-    /** Flag for passing an initial prompt as a file path. Default: "--prompt-file". */
+    /** Flag for passing an initial prompt as a file path. */
     promptFile?: string;
+    /** Flag for passing an inline prompt; empty string = positional arg. */
+    prompt?: string;
   };
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
