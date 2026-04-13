@@ -5,7 +5,8 @@ import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
-import { launchClaude } from '../utils/platform.js';
+import { getAiTool } from '../core/ai-launcher.js';
+import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
 
 export const recentCommand: CommandModule = {
@@ -19,12 +20,12 @@ export const recentCommand: CommandModule = {
         default: 10,
       })
       .option('resume', {
-        describe: 'Interactively pick a session and launch Claude Code',
+        describe: 'Interactively pick a session and launch the configured AI tool',
         type: 'boolean',
         default: false,
       })
       .option('unsafe', {
-        describe: 'Launch Claude with --dangerously-skip-permissions (used with --resume)',
+        describe: 'Launch the AI tool with its skip-permissions flag (used with --resume)',
         type: 'boolean',
         default: false,
       }),
@@ -33,7 +34,7 @@ export const recentCommand: CommandModule = {
     const resume = argv.resume as boolean;
     const unsafe = argv.unsafe as boolean;
 
-    ensureConfig();
+    const config = ensureConfig();
 
     const sessions = loadHistory();
     const recent = getRecentSessions(sessions, count);
@@ -83,9 +84,10 @@ export const recentCommand: CommandModule = {
 
       upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
+      const tool = getAiTool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));
-      console.log('Starting Claude Code...');
-      launchClaude(launchPath, unsafe);
+      console.log(`Starting ${tool.cmd}...`);
+      launchAi(launchPath, tool, { unsafe });
       return;
     }
 

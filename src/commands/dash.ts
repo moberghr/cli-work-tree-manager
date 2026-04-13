@@ -7,7 +7,7 @@ export const dashCommand: CommandModule = {
   describe: 'Interactive dashboard for all worktree sessions',
   builder: (yargs) =>
     yargs.option('unsafe', {
-      describe: 'Launch Claude with --dangerously-skip-permissions',
+      describe: 'Launch the AI tool with its skip-permissions flag',
       type: 'boolean',
       default: false,
     }),

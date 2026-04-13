@@ -7,8 +7,26 @@ export interface WorkConfig {
   repos: Record<string, string>;
   groups: Record<string, string[]>;
   copyFiles: string[];
-  /** AI tool command to launch in worktrees. Default: "claude" */
+  /**
+   * AI tool command to launch in worktrees. May include extra args, e.g.
+   * "claude" (default), "gemini", "codex", or "my-tool --some-flag".
+   */
   aiCommand?: string;
+  /**
+   * Per-tool flag overrides. Defaults come from the preset matching the
+   * binary in `aiCommand` (see AI_TOOL_PRESETS in core/ai-launcher.ts).
+   * Set any value to an empty string to disable that flag for the configured tool.
+   */
+  aiCommandFlags?: {
+    /** Flag for skipping permission checks. */
+    unsafe?: string;
+    /** Flag for resuming the most recent session. */
+    resume?: string;
+    /** Flag for passing an initial prompt as a file path. */
+    promptFile?: string;
+    /** Flag for passing an inline prompt; empty string = positional arg. */
+    prompt?: string;
+  };
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
 }
@@ -40,6 +58,7 @@ export function loadConfig(): WorkConfig | null {
       groups: parsed.groups ?? {},
       copyFiles: parsed.copyFiles ?? [],
       aiCommand: parsed.aiCommand,
+      aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
     };
   } catch {

@@ -17,6 +17,7 @@ import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
 import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
+import { getAiTool, buildAiLaunchArgs } from '../core/ai-launcher.js';
 import { openUrl } from '../utils/platform.js';
 import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
@@ -548,11 +549,12 @@ export function App({ unsafe, onExit }: AppProps) {
 
     const dir = s.isGroup ? path.dirname(existing) : existing;
     const resume = hasClaudeConversation(dir);
-    const pty = new PtySession(dir, termInner, contentHeight - 2, unsafe, undefined, config?.aiCommand, resume);
+    const tool = getAiTool(config ?? {});
+    const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume });
     upsertSession(s.target, s.isGroup, s.branch, s.paths);
     registerPty(key, pty, `Session exited: ${s.target} / ${s.branch}`);
     return pty;
-  }, [unsafe, termInner, contentHeight, refreshSessions, registerPty]);
+  }, [unsafe, termInner, contentHeight, refreshSessions, registerPty, config]);
 
   const activateSession = useCallback((s: WorktreeSession) => {
     const key = sessionKey(s);
@@ -595,7 +597,8 @@ export function App({ unsafe, onExit }: AppProps) {
     upsertSession(projectName, false, branch, [repoPath]);
     refreshSessions();
 
-    const pty = new PtySession(repoPath, termInner, contentHeight - 2, unsafe, undefined, config.aiCommand);
+    const tool = getAiTool(config);
+    const pty = new PtySession(repoPath, termInner, contentHeight - 2, undefined, { tool, unsafe });
     registerPty(key, pty, `Session exited: ${projectName} (base)`);
     connectPty(key, pty);
     setMessage(`Launched: ${projectName} (base repo)`);
@@ -656,7 +659,7 @@ export function App({ unsafe, onExit }: AppProps) {
     // Phase 1: Run `work2 tree --setup-only` in a PTY to show setup progress
     const setupArgs = ['tree', projectName, branchName, '--setup-only'];
     if (jiraIssue?.key) setupArgs.push('--jira-key', jiraIssue.key);
-    const setupPty = new PtySession(process.cwd(), termInner, contentHeight - 2, false,
+    const setupPty = new PtySession(process.cwd(), termInner, contentHeight - 2,
       { cmd: 'work2', args: setupArgs });
     ptySessions.current.set(key, setupPty);
     setStatusVersion((v) => v + 1);
@@ -694,17 +697,11 @@ export function App({ unsafe, onExit }: AppProps) {
       }
 
       const launchDir = session.isGroup ? path.dirname(existing) : existing;
-      const tool = config.aiCommand ?? 'claude';
-      const toolParts = tool.split(/\s+/);
-      const toolCmd = toolParts[0];
-      const toolArgs = toolParts.slice(1);
-      if (unsafe) toolArgs.push('--dangerously-skip-permissions');
-      if (promptFile) toolArgs.push('--prompt-file', promptFile);
-
-      const claudePty = new PtySession(launchDir, termInner, contentHeight - 2, false,
-        { cmd: toolCmd, args: toolArgs });
-      registerPty(key, claudePty, `Session exited: ${projectName} / ${branchName}`);
-      connectPty(key, claudePty);
+      const tool = getAiTool(config);
+      const aiPty = new PtySession(launchDir, termInner, contentHeight - 2, undefined,
+        { tool, unsafe, promptFile });
+      registerPty(key, aiPty, `Session exited: ${projectName} / ${branchName}`);
+      connectPty(key, aiPty);
       setMessage(`Launched: ${projectName}/${branchName}`);
     };
 
@@ -1200,7 +1197,6 @@ export function App({ unsafe, onExit }: AppProps) {
           process.cwd(),
           termInner,
           contentHeight - 2,
-          false,
           { cmd: 'work2', args: ['remove', s.target, s.branch, '--force'] },
         );
         registerPty(removeKey, removePty, `Removed: ${s.target} / ${s.branch}`, () => {

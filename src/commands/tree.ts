@@ -4,11 +4,12 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
 import { setupWorktree } from '../core/worktree.js';
-import { openVSCode, launchClaude } from '../utils/platform.js';
+import { getAiTool } from '../core/ai-launcher.js';
+import { openVSCode, launchAi } from '../utils/platform.js';
 
 export const treeCommand: CommandModule = {
   command: ['tree <target> [branch]', 't <target> [branch]'],
-  describe: 'Create or switch to a worktree and launch Claude Code',
+  describe: 'Create or switch to a worktree and launch the configured AI tool',
   builder: (yargs) =>
     yargs
       .showHelpOnFail(true)
@@ -27,7 +28,7 @@ export const treeCommand: CommandModule = {
         default: false,
       })
       .option('unsafe', {
-        describe: 'Launch Claude with --dangerously-skip-permissions',
+        describe: 'Launch the AI tool with its skip-permissions flag (default: --dangerously-skip-permissions)',
         type: 'boolean',
         default: false,
       })
@@ -36,7 +37,7 @@ export const treeCommand: CommandModule = {
         type: 'string',
       })
       .option('prompt', {
-        describe: 'Initial prompt to send to Claude Code on startup',
+        describe: 'Initial prompt to send to the AI tool on startup',
         type: 'string',
       })
       .option('prompt-file', {
@@ -49,7 +50,7 @@ export const treeCommand: CommandModule = {
         hidden: true,
       })
       .option('setup-only', {
-        describe: 'Create worktree without launching Claude (used by dashboard)',
+        describe: 'Create worktree without launching the AI tool (used by dashboard)',
         type: 'boolean',
         default: false,
         hidden: true,
@@ -124,8 +125,9 @@ export const treeCommand: CommandModule = {
       console.log(`Repo path: ${repoPath}`);
       if (open) openVSCode(repoPath);
       if (!setupOnly) {
-        console.log('Starting Claude Code...');
-        launchClaude(repoPath, unsafe, initialPrompt);
+        const tool = getAiTool(config);
+        console.log(`Starting ${tool.cmd}...`);
+        launchAi(repoPath, tool, { unsafe, initialPrompt });
       }
       return;
     }
@@ -145,8 +147,9 @@ export const treeCommand: CommandModule = {
 
     console.log(`Worktree path: ${result.launchDir}`);
     if (!setupOnly) {
-      console.log('Starting Claude Code...');
-      launchClaude(result.launchDir, unsafe, initialPrompt);
+      const tool = getAiTool(config);
+      console.log(`Starting ${tool.cmd}...`);
+      launchAi(result.launchDir, tool, { unsafe, initialPrompt });
     }
   },
 };

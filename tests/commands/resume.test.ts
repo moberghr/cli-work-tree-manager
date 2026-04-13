@@ -5,18 +5,18 @@ import os from 'node:os';
 import { saveConfig, type WorkConfig } from '../../src/core/config.js';
 import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/history.js';
 
-// Mock interactive prompt and Claude launcher
+// Mock interactive prompt and AI launcher
 vi.mock('@inquirer/prompts', () => ({
   select: vi.fn(),
 }));
 vi.mock('../../src/utils/platform.js', () => ({
-  launchClaude: vi.fn(),
+  launchAi: vi.fn(),
 }));
 
 import { resumeCommand } from '../../src/commands/resume.js';
 import { recentCommand } from '../../src/commands/recent.js';
 import { select } from '@inquirer/prompts';
-import { launchClaude } from '../../src/utils/platform.js';
+import { launchAi } from '../../src/utils/platform.js';
 
 let tmpDir: string;
 let worktreePath: string;
@@ -82,7 +82,11 @@ describe('resume updates lastAccessedAt', () => {
     expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
       new Date(OLD_TIMESTAMP).getTime(),
     );
-    expect(launchClaude).toHaveBeenCalledWith(worktreePath, false);
+    expect(launchAi).toHaveBeenCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false },
+    );
   });
 
   it('preserves createdAt when resuming', async () => {
@@ -120,6 +124,10 @@ describe('recent --resume updates lastAccessedAt', () => {
     expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
       new Date(OLD_TIMESTAMP).getTime(),
     );
-    expect(launchClaude).toHaveBeenCalledWith(worktreePath, false);
+    expect(launchAi).toHaveBeenCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false },
+    );
   });
 });

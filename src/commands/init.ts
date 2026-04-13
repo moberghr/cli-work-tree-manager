@@ -1,7 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import chalk from 'chalk';
-import { input, confirm } from '@inquirer/prompts';
+import { input, confirm, select } from '@inquirer/prompts';
 import type { CommandModule } from 'yargs';
 import {
   loadConfig,
@@ -10,6 +10,7 @@ import {
   type WorkConfig,
 } from '../core/config.js';
 import { isGitRepo } from '../core/git.js';
+import { KNOWN_TOOLS } from '../core/ai-launcher.js';
 import {
   setupCompletions,
   printCompletionResults,
@@ -78,6 +79,31 @@ export const initCommand: CommandModule = {
         `Great! Worktrees will be created in: ${config.worktreesRoot}`,
       ),
     );
+    console.log('');
+
+    // AI tool selection
+    console.log(chalk.green('Which AI tool should be launched in worktrees?'));
+    const currentTool = (config.aiCommand ?? 'claude').trim().split(/\s+/)[0];
+    const knownChoice = KNOWN_TOOLS.find((t) => t.value === currentTool);
+    const toolChoice = await select<string>({
+      message: 'AI tool',
+      choices: [
+        ...KNOWN_TOOLS.map((t) => ({ name: t.name, value: t.value })),
+        { name: 'Custom (enter command manually)', value: '__custom__' },
+      ],
+      default: knownChoice ? knownChoice.value : '__custom__',
+    });
+
+    if (toolChoice === '__custom__') {
+      const customCmd = await input({
+        message: 'Command to launch (with any base args)',
+        default: config.aiCommand ?? 'claude',
+      });
+      config.aiCommand = customCmd.trim() || 'claude';
+    } else {
+      config.aiCommand = toolChoice;
+    }
+    console.log(chalk.green(`AI tool set to: ${config.aiCommand}`));
     console.log('');
 
     // Add repositories

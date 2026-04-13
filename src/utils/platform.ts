@@ -1,4 +1,5 @@
 import spawn from 'cross-spawn';
+import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from '../core/ai-launcher.js';
 
 /** Get the platform-appropriate default editor. */
 export function getEditor(): string {
@@ -27,14 +28,8 @@ export function openVSCode(dir: string): void {
   spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit' });
 }
 
-/** Launch Claude Code in the given directory. */
-export function launchClaude(
-  cwd: string,
-  unsafe: boolean = false,
-  initialPrompt?: string,
-): void {
-  const args: string[] = [];
-  if (unsafe) args.push('--dangerously-skip-permissions');
-  if (initialPrompt) args.push(initialPrompt);
-  spawn.sync('claude', args, { cwd, stdio: 'inherit' });
+/** Launch the configured AI tool in the given directory. */
+export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}): void {
+  const { cmd, args } = buildAiLaunchArgs(tool, opts);
+  spawn.sync(cmd, args, { cwd, stdio: 'inherit' });
 }

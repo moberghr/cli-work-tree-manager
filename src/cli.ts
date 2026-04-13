@@ -26,7 +26,7 @@ function showHelp() {
   console.log('  work2 tree|t <project|group> <branch>               - Create/switch to worktree');
   console.log('  work2 tree <project|group> <branch> --base <branch> - Create from a specific base branch');
   console.log('  work2 tree <project|group> <branch> --open          - Also open VS Code');
-  console.log('  work2 tree <project|group> <branch> --unsafe        - Skip Claude permission checks');
+  console.log('  work2 tree <project|group> <branch> --unsafe        - Skip AI tool permission checks');
   console.log('  work2 remove <project|group> <branch>               - Remove worktree');
   console.log('  work2 remove <project|group> <branch> --force       - Force remove worktree');
   console.log('  work2 status [project|group] [branch]               - Show worktree status');
