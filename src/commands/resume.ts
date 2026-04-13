@@ -5,7 +5,8 @@ import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
-import { launchClaude } from '../utils/platform.js';
+import { getAiTool } from '../core/ai-launcher.js';
+import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
 
 export const resumeCommand: CommandModule = {
@@ -13,14 +14,14 @@ export const resumeCommand: CommandModule = {
   describe: 'Resume a recent worktree session',
   builder: (yargs) =>
     yargs.option('unsafe', {
-      describe: 'Launch Claude with --dangerously-skip-permissions',
+      describe: 'Launch the AI tool with its skip-permissions flag',
       type: 'boolean',
       default: false,
     }),
   handler: async (argv) => {
     const unsafe = argv.unsafe as boolean;
 
-    ensureConfig();
+    const config = ensureConfig();
 
     const sessions = loadHistory();
     const recent = getRecentSessions(sessions, 10);
@@ -64,8 +65,9 @@ export const resumeCommand: CommandModule = {
 
     upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
+    const tool = getAiTool(config);
     console.log(chalk.cyan(`Resuming in: ${launchPath}`));
-    console.log('Starting Claude Code...');
-    launchClaude(launchPath, unsafe);
+    console.log(`Starting ${tool.cmd}...`);
+    launchAi(launchPath, tool, { unsafe });
   },
 };

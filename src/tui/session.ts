@@ -1,10 +1,19 @@
 import pty, { type IPty } from 'node-pty';
 import xtermHeadless from '@xterm/headless';
 import { debug } from '../core/logger.js';
+import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
 
 const { Terminal } = xtermHeadless;
 
 export type SessionStatus = 'stopped' | 'running' | 'idle';
+
+export interface PtyAiOptions {
+  /** Resolved AI tool spec (from `getAiTool(config)`). */
+  tool: AiToolSpec;
+  unsafe?: boolean;
+  resume?: boolean;
+  promptFile?: string;
+}
 
 export class PtySession {
   readonly pty: IPty;
@@ -18,7 +27,13 @@ export class PtySession {
   onExit?: (code: number) => void;
   onStatusChange?: () => void;
 
-  constructor(cwd: string, cols: number, rows: number, unsafe: boolean, command?: { cmd: string; args: string[] }, aiCommand?: string, resume?: boolean) {
+  constructor(
+    cwd: string,
+    cols: number,
+    rows: number,
+    command?: { cmd: string; args: string[] },
+    aiOptions?: PtyAiOptions,
+  ) {
     this.cwd = cwd;
     this.terminal = new Terminal({
       cols,
@@ -36,19 +51,20 @@ export class PtySession {
       // Custom command (e.g. work2 tree)
       spawnCmd = isWindows ? 'cmd.exe' : command.cmd;
       spawnArgs = isWindows ? ['/c', command.cmd, ...command.args] : command.args;
-    } else {
+    } else if (aiOptions) {
       // Launch configured AI tool (default: claude)
-      const tool = aiCommand ?? 'claude';
-      const parts = tool.split(/\s+/);
-      const toolCmd = parts[0];
-      const toolArgs = parts.slice(1);
-      if (unsafe) toolArgs.push('--dangerously-skip-permissions');
-      if (resume) toolArgs.push('--continue');
-      spawnCmd = isWindows ? 'cmd.exe' : toolCmd;
-      spawnArgs = isWindows ? ['/c', toolCmd, ...toolArgs] : toolArgs;
+      const { cmd, args } = buildAiLaunchArgs(aiOptions.tool, {
+        unsafe: aiOptions.unsafe,
+        resume: aiOptions.resume,
+        promptFile: aiOptions.promptFile,
+      });
+      spawnCmd = isWindows ? 'cmd.exe' : cmd;
+      spawnArgs = isWindows ? ['/c', cmd, ...args] : args;
+    } else {
+      throw new Error('PtySession requires either a custom command or aiOptions');
     }
 
-    debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows, resume });
+    debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
     this.pty = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cwd,
