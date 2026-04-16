@@ -68,7 +68,7 @@ export const recentCommand: CommandModule = {
       const choice = await select({
         message: 'Select a session to resume:',
         choices,
-        pageSize: choices.length,
+        pageSize: 15,
       });
 
       // Find first existing path
