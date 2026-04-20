@@ -8,6 +8,7 @@ import {
   prunePersistedStaleEntries,
   type WorktreeSession,
 } from '../core/history.js';
+import { effectiveLastAccessedAt } from '../core/claude-activity.js';
 import {
   getStatus,
   getUnpushedCommits,
@@ -89,7 +90,7 @@ function printSessionStatus(session: WorktreeSession): void {
     console.log(chalk.red('  Path(s) no longer exist on disk'));
     console.log(
       chalk.gray(
-        `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(session.lastAccessedAt)}`,
+        `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`,
       ),
     );
     console.log('');
@@ -137,7 +138,7 @@ function printSessionStatus(session: WorktreeSession): void {
 
   console.log(
     chalk.gray(
-      `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(session.lastAccessedAt)}`,
+      `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`,
     ),
   );
   console.log('');

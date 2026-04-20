@@ -5,6 +5,7 @@ import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
+import { effectiveLastAccessedAt } from '../core/claude-activity.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
@@ -60,7 +61,7 @@ export const recentCommand: CommandModule = {
       const choices = valid.map((s) => {
           const typeTag = s.isGroup ? '[group]' : '[repo]';
           return {
-            name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(s.lastAccessedAt)})`,
+            name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(effectiveLastAccessedAt(s))})`,
             value: s,
           };
         });
@@ -108,7 +109,7 @@ export const recentCommand: CommandModule = {
         `${typeLabel} ${chalk.green(session.target)} ${chalk.white(session.branch)}${existsTag}`,
       );
       console.log(
-        chalk.gray(`  Last used: ${timeAgo(session.lastAccessedAt)}`),
+        chalk.gray(`  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`),
       );
     }
 

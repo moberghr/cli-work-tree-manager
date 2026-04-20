@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from './config.js';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
+import { effectiveLastAccessedAt } from './claude-activity.js';
 
 export interface WorktreeSession {
   target: string;
@@ -150,8 +151,8 @@ export function getRecentSessions(
   return [...sessions]
     .sort(
       (a, b) =>
-        new Date(b.lastAccessedAt).getTime() -
-        new Date(a.lastAccessedAt).getTime(),
+        new Date(effectiveLastAccessedAt(b)).getTime() -
+        new Date(effectiveLastAccessedAt(a)).getTime(),
     )
     .slice(0, count);
 }

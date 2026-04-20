@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { timeAgo } from '../utils/format.js';
 import type { WorktreeSession } from '../core/history.js';
+import { effectiveLastAccessedAt } from '../core/claude-activity.js';
 import type { SessionStatus } from '../tui/session.js';
 import type { PullRequestInfo, BranchPrMap } from '../core/pr.js';
 import type { JiraIssue } from '../core/jira.js';
@@ -286,7 +287,7 @@ function SessionRow({
 }): React.ReactElement {
   const dotChar = status === 'idle' ? '◆' : status === 'running' ? '●' : '○';
   const dotColor = status === 'idle' ? 'yellow' : status === 'running' ? 'green' : 'gray';
-  const agoStr = timeAgo(s.lastAccessedAt);
+  const agoStr = timeAgo(effectiveLastAccessedAt(s));
 
   const mergedLen = merged ? 8 : 0; // " merged"
   const conflictLen = conflicts > 0 ? 2 + String(conflicts).length : 0;
