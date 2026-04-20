@@ -16,7 +16,7 @@ function crashLog(label: string, err: unknown): void {
 
 export async function startDashboard(unsafe: boolean): Promise<void> {
   if (!process.stdin.isTTY) {
-    console.error('work2 dash requires an interactive terminal');
+    console.error('work dash requires an interactive terminal');
     process.exit(1);
   }
 
@@ -51,7 +51,7 @@ export async function startDashboard(unsafe: boolean): Promise<void> {
       crashLog('uncaughtException', err);
       unmount();
       restore();
-      console.error('work2 dash error:', err);
+      console.error('work dash error:', err);
       process.exit(1);
     });
 
@@ -63,7 +63,7 @@ export async function startDashboard(unsafe: boolean): Promise<void> {
   } catch (err) {
     crashLog('catch', err);
     restore();
-    console.error('work2 dash error:', err);
+    console.error('work dash error:', err);
     process.exit(1);
   }
 }

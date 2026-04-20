@@ -252,7 +252,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const parts: string[] = [];
     if (idleCount > 0) parts.push(`🟡 ${idleCount}`);
     if (runningCount > 0) parts.push(`🟢 ${runningCount}`);
-    const title = parts.length > 0 ? parts.join('  ') : 'work2 dash';
+    const title = parts.length > 0 ? parts.join('  ') : 'work dash';
     process.stdout.write(`\x1B]0;${title}\x07`);
   }, [statusVersion, activeKey]);
 
@@ -399,7 +399,7 @@ export function App({ unsafe, onExit }: AppProps) {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Watch history file for changes (e.g. when work2 tree creates a new session)
+  // Watch history file for changes (e.g. when work tree creates a new session)
   useEffect(() => {
     const historyPath = getHistoryPath();
     try {
@@ -656,15 +656,15 @@ export function App({ unsafe, onExit }: AppProps) {
         '',
         '   - Ask if I want to proceed with the recommended approach, choose a different one, get more details, or make adjustments.',
       ].join('\n');
-      promptFile = path.join(os.tmpdir(), `work2-prompt-${Date.now()}.txt`);
+      promptFile = path.join(os.tmpdir(), `work-prompt-${Date.now()}.txt`);
       fs.writeFileSync(promptFile, prompt, 'utf-8');
     }
 
-    // Phase 1: Run `work2 tree --setup-only` in a PTY to show setup progress
+    // Phase 1: Run `work tree --setup-only` in a PTY to show setup progress
     const setupArgs = ['tree', projectName, branchName, '--setup-only'];
     if (jiraIssue?.key) setupArgs.push('--jira-key', jiraIssue.key);
     const setupPty = new PtySession(process.cwd(), termInner, contentHeight - 2,
-      { cmd: 'work2', args: setupArgs });
+      { cmd: 'work', args: setupArgs });
     ptySessions.current.set(key, setupPty);
     setStatusVersion((v) => v + 1);
 
@@ -1190,13 +1190,13 @@ export function App({ unsafe, onExit }: AppProps) {
         }
         setMessage(`Removing: ${s.target} / ${s.branch}...`);
 
-        // Spawn work2 remove in a PTY so output shows in the right pane
+        // Spawn work remove in a PTY so output shows in the right pane
         const removeKey = `remove:${s.target}:${s.branch}`;
         const removePty = new PtySession(
           process.cwd(),
           termInner,
           contentHeight - 2,
-          { cmd: 'work2', args: ['remove', s.target, s.branch, '--force'] },
+          { cmd: 'work', args: ['remove', s.target, s.branch, '--force'] },
         );
         registerPty(removeKey, removePty, `Removed: ${s.target} / ${s.branch}`, () => {
           refreshSessions();

@@ -7,7 +7,7 @@ import {
 } from '../core/setup-completions.js';
 
 const POWERSHELL_SCRIPT = `
-Register-ArgumentCompleter -CommandName work2 -Native -ScriptBlock {
+Register-ArgumentCompleter -CommandName work -Native -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
     # When $wordToComplete is non-empty, the last CommandElement IS that word.
@@ -22,7 +22,7 @@ Register-ArgumentCompleter -CommandName work2 -Native -ScriptBlock {
         $completedArgs += $el.ToString()
     }
 
-    $results = & work2 --get-yargs-completions work2 @completedArgs $wordToComplete 2>$null
+    $results = & work --get-yargs-completions work @completedArgs $wordToComplete 2>$null
     $results | ForEach-Object {
         if ($_.Trim()) {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
@@ -32,51 +32,51 @@ Register-ArgumentCompleter -CommandName work2 -Native -ScriptBlock {
 `.trim();
 
 const BASH_SCRIPT = `
-###-begin-work2-completions-###
-_work2_yargs_completions()
+###-begin-work-completions-###
+_work_yargs_completions()
 {
     local cur_word args type_list
     cur_word="\${COMP_WORDS[COMP_CWORD]}"
     args=("\${COMP_WORDS[@]}")
-    type_list=$(work2 --get-yargs-completions "\${args[@]}")
+    type_list=$(work --get-yargs-completions "\${args[@]}")
     COMPREPLY=( $(compgen -W "\${type_list}" -- \${cur_word}) )
     if [ \${#COMPREPLY[@]} -eq 0 ]; then
       COMPREPLY=()
     fi
     return 0
 }
-complete -o bashdefault -o default -F _work2_yargs_completions work2
-###-end-work2-completions-###
+complete -o bashdefault -o default -F _work_yargs_completions work
+###-end-work-completions-###
 `.trim();
 
 const ZSH_SCRIPT = `
-###-begin-work2-completions-###
+###-begin-work-completions-###
 autoload -Uz bashcompinit 2>/dev/null && bashcompinit 2>/dev/null
-_work2_yargs_completions()
+_work_yargs_completions()
 {
     local cur_word args type_list
     cur_word="\${COMP_WORDS[COMP_CWORD]}"
     args=("\${COMP_WORDS[@]}")
-    type_list=$(work2 --get-yargs-completions "\${args[@]}")
+    type_list=$(work --get-yargs-completions "\${args[@]}")
     COMPREPLY=( $(compgen -W "\${type_list}" -- \${cur_word}) )
     if [ \${#COMPREPLY[@]} -eq 0 ]; then
       COMPREPLY=()
     fi
     return 0
 }
-complete -o default -F _work2_yargs_completions work2
-###-end-work2-completions-###
+complete -o default -F _work_yargs_completions work
+###-end-work-completions-###
 `.trim();
 
 const FISH_SCRIPT = `
-# work2 tab completions
-function __work2_complete
+# work tab completions
+function __work_complete
     set -l cmd (commandline -opc)
     set -l cur (commandline -ct)
-    work2 --get-yargs-completions $cmd $cur 2>/dev/null
+    work --get-yargs-completions $cmd $cur 2>/dev/null
 end
 
-complete -c work2 -f -a '(__work2_complete)'
+complete -c work -f -a '(__work_complete)'
 `.trim();
 
 export const completionCommand: CommandModule = {

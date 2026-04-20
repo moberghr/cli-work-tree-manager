@@ -71,7 +71,7 @@ export const configCommand: CommandModule = {
 function handleAdd(args: string[]): void {
   const [alias, repoPath] = args;
   if (!alias || !repoPath) {
-    console.error('Usage: work2 config add <alias> <path>');
+    console.error('Usage: work config add <alias> <path>');
     process.exitCode = 1;
     return;
   }
@@ -97,7 +97,7 @@ function handleAdd(args: string[]): void {
 function handleRemove(args: string[]): void {
   const [alias] = args;
   if (!alias) {
-    console.error('Usage: work2 config remove <alias>');
+    console.error('Usage: work config remove <alias>');
     process.exitCode = 1;
     return;
   }
@@ -120,7 +120,7 @@ function handleList(): void {
   if (!config) {
     console.log(
       chalk.yellow(
-        'No configuration found. Run "work2 init" to set up.',
+        'No configuration found. Run "work init" to set up.',
       ),
     );
     return;
@@ -177,7 +177,7 @@ function handleAddGroup(args: string[]): void {
   const [groupName, ...repoAliases] = args;
   if (!groupName) {
     console.error(
-      'Usage: work2 config group add <name> <alias1> <alias2> [alias3...]',
+      'Usage: work config group add <name> <alias1> <alias2> [alias3...]',
     );
     process.exitCode = 1;
     return;
@@ -187,7 +187,7 @@ function handleAddGroup(args: string[]): void {
     console.error('A group must contain at least 2 repository aliases.');
     console.log(
       chalk.yellow(
-        'Usage: work2 config group add <name> <alias1> <alias2> [alias3...]',
+        'Usage: work config group add <name> <alias1> <alias2> [alias3...]',
       ),
     );
     process.exitCode = 1;
@@ -246,7 +246,7 @@ function handleAddGroup(args: string[]): void {
 function handleRemoveGroup(args: string[]): void {
   const [groupName] = args;
   if (!groupName) {
-    console.error('Usage: work2 config group remove <name>');
+    console.error('Usage: work config group remove <name>');
     process.exitCode = 1;
     return;
   }
@@ -275,7 +275,7 @@ function handleRemoveGroup(args: string[]): void {
 function handleRegenGroup(args: string[]): void {
   const [groupName] = args;
   if (!groupName) {
-    console.error('Usage: work2 config group regen <name>');
+    console.error('Usage: work config group regen <name>');
     process.exitCode = 1;
     return;
   }
@@ -302,7 +302,7 @@ function handleShow(): void {
   } else {
     console.log(
       chalk.yellow(
-        'No configuration file found. Run "work2 init" to set up.',
+        'No configuration file found. Run "work init" to set up.',
       ),
     );
   }
@@ -312,7 +312,7 @@ function handleEdit(): void {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     console.error(
-      'No configuration file found. Run "work2 init" first.',
+      'No configuration file found. Run "work init" first.',
     );
     process.exitCode = 1;
     return;
@@ -321,7 +321,7 @@ function handleEdit(): void {
 }
 
 function showConfigHelp(): void {
-  console.log(chalk.yellow('Usage: work2 config <action>'));
+  console.log(chalk.yellow('Usage: work config <action>'));
   console.log('');
   console.log(chalk.green('Actions:'));
   console.log(
@@ -345,7 +345,7 @@ function showConfigHelp(): void {
 }
 
 function showGroupHelp(): void {
-  console.log(chalk.yellow('Usage: work2 config group <action>'));
+  console.log(chalk.yellow('Usage: work config group <action>'));
   console.log('');
   console.log(chalk.green('Actions:'));
   console.log(

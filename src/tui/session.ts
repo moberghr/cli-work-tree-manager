@@ -48,7 +48,7 @@ export class PtySession {
     let spawnArgs: string[];
 
     if (command) {
-      // Custom command (e.g. work2 tree)
+      // Custom command (e.g. work tree)
       spawnCmd = isWindows ? 'cmd.exe' : command.cmd;
       spawnArgs = isWindows ? ['/c', command.cmd, ...command.args] : command.args;
     } else if (aiOptions) {

@@ -42,7 +42,7 @@ export const todoCommand: CommandModule = {
     if (action === 'add') {
       const text = rest.join(' ');
       if (!text) {
-        console.error('Usage: work2 todo add <text>');
+        console.error('Usage: work todo add <text>');
         process.exitCode = 1;
         return;
       }
@@ -54,7 +54,7 @@ export const todoCommand: CommandModule = {
     if (action === 'done') {
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
-        console.error('Usage: work2 todo done <id>');
+        console.error('Usage: work todo done <id>');
         process.exitCode = 1;
         return;
       }
@@ -71,7 +71,7 @@ export const todoCommand: CommandModule = {
     if (action === 'undo') {
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
-        console.error('Usage: work2 todo undo <id>');
+        console.error('Usage: work todo undo <id>');
         process.exitCode = 1;
         return;
       }
@@ -88,7 +88,7 @@ export const todoCommand: CommandModule = {
     if (action === 'rm') {
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
-        console.error('Usage: work2 todo rm <id>');
+        console.error('Usage: work todo rm <id>');
         process.exitCode = 1;
         return;
       }
@@ -106,7 +106,7 @@ export const todoCommand: CommandModule = {
       const id = parseInt(rest[0], 10);
       const text = rest.slice(1).join(' ');
       if (isNaN(id) || !text) {
-        console.error('Usage: work2 todo edit <id> <new text>');
+        console.error('Usage: work todo edit <id> <new text>');
         process.exitCode = 1;
         return;
       }

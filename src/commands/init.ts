@@ -109,7 +109,7 @@ export const initCommand: CommandModule = {
     // Add repositories
     console.log(chalk.green('Now let\'s add your repositories.'));
     console.log(
-      chalk.gray('(You can add more later with: work2 config add <alias> <path>)'),
+      chalk.gray('(You can add more later with: work config add <alias> <path>)'),
     );
     console.log('');
 
@@ -190,7 +190,7 @@ export const initCommand: CommandModule = {
 
     console.log('');
     console.log(
-      chalk.cyan('You\'re all set! Try: work2 tree <project> <branch>'),
+      chalk.cyan('You\'re all set! Try: work tree <project> <branch>'),
     );
     console.log('');
   },

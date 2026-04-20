@@ -23,18 +23,19 @@ export interface CompletionResult {
 }
 
 const PS_COMPLETION_LINE =
-  'work2 completion --shell powershell | Out-String | Invoke-Expression';
-const BASH_COMPLETION_LINE = 'eval "$(work2 completion)"';
-const ZSH_COMPLETION_LINE = 'eval "$(work2 completion --shell zsh)"';
-const FISH_COMPLETION_SCRIPT = `# work2 tab completions
-function __work2_complete
+  'work completion --shell powershell | Out-String | Invoke-Expression';
+const BASH_COMPLETION_LINE = 'eval "$(work completion)"';
+const ZSH_COMPLETION_LINE = 'eval "$(work completion --shell zsh)"';
+const FISH_COMPLETION_SCRIPT = `# work tab completions
+function __work_complete
     set -l cmd (commandline -opc)
     set -l cur (commandline -ct)
-    work2 --get-yargs-completions $cmd $cur 2>/dev/null
+    work --get-yargs-completions $cmd $cur 2>/dev/null
 end
 
-complete -c work2 -f -a '(__work2_complete)'`;
-const MARKER = '# work2 tab completions';
+complete -c work -f -a '(__work_complete)'`;
+const MARKER = '# work tab completions';
+const LEGACY_MARKER = '# work2 tab completions';
 
 /** Get the Windows Documents folder, handling OneDrive redirection. */
 function getWindowsDocumentsFolder(): string | null {
@@ -105,7 +106,7 @@ export function detectShellProfiles(): ShellProfile[] {
         : path.join(home, '.config', 'fish');
       profiles.push({
         shell: 'Fish',
-        profilePath: path.join(fishConfigDir, 'completions', 'work2.fish'),
+        profilePath: path.join(fishConfigDir, 'completions', 'work.fish'),
         completionLine: FISH_COMPLETION_SCRIPT,
       });
     } else if (shell.includes('zsh')) {
@@ -126,15 +127,36 @@ export function detectShellProfiles(): ShellProfile[] {
   return profiles;
 }
 
+/**
+ * Strip a legacy `work2` completion block from a non-fish profile. Matches the
+ * marker line and the next line (the install command). Returns content unchanged
+ * if no legacy block is present.
+ */
+function stripLegacyBlock(content: string): string {
+  if (!content.includes(LEGACY_MARKER)) return content;
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === LEGACY_MARKER) {
+      // Skip marker line and the following install line (if present)
+      if (i + 1 < lines.length && /work2\b/.test(lines[i + 1])) i++;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
 /** Idempotently install the completion line into a shell profile. */
 export function installCompletionLine(profile: ShellProfile): CompletionResult {
   try {
     let createdFile = false;
     const isFish = profile.shell === 'Fish';
 
+    let existingContent = '';
     if (fs.existsSync(profile.profilePath)) {
-      const content = fs.readFileSync(profile.profilePath, 'utf-8');
-      if (content.includes(MARKER)) {
+      existingContent = fs.readFileSync(profile.profilePath, 'utf-8');
+      if (existingContent.includes(MARKER)) {
         return { profile, status: 'already-exists' };
       }
     } else {
@@ -148,9 +170,10 @@ export function installCompletionLine(profile: ShellProfile): CompletionResult {
       // Fish: write the complete completion script to its own file
       fs.writeFileSync(profile.profilePath, profile.completionLine + '\n');
     } else {
-      // Bash/Zsh/PowerShell: append to profile file
+      // Bash/Zsh/PowerShell: strip any legacy `work2` block, then append new one.
+      const cleaned = stripLegacyBlock(existingContent);
       const snippet = `\n${MARKER}\n${profile.completionLine}\n`;
-      fs.appendFileSync(profile.profilePath, snippet);
+      fs.writeFileSync(profile.profilePath, cleaned + snippet);
     }
 
     return { profile, status: createdFile ? 'created-file' : 'installed' };
@@ -208,5 +231,5 @@ export function printManualInstructions(): void {
   console.log(`    ${BASH_COMPLETION_LINE}`);
   console.log('');
   console.log(chalk.gray('  Fish — run:'));
-  console.log(`    work2 completion --shell fish > ~/.config/fish/completions/work2.fish`);
+  console.log(`    work completion --shell fish > ~/.config/fish/completions/work.fish`);
 }

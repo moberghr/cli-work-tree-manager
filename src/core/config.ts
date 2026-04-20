@@ -74,7 +74,7 @@ export function saveConfig(config: WorkConfig): void {
 export function ensureConfig(): WorkConfig {
   const config = loadConfig();
   if (!config) {
-    throw new Error('Configuration not found. Run "work2 init" to set up.');
+    throw new Error('Configuration not found. Run "work init" to set up.');
   }
   return config;
 }

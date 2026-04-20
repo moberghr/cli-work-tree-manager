@@ -15,12 +15,12 @@ npm run build
 npm link
 ```
 
-This registers the `work2` command globally.
+This registers the `work` command globally.
 
 Run initial setup:
 
 ```bash
-work2 init
+work init
 ```
 
 This walks you through configuring:
@@ -31,41 +31,41 @@ This walks you through configuring:
 
 ```bash
 # Create a worktree and launch Claude Code
-work2 tree ai feature/login
+work tree ai feature/login
 
 # Create a worktree branching from a specific base branch
-work2 tree ai feature/login --base develop
+work tree ai feature/login --base develop
 
 # Create a worktree and open VS Code
-work2 tree ai feature/login --open
+work tree ai feature/login --open
 
 # Create a worktree with an initial prompt for Claude
-work2 tree ai feature/login --prompt "Implement the login page"
+work tree ai feature/login --prompt "Implement the login page"
 
 # List all active worktrees
-work2 list
+work list
 
 # Remove a worktree (blocks if uncommitted/unpushed changes)
-work2 remove ai feature/login
+work remove ai feature/login
 
 # Force remove
-work2 remove ai feature/login --force
+work remove ai feature/login --force
 
 # Check status of tracked worktrees (merge status, changes, timestamps)
-work2 status
-work2 status ai feature/login
+work status
+work status ai feature/login
 
 # List recent sessions
-work2 recent
+work recent
 
 # Resume a recent session interactively
-work2 resume
+work resume
 
 # Remove worktrees for merged branches (interactive picker)
-work2 prune
+work prune
 
 # Remove all merged worktrees without prompting
-work2 prune --force
+work prune --force
 ```
 
 ## Configuration
@@ -74,19 +74,19 @@ Manage repos and groups without editing JSON directly:
 
 ```bash
 # Add a repository
-work2 config add frontend /path/to/frontend-app
+work config add frontend /path/to/frontend-app
 
 # Remove a repository
-work2 config remove frontend
+work config remove frontend
 
 # List all repos and groups
-work2 config list
+work config list
 
 # View raw config
-work2 config show
+work config show
 
 # Open config in editor
-work2 config edit
+work config edit
 ```
 
 Configuration is stored at `~/.work/config.json`.
@@ -107,19 +107,19 @@ Groups let you create a single worktree workspace containing multiple repositori
 
 ```bash
 # Create a group
-work2 config group add mygroup api frontend shared-lib
+work config group add mygroup api frontend shared-lib
 
 # Create worktrees for all repos in the group
-work2 tree mygroup feature/new-checkout
+work tree mygroup feature/new-checkout
 
 # Remove all worktrees in the group
-work2 remove mygroup feature/new-checkout
+work remove mygroup feature/new-checkout
 
 # Regenerate the combined CLAUDE.md for a group
-work2 config group regen mygroup
+work config group regen mygroup
 
 # Delete a group
-work2 config group remove mygroup
+work config group remove mygroup
 ```
 
 Group worktrees are organized as:
@@ -138,10 +138,10 @@ When creating a group, a combined `CLAUDE.md` is generated using Claude CLI by m
 
 ## Tab Completion
 
-Completions are automatically installed during `work2 init`. You can also install them standalone:
+Completions are automatically installed during `work init`. You can also install them standalone:
 
 ```bash
-work2 completion --install
+work completion --install
 ```
 
 This detects your available shells and appends the completion line to each profile. On Windows, both PowerShell 7 and PowerShell 5.1 are set up. On Unix, your default shell (bash/zsh) is detected from `$SHELL`.
@@ -151,61 +151,61 @@ This detects your available shells and appends the completion line to each profi
 **PowerShell** — add to `$PROFILE`:
 
 ```powershell
-work2 completion --shell powershell | Out-String | Invoke-Expression
+work completion --shell powershell | Out-String | Invoke-Expression
 ```
 
 **Bash** — add to `~/.bashrc`:
 
 ```bash
-eval "$(work2 completion)"
+eval "$(work completion)"
 ```
 
 **Zsh** — add to `~/.zshrc`:
 
 ```bash
-eval "$(work2 completion)"
+eval "$(work completion)"
 ```
 
 ## Session Tracking
 
-Every `work2 tree` call records the worktree in `~/.work/history.json`. This enables two commands:
+Every `work tree` call records the worktree in `~/.work/history.json`. This enables two commands:
 
 ### Status
 
 ```bash
 # Show all tracked worktrees with merge status, uncommitted changes, unpushed commits
-work2 status
+work status
 
 # Filter to a specific project or branch
-work2 status ai
-work2 status ai feature/login
+work status ai
+work status ai feature/login
 
 # Remove stale entries (worktree paths that no longer exist on disk)
-work2 status --prune
+work status --prune
 ```
 
 ### Recent
 
 ```bash
 # List 10 most recent sessions
-work2 recent
+work recent
 
 # Show more
-work2 recent 20
+work recent 20
 
 # Interactively pick a session and resume Claude Code in it
-work2 resume
-work2 resume --unsafe
+work resume
+work resume --unsafe
 ```
 
 ### Prune
 
 ```bash
 # Interactively select and remove worktrees whose branches are merged into main/master
-work2 prune
+work prune
 
 # Remove all merged worktrees without prompting
-work2 prune --force
+work prune --force
 ```
 
 For groups, all sub-repos must be merged for the group to appear in the list. Per-repo merge status is printed during scanning.
@@ -216,23 +216,23 @@ Keep a local task list for things you want to work on:
 
 ```bash
 # List open tasks
-work2 todo
+work todo
 
 # Add a task
-work2 todo add "Refactor auth module"
+work todo add "Refactor auth module"
 
 # Mark done / undo
-work2 todo done 1
-work2 todo undo 1
+work todo done 1
+work todo undo 1
 
 # Edit a task
-work2 todo edit 1 "Refactor auth and session module"
+work todo edit 1 "Refactor auth and session module"
 
 # Remove a task
-work2 todo rm 1
+work todo rm 1
 
 # Show completed tasks too
-work2 todo --all
+work todo --all
 ```
 
 Tasks are stored locally in `~/.work/tasks.json`. They also appear in the dashboard's Tasks pane where you can manage them interactively and press `w` to create a worktree (`todo/<slug>` branch) for a task.
@@ -240,7 +240,7 @@ Tasks are stored locally in `~/.work/tasks.json`. They also appear in the dashbo
 ## Interactive Dashboard
 
 ```bash
-work2 dash
+work dash
 ```
 
 An interactive terminal UI for managing all your worktree sessions. Features:
@@ -264,7 +264,7 @@ An interactive terminal UI for managing all your worktree sessions. Features:
 
 ```bash
 # Launch with --unsafe to skip Claude permission checks
-work2 dash --unsafe
+work dash --unsafe
 ```
 
 ## Unsafe Mode
@@ -272,7 +272,7 @@ work2 dash --unsafe
 Skip Claude Code permission checks when launching:
 
 ```bash
-work2 tree ai feature/hotfix --unsafe
+work tree ai feature/hotfix --unsafe
 ```
 
 This passes `--dangerously-skip-permissions` to the Claude CLI.

@@ -58,7 +58,7 @@ export const removeCommand: CommandModule = {
       );
       console.log(
         chalk.yellow(
-          `Use 'work2 remove ${targetName} ${branchName} --force' to force remove.`,
+          `Use 'work remove ${targetName} ${branchName} --force' to force remove.`,
         ),
       );
     }

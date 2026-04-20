@@ -16,7 +16,7 @@ interface HydrateResult {
 /**
  * Scan configured repos for worktrees under worktreesRoot and seed history
  * with any that aren't already tracked. Used for recovery from a wiped
- * history.json and to adopt worktrees created outside work2.
+ * history.json and to adopt worktrees created outside work.
  */
 export async function hydrateHistoryFromDisk(
   config: WorkConfig,

@@ -1,10 +1,10 @@
 {
   "name": "work-tree",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cross-platform Git worktree manager for multiple repositories",
   "type": "module",
   "bin": {
-    "work2": "./dist/bin.js"
+    "work": "./dist/bin.js"
   },
   "scripts": {
     "build": "tsup",

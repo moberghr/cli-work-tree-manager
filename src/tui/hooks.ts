@@ -107,15 +107,16 @@ export class HookServer {
       if (!existing.Notification) existing.Notification = [];
       if (!existing.UserPromptSubmit) existing.UserPromptSubmit = [];
 
-      // Remove any stale _work2Dash entries (e.g. from a previous crash)
-      existing.Stop = existing.Stop.filter((h: any) => !h._work2Dash);
-      existing.Notification = existing.Notification.filter((h: any) => !h._work2Dash);
-      existing.UserPromptSubmit = existing.UserPromptSubmit.filter((h: any) => !h._work2Dash);
+      // Remove any stale _workDash entries (and legacy _work2Dash from pre-rename installs)
+      const isOurHook = (h: any) => h._workDash || h._work2Dash;
+      existing.Stop = existing.Stop.filter((h: any) => !isOurHook(h));
+      existing.Notification = existing.Notification.filter((h: any) => !isOurHook(h));
+      existing.UserPromptSubmit = existing.UserPromptSubmit.filter((h: any) => !isOurHook(h));
 
       // Tag our hooks so we can remove them on cleanup
-      existing.Stop.push({ ...hookEntry('/stop'), _work2Dash: true });
-      existing.Notification.push({ ...hookEntry('/notification'), _work2Dash: true, matcher: 'idle_prompt' });
-      existing.UserPromptSubmit.push({ ...hookEntry('/prompt_submit'), _work2Dash: true });
+      existing.Stop.push({ ...hookEntry('/stop'), _workDash: true });
+      existing.Notification.push({ ...hookEntry('/notification'), _workDash: true, matcher: 'idle_prompt' });
+      existing.UserPromptSubmit.push({ ...hookEntry('/prompt_submit'), _workDash: true });
 
       fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
     } catch { /* settings write failed — hooks won't work but dashboard still functions */ }
@@ -133,7 +134,7 @@ export class HookServer {
       for (const key of Object.keys(settings.hooks)) {
         if (!Array.isArray(settings.hooks[key])) continue;
         settings.hooks[key] = settings.hooks[key].filter(
-          (h: any) => !h._work2Dash,
+          (h: any) => !h._workDash && !h._work2Dash,
         );
         if (settings.hooks[key].length === 0) delete settings.hooks[key];
       }

@@ -27,7 +27,7 @@ function backupCorruptFile(historyPath: string, reason: string): void {
     const backupPath = `${historyPath}.bad-${stamp}`;
     fs.copyFileSync(historyPath, backupPath);
     console.error(
-      `[work2] history.json was unreadable (${reason}). Corrupt copy saved to ${backupPath}`,
+      `[work] history.json was unreadable (${reason}). Corrupt copy saved to ${backupPath}`,
     );
   } catch {
     // best-effort
@@ -66,8 +66,8 @@ export function saveHistory(sessions: WorktreeSession[]): void {
 }
 
 /**
- * Serialize a read-modify-write sequence against other work2 processes.
- * Concurrent `work2 tree`/`remove` calls would otherwise clobber each
+ * Serialize a read-modify-write sequence against other work processes.
+ * Concurrent `work tree`/`remove` calls would otherwise clobber each
  * other's writes (this is the bug that wiped 60+ sessions).
  */
 async function withHistoryLock<T>(fn: () => T | Promise<T>): Promise<T> {

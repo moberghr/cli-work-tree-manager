@@ -114,7 +114,7 @@ export const recentCommand: CommandModule = {
 
     console.log('');
     console.log(
-      chalk.gray('Use work2 resume to interactively resume a session.'),
+      chalk.gray('Use work resume to interactively resume a session.'),
     );
   },
 };

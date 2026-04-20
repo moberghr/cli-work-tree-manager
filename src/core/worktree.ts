@@ -366,7 +366,7 @@ async function setupGroupWorktree(
   } else {
     console.log('');
     console.log(chalk.yellow(`Warning: Group CLAUDE.md not found at ${claudeMdSrc}`));
-    console.log(chalk.yellow(`Run 'work2 config regengroup ${groupName}' to generate it.`));
+    console.log(chalk.yellow(`Run 'work config regengroup ${groupName}' to generate it.`));
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);

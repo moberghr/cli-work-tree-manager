@@ -43,8 +43,8 @@ function saveStore(store: TaskStore): void {
 }
 
 /**
- * Serialize read-modify-write against other work2 processes so concurrent
- * `work2 todo` / TUI edits can't clobber each other.
+ * Serialize read-modify-write against other work processes so concurrent
+ * `work todo` / TUI edits can't clobber each other.
  */
 async function withTasksLock<T>(fn: () => T): Promise<T> {
   const tasksPath = getTasksPath();

@@ -83,7 +83,7 @@ export const treeCommand: CommandModule = {
       console.error('--base requires a branch name');
       console.log(
         chalk.yellow(
-          `Usage: work2 tree ${targetName} <branch> --base ${baseBranch}`,
+          `Usage: work tree ${targetName} <branch> --base ${baseBranch}`,
         ),
       );
       process.exitCode = 1;
@@ -98,7 +98,7 @@ export const treeCommand: CommandModule = {
       console.log(chalk.yellow(`Available: ${allNames.join(', ')}`));
       console.log(
         chalk.yellow(
-          'Add a new project with: work2 config add <alias> <path>',
+          'Add a new project with: work config add <alias> <path>',
         ),
       );
       process.exitCode = 1;
@@ -109,7 +109,7 @@ export const treeCommand: CommandModule = {
     if (!branchName) {
       if (target.isGroup) {
         console.error('Branch is required for group targets.');
-        console.log(chalk.yellow(`Usage: work2 tree ${targetName} <branch>`));
+        console.log(chalk.yellow(`Usage: work tree ${targetName} <branch>`));
         process.exitCode = 1;
         return;
       }
