@@ -24,7 +24,7 @@ export const resumeCommand: CommandModule = {
     const config = ensureConfig();
 
     const sessions = loadHistory();
-    const recent = getRecentSessions(sessions, 10);
+    const recent = getRecentSessions(sessions, sessions.length);
 
     // Filter to sessions that still exist on disk
     const valid = recent.filter((s) =>
@@ -49,7 +49,7 @@ export const resumeCommand: CommandModule = {
     const choice = await select({
       message: 'Select a session to resume:',
       choices,
-      pageSize: choices.length,
+      pageSize: 15,
     });
 
     // Find first existing path
