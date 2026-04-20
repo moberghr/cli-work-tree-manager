@@ -18,7 +18,7 @@ export const todoCommand: CommandModule = {
         alias: 'a',
       })
       .strict(false),
-  handler: (argv) => {
+  handler: async (argv) => {
     const action = argv.action as string | undefined;
     const rest = (argv._ as string[]).slice(1);
 
@@ -46,7 +46,7 @@ export const todoCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const task = addTask(text);
+      const task = await addTask(text);
       console.log(chalk.green(`Added #${task.id}: ${task.text}`));
       return;
     }
@@ -58,7 +58,7 @@ export const todoCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const task = completeTask(id);
+      const task = await completeTask(id);
       if (!task) {
         console.error(`Task #${id} not found`);
         process.exitCode = 1;
@@ -75,7 +75,7 @@ export const todoCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const task = uncompleteTask(id);
+      const task = await uncompleteTask(id);
       if (!task) {
         console.error(`Task #${id} not found`);
         process.exitCode = 1;
@@ -92,7 +92,7 @@ export const todoCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const task = removeTask(id);
+      const task = await removeTask(id);
       if (!task) {
         console.error(`Task #${id} not found`);
         process.exitCode = 1;
@@ -110,7 +110,7 @@ export const todoCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const task = editTask(id, text);
+      const task = await editTask(id, text);
       if (!task) {
         console.error(`Task #${id} not found`);
         process.exitCode = 1;

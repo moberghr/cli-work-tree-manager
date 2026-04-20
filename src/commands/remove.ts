@@ -26,7 +26,7 @@ export const removeCommand: CommandModule = {
         type: 'boolean',
         default: false,
       }),
-  handler: (argv) => {
+  handler: async (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string;
     const force = argv.force as boolean;
@@ -48,7 +48,7 @@ export const removeCommand: CommandModule = {
     const allRemoved = teardownWorktree(targetName, target.isGroup, branchName, config, force);
 
     if (allRemoved) {
-      removeSession(targetName, branchName);
+      await removeSession(targetName, branchName);
     } else {
       console.log('');
       console.log(

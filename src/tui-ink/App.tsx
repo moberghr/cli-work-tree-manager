@@ -551,7 +551,9 @@ export function App({ unsafe, onExit }: AppProps) {
     const resume = hasClaudeConversation(dir);
     const tool = getAiTool(config ?? {});
     const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume });
-    upsertSession(s.target, s.isGroup, s.branch, s.paths);
+    void upsertSession(s.target, s.isGroup, s.branch, s.paths).catch((err) =>
+      setMessage(`Failed to save session: ${(err as Error).message}`),
+    );
     registerPty(key, pty, `Session exited: ${s.target} / ${s.branch}`);
     return pty;
   }, [unsafe, termInner, contentHeight, refreshSessions, registerPty, config]);
@@ -594,7 +596,9 @@ export function App({ unsafe, onExit }: AppProps) {
 
     const branch = '(base)';
     const key = `${projectName}:${branch}`;
-    upsertSession(projectName, false, branch, [repoPath]);
+    void upsertSession(projectName, false, branch, [repoPath]).catch((err) =>
+      setMessage(`Failed to save session: ${(err as Error).message}`),
+    );
     refreshSessions();
 
     const tool = getAiTool(config);
@@ -943,12 +947,10 @@ export function App({ unsafe, onExit }: AppProps) {
             setTaskEditId(null);
             if (text) {
               if (editId !== null) {
-                editTask(editId, text);
-                refreshTasks();
+                void editTask(editId, text).then(() => refreshTasks());
                 setMessage(`Updated task #${editId}`);
               } else {
-                addTask(text);
-                refreshTasks();
+                void addTask(text).then(() => refreshTasks());
                 setMessage(`Added task: ${text}`);
               }
             }
@@ -970,12 +972,10 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === '\r' || key === 'x') {
           const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
           if (row?.type === 'task') {
-            if (row.task.done) {
-              uncompleteTask(row.task.id);
-            } else {
-              completeTask(row.task.id);
-            }
-            refreshTasks();
+            const p = row.task.done
+              ? uncompleteTask(row.task.id)
+              : completeTask(row.task.id);
+            void p.then(() => refreshTasks());
           }
           return;
         }
@@ -1016,8 +1016,7 @@ export function App({ unsafe, onExit }: AppProps) {
         if (key === 'd') {
           const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
           if (row?.type === 'task') {
-            removeTask(row.task.id);
-            refreshTasks();
+            void removeTask(row.task.id).then(() => refreshTasks());
             setMessage(`Removed: ${row.task.text}`);
           }
           return;

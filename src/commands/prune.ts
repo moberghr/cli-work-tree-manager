@@ -80,9 +80,9 @@ export const pruneCommand: CommandModule = {
 
     for (const entry of selected) {
       if (entry.type === 'single') {
-        removeSingleEntry(entry);
+        await removeSingleEntry(entry);
       } else {
-        removeGroupEntry(entry, config);
+        await removeGroupEntry(entry, config);
       }
     }
 
@@ -254,17 +254,17 @@ function printScanResults(results: ScanEntry[]): void {
   }
 }
 
-function removeSingleEntry(entry: PrunableEntry): void {
+async function removeSingleEntry(entry: PrunableEntry): Promise<void> {
   const { alias, repoPath, worktreePath } = entry.repos[0];
   console.log(chalk.cyan(`Removing ${entry.target}: ${entry.branch}`));
 
   const removed = removeSingleWorktree(repoPath, worktreePath, entry.branch, true);
   if (removed) {
-    removeSession(entry.target, entry.branch);
+    await removeSession(entry.target, entry.branch);
   }
 }
 
-function removeGroupEntry(entry: PrunableEntry, config: WorkConfig): void {
+async function removeGroupEntry(entry: PrunableEntry, config: WorkConfig): Promise<void> {
   const workTreeDirName = entry.branch.replace(/\//g, '-');
   const groupWorktreePath = path.join(
     config.worktreesRoot,
@@ -288,7 +288,7 @@ function removeGroupEntry(entry: PrunableEntry, config: WorkConfig): void {
   }
 
   if (allRemoved) {
-    removeSession(entry.target, entry.branch);
+    await removeSession(entry.target, entry.branch);
   }
 
   // Clean up CLAUDE.md in group worktree

@@ -12,11 +12,13 @@ import { pruneCommand } from './commands/prune.js';
 import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
+import { hydrateCommand } from './commands/hydrate.js';
 import { completionHandler } from './completions/index.js';
+import { VERSION } from './version.js';
 
 function showHelp() {
   console.log('');
-  console.log(chalk.cyan('Work - Git Worktree Manager'));
+  console.log(chalk.cyan(`Work - Git Worktree Manager ${chalk.gray(`v${VERSION}`)}`));
   console.log(chalk.cyan('============================'));
   console.log('');
   console.log(chalk.green('Usage:'));
@@ -36,6 +38,7 @@ function showHelp() {
   console.log('  work2 dash                                          - Interactive session dashboard');
   console.log('  work2 prune                                         - Remove merged worktrees');
   console.log('  work2 prune --force                                 - Remove all merged (no prompt)');
+  console.log('  work2 hydrate                                       - Seed history from worktrees on disk');
   console.log('  work2 todo                                          - List tasks');
   console.log('  work2 todo add <text>                               - Add a task');
   console.log('  work2 todo done <id>                                - Mark task complete');
@@ -87,6 +90,7 @@ export function run(argv: string[]) {
     .command(pruneCommand)
     .command(dashCommand)
     .command(todoCommand)
+    .command(hydrateCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)
@@ -106,7 +110,7 @@ export function run(argv: string[]) {
     })
     .help()
     .alias('h', 'help')
-    .version()
+    .version(VERSION)
     .alias('v', 'version')
     .wrap(Math.min(100, process.stdout.columns || 80));
 

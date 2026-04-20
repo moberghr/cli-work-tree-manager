@@ -55,7 +55,7 @@ export const treeCommand: CommandModule = {
         default: false,
         hidden: true,
       }),
-  handler: (argv) => {
+  handler: async (argv) => {
     const targetName = argv.target as string;
     const branchName = argv.branch as string | undefined;
     const open = argv.open as boolean;
@@ -133,7 +133,7 @@ export const treeCommand: CommandModule = {
     }
 
     // Create/switch worktree via shared core logic
-    const result = setupWorktree(targetName, branchName, config, baseBranch, jiraKey);
+    const result = await setupWorktree(targetName, branchName, config, baseBranch, jiraKey);
     if (!result) {
       process.exitCode = 1;
       return;

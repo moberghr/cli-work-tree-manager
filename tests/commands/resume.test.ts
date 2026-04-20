@@ -85,7 +85,7 @@ describe('resume updates lastAccessedAt', () => {
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false },
+      { unsafe: false, resume: true },
     );
   });
 

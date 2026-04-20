@@ -58,7 +58,25 @@ describe('loadHistory', () => {
     fs.mkdirSync(historyDir, { recursive: true });
     fs.writeFileSync(path.join(historyDir, 'history.json'), '{bad}');
 
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(loadHistory()).toEqual([]);
+  });
+
+  it('backs up a corrupt history file instead of silently overwriting', () => {
+    const historyDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(historyDir, { recursive: true });
+    fs.writeFileSync(path.join(historyDir, 'history.json'), '{bad}');
+
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(loadHistory()).toEqual([]);
+
+    const backups = fs
+      .readdirSync(historyDir)
+      .filter((f) => f.startsWith('history.json.bad-'));
+    expect(backups.length).toBe(1);
+    expect(fs.readFileSync(path.join(historyDir, backups[0]), 'utf-8')).toBe(
+      '{bad}',
+    );
   });
 
   it('returns empty array for non-array JSON', () => {
@@ -69,6 +87,7 @@ describe('loadHistory', () => {
       JSON.stringify({ not: 'an array' }),
     );
 
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(loadHistory()).toEqual([]);
   });
 });
@@ -127,8 +146,8 @@ describe('findSession', () => {
 });
 
 describe('upsertSession', () => {
-  it('creates a new session', () => {
-    upsertSession('api', false, 'feature/test', ['/tmp/wt']);
+  it('creates a new session', async () => {
+    await upsertSession('api', false, 'feature/test', ['/tmp/wt']);
 
     const sessions = loadHistory();
     expect(sessions.length).toBe(1);
@@ -138,15 +157,14 @@ describe('upsertSession', () => {
     expect(sessions[0].createdAt).toBeTruthy();
   });
 
-  it('updates lastAccessedAt on re-entry', () => {
-    upsertSession('api', false, 'feat', ['/tmp/wt']);
-    const first = loadHistory()[0].lastAccessedAt;
+  it('updates lastAccessedAt on re-entry', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp/wt']);
 
     // Small delay to ensure different timestamp
     vi.spyOn(Date.prototype, 'toISOString').mockReturnValueOnce(
       '2099-01-01T00:00:00.000Z',
     );
-    upsertSession('api', false, 'feat', ['/tmp/wt2']);
+    await upsertSession('api', false, 'feat', ['/tmp/wt2']);
 
     const sessions = loadHistory();
     expect(sessions.length).toBe(1);
@@ -154,29 +172,44 @@ describe('upsertSession', () => {
     expect(sessions[0].paths).toEqual(['/tmp/wt2']);
   });
 
-  it('keeps separate entries for different branches', () => {
-    upsertSession('api', false, 'feat-a', ['/a']);
-    upsertSession('api', false, 'feat-b', ['/b']);
+  it('keeps separate entries for different branches', async () => {
+    await upsertSession('api', false, 'feat-a', ['/a']);
+    await upsertSession('api', false, 'feat-b', ['/b']);
 
     expect(loadHistory().length).toBe(2);
+  });
+
+  it('serializes concurrent upserts without losing entries', async () => {
+    // This is the regression test for the bug that wiped 60+ sessions:
+    // two parallel upsertSession calls must not clobber each other's writes.
+    await Promise.all([
+      upsertSession('api', false, 'feat-a', ['/a']),
+      upsertSession('api', false, 'feat-b', ['/b']),
+      upsertSession('api', false, 'feat-c', ['/c']),
+    ]);
+
+    const sessions = loadHistory();
+    expect(sessions.length).toBe(3);
+    const branches = sessions.map((s) => s.branch).sort();
+    expect(branches).toEqual(['feat-a', 'feat-b', 'feat-c']);
   });
 });
 
 describe('removeSession', () => {
-  it('removes a matching session', () => {
-    upsertSession('api', false, 'feat', ['/tmp']);
-    upsertSession('web', false, 'feat', ['/tmp2']);
+  it('removes a matching session', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp']);
+    await upsertSession('web', false, 'feat', ['/tmp2']);
 
-    removeSession('api', 'feat');
+    await removeSession('api', 'feat');
 
     const sessions = loadHistory();
     expect(sessions.length).toBe(1);
     expect(sessions[0].target).toBe('web');
   });
 
-  it('does nothing when no match', () => {
-    upsertSession('api', false, 'feat', ['/tmp']);
-    removeSession('web', 'feat');
+  it('does nothing when no match', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp']);
+    await removeSession('web', 'feat');
 
     expect(loadHistory().length).toBe(1);
   });

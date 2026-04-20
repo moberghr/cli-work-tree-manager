@@ -4,9 +4,8 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import {
   loadHistory,
-  saveHistory,
   getSessionsForTarget,
-  pruneStaleEntries,
+  prunePersistedStaleEntries,
   type WorktreeSession,
 } from '../core/history.js';
 import {
@@ -35,25 +34,23 @@ export const statusCommand: CommandModule = {
         type: 'boolean',
         default: false,
       }),
-  handler: (argv) => {
+  handler: async (argv) => {
     const target = argv.target as string | undefined;
     const branch = argv.branch as string | undefined;
     const prune = argv.prune as boolean;
 
     ensureConfig();
 
-    let sessions = loadHistory();
-
     if (prune) {
-      const { kept, pruned } = pruneStaleEntries(sessions);
+      const { pruned } = await prunePersistedStaleEntries();
       if (pruned > 0) {
-        saveHistory(kept);
         console.log(chalk.green(`Pruned ${pruned} stale session(s).`));
       } else {
         console.log('No stale sessions to prune.');
       }
-      sessions = kept;
     }
+
+    let sessions = loadHistory();
 
     if (target) {
       sessions = getSessionsForTarget(sessions, target);

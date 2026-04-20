@@ -82,7 +82,7 @@ export const recentCommand: CommandModule = {
       // For groups, launch in the parent directory (group root), not a single repo subfolder
       const launchPath = choice.isGroup ? path.dirname(firstExisting) : firstExisting;
 
-      upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
+      await upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
       const tool = getAiTool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));

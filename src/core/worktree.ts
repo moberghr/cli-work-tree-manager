@@ -263,13 +263,13 @@ export interface WorktreeSetupResult {
  *
  * Returns the setup result on success, or null on failure.
  */
-export function setupWorktree(
+export async function setupWorktree(
   targetName: string,
   branchName: string,
   config: WorkConfig,
   baseBranch?: string,
   jiraKey?: string,
-): WorktreeSetupResult | null {
+): Promise<WorktreeSetupResult | null> {
   debug('setupWorktree', { targetName, branchName, baseBranch, jiraKey });
   const target = resolveProjectTarget(targetName, config);
   if (!target) { debug('setupWorktree: target not found', targetName); return null; }
@@ -283,7 +283,7 @@ export function setupWorktree(
   }
 }
 
-function setupGroupWorktree(
+async function setupGroupWorktree(
   groupName: string,
   repoAliases: string[],
   branchName: string,
@@ -291,7 +291,7 @@ function setupGroupWorktree(
   config: WorkConfig,
   baseBranch?: string,
   jiraKey?: string,
-): WorktreeSetupResult | null {
+): Promise<WorktreeSetupResult | null> {
   const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
 
   // Pre-validate --base across all repos before creating anything
@@ -370,7 +370,7 @@ function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  upsertSession(groupName, true, branchName, allPaths, jiraKey);
+  await upsertSession(groupName, true, branchName, allPaths, jiraKey);
 
   console.log('');
   console.log(`Branch: ${branchName}`);
@@ -378,14 +378,14 @@ function setupGroupWorktree(
   return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true };
 }
 
-function setupSingleWorktree(
+async function setupSingleWorktree(
   targetName: string,
   branchName: string,
   workTreeDirName: string,
   config: WorkConfig,
   baseBranch?: string,
   jiraKey?: string,
-): WorktreeSetupResult | null {
+): Promise<WorktreeSetupResult | null> {
   const repoPath = config.repos[targetName];
   const repoName = path.basename(repoPath);
   let workTreePath = path.join(config.worktreesRoot, repoName, workTreeDirName);
@@ -411,7 +411,7 @@ function setupSingleWorktree(
     if (!success) return null;
   }
 
-  upsertSession(targetName, false, branchName, [workTreePath], jiraKey);
+  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey);
 
   console.log(`Branch: ${branchName}`);
 
