@@ -40,6 +40,7 @@ export function copyConfigFiles(
       cwd: repoPath,
       nodir: true,
       posix: true,
+      dot: true,
     });
 
     for (const match of matches) {
