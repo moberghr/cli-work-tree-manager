@@ -5,6 +5,8 @@ import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
 import { setupWorktree } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
+import { getCurrentBranch } from '../core/git.js';
+import { upsertSession } from '../core/history.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 
 export const treeCommand: CommandModule = {
@@ -123,6 +125,10 @@ export const treeCommand: CommandModule = {
 
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
       console.log(`Repo path: ${repoPath}`);
+
+      const currentBranch = getCurrentBranch(repoPath) ?? '(detached)';
+      await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
+
       if (open) openVSCode(repoPath);
       if (!setupOnly) {
         const tool = getAiTool(config);
