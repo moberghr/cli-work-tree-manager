@@ -1,241 +1,110 @@
-# Work - Git Worktree Manager
+<div align="center">
 
-A cross-platform CLI tool for managing git worktrees across multiple repositories. Create isolated workspaces per branch, manage multi-repo groups, and launch Claude Code automatically.
+# Work — Git Worktree Manager for AI-Assisted Development
 
-## Installation
+### One terminal. Every branch. Every repo. Every Claude session.
 
-Requires **Node.js 18+** and **Git**.
+**A cross-platform TypeScript CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code, and orchestrate everything — PRs, Jira issues, and local tasks — from a single interactive dashboard.**
 
-```bash
-# Clone and install globally
-git clone <repo-url> work-tree
-cd work-tree
-npm install
-npm run build
-npm link
-```
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/moberghr/cli-work-tree-manager/releases)
+[![Website](https://img.shields.io/badge/website-moberghr.github.io-6d28d9.svg)](https://moberghr.github.io/cli-work-tree-manager/)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-339933.svg)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This registers the `work` command globally.
+**[moberghr.github.io/cli-work-tree-manager](https://moberghr.github.io/cli-work-tree-manager/)** — the Work website.
 
-Run initial setup:
+[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard](#interactive-dashboard) · [Groups](#groups-multi-repo-worktrees) · [Architecture](#architecture) · [FAQ](#faq)
 
-```bash
-work init
-```
+</div>
 
-This walks you through configuring:
-- **Worktrees root** — where all worktrees are created
-- **Repositories** — each gets an alias (e.g., `ai` → `/home/user/repos/ai-service`)
+---
+
+## Why Work
+
+Working on three branches in three repos with three Claude Code instances is a productivity superpower — *if* you can keep the cognitive overhead under control. Without tooling, you end up juggling terminals, losing track of which session is in which directory, and rebuilding mental context every time you switch.
+
+Work is the missing layer between `git worktree` and your AI assistant. Every branch gets a real, isolated checkout. Every checkout gets its own Claude Code session, persisted across resumes. Every session is visible — alongside its PR status, assigned Jira issues, and pending tasks — in a single dashboard.
+
+| Without Work | With Work |
+|:---|:---|
+| `cd ../some/path && git checkout -b feature/x && cp .env.local .` every time | `work tree api feature/x` — worktree created, dev settings copied, Claude launched |
+| Three terminals, three editors, three lost contexts | One TUI: sessions, PRs, Jira, tasks — keyboard-driven, mouse-aware |
+| "Which directory was that branch in again?" | `work resume` — recent sessions sorted by last access, one keystroke to re-enter |
+| Multi-repo features = multiple `git worktree add` invocations and a hand-merged CLAUDE.md | `work tree mygroup feature/x` — every repo cloned in lockstep, combined CLAUDE.md generated automatically |
+| Stale worktrees pile up after PRs merge | `work prune` — removes worktrees whose branches landed on main |
+| Jira ticket → branch name → worktree → Claude prompt = manual every time | Select a Jira issue in the dash → branch slug auto-generated → worktree created → planning prompt sent to Claude |
+
+---
 
 ## Quick Start
 
 ```bash
-# Create a worktree and launch Claude Code
-work tree ai feature/login
+# 1. Install (Node 18+, Git required)
+git clone https://github.com/moberghr/cli-work-tree-manager work
+cd work
+npm install
+npm run build
+npm link
 
-# Create a worktree branching from a specific base branch
-work tree ai feature/login --base develop
+# 2. First-time setup — interactive
+work init
 
-# Create a worktree and open VS Code
-work tree ai feature/login --open
+# 3. Create a worktree and launch Claude Code
+work tree api feature/login
 
-# Create a worktree with an initial prompt for Claude
-work tree ai feature/login --prompt "Implement the login page"
-
-# List all active worktrees
-work list
-
-# Remove a worktree (blocks if uncommitted/unpushed changes)
-work remove ai feature/login
-
-# Force remove
-work remove ai feature/login --force
-
-# Check status of tracked worktrees (merge status, changes, timestamps)
-work status
-work status ai feature/login
-
-# List recent sessions
-work recent
-
-# Resume a recent session interactively
-work resume
-
-# Remove worktrees for merged branches (interactive picker)
-work prune
-
-# Remove all merged worktrees without prompting
-work prune --force
+# 4. Open the dashboard
+work dash
 ```
 
-## Configuration
+`work init` walks you through the worktrees root, your repo aliases, and tab-completion installation. Everything else is one keystroke away from the dashboard.
 
-Manage repos and groups without editing JSON directly:
+### Prerequisites
 
-```bash
-# Add a repository
-work config add frontend /path/to/frontend-app
+| Tool | Required | Used for |
+|:---|:---|:---|
+| **Node.js 18+** | yes | Runtime |
+| **Git** | yes | Worktree operations |
+| **[Claude Code CLI](https://claude.ai/code)** | recommended | Auto-launch on `work tree`, group CLAUDE.md generation |
+| **[GitHub CLI (`gh`)](https://cli.github.com/)** | optional | PR pane in dashboard |
+| **[Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/)** | optional | Jira pane in dashboard |
 
-# Remove a repository
-work config remove frontend
+---
 
-# List all repos and groups
-work config list
-
-# View raw config
-work config show
-
-# Open config in editor
-work config edit
-```
-
-Configuration is stored at `~/.work/config.json`.
-
-### File Copying
-
-New worktrees automatically get copies of files matching patterns in `copyFiles`. Default patterns:
-
-- `*.Development.json` — local dev settings
-- `*.Local.json` — local overrides
-- `.claude/settings.local.json` — Claude Code local settings
-
-Edit the config to customize which files are copied.
-
-## Groups (Multi-Repo Worktrees)
-
-Groups let you create a single worktree workspace containing multiple repositories, useful when a feature spans several repos.
-
-```bash
-# Create a group
-work config group add mygroup api frontend shared-lib
-
-# Create worktrees for all repos in the group
-work tree mygroup feature/new-checkout
-
-# Remove all worktrees in the group
-work remove mygroup feature/new-checkout
-
-# Regenerate the combined CLAUDE.md for a group
-work config group regen mygroup
-
-# Delete a group
-work config group remove mygroup
-```
-
-Group worktrees are organized as:
+## Commands
 
 ```
-<worktreesRoot>/
-  mygroup/
-    feature-new-checkout/
-      api/              <- worktree for api repo
-      frontend/         <- worktree for frontend repo
-      shared-lib/       <- worktree for shared-lib repo
-      CLAUDE.md         <- auto-generated combined instructions
+work init                                              # Interactive first-time setup
+work tree|t <target> <branch> [flags]                  # Create or switch to a worktree
+work remove <target> <branch> [--force]                # Remove a worktree
+work list [target]                                     # List worktrees
+work status [target] [branch] [--prune]                # Show worktree merge/dirty status
+work recent [count]                                    # List recent sessions
+work resume [--unsafe]                                 # Resume a recent session
+work dash [--unsafe]                                   # Interactive TUI dashboard
+work prune [--force]                                   # Remove merged worktrees
+work completion [--install]                            # Shell completions
+
+work todo                                              # List open tasks
+work todo add|done|undo|edit|rm <args>                 # Manage tasks
+work todo --all                                        # Include completed tasks
+
+work config add|remove|list|show|edit                  # Manage repos
+work config group add|remove|regen <args>              # Manage multi-repo groups
 ```
 
-When creating a group, a combined `CLAUDE.md` is generated using Claude CLI by merging each repo's individual `CLAUDE.md`.
+`work tree` flags: `--base <branch>` (branch from a specific base), `--open` (open VS Code), `--unsafe` (skip Claude permission checks), `--prompt "..."` / `--prompt-file <path>` (send an initial prompt to Claude).
 
-## Tab Completion
+### Branch resolution order
 
-Completions are automatically installed during `work init`. You can also install them standalone:
+When you run `work tree api feature/login`:
 
-```bash
-work completion --install
-```
+1. **Local branch exists** → checked out into the worktree
+2. **Remote branch exists** → fetched and checked out as a tracking branch
+3. **Neither** → a new branch is created from the configured base (or `--base`)
 
-This detects your available shells and appends the completion line to each profile. On Windows, both PowerShell 7 and PowerShell 5.1 are set up. On Unix, your default shell (bash/zsh) is detected from `$SHELL`.
+Branch directories normalize `/` → `-`, so `feature/login` lives at `<worktreesRoot>/<repo>/feature-login/`.
 
-**Manual setup** — if auto-install doesn't work, add one line to your shell profile:
-
-**PowerShell** — add to `$PROFILE`:
-
-```powershell
-work completion --shell powershell | Out-String | Invoke-Expression
-```
-
-**Bash** — add to `~/.bashrc`:
-
-```bash
-eval "$(work completion)"
-```
-
-**Zsh** — add to `~/.zshrc`:
-
-```bash
-eval "$(work completion)"
-```
-
-## Session Tracking
-
-Every `work tree` call records the worktree in `~/.work/history.json`. This enables two commands:
-
-### Status
-
-```bash
-# Show all tracked worktrees with merge status, uncommitted changes, unpushed commits
-work status
-
-# Filter to a specific project or branch
-work status ai
-work status ai feature/login
-
-# Remove stale entries (worktree paths that no longer exist on disk)
-work status --prune
-```
-
-### Recent
-
-```bash
-# List 10 most recent sessions
-work recent
-
-# Show more
-work recent 20
-
-# Interactively pick a session and resume Claude Code in it
-work resume
-work resume --unsafe
-```
-
-### Prune
-
-```bash
-# Interactively select and remove worktrees whose branches are merged into main/master
-work prune
-
-# Remove all merged worktrees without prompting
-work prune --force
-```
-
-For groups, all sub-repos must be merged for the group to appear in the list. Per-repo merge status is printed during scanning.
-
-## Task Tracking
-
-Keep a local task list for things you want to work on:
-
-```bash
-# List open tasks
-work todo
-
-# Add a task
-work todo add "Refactor auth module"
-
-# Mark done / undo
-work todo done 1
-work todo undo 1
-
-# Edit a task
-work todo edit 1 "Refactor auth and session module"
-
-# Remove a task
-work todo rm 1
-
-# Show completed tasks too
-work todo --all
-```
-
-Tasks are stored locally in `~/.work/tasks.json`. They also appear in the dashboard's Tasks pane where you can manage them interactively and press `w` to create a worktree (`todo/<slug>` branch) for a task.
+---
 
 ## Interactive Dashboard
 
@@ -243,48 +112,280 @@ Tasks are stored locally in `~/.work/tasks.json`. They also appear in the dashbo
 work dash
 ```
 
-An interactive terminal UI for managing all your worktree sessions. Features:
+A keyboard-driven terminal UI built with [Ink](https://github.com/vadimdemedes/ink) and an embedded `node-pty` + `@xterm/headless` Claude Code session per worktree. Five panes, one focus model, zero context switching.
 
-- **5-pane layout** — sessions, PRs, Jira, Tasks (left column), embedded terminal (right)
-- **GitHub PR integration** — shows all open PRs across configured repos with status indicators:
-  - ★ your PR, ✔ you approved, ✎ you reviewed with comments/changes
-  - ✓ checks passing, ✗ checks failing or merge conflict, ● checks pending
-  - Draft PRs shown with dimmed text
-  - PRs matching local worktrees marked with `local`
-- **Jira integration** — shows issues assigned to you (via `acli`), grouped by status. Select an issue to create a worktree with an auto-generated branch name and a structured planning prompt sent to Claude
-- **Merged branch detection** — worktrees with merged branches are flagged
-- **Auto-sync** — fetches all remotes, PR, and Jira data on startup. `g` syncs the focused pane, `G` syncs everything
-- **Session resume** — returning to a worktree resumes the last Claude conversation (`--continue`)
-- **Active session indicator** — green `▸` marks the session currently shown in the terminal pane
-- **Task management** — view, add, edit, complete, and remove tasks directly in the TUI. Press `w` on a task to create a worktree with a `todo/<slug>` branch
-- **Base repo launch** — press `n`, select a project, and press Enter with an empty branch name to launch Claude on the base repo directly
-- **Create worktrees from PRs, Jira, or tasks** — select a PR, Jira issue, or task to create/resume a worktree for it. Press `o` on a Jira issue to open it in the browser
-- **Mouse support** — scroll wheel navigates panes, left-click switches focus between panes. Shift+drag for text selection
-- **Keyboard navigation** — `tab` cycles panes, `j/k` navigates, `enter` starts, `n` creates new, `d` removes, `.` opens editor, `u` rebase, `g` syncs pane, `G` syncs all
-
-```bash
-# Launch with --unsafe to skip Claude permission checks
-work dash --unsafe
+```
+┌──────────────────────────────┬─────────────────────────────────────────────────┐
+│ Sessions                  ▸  │  api · feature/login                            │
+│   ▸ api · feature/login   ●  │                                                 │
+│     api · main               │  > Implement the login page using the existing  │
+│     web · feat/dark-mode  ●  │    auth helpers...                              │
+│ ──────────────────────────── │                                                 │
+│ Pull Requests                │  ✓ Reading src/auth/AuthContext.tsx             │
+│   ★ #142 · feature/login  ✓  │  ✓ Writing src/pages/login.tsx                  │
+│   ✎ #138 · feat/dark-mode ✗  │  ✓ dotnet build (0 warnings, 0 errors)          │
+│ ──────────────────────────── │                                                 │
+│ Jira                         │  ⏵                                              │
+│   In Progress                │                                                 │
+│     PROJ-204 · Add 2FA       │                                                 │
+│ ──────────────────────────── │                                                 │
+│ Tasks                        │                                                 │
+│   [ ] Refactor auth module   │                                                 │
+│   [x] Document new endpoints │                                                 │
+└──────────────────────────────┴─────────────────────────────────────────────────┘
+ tab cycles · n new · d remove · g sync pane · G sync all · enter open · w worktree
 ```
 
-## Unsafe Mode
+### What the dashboard does
 
-Skip Claude Code permission checks when launching:
+- **Session pane** — every worktree as a row with a status indicator (`●` running, `○` idle, `▸` currently focused). Reactive to external `work tree` invocations via `fs.watch` on `history.json`.
+- **PR pane** — open PRs across every configured repo via `gh pr list`. Decorated with check status (`✓` / `✗` / `●`), merge-conflict detection, your review state (`✔` approved, `✎` reviewed), draft dimming, and ownership (`★` your PR). Selecting a PR creates or resumes its worktree.
+- **Jira pane** — issues assigned to you, grouped by status, fetched via `acli`. Selecting an issue prompts for project, generates a branch slug via Claude Haiku, creates the worktree, and sends a structured planning prompt to Claude. `o` opens the issue in your browser.
+- **Tasks pane** — local tasks from `~/.work/tasks.json`. Press `a` to add, `e` to edit, `enter`/`x` to toggle, `d` to remove, `w` to spin up a `todo/<slug>` worktree.
+- **Terminal pane** — the live Claude Code PTY for the focused session. Resumes prior conversations via `--continue`. Mouse scroll, Shift+drag for text selection.
+- **Auto-sync on startup** — every repo remote fetched in parallel; PRs and Jira issues loaded immediately. `g` syncs the focused pane, `G` syncs everything.
+- **Hook integration** — a local HTTP server (`tui/hooks.ts`) receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) so session activity is reflected in real time. Hooks are auto-injected into `~/.claude/settings.json` on launch and cleaned up on exit.
+- **Context-sensitive status bar** — keybinding hints change based on the focused pane.
+
+### Keyboard reference
+
+| Key | Action |
+|:---|:---|
+| `tab` | Cycle focus: sessions → PRs → Jira → tasks → terminal |
+| `j` / `k` | Navigate within the focused pane |
+| `enter` | Open / resume the selected item |
+| `n` | New worktree (project + branch picker) |
+| `d` | Remove the selected worktree |
+| `w` | Create worktree from selected task / PR / Jira issue |
+| `a` / `e` | Add or edit task (tasks pane) |
+| `g` / `G` | Sync focused pane / sync everything |
+| `u` | Rebase current worktree onto its base |
+| `.` | Open worktree in editor |
+| `o` | Open Jira issue in browser |
+
+---
+
+## Groups (Multi-Repo Worktrees)
+
+When a feature spans several repositories — say a backend API change that ships with a frontend update — Work treats them as a single unit.
 
 ```bash
-work tree ai feature/hotfix --unsafe
+# Define a group
+work config group add fullstack api web shared-lib
+
+# Create one worktree workspace covering all three repos
+work tree fullstack feature/new-checkout
+
+# Combined directory layout
+<worktreesRoot>/
+  fullstack/
+    feature-new-checkout/
+      api/             # worktree for api repo
+      web/             # worktree for web repo
+      shared-lib/      # worktree for shared-lib repo
+      CLAUDE.md        # auto-generated combined instructions
+
+# Tear it all down at once
+work remove fullstack feature/new-checkout
 ```
 
-This passes `--dangerously-skip-permissions` to the Claude CLI.
+The combined `CLAUDE.md` is produced by invoking the Claude CLI to merge each repo's individual `CLAUDE.md` into a coherent multi-repo brief — so the Claude session that gets launched understands every codebase it can see. Regenerate any time with `work config group regen <name>`.
 
-## Debug Logging
+---
 
-All CLI output and internal debug messages are logged to `~/.work/debug.log` with timestamps. Useful for diagnosing worktree creation failures or hook issues. The log auto-rotates at 5MB.
+## Configuration
 
-## Requirements
+Stored at `~/.work/config.json`:
 
-- Node.js 18+
-- Git
-- [Claude Code CLI](https://claude.ai/code) (for automatic Claude launching and group CLAUDE.md generation)
-- [GitHub CLI (`gh`)](https://cli.github.com/) (optional, for PR integration in dashboard)
-- [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/) (optional, for Jira integration in dashboard)
+```json
+{
+  "worktreesRoot": "/Users/you/worktrees",
+  "repos": {
+    "api":  "/Users/you/repos/api",
+    "web":  "/Users/you/repos/web"
+  },
+  "groups": {
+    "fullstack": ["api", "web"]
+  },
+  "copyFiles": [
+    "*.Development.json",
+    "*.Local.json",
+    ".claude/settings.local.json"
+  ]
+}
+```
+
+`copyFiles` glob patterns are copied into every new worktree — the canonical use case is local dev settings (`appsettings.Development.json`, `.env.local`, `.claude/settings.local.json`) that are gitignored but needed to run the app. Edit via `work config edit` or manage via the `work config …` subcommands.
+
+### Session tracking
+
+Every `work tree` invocation upserts a row into `~/.work/history.json` keyed by `target + branch`. This powers:
+
+- **`work status`** — joins history with live `git status` to show merge state, dirty trees, unpushed commits, and last-access timestamps.
+- **`work recent`** — sessions sorted by last touched.
+- **`work resume`** — interactive picker; one keystroke to re-enter the worktree and continue the prior Claude conversation.
+- **Dashboard reactivity** — `fs.watch` on `history.json` means a `work tree` in another terminal shows up in the running dashboard immediately.
+
+---
+
+## Architecture
+
+```
+bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo}.ts
+                                       │
+                                       ▼
+                                  core/worktree.ts          ← high-level setup / teardown
+                                  ├── core/git.ts           ← git wrapper
+                                  ├── core/copy-files.ts    ← glob-based file copying
+                                  ├── core/resolve.ts       ← group vs single-repo dispatch
+                                  ├── core/history.ts       ← session tracking
+                                  ├── core/tasks.ts         ← local task persistence
+                                  ├── core/pr.ts            ← GitHub PR fetching (gh)
+                                  ├── core/jira.ts          ← Jira issue fetching (acli)
+                                  └── core/setup-completions.ts
+
+                                  tui-ink/                  ← Ink/React TUI
+                                  ├── App.tsx               ← layout, keyboard, session mgmt
+                                  ├── Sidebar.tsx           ← session list, PR pane
+                                  ├── TerminalPane.tsx      ← xterm renderer
+                                  └── StatusBar.tsx
+
+                                  tui/                      ← PTY + hook infra
+                                  ├── session.ts            ← node-pty + @xterm/headless
+                                  └── hooks.ts              ← Claude Code lifecycle events
+```
+
+### Design principles
+
+| Principle | What it means |
+|:---|:---|
+| **Atomic worktree operations** | `setupWorktree()` and `teardownWorktree()` are the high-level entry points used by both the CLI and the TUI. Low-level `createSingleWorktree()` rolls back on partial failure. |
+| **Resolver pattern** | One name (`api`, `fullstack`) is dispatched through `resolveProjectTarget()` to either a group or a single repo. Commands branch on `isGroup` once and delegate. |
+| **Branch resolution priority** | Local exists → remote exists (tracking branch) → neither (new branch from base). |
+| **Path normalisation** | `feature/login` → `feature-login` directory. Always. |
+| **External binaries are external** | tsup bundles `src/bin.ts` as ESM with all dependencies marked `external` — they're resolved from `node_modules` at runtime. Adding a dep means `npm install` *and* rebuild. |
+| **Color forcing for Windows** | `bin.ts` raises `chalk.level` to 1 when chalk detects 0 — Windows `.cmd` shims don't preserve TTY detection. `NO_COLOR` is respected. |
+
+---
+
+## Tab Completion
+
+Auto-installed during `work init`. Available standalone:
+
+```bash
+work completion --install
+```
+
+Detects PowerShell 7 / 5.1 on Windows (via `[Environment]::GetFolderPath('MyDocuments')`) and bash / zsh on Unix (via `$SHELL`). Idempotent — uses a `# work tab completions` marker to skip if already present. Manual fallback:
+
+| Shell | Add to profile |
+|:---|:---|
+| **PowerShell** (`$PROFILE`) | `work completion --shell powershell \| Out-String \| Invoke-Expression` |
+| **Bash** (`~/.bashrc`) | `eval "$(work completion)"` |
+| **Zsh** (`~/.zshrc`) | `eval "$(work completion)"` |
+
+Completions are dynamic — branch names come from the worktree directory listing for groups, and from each repo's worktree list for single repos.
+
+---
+
+## Development
+
+```bash
+npm run build                                      # Bundle with tsup → dist/bin.js
+npm run dev                                        # Run directly via tsx (no build)
+npm test                                           # Run all tests with vitest
+npm run test:watch                                 # Watch mode
+npx vitest run tests/core/resolve.test.ts          # Single test file
+```
+
+After building, `work` is available globally via `npm link`. Rebuild after source changes.
+
+### Project layout
+
+```
+work-tree/
+├── src/
+│   ├── bin.ts                  # Entry point (chalk forcing, shebang)
+│   ├── cli.ts                  # yargs router
+│   ├── commands/               # CLI command handlers
+│   ├── core/                   # Shared operations (worktree, git, history, …)
+│   ├── tui-ink/                # Ink/React TUI dashboard
+│   ├── tui/                    # PTY sessions and hook server
+│   ├── completions/            # Dynamic tab-completion handler
+│   └── utils/
+├── tests/                      # vitest suites
+├── work.ps1                    # PowerShell shim
+├── work-completions.ps1        # PowerShell completion script
+├── tsup.config.ts
+└── package.json
+```
+
+---
+
+## Unsafe Mode & Debug Logging
+
+`--unsafe` on `work tree`, `work resume`, or `work dash` passes `--dangerously-skip-permissions` to the Claude CLI — useful in trusted, sandboxed worktrees, dangerous everywhere else. Use deliberately.
+
+All CLI output and internal debug messages stream to `~/.work/debug.log` with timestamps. Auto-rotates at 5 MB. The first place to look when worktree creation, group CLAUDE.md generation, or hook delivery misbehaves.
+
+---
+
+## FAQ
+
+<details>
+<summary><b>Why git worktrees instead of branches in one checkout?</b></summary>
+
+Branches share a working directory. Worktrees give every branch its own isolated checkout — separate `node_modules`, separate `bin/obj`, separate dev-server processes, separate Claude Code sessions. You can run all of them concurrently without `git stash` gymnastics or losing your build cache.
+</details>
+
+<details>
+<summary><b>Do I have to use Claude Code?</b></summary>
+
+No — `work tree`, `work list`, `work status`, `work prune`, and the dashboard's session pane all work without Claude Code installed. You just lose auto-launch, group CLAUDE.md generation, and the embedded terminal in the dashboard. The CLI degrades gracefully when `claude` isn't on PATH.
+</details>
+
+<details>
+<summary><b>Does the dashboard work on Windows?</b></summary>
+
+Yes. Ink and node-pty support Windows; PowerShell completions are installed automatically. Mouse and keyboard handling work in Windows Terminal, ConEmu, and the new VS Code integrated terminal.
+</details>
+
+<details>
+<summary><b>What happens when a worktree's branch is merged?</b></summary>
+
+`work prune` lists every worktree whose branch is merged into `main` / `master` and offers to remove them interactively. `--force` skips the prompt. For groups, every sub-repo's branch must be merged before the group is offered.
+</details>
+
+<details>
+<summary><b>Can I customize which files get copied into new worktrees?</b></summary>
+
+Yes — edit `copyFiles` in `~/.work/config.json` (or run `work config edit`). Any glob pattern works. The default set covers `*.Development.json`, `*.Local.json`, and `.claude/settings.local.json` — the typical "gitignored but required to run" trio.
+</details>
+
+<details>
+<summary><b>How does the Jira → branch flow work?</b></summary>
+
+Pick a Jira issue in the dash, choose the target project, and Work invokes Claude Haiku with the issue title to generate a branch slug. It then runs `work tree <project> <slug>` in a PTY and pipes a structured planning prompt to Claude via `--prompt-file`. End result: a fresh worktree with Claude already thinking about your ticket.
+</details>
+
+<details>
+<summary><b>Can I use my own AI assistant instead of Claude Code?</b></summary>
+
+The auto-launch and the dashboard's embedded session both target Claude Code specifically. Other tools can still benefit from the worktree management, group CLAUDE.md generation, and session tracking — just don't pass `--prompt` flags or use the embedded terminal pane.
+</details>
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**Work — Git Worktree Manager** v1.3.0 · [Moberg d.o.o.](https://www.moberg.hr)
+
+Built for engineers who run more than one branch at a time.
+
+</div>
