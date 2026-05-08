@@ -71,7 +71,16 @@ export function createSingleWorktree(
   fs.mkdirSync(parentDir, { recursive: true });
 
   // Pull latest changes for current branch in main repo
-  console.log('  Pulling latest changes for main repo...');
+  const baseRepoBranch = getCurrentBranch(repoPath);
+  const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
+  console.log(`  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
+  if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`,
+      ),
+    );
+  }
   git(['pull', '--quiet'], repoPath);
 
   // Fetch remote refs
