@@ -15,6 +15,9 @@ export function git(args: string[], cwd: string): GitResult {
     cwd,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    // Avoid flashing a console window on Windows for every git call —
+    // matters most when this runs inside the detached `wd --watch` daemon.
+    windowsHide: true,
   });
 
   const r = {
