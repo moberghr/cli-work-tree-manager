@@ -70,6 +70,9 @@ export function createSingleWorktree(
   const parentDir = path.dirname(worktreePath);
   fs.mkdirSync(parentDir, { recursive: true });
 
+  // Fetch remote refs first so origin/* is up to date even if pull fails below
+  git(['fetch', '--quiet'], repoPath);
+
   // Pull latest changes for current branch in main repo
   const baseRepoBranch = getCurrentBranch(repoPath);
   const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
@@ -81,10 +84,17 @@ export function createSingleWorktree(
       ),
     );
   }
-  git(['pull', '--quiet'], repoPath);
-
-  // Fetch remote refs
-  git(['fetch', '--quiet'], repoPath);
+  const baseRepoPull = git(['pull', '--quiet'], repoPath);
+  const baseRepoPullFailed = baseRepoPull.exitCode !== 0;
+  if (baseRepoPullFailed) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ Could not pull '${baseBranchLabel}' (uncommitted changes, conflicts, or no upstream).`,
+      ),
+    );
+    const firstErrLine = baseRepoPull.stderr.split('\n')[0];
+    if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+  }
 
   const hasLocal = localBranchExists(branchName, repoPath);
   const hasRemote = remoteBranchExists(branchName, repoPath);
@@ -104,7 +114,16 @@ export function createSingleWorktree(
     console.log(`  Pulling latest changes for ${branchName}...`);
     const prevBranch = getCurrentBranch(repoPath);
     git(['checkout', branchName, '--quiet'], repoPath);
-    git(['pull', '--quiet'], repoPath);
+    const branchPull = git(['pull', '--quiet'], repoPath);
+    if (branchPull.exitCode !== 0) {
+      console.log(
+        chalk.yellow(
+          `  ⚠ Could not pull '${branchName}'. Worktree may be behind origin.`,
+        ),
+      );
+      const firstErrLine = branchPull.stderr.split('\n')[0];
+      if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+    }
     if (prevBranch) {
       git(['checkout', prevBranch, '--quiet'], repoPath);
     }
@@ -155,10 +174,26 @@ export function createSingleWorktree(
       repoPath,
     );
   } else {
-    result = git(
-      ['worktree', 'add', worktreePath, '-b', branchName],
-      repoPath,
-    );
+    // If pulling the base repo branch failed, use origin/<baseRepoBranch> as the
+    // source so the new branch isn't created from a stale local HEAD.
+    const fallbackToRemote =
+      baseRepoPullFailed &&
+      !!baseRepoBranch &&
+      remoteBranchExists(baseRepoBranch, repoPath);
+    if (fallbackToRemote) {
+      console.log(
+        chalk.cyan(`  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`),
+      );
+      result = git(
+        ['worktree', 'add', worktreePath, '-b', branchName, `origin/${baseRepoBranch}`],
+        repoPath,
+      );
+    } else {
+      result = git(
+        ['worktree', 'add', worktreePath, '-b', branchName],
+        repoPath,
+      );
+    }
   }
 
   if (result.exitCode !== 0) {
