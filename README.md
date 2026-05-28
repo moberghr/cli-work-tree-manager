@@ -13,7 +13,7 @@
 
 **[moberghr.github.io/cli-work-tree-manager](https://moberghr.github.io/cli-work-tree-manager/)** — the Work website.
 
-[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard](#interactive-dashboard) · [Groups](#groups-multi-repo-worktrees) · [Architecture](#architecture) · [FAQ](#faq)
+[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard](#interactive-dashboard) · [Groups](#groups-multi-repo-worktrees) · [Diff review (`wd`)](#diff-review-wd) · [Architecture](#architecture) · [FAQ](#faq)
 
 </div>
 
@@ -90,6 +90,11 @@ work todo --all                                        # Include completed tasks
 
 work config add|remove|list|show|edit                  # Manage repos
 work config group add|remove|regen <args>              # Manage multi-repo groups
+
+wd                                                     # PR-style diff in your browser (one-shot)
+wd --watch                                             # Background watcher; F5 to refresh
+wd --stop                                              # Stop the running watcher
+wd -c                                                  # Interactive review with streaming comments
 ```
 
 `work tree` flags: `--base <branch>` (branch from a specific base), `--open` (open VS Code), `--unsafe` (skip Claude permission checks), `--prompt "..."` / `--prompt-file <path>` (send an initial prompt to Claude).
@@ -193,6 +198,53 @@ The combined `CLAUDE.md` is produced by invoking the Claude CLI to merge each re
 
 ---
 
+## Diff Review (`wd`)
+
+A second binary, **`wd`**, ships alongside `work` and gives you a GitHub-PR-style diff view in your browser — for the current worktree, or for every repo in a group.
+
+```bash
+wd                  # one-shot: render the current uncommitted diff, open in browser
+wd --watch          # background daemon: rewrites the file on every save, F5 to refresh
+wd --stop           # stop the watcher for this scope
+wd -c               # interactive review: leave comments inline, stream to stdout
+wd main             # diff vs an explicit ref
+wd --branch         # PR-style diff vs the branch this worktree was forked from
+```
+
+`wd` resolves the scope from your `cwd`: inside a single-repo worktree it diffs that repo; inside a group worktree (root or any sub-repo) it diffs every repo in the group and renders one tab per repo. Untracked files are included as synthesized "new file" diffs without touching your git index.
+
+### Static and live modes
+
+| Mode | What it does |
+|:---|:---|
+| `wd` | Renders once to `~/.work/diffs/<scope-hash>.html`, opens in your default browser. |
+| `wd --watch` | Spawns a detached watcher (chokidar) that rewrites the same file on every save; per-repo dirty tracking so unchanged repos aren't recomputed. F5 in the browser to refresh. Stop with `wd --stop`. |
+| `wd -c` | Foreground review server: same file plus a small HTTP server. Click any line number to drop an inline comment. Streams each comment to stdout as it's saved. Blocks until you click "End review" or Ctrl+C. |
+
+### Interactive review (`wd -c`)
+
+Designed to be driven by an AI assistant (or any process that wants to react to comments as they happen). When you save a comment in the browser it lands on stdout as a markdown chunk like:
+
+```
+--- comment ---
+**api/src/users.ts** : line 42 (right)
+id: 1df977d4...
+> use the new helper here
+```
+
+Other features in review mode:
+
+- **Live reload** via SSE — the page refreshes itself when files change; reloads are deferred while you're composing so your draft isn't lost.
+- **Threaded replies** — a wrapping process can POST replies via `${URL}/api/comments` with `parentId` and `author: 'claude'`; they render inline under the original comment with distinct styling.
+- **Outdated detection** — the line's raw content is captured at compose time; if the file changes underneath, the comment is dimmed with an "outdated" badge.
+- **General comments** — a top-of-page composer for review notes that aren't tied to any line.
+- **Sidebar comments list** — every comment for the active tab, click to scroll to it.
+- **Stable file path** — `~/.work/diffs/<scope-hash>.html` — keep one tab open across `wd`, `wd --watch`, and `wd -c` invocations.
+
+The live server URL is published to `~/.work/diffs/latest-review.url` at session start (deleted on exit) so any local tool can find it without scraping stdout. A ready-made Claude Code skill ships with the repo at `.claude/skills/wd-review/SKILL.md` — drop it into `~/.claude/skills/` and say *"review my changes with wd"* in any Claude session to drive the loop.
+
+---
+
 ## Configuration
 
 Stored at `~/.work/config.json`:
@@ -231,7 +283,8 @@ Every `work tree` invocation upserts a row into `~/.work/history.json` keyed by 
 ## Architecture
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo}.ts
+bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo,diff}.ts
+wd-bin.ts → forwards argv to the `diff` command (the `wd` binary shim)
                                        │
                                        ▼
                                   core/worktree.ts          ← high-level setup / teardown
@@ -243,6 +296,14 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
                                   ├── core/pr.ts            ← GitHub PR fetching (gh)
                                   ├── core/jira.ts          ← Jira issue fetching (acli)
                                   └── core/setup-completions.ts
+
+                                  core/diff-*.ts            ← `wd` diff + review feature
+                                  ├── diff-parse.ts         ← unified-diff parser
+                                  ├── diff-pipeline.ts      ← computeDiff(): git diff + synthetic untracked
+                                  ├── diff-html.ts          ← renderer (tabs, tree, side-by-side)
+                                  ├── diff-html-scripts.ts  ← embedded browser CSS + JS
+                                  ├── diff-watcher.ts       ← chokidar-driven file watcher
+                                  └── comment-server.ts     ← review-mode HTTP + SSE server
 
                                   tui-ink/                  ← Ink/React TUI
                                   ├── App.tsx               ← layout, keyboard, session mgmt

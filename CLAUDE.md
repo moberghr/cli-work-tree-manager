@@ -48,6 +48,15 @@ work config group remove <name>                    # Remove a group
 work config group regen <name>                     # Regenerate group CLAUDE.md
 work config show                                   # Show raw config JSON
 work config edit                                   # Open config in editor
+
+wd                                                 # Render the current diff to ~/.work/diffs/<scope-hash>.html and open it
+wd <base>                                          # Diff vs an explicit ref
+wd --branch                                        # PR-style diff vs the worktree's parent branch
+wd --watch                                         # Background watcher: rewrites the file on every save (F5 to refresh)
+wd --stop                                          # Stop the background watcher for this scope
+wd -c                                              # Interactive review: comments stream to stdout, blocks until "End review"
+wd --side / --no-side                              # Side-by-side (default) or unified layout
+wd --theme light|dark|auto                         # Color scheme (default: light)
 ```
 
 ## Architecture
@@ -55,7 +64,8 @@ work config edit                                   # Open config in editor
 ### Module Flow
 
 ```
-bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo}.ts
+bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo,diff}.ts
+wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                        ↓
                                   core/worktree.ts (atomic + high-level operations)
                                   ├── core/git.ts (git wrapper)
@@ -66,6 +76,14 @@ bin.ts → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,pr
                                   ├── core/pr.ts (GitHub PR fetching via gh CLI)
                                   ├── core/jira.ts (Jira issue fetching via acli)
                                   ├── core/setup-completions.ts (shell profile detection & install)
+                                  │
+                                  core/diff-*.ts (the `wd` diff + review feature)
+                                  ├── diff-parse.ts (unified-diff parser → ParsedFile[])
+                                  ├── diff-pipeline.ts (computeDiff: git diff + synthetic untracked)
+                                  ├── diff-html.ts (HTML renderer: tabs, sidebar tree, side-by-side)
+                                  ├── diff-html-scripts.ts (browser CSS + JS strings)
+                                  ├── diff-watcher.ts (chokidar-driven file watcher)
+                                  └── comment-server.ts (review-mode HTTP + SSE server)
                                   │
                                   tui-ink/ (Ink/React TUI for `work dash`)
                                   ├── App.tsx (main layout, keyboard handling, session management)
@@ -107,6 +125,22 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 
 `core/history.ts` stores worktree sessions in `~/.work/history.json`. Keyed by `target + branch`. The `tree` command calls `upsertSession()` before launching Claude; `remove` calls `removeSession()` on success. The `status` command reads history + live git info; `recent` lists sessions sorted by last access.
 
+### Diff Review (`wd`)
+
+Second binary (`dist/wd-bin.js`, shim `wd`) that surfaces a GitHub-PR-style diff in the browser. Three modes share a stable per-scope file at `~/.work/diffs/<sha1-of-sorted-roots>.html`:
+
+- **One-shot (`wd`):** `computeDiff` (git diff + synthesized unified-diff blocks for untracked files — no index mutation) → `renderDiffHtml` → write file → `openUrl`. Static page.
+- **Watcher (`wd --watch`):** spawns a detached daemon (via `spawnDaemon`) that runs `startDiffWatcher` from `diff-watcher.ts`. chokidar watches every repo root, debounced 150ms, `.git/` filtered. Per-repo dirty tracking — only changed repos are recomputed. Browser is plain `file://`; user F5s after edits. PID file at `<scope-hash>.pid`, daemon log at `<scope-hash>.log`.
+- **Review (`wd -c`):** foreground HTTP server via `startCommentServer` in `comment-server.ts`. Serves the HTML at `/`, accepts `POST /api/comments` (and `DELETE /api/comments/:id`), `POST /api/done` (resolves the blocking promise), and `GET /events` (SSE for live reload). Embedded chokidar watcher pushes reload events on file changes. Live URL written to `~/.work/diffs/latest-review.url` so external tools (e.g. Claude via curl) can post replies. Streams each comment as `--- comment ---` markdown chunks to stdout — see `formatSingleComment`. Comments carry `author` (`user`/`claude`) + `parentId` for threading; the renderer styles claude replies distinctly.
+
+**Scope resolution** (`resolveScope` in `commands/diff.ts`): walks the cwd against the session history. Inside a single-repo worktree → that repo. Inside any sub-repo of a group worktree → the whole group, with that sub-repo as the initially-active tab. At a group root → all repos, no active tab preselected. Outside any work-managed worktree → falls back to `git rev-parse --show-toplevel` (single repo).
+
+**Renderer (`diff-html.ts`):** per-repo `<section>` with its own sidebar (tree, filter, scrollspy) and `<main>`. Tab bar at top in multi-repo mode. Slugs deduped so two sub-repos with the same basename get unique tab IDs. Syntax highlighting via highlight.js CDN, scoped per-cell. `diff-html-scripts.ts` carries the embedded browser CSS + JS as plain template-string exports.
+
+**Status output convention:** stdout carries data only (the comments markdown payload in review mode). All status messages go to stderr via the `info()` helper in `commands/diff.ts`. `console.error` is reserved for real errors.
+
+**Claude integration:** the `wd-review` skill at `.claude/skills/wd-review/SKILL.md` (mirrored into `~/.claude/skills/` for user-level invocation) drives a full review loop — runs `wd -c` in background, tails the marker stream via Monitor, reacts to each comment, posts threaded replies via curl using `~/.work/diffs/latest-review.url`. Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body.
+
 ### Configuration
 
 Stored at `~/.work/config.json`. Schema in `core/config.ts`:
@@ -117,7 +151,7 @@ Stored at `~/.work/config.json`. Schema in `core/config.ts`:
 
 ### Build
 
-tsup bundles `src/bin.ts` → `dist/bin.js` as ESM with shebang. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild.
+tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
 
 ### Color Forcing
 
