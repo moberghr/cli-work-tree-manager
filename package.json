@@ -4,7 +4,8 @@
   "description": "Cross-platform Git worktree manager for multiple repositories",
   "type": "module",
   "bin": {
-    "work": "./dist/bin.js"
+    "work": "./dist/bin.js",
+    "wd": "./dist/wd-bin.js"
   },
   "scripts": {
     "build": "tsup",

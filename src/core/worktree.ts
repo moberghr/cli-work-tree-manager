@@ -414,7 +414,7 @@ async function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  await upsertSession(groupName, true, branchName, allPaths, jiraKey);
+  await upsertSession(groupName, true, branchName, allPaths, jiraKey, baseBranch);
 
   console.log('');
   console.log(`Branch: ${branchName}`);
@@ -455,7 +455,7 @@ async function setupSingleWorktree(
     if (!success) return null;
   }
 
-  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey);
+  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey, baseBranch);
 
   console.log(`Branch: ${branchName}`);
 

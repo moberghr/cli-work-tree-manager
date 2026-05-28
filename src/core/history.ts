@@ -12,6 +12,8 @@ export interface WorktreeSession {
   createdAt: string;
   lastAccessedAt: string;
   jiraKey?: string;
+  /** Branch this worktree was forked from. Recorded when known at creation time. */
+  baseBranch?: string;
 }
 
 export function getHistoryPath(): string {
@@ -97,6 +99,7 @@ export async function upsertSession(
   branch: string,
   paths: string[],
   jiraKey?: string,
+  baseBranch?: string,
 ): Promise<void> {
   await withHistoryLock(() => {
     const sessions = loadHistory();
@@ -107,6 +110,7 @@ export async function upsertSession(
       existing.paths = paths;
       existing.lastAccessedAt = now;
       if (jiraKey) existing.jiraKey = jiraKey;
+      if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
     } else {
       const session: WorktreeSession = {
         target,
@@ -117,6 +121,7 @@ export async function upsertSession(
         lastAccessedAt: now,
       };
       if (jiraKey) session.jiraKey = jiraKey;
+      if (baseBranch) session.baseBranch = baseBranch;
       sessions.push(session);
     }
 

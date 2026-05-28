@@ -13,6 +13,7 @@ import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
 import { hydrateCommand } from './commands/hydrate.js';
+import { diffCommand } from './commands/diff.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -39,6 +40,7 @@ function showHelp() {
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
+  console.log('  work diff [base]                                   - Open a GitHub-PR-style diff in your browser');
   console.log('  work todo                                          - List tasks');
   console.log('  work todo add <text>                               - Add a task');
   console.log('  work todo done <id>                                - Mark task complete');
@@ -91,6 +93,7 @@ export function run(argv: string[]) {
     .command(dashCommand)
     .command(todoCommand)
     .command(hydrateCommand)
+    .command(diffCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)
