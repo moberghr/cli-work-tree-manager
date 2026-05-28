@@ -7,6 +7,8 @@ import type {
 import {
   CLIENT_SCRIPT,
   HLJS_CDN_HEAD,
+  REVIEW_SCRIPT,
+  REVIEW_STYLES,
   STATE_PRESERVATION_SCRIPT,
   hljsThemeSwitchScript,
 } from './diff-html-scripts.js';
@@ -31,6 +33,9 @@ export interface RenderOptions {
   liveReload?: boolean;
   /** When set, this repo's tab is initially active. Matches RepoData.name. */
   activeRepo?: string | null;
+  /** Review mode: include comment UI + Done button. Browser POSTs to the
+   *  comment server's endpoints. */
+  review?: boolean;
 }
 
 function slugify(s: string): string {
@@ -684,6 +689,10 @@ function renderRepoSection(
       <input class="wd-filter" type="search" placeholder="Filter files..." />
     </div>
     <div class="wd-tree">${treeHtml}</div>
+    <div class="wd-comments-panel">
+      <h3 class="wd-comments-panel-title">Comments <span class="wd-comments-panel-count">(0)</span></h3>
+      <ul class="wd-comments-panel-list"></ul>
+    </div>
   </aside>
   <main class="wd-main">${filesHtml}</main>
 </section>`;
@@ -714,6 +723,7 @@ export function renderDiffHtml(
   const title = options.title ?? 'Diff';
   const subtitle = options.subtitle ?? '';
   const liveReload = options.liveReload ?? false;
+  const review = options.review ?? false;
 
   // Skip repos with no changes — empty tabs are noise. If everything is
   // empty, we still render a single empty section so the page isn't blank.
@@ -780,11 +790,24 @@ export function renderDiffHtml(
 <style>${themeBlock(theme)}\n${BASE_STYLES}</style>
 ${HLJS_CDN_HEAD}
 ${hljsThemeSwitchScript(theme)}
+${review ? REVIEW_STYLES : ''}
 </head>
-<body class="${bodyClass}">
+<body class="${bodyClass}"${review ? ' data-review="true"' : ''}>
 ${tabsHtml}
+${review ? `<section class="wd-general-pane">
+  <details>
+    <summary>General review note (not tied to any line)</summary>
+    <textarea class="wd-general-input" placeholder="A high-level comment for Claude…"></textarea>
+    <div class="wd-general-pane-actions">
+      <button type="button" class="wd-general-submit" disabled>Send (Ctrl+Enter)</button>
+    </div>
+    <div class="wd-general-pane-list"></div>
+  </details>
+</section>` : ''}
 ${sectionsHtml}
+${review ? '<button class="wd-done-bar" type="button">End review <span class="wd-done-count">0</span></button>' : ''}
 ${CLIENT_SCRIPT}
+${review ? REVIEW_SCRIPT : ''}
 ${liveReload ? STATE_PRESERVATION_SCRIPT : ''}
 </body>
 </html>`;

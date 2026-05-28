@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn as childSpawn } from 'node:child_process';
 import chalk from 'chalk';
@@ -12,10 +13,21 @@ import {
   stableDiffPath,
   type RepoSpec,
 } from '../core/diff-watcher.js';
+import chokidar from 'chokidar';
+import {
+  formatSingleComment,
+  startCommentServer,
+} from '../core/comment-server.js';
 import { openUrl } from '../utils/platform.js';
 
-// ── pid / process helpers ───────────────────────────────────────────────────
+/** Write an informational message to stderr. Keeps stdout clean so it can
+ *  be piped or captured by callers (notably `wd -c` review mode, where
+ *  stdout carries the comments markdown payload). */
+function info(message: string): void {
+  process.stderr.write(message + '\n');
+}
 
+// pid / process helpers
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -52,8 +64,7 @@ function spawnDaemon(extraArgs: string[], logPath: string): number {
   return child.pid ?? 0;
 }
 
-// ── scope / base resolution ────────────────────────────────────────────────
-
+// scope / base resolution
 function normPath(p: string): string {
   return path.resolve(p).replace(/\\/g, '/').toLowerCase();
 }
@@ -203,8 +214,7 @@ function buildRepoSpecs(scope: DiffScope, base: string): RepoSpec[] {
   });
 }
 
-// ── paths ──────────────────────────────────────────────────────────────────
-
+// paths
 interface ScopePaths {
   html: string;
   pid: string;
@@ -220,8 +230,7 @@ function pathsForScope(repoSpecs: RepoSpec[]): ScopePaths {
   };
 }
 
-// ── mode handlers ──────────────────────────────────────────────────────────
-
+// mode handlers
 interface RenderContext {
   scope: DiffScope;
   base: string;
@@ -241,12 +250,12 @@ function runStop(paths: ScopePaths): void {
   if (pid && isPidAlive(pid)) {
     try {
       process.kill(pid);
-      console.log(chalk.gray(`Stopped watcher (PID ${pid}).`));
+      info(chalk.gray(`Stopped watcher (PID ${pid}).`));
     } catch (err) {
       console.error(chalk.red('Failed to stop watcher:'), (err as Error).message);
     }
   } else {
-    console.log(chalk.gray('No watcher running for this scope.'));
+    info(chalk.gray('No watcher running for this scope.'));
   }
   try { fs.unlinkSync(paths.pid); } catch { /* */ }
 }
@@ -274,18 +283,112 @@ async function runDaemon(ctx: RenderContext): Promise<void> {
 function runLauncher(ctx: RenderContext): void {
   const existing = readPid(ctx.paths.pid);
   if (existing && isPidAlive(existing)) {
-    console.log(chalk.gray(`Watcher already running (PID ${existing}).`));
+    info(chalk.gray(`Watcher already running (PID ${existing}).`));
   } else {
     try { fs.unlinkSync(ctx.paths.pid); } catch { /* stale */ }
     const passthrough = process.argv
       .slice(2)
       .filter((a) => a !== '--stop');
     const pid = spawnDaemon(passthrough, ctx.paths.log);
-    console.log(chalk.gray(`Started watcher (PID ${pid}). Log: ${ctx.paths.log}`));
-    console.log(chalk.gray('Stop with: wd --stop'));
+    info(chalk.gray(`Started watcher (PID ${pid}). Log: ${ctx.paths.log}`));
+    info(chalk.gray('Stop with: wd --stop'));
   }
-  console.log(chalk.gray(`File: ${ctx.paths.html}`));
+  info(chalk.gray(`File: ${ctx.paths.html}`));
   openUrl(`file:///${ctx.paths.html.replace(/\\/g, '/')}`);
+}
+
+async function runReview(ctx: RenderContext): Promise<void> {
+  function buildHtml(): { html: string; total: number } {
+    const repoData: RepoData[] = ctx.repoSpecs.map((r) => ({
+      name: r.name,
+      files: computeDiff({ root: r.root, diffArg: r.diffArg }),
+    }));
+    const total = repoData.reduce((s, r) => s + r.files.length, 0);
+    const html = renderDiffHtml(repoData, {
+      ...ctx.renderOpts,
+      title: `Review (${total})`,
+      review: true,
+    });
+    return { html, total };
+  }
+
+  const { html, total } = buildHtml();
+  if (total === 0) {
+    console.log('No changes to review.');
+    return;
+  }
+  // Stream each comment to stdout as soon as the browser POSTs it. Flush
+  // after every write so a Bash-in-background consumer (Claude) sees it
+  // without buffering delay.
+  const onComment = (c: import('../core/comment-server.js').Comment) => {
+    process.stdout.write(formatSingleComment(c));
+  };
+  const onCommentDeleted = (id: string) => {
+    process.stdout.write(`--- comment deleted ---\nid: ${id}\n\n`);
+  };
+
+  const handle = await startCommentServer({ html, onComment, onCommentDeleted });
+  // Publish the live server URL so Claude (or any local tool) can post
+  // replies via curl without needing to scrape stdout.
+  const latestUrlFile = path.join(os.homedir(), '.work', 'diffs', 'latest-review.url');
+  try {
+    fs.writeFileSync(latestUrlFile, handle.url);
+  } catch { /* */ }
+  info(chalk.gray('Opening browser for review. Comments stream as you save them.'));
+  info(chalk.gray('Page reloads automatically when you save a file. Click "End review" (or Ctrl+C) when finished.'));
+  process.stdout.write(`--- review started ---\nrepos: ${ctx.repoSpecs.map((r) => r.name).join(', ')}\nfiles: ${total}\nurl: ${handle.url}\n\n`);
+  openUrl(handle.url);
+
+  // Watch the worktree for changes; on edit, regenerate HTML and push a
+  // reload event to the browser via SSE. Comments survive the reload
+  // because they live in the server's memory and the browser re-fetches.
+  const watchRoots = ctx.repoSpecs.map((r) => r.root);
+  let debounce: NodeJS.Timeout | null = null;
+  const watcher = chokidar.watch(watchRoots, {
+    ignored: (filePath) => {
+      for (const r of ctx.repoSpecs) {
+        const rel = path.relative(r.root, filePath).replace(/\\/g, '/');
+        if (rel === '.git' || rel.startsWith('.git/')) return true;
+      }
+      return false;
+    },
+    ignoreInitial: true,
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
+  });
+  watcher.on('all', () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      debounce = null;
+      const next = buildHtml();
+      if (next.total === 0) return;
+      handle.update(next.html);
+    }, 150);
+  });
+
+  watcher.on('error', (err) => {
+    info(chalk.yellow('[review] fs watcher error: ') + (err as Error).message);
+  });
+
+  const cleanup = () => {
+    if (debounce) clearTimeout(debounce);
+    watcher.close().catch(() => { /* */ });
+    handle.stop();
+    try { fs.unlinkSync(latestUrlFile); } catch { /* */ }
+  };
+
+  const onSignal = () => {
+    process.stdout.write(`--- review aborted (signal) ---\n`);
+    cleanup();
+    process.exit(0);
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
+  const comments = await handle.waitForDone();
+  await new Promise((r) => setTimeout(r, 100));
+  cleanup();
+  process.stdout.write(`--- review done ---\ntotal: ${comments.length}\n`);
 }
 
 function renderOnce(ctx: RenderContext): void {
@@ -295,7 +398,7 @@ function renderOnce(ctx: RenderContext): void {
   }));
   const total = repoData.reduce((s, r) => s + r.files.length, 0);
   if (total === 0) {
-    console.log(chalk.gray('No changes to show.'));
+    info(chalk.gray('No changes to show.'));
     return;
   }
   const html = renderDiffHtml(repoData, {
@@ -303,12 +406,11 @@ function renderOnce(ctx: RenderContext): void {
     title: `Diff (${total})`,
   });
   fs.writeFileSync(ctx.paths.html, html, 'utf-8');
-  console.log(chalk.gray(`Opening ${ctx.paths.html}`));
+  info(chalk.gray(`Opening ${ctx.paths.html}`));
   openUrl(`file:///${ctx.paths.html.replace(/\\/g, '/')}`);
 }
 
-// ── command export ─────────────────────────────────────────────────────────
-
+// command export
 export const diffCommand: CommandModule = {
   command: 'diff [base]',
   describe: 'Open a GitHub-PR-style diff overview in your browser',
@@ -352,6 +454,13 @@ export const diffCommand: CommandModule = {
         default: false,
         hidden: true,
         describe: 'Internal: run the foreground watcher loop.',
+      })
+      .option('comments', {
+        type: 'boolean',
+        alias: 'c',
+        default: false,
+        describe:
+          'Review mode: open the diff in a browser with a comment UI; block until you click "Done & Send", then print all comments to stdout as markdown.',
       }),
   handler: async (argv) => {
     const scope = resolveScope(process.cwd());
@@ -366,10 +475,12 @@ export const diffCommand: CommandModule = {
 
     const subtitle =
       base === 'HEAD' ? 'uncommitted changes' : `vs ${base} (uncommitted included)`;
+    // Use stderr for status messages so review mode's stdout stays clean
+    // (the comments markdown is the only data wd writes to stdout).
     if (base === 'HEAD') {
-      console.log(chalk.gray('Showing uncommitted changes vs HEAD.'));
+      info(chalk.gray('Showing uncommitted changes vs HEAD.'));
     } else {
-      console.log(
+      info(
         chalk.gray(
           `Showing diff vs ${base} [${baseSource}]${scope.isGroup ? `, across ${scope.repos.length} repos` : ''}.`,
         ),
@@ -393,6 +504,7 @@ export const diffCommand: CommandModule = {
     if (argv.stop) return runStop(ctx.paths);
     if (argv['watch-daemon']) return runDaemon(ctx);
     if (argv.watch) return runLauncher(ctx);
+    if (argv.comments) return runReview(ctx);
     return renderOnce(ctx);
   },
 };
