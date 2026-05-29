@@ -29,11 +29,21 @@ id: <hex>
 --- comment deleted ---
 id: <hex>
 
+--- review submitted ---
+count: <N>
+[summary-id: <hex>]
+
+  (followed by `--- comment ---` chunks for each newly-published draft, in order, then:)
+
+--- review batch end ---
+
 --- review done ---
 total: <N>
 
 --- review aborted (signal) ---
 ```
+
+The user can either post comments one-at-a-time ("Add single comment" — streams immediately) or batch them via "Start review" (drafts stay invisible until they click Submit, then everything arrives between `--- review submitted ---` and `--- review batch end ---` markers, optionally preceded by a general summary comment).
 
 Anything on `stderr` is just status logging — ignore it.
 
@@ -56,7 +66,7 @@ Anything on `stderr` is just status logging — ignore it.
 
 4. **On each `--- comment ---` event**: read the last ~30 lines of the output file to get the *body* of the freshly-arrived comment (the Monitor only signals which marker fired, it does not deliver the body). Look at the *most recent* `--- comment ---` block.
 
-   - **First, check the meta line.** If it contains `author: claude`, this is one of your own replies echoing back through the stream — silently ignore it and wait for the next event. Do not chat, do not act, do not loop.
+   - The server suppresses claude-authored echoes, so every event you see is a real user comment. (If the meta line says `author: claude`, ignore — that's a defensive fallback.)
    - **Save the `id:` value** — you need it to post replies.
    - **Decide intent**: is it a question, a code-change request, an observation, or a nit?
    - **Take the smallest reasonable action**:
