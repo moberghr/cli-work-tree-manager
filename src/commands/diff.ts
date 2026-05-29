@@ -298,38 +298,27 @@ function runLauncher(ctx: RenderContext): void {
 }
 
 async function runReview(ctx: RenderContext): Promise<void> {
-  function buildHtml(): { html: string; total: number } {
-    const repoData: RepoData[] = ctx.repoSpecs.map((r) => ({
-      name: r.name,
-      files: computeDiff({ root: r.root, diffArg: r.diffArg }),
-    }));
-    const total = repoData.reduce((s, r) => s + r.files.length, 0);
-    const html = renderDiffHtml(repoData, {
-      ...ctx.renderOpts,
-      title: `Review (${total})`,
-      review: true,
-    });
-    return { html, total };
-  }
-
-  const { html, total } = buildHtml();
-  if (total === 0) {
+  // Quick check — early-exit if nothing to review. (Server will recompute
+  // on each /api/diff request thereafter, which is what's served live.)
+  const initialTotal = ctx.repoSpecs.reduce(
+    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
+    0,
+  );
+  if (initialTotal === 0) {
     console.log('No changes to review.');
     return;
   }
-  // Stream each comment to stdout as soon as the browser POSTs it. Flush
-  // after every write so a Bash-in-background consumer (Claude) sees it
-  // without buffering delay.
+
   const onComment = (c: import('../core/comment-server.js').Comment) => {
     process.stdout.write(formatSingleComment(c));
   };
   const onCommentDeleted = (id: string) => {
     process.stdout.write(`--- comment deleted ---\nid: ${id}\n\n`);
   };
-
-  // Batch markers wrap the burst of comments that flushes out when the user
-  // submits a review (drafts → published in one shot, with optional summary).
-  const onSubmitReviewStart = (info: { count: number; summary: import('../core/comment-server.js').Comment | null }) => {
+  const onSubmitReviewStart = (info: {
+    count: number;
+    summary: import('../core/comment-server.js').Comment | null;
+  }) => {
     const head = `--- review submitted ---\ncount: ${info.count}${info.summary ? `\nsummary-id: ${info.summary.id}` : ''}\n\n`;
     process.stdout.write(head);
   };
@@ -337,58 +326,29 @@ async function runReview(ctx: RenderContext): Promise<void> {
     process.stdout.write(`--- review batch end ---\n\n`);
   };
 
+  const scopeLabel = `${ctx.scope.repos.map((r) => r.name).join(', ')} · ${ctx.base}`;
   const handle = await startCommentServer({
-    html,
+    repos: ctx.repoSpecs,
+    scopeLabel,
     onComment,
     onCommentDeleted,
     onSubmitReviewStart,
     onSubmitReviewEnd,
   });
-  // Publish the live server URL so Claude (or any local tool) can post
-  // replies via curl without needing to scrape stdout.
+
   const latestUrlFile = path.join(os.homedir(), '.work', 'diffs', 'latest-review.url');
   try {
     fs.writeFileSync(latestUrlFile, handle.url);
   } catch { /* */ }
+
   info(chalk.gray('Opening browser for review. Comments stream as you save them.'));
   info(chalk.gray('Page reloads automatically when you save a file. Click "End review" (or Ctrl+C) when finished.'));
-  process.stdout.write(`--- review started ---\nrepos: ${ctx.repoSpecs.map((r) => r.name).join(', ')}\nfiles: ${total}\nurl: ${handle.url}\n\n`);
+  process.stdout.write(
+    `--- review started ---\nrepos: ${ctx.repoSpecs.map((r) => r.name).join(', ')}\nfiles: ${initialTotal}\nurl: ${handle.url}\n\n`,
+  );
   openUrl(handle.url);
 
-  // Watch the worktree for changes; on edit, regenerate HTML and push a
-  // reload event to the browser via SSE. Comments survive the reload
-  // because they live in the server's memory and the browser re-fetches.
-  const watchRoots = ctx.repoSpecs.map((r) => r.root);
-  let debounce: NodeJS.Timeout | null = null;
-  const watcher = chokidar.watch(watchRoots, {
-    ignored: (filePath) => {
-      for (const r of ctx.repoSpecs) {
-        const rel = path.relative(r.root, filePath).replace(/\\/g, '/');
-        if (rel === '.git' || rel.startsWith('.git/')) return true;
-      }
-      return false;
-    },
-    ignoreInitial: true,
-    persistent: true,
-    awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
-  });
-  watcher.on('all', () => {
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => {
-      debounce = null;
-      const next = buildHtml();
-      if (next.total === 0) return;
-      handle.update(next.html);
-    }, 150);
-  });
-
-  watcher.on('error', (err) => {
-    info(chalk.yellow('[review] fs watcher error: ') + (err as Error).message);
-  });
-
   const cleanup = () => {
-    if (debounce) clearTimeout(debounce);
-    watcher.close().catch(() => { /* */ });
     handle.stop();
     try { fs.unlinkSync(latestUrlFile); } catch { /* */ }
   };

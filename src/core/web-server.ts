@@ -1,7 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { computeDiff } from './diff-pipeline.js';
@@ -11,6 +10,7 @@ import {
   sessionIdFor,
   subscribeSession,
 } from './web-state.js';
+import { resolveWebRoot, serveStaticOrShell } from './web-static.js';
 import type { ParsedFile } from './diff-parse.js';
 
 export interface WebServerHandle {
@@ -18,17 +18,6 @@ export interface WebServerHandle {
   port: number;
   stop: () => void;
 }
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.mjs': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.map': 'application/json; charset=utf-8',
-};
 
 function sessionToWire(s: WorktreeSession) {
   return {
@@ -42,48 +31,6 @@ function sessionToWire(s: WorktreeSession) {
     createdAt: s.createdAt,
     lastAccessedAt: s.lastAccessedAt,
   };
-}
-
-/** Resolve the directory shipped by the Vite build. */
-function resolveWebRoot(): string | null {
-  // When bundled (dist/bin.js), the static assets live next to it as dist/web/.
-  // process.argv[1] is the running entry script, so its dirname is dist/.
-  const entryDir = path.dirname(process.argv[1] ?? '');
-  const candidates = [
-    path.join(entryDir, 'web'),
-    // tsx/dev mode: walk up from src/core to repo root then into dist/web.
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist/web'),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(path.join(c, 'index.html'))) return c;
-  }
-  return null;
-}
-
-function serveStatic(root: string, urlPath: string, res: http.ServerResponse): boolean {
-  // Map "/" → index.html. Strip query string.
-  const clean = urlPath.split('?')[0];
-  const requested = clean === '/' ? '/index.html' : clean;
-  // Prevent directory traversal — resolve and ensure inside root.
-  const filePath = path.join(root, requested);
-  const norm = path.normalize(filePath);
-  if (!norm.startsWith(path.normalize(root))) {
-    return false;
-  }
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(norm);
-  } catch {
-    return false;
-  }
-  if (!stat.isFile()) return false;
-  const ext = path.extname(norm).toLowerCase();
-  res.writeHead(200, {
-    'Content-Type': MIME[ext] ?? 'application/octet-stream',
-    'Cache-Control': 'no-cache',
-  });
-  fs.createReadStream(norm).pipe(res);
-  return true;
 }
 
 export interface RepoData {
@@ -145,6 +92,11 @@ export function startWebServer(): Promise<WebServerHandle> {
     const url = req.url ?? '/';
     const parsed = new URL(url, 'http://x');
 
+    if (req.method === 'GET' && parsed.pathname === '/api/context') {
+      sendJson(res, 200, { mode: 'dashboard' });
+      return;
+    }
+
     if (req.method === 'GET' && parsed.pathname === '/api/sessions') {
       const sessions = loadHistory().map(sessionToWire);
       sendJson(res, 200, { sessions });
@@ -205,8 +157,7 @@ export function startWebServer(): Promise<WebServerHandle> {
     // SPA fallback: anything not in /api/* and not a real file falls back
     // to index.html so client-side hash routing works on deep links.
     if (req.method === 'GET' && !parsed.pathname.startsWith('/api/')) {
-      if (serveStatic(webRoot, parsed.pathname, res)) return;
-      if (serveStatic(webRoot, '/index.html', res)) return;
+      if (serveStaticOrShell(webRoot, parsed.pathname, res)) return;
     }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');

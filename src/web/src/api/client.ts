@@ -24,6 +24,24 @@ export function fetchSessions(): Promise<SessionSummary[]> {
   );
 }
 
+export interface ReviewContext {
+  mode: 'review';
+  scopeLabel: string;
+  repos: { name: string }[];
+}
+export interface DashboardContext {
+  mode: 'dashboard';
+}
+export type AppContext = ReviewContext | DashboardContext;
+
+export function fetchContext(): Promise<AppContext> {
+  return getJson<AppContext>('/api/context');
+}
+
+export function fetchScopeDiff(): Promise<{ repos: RepoData[] }> {
+  return getJson<{ repos: RepoData[] }>('/api/diff');
+}
+
 export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'binary';
 export type LineKind = 'context' | 'add' | 'delete' | 'no-newline';
 

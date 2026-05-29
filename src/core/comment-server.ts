@@ -1,9 +1,13 @@
 import http from 'node:http';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import chalk from 'chalk';
+import chokidar from 'chokidar';
+import { computeDiff } from './diff-pipeline.js';
+import { resolveWebRoot, serveStaticOrShell } from './web-static.js';
+import type { RepoSpec } from './diff-watcher.js';
 
 export type CommentAuthor = 'user' | 'claude';
-
 export type CommentStatus = 'published' | 'draft';
 
 export interface Comment {
@@ -32,45 +36,50 @@ export interface Comment {
 }
 
 export interface CommentServerOptions {
-  /** Full rendered HTML (with comment UI included). Re-served on every GET. */
-  html: string;
-  /** Fires once per *published* comment. Drafts are silent until submitted. */
+  /** Repos this review session covers (1 for single, N for group). */
+  repos: RepoSpec[];
+  /** Short human-readable label shown in the page title and /api/context. */
+  scopeLabel: string;
+  /** Fires once per *published* user comment. Drafts are silent until submitted. */
   onComment?: (comment: Comment) => void;
   /** Called when the user deletes a comment. */
   onCommentDeleted?: (id: string) => void;
-  /** Fires before the per-comment onComment events when the user submits
-   *  a review batch. Lets the caller emit a "--- review submitted ---" marker. */
+  /** Fires before the per-comment onComment events when a review batch is submitted. */
   onSubmitReviewStart?: (info: { count: number; summary: Comment | null }) => void;
-  /** Fires after the batch has finished streaming. Lets the caller emit
-   *  a "--- review batch end ---" marker. */
+  /** Fires after the batch has finished streaming. */
   onSubmitReviewEnd?: () => void;
+  /** Debounce for fs.watch events before broadcasting diff-changed. */
+  watchDebounceMs?: number;
 }
 
 export interface CommentServerHandle {
   url: string;
-  /** Resolves with the final comment set when the user clicks Done or
-   *  Ctrl+C is pressed (handled by the caller). */
   waitForDone(): Promise<Comment[]>;
-  /** Snapshot current comments without waiting. */
   snapshot(): Comment[];
-  /** Swap in freshly-rendered HTML and push a reload event to all browsers. */
-  update(html: string): void;
   stop(): void;
 }
 
 /**
- * Tiny review-mode HTTP server. Serves the rendered diff HTML at `/`, accepts
- * comment add/delete via JSON endpoints, and resolves the calling promise
- * when the user clicks "Done" in the browser.
- *
- * Synchronous review flow: caller awaits `waitForDone()` → returns when the
- * browser POSTs /api/done → caller formats + prints comments → exits.
+ * Local HTTP server that powers `wd -c`. Serves the React SPA shell from /,
+ * exposes /api/context (mode + scope), /api/diff (live RepoData[] for the
+ * current scope), /api/comments and friends, plus SSE for diff-changed and
+ * the comment lifecycle. Owns its own chokidar watcher so file edits push
+ * diff-changed without the caller having to wire it.
  */
 export function startCommentServer(
   opts: CommentServerOptions,
 ): Promise<CommentServerHandle> {
+  const webRoot = resolveWebRoot();
+  if (!webRoot) {
+    return Promise.reject(
+      new Error(
+        'Could not find dist/web/. Run `npm run build` first.',
+      ),
+    );
+  }
+
+  const debounceMs = opts.watchDebounceMs ?? 150;
   const comments: Comment[] = [];
-  let currentHtml = opts.html;
   const sseClients = new Set<http.ServerResponse>();
   let resolveDone: ((comments: Comment[]) => void) | null = null;
   const donePromise = new Promise<Comment[]>((resolve) => {
@@ -82,27 +91,48 @@ export function startCommentServer(
     for (const res of sseClients) {
       try {
         res.write(payload);
-      } catch {
-        /* client disconnected */
-      }
+      } catch { /* */ }
     }
   }
-  function broadcastReload() {
-    broadcast('reload', { ts: Date.now() });
-  }
 
-  function send(res: http.ServerResponse, status: number, body: unknown) {
-    const json = typeof body === 'string' ? body : JSON.stringify(body);
+  // Chokidar over every repo root in the scope. The browser refetches
+  // /api/diff when it sees a diff-changed event.
+  const watchRoots = opts.repos.map((r) => r.root);
+  let debounceTimer: NodeJS.Timeout | null = null;
+  const watcher = chokidar.watch(watchRoots, {
+    ignored: (filePath) => {
+      for (const r of opts.repos) {
+        const rel = path.relative(r.root, filePath).replace(/\\/g, '/');
+        if (rel === '.git' || rel.startsWith('.git/')) return true;
+      }
+      return false;
+    },
+    ignoreInitial: true,
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
+  });
+  watcher.on('all', () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      broadcast('diff-changed', { ts: Date.now() });
+    }, debounceMs);
+  });
+  watcher.on('error', (err) => {
+    process.stderr.write(
+      chalk.yellow('[review] fs watcher error: ') + (err as Error).message + '\n',
+    );
+  });
+
+  function sendJson(res: http.ServerResponse, status: number, body: unknown) {
     res.writeHead(status, {
-      'Content-Type':
-        typeof body === 'string' ? 'text/html; charset=utf-8' : 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-      // Allow file:// origin and any localhost origin to POST.
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
-    res.end(json);
+    res.end(JSON.stringify(body));
   }
 
   function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
@@ -123,17 +153,41 @@ export function startCommentServer(
 
   const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
-      send(res, 204, '');
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
       return;
     }
     const url = req.url ?? '/';
+    const parsed = new URL(url, 'http://x');
 
-    if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
-      send(res, 200, currentHtml);
+    if (req.method === 'GET' && parsed.pathname === '/api/context') {
+      sendJson(res, 200, {
+        mode: 'review',
+        scopeLabel: opts.scopeLabel,
+        repos: opts.repos.map((r) => ({ name: r.name })),
+      });
       return;
     }
 
-    if (req.method === 'GET' && url === '/events') {
+    if (req.method === 'GET' && parsed.pathname === '/api/diff') {
+      try {
+        const repos = opts.repos.map((r) => ({
+          name: r.name,
+          root: r.root,
+          files: computeDiff({ root: r.root, diffArg: r.diffArg }),
+        }));
+        sendJson(res, 200, { repos });
+      } catch (err) {
+        sendJson(res, 500, { error: (err as Error).message });
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && parsed.pathname === '/events') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -147,25 +201,23 @@ export function startCommentServer(
       return;
     }
 
-    if (req.method === 'GET' && url === '/api/comments') {
-      send(res, 200, { comments });
+    if (req.method === 'GET' && parsed.pathname === '/api/comments') {
+      sendJson(res, 200, { comments });
       return;
     }
 
-    if (req.method === 'POST' && url === '/api/comments') {
+    if (req.method === 'POST' && parsed.pathname === '/api/comments') {
       try {
         const body = (await readJsonBody(req)) as Partial<Comment>;
         if (typeof body.body !== 'string' || !body.body.trim()) {
-          send(res, 400, { error: 'comment body is required' });
+          sendJson(res, 400, { error: 'comment body is required' });
           return;
         }
-        // Replies inherit anchor info from their parent so the caller
-        // only needs to supply { body, parentId, author }.
         let parent: Comment | undefined;
         if (typeof body.parentId === 'string') {
           parent = comments.find((c) => c.id === body.parentId);
           if (!parent) {
-            send(res, 400, { error: 'parent comment not found' });
+            sendJson(res, 400, { error: 'parent comment not found' });
             return;
           }
         }
@@ -175,10 +227,9 @@ export function startCommentServer(
           (typeof body.file === 'string' ? body.file : parent?.file) ?? '';
         const line =
           typeof body.line === 'number' ? body.line : (parent?.line ?? 0);
-        const side =
-          body.side ?? parent?.side ?? 'general';
+        const side = body.side ?? parent?.side ?? 'general';
         if (side !== 'left' && side !== 'right' && side !== 'general') {
-          send(res, 400, { error: 'invalid side' });
+          sendJson(res, 400, { error: 'invalid side' });
           return;
         }
         const author: CommentAuthor =
@@ -202,43 +253,35 @@ export function startCommentServer(
           status,
         };
         comments.push(c);
-        // Stream only USER comments to stdout (Claude is the consumer of
-        // the stream; echoing its own posts back is noise). Drafts are
-        // silent regardless of author until submit-review.
         if (status === 'published' && author === 'user' && opts.onComment) {
           opts.onComment(c);
         }
-        // Broadcast SSE only when the change came from someone OTHER than
-        // the local browser user — i.e. Claude. The user's own POST already
-        // returned the updated list to its caller and re-rendered.
         if (author === 'claude') broadcast('comments-changed', { id: c.id });
-        send(res, 200, { comment: c, comments });
+        sendJson(res, 200, { comment: c, comments });
       } catch {
-        send(res, 400, { error: 'bad request' });
+        sendJson(res, 400, { error: 'bad request' });
       }
       return;
     }
 
-    const deleteMatch = url.match(/^\/api\/comments\/([a-f0-9]+)$/);
+    const deleteMatch = parsed.pathname.match(/^\/api\/comments\/([a-f0-9]+)$/);
     if (req.method === 'DELETE' && deleteMatch) {
       const id = deleteMatch[1];
       const idx = comments.findIndex((c) => c.id === id);
       if (idx >= 0) {
         comments.splice(idx, 1);
         if (opts.onCommentDeleted) opts.onCommentDeleted(id);
-        // Deletes are user-initiated from the browser; no need to broadcast.
       }
-      send(res, 200, { comments });
+      sendJson(res, 200, { comments });
       return;
     }
 
-    if (req.method === 'POST' && url === '/api/submit-review') {
+    if (req.method === 'POST' && parsed.pathname === '/api/submit-review') {
       try {
         const body = (await readJsonBody(req)) as { summary?: string };
         const drafts = comments
           .filter((c) => c.status === 'draft')
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        // Optional summary becomes a general published comment, emitted FIRST.
         let summaryComment: Comment | null = null;
         if (typeof body.summary === 'string' && body.summary.trim()) {
           summaryComment = {
@@ -258,33 +301,30 @@ export function startCommentServer(
           opts.onSubmitReviewStart({ count: drafts.length, summary: summaryComment });
         }
         if (summaryComment && opts.onComment) opts.onComment(summaryComment);
-        // Flip drafts to published, in creation order, firing onComment for each.
         for (const d of drafts) {
           d.status = 'published';
           if (opts.onComment) opts.onComment(d);
         }
         if (opts.onSubmitReviewEnd) opts.onSubmitReviewEnd();
-        // submit-review is user-initiated; client already re-renders from response.
-        send(res, 200, { count: drafts.length, comments });
+        sendJson(res, 200, { count: drafts.length, comments });
       } catch {
-        send(res, 400, { error: 'bad request' });
+        sendJson(res, 400, { error: 'bad request' });
       }
       return;
     }
 
-    if (req.method === 'POST' && url === '/api/discard-review') {
+    if (req.method === 'POST' && parsed.pathname === '/api/discard-review') {
       const before = comments.length;
       for (let i = comments.length - 1; i >= 0; i--) {
         if (comments[i].status === 'draft') comments.splice(i, 1);
       }
       const removed = before - comments.length;
-      // discard-review is user-initiated; no broadcast needed.
-      send(res, 200, { discarded: removed, comments });
+      sendJson(res, 200, { discarded: removed, comments });
       return;
     }
 
-    if (req.method === 'POST' && url === '/api/done') {
-      send(res, 200, { ok: true, count: comments.length });
+    if (req.method === 'POST' && parsed.pathname === '/api/done') {
+      sendJson(res, 200, { ok: true, count: comments.length });
       if (resolveDone) {
         resolveDone([...comments]);
         resolveDone = null;
@@ -292,7 +332,11 @@ export function startCommentServer(
       return;
     }
 
-    send(res, 404, { error: 'not found' });
+    // SPA shell + assets, fallback for client-side routing.
+    if (req.method === 'GET' && !parsed.pathname.startsWith('/api/')) {
+      if (serveStaticOrShell(webRoot, parsed.pathname, res)) return;
+    }
+    sendJson(res, 404, { error: 'not found' });
   });
 
   return new Promise((resolve) => {
@@ -305,11 +349,9 @@ export function startCommentServer(
         url,
         waitForDone: () => donePromise,
         snapshot: () => [...comments],
-        update: (newHtml: string) => {
-          currentHtml = newHtml;
-          broadcastReload();
-        },
         stop: () => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          watcher.close().catch(() => { /* */ });
           for (const c of sseClients) {
             try { c.end(); } catch { /* */ }
           }
@@ -340,9 +382,9 @@ export function formatSingleComment(c: Comment): string {
 }
 
 /**
- * Format the comment set as markdown for stdout. Grouped by file, with each
- * comment as a quoted block. Designed to be readable by a human and pasted
- * straight back into an LLM conversation.
+ * Format the comment set as markdown for stdout. Grouped by file. Currently
+ * unused (each comment streams individually via formatSingleComment); kept
+ * for possible future use cases.
  */
 export function formatCommentsMarkdown(comments: Comment[]): string {
   if (comments.length === 0) {

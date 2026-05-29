@@ -22,6 +22,12 @@ code, pre {
   height: 100vh;
 }
 
+/* Review mode: no sidebar, full-bleed diff. */
+.wd-web-review {
+  height: 100vh;
+  overflow-y: auto;
+}
+
 .wd-web-sidebar {
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
