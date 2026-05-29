@@ -6,6 +6,9 @@ import {
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
+import { ReviewProvider } from '../state/ReviewProvider.js';
+import { PendingPill } from '../components/Review/PendingPill.js';
+import { EndReviewButton } from '../components/Review/EndReviewButton.js';
 
 interface Props {
   context: ReviewContext;
@@ -84,46 +87,55 @@ export function ReviewApp({ context }: Props) {
   const hasTabs = repos.length > 1;
 
   return (
-    <div className="wd-web-main wd-web-review">
-      <div className="wd-web-diff">
-        <header className="wd-web-diff-header">
-          <h2>{context.scopeLabel}</h2>
-          <p className="wd-web-muted">
-            {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
-            {hasTabs ? ` across ${repos.length} repos` : ''}
-          </p>
-        </header>
-        {hasTabs && (
-          <nav className="wd-web-repo-tabs">
-            {repos.map((r) => {
-              const add = r.files.reduce((s, f) => s + f.added, 0);
-              const del = r.files.reduce((s, f) => s + f.deleted, 0);
-              return (
-                <button
-                  key={r.name}
-                  type="button"
-                  className={
-                    'wd-web-repo-tab' +
-                    (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '')
-                  }
-                  onClick={() => setActiveRepoName(r.name)}
-                >
-                  {r.name}{' '}
-                  <span className="wd-web-tab-count">({r.files.length})</span>{' '}
-                  <span className="wd-tab-stats">
-                    <span className="wd-add">+{add}</span>{' '}
-                    <span className="wd-del">-{del}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-        <DiffRepo
-          repo={activeRepo}
-          startIndex={repoStartIndex.get(activeRepo.name) ?? 0}
-        />
+    <ReviewProvider>
+      <div className="wd-web-main wd-web-review">
+        <div className="wd-web-diff">
+          <header className="wd-web-diff-header">
+            <h2>{context.scopeLabel}</h2>
+            <p className="wd-web-muted">
+              {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
+              {hasTabs ? ` across ${repos.length} repos` : ''}
+            </p>
+          </header>
+          {hasTabs && (
+            <nav className="wd-web-repo-tabs">
+              {repos.map((r) => {
+                const add = r.files.reduce((s, f) => s + f.added, 0);
+                const del = r.files.reduce((s, f) => s + f.deleted, 0);
+                return (
+                  <button
+                    key={r.name}
+                    type="button"
+                    className={
+                      'wd-web-repo-tab' +
+                      (r.name === activeRepo.name
+                        ? ' wd-web-repo-tab-active'
+                        : '')
+                    }
+                    onClick={() => setActiveRepoName(r.name)}
+                  >
+                    {r.name}{' '}
+                    <span className="wd-web-tab-count">
+                      ({r.files.length})
+                    </span>{' '}
+                    <span className="wd-tab-stats">
+                      <span className="wd-add">+{add}</span>{' '}
+                      <span className="wd-del">-{del}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+          <DiffRepo
+            repo={activeRepo}
+            startIndex={repoStartIndex.get(activeRepo.name) ?? 0}
+            review
+          />
+        </div>
+        <PendingPill />
+        <EndReviewButton />
       </div>
-    </div>
+    </ReviewProvider>
   );
 }

@@ -12,9 +12,11 @@ const STATUS_LETTER: Record<FileStatus, string> = {
 interface Props {
   file: ParsedFile;
   anchor: string;
+  review?: boolean;
+  repo?: string;
 }
 
-export function DiffFile({ file, anchor }: Props) {
+export function DiffFile({ file, anchor, review, repo }: Props) {
   const renamed =
     file.status === 'renamed' && file.oldPath !== file.newPath ? (
       <span className="wd-rename">
@@ -54,7 +56,13 @@ export function DiffFile({ file, anchor }: Props) {
           </colgroup>
           <tbody>
             {file.hunks.map((h, i) => (
-              <DiffHunk hunk={h} key={i} />
+              <DiffHunk
+                hunk={h}
+                key={i}
+                review={review}
+                repo={repo}
+                file={file.path}
+              />
             ))}
           </tbody>
         </table>

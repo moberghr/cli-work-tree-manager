@@ -42,6 +42,75 @@ export function fetchScopeDiff(): Promise<{ repos: RepoData[] }> {
   return getJson<{ repos: RepoData[] }>('/api/diff');
 }
 
+export type CommentAuthor = 'user' | 'claude';
+export type CommentStatus = 'published' | 'draft';
+export type CommentSide = 'left' | 'right' | 'general';
+
+export interface Comment {
+  id: string;
+  repo: string;
+  file: string;
+  line: number;
+  side: CommentSide;
+  body: string;
+  createdAt: string;
+  lineContent?: string;
+  author: CommentAuthor;
+  parentId?: string;
+  status: CommentStatus;
+}
+
+export interface CommentInput {
+  repo?: string;
+  file?: string;
+  line?: number;
+  side?: CommentSide;
+  body: string;
+  status?: CommentStatus;
+  lineContent?: string;
+  parentId?: string;
+  author?: CommentAuthor;
+}
+
+async function postJson<T>(path: string, body: unknown, method = 'POST'): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path}`);
+  return res.json() as Promise<T>;
+}
+
+export function fetchComments(): Promise<Comment[]> {
+  return getJson<{ comments: Comment[] }>('/api/comments').then((r) => r.comments);
+}
+
+export function postComment(input: CommentInput): Promise<{ comments: Comment[] }> {
+  return postJson<{ comments: Comment[] }>('/api/comments', input);
+}
+
+export async function deleteComment(id: string): Promise<{ comments: Comment[] }> {
+  const res = await fetch(
+    `/api/comments/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json() as Promise<{ comments: Comment[] }>;
+}
+
+export function submitReview(summary: string): Promise<{ comments: Comment[]; count: number }> {
+  return postJson<{ comments: Comment[]; count: number }>('/api/submit-review', { summary });
+}
+
+export function discardReview(): Promise<{ comments: Comment[]; discarded: number }> {
+  return postJson<{ comments: Comment[]; discarded: number }>('/api/discard-review', {});
+}
+
+export function postDone(): Promise<{ ok: boolean; count: number }> {
+  return postJson<{ ok: boolean; count: number }>('/api/done', {});
+}
+
 export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'binary';
 export type LineKind = 'context' | 'add' | 'delete' | 'no-newline';
 

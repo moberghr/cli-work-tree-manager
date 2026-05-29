@@ -1,0 +1,270 @@
+/* Review-mode UI (composer, comments, modals, pending pill, end-review button). */
+
+.wd-ln-clickable { cursor: pointer; }
+.wd-ln-clickable:hover { outline: 2px solid var(--hunk-fg); outline-offset: -2px; }
+
+/* The injected <tr> that holds composer / comment list below a diff row. */
+.wd-comment-row > td { padding: 0 !important; }
+.wd-comment-row > td.wd-comment-side { background: var(--hunk-bg) !important; }
+.wd-comment-row > td.wd-comment-empty { background: transparent !important; }
+
+.wd-comment-list {
+  margin: 4px 8px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border-left: 3px solid var(--hunk-fg);
+  border-radius: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.wd-comment {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  word-wrap: break-word;
+}
+.wd-comment:last-child { border-bottom: none; }
+.wd-comment-body { color: var(--fg); }
+.wd-comment-body p { margin: 0 0 0.4em; }
+.wd-comment-body p:last-child { margin-bottom: 0; }
+.wd-comment-body code {
+  background: var(--ln-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 90%;
+}
+.wd-comment-body pre {
+  background: var(--ln-bg);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.3em 0;
+}
+.wd-comment-body pre code { background: transparent; padding: 0; }
+.wd-comment-body ul,
+.wd-comment-body ol {
+  margin: 0.3em 0;
+  padding-left: 1.4em;
+}
+.wd-comment-body blockquote {
+  margin: 0.3em 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.wd-comment-body a { color: var(--hunk-fg); }
+
+.wd-comment.wd-comment-outdated { opacity: 0.6; }
+.wd-comment-outdated-badge {
+  display: inline-block;
+  background: var(--status-modified-bg);
+  color: var(--status-modified-fg);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+}
+
+.wd-comment-author {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hunk-fg);
+  margin-bottom: 2px;
+}
+.wd-comment.wd-author-claude {
+  border-left: 3px solid #7c3aed;
+  background: rgba(124, 58, 237, 0.07);
+  padding-left: 8px;
+  border-radius: 0 4px 4px 0;
+}
+.wd-comment.wd-author-claude .wd-comment-author { color: #7c3aed; }
+.wd-comment-reply {
+  margin-left: 20px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+.wd-comment.wd-status-draft {
+  border-left: 3px solid var(--status-modified-fg);
+  background: var(--status-modified-bg);
+  padding-left: 8px;
+}
+.wd-draft-badge {
+  display: inline-block;
+  background: var(--status-modified-fg);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+}
+
+.wd-comment-actions {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+}
+.wd-comment-action-link,
+.wd-comment-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 11px;
+  font-family: inherit;
+}
+.wd-comment-action-link { color: var(--hunk-fg); }
+.wd-comment-delete { color: var(--del-fg); }
+
+/* Composer form (inline + reply). */
+.wd-comment-form {
+  margin: 4px 8px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--hunk-fg);
+  border-radius: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+}
+.wd-comment-form-context {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.wd-comment-form textarea {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.wd-comment-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+.wd-comment-form button {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+.wd-comment-form button:disabled { opacity: 0.5; cursor: default; }
+.wd-comment-form button.wd-btn-secondary {
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.wd-comment-form button.wd-btn-primary {
+  background: var(--hunk-fg);
+  color: #fff;
+  border-color: var(--hunk-fg);
+}
+
+/* Floating buttons. */
+.wd-pending-pill,
+.wd-done-bar {
+  position: fixed;
+  z-index: 50;
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-pending-pill { right: 1rem; bottom: 4.5rem; background: var(--status-modified-fg); }
+.wd-done-bar { right: 1rem; bottom: 1rem; background: var(--hunk-fg); }
+.wd-pending-pill:hover,
+.wd-done-bar:hover { filter: brightness(1.08); }
+.wd-done-bar[disabled] { opacity: 0.6; cursor: default; }
+.wd-pending-count,
+.wd-done-count {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+/* Modal. */
+.wd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wd-modal {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  max-width: 460px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.wd-modal h2 { margin: 0 0 8px; font-size: 14px; }
+.wd-modal p { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.wd-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.wd-modal button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+.wd-modal button.wd-btn-primary {
+  background: var(--hunk-fg);
+  color: #fff;
+  border-color: var(--hunk-fg);
+}
+.wd-modal button:hover { filter: brightness(1.05); }
+.wd-submit-summary {
+  width: 100%;
+  min-height: 80px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
