@@ -5,9 +5,10 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 export default defineConfig({
   entry: ['src/bin.ts', 'src/wd-bin.ts'],
+  // Only clean tsup's own outputs — Vite owns dist/web/ and shouldn't be wiped.
+  clean: ['bin.js', 'bin.js.map', 'wd-bin.js', 'wd-bin.js.map'],
   format: ['esm'],
   target: 'node18',
-  clean: true,
   sourcemap: true,
   splitting: false,
   define: {
@@ -28,6 +29,8 @@ export default defineConfig({
     'ink',
     'react',
     'react/jsx-runtime',
+    'react-dom',
+    'react-dom/client',
   ],
   banner: {
     js: '#!/usr/bin/env node',

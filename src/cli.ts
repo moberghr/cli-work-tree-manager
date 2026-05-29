@@ -14,6 +14,7 @@ import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
 import { hydrateCommand } from './commands/hydrate.js';
 import { diffCommand } from './commands/diff.js';
+import { webCommand } from './commands/web.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -37,6 +38,7 @@ function showHelp() {
   console.log('  work recent [count]                                - List recent sessions');
   console.log('  work resume                                        - Resume a recent session');
   console.log('  work dash                                          - Interactive session dashboard');
+  console.log('  work web                                           - Browser dashboard (one tab, every session)');
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
@@ -94,6 +96,7 @@ export function run(argv: string[]) {
     .command(todoCommand)
     .command(hydrateCommand)
     .command(diffCommand)
+    .command(webCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)
