@@ -1,0 +1,35 @@
+/* Design tokens. Same palette as the wd diff renderer so the two UIs feel
+   like one family. Light by default; dark via prefers-color-scheme. */
+:root {
+  --bg: #fff;
+  --fg: #24292f;
+  --border: #d0d7de;
+  --muted: #57606a;
+  --sidebar-bg: #f6f8fa;
+  --header-bg: #f6f8fa;
+  --hover: #eaeef2;
+  --current: #ddf4ff;
+  --accent: #0969da;
+  --add-fg: #1a7f37;
+  --del-fg: #cf222e;
+  --code-bg: #f6f8fa;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --border: #30363d;
+    --muted: #8b949e;
+    --sidebar-bg: #161b22;
+    --header-bg: #161b22;
+    --hover: #21262d;
+    --current: rgba(31, 111, 235, 0.2);
+    --accent: #58a6ff;
+    --add-fg: #3fb950;
+    --del-fg: #f85149;
+    --code-bg: #161b22;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
