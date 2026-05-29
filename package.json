@@ -23,11 +23,13 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@types/diff": "^7.0.2",
     "@types/proper-lockfile": "^4.1.4",
     "@xterm/headless": "^6.0.0",
     "chalk": "^5.4.1",
     "chokidar": "^5.0.0",
     "cross-spawn": "^7.0.6",
+    "diff": "^9.0.0",
     "glob": "^11.0.1",
     "ink": "^6.8.0",
     "inquirer": "^12.3.2",

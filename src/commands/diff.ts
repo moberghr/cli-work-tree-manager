@@ -327,7 +327,23 @@ async function runReview(ctx: RenderContext): Promise<void> {
     process.stdout.write(`--- comment deleted ---\nid: ${id}\n\n`);
   };
 
-  const handle = await startCommentServer({ html, onComment, onCommentDeleted });
+  // Batch markers wrap the burst of comments that flushes out when the user
+  // submits a review (drafts → published in one shot, with optional summary).
+  const onSubmitReviewStart = (info: { count: number; summary: import('../core/comment-server.js').Comment | null }) => {
+    const head = `--- review submitted ---\ncount: ${info.count}${info.summary ? `\nsummary-id: ${info.summary.id}` : ''}\n\n`;
+    process.stdout.write(head);
+  };
+  const onSubmitReviewEnd = () => {
+    process.stdout.write(`--- review batch end ---\n\n`);
+  };
+
+  const handle = await startCommentServer({
+    html,
+    onComment,
+    onCommentDeleted,
+    onSubmitReviewStart,
+    onSubmitReviewEnd,
+  });
   // Publish the live server URL so Claude (or any local tool) can post
   // replies via curl without needing to scrape stdout.
   const latestUrlFile = path.join(os.homedir(), '.work', 'diffs', 'latest-review.url');

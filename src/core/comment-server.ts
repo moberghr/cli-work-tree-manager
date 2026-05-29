@@ -4,6 +4,8 @@ import chalk from 'chalk';
 
 export type CommentAuthor = 'user' | 'claude';
 
+export type CommentStatus = 'published' | 'draft';
+
 export interface Comment {
   id: string;
   /** Empty for general comments not tied to a specific repo. */
@@ -24,16 +26,24 @@ export interface Comment {
   author: CommentAuthor;
   /** If set, this comment is a reply to the comment with this id. */
   parentId?: string;
+  /** 'published' streams to stdout immediately; 'draft' is held until the
+   *  user submits the review batch via POST /api/submit-review. */
+  status: CommentStatus;
 }
 
 export interface CommentServerOptions {
   /** Full rendered HTML (with comment UI included). Re-served on every GET. */
   html: string;
-  /** Called every time a new comment is POSTed by the browser. Used by the
-   *  caller to stream comments to stdout as they arrive. */
+  /** Fires once per *published* comment. Drafts are silent until submitted. */
   onComment?: (comment: Comment) => void;
   /** Called when the user deletes a comment. */
   onCommentDeleted?: (id: string) => void;
+  /** Fires before the per-comment onComment events when the user submits
+   *  a review batch. Lets the caller emit a "--- review submitted ---" marker. */
+  onSubmitReviewStart?: (info: { count: number; summary: Comment | null }) => void;
+  /** Fires after the batch has finished streaming. Lets the caller emit
+   *  a "--- review batch end ---" marker. */
+  onSubmitReviewEnd?: () => void;
 }
 
 export interface CommentServerHandle {
@@ -67,14 +77,18 @@ export function startCommentServer(
     resolveDone = resolve;
   });
 
-  function broadcastReload() {
+  function broadcast(event: string, data: unknown) {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of sseClients) {
       try {
-        res.write(`event: reload\ndata: ${Date.now()}\n\n`);
+        res.write(payload);
       } catch {
         /* client disconnected */
       }
     }
+  }
+  function broadcastReload() {
+    broadcast('reload', { ts: Date.now() });
   }
 
   function send(res: http.ServerResponse, status: number, body: unknown) {
@@ -169,6 +183,8 @@ export function startCommentServer(
         }
         const author: CommentAuthor =
           body.author === 'claude' ? 'claude' : 'user';
+        const status: CommentStatus =
+          body.status === 'draft' ? 'draft' : 'published';
         const c: Comment = {
           id: crypto.randomBytes(8).toString('hex'),
           repo,
@@ -183,9 +199,19 @@ export function startCommentServer(
               : parent?.lineContent,
           author,
           parentId: parent?.id,
+          status,
         };
         comments.push(c);
-        if (opts.onComment) opts.onComment(c);
+        // Stream only USER comments to stdout (Claude is the consumer of
+        // the stream; echoing its own posts back is noise). Drafts are
+        // silent regardless of author until submit-review.
+        if (status === 'published' && author === 'user' && opts.onComment) {
+          opts.onComment(c);
+        }
+        // Broadcast SSE only when the change came from someone OTHER than
+        // the local browser user — i.e. Claude. The user's own POST already
+        // returned the updated list to its caller and re-rendered.
+        if (author === 'claude') broadcast('comments-changed', { id: c.id });
         send(res, 200, { comment: c, comments });
       } catch {
         send(res, 400, { error: 'bad request' });
@@ -200,8 +226,60 @@ export function startCommentServer(
       if (idx >= 0) {
         comments.splice(idx, 1);
         if (opts.onCommentDeleted) opts.onCommentDeleted(id);
+        // Deletes are user-initiated from the browser; no need to broadcast.
       }
       send(res, 200, { comments });
+      return;
+    }
+
+    if (req.method === 'POST' && url === '/api/submit-review') {
+      try {
+        const body = (await readJsonBody(req)) as { summary?: string };
+        const drafts = comments
+          .filter((c) => c.status === 'draft')
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        // Optional summary becomes a general published comment, emitted FIRST.
+        let summaryComment: Comment | null = null;
+        if (typeof body.summary === 'string' && body.summary.trim()) {
+          summaryComment = {
+            id: crypto.randomBytes(8).toString('hex'),
+            repo: '',
+            file: '',
+            line: 0,
+            side: 'general',
+            body: body.summary.trim(),
+            createdAt: new Date().toISOString(),
+            author: 'user',
+            status: 'published',
+          };
+          comments.push(summaryComment);
+        }
+        if (opts.onSubmitReviewStart) {
+          opts.onSubmitReviewStart({ count: drafts.length, summary: summaryComment });
+        }
+        if (summaryComment && opts.onComment) opts.onComment(summaryComment);
+        // Flip drafts to published, in creation order, firing onComment for each.
+        for (const d of drafts) {
+          d.status = 'published';
+          if (opts.onComment) opts.onComment(d);
+        }
+        if (opts.onSubmitReviewEnd) opts.onSubmitReviewEnd();
+        // submit-review is user-initiated; client already re-renders from response.
+        send(res, 200, { count: drafts.length, comments });
+      } catch {
+        send(res, 400, { error: 'bad request' });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url === '/api/discard-review') {
+      const before = comments.length;
+      for (let i = comments.length - 1; i >= 0; i--) {
+        if (comments[i].status === 'draft') comments.splice(i, 1);
+      }
+      const removed = before - comments.length;
+      // discard-review is user-initiated; no broadcast needed.
+      send(res, 200, { discarded: removed, comments });
       return;
     }
 

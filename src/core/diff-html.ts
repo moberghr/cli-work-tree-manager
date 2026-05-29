@@ -1,3 +1,4 @@
+import { diffWordsWithSpace } from 'diff';
 import type {
   FileStatus,
   Hunk,
@@ -163,6 +164,11 @@ function renderTree(node: TreeNode): string {
   return `<ul>${entries.map((e) => e.html).join('')}</ul>`;
 }
 
+interface IntraSpan {
+  text: string;
+  changed: boolean;
+}
+
 interface SideRow {
   oldNum: number | null;
   oldContent: string;
@@ -170,6 +176,91 @@ interface SideRow {
   newNum: number | null;
   newContent: string;
   newKind: 'context' | 'add' | 'empty';
+  /** Word-level intra-line spans for paired delete+add rows. Undefined when
+   *  the row has only one side or content is too long to diff cheaply. */
+  oldSpans?: IntraSpan[];
+  newSpans?: IntraSpan[];
+}
+
+/** Cap intra-line diffing to short-ish lines — the algorithm is O(N*M) and
+ *  long compiled bundles can otherwise stall the renderer. */
+const INTRA_MAX_PAIR_LEN = 5000;
+
+/**
+ * Coalesce changed spans separated by short unchanged gaps into one block.
+ * `diffWordsWithSpace` treats punctuation as word boundaries, so `7.2.0`
+ * becomes five tokens. Without this pass, `7.2.0` → `10.1.7` highlights as
+ * three disjoint chunks; GitHub's diff merges them into one continuous span.
+ */
+const INTRA_MERGE_GAP_MAX = 3;
+function mergeAdjacentChanges(spans: IntraSpan[]): IntraSpan[] {
+  const out: IntraSpan[] = [];
+  let i = 0;
+  while (i < spans.length) {
+    if (!spans[i].changed) {
+      out.push(spans[i]);
+      i++;
+      continue;
+    }
+    // Greedily absorb following short-unchanged + changed pairs.
+    let j = i;
+    while (
+      j + 2 < spans.length &&
+      !spans[j + 1].changed &&
+      spans[j + 1].text.length <= INTRA_MERGE_GAP_MAX &&
+      spans[j + 2].changed
+    ) {
+      j += 2;
+    }
+    if (j === i) {
+      out.push(spans[i]);
+      i++;
+    } else {
+      const merged = spans
+        .slice(i, j + 1)
+        .map((s) => s.text)
+        .join('');
+      out.push({ text: merged, changed: true });
+      i = j + 1;
+    }
+  }
+  return out;
+}
+
+function computeIntraLine(
+  oldContent: string,
+  newContent: string,
+): { oldSpans: IntraSpan[]; newSpans: IntraSpan[] } | null {
+  if (oldContent.length + newContent.length > INTRA_MAX_PAIR_LEN) return null;
+  const parts = diffWordsWithSpace(oldContent, newContent);
+  const oldSpans: IntraSpan[] = [];
+  const newSpans: IntraSpan[] = [];
+  for (const p of parts) {
+    if (p.added) {
+      newSpans.push({ text: p.value, changed: true });
+    } else if (p.removed) {
+      oldSpans.push({ text: p.value, changed: true });
+    } else {
+      oldSpans.push({ text: p.value, changed: false });
+      newSpans.push({ text: p.value, changed: false });
+    }
+  }
+  return {
+    oldSpans: mergeAdjacentChanges(oldSpans),
+    newSpans: mergeAdjacentChanges(newSpans),
+  };
+}
+
+function renderIntraSpans(spans: IntraSpan[], kind: 'add' | 'delete'): string {
+  return spans
+    .map((s) => {
+      if (!s.text) return '';
+      const escaped = escapeHtml(s.text);
+      return s.changed
+        ? `<span class="wd-intra-${kind === 'add' ? 'add' : 'del'}">${escaped}</span>`
+        : escaped;
+    })
+    .join('');
 }
 
 /**
@@ -187,14 +278,22 @@ function pairLines(lines: HunkLine[]): SideRow[] {
     for (let i = 0; i < max; i++) {
       const d = dels[i];
       const a = adds[i];
-      rows.push({
+      const row: SideRow = {
         oldNum: d ? d.oldNum : null,
         oldContent: d ? d.content : '',
         oldKind: d ? 'delete' : 'empty',
         newNum: a ? a.newNum : null,
         newContent: a ? a.content : '',
         newKind: a ? 'add' : 'empty',
-      });
+      };
+      if (d && a) {
+        const intra = computeIntraLine(d.content, a.content);
+        if (intra) {
+          row.oldSpans = intra.oldSpans;
+          row.newSpans = intra.newSpans;
+        }
+      }
+      rows.push(row);
     }
     dels = [];
     adds = [];
@@ -228,19 +327,46 @@ function renderHunkSide(hunk: Hunk): string {
       ? `<tr class="wd-hunk-row"><td colspan="4" class="wd-hunk-context">@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@${hunk.context ? ' ' + escapeHtml(hunk.context) : ''}</td></tr>`
       : '';
   const rows = pairLines(hunk.lines)
-    .map(
-      (r) =>
-        `<tr class="wd-row"><td class="wd-ln wd-ln-old wd-${r.oldKind}">${r.oldNum ?? ''}</td><td class="wd-content wd-${r.oldKind}">${escapeHtml(r.oldContent) || '&nbsp;'}</td><td class="wd-ln wd-ln-new wd-${r.newKind}">${r.newNum ?? ''}</td><td class="wd-content wd-${r.newKind}">${escapeHtml(r.newContent) || '&nbsp;'}</td></tr>`,
-    )
+    .map((r) => {
+      const oldHtml = r.oldSpans
+        ? renderIntraSpans(r.oldSpans, 'delete')
+        : escapeHtml(r.oldContent);
+      const newHtml = r.newSpans
+        ? renderIntraSpans(r.newSpans, 'add')
+        : escapeHtml(r.newContent);
+      return `<tr class="wd-row"><td class="wd-ln wd-ln-old wd-${r.oldKind}">${r.oldNum ?? ''}</td><td class="wd-content wd-${r.oldKind}">${oldHtml || '&nbsp;'}</td><td class="wd-ln wd-ln-new wd-${r.newKind}">${r.newNum ?? ''}</td><td class="wd-content wd-${r.newKind}">${newHtml || '&nbsp;'}</td></tr>`;
+    })
     .join('');
   return header + rows;
 }
 
 function renderHunkUnified(hunk: Hunk): string {
   const header = `<tr class="wd-hunk-row"><td colspan="3" class="wd-hunk-context">@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@${hunk.context ? ' ' + escapeHtml(hunk.context) : ''}</td></tr>`;
-  const rows = hunk.lines
-    .filter((l) => l.kind !== 'no-newline')
-    .map((l) => {
+
+  // Precompute intra-line highlights for adjacent delete/add pairs. We walk
+  // the hunk and pair each delete[i] with adds[i] within a contiguous run.
+  const lines = hunk.lines.filter((l) => l.kind !== 'no-newline');
+  const intraByIndex = new Map<number, IntraSpan[]>();
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].kind !== 'delete') { i++; continue; }
+    const delStart = i;
+    while (i < lines.length && lines[i].kind === 'delete') i++;
+    const addStart = i;
+    while (i < lines.length && lines[i].kind === 'add') i++;
+    const dels = lines.slice(delStart, addStart);
+    const adds = lines.slice(addStart, i);
+    const pairCount = Math.min(dels.length, adds.length);
+    for (let k = 0; k < pairCount; k++) {
+      const intra = computeIntraLine(dels[k].content, adds[k].content);
+      if (!intra) continue;
+      intraByIndex.set(delStart + k, intra.oldSpans);
+      intraByIndex.set(addStart + k, intra.newSpans);
+    }
+  }
+
+  const rows = lines
+    .map((l, idx) => {
       const cls =
         l.kind === 'add'
           ? 'wd-add'
@@ -248,8 +374,12 @@ function renderHunkUnified(hunk: Hunk): string {
             ? 'wd-delete'
             : 'wd-context';
       const prefix = l.kind === 'add' ? '+' : l.kind === 'delete' ? '-' : ' ';
+      const spans = intraByIndex.get(idx);
+      const inner = spans
+        ? renderIntraSpans(spans, l.kind === 'add' ? 'add' : 'delete')
+        : (l.content ? escapeHtml(l.content) : '');
       const body = l.content
-        ? `<span class="wd-prefix">${prefix}</span>${escapeHtml(l.content)}`
+        ? `<span class="wd-prefix">${prefix}</span>${inner}`
         : `<span class="wd-prefix">${prefix}</span>&nbsp;`;
       return `<tr class="wd-row"><td class="wd-ln wd-ln-old">${l.oldNum ?? ''}</td><td class="wd-ln wd-ln-new">${l.newNum ?? ''}</td><td class="wd-content ${cls}">${body}</td></tr>`;
     })
@@ -322,9 +452,9 @@ const LIGHT_VARS = `
   --ln-bg: #f6f8fa;
   --ln-fg: #8b949e;
   --add-bg: #e6ffec;
-  --add-line-bg: #ccffd8;
+  --add-line-bg: #abf2bc;
   --del-bg: #ffebe9;
-  --del-line-bg: #ffd7d5;
+  --del-line-bg: #fdb8c0;
   --add-fg: #1a7f37;
   --del-fg: #cf222e;
   --empty-bg: #f6f8fa;
@@ -354,9 +484,9 @@ const DARK_VARS = `
   --ln-bg: #161b22;
   --ln-fg: #6e7681;
   --add-bg: rgba(46,160,67,0.15);
-  --add-line-bg: rgba(46,160,67,0.3);
+  --add-line-bg: rgba(46,160,67,0.5);
   --del-bg: rgba(248,81,73,0.15);
-  --del-line-bg: rgba(248,81,73,0.3);
+  --del-line-bg: rgba(248,81,73,0.5);
   --add-fg: #3fb950;
   --del-fg: #f85149;
   --empty-bg: rgba(110,118,129,0.1);
@@ -641,6 +771,10 @@ const BASE_STYLES = `
   .wd-empty { background: var(--empty-bg); }
   .wd-ln.wd-context { background: var(--ln-bg); }
 
+  /* Word-level intra-line highlights: darker shade overlaid on the row tint. */
+  .wd-intra-add { background: var(--add-line-bg); border-radius: 2px; }
+  .wd-intra-del { background: var(--del-line-bg); border-radius: 2px; }
+
   .wd-hunk-context {
     background: var(--hunk-bg);
     color: var(--hunk-fg);
@@ -672,6 +806,7 @@ function renderRepoSection(
   isActive: boolean,
   style: 'side' | 'line',
   subtitle: string,
+  review: boolean,
 ): string {
   const tree = buildTree(repo.files, startIndex);
   const treeHtml = renderTree(tree);
@@ -681,6 +816,14 @@ function renderRepoSection(
   const subtitleHtml = subtitle
     ? `<p class="wd-sidebar-subtitle">${escapeHtml(subtitle)}</p>`
     : '';
+  // The Comments panel only makes sense in review mode where the user can
+  // actually leave them. Skip the markup entirely in plain / watch modes.
+  const commentsPanelHtml = review
+    ? `<div class="wd-comments-panel">
+      <h3 class="wd-comments-panel-title">Comments <span class="wd-comments-panel-count">(0)</span></h3>
+      <ul class="wd-comments-panel-list"></ul>
+    </div>`
+    : '';
   return `<section class="wd-repo${isActive ? ' wd-active' : ''}" data-repo="${escapeHtml(slug)}" data-repo-name="${escapeHtml(repo.name)}">
   <aside class="wd-sidebar">
     <div class="wd-sidebar-header">
@@ -689,10 +832,7 @@ function renderRepoSection(
       <input class="wd-filter" type="search" placeholder="Filter files..." />
     </div>
     <div class="wd-tree">${treeHtml}</div>
-    <div class="wd-comments-panel">
-      <h3 class="wd-comments-panel-title">Comments <span class="wd-comments-panel-count">(0)</span></h3>
-      <ul class="wd-comments-panel-list"></ul>
-    </div>
+    ${commentsPanelHtml}
   </aside>
   <main class="wd-main">${filesHtml}</main>
 </section>`;
@@ -772,6 +912,7 @@ export function renderDiffHtml(
         i === activeIdx,
         style,
         subtitle,
+        review,
       );
       runningIndex += repo.files.length;
       return html;
@@ -799,13 +940,14 @@ ${review ? `<section class="wd-general-pane">
     <summary>General review note (not tied to any line)</summary>
     <textarea class="wd-general-input" placeholder="A high-level comment for Claude…"></textarea>
     <div class="wd-general-pane-actions">
-      <button type="button" class="wd-general-submit" disabled>Send (Ctrl+Enter)</button>
+      <button type="button" class="wd-general-draft wd-btn-secondary" disabled>Start review</button>
+      <button type="button" class="wd-general-submit" disabled>Comment (Ctrl+Enter)</button>
     </div>
     <div class="wd-general-pane-list"></div>
   </details>
 </section>` : ''}
 ${sectionsHtml}
-${review ? '<button class="wd-done-bar" type="button">End review <span class="wd-done-count">0</span></button>' : ''}
+${review ? '<button class="wd-pending-pill" type="button">Pending review <span class="wd-pending-count">0</span></button><button class="wd-done-bar" type="button">End review <span class="wd-done-count">0</span></button>' : ''}
 ${CLIENT_SCRIPT}
 ${review ? REVIEW_SCRIPT : ''}
 ${liveReload ? STATE_PRESERVATION_SCRIPT : ''}

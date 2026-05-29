@@ -12,6 +12,8 @@ export const HLJS_CDN_HEAD = `
 <link id="wd-hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <link id="wd-hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" disabled>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.11/purify.min.js"></script>
 `;
 
 /** Toggles the appropriate hljs CSS based on the theme chosen by --theme. */
@@ -57,6 +59,10 @@ export const CLIENT_SCRIPT = `
       const cells = file.querySelectorAll('td.wd-content');
       cells.forEach(function (cell) {
         if (cell.classList.contains('wd-empty')) return;
+        // Don't clobber word-level intra-line highlighting markup. Paired
+        // add/delete rows carry their own <span class="wd-intra-…"> wrappers
+        // which would be lost if we replaced innerHTML with hljs output.
+        if (cell.querySelector('.wd-intra-add, .wd-intra-del')) return;
         const prefix = cell.querySelector('.wd-prefix');
         const prefixHtml = prefix ? prefix.outerHTML : '';
         const fullText = cell.textContent || '';
@@ -370,7 +376,6 @@ export const REVIEW_STYLES = `
     margin-top: 0.5rem;
     padding: 0.4rem 0.75rem;
   }
-  body:not([data-review="true"]) .wd-comments-panel { display: none; }
   .wd-comments-panel-title {
     margin: 0 0 0.4rem;
     font-size: 11px;
@@ -424,6 +429,46 @@ export const REVIEW_STYLES = `
   }
   .wd-comment:last-child { border-bottom: none; }
   .wd-comment.wd-comment-outdated { opacity: 0.6; }
+  .wd-comment.wd-status-draft {
+    border-left: 3px solid var(--status-modified-fg);
+    background: var(--status-modified-bg);
+    padding-left: 8px;
+  }
+  .wd-draft-badge {
+    display: inline-block;
+    background: var(--status-modified-fg);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+  }
+  .wd-pending-pill {
+    position: fixed;
+    right: 1rem;
+    bottom: 4.5rem;
+    z-index: 50;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--status-modified-fg);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+    display: none;
+    align-items: center;
+    gap: 6px;
+  }
+  body[data-review="true"] .wd-pending-pill.wd-visible { display: inline-flex; }
+  .wd-pending-pill:hover { filter: brightness(1.08); }
+  .wd-comment-form-actions button.wd-btn-secondary {
+    background: var(--sidebar-bg);
+    color: var(--fg);
+    border-color: var(--border);
+  }
   .wd-comment-author {
     font-size: 10px;
     font-weight: 700;
@@ -464,6 +509,36 @@ export const REVIEW_STYLES = `
     margin-bottom: 4px;
   }
   .wd-comment-body { color: var(--fg); }
+  .wd-comment-body p { margin: 0 0 0.4em; }
+  .wd-comment-body p:last-child { margin-bottom: 0; }
+  .wd-comment-body code {
+    background: var(--ln-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-size: 90%;
+  }
+  .wd-comment-body pre {
+    background: var(--ln-bg);
+    padding: 6px 8px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.3em 0;
+  }
+  .wd-comment-body pre code { background: transparent; padding: 0; }
+  .wd-comment-body ul, .wd-comment-body ol { margin: 0.3em 0; padding-left: 1.4em; }
+  .wd-comment-body blockquote {
+    margin: 0.3em 0;
+    padding-left: 8px;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+  }
+  .wd-comment-body a { color: var(--hunk-fg); }
+  .wd-comment-body h1, .wd-comment-body h2, .wd-comment-body h3 {
+    font-size: 1.05em;
+    margin: 0.3em 0;
+    font-weight: 600;
+  }
   .wd-comment-actions {
     margin-top: 2px;
     font-size: 11px;
@@ -549,8 +624,13 @@ export const REVIEW_SCRIPT = `
       hasUnsavedText('.wd-general-input')
     );
   }
+  let commentsRefreshPending = false;
   function tryApplyPendingReload() {
     if (reloadPending && !isComposing()) location.reload();
+    if (commentsRefreshPending && !isComposing()) {
+      commentsRefreshPending = false;
+      fetchComments();
+    }
   }
   try {
     const es = new EventSource('/events');
@@ -559,6 +639,15 @@ export const REVIEW_SCRIPT = `
         reloadPending = true;
       } else {
         location.reload();
+      }
+    });
+    // Pushed by the server when any client adds/deletes a comment (notably
+    // when Claude posts a reply via the API). Cheap refresh — no page reload.
+    es.addEventListener('comments-changed', function () {
+      if (isComposing()) {
+        commentsRefreshPending = true;
+      } else {
+        fetchComments();
       }
     });
   } catch (e) { /* SSE not supported; user can F5 manually */ }
@@ -643,11 +732,30 @@ export const REVIEW_SCRIPT = `
     document.querySelectorAll('tr.wd-comment-row').forEach(function (r) { r.remove(); });
   }
 
+  function renderMarkdown(text) {
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      return null;
+    }
+    try {
+      const raw = marked.parse(text, { breaks: true, gfm: true });
+      return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    } catch (e) {
+      return null;
+    }
+  }
+
   function buildCommentItem(c, currentContent) {
     const item = document.createElement('div');
     item.className = 'wd-comment';
     item.classList.add('wd-author-' + (c.author || 'user'));
     if (c.parentId) item.classList.add('wd-comment-reply');
+    if (c.status === 'draft') {
+      item.classList.add('wd-status-draft');
+      const draftBadge = document.createElement('div');
+      draftBadge.className = 'wd-draft-badge';
+      draftBadge.textContent = 'PENDING';
+      item.appendChild(draftBadge);
+    }
     const outdated = c.lineContent !== undefined && c.lineContent !== currentContent;
     if (outdated) {
       item.classList.add('wd-comment-outdated');
@@ -664,19 +772,28 @@ export const REVIEW_SCRIPT = `
     }
     const body = document.createElement('div');
     body.className = 'wd-comment-body';
-    body.textContent = c.body;
+    const html = renderMarkdown(c.body);
+    if (html) {
+      body.innerHTML = html;
+    } else {
+      body.textContent = c.body;
+    }
     item.appendChild(body);
     const actions = document.createElement('div');
     actions.className = 'wd-comment-actions';
-    if (!c.parentId) {
-      const reply = document.createElement('button');
-      reply.className = 'wd-comment-action-link';
-      reply.textContent = 'reply';
-      reply.addEventListener('click', function () {
-        openReplyComposer(c, item);
-      });
-      actions.appendChild(reply);
-    }
+    // Every comment can be replied to — including replies themselves. A
+    // reply to a reply targets the same parent so the thread stays flat
+    // (no nested indentation; matches GitHub PR review threads).
+    const reply = document.createElement('button');
+    reply.className = 'wd-comment-action-link';
+    reply.textContent = 'reply';
+    reply.addEventListener('click', function () {
+      const target = c.parentId
+        ? comments.find(function (x) { return x.id === c.parentId; }) || c
+        : c;
+      openReplyComposer(target, item);
+    });
+    actions.appendChild(reply);
     const del = document.createElement('button');
     del.className = 'wd-comment-delete';
     del.textContent = 'delete';
@@ -874,9 +991,27 @@ export const REVIEW_SCRIPT = `
       }
       tr.parentNode.insertBefore(newTr, tr.nextSibling);
     });
-    // Update done counter.
+    // Update done counter — only published comments count toward the total
+    // that gets sent to the consumer.
+    const published = comments.filter(function (c) { return c.status === 'published'; });
     const counter = document.querySelector('.wd-done-count');
-    if (counter) counter.textContent = String(comments.length);
+    if (counter) counter.textContent = String(published.length);
+    // Update pending-review pill: visible only when any drafts exist.
+    const drafts = comments.filter(function (c) { return c.status === 'draft'; });
+    const pill = document.querySelector('.wd-pending-pill');
+    const pillCount = document.querySelector('.wd-pending-count');
+    if (pill && pillCount) {
+      if (drafts.length > 0) {
+        pill.classList.add('wd-visible');
+        pillCount.textContent = '(' + drafts.length + ')';
+      } else {
+        pill.classList.remove('wd-visible');
+      }
+    }
+  }
+
+  function hasDrafts() {
+    return comments.some(function (c) { return c.status === 'draft'; });
   }
 
   function openComposer(tr, repo, file, line, side, cells, lineContent) {
@@ -886,6 +1021,7 @@ export const REVIEW_SCRIPT = `
     newTr.className = 'wd-composer-row';
     const form = document.createElement('div');
     form.className = 'wd-comment-form';
+    const reviewLabel = hasDrafts() ? 'Add to review' : 'Start review';
     form.innerHTML =
       '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' +
       escapeHtml(repo) + ' / ' + escapeHtml(file) + ' : line ' + line + ' (' + side + ')' +
@@ -893,7 +1029,8 @@ export const REVIEW_SCRIPT = `
       '<textarea placeholder="Leave a review comment..." autofocus></textarea>' +
       '<div class="wd-comment-form-actions">' +
       '<button type="button" data-action="cancel">Cancel</button>' +
-      '<button type="submit" data-action="save">Save (Ctrl+Enter)</button>' +
+      '<button type="button" class="wd-btn-secondary" data-action="draft">' + reviewLabel + '</button>' +
+      '<button type="submit" data-action="save">Comment (Ctrl+Enter)</button>' +
       '</div>';
     // Scope the composer to just the side it was opened on (side-by-side mode).
     if (cells === 4) {
@@ -922,20 +1059,24 @@ export const REVIEW_SCRIPT = `
     tr.parentNode.insertBefore(newTr, tr.nextSibling);
     const textarea = form.querySelector('textarea');
     setTimeout(function () { textarea.focus(); }, 0);
-    function save() {
+    function submit(status) {
       const text = textarea.value.trim();
       if (!text) { newTr.remove(); tryApplyPendingReload(); return; }
-      postComment({ repo: repo, file: file, line: line, side: side, body: text, lineContent: lineContent });
+      postComment({
+        repo: repo, file: file, line: line, side: side,
+        body: text, lineContent: lineContent, status: status,
+      });
       newTr.remove();
       tryApplyPendingReload();
     }
     function cancel() { newTr.remove(); tryApplyPendingReload(); }
-    form.querySelector('[data-action="save"]').addEventListener('click', save);
+    form.querySelector('[data-action="save"]').addEventListener('click', function () { submit('published'); });
+    form.querySelector('[data-action="draft"]').addEventListener('click', function () { submit('draft'); });
     form.querySelector('[data-action="cancel"]').addEventListener('click', cancel);
     textarea.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        save();
+        submit('published');
       } else if (e.key === 'Escape') {
         cancel();
       }
@@ -981,21 +1122,42 @@ export const REVIEW_SCRIPT = `
     });
   });
 
-  function confirmDone(count) {
+  function confirmDone(publishedCount, draftCount) {
     return new Promise(function (resolve) {
       const backdrop = document.createElement('div');
       backdrop.className = 'wd-modal-backdrop';
       const modal = document.createElement('div');
       modal.className = 'wd-modal';
+      // Body copy adapts to the published/draft mix.
+      let body;
+      if (draftCount > 0) {
+        body =
+          '<p><strong style="color:var(--status-modified-fg)">You have ' + draftCount +
+          ' pending comment' + (draftCount === 1 ? '' : 's') +
+          '.</strong> They have not been sent yet and will be lost if you end the review now.</p>' +
+          (publishedCount > 0
+            ? '<p style="color:var(--muted);font-size:12px;">' + publishedCount + ' comment' +
+              (publishedCount === 1 ? ' was' : 's were') +
+              ' already delivered.</p>'
+            : '');
+      } else if (publishedCount === 0) {
+        body = '<p>You have left no comments. Closing the session will exit wd with no further action.</p>';
+      } else {
+        body = '<p>Your ' + publishedCount + ' comment' + (publishedCount === 1 ? '' : 's') +
+          ' ' + (publishedCount === 1 ? 'has' : 'have') +
+          ' already been delivered. Closing the session will exit wd. You can then close the tab.</p>';
+      }
+      const submitButton = draftCount > 0
+        ? '<button type="button" data-action="submit-then-end">Submit pending then end</button>'
+        : '';
       modal.innerHTML =
-        '<h2>End review?</h2>' +
-        '<p>' + (count === 0
-          ? 'You have left no comments. Closing the session will exit wd with no further action.'
-          : 'Your ' + count + ' comment' + (count === 1 ? '' : 's') + ' ' + (count === 1 ? 'has' : 'have') + ' already been delivered. Closing the session will exit wd. You can then close the tab.') +
-        '</p>' +
+        '<h2>End review?</h2>' + body +
         '<div class="wd-modal-actions">' +
         '<button type="button" data-action="cancel">Cancel</button>' +
-        '<button type="button" class="wd-modal-primary" data-action="ok">End review</button>' +
+        submitButton +
+        '<button type="button" class="wd-modal-primary" data-action="ok">' +
+        (draftCount > 0 ? 'End anyway (discard drafts)' : 'End review') +
+        '</button>' +
         '</div>';
       backdrop.appendChild(modal);
       document.body.appendChild(backdrop);
@@ -1005,12 +1167,13 @@ export const REVIEW_SCRIPT = `
         resolve(value);
       }
       function onKey(e) {
-        if (e.key === 'Escape') cleanup(false);
-        else if (e.key === 'Enter') cleanup(true);
+        if (e.key === 'Escape') cleanup({ action: 'cancel' });
       }
-      modal.querySelector('[data-action="ok"]').addEventListener('click', function () { cleanup(true); });
-      modal.querySelector('[data-action="cancel"]').addEventListener('click', function () { cleanup(false); });
-      backdrop.addEventListener('click', function (e) { if (e.target === backdrop) cleanup(false); });
+      modal.querySelector('[data-action="ok"]').addEventListener('click', function () { cleanup({ action: 'end' }); });
+      const submitBtn = modal.querySelector('[data-action="submit-then-end"]');
+      if (submitBtn) submitBtn.addEventListener('click', function () { cleanup({ action: 'submit-then-end' }); });
+      modal.querySelector('[data-action="cancel"]').addEventListener('click', function () { cleanup({ action: 'cancel' }); });
+      backdrop.addEventListener('click', function (e) { if (e.target === backdrop) cleanup({ action: 'cancel' }); });
       document.addEventListener('keydown', onKey);
       const primary = modal.querySelector('.wd-modal-primary');
       setTimeout(function () { primary.focus(); }, 0);
@@ -1020,28 +1183,118 @@ export const REVIEW_SCRIPT = `
   // Wire up the general-comment composer.
   const generalInput = document.querySelector('.wd-general-input');
   const generalSubmit = document.querySelector('.wd-general-submit');
+  const generalDraft = document.querySelector('.wd-general-draft');
   if (generalInput && generalSubmit) {
-    function updateSubmitState() {
-      generalSubmit.disabled = !generalInput.value.trim();
+    function updateGeneralState() {
+      const empty = !generalInput.value.trim();
+      generalSubmit.disabled = empty;
+      if (generalDraft) {
+        generalDraft.disabled = empty;
+        generalDraft.textContent = hasDrafts() ? 'Add to review' : 'Start review';
+      }
     }
     generalInput.addEventListener('input', function () {
-      updateSubmitState();
-      // If the user clears their draft, a queued reload may now fire.
+      updateGeneralState();
       if (!generalInput.value.trim()) tryApplyPendingReload();
     });
-    function submitGeneral() {
+    function submitGeneral(status) {
       const text = generalInput.value.trim();
       if (!text) return;
-      postComment({ repo: '', file: '', line: 0, side: 'general', body: text });
+      postComment({ repo: '', file: '', line: 0, side: 'general', body: text, status: status });
       generalInput.value = '';
-      updateSubmitState();
+      updateGeneralState();
       tryApplyPendingReload();
     }
-    generalSubmit.addEventListener('click', submitGeneral);
+    generalSubmit.addEventListener('click', function () { submitGeneral('published'); });
+    if (generalDraft) {
+      generalDraft.addEventListener('click', function () { submitGeneral('draft'); });
+    }
     generalInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        submitGeneral();
+        submitGeneral('published');
+      }
+    });
+  }
+
+  function openSubmitReviewModal(draftCount) {
+    return new Promise(function (resolve) {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'wd-modal-backdrop';
+      const modal = document.createElement('div');
+      modal.className = 'wd-modal';
+      modal.style.maxWidth = '460px';
+      modal.innerHTML =
+        '<h2>Submit your review</h2>' +
+        '<p>Sending ' + draftCount + ' pending comment' + (draftCount === 1 ? '' : 's') +
+        '. Add a summary if you like, then click Submit to send everything to Claude.</p>' +
+        '<textarea style="width:100%;min-height:80px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font:inherit;font-size:12px;resize:vertical;box-sizing:border-box;" placeholder="Optional summary…"></textarea>' +
+        '<div class="wd-modal-actions" style="margin-top:10px;">' +
+        '<button type="button" data-action="discard">Discard drafts</button>' +
+        '<button type="button" data-action="cancel">Cancel</button>' +
+        '<button type="button" class="wd-modal-primary" data-action="submit">Submit review</button>' +
+        '</div>';
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+      const textarea = modal.querySelector('textarea');
+      function cleanup(value) {
+        document.body.removeChild(backdrop);
+        document.removeEventListener('keydown', onKey);
+        resolve(value);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') cleanup({ action: 'cancel' });
+      }
+      modal.querySelector('[data-action="submit"]').addEventListener('click', function () {
+        cleanup({ action: 'submit', summary: textarea.value.trim() });
+      });
+      modal.querySelector('[data-action="discard"]').addEventListener('click', function () {
+        if (confirm('Discard all ' + draftCount + ' pending comment' + (draftCount === 1 ? '' : 's') + '?')) {
+          cleanup({ action: 'discard' });
+        }
+      });
+      modal.querySelector('[data-action="cancel"]').addEventListener('click', function () { cleanup({ action: 'cancel' }); });
+      backdrop.addEventListener('click', function (e) { if (e.target === backdrop) cleanup({ action: 'cancel' }); });
+      document.addEventListener('keydown', onKey);
+      setTimeout(function () { textarea.focus(); }, 0);
+    });
+  }
+
+  function submitReview(summary) {
+    return fetch('/api/submit-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summary: summary || '' }),
+    }).then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.comments) {
+          comments = data.comments;
+          renderAll();
+        }
+      });
+  }
+
+  function discardReview() {
+    return fetch('/api/discard-review', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.comments) {
+          comments = data.comments;
+          renderAll();
+        }
+      });
+  }
+
+  const pendingPill = document.querySelector('.wd-pending-pill');
+  if (pendingPill) {
+    pendingPill.addEventListener('click', async function () {
+      const drafts = comments.filter(function (c) { return c.status === 'draft'; });
+      if (drafts.length === 0) return;
+      const result = await openSubmitReviewModal(drafts.length);
+      if (result.action === 'submit') {
+        await submitReview(result.summary);
+      } else if (result.action === 'discard') {
+        await discardReview();
       }
     });
   }
@@ -1050,8 +1303,15 @@ export const REVIEW_SCRIPT = `
   const doneBtn = document.querySelector('.wd-done-bar');
   if (doneBtn) {
     doneBtn.addEventListener('click', async function () {
-      const ok = await confirmDone(comments.length);
-      if (!ok) return;
+      const publishedCount = comments.filter(function (c) { return c.status === 'published'; }).length;
+      const draftCount = comments.filter(function (c) { return c.status === 'draft'; }).length;
+      const result = await confirmDone(publishedCount, draftCount);
+      if (result.action === 'cancel') return;
+      if (result.action === 'submit-then-end') {
+        doneBtn.setAttribute('disabled', 'true');
+        doneBtn.textContent = 'Submitting…';
+        await submitReview('');
+      }
       doneBtn.setAttribute('disabled', 'true');
       doneBtn.textContent = 'Closing...';
       postDone();

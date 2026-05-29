@@ -17,6 +17,7 @@ export default defineConfig({
     'chalk',
     'cross-spawn',
     'chokidar',
+    'diff',
     'glob',
     'inquirer',
     '@inquirer/prompts',
