@@ -1,0 +1,199 @@
+/* Diff-specific tokens to extend tokens.css. */
+:root {
+  --add-bg: #e6ffec;
+  --add-line-bg: #abf2bc;
+  --del-bg: #ffebe9;
+  --del-line-bg: #fdb8c0;
+  --empty-bg: #f6f8fa;
+  --hunk-bg: #ddf4ff;
+  --hunk-fg: #0969da;
+  --ln-bg: #f6f8fa;
+  --ln-fg: #8b949e;
+  --status-added-bg: #dafbe1;
+  --status-added-fg: #1a7f37;
+  --status-deleted-bg: #ffebe9;
+  --status-deleted-fg: #cf222e;
+  --status-modified-bg: #fff8c5;
+  --status-modified-fg: #9a6700;
+  --status-renamed-bg: #ddf4ff;
+  --status-renamed-fg: #0969da;
+  --status-binary-bg: #eaeef2;
+  --status-binary-fg: #57606a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --add-bg: rgba(46, 160, 67, 0.15);
+    --add-line-bg: rgba(46, 160, 67, 0.5);
+    --del-bg: rgba(248, 81, 73, 0.15);
+    --del-line-bg: rgba(248, 81, 73, 0.5);
+    --empty-bg: rgba(110, 118, 129, 0.1);
+    --hunk-bg: rgba(56, 139, 253, 0.15);
+    --hunk-fg: #58a6ff;
+    --ln-bg: #161b22;
+    --ln-fg: #6e7681;
+    --status-added-bg: rgba(46, 160, 67, 0.2);
+    --status-added-fg: #3fb950;
+    --status-deleted-bg: rgba(248, 81, 73, 0.2);
+    --status-deleted-fg: #f85149;
+    --status-modified-bg: rgba(210, 153, 34, 0.2);
+    --status-modified-fg: #d29922;
+    --status-renamed-bg: rgba(56, 139, 253, 0.2);
+    --status-renamed-fg: #58a6ff;
+    --status-binary-bg: #30363d;
+    --status-binary-fg: #8b949e;
+  }
+}
+
+.wd-web-diff {
+  padding: 0;
+}
+.wd-web-diff-header {
+  padding: 16px 24px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-web-diff-header h2 { margin: 0; font-size: 18px; }
+.wd-web-diff-header p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+
+.wd-web-repo-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+.wd-web-repo-tab {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-web-repo-tab:hover { background: var(--hover); }
+.wd-web-repo-tab-active {
+  background: var(--current);
+  border-color: var(--hunk-fg);
+  color: var(--hunk-fg);
+}
+.wd-web-tab-count { font-size: 11px; color: var(--muted); }
+.wd-web-repo-tab-active .wd-web-tab-count { color: inherit; opacity: 0.8; }
+.wd-tab-stats { font-size: 11px; }
+.wd-tab-stats .wd-add { color: var(--add-fg); }
+.wd-tab-stats .wd-del { color: var(--del-fg); }
+
+.wd-repo-files {
+  padding: 12px 24px 32px;
+}
+
+.wd-file {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  scroll-margin-top: 4px;
+}
+.wd-file-header {
+  position: sticky;
+  top: 50px; /* below the tabs header */
+  z-index: 3;
+  background: var(--header-bg);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.wd-file-badge {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.wd-status-added .wd-file-badge,
+.wd-file-badge.wd-status-added { background: var(--status-added-bg); color: var(--status-added-fg); }
+.wd-status-deleted .wd-file-badge,
+.wd-file-badge.wd-status-deleted { background: var(--status-deleted-bg); color: var(--status-deleted-fg); }
+.wd-status-modified .wd-file-badge,
+.wd-file-badge.wd-status-modified { background: var(--status-modified-bg); color: var(--status-modified-fg); }
+.wd-status-renamed .wd-file-badge,
+.wd-file-badge.wd-status-renamed { background: var(--status-renamed-bg); color: var(--status-renamed-fg); }
+.wd-status-binary .wd-file-badge,
+.wd-file-badge.wd-status-binary { background: var(--status-binary-bg); color: var(--status-binary-fg); }
+
+.wd-file-path {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.wd-file-stats { font-size: 12px; flex-shrink: 0; }
+.wd-file-stats .wd-add { color: var(--add-fg); }
+.wd-file-stats .wd-del { color: var(--del-fg); }
+.wd-rename { font-style: italic; color: var(--muted); }
+
+.wd-binary { padding: 10px 12px; font-style: italic; color: var(--muted); }
+
+.wd-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.wd-diff-table td {
+  padding: 0 6px;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wd-diff-table .wd-col-ln { width: 50px; }
+.wd-diff-table .wd-col-content { width: calc(50% - 50px); }
+.wd-ln {
+  background: var(--ln-bg);
+  color: var(--ln-fg);
+  text-align: right;
+  font-size: 11px;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+.wd-add { background: var(--add-bg); }
+.wd-delete { background: var(--del-bg); }
+.wd-empty { background: var(--empty-bg); }
+.wd-ln.wd-context { background: var(--ln-bg); }
+
+.wd-intra-add { background: var(--add-line-bg); border-radius: 2px; }
+.wd-intra-del { background: var(--del-line-bg); border-radius: 2px; }
+
+.wd-hunk-context {
+  background: var(--hunk-bg) !important;
+  color: var(--hunk-fg) !important;
+  padding: 4px 8px !important;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

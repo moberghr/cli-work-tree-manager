@@ -188,6 +188,10 @@ code, pre {
 
 .wd-web-main {
   overflow: auto;
+  padding: 0;
+}
+.wd-web-main > .wd-web-empty,
+.wd-web-main > .wd-web-error {
   padding: 24px;
 }
 
