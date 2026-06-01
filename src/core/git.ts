@@ -1,5 +1,6 @@
 import spawn from 'cross-spawn';
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { debug } from './logger.js';
 
 export interface GitResult {
@@ -99,6 +100,32 @@ export function remoteBranchExists(branch: string, cwd: string): boolean {
 export function isGitRepo(cwd: string): boolean {
   const result = git(['rev-parse', '--is-inside-work-tree'], cwd);
   return result.exitCode === 0 && result.stdout === 'true';
+}
+
+/** Get the absolute toplevel of the worktree containing cwd, or null if not a repo. */
+export function getWorktreeRoot(cwd: string): string | null {
+  const result = git(['rev-parse', '--show-toplevel'], cwd);
+  if (result.exitCode !== 0 || !result.stdout) return null;
+  return result.stdout;
+}
+
+/**
+ * Get the MAIN repo working directory for a (possibly linked) worktree.
+ * `--git-common-dir` points at the main repo's `.git` dir; the main repo root
+ * is its parent when the basename is `.git`, otherwise the path itself.
+ * Returns null on failure.
+ */
+export function getMainRepoRoot(cwd: string): string | null {
+  const result = git(
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    cwd,
+  );
+  if (result.exitCode !== 0 || !result.stdout) return null;
+  const commonDir = result.stdout;
+  if (path.basename(commonDir) === '.git') {
+    return path.dirname(commonDir);
+  }
+  return commonDir;
 }
 
 /** Get current branch name. */
