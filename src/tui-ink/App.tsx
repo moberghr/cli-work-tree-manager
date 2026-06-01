@@ -133,6 +133,17 @@ interface AppProps {
   onExit: () => void;
 }
 
+/**
+ * Module-level cleanup registry. App registers its PTY/HookServer cleanup here so
+ * that index.tsx's signal handlers (SIGINT/SIGTERM/uncaughtException) can run it
+ * before calling process.exit(), which otherwise leaves orphaned `claude` processes
+ * and stale hook entries in ~/.claude/settings.json.
+ */
+let dashboardCleanup: (() => void) | null = null;
+export function runDashboardCleanup(): void {
+  dashboardCleanup?.();
+}
+
 export function App({ unsafe, onExit }: AppProps) {
   const [focus, setFocus] = useState(Focus.SESSIONS);
   const [sessions, setSessions] = useState<WorktreeSession[]>(loadSessions);
@@ -174,6 +185,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const taskRows = useMemo(() => buildTaskRows(tasks), [tasks]);
 
   const ptySessions = useRef(new Map<string, PtySession>());
+  const hookServerRef = useRef<HookServer | null>(null);
   const sessionRows = useMemo(() => {
     const sMap = new Map<string, SessionStatus>();
     for (const [key, pty] of ptySessions.current) {
@@ -214,6 +226,8 @@ export function App({ unsafe, onExit }: AppProps) {
   sessionsRef.current = sessions;
   topPaneModeRef.current = topPaneMode;
   branchInputRef.current = branchInput;
+  const acliAvailableRef = useRef(acliAvailable);
+  acliAvailableRef.current = acliAvailable;
   const pendingBranchRef = useRef(pendingBranch);
   pendingBranchRef.current = pendingBranch;
   const pendingJiraIssueRef = useRef(pendingJiraIssue);
@@ -438,9 +452,38 @@ export function App({ unsafe, onExit }: AppProps) {
         pty.setIdle(false);
       }
     });
+    hookServerRef.current = hookServer;
     hookServer.start().catch(() => {});
-    return () => { hookServer.stop().catch(() => {}); };
+    return () => {
+      if (hookServerRef.current === hookServer) hookServerRef.current = null;
+      hookServer.stop().catch(() => {});
+    };
   }, [findPtyByCwd]);
+
+  // Reliable cleanup that also runs on signal/crash exit (not just React unmount).
+  // Disposes every live PTY (kills spawned `claude` processes) and restores the
+  // injected Claude hook settings. Idempotent — guarded against double-run.
+  useEffect(() => {
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      try {
+        for (const pty of ptySessions.current.values()) {
+          try { pty.dispose(); } catch { /* already gone */ }
+        }
+        ptySessions.current.clear();
+      } catch { /* best effort */ }
+      // restoreSettings() is synchronous fs work, safe in a process 'exit' handler.
+      try { hookServerRef.current?.restoreSettings(); } catch { /* best effort */ }
+    };
+    dashboardCleanup = cleanup;
+    process.once('exit', cleanup);
+    return () => {
+      process.removeListener('exit', cleanup);
+      if (dashboardCleanup === cleanup) dashboardCleanup = null;
+    };
+  }, []);
 
   /** Switch the right pane to show a different session's terminal. */
   const switchDisplay = useCallback((s: WorktreeSession) => {
@@ -823,7 +866,7 @@ export function App({ unsafe, onExit }: AppProps) {
         if (focusRef.current === Focus.SESSIONS) {
           setFocus(Focus.PRS);
         } else if (focusRef.current === Focus.PRS) {
-          setFocus(acliAvailable ? Focus.JIRA : Focus.TASKS);
+          setFocus(acliAvailableRef.current ? Focus.JIRA : Focus.TASKS);
         } else if (focusRef.current === Focus.JIRA) {
           setFocus(Focus.TASKS);
         } else if (focusRef.current === Focus.TASKS) {
@@ -1277,7 +1320,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, refreshTasks, moveSessionCursor, movePrCursor, moveJiraCursor, moveTaskCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]);
+  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, refreshTasks, moveSessionCursor, movePrCursor, moveJiraCursor, moveTaskCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable]);
 
   // Resize handling
   useEffect(() => {

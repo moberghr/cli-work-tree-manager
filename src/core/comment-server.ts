@@ -128,9 +128,6 @@ export function startCommentServer(
     res.writeHead(status, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end(JSON.stringify(body));
   }
@@ -151,13 +148,27 @@ export function startCommentServer(
     });
   }
 
+  // Set once the server is listening (it binds to port 0 and reads the
+  // assigned port from address()). Used by the Host-header guard below.
+  let listenPort = 0;
+
   const server = http.createServer(async (req, res) => {
+    // DNS-rebinding guard: only accept requests whose Host header points at
+    // our own loopback origin. The SPA is served same-origin so its own
+    // requests carry Host: 127.0.0.1:<port>, which passes.
+    const host = req.headers.host;
+    const allowedHosts = new Set([
+      `127.0.0.1:${listenPort}`,
+      `localhost:${listenPort}`,
+    ]);
+    if (!host || !allowedHosts.has(host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden');
+      return;
+    }
+
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
+      res.writeHead(204);
       res.end();
       return;
     }
@@ -193,7 +204,6 @@ export function startCommentServer(
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
-        'Access-Control-Allow-Origin': '*',
       });
       res.write(': connected\n\n');
       sseClients.add(res);
@@ -343,6 +353,7 @@ export function startCommentServer(
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
+      listenPort = port;
       const url = `http://127.0.0.1:${port}/`;
       process.stderr.write(chalk.gray(`[review] server listening at ${url}\n`));
       resolve({

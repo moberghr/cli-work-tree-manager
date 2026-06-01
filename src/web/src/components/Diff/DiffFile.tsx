@@ -55,10 +55,10 @@ export function DiffFile({ file, anchor, review, repo }: Props) {
             <col className="wd-col-content" />
           </colgroup>
           <tbody>
-            {file.hunks.map((h, i) => (
+            {file.hunks.map((h) => (
               <DiffHunk
                 hunk={h}
-                key={i}
+                key={`${h.oldStart}-${h.newStart}`}
                 review={review}
                 repo={repo}
                 file={file.path}

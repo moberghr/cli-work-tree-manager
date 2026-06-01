@@ -87,18 +87,23 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
 
   const postComment = useCallback(async (input: CommentInput) => {
     const res = await apiPostComment(input);
+    // Invalidate any in-flight refetch so it can't clobber this fresher result.
+    ++reqIdRef.current;
     setComments(res.comments);
   }, []);
   const deleteComment = useCallback(async (id: string) => {
     const res = await apiDeleteComment(id);
+    ++reqIdRef.current;
     setComments(res.comments);
   }, []);
   const submitReview = useCallback(async (summary: string) => {
     const res = await apiSubmitReview(summary);
+    ++reqIdRef.current;
     setComments(res.comments);
   }, []);
   const discardReview = useCallback(async () => {
     const res = await apiDiscardReview();
+    ++reqIdRef.current;
     setComments(res.comments);
   }, []);
   const done = useCallback(async () => {

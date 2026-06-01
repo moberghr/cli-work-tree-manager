@@ -2,7 +2,7 @@ import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { render } from 'ink';
-import { App } from './App.js';
+import { App, runDashboardCleanup } from './App.js';
 import { getConfigDir } from '../core/config.js';
 
 /** Synchronous crash log — survives hard exits where the async stream doesn't flush. */
@@ -43,12 +43,13 @@ export async function startDashboard(unsafe: boolean): Promise<void> {
     );
 
     process.on('exit', restore);
-    process.on('SIGINT', () => { restore(); process.exit(0); });
-    process.on('SIGTERM', () => { restore(); process.exit(0); });
+    process.on('SIGINT', () => { runDashboardCleanup(); restore(); process.exit(0); });
+    process.on('SIGTERM', () => { runDashboardCleanup(); restore(); process.exit(0); });
     process.on('uncaughtException', (err) => {
       // node-pty throws async errors for already-exited PTYs — non-fatal
       if (err instanceof Error && err.message?.includes('pty that has already exited')) return;
       crashLog('uncaughtException', err);
+      runDashboardCleanup();
       unmount();
       restore();
       console.error('work dash error:', err);

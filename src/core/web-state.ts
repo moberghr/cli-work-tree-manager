@@ -1,6 +1,6 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
-import chokidar from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import { loadHistory, type WorktreeSession } from './history.js';
 
 /** Stable per-session id, same algorithm as web-server. */
@@ -17,7 +17,7 @@ export function findSession(sessionId: string): WorktreeSession | null {
 }
 
 interface WatcherEntry {
-  watcher: chokidar.FSWatcher;
+  watcher: FSWatcher;
   subscribers: Set<() => void>;
   debounce: NodeJS.Timeout | null;
 }

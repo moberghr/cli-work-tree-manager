@@ -32,7 +32,7 @@ export function completionHandler(
 
   if (!command) {
     done(
-      ['tree', 't', 'remove', 'list', 'status', 'recent', 'resume', 'prune', 'init', 'config', 'completion'].filter(
+      ['tree', 't', 'remove', 'list', 'status', 'recent', 'resume', 'prune', 'dash', 'todo', 'hydrate', 'diff', 'web', 'init', 'config', 'completion'].filter(
         (c) => c.startsWith(current),
       ),
     );

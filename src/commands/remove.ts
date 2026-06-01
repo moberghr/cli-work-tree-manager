@@ -47,9 +47,10 @@ export const removeCommand: CommandModule = {
 
     const allRemoved = teardownWorktree(targetName, target.isGroup, branchName, config, force);
 
-    if (allRemoved) {
+    if (allRemoved === true) {
       await removeSession(targetName, branchName);
     } else {
+      process.exitCode = 1;
       console.log('');
       console.log(
         chalk.yellow(

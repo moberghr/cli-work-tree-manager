@@ -11,6 +11,7 @@
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsup",
     "build:web": "vite build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/web/tsconfig.json",
     "dev": "tsx src/bin.ts",
     "dev:web": "vite",
     "test": "vitest run",

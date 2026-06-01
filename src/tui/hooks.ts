@@ -122,7 +122,12 @@ export class HookServer {
     } catch { /* settings write failed — hooks won't work but dashboard still functions */ }
   }
 
-  private restoreSettings() {
+  /**
+   * Synchronously remove our injected hook entries from Claude settings.
+   * Safe to call from a process 'exit' handler (sync fs only). Public so the
+   * dashboard's signal/crash cleanup can invoke it directly.
+   */
+  restoreSettings() {
     try {
       // Always read current settings and remove tagged entries.
       // This avoids overwriting changes made externally while the dashboard was running.

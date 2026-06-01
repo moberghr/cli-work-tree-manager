@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { Hunk } from '../../api/client.js';
 import {
   hunkRows,
@@ -18,7 +18,7 @@ interface Props {
 }
 
 export function DiffHunk({ hunk, review = false, repo, file }: Props) {
-  const rows = hunkRows(hunk);
+  const rows = useMemo(() => hunkRows(hunk), [hunk]);
   const ctxText = hunk.context ? ' ' + hunk.context : '';
   return (
     <>
@@ -28,8 +28,8 @@ export function DiffHunk({ hunk, review = false, repo, file }: Props) {
           @@{ctxText}
         </td>
       </tr>
-      {rows.map((r, i) => (
-        <Fragment key={i}>
+      {rows.map((r) => (
+        <Fragment key={`${r.oldNum ?? 'x'}-${r.newNum ?? 'x'}`}>
           <DiffSideRow row={r} review={review} repo={repo} file={file} />
           {review && repo && file && (
             <CommentLineRow

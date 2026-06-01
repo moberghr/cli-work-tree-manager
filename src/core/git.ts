@@ -273,7 +273,7 @@ export function countConflicts(branch: string, cwd: string): number {
 
   const result = git(['merge-tree', mergeBase.stdout, base, branch], cwd);
   // Count conflict markers in merge-tree output
-  const conflicts = (result.stdout.match(/^<<<<<<<$/gm) || []).length;
+  const conflicts = (result.stdout.match(/^<<<<<<< /gm) || []).length;
   return conflicts;
 }
 

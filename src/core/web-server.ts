@@ -1,5 +1,6 @@
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import chalk from 'chalk';
 import { loadHistory, type WorktreeSession } from './history.js';
@@ -83,7 +84,7 @@ export function startWebServer(): Promise<WebServerHandle> {
   // (or removed) by other terminals in real time. fs.watchFile (poll-based)
   // is more reliable cross-platform than fs.watch for a single file, and
   // chokidar would be overkill for one path.
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  const home = os.homedir();
   const historyPath = path.join(home, '.work', 'history.json');
   const onHistoryChange = () => broadcast('sessions-changed', { ts: Date.now() });
   fs.watchFile(historyPath, { interval: 1000 }, onHistoryChange);
