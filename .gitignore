@@ -3,3 +3,8 @@ dist/
 *.tsbuildinfo
 .DS_Store
 /.tool-versions
+tasks/todo.md
+.claude.local.md
+.claude/settings.local.json
+.claude/.mtk-cache/
+.claude/references.index
