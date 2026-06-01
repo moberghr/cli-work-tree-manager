@@ -1,0 +1,9 @@
+{
+  "stack": "typescript",
+  "framework": ["node-cli", "ink"],
+  "data_layer": ["json-file-state"],
+  "test_framework": ["vitest"],
+  "package_manager": "npm",
+  "deployment": ["npm-package"],
+  "additional": ["yargs", "react", "node-pty", "@xterm/headless", "proper-lockfile", "chalk", "inquirer", "chokidar", "cross-spawn", "glob", "tsup", "tsx"]
+}

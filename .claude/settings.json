@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(tsc:*)"
+    ],
+    "deny": [
+      "Read(**/.env.production)",
+      "Read(**/.env.local)",
+      "Bash(*publish*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PLUGIN_ROOT/hooks/format-on-edit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
