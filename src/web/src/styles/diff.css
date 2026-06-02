@@ -139,6 +139,32 @@
   text-decoration: line-through;
   text-decoration-color: var(--muted);
 }
+
+/* Per-file line-coverage badge in the Changed Files tree. Rendered only when
+   lcov data is available for the file. */
+.wd-coverage-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.wd-coverage-good {
+  color: var(--add-fg);
+  background: rgba(26, 127, 55, 0.12);
+}
+.wd-coverage-fair {
+  color: #9a6700;
+  background: rgba(154, 103, 0, 0.12);
+}
+.wd-coverage-poor {
+  color: var(--del-fg);
+  background: rgba(207, 34, 46, 0.12);
+}
 .wd-file-badge {
   width: 20px;
   height: 20px;

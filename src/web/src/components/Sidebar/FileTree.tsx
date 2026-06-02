@@ -135,6 +135,20 @@ function TreeNodeView({
         </span>
         <span className="wd-tree-name">{node.name}</span>
         {stats}
+        {typeof node.file.coverage === 'number' && (
+          <span
+            className={`wd-coverage-badge wd-coverage-${
+              node.file.coverage >= 80
+                ? 'good'
+                : node.file.coverage >= 50
+                  ? 'fair'
+                  : 'poor'
+            }`}
+            title={`${Math.round(node.file.coverage)}% line coverage`}
+          >
+            {Math.round(node.file.coverage)}%
+          </span>
+        )}
       </a>
     </li>
   );

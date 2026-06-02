@@ -3,6 +3,7 @@ import path from 'node:path';
 import spawn from 'cross-spawn';
 import { git } from './git.js';
 import { parseGitDiff, type ParsedFile } from './diff-parse.js';
+import { coverageForFiles } from './lcov.js';
 
 export interface ComputeDiffOptions {
   /** Git toplevel working directory. */
@@ -104,5 +105,21 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
     }
   }
 
-  return parseGitDiff(combined);
+  const files = parseGitDiff(combined);
+
+  // Attach per-file line-coverage from an lcov.info if the repo has one.
+  // Conservative: only files with a confident repo-relative path match get a
+  // coverage value; everything else is left undefined (no badge rendered).
+  const cov = coverageForFiles(
+    root,
+    files.map((f) => f.path),
+  );
+  if (cov.size > 0) {
+    for (const f of files) {
+      const pct = cov.get(f.path);
+      if (typeof pct === 'number') f.coverage = pct;
+    }
+  }
+
+  return files;
 }

@@ -10,6 +10,8 @@ export interface ParsedFile {
   added: number;
   deleted: number;
   hunks: Hunk[];
+  /** Line-coverage percent for this file (from lcov). undefined when no lcov data is available. */
+  coverage?: number;
 }
 
 export interface Hunk {
