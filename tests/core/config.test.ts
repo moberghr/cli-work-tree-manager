@@ -54,6 +54,26 @@ describe('loadConfig', () => {
     expect(loaded).toEqual(data);
   });
 
+  it('loads the opt-in notifications flag', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ worktreesRoot: '/wt', notifications: true }),
+    );
+    expect(loadConfig()?.notifications).toBe(true);
+  });
+
+  it('leaves notifications undefined when absent (opt-in default off)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ worktreesRoot: '/wt' }),
+    );
+    expect(loadConfig()?.notifications).toBeUndefined();
+  });
+
   it('returns null for invalid JSON', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });

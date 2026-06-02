@@ -22,6 +22,7 @@ import { openUrl } from '../utils/platform.js';
 import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../core/hook-server.js';
+import { notifyDesktop, notifyKindForEvent } from '../core/notifier.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
@@ -236,6 +237,8 @@ export function App({ unsafe, onExit }: AppProps) {
   const acliAvailableRef = useRef(acliAvailable);
   acliAvailableRef.current = acliAvailable;
   const hookServerRef = useRef<HookServer | null>(null);
+  // Sessions already alerted for their current idle period (notification dedupe).
+  const notifiedSessionsRef = useRef<Set<string>>(new Set());
 
   // Layout — reactive to terminal resize
   const [dims, setDims] = useState(() => ({
@@ -452,6 +455,20 @@ export function App({ unsafe, onExit }: AppProps) {
           pty.setIdle(true);
         } else if (event === 'prompt_submit') {
           pty.setIdle(false);
+        }
+        // Desktop notification (opt-in; no-op when disabled/unsupported).
+        // De-duped per session per idle period via notifyKindForEvent, so the
+        // first idle alerts and repeated Stop events don't spam — independent
+        // of PtySession's initial idle state.
+        const kind = notifyKindForEvent(
+          event,
+          path.resolve(cwd).toLowerCase(),
+          notifiedSessionsRef.current,
+        );
+        if (kind) {
+          notifyDesktop(path.basename(cwd), kind, {
+            enabled: config?.notifications === true,
+          });
         }
       },
     });
