@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
-import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
+import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
 import { setupWorktree } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
@@ -10,7 +10,7 @@ import { upsertSession } from '../core/history.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 
 export const treeCommand: CommandModule = {
-  command: ['tree <target> [branch]', 't <target> [branch]'],
+  command: ['tree [target] [branch]', 't [target] [branch]'],
   describe: 'Create or switch to a worktree and launch the configured AI tool',
   builder: (yargs) =>
     yargs
@@ -18,11 +18,15 @@ export const treeCommand: CommandModule = {
       .positional('target', {
         describe: 'Project alias or group name',
         type: 'string',
-        demandOption: true,
       })
       .positional('branch', {
         describe: 'Branch name (e.g., feature/login). Omit to work on the base repo.',
         type: 'string',
+      })
+      .option('here', {
+        describe: 'Infer target and branch from the current worktree directory',
+        type: 'boolean',
+        default: false,
       })
       .option('open', {
         describe: 'Open VS Code in the worktree after creation',
@@ -58,8 +62,9 @@ export const treeCommand: CommandModule = {
         hidden: true,
       }),
   handler: async (argv) => {
-    const targetName = argv.target as string;
-    const branchName = argv.branch as string | undefined;
+    let targetName = argv.target as string | undefined;
+    let branchName = argv.branch as string | undefined;
+    const here = argv.here as boolean;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
     const setupOnly = argv['setup-only'] as boolean;
@@ -79,6 +84,34 @@ export const treeCommand: CommandModule = {
     }
 
     const config = ensureConfig();
+
+    // --here: infer target and branch from the current worktree directory
+    if (here) {
+      if (targetName) {
+        console.error('Cannot combine --here with an explicit target.');
+        process.exitCode = 1;
+        return;
+      }
+      const inferred = resolveFromCwd(config, process.cwd());
+      if ('error' in inferred) {
+        console.error(inferred.error);
+        process.exitCode = 1;
+        return;
+      }
+      targetName = inferred.target;
+      branchName = inferred.isBaseRepo ? undefined : inferred.branch;
+      console.log(
+        chalk.cyan(
+          `Resolved from current directory: ${targetName}${branchName ? ' @ ' + branchName : ' (base repo)'}`,
+        ),
+      );
+    } else if (!targetName) {
+      console.error(
+        'Specify a target, or use --here to infer it from the current directory.',
+      );
+      process.exitCode = 1;
+      return;
+    }
 
     // --base requires a branch name
     if (baseBranch && !branchName) {
