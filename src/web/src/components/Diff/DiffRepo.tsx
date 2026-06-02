@@ -11,6 +11,8 @@ interface Props {
   viewedPaths?: Set<string>;
   /** Called when the user toggles a file's viewed checkbox. */
   onToggleViewed?: (path: string, next: boolean) => void;
+  /** Scope key for per-hunk selection state. Threaded down to each file. */
+  hunkScopeKey?: string;
 }
 
 export function DiffRepo({
@@ -19,6 +21,7 @@ export function DiffRepo({
   review,
   viewedPaths,
   onToggleViewed,
+  hunkScopeKey,
 }: Props) {
   if (repo.files.length === 0) {
     return (
@@ -42,6 +45,7 @@ export function DiffRepo({
               ? (next: boolean) => onToggleViewed(f.path, next)
               : undefined
           }
+          hunkScopeKey={hunkScopeKey}
         />
       ))}
     </div>

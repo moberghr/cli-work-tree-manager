@@ -18,17 +18,42 @@ interface Props {
   file?: string;
   /** Optional render-time syntax highlighter. When null we render plain text. */
   highlight?: Highlighter | null;
+  /** Whether this hunk is checked off (review progress state). */
+  selected?: boolean;
+  /** Toggle the selected flag. Wired by the parent so it can persist. */
+  onToggleSelected?: (next: boolean) => void;
 }
 
-export function DiffHunk({ hunk, review = false, repo, file, highlight }: Props) {
+export function DiffHunk({
+  hunk,
+  review = false,
+  repo,
+  file,
+  highlight,
+  selected,
+  onToggleSelected,
+}: Props) {
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
   const ctxText = hunk.context ? ' ' + hunk.context : '';
+  const showCheckbox = review && !!file && !!onToggleSelected;
   return (
     <>
-      <tr className="wd-hunk-row">
+      <tr className={'wd-hunk-row' + (selected ? ' wd-hunk-selected' : '')}>
         <td colSpan={4} className="wd-hunk-context">
+          {showCheckbox && (
+            <label
+              className="wd-hunk-checkbox"
+              title="Mark this hunk as reviewed"
+            >
+              <input
+                type="checkbox"
+                checked={!!selected}
+                onChange={(e) => onToggleSelected!(e.target.checked)}
+              />
+            </label>
+          )}
           @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines}{' '}
           @@{ctxText}
         </td>

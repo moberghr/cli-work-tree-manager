@@ -4,6 +4,7 @@ import type { ParsedFile } from '../../api/client.js';
 import { languageForPath } from '../../utils/language.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { DiffHunk } from './DiffHunk.js';
+import { useSelectedHunks } from '../../hooks/use-selected-hunks.js';
 
 interface Props {
   file: ParsedFile;
@@ -14,6 +15,8 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
+  /** Scope key for per-hunk selection state. Empty disables persistence. */
+  hunkScopeKey?: string;
 }
 
 export type Highlighter = (text: string) => string | null;
@@ -33,7 +36,11 @@ export function DiffFile({
   repo,
   viewed,
   onToggleViewed,
+  hunkScopeKey,
 }: Props) {
+  const { selectedHunkKeys, toggle: toggleHunk } = useSelectedHunks(
+    hunkScopeKey ?? '',
+  );
   // Stable, render-time highlighter. We highlight the full line text on
   // demand; cells with intra-line spans skip this path (the word-diff
   // markup wins). React owns the DOM via dangerouslySetInnerHTML — no
@@ -130,16 +137,25 @@ export function DiffFile({
               <col className="wd-col-content" />
             </colgroup>
             <tbody>
-              {file.hunks.map((h) => (
-                <DiffHunk
-                  hunk={h}
-                  key={`${h.oldStart}-${h.newStart}`}
-                  review={review}
-                  repo={repo}
-                  file={file.path}
-                  highlight={highlight}
-                />
-              ))}
+              {file.hunks.map((h) => {
+                const hunkKey = `${file.path}@${h.oldStart}-${h.newStart}`;
+                return (
+                  <DiffHunk
+                    hunk={h}
+                    key={`${h.oldStart}-${h.newStart}`}
+                    review={review}
+                    repo={repo}
+                    file={file.path}
+                    highlight={highlight}
+                    selected={selectedHunkKeys.has(hunkKey)}
+                    onToggleSelected={
+                      hunkScopeKey
+                        ? (next: boolean) => toggleHunk(hunkKey, next)
+                        : undefined
+                    }
+                  />
+                );
+              })}
             </tbody>
           </table>
         ))}

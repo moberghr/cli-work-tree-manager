@@ -133,6 +133,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const scopeKey = activeRepo
     ? `scope:${context.scopeLabel}:${activeRepo.name}`
     : `scope:${context.scopeLabel}:_pending`;
+  const hunkScopeKey = activeRepo
+    ? `scope:${context.scopeLabel}:${activeRepo.name}:hunks`
+    : '';
   const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(
     scopeKey,
     pathToAnchor,
@@ -309,6 +312,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
                 review={!readOnly}
                 viewedPaths={viewedPaths}
                 onToggleViewed={toggleViewed}
+                hunkScopeKey={hunkScopeKey}
               />
             </>
           )}
