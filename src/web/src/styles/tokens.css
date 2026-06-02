@@ -1,8 +1,10 @@
-/* Design tokens. Same palette as the wd diff renderer so the two UIs feel
-   like one family. Light by default; dark via prefers-color-scheme. */
+/* Design tokens — GitHub PR page palette. Light only for now; dark mode
+   will return when there's a user-controlled toggle (OS preference is
+   intentionally ignored — too many users want this tool to stay light). */
 :root {
+  color-scheme: light;
   --bg: #fff;
-  --fg: #24292f;
+  --fg: #1f2328;
   --border: #d0d7de;
   --muted: #57606a;
   --sidebar-bg: #f6f8fa;
@@ -14,22 +16,4 @@
   --del-fg: #cf222e;
   --code-bg: #f6f8fa;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1117;
-    --fg: #c9d1d9;
-    --border: #30363d;
-    --muted: #8b949e;
-    --sidebar-bg: #161b22;
-    --header-bg: #161b22;
-    --hover: #21262d;
-    --current: rgba(31, 111, 235, 0.2);
-    --accent: #58a6ff;
-    --add-fg: #3fb950;
-    --del-fg: #f85149;
-    --code-bg: #161b22;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  }
 }

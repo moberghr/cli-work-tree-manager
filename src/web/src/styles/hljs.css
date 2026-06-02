@@ -1,0 +1,7 @@
+/* GitHub light syntax theme shipped with highlight.js. Dark-mode override is
+   a follow-up — most token colors still read OK against a dark bg. */
+@import 'highlight.js/styles/github.css';
+
+/* Inside the diff table, hljs shouldn't impose its own background / padding;
+   let the row's add/delete tint show through. */
+.wd-content .hljs { background: transparent; padding: 0; color: inherit; }

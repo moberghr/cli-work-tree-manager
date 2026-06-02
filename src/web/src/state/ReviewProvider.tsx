@@ -8,16 +8,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  deleteComment as apiDeleteComment,
-  discardReview as apiDiscardReview,
-  fetchComments,
-  postComment as apiPostComment,
-  postDone as apiPostDone,
-  submitReview as apiSubmitReview,
-  type Comment,
-  type CommentInput,
-} from '../api/client.js';
+import type { Comment, CommentInput } from '../api/client.js';
+import { scopeReviewApi, type ReviewApi } from '../api/review-api.js';
 import { useSse } from '../api/events.js';
 
 interface ComposerTarget {
@@ -53,7 +45,18 @@ type ReviewContextValue = ReviewState & ReviewActions;
 
 const ReviewCtx = createContext<ReviewContextValue | null>(null);
 
-export function ReviewProvider({ children }: { children: ReactNode }) {
+interface ReviewProviderProps {
+  children: ReactNode;
+  /** Optional injected api. Defaults to `scopeReviewApi()` (the wd -c server).
+   *  The dashboard passes `sessionReviewApi(sessionId)`. */
+  api?: ReviewApi;
+}
+
+export function ReviewProvider({ children, api: providedApi }: ReviewProviderProps) {
+  // The default is recomputed each render but is just a struct of function
+  // references; comparing by reference is fine, the useMemo below stabilises.
+  const api = useMemo(() => providedApi ?? scopeReviewApi(), [providedApi]);
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [openComposer, setOpenComposer] = useState<ComposerTarget | null>(null);
@@ -62,7 +65,7 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
 
   const refetch = useCallback(() => {
     const myReq = ++reqIdRef.current;
-    fetchComments().then(
+    api.fetch().then(
       (data) => {
         if (myReq !== reqIdRef.current) return;
         setComments(data);
@@ -73,37 +76,60 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
         setError(err.message);
       },
     );
-  }, []);
+  }, [api]);
 
   useEffect(() => refetch(), [refetch]);
 
-  // Fire on Claude replies. User-initiated changes update state directly
-  // from the POST response (server doesn't broadcast for those).
-  useSse('/events', {
+  // Fire on Claude replies / other tabs' writes. User-initiated changes
+  // update state directly from the POST response (server doesn't broadcast
+  // those back to the originating tab).
+  useSse(api.ssePath, {
     events: {
-      'comments-changed': () => refetch(),
+      'comments-changed': (payload) => {
+        if (api.matchesEvent && !api.matchesEvent(payload)) return;
+        refetch();
+      },
     },
   });
 
-  const postComment = useCallback(async (input: CommentInput) => {
-    const res = await apiPostComment(input);
-    setComments(res.comments);
-  }, []);
-  const deleteComment = useCallback(async (id: string) => {
-    const res = await apiDeleteComment(id);
-    setComments(res.comments);
-  }, []);
-  const submitReview = useCallback(async (summary: string) => {
-    const res = await apiSubmitReview(summary);
-    setComments(res.comments);
-  }, []);
-  const discardReview = useCallback(async () => {
-    const res = await apiDiscardReview();
-    setComments(res.comments);
-  }, []);
+  // Bumping reqIdRef before setComments invalidates any in-flight refetch
+  // (started by an earlier SSE event) so its late-arriving response can't
+  // clobber this mutation's fresher result.
+  const postComment = useCallback(
+    async (input: CommentInput) => {
+      const res = await api.post(input);
+      ++reqIdRef.current;
+      setComments(res.comments);
+    },
+    [api],
+  );
+  const deleteComment = useCallback(
+    async (id: string) => {
+      const res = await api.delete(id);
+      ++reqIdRef.current;
+      setComments(res.comments);
+    },
+    [api],
+  );
+  const submitReview = useCallback(
+    async (summary: string) => {
+      const res = await api.submit(summary);
+      ++reqIdRef.current;
+      setComments(res.comments);
+    },
+    [api],
+  );
+  const discardReview = useCallback(
+    async () => {
+      const res = await api.discard();
+      ++reqIdRef.current;
+      setComments(res.comments);
+    },
+    [api],
+  );
   const done = useCallback(async () => {
-    await apiPostDone();
-  }, []);
+    await api.done();
+  }, [api]);
 
   const value = useMemo<ReviewContextValue>(
     () => ({

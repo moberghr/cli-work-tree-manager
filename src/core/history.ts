@@ -57,7 +57,13 @@ export function loadHistory(): WorktreeSession[] {
       backupCorruptFile(historyPath, 'not an array');
       return [];
     }
-    return parsed;
+    return parsed.filter(
+      (s) =>
+        s &&
+        typeof s.target === 'string' &&
+        typeof s.branch === 'string' &&
+        Array.isArray(s.paths),
+    );
   } catch (err) {
     backupCorruptFile(historyPath, `parse error: ${(err as Error).message}`);
     return [];

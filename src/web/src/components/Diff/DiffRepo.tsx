@@ -7,9 +7,19 @@ interface Props {
   startIndex: number;
   /** Render with the review overlay (clickable line numbers, inline composers, comments). */
   review?: boolean;
+  /** Paths of files in this repo currently marked viewed. */
+  viewedPaths?: Set<string>;
+  /** Called when the user toggles a file's viewed checkbox. */
+  onToggleViewed?: (path: string, next: boolean) => void;
 }
 
-export function DiffRepo({ repo, startIndex, review }: Props) {
+export function DiffRepo({
+  repo,
+  startIndex,
+  review,
+  viewedPaths,
+  onToggleViewed,
+}: Props) {
   if (repo.files.length === 0) {
     return (
       <div className="wd-web-empty">
@@ -26,6 +36,12 @@ export function DiffRepo({ repo, startIndex, review }: Props) {
           anchor={`wd-file-${startIndex + i}`}
           review={review}
           repo={repo.name}
+          viewed={viewedPaths?.has(f.path)}
+          onToggleViewed={
+            onToggleViewed
+              ? (next: boolean) => onToggleViewed(f.path, next)
+              : undefined
+          }
         />
       ))}
     </div>

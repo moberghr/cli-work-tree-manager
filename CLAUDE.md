@@ -80,3 +80,217 @@ Full reference docs (read on-demand by skills and review agents):
 <!-- mtk-setup: v7.10.0
      coding-guidelines: none (typescript guidelines are placeholder, not shipped)
      generated: 2026-05-29T09:27:54Z -->
+
+---
+
+## Architecture & CLI Reference
+
+The remainder of this file is the architecture / CLI reference for human readers and agents that need the full picture of module flow, command surface, and the `wd` / `work web` design. The standards above (skill routing, critical rules) are the canonical short list; this section is the long form.
+
+## What This Is
+
+A cross-platform TypeScript CLI (`work`) for managing git worktrees across multiple repositories. Supports single-repo and multi-repo "group" worktrees with automatic Claude Code launching. Installed globally via `npm link`.
+
+## Development
+
+```bash
+npm run build          # Bundle with tsup → dist/bin.js
+npm run dev            # Run directly via tsx (no build needed)
+npm test               # Run all tests with vitest
+npm run test:watch     # Watch mode
+npx vitest run tests/core/resolve.test.ts  # Single test file
+```
+
+After building, `work` is available globally (via `npm link`). Rebuild after source changes.
+
+## CLI Commands
+
+```
+work init                                          # Interactive first-time setup
+work tree|t <target> <branch> [--base <branch>] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>]  # Create/switch to worktree
+work remove <target> <branch> [--force]            # Remove worktree
+work list [target]                                 # List worktrees
+work status [target] [branch] [--prune]            # Show worktree status
+work recent [count]                                # List recent sessions
+work resume [--unsafe]                             # Resume a recent session
+work dash [--unsafe]                               # Interactive session dashboard (TUI)
+work prune [--force]                               # Remove merged worktrees
+work completion [--install]                        # Shell completions
+
+work todo                                          # List open tasks
+work todo add <text>                               # Add a task
+work todo done <id>                                # Mark task complete
+work todo undo <id>                                # Mark task incomplete
+work todo edit <id> <text>                         # Edit task text
+work todo rm <id>                                  # Remove a task
+work todo --all                                    # Show completed tasks too
+
+work config add <alias> <path>                     # Add a repository
+work config remove <alias>                         # Remove a repository
+work config list                                   # List repos and groups
+work config group add <name> <alias1> <alias2> ... # Create a group
+work config group remove <name>                    # Remove a group
+work config group regen <name>                     # Regenerate group CLAUDE.md
+work config show                                   # Show raw config JSON
+work config edit                                   # Open config in editor
+
+wd                                                 # DEFAULT: live server with file-watching — refresh the browser to see changes; stop with `wd --stop`. Prefers a running `work web` (registers as a scope, opens /diff/<hash>) and falls back to spawning a standalone daemon when work web isn't up.
+wd <base>                                          # Diff vs an explicit ref
+wd --branch                                        # Open "Since branch" tab by default (Uncommitted tab is also present — toggle in browser)
+wd --static                                        # Write a self-contained HTML file (no server, no live reload). Survives the CLI.
+wd --stop                                          # Stop the background server for this scope
+wd -c                                              # Interactive review. Prefers `work web` (registers a scope, polls /api/scopes/<hash>/comments, proxies marker stream to stdout). Falls back to standalone comment-server. Per-scope: multiple reviews in different worktrees run concurrently.
+
+work web                                           # Browser dashboard: every session in one tab, with PTY terminal. SINGLETON — one process per user; `work web --stop` to terminate, second `work web` re-uses the running one.
+work hook <event>                                  # Internal — invoked by Claude Code via ~/.claude/settings.json (hidden)
+```
+
+## Architecture
+
+### Module Flow
+
+```
+bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo,diff,web,hook}.ts
+wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
+                                       ↓
+                                  core/worktree.ts (atomic + high-level operations)
+                                  ├── core/git.ts                ← git wrapper
+                                  ├── core/copy-files.ts         ← glob-based file copying
+                                  ├── core/resolve.ts            ← group vs repo dispatch
+                                  ├── core/history.ts            ← session tracking (~/.work/history.json)
+                                  ├── core/tasks.ts              ← local task/todo persistence
+                                  ├── core/pr.ts                 ← GitHub PR fetching via gh CLI
+                                  ├── core/jira.ts               ← Jira issue fetching via acli
+                                  ├── core/setup-completions.ts  ← shell profile detection & install
+                                  ├── core/claude-activity.ts    ← reads ~/.claude/projects mtimes → active/open/stale
+                                  │
+                                  Diff stack (the `wd` + `work web` feature)
+                                  ├── core/diff-parse.ts            ← unified-diff parser → ParsedFile[]
+                                  ├── core/diff-pipeline.ts         ← computeDiff (git diff + synthetic untracked)
+                                  ├── core/diff-scope.ts            ← resolveScope/resolveBase/buildRepoSpecs + resolveRepoDiff (shared parent/merge-base helper)
+                                  ├── core/repo-spec.ts             ← RepoSpec + stableDiffPath
+                                  ├── core/static-renderer.ts       ← inlines bundle + JSON → self-contained HTML (`wd --static` mode)
+                                  ├── core/diff-server.ts           ← shared Hono diff server (chokidar, SSE, /api/context, /api/diff)
+                                  ├── core/comment-server.ts        ← Hono sub-app: per-scope review (used by standalone `wd -c`)
+                                  ├── core/comment-store.ts         ← pure in-memory comment model
+                                  ├── core/comment-file-store.ts    ← file-backed wrapper + commentsDir()/commentsFileFor()
+                                  ├── core/comment-types.ts         ← Comment + CommentSide/Status/Author (shared with SPA)
+                                  ├── core/comment-schemas.ts       ← shared zod schemas for comment routes (server-side only)
+                                  ├── core/review-poll.ts           ← pure diffReviewSnapshot helper (poll loop in `wd -c` proxy)
+                                  ├── core/fs-watcher.ts            ← chokidar wrapper with debounce
+                                  ├── core/spa-handler.ts           ← Hono SPA shell + static asset serving
+                                  └── core/web-static.ts            ← resolveWebRoot() (locates dist/web/)
+                                  │
+                                  `work web` dashboard (singleton: ~/.work/web.pid + ~/.work/web.url)
+                                  ├── core/web-server.ts            ← Hono dashboard server (/api/sessions, SSE, /events)
+                                  ├── core/web-state.ts             ← session id derivation + per-session diff watchers
+                                  ├── core/session-meta.ts          ← per-session badge data (counts + activity state)
+                                  ├── core/session-comment-routes.ts ← Hono sub-app: /api/sessions/:id/comments CRUD
+                                  ├── core/panes-routes.ts          ← Hono sub-app: /api/projects, /api/prs, /api/jira, tasks CRUD
+                                  ├── core/worktree-routes.ts       ← Hono sub-app: POST /api/worktrees + sync/rebase/open-editor
+                                  ├── core/scope-manager.ts         ← in-memory scope registry (lazy chokidar + path allowlist)
+                                  ├── core/scope-routes.ts          ← Hono sub-app: /api/scopes/* (`wd` + `wd -c` register here)
+                                  ├── core/pty-pool.ts              ← per-session Claude PTY pool (reuses tui/session.ts)
+                                  ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health
+                                  └── core/terminal-ws.ts           ← WebSocket bridge for the Terminal tab
+                                  │
+                                  Review-comment delivery to live Claude (hook bridge)
+                                  ├── core/hook-server.ts           ← http-type Claude hooks (idle tracking; used by `work dash`)
+                                  ├── core/command-hook-installer.ts ← command-type Claude hooks (text injection; used by `work web`)
+                                  ├── core/settings-editor.ts       ← atomic edits to ~/.claude/settings.json (shared)
+                                  ├── core/pending-delivery.ts      ← find session for cwd; format pending; mark delivered
+                                  └── commands/hook.ts              ← `work hook prompt-submit|stop` CLI invoked by Claude Code
+                                  │
+                                  web/src/ (React SPA — bundled to dist/web/ via Vite)
+                                  ├── App.tsx                      ← top-level: fetches /api/context, dispatches
+                                  ├── apps/ReviewApp.tsx           ← single-scope view (`wd` static / `wd --server` / `wd -c`)
+                                  ├── apps/DashboardApp.tsx        ← multi-session view (`work web`)
+                                  ├── components/{Diff,Review,Sidebar,Terminal,Layout}/* (shared components)
+                                  ├── hooks/use-{viewed-files,scrollspy}.ts
+                                  └── state/{ReviewProvider,viewed,viewed-files}.ts
+                                  │
+                                  tui-ink/ (Ink/React TUI for `work dash`)
+                                  ├── App.tsx                    ← main layout, keyboard handling, session management
+                                  ├── Sidebar.tsx                ← session list, PR pane, bordered pane components
+                                  ├── TerminalPane.tsx           ← renders xterm content to terminal
+                                  ├── StatusBar.tsx              ← keybinding hints
+                                  ├── renderer-lines.ts          ← line-based terminal rendering
+                                  └── index.tsx                  ← Ink entry point
+                                  │
+                                  tui/ (PTY infrastructure shared by dash and web)
+                                  └── session.ts                 ← PtySession (node-pty + @xterm/headless)
+```
+
+### Key Design
+
+- **Shared core operations:** `setupWorktree()` and `teardownWorktree()` in `core/worktree.ts` are the high-level entry points used by both the CLI commands and the TUI. They resolve targets, create/remove worktrees, handle group CLAUDE.md, and manage sessions. Low-level building blocks are `createSingleWorktree()` and `removeSingleWorktree()` which handle one repo with rollback on failure.
+- **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
+- **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
+- **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
+
+### TUI Dashboard (`work dash`)
+
+An interactive terminal UI built with Ink (React for CLI). Features a sidebar listing all worktree sessions and an embedded terminal pane showing the selected session's Claude Code instance.
+
+- **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
+- **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
+- **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (running/idle/stopped) and a separate PR pane. `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings.
+- **5-pane layout:** The left column is split into sessions (top), PRs, Jira, and Tasks (bottom). The right side is an embedded terminal. Each pane has a title and independent focus/cursor. Tab cycles focus in visual order: sessions → PRs → Jira → Tasks → terminal. All panes support scrolling when content overflows.
+- **GitHub PR integration:** `core/pr.ts` fetches open PRs via `gh pr list` for all configured repos. Shows check status (✓/✗/●), merge conflict detection, personal review state (✔/✎), draft status (dimmed), and ownership (★). Selecting a PR in the PR pane creates/resumes a worktree for that branch.
+- **Jira integration:** `core/jira.ts` fetches issues assigned to the current user via `acli` (Atlassian CLI). Issues are grouped by status. Selecting a Jira issue prompts project selection, generates a branch slug (via Claude haiku), creates a worktree via `work tree` in a PTY, and sends a structured planning prompt to Claude Code via `--prompt-file`.
+- **New worktree creation:** Users can create new worktrees directly from the dashboard via a project/branch picker flow, from a PR, from a Jira issue, or from a task (`w` key creates a `todo/<slug>` branch).
+- **Tasks pane:** Shows local tasks from `~/.work/tasks.json`. Supports add (`a`), edit (`e`), toggle done (`enter`/`x`), remove (`d`), and create worktree (`w`). File-watched for reactive updates from external changes.
+- **Reactive session detection:** Uses `fs.watch` on `history.json` to detect new sessions created externally (e.g., `work tree` in another terminal).
+- **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR/Jira data is loaded.
+- **Context-sensitive status bar:** Shows different keybinding hints depending on which pane is focused.
+
+### Session Tracking
+
+`core/history.ts` stores worktree sessions in `~/.work/history.json`. Keyed by `target + branch`. The `tree` command calls `upsertSession()` before launching Claude; `remove` calls `removeSession()` on success. The `status` command reads history + live git info; `recent` lists sessions sorted by last access.
+
+### Diff Review (`wd`)
+
+Second binary (`dist/wd-bin.js`, shim `wd`) that surfaces a GitHub-PR-style diff in the browser. Three modes, all rendering the same React SPA at `dist/web/`. The SPA reads `/api/context` (or `window.__WD_BOOT__` in static mode) to decide which screen and whether the comment UI is enabled.
+
+When a `work web` singleton is running, `wd` and `wd -c` **prefer to register as a scope on that server** (POST `/api/scopes`) and open `<webUrl>/diff/<hash>` or `/review/<hash>`. No new process or port is spawned. The legacy per-scope standalone daemon (state files under `~/.work/diffs/<sha1-of-sorted-roots>.{pid,log,url}`) is the fallback for when `~/.work/web.url` is absent.
+
+- **Live server (`wd`, default):** when work web is up, registers a scope and opens `/diff/<hash>`. Otherwise spawns a detached daemon that runs `startReadOnlyDiffServer()` (a thin wrapper over `startDiffServer` in `core/diff-server.ts`). The daemon writes its URL to `<scope-hash>.url`; the foreground launcher polls that file and opens the browser. Live reload via chokidar + SSE; refresh the browser to see saved-file changes. Stop with `wd --stop`. `--server` / `--watch` are kept-for-compat aliases.
+- **Static (`wd --static`):** `renderStatic()` in `core/static-renderer.ts` reads the SPA shell, inlines its CSS/JS, and injects the diff data as `<script>window.__WD_BOOT__=...;</script>`. Writes to `~/.work/diffs/<hash>.html`, opens via `file://`, exits. Self-contained — survives the CLI, no server. The boot JSON goes through `escapeForScriptTag` (handles `</script`, `<!--`, U+2028/U+2029, raw control chars). The boot-script injection uses a function-callback replacement so JSON values containing `$'` (a real shell-regex hazard) don't trigger `String.replace`'s `$`-magic.
+- **Review (`wd -c`):** when work web is up, `tryReviewViaWorkWeb` in `commands/diff.ts` registers a scope on the dashboard, opens `/review/<hash>`, then polls `/api/scopes/<hash>/comments` once per second. `core/review-poll.ts::diffReviewSnapshot` is the pure helper that diffs the previous-tick `seen` set against the current snapshot — extracted so the lifecycle markers (`--- comment ---`, `--- comment deleted ---`, `--- review done ---`) are unit-testable. Exits cleanly when the snapshot returns `ended: true`; the scope and the browser tab keep working after the CLI exits.
+
+    When work web isn't running, the fallback is `startCommentServer` in `core/comment-server.ts` (a Hono sub-app on top of `startDiffServer`). Same routes either way: `GET /api/comments`, `POST /api/comments` (zod-validated via the shared `core/comment-schemas.ts`), `DELETE /api/comments/:id`, `POST /api/submit-review`, `POST /api/discard-review`, `POST /api/done`. `GET /events` is the SSE stream for `diff-changed` and `comments-changed`. The scope-routes version broadcasts `comments-changed` with a `{scopeHash}` payload; `scopeHashReviewApi` filters on it via `matchesEvent`. Live URL written to `~/.work/diffs/latest-review.url` (legacy fallback path) so external tools (e.g. Claude via curl) can post replies.
+
+**Scope resolution** (`resolveScope` in `core/diff-scope.ts`): walks the cwd against the session history. Inside a single-repo worktree → that repo. Inside any sub-repo of a group worktree → the whole group, with that sub-repo as the initially-active tab. At a group root → all repos, no active tab preselected. Outside any work-managed worktree → falls back to `git rev-parse --show-toplevel` (single repo).
+
+**Renderer:** the React SPA in `src/web/`, built by Vite to `dist/web/`. `ReviewApp.tsx` lays out the sidebar (file tree + comments panel), general-comment pane, and `DiffRepo` (per-file `<article>` with side-by-side `<table>`). When `context.readOnly` is set, composer/draft/submit UI and `ReviewProvider` are suppressed (no `fetch('/api/comments')` over `file://`); the diff and file tree still render. Syntax highlighting is npm-bundled `highlight.js` applied per-cell via `dangerouslySetInnerHTML` during render — not post-paint mutation. Intra-line word diff via `diff` package. Viewed-checkbox state persists per-scope in localStorage.
+
+**Status output convention:** stdout carries data only (the comments markdown payload in review mode). All status messages go to stderr via the `info()` helper in `commands/diff.ts`. `console.error` is reserved for real errors.
+
+**Claude integration:** two paths route review comments to a live Claude in the matching worktree without the user typing —
+- **`work web` command hooks** in `~/.claude/settings.json` (installed by `work web` on startup, removed on shutdown via `core/command-hook-installer.ts` + the shared atomic-write `core/settings-editor.ts`). The `UserPromptSubmit` hook prepends pending comments to the next user turn; the `Stop` hook returns `{decision:'block', reason:<comments>}` so Claude addresses them automatically when it finishes any turn. Pending state lives at `~/.work/comments/<id>.delivered.json` (see `core/pending-delivery.ts`).
+- **Owned-PTY push** in `core/session-comment-routes.ts`: when a comment is posted and `work web`'s pool already owns a PTY for that session (the user opened the Terminal tab), the route handler writes the formatted reminder directly to stdin. Idle Claudes in our own PTY get the comment without any hook round-trip.
+- For external Claudes that are fully idle, neither path fires — the dashboard shows a purple `→N` "waiting for Claude" badge until the user does anything in that terminal.
+
+The legacy `wd-review` skill at `.claude/skills/wd-review/SKILL.md` is still used for the `wd -c` foreground flow (stdout marker stream + curl replies via `~/.work/diffs/latest-review.url`). Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body.
+
+### Configuration
+
+Stored at `~/.work/config.json`. Schema in `core/config.ts`:
+- `worktreesRoot` — parent directory for all worktrees
+- `repos` — map of alias → repo path
+- `groups` — map of group name → array of repo aliases
+- `copyFiles` — glob patterns for files to copy into new worktrees (e.g., local dev settings)
+
+### Build
+
+tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
+
+### Color Forcing
+
+`bin.ts` sets `chalk.level = 1` when chalk detects level 0, because Windows `.cmd` shims don't preserve TTY detection. Respects `NO_COLOR` env var.
+
+### Tab Completions
+
+`completions/index.ts` provides dynamic completions via yargs' `--get-yargs-completions`. The handler receives `argv._` as `['<scriptName>', ...args, '<current>']` — skip first and last to get completed args. For groups, branch completions read from the group's directory on disk (not individual repo worktree lists).
+
+`core/setup-completions.ts` handles auto-installing completion lines into shell profiles. Called during `work init` and available standalone via `work completion --install`. Detects PowerShell 7/5.1 on Windows (via `[Environment]::GetFolderPath('MyDocuments')`) and bash/zsh on Unix (via `$SHELL`). Idempotent — uses a `# work tab completions` marker to skip if already present.

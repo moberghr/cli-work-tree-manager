@@ -22,6 +22,85 @@ code, pre {
   height: 100vh;
 }
 
+/* Main pane: diff / terminal tabs above whichever pane is active. */
+.wd-web-tabs-wrap {
+  display: grid;
+  grid-template-rows: 36px 1fr;
+  height: 100vh;
+  min-height: 0;
+}
+.wd-web-main-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  padding: 0 8px;
+}
+.wd-web-main-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.wd-web-main-tab:hover { color: var(--fg); }
+.wd-web-main-tab-active {
+  color: var(--fg);
+  border-bottom-color: var(--hunk-fg);
+}
+.wd-web-tab-body {
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  /* Every session pane stacks in the same grid cell — only one is visible
+     at a time via display:none on the rest. Keeps all mounted, instant
+     switching. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.wd-web-tab-body > .wd-web-review-layout {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* One session's mounted views (Diff + maybe Terminal). All session panes
+   occupy the same grid cell; only the active one has display:flex inline,
+   others have display:none — both set by the React component. */
+.wd-web-session-pane {
+  grid-area: 1 / 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Pane slots inherit flex layout when visible. React sets display:block
+   for the diff slot (allows internal scroll) and display:flex for the
+   terminal slot (lets xterm flex into available height). */
+.wd-web-pane-slot {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* PTY container (xterm.js fills it). */
+.wd-pty-host {
+  flex: 1;
+  min-height: 0;
+  background: #1e1e1e;
+  padding: 8px;
+}
+.wd-pty-host .xterm,
+.wd-pty-host .xterm-viewport,
+.wd-pty-host .xterm-screen {
+  height: 100% !important;
+}
+
 /* Review mode: no sidebar, full-bleed diff. */
 .wd-web-review {
   height: 100vh;
@@ -40,6 +119,32 @@ code, pre {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);
 }
+.wd-web-sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wd-web-sidebar-action {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--accent);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.wd-web-sidebar-action:hover {
+  background: var(--current);
+  border-color: var(--accent);
+}
 .wd-web-sidebar-header h1 {
   margin: 0;
   font-size: 14px;
@@ -51,6 +156,171 @@ code, pre {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* Sidebar panes (PRs / Tasks / Jira). Same shape as session groups but
+   below them, separated by a thin rule. */
+.wd-web-pane {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.wd-web-pane-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-web-pane-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  margin-left: auto;
+}
+.wd-web-task-add {
+  display: flex;
+  gap: 4px;
+  padding: 4px 12px 8px;
+}
+.wd-web-task-add input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+}
+.wd-web-task-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  text-decoration: none;
+  transition: opacity 0.1s;
+}
+.wd-web-session-row:hover .wd-web-task-action { opacity: 1; }
+.wd-web-task-action:hover { color: var(--fg); }
+.wd-web-task-done .wd-web-session-branch {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* Per-row kebab menu (sync / rebase / open / remove). Trigger reuses
+   .wd-web-task-action; popover floats over the sidebar. */
+.wd-web-row-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.wd-web-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.wd-web-menu-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.wd-web-menu-item:hover { background: var(--hover); }
+.wd-web-menu-item:disabled { opacity: 0.6; cursor: default; }
+.wd-web-menu-item-danger { color: var(--del-fg); }
+.wd-web-menu-sep { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.wd-web-menu-error {
+  color: var(--del-fg);
+  font-size: 11px;
+  padding: 4px 10px;
+  margin: 0;
+}
+.wd-web-menu-confirm {
+  padding: 10px 12px;
+  min-width: 240px;
+}
+.wd-web-menu-confirm-text { margin: 0 0 8px; font-size: 12px; }
+.wd-web-menu-confirm-force {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.wd-web-menu-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.wd-btn-danger {
+  background: var(--del-fg);
+  border-color: var(--del-fg);
+}
+
+/* PR check-status glyphs and tags. */
+.wd-web-pr-status {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.wd-web-pr-check {
+  font-size: 11px;
+  line-height: 1;
+  width: 14px;
+  text-align: center;
+}
+.wd-web-pr-check-ok { color: #1a7f37; }
+.wd-web-pr-check-fail { color: #cf222e; }
+.wd-web-pr-check-pending { color: #9a6700; }
+.wd-web-pr-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.wd-web-pr-tag-mine { color: var(--accent); }
+.wd-web-pr-tag-ok { color: #1a7f37; }
+.wd-web-pr-tag-fail { color: #cf222e; }
+.wd-web-pr-meta { font-size: 10px; }
+
+.wd-web-jira-status {
+  margin-top: 4px;
+}
+.wd-web-jira-status-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 2px 12px;
+}
+.wd-web-jira-key {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 
 .wd-web-error {
@@ -95,6 +365,23 @@ code, pre {
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--muted);
+}
+/* Active group: pinned to the top, slightly emphasised header so it
+   reads as "your current working set" not just "another collapsible". */
+.wd-web-group-active {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  background: var(--current);
+  border-radius: 6px;
+  padding: 4px 0;
+}
+.wd-web-group-active > .wd-web-group-summary > .wd-web-group-target {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  font-weight: 600;
 }
 .wd-web-group-summary {
   list-style: none;
@@ -167,8 +454,10 @@ code, pre {
 }
 .wd-web-session-row-main {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  /* center-align so the round activity dot sits visually mid-line with the
+     branch text rather than dropping to the text baseline. */
+  align-items: center;
+  gap: 6px;
 }
 .wd-web-session-branch {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
@@ -186,10 +475,101 @@ code, pre {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
+/* Close button on Active rows. Hidden until the row is hovered so it
+   doesn't add visual noise to inactive rows. */
+.wd-web-session-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+.wd-web-session-row:hover .wd-web-session-close,
+.wd-web-session-close:focus-visible {
+  opacity: 1;
+}
+.wd-web-session-close:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-web-session-base {
   font-size: 10px;
   color: var(--muted);
   margin-top: 1px;
+}
+
+.wd-web-session-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.wd-web-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+.wd-web-badge-running {
+  color: #10b981;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+}
+
+/* Claude activity dot — three states: pulsing for active (Claude
+   responding right now), solid for open (terminal attached, idle),
+   nothing for stale. Reads from session.activityState which the server
+   derives from Claude's transcript mtime. */
+.wd-web-activity {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+/* Invisible placeholder so rows with no active dot keep the same branch
+   indent as rows with one. Same width as .wd-web-activity, no background. */
+.wd-web-activity-placeholder {
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+.wd-web-activity-active {
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65);
+  animation: wd-pulse 1.6s infinite;
+}
+.wd-web-activity-open {
+  background: #94a3b8;
+}
+@keyframes wd-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.wd-web-badge-unread {
+  background: #2563eb;
+  color: #fff;
+}
+.wd-web-badge-draft {
+  background: var(--status-modified-bg, #fef3c7);
+  color: var(--status-modified-fg, #92400e);
+}
+.wd-web-badge-pending {
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .wd-web-main {
@@ -205,6 +585,136 @@ code, pre {
 .wd-web-empty-list {
   color: var(--muted);
   font-size: 13px;
+}
+.wd-web-empty-diff {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.wd-web-empty-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-web-link-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Modal — used by NewWorktreeModal and confirm-remove dialogs. Light
+   GitHub-style: dim backdrop, card with rounded corners, header / body /
+   footer rows. */
+.wd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 25, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.wd-modal {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  min-width: 420px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+}
+.wd-modal-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-modal-header h2 {
+  margin: 0;
+  font-size: 14px;
+  flex: 1;
+}
+.wd-modal-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.wd-modal-close:hover { color: var(--fg); }
+.wd-modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.wd-modal-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.wd-modal-row > span { color: var(--muted); }
+.wd-modal-row input,
+.wd-modal-row select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+}
+.wd-modal-error {
+  color: var(--del-fg);
+  font-size: 12px;
+  margin: 0;
+}
+.wd-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+.wd-btn-primary,
+.wd-btn-secondary {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wd-btn-secondary {
+  background: var(--bg);
+  color: var(--fg);
+}
+.wd-btn-secondary:hover { background: var(--hover); }
+.wd-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.wd-btn-primary:hover { filter: brightness(1.05); }
+.wd-btn-primary:disabled,
+.wd-btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .wd-web-diff-placeholder h2 {

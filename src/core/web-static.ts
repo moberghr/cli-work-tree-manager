@@ -42,7 +42,8 @@ export function serveStatic(
   const requested = clean === '/' ? '/index.html' : clean;
   const filePath = path.join(root, requested);
   const norm = path.normalize(filePath);
-  if (!norm.startsWith(path.normalize(root))) return false;
+  const base = path.normalize(root);
+  if (norm !== base && !norm.startsWith(base + path.sep)) return false;
   let stat: fs.Stats;
   try {
     stat = fs.statSync(norm);

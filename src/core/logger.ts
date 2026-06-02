@@ -11,6 +11,12 @@ function ensureLogStream(): fs.WriteStream | null {
   if (logStream) return logStream;
   try {
     const dir = getConfigDir();
+    // Make sure the parent directory exists before opening a stream into
+    // it — under tests (mocked homedir) or first-run conditions the .work
+    // dir may not have been created yet, and createWriteStream's failure
+    // is async (emits 'error') which would otherwise become an unhandled
+    // exception in the host process.
+    fs.mkdirSync(dir, { recursive: true });
     logPath = path.join(dir, 'debug.log');
 
     // Rotate if too large
@@ -23,7 +29,10 @@ function ensureLogStream(): fs.WriteStream | null {
       }
     } catch { /* file doesn't exist yet */ }
 
-    logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    const stream = fs.createWriteStream(logPath, { flags: 'a' });
+    // Best-effort logging — async stream errors must not crash the host.
+    stream.on('error', () => { /* */ });
+    logStream = stream;
     return logStream;
   } catch {
     return null;

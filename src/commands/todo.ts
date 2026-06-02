@@ -52,6 +52,11 @@ export const todoCommand: CommandModule = {
     }
 
     if (action === 'done') {
+      if (!/^\d+$/.test(rest[0] ?? '')) {
+        console.error('Invalid task id');
+        process.exitCode = 1;
+        return;
+      }
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
         console.error('Usage: work todo done <id>');
@@ -69,6 +74,11 @@ export const todoCommand: CommandModule = {
     }
 
     if (action === 'undo') {
+      if (!/^\d+$/.test(rest[0] ?? '')) {
+        console.error('Invalid task id');
+        process.exitCode = 1;
+        return;
+      }
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
         console.error('Usage: work todo undo <id>');
@@ -86,6 +96,11 @@ export const todoCommand: CommandModule = {
     }
 
     if (action === 'rm') {
+      if (!/^\d+$/.test(rest[0] ?? '')) {
+        console.error('Invalid task id');
+        process.exitCode = 1;
+        return;
+      }
       const id = parseInt(rest[0], 10);
       if (isNaN(id)) {
         console.error('Usage: work todo rm <id>');
@@ -103,6 +118,11 @@ export const todoCommand: CommandModule = {
     }
 
     if (action === 'edit') {
+      if (!/^\d+$/.test(rest[0] ?? '')) {
+        console.error('Invalid task id');
+        process.exitCode = 1;
+        return;
+      }
       const id = parseInt(rest[0], 10);
       const text = rest.slice(1).join(' ');
       if (isNaN(id) || !text) {

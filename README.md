@@ -300,10 +300,14 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` binary shim)
                                   core/diff-*.ts            ← `wd` diff + review feature
                                   ├── diff-parse.ts         ← unified-diff parser
                                   ├── diff-pipeline.ts      ← computeDiff(): git diff + synthetic untracked
-                                  ├── diff-html.ts          ← renderer (tabs, tree, side-by-side)
-                                  ├── diff-html-scripts.ts  ← embedded browser CSS + JS
-                                  ├── diff-watcher.ts       ← chokidar-driven file watcher
-                                  └── comment-server.ts     ← review-mode HTTP + SSE server
+                                  ├── repo-spec.ts          ← RepoSpec + stableDiffPath
+                                  ├── comment-server.ts     ← HTTP + SSE server (review + read-only)
+                                  └── web-static.ts         ← SPA static file handler
+
+                                  web/src/                  ← React SPA (Vite → dist/web/)
+                                  ├── apps/ReviewApp.tsx    ← single-scope view (wd / wd -c)
+                                  ├── apps/DashboardApp.tsx ← multi-session view (work web)
+                                  └── components/           ← Diff/, Review/, Sidebar/
 
                                   tui-ink/                  ← Ink/React TUI
                                   ├── App.tsx               ← layout, keyboard, session mgmt

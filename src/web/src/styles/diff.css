@@ -1,4 +1,5 @@
-/* Diff-specific tokens to extend tokens.css. */
+/* Diff-specific tokens. Light only — same rationale as tokens.css: dark
+   mode returns when there's a user-controlled toggle, not via OS preference. */
 :root {
   --add-bg: #e6ffec;
   --add-line-bg: #abf2bc;
@@ -20,29 +21,6 @@
   --status-binary-bg: #eaeef2;
   --status-binary-fg: #57606a;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --add-bg: rgba(46, 160, 67, 0.15);
-    --add-line-bg: rgba(46, 160, 67, 0.5);
-    --del-bg: rgba(248, 81, 73, 0.15);
-    --del-line-bg: rgba(248, 81, 73, 0.5);
-    --empty-bg: rgba(110, 118, 129, 0.1);
-    --hunk-bg: rgba(56, 139, 253, 0.15);
-    --hunk-fg: #58a6ff;
-    --ln-bg: #161b22;
-    --ln-fg: #6e7681;
-    --status-added-bg: rgba(46, 160, 67, 0.2);
-    --status-added-fg: #3fb950;
-    --status-deleted-bg: rgba(248, 81, 73, 0.2);
-    --status-deleted-fg: #f85149;
-    --status-modified-bg: rgba(210, 153, 34, 0.2);
-    --status-modified-fg: #d29922;
-    --status-renamed-bg: rgba(56, 139, 253, 0.2);
-    --status-renamed-fg: #58a6ff;
-    --status-binary-bg: #30363d;
-    --status-binary-fg: #8b949e;
-  }
-}
 
 .wd-web-diff {
   padding: 0;
@@ -62,9 +40,14 @@
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   white-space: nowrap;
+  /* Stick to the top of the scroll container so the user can switch
+     sub-repos at any depth in a group worktree. Sits above the file
+     headers (which use top: 0 inside their own article) — when a file
+     header reaches this position it scrolls under us. z-index keeps
+     us above the diff table. */
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 5;
 }
 .wd-web-repo-tab {
   font-family: inherit;
@@ -100,11 +83,20 @@
   border-radius: 6px;
   margin-bottom: 12px;
   background: var(--bg);
-  scroll-margin-top: 4px;
+  /* Anchor jumps from the sidebar land below the sticky repo-tabs bar
+     when present (group worktrees). The var defaults to 0 in single-repo
+     mode; the layout sets it to the tabs height when tabs are rendered. */
+  scroll-margin-top: calc(var(--tabs-offset, 0px) + 4px);
 }
 .wd-file-header {
+  /* Sticky inside its own article — when the next file's header appears,
+     it pushes this one out. This is the GitHub PR file-list behaviour:
+     the header you're scrolling under always belongs to the currently-
+     focused file, never floats above an unrelated section.
+     `top` slots below the repo-tabs bar when one is shown (group
+     worktrees set --tabs-offset to its height); 0 otherwise. */
   position: sticky;
-  top: 50px; /* below the tabs header */
+  top: var(--tabs-offset, 0px);
   z-index: 3;
   background: var(--header-bg);
   padding: 6px 12px;
@@ -115,6 +107,37 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
+}
+.wd-file-stats { margin-left: auto; }
+
+/* Viewed checkbox. Collapsed body, dimmed header — matches GitHub's
+   "Viewed" toggle. */
+.wd-viewed-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 12px;
+}
+.wd-viewed-label:hover { background: var(--hover); }
+.wd-viewed-label input { margin: 0; cursor: pointer; }
+.wd-file.wd-file-viewed {
+  background: var(--sidebar-bg);
+}
+.wd-file.wd-file-viewed .wd-file-header {
+  border-bottom: none;
+  border-radius: 6px;
+  opacity: 0.7;
+}
+.wd-tree-file.wd-tree-file-viewed > a .wd-tree-name {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: var(--muted);
 }
 .wd-file-badge {
   width: 20px;
@@ -153,6 +176,18 @@
 .wd-rename { font-style: italic; color: var(--muted); }
 
 .wd-binary { padding: 10px 12px; font-style: italic; color: var(--muted); }
+
+/* Placeholder for files past the auto-collapse threshold. Centered "Load
+   diff" button — same shape as GitHub's "Large diffs are not rendered" UI. */
+.wd-large-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 12px;
+  font-style: normal;
+}
+.wd-large-file p { margin: 0; }
 
 .wd-diff-table {
   width: 100%;

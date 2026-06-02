@@ -46,8 +46,13 @@ export function PendingPill() {
                 type="button"
                 className="wd-btn-primary"
                 onClick={async () => {
-                  await review.submitReview(summary);
-                  setModalOpen(false);
+                  try {
+                    await review.submitReview(summary);
+                    setModalOpen(false);
+                  } catch {
+                    // Keep the modal open so the user can retry; their
+                    // summary and drafts are preserved.
+                  }
                 }}
               >
                 Submit review

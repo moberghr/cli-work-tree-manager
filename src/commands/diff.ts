@@ -3,21 +3,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn as childSpawn } from 'node:child_process';
 import chalk from 'chalk';
-import type { Arguments, CommandModule } from 'yargs';
-import { git } from '../core/git.js';
-import { loadHistory, type WorktreeSession } from '../core/history.js';
-import { renderDiffHtml, type RepoData } from '../core/diff-html.js';
+import type { CommandModule } from 'yargs';
 import { computeDiff } from '../core/diff-pipeline.js';
+import { stableDiffPath, type RepoSpec } from '../core/repo-spec.js';
 import {
-  startDiffWatcher,
-  stableDiffPath,
-  type RepoSpec,
-} from '../core/diff-watcher.js';
-import chokidar from 'chokidar';
+  buildRepoSpecs,
+  findAnyParentBranch,
+  resolveBase,
+  resolveScope,
+  type DiffScope,
+  type ResolvedBase,
+} from '../core/diff-scope.js';
 import {
   formatSingleComment,
   startCommentServer,
+  startReadOnlyDiffServer,
 } from '../core/comment-server.js';
+import { diffReviewSnapshot } from '../core/review-poll.js';
+import { renderStatic } from '../core/static-renderer.js';
 import { openUrl } from '../utils/platform.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
@@ -64,169 +67,22 @@ function spawnDaemon(extraArgs: string[], logPath: string): number {
   return child.pid ?? 0;
 }
 
-// scope / base resolution
-function normPath(p: string): string {
-  return path.resolve(p).replace(/\\/g, '/').toLowerCase();
-}
-
-interface DiffScope {
-  isGroup: boolean;
-  session: WorktreeSession | null;
-  /** Repos to diff (1 for single, N for group). */
-  repos: { name: string; root: string }[];
-  /** Name of the repo whose subtree the user is in (initial active tab). */
-  activeRepoName: string | null;
-}
-
-/**
- * Resolve what scope to diff based on cwd. Handles single-repo worktrees,
- * group worktrees (cwd at group root or anywhere inside a sub-repo), and
- * "random" git repos not managed by `work`.
- */
-function resolveScope(cwd: string): DiffScope | null {
-  const normCwd = normPath(cwd);
-  const sessions = loadHistory();
-
-  // 1. cwd is at or inside one of a session's repo paths.
-  for (const s of sessions) {
-    for (const p of s.paths) {
-      const np = normPath(p);
-      if (normCwd === np || normCwd.startsWith(np + '/')) {
-        if (s.isGroup) {
-          return {
-            isGroup: true,
-            session: s,
-            repos: s.paths.map((rp) => ({ name: path.basename(rp), root: rp })),
-            activeRepoName: path.basename(p),
-          };
-        }
-        return {
-          isGroup: false,
-          session: s,
-          repos: [{ name: path.basename(p), root: p }],
-          activeRepoName: path.basename(p),
-        };
-      }
-    }
-  }
-
-  // 2. cwd is at the group root (parent of all of a group's repo paths).
-  for (const s of sessions) {
-    if (!s.isGroup || s.paths.length === 0) continue;
-    const parents = s.paths.map((p) => normPath(path.dirname(p)));
-    const groupRoot = parents[0];
-    if (!parents.every((par) => par === groupRoot)) continue;
-    if (normCwd === groupRoot || normCwd.startsWith(groupRoot + '/')) {
-      return {
-        isGroup: true,
-        session: s,
-        repos: s.paths.map((rp) => ({ name: path.basename(rp), root: rp })),
-        activeRepoName: null,
-      };
-    }
-  }
-
-  // 3. Fall back to git rev-parse for repos not managed by `work`.
-  const toplevel = git(['rev-parse', '--show-toplevel'], cwd);
-  if (toplevel.exitCode !== 0 || !toplevel.stdout) return null;
-  return {
-    isGroup: false,
-    session: null,
-    repos: [{ name: path.basename(toplevel.stdout), root: toplevel.stdout }],
-    activeRepoName: path.basename(toplevel.stdout),
-  };
-}
-
-/** Walk candidate base branches and pick the one with the most recent merge-base. */
-function detectParentBranch(cwd: string): string | null {
-  const currentResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  const currentBranch = currentResult.exitCode === 0 ? currentResult.stdout : '';
-
-  const candidates = ['main', 'master', 'dev', 'develop'].flatMap((name) => [
-    name,
-    `origin/${name}`,
-  ]);
-
-  let best: { ref: string; sha: string; time: number } | null = null;
-
-  for (const ref of candidates) {
-    if (ref === currentBranch) continue;
-    const exists = git(['rev-parse', '--verify', '--quiet', ref], cwd);
-    if (exists.exitCode !== 0 || !exists.stdout) continue;
-
-    const mb = git(['merge-base', ref, 'HEAD'], cwd);
-    if (mb.exitCode !== 0 || !mb.stdout) continue;
-
-    const headSha = git(['rev-parse', 'HEAD'], cwd).stdout;
-    if (mb.stdout === headSha) continue;
-
-    const timeResult = git(['show', '-s', '--format=%ct', mb.stdout], cwd);
-    if (timeResult.exitCode !== 0) continue;
-    const time = Number(timeResult.stdout);
-    if (!Number.isFinite(time)) continue;
-
-    if (!best || time > best.time) {
-      best = { ref, sha: mb.stdout, time };
-    }
-  }
-
-  return best?.ref ?? null;
-}
-
-interface ResolvedBase {
-  base: string;
-  source: 'arg' | 'session' | 'auto-detected' | 'default';
-}
-
-function resolveBase(scope: DiffScope, argv: Arguments): ResolvedBase {
-  const explicit = argv.base as string | undefined;
-  if (explicit) return { base: explicit, source: 'arg' };
-
-  if (argv.branch) {
-    if (scope.session?.baseBranch) {
-      return { base: scope.session.baseBranch, source: 'session' };
-    }
-    const primaryRoot =
-      scope.repos.find((r) => r.name === scope.activeRepoName)?.root ??
-      scope.repos[0].root;
-    const detected = detectParentBranch(primaryRoot);
-    if (detected) return { base: detected, source: 'auto-detected' };
-
-    console.error(
-      chalk.red('Could not determine a parent branch for this worktree.'),
-    );
-    console.error(chalk.gray('Pass one explicitly: diff <ref>'));
-    process.exit(1);
-  }
-
-  return { base: 'HEAD', source: 'default' };
-}
-
-/** Compute per-repo merge-base when comparing against a non-HEAD ref. */
-function buildRepoSpecs(scope: DiffScope, base: string): RepoSpec[] {
-  return scope.repos.map((r) => {
-    let diffArg = base;
-    if (base !== 'HEAD') {
-      const mb = git(['merge-base', base, 'HEAD'], r.root);
-      if (mb.exitCode === 0 && mb.stdout) diffArg = mb.stdout;
-    }
-    return { name: r.name, root: r.root, diffArg };
-  });
-}
-
 // paths
 interface ScopePaths {
-  html: string;
+  /** Stable per-scope key; the daemon writes a URL file here. */
+  base: string;
   pid: string;
   log: string;
+  url: string;
 }
 
 function pathsForScope(repoSpecs: RepoSpec[]): ScopePaths {
-  const html = stableDiffPath(repoSpecs.map((r) => r.root));
+  const base = stableDiffPath(repoSpecs.map((r) => r.root));
   return {
-    html,
-    pid: html.replace(/\.html$/, '.pid'),
-    log: html.replace(/\.html$/, '.log'),
+    base,
+    pid: `${base}.pid`,
+    log: `${base}.log`,
+    url: `${base}.url`,
   };
 }
 
@@ -237,12 +93,7 @@ interface RenderContext {
   baseSource: ResolvedBase['source'];
   repoSpecs: RepoSpec[];
   paths: ScopePaths;
-  renderOpts: {
-    style: 'side' | 'line';
-    theme: 'light' | 'dark' | 'auto';
-    subtitle: string;
-    activeRepo: string | null;
-  };
+  scopeLabel: string;
 }
 
 function runStop(paths: ScopePaths): void {
@@ -258,21 +109,28 @@ function runStop(paths: ScopePaths): void {
     info(chalk.gray('No watcher running for this scope.'));
   }
   try { fs.unlinkSync(paths.pid); } catch { /* */ }
+  try { fs.unlinkSync(paths.url); } catch { /* */ }
 }
 
+/** Foreground daemon entrypoint. Starts the read-only review server and
+ *  blocks until killed. The launcher reads the printed URL from the log. */
 async function runDaemon(ctx: RenderContext): Promise<void> {
   fs.writeFileSync(ctx.paths.pid, String(process.pid));
-  console.log(
-    `[live] watcher started, pid=${process.pid}, repos=${ctx.repoSpecs.map((r) => r.name).join(',')}, base=${ctx.base}`,
-  );
-  const { stop } = startDiffWatcher({
+  const handle = await startReadOnlyDiffServer({
     repos: ctx.repoSpecs,
-    filePath: ctx.paths.html,
-    render: { ...ctx.renderOpts, title: 'Diff (live)' },
+    scopeLabel: ctx.scopeLabel,
+    sessionBaseBranch: ctx.scope.session?.baseBranch,
   });
+  fs.writeFileSync(ctx.paths.url, handle.url);
+  info(
+    chalk.gray(
+      `[live] watcher started, pid=${process.pid}, repos=${ctx.repoSpecs.map((r) => r.name).join(',')}, base=${ctx.base}, url=${handle.url}`,
+    ),
+  );
   const shutdown = () => {
-    stop();
+    handle.stop();
     try { fs.unlinkSync(ctx.paths.pid); } catch { /* */ }
+    try { fs.unlinkSync(ctx.paths.url); } catch { /* */ }
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
@@ -280,21 +138,304 @@ async function runDaemon(ctx: RenderContext): Promise<void> {
   await new Promise(() => {});
 }
 
-function runLauncher(ctx: RenderContext): void {
+/**
+ * Try to register this scope with a running `work web` server. Returns
+ * the browser URL to open (e.g. `http://127.0.0.1:54321/diff/abc123`)
+ * when work web is up and accepting registrations, null otherwise.
+ *
+ * Reads `~/.work/web.url` for the discovery handshake. Failure paths
+ * (file missing, server unreachable, register endpoint returns non-200)
+ * all yield null cleanly — the caller falls back to spawning its own
+ * standalone daemon.
+ */
+async function tryRegisterWithWorkWeb(
+  ctx: RenderContext,
+  routeKind: 'diff' | 'review',
+): Promise<string | null> {
+  const webUrlFile = path.join(os.homedir(), '.work', 'web.url');
+  let webUrl: string;
+  try {
+    webUrl = fs.readFileSync(webUrlFile, 'utf-8').trim();
+    if (!webUrl) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const res = await fetch(`${webUrl}api/scopes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paths: ctx.repoSpecs.map((r) => r.root),
+        label: ctx.scopeLabel,
+      }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { hash: string };
+    const route = routeKind === 'diff' ? 'diff' : 'review';
+    return `${webUrl}${route}/${body.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Foreground launcher: opens a diff in the browser. Prefers a running
+ *  `work web` (registers a scope, opens /diff/<hash>) so a single server
+ *  process backs every `wd` invocation. Falls back to spawning a
+ *  standalone daemon when work web isn't running. */
+async function runLauncher(ctx: RenderContext): Promise<void> {
+  // Try work web first. When the dashboard is running, every `wd`
+  // invocation lives inside that one server — no extra processes, no
+  // extra ports, browser-bookmarkable URLs.
+  const webRouteUrl = await tryRegisterWithWorkWeb(ctx, 'diff');
+  if (webRouteUrl) {
+    info(chalk.gray(`Opening in work web: ${webRouteUrl}`));
+    openUrl(webRouteUrl);
+    return;
+  }
+
+  // Fallback: standalone daemon. Same lifecycle we had before
+  // (pid + url + log files keyed by scope hash).
   const existing = readPid(ctx.paths.pid);
+  let url: string | null = null;
   if (existing && isPidAlive(existing)) {
     info(chalk.gray(`Watcher already running (PID ${existing}).`));
+    try { url = fs.readFileSync(ctx.paths.url, 'utf-8').trim(); } catch { /* */ }
   } else {
     try { fs.unlinkSync(ctx.paths.pid); } catch { /* stale */ }
+    try { fs.unlinkSync(ctx.paths.url); } catch { /* stale */ }
     const passthrough = process.argv
       .slice(2)
-      .filter((a) => a !== '--stop');
+      .filter((a) => a !== '--stop' && a !== '--watch');
     const pid = spawnDaemon(passthrough, ctx.paths.log);
     info(chalk.gray(`Started watcher (PID ${pid}). Log: ${ctx.paths.log}`));
     info(chalk.gray('Stop with: wd --stop'));
+    url = await waitForUrlFile(ctx.paths.url, 3000);
   }
-  info(chalk.gray(`File: ${ctx.paths.html}`));
-  openUrl(`file:///${ctx.paths.html.replace(/\\/g, '/')}`);
+  if (!url) {
+    console.error(
+      chalk.red('Watcher did not report a URL — check the log:'),
+      ctx.paths.log,
+    );
+    return;
+  }
+  info(chalk.gray(`URL: ${url}`));
+  openUrl(url);
+}
+
+/**
+ * Static-file mode (the default for `wd`). Renders the React SPA shell
+ * with the diff data inlined, writes it to ~/.work/diffs/<hash>.html,
+ * opens the browser at file://…, and exits. No server, no daemon, no
+ * port — the file works forever (modulo your filesystem). Same React
+ * components and screens as the live server: file tree, scrollspy,
+ * viewed checkboxes, syntax highlighting, intra-line diff.
+ *
+ * Trade-off: no live reload, no comments. Use `wd --server` (or `wd -c`
+ * for review mode) when you need those.
+ */
+function runStatic(ctx: RenderContext, initialBranch: boolean): void {
+  // Always compute the uncommitted scope (cheap, the user expects it as
+  // the default tab).
+  const uncommitted = buildRepoSpecs(ctx.scope, 'HEAD');
+
+  // Try to resolve a parent branch for each repo. If we find one, compute
+  // the "since branch" scope too so the SPA can offer the toggle. If not,
+  // the tab simply doesn't appear.
+  //
+  // Group worktrees: each sub-repo may have a different parent. We pick a
+  // representative resolvedBase from the active repo (or the first one)
+  // for the badge label; per-repo merge-base lookups still happen inside
+  // buildRepoSpecs.
+  const primaryRoot =
+    ctx.scope.repos.find((r) => r.name === ctx.scope.activeRepoName)?.root ??
+    ctx.scope.repos[0].root;
+  // Use the lenient finder so the toggle stays available even when the
+  // branch has no commits past its parent yet (the diff will just be
+  // empty — better than no tab at all).
+  const parent =
+    ctx.scope.session?.baseBranch ?? findAnyParentBranch(primaryRoot);
+  const branch =
+    parent === null
+      ? undefined
+      : {
+          specs: buildRepoSpecs(ctx.scope, parent),
+          resolvedBase: parent,
+        };
+
+  // Don't write a file when both views are empty — `wd` is a viewer,
+  // not a generator of empty pages.
+  const uncommittedTotal = uncommitted.reduce(
+    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
+    0,
+  );
+  const branchTotal = branch
+    ? branch.specs.reduce(
+        (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
+        0,
+      )
+    : 0;
+  if (uncommittedTotal === 0 && branchTotal === 0) {
+    info(chalk.gray('No changes to show.'));
+    return;
+  }
+
+  const html = renderStatic({
+    scopeLabel: ctx.scopeLabel,
+    uncommitted,
+    branch,
+    initialBase: initialBranch && branch ? 'branch' : 'uncommitted',
+  });
+  const filePath = `${ctx.paths.base}.html`;
+  fs.writeFileSync(filePath, html, 'utf-8');
+  info(chalk.gray(`Wrote ${filePath}`));
+  openUrl(`file:///${filePath.replace(/\\/g, '/')}`);
+}
+
+function waitForUrlFile(filePath: string, timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      try {
+        const v = fs.readFileSync(filePath, 'utf-8').trim();
+        if (v) return resolve(v);
+      } catch { /* not yet */ }
+      if (Date.now() - start > timeoutMs) return resolve(null);
+      setTimeout(tick, 75);
+    };
+    tick();
+  });
+}
+
+/**
+ * Try to route `wd -c` through a running `work web`. Registers the scope
+ * as a reviewable view, opens the browser at /review/<hash>, then polls
+ * the scope's comments and proxies them to stdout as the markers the
+ * `wd-review` skill consumes (`--- review started ---`,
+ * `--- comment ---`, etc.). Returns true if work web handled the review;
+ * the caller falls back to a standalone server when this returns false.
+ */
+async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
+  const webUrlFile = path.join(os.homedir(), '.work', 'web.url');
+  let webUrl: string;
+  try {
+    webUrl = fs.readFileSync(webUrlFile, 'utf-8').trim();
+    if (!webUrl) return false;
+  } catch {
+    return false;
+  }
+
+  let hash: string;
+  try {
+    const res = await fetch(`${webUrl}api/scopes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paths: ctx.repoSpecs.map((r) => r.root),
+        label: ctx.scopeLabel,
+      }),
+    });
+    if (!res.ok) return false;
+    hash = ((await res.json()) as { hash: string }).hash;
+  } catch {
+    return false;
+  }
+
+  const initialTotal = ctx.repoSpecs.reduce(
+    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
+    0,
+  );
+  const reviewUrl = `${webUrl}review/${hash}`;
+  info(chalk.gray(`Opening review in work web: ${reviewUrl}`));
+  info(chalk.gray('Comments stream below. Ctrl+C to detach.'));
+  process.stdout.write(
+    `--- review started ---\nrepos: ${ctx.repoSpecs.map((r) => r.name).join(', ')}\nfiles: ${initialTotal}\nurl: ${reviewUrl}\n\n`,
+  );
+  openUrl(reviewUrl);
+
+  // Poll the scope's comments. Cheap (one localhost JSON GET) and
+  // simpler than reading SSE chunks in Node. The skill latency budget
+  // is generous so 1s is fine.
+  const seen = new Set<string>();
+  let exiting = false;
+  let interval: NodeJS.Timeout | null = null;
+  // Reentrancy guard. `setInterval(poll, 1000)` fires every second
+  // regardless of whether the previous tick has resolved. A slow `work
+  // web` response (>1s) would otherwise let two `poll()`s mutate `seen`
+  // concurrently. JS being single-threaded makes interleaving impossible
+  // for synchronous blocks but the await points do let two flows
+  // interleave — duplicate `--- review done ---` markers if `ended:true`
+  // races with a slow prior poll.
+  let polling = false;
+
+  type SnapshotComment = import('../core/comment-types.js').Comment;
+
+  async function poll(): Promise<void> {
+    if (exiting || polling) return;
+    polling = true;
+    try {
+      const res = await fetch(`${webUrl}api/scopes/${hash}/comments`);
+      if (res.status === 404) {
+        // Scope is gone (user explicitly removed it). Treat like
+        // End Review for the marker stream.
+        process.stdout.write(`--- review done ---\ntotal: ${seen.size}\n`);
+        cleanup();
+        process.exit(0);
+      }
+      if (!res.ok) return;
+      const { comments, ended } = (await res.json()) as {
+        comments: SnapshotComment[];
+        ended?: boolean;
+      };
+      // Compute deltas before checking `ended` so any comments posted
+      // in the same batch as End Review still flush through.
+      const { newComments, deleted } = diffReviewSnapshot(comments, seen);
+      for (const id of deleted) {
+        process.stdout.write(`--- comment deleted ---\nid: ${id}\n\n`);
+      }
+      for (const c of newComments) {
+        process.stdout.write(formatSingleComment(c));
+      }
+      // End Review fired: emit the done marker and exit. The scope
+      // (and the browser tab) stays viewable — only the CLI proxy
+      // stops.
+      if (ended) {
+        process.stdout.write(
+          `--- review done ---\ntotal: ${seen.size}\n`,
+        );
+        cleanup();
+        process.exit(0);
+      }
+    } catch { /* transient — retry next tick */ }
+    finally { polling = false; }
+  }
+
+  function cleanup(): void {
+    exiting = true;
+    if (interval) clearInterval(interval);
+    // Don't deregister — the browser tab and URL should keep working
+    // after the CLI exits. Scopes live in work web's memory until it
+    // restarts or the user removes them from the dashboard.
+  }
+
+  const onSignal = () => {
+    process.stdout.write(`--- review aborted (signal) ---\n`);
+    cleanup();
+    process.exit(0);
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
+  // Arm the interval BEFORE the first poll. If the first poll triggers
+  // cleanup (e.g. scope already ended, 404), `cleanup()` clears this
+  // interval correctly — otherwise the previous shape left a small window
+  // where setInterval would be assigned AFTER cleanup ran, which mocked
+  // tests reproduced (the real runtime survives because process.exit is
+  // synchronous, but tests that stub process.exit would leak the timer).
+  interval = setInterval(poll, 1000);
+  await poll();
+  // Block forever — cleanup happens via signal or 404 detection.
+  await new Promise(() => {});
+  return true;
 }
 
 async function runReview(ctx: RenderContext): Promise<void> {
@@ -305,9 +446,15 @@ async function runReview(ctx: RenderContext): Promise<void> {
     0,
   );
   if (initialTotal === 0) {
-    console.log('No changes to review.');
+    info(chalk.gray('No changes to review.'));
     return;
   }
+
+  // Prefer work web when it's running — same consolidation pattern as
+  // `wd` (read-only). The CLI proxies the marker stream so the
+  // wd-review skill flow is unchanged. Falls back to a standalone
+  // comment-server when work web isn't up.
+  if (await tryReviewViaWorkWeb(ctx)) return;
 
   const onComment = (c: import('../core/comment-server.js').Comment) => {
     process.stdout.write(formatSingleComment(c));
@@ -326,21 +473,21 @@ async function runReview(ctx: RenderContext): Promise<void> {
     process.stdout.write(`--- review batch end ---\n\n`);
   };
 
-  const scopeLabel = `${ctx.scope.repos.map((r) => r.name).join(', ')} · ${ctx.base}`;
   const handle = await startCommentServer({
     repos: ctx.repoSpecs,
-    scopeLabel,
+    scopeLabel: ctx.scopeLabel,
+    sessionBaseBranch: ctx.scope.session?.baseBranch,
     onComment,
     onCommentDeleted,
     onSubmitReviewStart,
     onSubmitReviewEnd,
   });
 
-  const latestUrlFile = path.join(os.homedir(), '.work', 'diffs', 'latest-review.url');
-  try {
-    fs.writeFileSync(latestUrlFile, handle.url);
-  } catch { /* */ }
-
+  // URL discovery is intentionally not persisted to disk. The only
+  // consumer (Claude via the wd-review skill) reads it from the
+  // `--- review started ---` marker on stdout below. Skipping the
+  // file write removes the only way a stale or wrong URL could leak
+  // into a different Claude session.
   info(chalk.gray('Opening browser for review. Comments stream as you save them.'));
   info(chalk.gray('Page reloads automatically when you save a file. Click "End review" (or Ctrl+C) when finished.'));
   process.stdout.write(
@@ -350,7 +497,6 @@ async function runReview(ctx: RenderContext): Promise<void> {
 
   const cleanup = () => {
     handle.stop();
-    try { fs.unlinkSync(latestUrlFile); } catch { /* */ }
   };
 
   const onSignal = () => {
@@ -365,25 +511,6 @@ async function runReview(ctx: RenderContext): Promise<void> {
   await new Promise((r) => setTimeout(r, 100));
   cleanup();
   process.stdout.write(`--- review done ---\ntotal: ${comments.length}\n`);
-}
-
-function renderOnce(ctx: RenderContext): void {
-  const repoData: RepoData[] = ctx.repoSpecs.map((r) => ({
-    name: r.name,
-    files: computeDiff({ root: r.root, diffArg: r.diffArg }),
-  }));
-  const total = repoData.reduce((s, r) => s + r.files.length, 0);
-  if (total === 0) {
-    info(chalk.gray('No changes to show.'));
-    return;
-  }
-  const html = renderDiffHtml(repoData, {
-    ...ctx.renderOpts,
-    title: `Diff (${total})`,
-  });
-  fs.writeFileSync(ctx.paths.html, html, 'utf-8');
-  info(chalk.gray(`Opening ${ctx.paths.html}`));
-  openUrl(`file:///${ctx.paths.html.replace(/\\/g, '/')}`);
 }
 
 // command export
@@ -401,29 +528,31 @@ export const diffCommand: CommandModule = {
         type: 'boolean',
         default: false,
         describe:
-          'PR-style diff vs the branch this worktree was forked from.',
+          'Open the "Since branch" tab by default (still shows uncommitted as the other tab — toggle in the browser).',
       })
-      .option('side', {
+      .option('static', {
         type: 'boolean',
-        default: true,
-        describe: 'Side-by-side layout (default). Use --no-side for unified.',
+        default: false,
+        describe:
+          'Write a self-contained HTML file with the current diff inlined (no server, no live reload). The default is a live server you can refresh.',
       })
-      .option('theme', {
-        type: 'string',
-        choices: ['light', 'dark', 'auto'] as const,
-        default: 'light',
-        describe: 'Color scheme.',
+      .option('server', {
+        type: 'boolean',
+        default: false,
+        hidden: true,
+        describe:
+          'Run a live server (now the default; flag kept for back-compat).',
       })
       .option('watch', {
         type: 'boolean',
         default: false,
-        describe:
-          'Start a background watcher that re-renders the diff file on every change. Returns immediately; F5 in the browser. Stop with --stop.',
+        hidden: true,
+        describe: 'Alias for --server. Kept for back-compat.',
       })
       .option('stop', {
         type: 'boolean',
         default: false,
-        describe: 'Stop the background watcher for this scope.',
+        describe: 'Stop the background server for this scope.',
       })
       .option('watch-daemon', {
         type: 'boolean',
@@ -445,12 +574,13 @@ export const diffCommand: CommandModule = {
       process.exit(1);
     }
 
-    const { base, source: baseSource } = resolveBase(scope, argv);
+    const { base, source: baseSource } = resolveBase(scope, {
+      base: argv.base as string | undefined,
+      branch: argv.branch as boolean | undefined,
+    });
     const repoSpecs = buildRepoSpecs(scope, base);
     const paths = pathsForScope(repoSpecs);
 
-    const subtitle =
-      base === 'HEAD' ? 'uncommitted changes' : `vs ${base} (uncommitted included)`;
     // Use stderr for status messages so review mode's stdout stays clean
     // (the comments markdown is the only data wd writes to stdout).
     if (base === 'HEAD') {
@@ -463,24 +593,22 @@ export const diffCommand: CommandModule = {
       );
     }
 
+    const scopeLabel = `${scope.repos.map((r) => r.name).join(', ')} · ${base}`;
     const ctx: RenderContext = {
       scope,
       base,
       baseSource,
       repoSpecs,
       paths,
-      renderOpts: {
-        style: (argv.side ? 'side' : 'line') as 'side' | 'line',
-        theme: argv.theme as 'light' | 'dark' | 'auto',
-        subtitle,
-        activeRepo: scope.activeRepoName,
-      },
+      scopeLabel,
     };
 
     if (argv.stop) return runStop(ctx.paths);
     if (argv['watch-daemon']) return runDaemon(ctx);
-    if (argv.watch) return runLauncher(ctx);
     if (argv.comments) return runReview(ctx);
-    return renderOnce(ctx);
+    if (argv.static) return runStatic(ctx, !!argv.branch);
+    // Default: live server. Refresh in the browser to see changes; stop
+    // with `wd --stop`. Use --static for a self-contained HTML file.
+    return runLauncher(ctx);
   },
 };

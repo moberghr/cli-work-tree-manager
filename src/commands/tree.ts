@@ -150,6 +150,11 @@ export const treeCommand: CommandModule = {
       }
 
       const repoPath = config.repos[targetName];
+      if (!repoPath) {
+        console.error(`Repository path not configured for: ${targetName}`);
+        process.exitCode = 1;
+        return;
+      }
       if (!fs.existsSync(repoPath)) {
         console.error(`Repository path does not exist: ${repoPath}`);
         process.exitCode = 1;
