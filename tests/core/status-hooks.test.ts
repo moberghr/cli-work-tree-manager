@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { StatusHook } from '../../src/core/config.js';
 
 // Mock node:child_process.spawn so no real process is launched.
-const spawnMock = vi.fn(() => ({
+const spawnMock = vi.fn((..._args: unknown[]) => ({
   on: vi.fn(),
   unref: vi.fn(),
 }));
