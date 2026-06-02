@@ -685,6 +685,256 @@
     font-size: 10.5px;
     margin-right: 4px;
   }
+
+  /* === REVIEW MOCKUP (browser diff UI) === */
+  .wd-mock {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    box-shadow: 0 20px 50px -10px rgba(17, 10, 60, 0.12);
+    background: #fff;
+    margin-top: 32px;
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+  .wd-mock-chrome {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #F4F6FA;
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-mock-dots { display: flex; gap: 6px; margin-right: 6px; }
+  .wd-mock-dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #d0d4dc;
+  }
+  .wd-mock-url {
+    flex: 1;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+  .wd-mock-url strong { color: var(--text); font-weight: 500; }
+
+  .wd-mock-tabs {
+    display: flex;
+    gap: 0;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+  }
+  .wd-mock-tab {
+    padding: 10px 14px;
+    border-bottom: 2px solid transparent;
+    color: var(--text-dim);
+    font-size: 12.5px;
+    cursor: default;
+  }
+  .wd-mock-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
+  .wd-mock-tab .wd-mock-count { color: var(--text-dim); font-weight: 400; }
+  .wd-mock-tab .wd-mock-add { color: var(--success); font-family: var(--font-mono); }
+  .wd-mock-tab .wd-mock-del { color: var(--danger); font-family: var(--font-mono); }
+
+  .wd-mock-layout { display: grid; grid-template-columns: 240px 1fr; min-height: 480px; }
+  @media (max-width: 760px) { .wd-mock-layout { grid-template-columns: 1fr; } }
+
+  .wd-mock-sidebar {
+    background: #FAFBFC;
+    border-right: 1px solid var(--border);
+    padding: 14px 0;
+  }
+  .wd-mock-sidebar-header { padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
+  .wd-mock-sidebar-header h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .wd-mock-sidebar-header .wd-mock-meta { color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
+  .wd-mock-scope-toggle {
+    display: flex;
+    gap: 0;
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .wd-mock-scope-btn {
+    flex: 1;
+    text-align: center;
+    padding: 5px 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: #fff;
+  }
+  .wd-mock-scope-btn.active { background: var(--accent); color: #fff; }
+
+  .wd-mock-tree { padding: 10px 0; font-family: var(--font-mono); font-size: 12px; }
+  .wd-mock-tree-folder {
+    padding: 2px 16px;
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 6px;
+  }
+  .wd-mock-tree-file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 16px 3px 28px;
+    color: var(--text);
+  }
+  .wd-mock-tree-file.active { background: var(--accent-dim); border-left: 2px solid var(--accent); padding-left: 26px; }
+  .wd-mock-tree-file.viewed { color: var(--text-dim); }
+  .wd-mock-tree-file .wd-mock-check {
+    width: 12px; height: 12px; border-radius: 3px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wd-mock-tree-file.viewed .wd-mock-check {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+    font-size: 9px;
+    line-height: 1;
+  }
+  .wd-mock-tree-file .wd-mock-status-add { color: var(--success); font-weight: 600; }
+  .wd-mock-tree-file .wd-mock-status-mod { color: var(--warning); font-weight: 600; }
+  .wd-mock-tree-file .wd-mock-status-del { color: var(--danger); font-weight: 600; }
+
+  .wd-mock-main { background: #fff; overflow: hidden; }
+  .wd-mock-file {
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-mock-file-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #FAFBFC;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .wd-mock-file-header .wd-mock-add { color: var(--success); }
+  .wd-mock-file-header .wd-mock-del { color: var(--danger); }
+  .wd-mock-file-header label {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    font-size: 11.5px;
+  }
+
+  .wd-mock-diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .wd-mock-diff-table td { padding: 0; vertical-align: top; }
+  .wd-mock-ln {
+    width: 44px;
+    text-align: right;
+    padding: 0 8px;
+    color: #8b95a2;
+    user-select: none;
+    background: #FAFBFC;
+    border-right: 1px solid var(--border);
+  }
+  .wd-mock-code { padding: 0 10px; white-space: pre; }
+  .wd-mock-row-del .wd-mock-ln { background: #ffebe9; }
+  .wd-mock-row-del .wd-mock-code { background: #ffebe9; color: #82071e; }
+  .wd-mock-row-add .wd-mock-ln { background: #e6ffec; }
+  .wd-mock-row-add .wd-mock-code { background: #e6ffec; color: #116329; }
+  .wd-mock-intra-del { background: #ffaba8; border-radius: 2px; padding: 0 1px; }
+  .wd-mock-intra-add { background: #abf2bc; border-radius: 2px; padding: 0 1px; }
+  .wd-mock-hunk {
+    background: #F4F6FA;
+    color: var(--text-dim);
+    padding: 2px 12px;
+    font-size: 11.5px;
+  }
+
+  .wd-mock-comment-row {
+    background: #F4F6FA;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-mock-comment {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+  }
+  .wd-mock-comment.is-claude {
+    background: var(--accent-dim);
+    border-color: rgba(78, 14, 255, 0.18);
+    margin-left: 28px;
+  }
+  .wd-mock-comment-author {
+    font-weight: 600;
+    font-size: 11.5px;
+    margin-bottom: 4px;
+  }
+  .wd-mock-comment.is-claude .wd-mock-comment-author { color: var(--accent); }
+  .wd-mock-comment-body { color: var(--text); line-height: 1.55; }
+  .wd-mock-comment-body code {
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+  }
+
+  .wd-mock-large {
+    padding: 24px;
+    text-align: center;
+    background: #FAFBFC;
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+  .wd-mock-large strong { color: var(--text); display: block; margin-bottom: 4px; }
+  .wd-mock-large button {
+    margin-top: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 11.5px;
+    color: var(--accent);
+    font-weight: 500;
+    cursor: default;
+  }
+
+  .wd-mock-pill {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: var(--accent);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 6px 18px rgba(78, 14, 255, 0.35);
+  }
 </style>
 </head>
 <body>
@@ -702,6 +952,7 @@
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
       <a href="#dashboard">Dashboard</a>
+      <a href="#review">Review</a>
       <a href="#install">Install</a>
       <a href="https://github.com/moberghr/cli-work-tree-manager" class="cta">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.75 5.48.75 11.75c0 5 3.24 9.24 7.73 10.74.57.1.78-.25.78-.55v-1.93c-3.14.68-3.81-1.51-3.81-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.51-.29-5.15-1.25-5.15-5.57 0-1.23.44-2.23 1.16-3.02-.12-.29-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.69.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.16 5.56.4.35.76 1.04.76 2.1v3.11c0 .3.2.66.79.55 4.49-1.5 7.73-5.74 7.73-10.74C23.25 5.48 18.27.5 12 .5Z"/></svg>
@@ -1181,10 +1432,229 @@
   </div>
 </section>
 
+<!-- === REVIEW (wd + work web) === -->
+<section class="section section--alt" id="review">
+  <div class="container">
+    <div class="sec-head"><span class="sec-num">07</span> Diff &amp; review</div>
+    <h2>Every branch, reviewed before you push.</h2>
+    <p class="lede">
+      <code>wd</code> opens a GitHub-style diff for the current worktree in your browser. <code>wd -c</code> turns it into a live review session — click any line to leave a comment, Claude reads them inline and replies in-thread. Every <code>wd</code> invocation registers as a scope on a single <code>work web</code> server, so a dozen reviews share one port and one set of browser tabs.
+    </p>
+
+    <div class="wd-mock" style="position:relative" role="img" aria-label="Work diff review mockup">
+      <!-- Fake browser chrome with /review URL -->
+      <div class="wd-mock-chrome">
+        <div class="wd-mock-dots"><span></span><span></span><span></span></div>
+        <div class="wd-mock-url">
+          <strong>127.0.0.1:54321</strong>/review/8f3a1e6b9c2d
+        </div>
+      </div>
+
+      <!-- Repo tabs (group worktree) -->
+      <div class="wd-mock-tabs">
+        <div class="wd-mock-tab active">
+          api <span class="wd-mock-count">(4)</span>
+          &nbsp;<span class="wd-mock-add">+82</span>
+          <span class="wd-mock-del">-31</span>
+        </div>
+        <div class="wd-mock-tab">
+          web <span class="wd-mock-count">(2)</span>
+          &nbsp;<span class="wd-mock-add">+24</span>
+          <span class="wd-mock-del">-6</span>
+        </div>
+        <div class="wd-mock-tab">
+          shared <span class="wd-mock-count">(1)</span>
+          &nbsp;<span class="wd-mock-add">+5</span>
+          <span class="wd-mock-del">-2</span>
+        </div>
+      </div>
+
+      <div class="wd-mock-layout">
+        <!-- Sidebar: file tree + scope toggle -->
+        <aside class="wd-mock-sidebar">
+          <div class="wd-mock-sidebar-header">
+            <h3>fullstack · feat/login</h3>
+            <div class="wd-mock-meta">7 files changed across 3 repos <span style="color:var(--text-dim)">· vs origin/main</span></div>
+            <div class="wd-mock-scope-toggle" role="tablist" aria-label="Diff scope">
+              <div class="wd-mock-scope-btn">Uncommitted</div>
+              <div class="wd-mock-scope-btn active">Since branch</div>
+            </div>
+          </div>
+          <div class="wd-mock-tree">
+            <div class="wd-mock-tree-folder">src/auth</div>
+            <div class="wd-mock-tree-file viewed">
+              <span class="wd-mock-check">✓</span>
+              <span class="wd-mock-status-mod">M</span>
+              AuthContext.tsx
+            </div>
+            <div class="wd-mock-tree-file active">
+              <span class="wd-mock-check"></span>
+              <span class="wd-mock-status-mod">M</span>
+              loginHandler.ts
+            </div>
+            <div class="wd-mock-tree-file">
+              <span class="wd-mock-check"></span>
+              <span class="wd-mock-status-add">A</span>
+              twoFactor.ts
+            </div>
+            <div class="wd-mock-tree-folder">src/pages</div>
+            <div class="wd-mock-tree-file">
+              <span class="wd-mock-check"></span>
+              <span class="wd-mock-status-mod">M</span>
+              login.tsx
+            </div>
+            <div class="wd-mock-tree-folder">migrations</div>
+            <div class="wd-mock-tree-file">
+              <span class="wd-mock-check"></span>
+              <span class="wd-mock-status-add">A</span>
+              20260602_2fa_columns.sql
+            </div>
+          </div>
+        </aside>
+
+        <!-- Main: one file with a comment thread, plus a collapsed migration -->
+        <div class="wd-mock-main">
+          <article class="wd-mock-file">
+            <header class="wd-mock-file-header">
+              <span>src/auth/loginHandler.ts</span>
+              <span class="wd-mock-add">+12</span>
+              <span class="wd-mock-del">-4</span>
+              <label><input type="checkbox" disabled> Viewed</label>
+            </header>
+            <table class="wd-mock-diff-table">
+              <tbody>
+                <tr><td colspan="4" class="wd-mock-hunk">@@ -42,11 +42,15 @@ async function handleLogin(req, res)</td></tr>
+                <tr>
+                  <td class="wd-mock-ln">42</td>
+                  <td class="wd-mock-code">  const user = await db.users.findByEmail(email);</td>
+                  <td class="wd-mock-ln">42</td>
+                  <td class="wd-mock-code">  const user = await db.users.findByEmail(email);</td>
+                </tr>
+                <tr class="wd-mock-row-del">
+                  <td class="wd-mock-ln">43</td>
+                  <td class="wd-mock-code">- if (!user || !<span class="wd-mock-intra-del">verifyPassword</span>(password, user.hash)) {</td>
+                  <td class="wd-mock-ln"></td>
+                  <td class="wd-mock-code"></td>
+                </tr>
+                <tr class="wd-mock-row-add">
+                  <td class="wd-mock-ln"></td>
+                  <td class="wd-mock-code"></td>
+                  <td class="wd-mock-ln">43</td>
+                  <td class="wd-mock-code">+ if (!user || !<span class="wd-mock-intra-add">await argon2.verify</span>(user.hash, password)) {</td>
+                </tr>
+                <tr>
+                  <td class="wd-mock-ln">44</td>
+                  <td class="wd-mock-code">    return res.status(401).json({ error: 'invalid' });</td>
+                  <td class="wd-mock-ln">44</td>
+                  <td class="wd-mock-code">    return res.status(401).json({ error: 'invalid' });</td>
+                </tr>
+                <tr>
+                  <td class="wd-mock-ln">45</td>
+                  <td class="wd-mock-code">  }</td>
+                  <td class="wd-mock-ln">45</td>
+                  <td class="wd-mock-code">  }</td>
+                </tr>
+                <tr class="wd-mock-row-add">
+                  <td class="wd-mock-ln"></td>
+                  <td class="wd-mock-code"></td>
+                  <td class="wd-mock-ln">46</td>
+                  <td class="wd-mock-code">+ if (user.twoFactorEnabled) {</td>
+                </tr>
+                <tr class="wd-mock-row-add">
+                  <td class="wd-mock-ln"></td>
+                  <td class="wd-mock-code"></td>
+                  <td class="wd-mock-ln">47</td>
+                  <td class="wd-mock-code">+   return res.status(202).json({ require2FA: true });</td>
+                </tr>
+                <tr class="wd-mock-row-add">
+                  <td class="wd-mock-ln"></td>
+                  <td class="wd-mock-code"></td>
+                  <td class="wd-mock-ln">48</td>
+                  <td class="wd-mock-code">+ }</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- Inline comment thread -->
+            <div class="wd-mock-comment-row">
+              <div class="wd-mock-comment">
+                <div class="wd-mock-comment-author">Mirko · line 43</div>
+                <div class="wd-mock-comment-body">
+                  Argon2 is the right call here, but should we strip the old <code>verifyPassword</code> import too? It's unused after this change.
+                </div>
+              </div>
+              <div class="wd-mock-comment is-claude">
+                <div class="wd-mock-comment-author">Claude</div>
+                <div class="wd-mock-comment-body">
+                  Good catch — I'll remove the import and the helper itself (only one caller). Pushing in a sec.
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Auto-collapsed large file -->
+          <article class="wd-mock-file">
+            <header class="wd-mock-file-header">
+              <span>migrations/20260602_2fa_columns.sql</span>
+              <span class="wd-mock-add">+1,247</span>
+              <span class="wd-mock-del">-0</span>
+            </header>
+            <div class="wd-mock-large">
+              <strong>Large file — 1,247 lines.</strong>
+              Auto-generated migration. Diff hidden by default.
+              <div><button type="button">Load diff</button></div>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="wd-mock-pill">2 drafts · Submit review</div>
+    </div>
+
+    <div class="grid grid--3" style="margin-top:48px">
+      <div class="card">
+        <h3>Live reload</h3>
+        <p>The server watches the working tree. Save a file, refresh the browser — the diff updates. No re-running anything.</p>
+      </div>
+      <div class="card">
+        <h3>Two-way conversation with Claude</h3>
+        <p>Comments stream to <code>wd -c</code>'s stdout as markers. The <code>wd-review</code> skill picks them up, replies inline via the API, and the thread renders right under the original — Claude's voice shaded in accent.</p>
+      </div>
+      <div class="card">
+        <h3>One server, every scope</h3>
+        <p>Run <code>work web</code> once. Every <code>wd</code> and <code>wd -c</code> invocation registers as a scope on that same server — addressable at <code>/diff/&lt;hash&gt;</code> or <code>/review/&lt;hash&gt;</code>. No port-per-tab sprawl.</p>
+      </div>
+      <div class="card">
+        <h3>Multi-repo tabs</h3>
+        <p>In a group worktree, every sub-repo's diff renders as a tab. Sticky at the top while you scroll — switch repos without losing your place.</p>
+      </div>
+      <div class="card">
+        <h3>Uncommitted vs Since branch</h3>
+        <p>Toggle between just-the-working-tree-delta and a full PR-style diff against the branch's parent. The parent is detected automatically (main, master, dev, develop) or honoured from <code>work tree --base</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Auto-collapsed migrations</h3>
+        <p>Files over 500 changed lines render a placeholder with a <em>Load diff</em> button. EF Core migrations and lockfile churn no longer freeze the browser.</p>
+      </div>
+    </div>
+
+    <div class="grid grid--2" style="margin-top:32px;gap:24px">
+      <div class="card">
+        <h3>Hooks bridge to live Claude</h3>
+        <p><code>work web</code> installs <code>UserPromptSubmit</code> and <code>Stop</code> hooks in <code>~/.claude/settings.json</code>. Drop a comment on a line and any Claude running in that worktree picks it up on the next turn — no copy-paste, no "hey can you look at line 42".</p>
+      </div>
+      <div class="card">
+        <h3>Singleton</h3>
+        <p><code>work web</code> is one process per user — <code>~/.work/web.pid</code> + <code>~/.work/web.url</code>. Second invocation reuses the running one. <code>work web --stop</code> for a clean shutdown.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- === ARCHITECTURE === -->
 <section class="section section--alt">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">07</span> Architecture</div>
+    <div class="sec-head"><span class="sec-num">08</span> Architecture</div>
     <h2>Small core. Strict boundaries.</h2>
     <p class="lede">A yargs router on top of a shared core layer, with two consumers: the CLI commands and the Ink-based TUI. Same atomic operations, two interfaces.</p>
 
@@ -1225,7 +1695,7 @@
 <!-- === INSTALL === -->
 <section class="section" id="install">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">08</span> Get started</div>
+    <div class="sec-head"><span class="sec-num">09</span> Get started</div>
     <h2>Install in three commands.</h2>
     <p class="lede">Node 18+ and Git are the only requirements. Claude Code, GitHub CLI, and Atlassian CLI are optional — Work degrades gracefully when they're not present.</p>
 
@@ -1291,7 +1761,7 @@
 <!-- === FAQ === -->
 <section class="section section--alt">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">09</span> FAQ</div>
+    <div class="sec-head"><span class="sec-num">10</span> FAQ</div>
     <h2>Common questions.</h2>
 
     <div class="faq" style="margin-top:36px">
