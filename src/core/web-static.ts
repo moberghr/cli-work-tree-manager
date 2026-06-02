@@ -17,10 +17,15 @@ const MIME: Record<string, string> = {
 /** Resolve the directory shipped by the Vite build. */
 export function resolveWebRoot(): string | null {
   const entryDir = path.dirname(process.argv[1] ?? '');
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.join(entryDir, 'web'),
+    // bundled: this module is inlined into dist/<bin>.js, so dist/web is a
+    // sibling of the bundle. Works even when argv[1] is an npm bin symlink
+    // (which is not realpath'd, so the entryDir candidate above misses).
+    path.join(moduleDir, 'web'),
     // dev/tsx fallback: walk up from src/core to repo root then into dist/web.
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist/web'),
+    path.resolve(moduleDir, '../../dist/web'),
   ];
   for (const c of candidates) {
     if (fs.existsSync(path.join(c, 'index.html'))) return c;
