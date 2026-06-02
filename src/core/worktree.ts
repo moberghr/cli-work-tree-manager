@@ -17,6 +17,7 @@ import {
   getUnpushedCommits,
 } from './git.js';
 import { copyConfigFiles } from './copy-files.js';
+import { setupSharedCaches } from './symlinks.js';
 
 /**
  * Create a single git worktree for one repo.
@@ -208,6 +209,11 @@ export function createSingleWorktree(
   // Copy configuration files from main repo
   if (config.copyFiles && config.copyFiles.length > 0) {
     copyConfigFiles(repoPath, worktreePath, config.copyFiles);
+  }
+
+  // Symlink shared caches (node_modules, .venv, etc.) from the source repo
+  if (config.sharedCaches && config.sharedCaches.length > 0) {
+    setupSharedCaches(repoPath, worktreePath, config.sharedCaches);
   }
 
   if (branchSource === 'remote') {

@@ -51,7 +51,7 @@ describe('loadConfig', () => {
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(data));
 
     const loaded = loadConfig();
-    expect(loaded).toEqual(data);
+    expect(loaded).toEqual({ ...data, sharedCaches: [] });
   });
 
   it('returns null for invalid JSON', () => {
@@ -76,6 +76,7 @@ describe('loadConfig', () => {
       repos: {},
       groups: {},
       copyFiles: [],
+      sharedCaches: [],
     });
   });
 });

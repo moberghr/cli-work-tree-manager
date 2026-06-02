@@ -8,6 +8,12 @@ export interface WorkConfig {
   groups: Record<string, string[]>;
   copyFiles: string[];
   /**
+   * Opt-in list of directory names to symlink from the source repo into
+   * new worktrees (e.g. "node_modules", ".venv", "target") so worktrees
+   * skip cold-start re-installs. Default off (empty).
+   */
+  sharedCaches?: string[];
+  /**
    * AI tool command to launch in worktrees. May include extra args, e.g.
    * "claude" (default), "gemini", "codex", or "my-tool --some-flag".
    */
@@ -57,6 +63,7 @@ export function loadConfig(): WorkConfig | null {
       repos: parsed.repos ?? {},
       groups: parsed.groups ?? {},
       copyFiles: parsed.copyFiles ?? [],
+      sharedCaches: parsed.sharedCaches ?? [],
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
