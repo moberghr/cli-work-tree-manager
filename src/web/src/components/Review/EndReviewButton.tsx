@@ -38,9 +38,15 @@ export function EndReviewButton() {
                   type="button"
                   onClick={async () => {
                     setBusy('submitting');
-                    await review.submitReview('');
-                    setBusy('ending');
-                    await review.done();
+                    try {
+                      await review.submitReview('');
+                      setBusy('ending');
+                      await review.done();
+                    } catch {
+                      // Reset so the button isn't stuck; keep the modal open
+                      // so the user can retry.
+                      setBusy('idle');
+                    }
                   }}
                 >
                   Submit pending then end
@@ -51,7 +57,11 @@ export function EndReviewButton() {
                 className="wd-btn-primary"
                 onClick={async () => {
                   setBusy('ending');
-                  await review.done();
+                  try {
+                    await review.done();
+                  } catch {
+                    setBusy('idle');
+                  }
                 }}
               >
                 {draftCount > 0 ? 'End anyway (discard drafts)' : 'End review'}

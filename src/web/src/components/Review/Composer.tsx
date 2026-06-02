@@ -10,7 +10,7 @@ interface Props {
   draftLabel?: string;
   /** Label for the primary publish button. */
   publishLabel?: string;
-  onSubmit: (body: string, status: 'published' | 'draft') => void;
+  onSubmit: (body: string, status: 'published' | 'draft') => void | Promise<void>;
   onCancel: () => void;
   autoFocus?: boolean;
 }
@@ -31,14 +31,18 @@ export function Composer({
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
 
-  function submit(status: 'published' | 'draft') {
+  async function submit(status: 'published' | 'draft') {
     const text = value.trim();
     if (!text) {
       onCancel();
       return;
     }
-    onSubmit(text, status);
-    setValue('');
+    try {
+      await onSubmit(text, status);
+      setValue('');
+    } catch {
+      // Submission failed — keep the typed text so it isn't lost.
+    }
   }
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

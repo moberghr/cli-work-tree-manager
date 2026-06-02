@@ -15,6 +15,7 @@ import { todoCommand } from './commands/todo.js';
 import { hydrateCommand } from './commands/hydrate.js';
 import { diffCommand } from './commands/diff.js';
 import { webCommand } from './commands/web.js';
+import { hookCommand } from './commands/hook.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -97,6 +98,7 @@ export function run(argv: string[]) {
     .command(hydrateCommand)
     .command(diffCommand)
     .command(webCommand)
+    .command(hookCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

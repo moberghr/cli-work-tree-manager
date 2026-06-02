@@ -51,7 +51,9 @@ Anything on `stderr` is just status logging — ignore it.
 
 1. **Start `wd -c` in the background** using Bash with `run_in_background: true`. The command blocks until the user clicks "End review", so it must not be foreground.
 
-   Before starting, check `~/.work/diffs/latest-review.url`. If it exists, another `wd -c` is already running. Also walk any background tasks from earlier in this session that match `wd -c` or the marker-tailing Monitor (anything you yourself started for a prior review) and `TaskStop` them. Leaving stale `wd -c` shells around creates confusion: they hold ports, their monitors fire spurious events, and the user has to find them in Task Manager.
+   Before starting, walk any background tasks from earlier in this session that match `wd -c` or the marker-tailing Monitor (anything you yourself started for a prior review) and `TaskStop` them. Leaving stale `wd -c` shells around creates confusion: they hold ports, their monitors fire spurious events, and the user has to find them in Task Manager.
+
+   The URL for this session is announced on the FIRST `--- review started ---` marker (the `url:` line); read it from the Bash tool's output file the moment Monitor fires that marker, and keep it in conversation context. There's no on-disk URL file to cat — capturing it from the stream is the only way to learn it, which means you can never accidentally post to a review in a different worktree or a stale daemon.
 
 2. **Tail the output with Monitor**, filtering only for marker lines. The exact output file path is reported by the Bash tool when you start the job (`Output is being written to: <path>`). Use a filter like:
 
@@ -84,16 +86,18 @@ Anything on `stderr` is just status logging — ignore it.
 
 ## Replying to a comment
 
-The live server URL is written to `~/.work/diffs/latest-review.url` at session start (and deleted on exit). **Write the JSON body to a temp file** and post via `--data-binary "@file"` — inline `-d '...'` will explode the moment your reply contains an apostrophe or a quote:
+Use the URL you captured from the `--- review started ---` marker — store it as a `URL=` shell variable in the same conversation and reuse it for every reply. **Write the JSON body to a temp file** and post via `--data-binary "@file"` — inline `-d '...'` will explode the moment your reply contains an apostrophe or a quote:
 
 ```bash
 cat > "$CLAUDE_JOB_DIR/reply.json" <<'EOF'
 {"parentId":"<comment-id>","author":"claude","body":"<your reply, can contain ' and \" freely>"}
 EOF
-URL=$(cat ~/.work/diffs/latest-review.url)
+# URL was set when you read the --- review started --- marker.
 curl -s -X POST -H "Content-Type: application/json" \
   --data-binary "@$CLAUDE_JOB_DIR/reply.json" "${URL}api/comments"
 ```
+
+If you forget the URL mid-conversation, re-scan the Bash output file from the `wd -c` background task — the `url:` line is at the top, in the first `--- review started ---` block.
 
 The reply renders threaded under the original comment in the user's browser. Set `author: "claude"` so the UI distinguishes it visually.
 
@@ -105,7 +109,7 @@ The reply renders threaded under the original comment in the user's browser. Set
 
 ## Behavior notes
 
-- **One review at a time.** If a `wd -c` is already running for this scope, starting another would fail. If unsure, check `~/.work/diffs/latest-review.url` — its existence implies a session is live.
+- **Reviews are per-scope, not global.** Each `wd -c` binds its own port and emits its own URL on its own stdout marker. Two `wd -c` instances in different worktrees coexist. The URL never lives on disk — it only flows through the stream you spawned — so you can only ever post to the review you started, never to someone else's by accident.
 - **Don't restart `wd -c` on file edits.** The watcher inside the running session reloads the browser automatically when you edit files.
 - **Live reload is deferred while composing.** If the user is mid-comment when you save a file, their reload is queued and applied as soon as they save/cancel the composer. You don't need to handle this.
 - **Don't open the browser yourself.** `wd -c` opens it. You only start the process.

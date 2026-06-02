@@ -441,7 +441,11 @@ async function setupSingleWorktree(
 
   // Check for existing worktree at any path
   const worktrees = parseWorktreeList(repoPath);
-  const existing = worktrees.find((wt) => wt.branch === branchName);
+  const existing = worktrees.find(
+    (wt) =>
+      wt.branch === branchName &&
+      path.resolve(wt.path) !== path.resolve(repoPath),
+  );
 
   if (existing) {
     if (baseBranch) {
@@ -512,6 +516,7 @@ export function teardownWorktree(
         return removeSingleWorktree(repoPath, wt.path, branch, force);
       }
     }
-    return true;
+    console.log(chalk.yellow(`No worktree found for branch '${branch}' in '${target}'.`));
+    return false;
   }
 }

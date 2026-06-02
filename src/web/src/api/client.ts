@@ -1,3 +1,15 @@
+import type {
+  Comment,
+  CommentAuthor,
+  CommentStatus,
+  CommentSide,
+} from '../../../core/comment-types.js';
+export type { Comment, CommentAuthor, CommentStatus, CommentSide };
+
+export type PtyStatus = 'running' | 'idle';
+export type ActivityState = 'active' | 'open' | 'stale';
+export type DiffBase = 'uncommitted' | 'branch';
+
 export interface SessionSummary {
   id: string;
   target: string;
@@ -8,6 +20,20 @@ export interface SessionSummary {
   jiraKey?: string;
   createdAt: string;
   lastAccessedAt: string;
+  /** Dashboard-only; absent when fetching from the wd -c review server. */
+  draftCount?: number;
+  commentCount?: number;
+  claudeCount?: number;
+  /** True when *our* `work web` PTY pool spawned a Claude for this session. */
+  ptyStatus?: PtyStatus;
+  /** ms-since-epoch of Claude's most recent transcript write for this
+   *  worktree — picks up any Claude on the box, not just our pool. */
+  lastActivity?: number | null;
+  /** Decayed: ≤30 s = 'active', ≤5 min = 'open', else 'stale'. */
+  activityState?: ActivityState;
+  /** Published user comments not yet surfaced to Claude. Drops to zero
+   *  once the UserPromptSubmit hook fires inside a live Claude here. */
+  pendingForClaudeCount?: number;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -28,6 +54,45 @@ export interface ReviewContext {
   mode: 'review';
   scopeLabel: string;
   repos: { name: string }[];
+  /** When true, the comment UI is hidden — the SPA still renders the
+   *  diff with live updates, but the user can't post / draft / submit. */
+  readOnly?: boolean;
+  /** True when the SPA is hydrated from inlined boot data (no server).
+   *  Used to suppress SSE attempts and live-only UI affordances. */
+  staticMode?: boolean;
+  /** Initial diff scope to display. Honors `wd --branch`. The user can
+   *  toggle to the other scope in-browser. */
+  initialBase?: DiffBase;
+}
+
+interface StaticBoot {
+  context: ReviewContext;
+  /** New shape: both scopes pre-computed when both are available. */
+  diffs?: {
+    uncommitted: ScopeDiff;
+    branch?: ScopeDiff;
+  };
+  /** Legacy single-scope payload. Always written for backward compat. */
+  diff: ScopeDiff;
+}
+
+interface ScopeDiff {
+  repos: RepoData[];
+  /** Echoed by `/api/diff` and inlined by renderStatic: `HEAD` for
+   *  uncommitted, the actual branch name (e.g. `origin/main`) for
+   *  branch mode. */
+  resolvedBase?: string;
+}
+
+/** Returns the boot payload when the page was opened as a static file
+ *  rather than served by `wd -c` / `work web`. */
+function getBoot(): StaticBoot | null {
+  const w = window as unknown as { __WD_BOOT__?: StaticBoot };
+  return w.__WD_BOOT__ ?? null;
+}
+
+export function isStaticMode(): boolean {
+  return getBoot() !== null;
 }
 export interface DashboardContext {
   mode: 'dashboard';
@@ -35,29 +100,57 @@ export interface DashboardContext {
 export type AppContext = ReviewContext | DashboardContext;
 
 export function fetchContext(): Promise<AppContext> {
+  const boot = getBoot();
+  if (boot) return Promise.resolve(boot.context);
   return getJson<AppContext>('/api/context');
 }
 
-export function fetchScopeDiff(): Promise<{ repos: RepoData[] }> {
-  return getJson<{ repos: RepoData[] }>('/api/diff');
+export interface ScopeDiffResult {
+  repos: RepoData[];
+  resolvedBase?: string;
 }
 
-export type CommentAuthor = 'user' | 'claude';
-export type CommentStatus = 'published' | 'draft';
-export type CommentSide = 'left' | 'right' | 'general';
+/**
+ * Fetch the diff for the current scope and base. Static mode reads from
+ * the inlined boot (covers both bases when present); server mode hits
+ * `/api/diff?base=…`.
+ *
+ * Returns the boot's legacy `diff` when the boot doesn't carry the new
+ * `diffs.<base>` shape — keeps old static HTML from earlier `wd` builds
+ * working until the user regenerates.
+ */
+export function fetchScopeDiff(
+  base: DiffBase = 'uncommitted',
+): Promise<ScopeDiffResult> {
+  const boot = getBoot();
+  if (boot) {
+    if (boot.diffs?.[base]) return Promise.resolve(boot.diffs[base]!);
+    return Promise.resolve(boot.diff);
+  }
+  const q = base === 'branch' ? '?base=branch' : '';
+  return getJson<ScopeDiffResult>(`/api/diff${q}`);
+}
 
-export interface Comment {
-  id: string;
-  repo: string;
-  file: string;
-  line: number;
-  side: CommentSide;
-  body: string;
-  createdAt: string;
-  lineContent?: string;
-  author: CommentAuthor;
-  parentId?: string;
-  status: CommentStatus;
+/** Reports which scopes have data inlined. Used to decide whether to
+ *  show the "Since branch" toggle in static mode — if the renderer
+ *  couldn't find a parent, the toggle won't help. */
+export function staticHasBranchScope(): boolean {
+  return !!getBoot()?.diffs?.branch;
+}
+
+/**
+ * Fetch a diff for a registered scope from the shared `work web` server.
+ * Used by URLs like `/diff/<hash>` and `/review/<hash>` where the SPA is
+ * served by `work web` and a `wd` invocation has registered the scope.
+ */
+export function fetchScopeDiffByHash(
+  hash: string,
+  base: DiffBase = 'uncommitted',
+): Promise<ScopeDiffResult> {
+  const q = base === 'branch' ? '?base=branch' : '';
+  return getJson<ScopeDiffResult>(
+    `/api/scopes/${encodeURIComponent(hash)}/diff${q}`,
+  );
 }
 
 export interface CommentInput {
@@ -145,15 +238,31 @@ export interface RepoData {
   name: string;
   root: string;
   files: ParsedFile[];
+  /** Per-repo parent branch the diff was computed against. Present on
+   *  scope and session diffs from `work web`; absent on static boot. For
+   *  group worktrees, sub-repos may have different parents — UI labels
+   *  can show this value rather than the top-level `resolvedBase`
+   *  (which is just the primary repo's value, for the sidebar header). */
+  resolvedBase?: string;
 }
 
 export interface SessionDiff {
   sessionId: string;
+  /** Which scope was requested. */
+  base?: DiffBase;
+  /** The actual ref the diff is against — `HEAD` for uncommitted,
+   *  or the resolved parent branch (e.g. `dev`, `origin/main`) for
+   *  branch mode. UI uses this for labelling. */
+  resolvedBase?: string;
   repos: RepoData[];
 }
 
-export function fetchSessionDiff(sessionId: string): Promise<SessionDiff> {
+export function fetchSessionDiff(
+  sessionId: string,
+  base: DiffBase = 'uncommitted',
+): Promise<SessionDiff> {
+  const q = base === 'branch' ? '?base=branch' : '';
   return getJson<SessionDiff>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/diff`,
+    `/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
   );
 }

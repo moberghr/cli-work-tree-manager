@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { Hunk } from '../../api/client.js';
 import {
   hunkRows,
@@ -7,6 +7,7 @@ import {
 } from '../../utils/intraline.js';
 import { useReviewOptional } from '../../state/ReviewProvider.js';
 import { CommentLineRow } from '../Review/CommentLineRow.js';
+import type { Highlighter } from './DiffFile.js';
 
 interface Props {
   hunk: Hunk;
@@ -15,10 +16,14 @@ interface Props {
   /** Required when review is true — used to scope comments and the composer. */
   repo?: string;
   file?: string;
+  /** Optional render-time syntax highlighter. When null we render plain text. */
+  highlight?: Highlighter | null;
 }
 
-export function DiffHunk({ hunk, review = false, repo, file }: Props) {
-  const rows = hunkRows(hunk);
+export function DiffHunk({ hunk, review = false, repo, file, highlight }: Props) {
+  // Intra-line diff computation walks every row pair. Memoize so resizing
+  // the sidebar or scrolling doesn't re-run it on each render.
+  const rows = useMemo(() => hunkRows(hunk), [hunk]);
   const ctxText = hunk.context ? ' ' + hunk.context : '';
   return (
     <>
@@ -28,9 +33,15 @@ export function DiffHunk({ hunk, review = false, repo, file }: Props) {
           @@{ctxText}
         </td>
       </tr>
-      {rows.map((r, i) => (
-        <Fragment key={i}>
-          <DiffSideRow row={r} review={review} repo={repo} file={file} />
+      {rows.map((r) => (
+        <Fragment key={`${r.oldNum ?? 'x'}-${r.newNum ?? 'x'}`}>
+          <DiffSideRow
+            row={r}
+            review={review}
+            repo={repo}
+            file={file}
+            highlight={highlight}
+          />
           {review && repo && file && (
             <CommentLineRow
               repo={repo}
@@ -52,11 +63,13 @@ function DiffSideRow({
   review,
   repo,
   file,
+  highlight,
 }: {
   row: SideRow;
   review: boolean;
   repo?: string;
   file?: string;
+  highlight?: Highlighter | null;
 }) {
   const reviewCtx = useReviewOptional();
   const enabled = review && !!repo && !!file && !!reviewCtx;
@@ -85,9 +98,13 @@ function DiffSideRow({
       >
         {row.oldNum ?? ''}
       </td>
-      <td className={`wd-content wd-${row.oldKind}`}>
-        <ContentCell text={row.oldContent} spans={row.oldSpans} kind="delete" />
-      </td>
+      <ContentCell
+        className={`wd-content wd-${row.oldKind}`}
+        text={row.oldContent}
+        spans={row.oldSpans}
+        kind="delete"
+        highlight={highlight}
+      />
       <td
         className={
           `wd-ln wd-ln-new wd-${row.newKind}` +
@@ -97,25 +114,35 @@ function DiffSideRow({
       >
         {row.newNum ?? ''}
       </td>
-      <td className={`wd-content wd-${row.newKind}`}>
-        <ContentCell text={row.newContent} spans={row.newSpans} kind="add" />
-      </td>
+      <ContentCell
+        className={`wd-content wd-${row.newKind}`}
+        text={row.newContent}
+        spans={row.newSpans}
+        kind="add"
+        highlight={highlight}
+      />
     </tr>
   );
 }
 
 function ContentCell({
+  className,
   text,
   spans,
   kind,
+  highlight,
 }: {
+  className: string;
   text: string;
   spans: IntraSpan[] | undefined;
   kind: 'add' | 'delete';
+  highlight?: Highlighter | null;
 }) {
+  // When the line has word-level diff spans, render those (skip hljs —
+  // intra-line markup wins; mirrors GitHub's behaviour).
   if (spans) {
     return (
-      <>
+      <td className={className}>
         {spans.map((s, i) =>
           s.changed ? (
             <span key={i} className={`wd-intra-${kind === 'add' ? 'add' : 'del'}`}>
@@ -125,8 +152,17 @@ function ContentCell({
             <span key={i}>{s.text}</span>
           ),
         )}
-      </>
+      </td>
     );
   }
-  return <>{text || ' '}</>;
+  const html = highlight ? highlight(text) : null;
+  if (html !== null && html !== undefined) {
+    return (
+      <td
+        className={className}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+  return <td className={className}>{text || ' '}</td>;
 }
