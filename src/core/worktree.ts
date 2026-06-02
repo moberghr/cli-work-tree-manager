@@ -5,7 +5,8 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { upsertSession } from './history.js';
+import { upsertSession, loadHistory } from './history.js';
+import { allocatePort } from './port-allocator.js';
 import {
   git,
   parseWorktreeList,
@@ -299,6 +300,23 @@ export interface WorktreeSetupResult {
   paths: string[];
   /** Whether the target is a group. */
   isGroup: boolean;
+  /** Stable dev-server port allocated to this worktree, if allocation succeeded. */
+  port?: number;
+}
+
+/**
+ * Best-effort port allocation. A failure must never abort worktree creation —
+ * it only warns and returns undefined.
+ */
+function tryAllocatePort(worktreeName: string, config: WorkConfig): number | undefined {
+  try {
+    return allocatePort(worktreeName, config, loadHistory());
+  } catch (err) {
+    console.log(
+      chalk.yellow(`  ⚠ Could not allocate a dev-server port: ${(err as Error).message}`),
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -414,12 +432,14 @@ async function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  await upsertSession(groupName, true, branchName, allPaths, jiraKey, baseBranch);
+  const port = tryAllocatePort(path.basename(groupWorktreePath), config);
+  await upsertSession(groupName, true, branchName, allPaths, jiraKey, baseBranch, port);
 
   console.log('');
   console.log(`Branch: ${branchName}`);
+  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
 
-  return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true };
+  return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true, port };
 }
 
 async function setupSingleWorktree(
@@ -459,11 +479,13 @@ async function setupSingleWorktree(
     if (!success) return null;
   }
 
-  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey, baseBranch);
+  const port = tryAllocatePort(path.basename(workTreePath), config);
+  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey, baseBranch, port);
 
   console.log(`Branch: ${branchName}`);
+  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
 
-  return { launchDir: workTreePath, paths: [workTreePath], isGroup: false };
+  return { launchDir: workTreePath, paths: [workTreePath], isGroup: false, port };
 }
 
 /**

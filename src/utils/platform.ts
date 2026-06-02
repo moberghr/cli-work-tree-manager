@@ -28,8 +28,22 @@ export function openVSCode(dir: string): void {
   spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit' });
 }
 
-/** Launch the configured AI tool in the given directory. */
-export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}): void {
+/**
+ * Launch the configured AI tool in the given directory.
+ *
+ * When `port` is provided it is injected as `$PORT` into the launched process
+ * so dev servers started by parallel agent sessions don't collide.
+ */
+export function launchAi(
+  cwd: string,
+  tool: AiToolSpec,
+  opts: AiLaunchOpts = {},
+  port?: number,
+): void {
   const { cmd, args } = buildAiLaunchArgs(tool, opts);
-  spawn.sync(cmd, args, { cwd, stdio: 'inherit' });
+  const spawnOpts: Parameters<typeof spawn.sync>[2] =
+    port !== undefined
+      ? { cwd, stdio: 'inherit', env: { ...process.env, PORT: String(port) } }
+      : { cwd, stdio: 'inherit' };
+  spawn.sync(cmd, args, spawnOpts);
 }

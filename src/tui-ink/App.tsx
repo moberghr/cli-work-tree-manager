@@ -597,7 +597,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const dir = s.isGroup ? path.dirname(existing) : existing;
     const resume = hasClaudeConversation(dir);
     const tool = getAiTool(config ?? {});
-    const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume });
+    const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume, port: s.port });
     void upsertSession(s.target, s.isGroup, s.branch, s.paths).catch((err) =>
       setMessage(`Failed to save session: ${(err as Error).message}`),
     );
@@ -750,7 +750,7 @@ export function App({ unsafe, onExit }: AppProps) {
       const launchDir = session.isGroup ? path.dirname(existing) : existing;
       const tool = getAiTool(config);
       const aiPty = new PtySession(launchDir, termInner, contentHeight - 2, undefined,
-        { tool, unsafe, promptFile });
+        { tool, unsafe, promptFile, port: session.port });
       registerPty(key, aiPty, `Session exited: ${projectName} / ${branchName}`);
       connectPty(key, aiPty);
       setMessage(`Launched: ${projectName}/${branchName}`);

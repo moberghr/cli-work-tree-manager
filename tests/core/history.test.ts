@@ -172,6 +172,24 @@ describe('upsertSession', () => {
     expect(sessions[0].paths).toEqual(['/tmp/wt2']);
   });
 
+  it('persists an allocated port and updates it on re-entry', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp/wt'], undefined, undefined, 3005);
+
+    let sessions = loadHistory();
+    expect(sessions.length).toBe(1);
+    expect(sessions[0].port).toBe(3005);
+
+    // Re-entry without a port keeps the existing one.
+    await upsertSession('api', false, 'feat', ['/tmp/wt2']);
+    sessions = loadHistory();
+    expect(sessions[0].port).toBe(3005);
+
+    // Re-entry with a new port updates it.
+    await upsertSession('api', false, 'feat', ['/tmp/wt2'], undefined, undefined, 3010);
+    sessions = loadHistory();
+    expect(sessions[0].port).toBe(3010);
+  });
+
   it('keeps separate entries for different branches', async () => {
     await upsertSession('api', false, 'feat-a', ['/a']);
     await upsertSession('api', false, 'feat-b', ['/b']);

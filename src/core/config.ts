@@ -29,6 +29,12 @@ export interface WorkConfig {
   };
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
+  /**
+   * Range of dev-server ports to allocate to worktrees (inclusive).
+   * Each worktree gets a stable port exposed as $PORT to the launched process.
+   * Default when unset: { start: 3000, end: 3099 }.
+   */
+  portRange?: { start: number; end: number };
 }
 
 export function getConfigDir(): string {
@@ -60,6 +66,12 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
+      portRange:
+        parsed.portRange &&
+        typeof parsed.portRange.start === 'number' &&
+        typeof parsed.portRange.end === 'number'
+          ? { start: parsed.portRange.start, end: parsed.portRange.end }
+          : undefined,
     };
   } catch {
     return null;
