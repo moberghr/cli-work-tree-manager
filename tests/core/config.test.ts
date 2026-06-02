@@ -47,6 +47,7 @@ describe('loadConfig', () => {
       repos: { api: '/repos/api' },
       groups: { full: ['api'] },
       copyFiles: ['*.json'],
+      statusHooks: [],
     };
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(data));
 
@@ -96,6 +97,7 @@ describe('loadConfig', () => {
       repos: {},
       groups: {},
       copyFiles: [],
+      statusHooks: [],
     });
   });
 });
