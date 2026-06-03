@@ -215,6 +215,184 @@
 }
 .wd-large-file p { margin: 0; }
 
+/* Checkpoint strip — top-bar timeline of per-scope snapshots. Sits
+   above the diff content; absent when there's only the Initial
+   checkpoint (nothing to range against). */
+.wd-checkpoint-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.wd-checkpoint-label {
+  color: var(--muted);
+  margin-right: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.wd-checkpoint-chip {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.wd-checkpoint-chip:hover {
+  background: var(--hover);
+}
+.wd-checkpoint-chip-in-range {
+  background: color-mix(in srgb, var(--accent, #58a6ff) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #58a6ff) 35%, var(--border));
+}
+.wd-checkpoint-chip-from,
+.wd-checkpoint-chip-to {
+  background: var(--accent, #58a6ff);
+  border-color: var(--accent, #58a6ff);
+  color: white;
+  font-weight: 600;
+}
+.wd-checkpoint-chip-from {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+.wd-checkpoint-chip-to {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+.wd-checkpoint-chip-from.wd-checkpoint-chip-to {
+  /* Single-chip selection (from == to): keep it pill-shaped. */
+  border-radius: 12px;
+}
+.wd-checkpoint-chip-working {
+  font-style: italic;
+}
+
+/* Per-file view-mode toggle (markdown preview). Three small segmented
+   buttons in the file header. Sits just left of the Viewed checkbox. */
+.wd-view-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-left: 12px;
+}
+.wd-view-mode-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.wd-view-mode-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-view-mode-btn-active {
+  background: var(--header-bg);
+  color: var(--fg);
+}
+.wd-view-mode-btn + .wd-view-mode-btn {
+  border-left: 1px solid var(--border);
+}
+
+/* Rendered markdown preview body. Padding mirrors GitHub README rendering.
+   Block elements are owned by Markdown(block) — keep this scoped so it
+   doesn't bleed onto surrounding diff UI. */
+.wd-md-preview {
+  padding: 16px 24px;
+  line-height: 1.6;
+  font-size: 14px;
+  color: var(--fg);
+  overflow-x: auto;
+}
+.wd-md-preview h1,
+.wd-md-preview h2,
+.wd-md-preview h3,
+.wd-md-preview h4 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+}
+.wd-md-preview h1 { font-size: 1.7em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.wd-md-preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.wd-md-preview h3 { font-size: 1.2em; }
+.wd-md-preview p { margin: 0 0 1em 0; }
+.wd-md-preview code {
+  background: var(--header-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.9em;
+}
+.wd-md-preview pre {
+  background: var(--header-bg);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0 0 1em 0;
+}
+.wd-md-preview pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+}
+.wd-md-preview blockquote {
+  margin: 0 0 1em 0;
+  padding: 0 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.wd-md-preview ul,
+.wd-md-preview ol { margin: 0 0 1em 1.5em; padding: 0; }
+.wd-md-preview li { margin-bottom: 0.25em; }
+.wd-md-preview a { color: var(--link, #58a6ff); }
+.wd-md-preview table {
+  border-collapse: collapse;
+  margin: 0 0 1em 0;
+}
+.wd-md-preview th,
+.wd-md-preview td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+}
+.wd-md-preview img { max-width: 100%; height: auto; }
+.wd-md-preview hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+/* Split view: rendered before/after side-by-side. */
+.wd-md-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.wd-md-split-side {
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+.wd-md-split-side:last-child { border-right: none; }
+.wd-md-split-label {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .wd-diff-table {
   width: 100%;
   border-collapse: collapse;

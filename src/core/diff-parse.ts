@@ -12,6 +12,29 @@ export interface ParsedFile {
   hunks: Hunk[];
   /** Line-coverage percent for this file (from lcov). undefined when no lcov data is available. */
   coverage?: number;
+  /** Epoch-ms mtime of the lcov.info the `coverage` value came from. Lets the
+   *  SPA show *when* the coverage was measured. undefined when no lcov data. */
+  coverageMtimeMs?: number;
+  /** True when this file's working-tree source is newer than the lcov.info the
+   *  coverage came from — i.e. the percent is stale and MUST NOT be presented
+   *  as authoritative. The SPA suppresses / de-emphasizes the badge. */
+  coverageStale?: boolean;
+  /** Full file contents for markdown rendering. Populated only for `.md` /
+   *  `.markdown` / `.mdx` files by the diff pipeline so the SPA can show a
+   *  rendered preview. `before` is from `git show <diffArg>:<oldPath>`,
+   *  `after` is the working-tree file. Either side may be absent for
+   *  added / deleted files. */
+  mdContent?: MarkdownContent;
+}
+
+export interface MarkdownContent {
+  before?: string;
+  after?: string;
+  /** Set when either side exceeded the per-side size cap. The SPA uses
+   *  this to hide the Preview/Split toggle — rendering a 10 MB
+   *  markdown blob in the diff payload would balloon SSE reloads and
+   *  blow the browser heap. */
+  tooLarge?: boolean;
 }
 
 export interface Hunk {

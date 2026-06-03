@@ -29,6 +29,11 @@ export interface WorkConfig {
   };
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
+  /**
+   * Opt-in desktop notifications. When true, the dashboard fires an OS
+   * notification when a session goes idle or needs input. Default: off.
+   */
+  notifications?: boolean;
 }
 
 export function getConfigDir(): string {
@@ -60,6 +65,7 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
+      notifications: parsed.notifications === true,
     };
   } catch {
     return null;
