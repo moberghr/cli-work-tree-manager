@@ -6,6 +6,7 @@ import path from 'node:path';
 import spawn from 'cross-spawn';
 import { computeDiff, computeRangeDiff } from './diff-pipeline.js';
 import { resolveRepoDiff } from './diff-scope.js';
+import { git } from './git.js';
 import {
   clearCheckpoints,
   loadManifest,
@@ -308,7 +309,21 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       // the single-line "vs X" badge in the sidebar header. Mirrors what
       // session-diff returns from web-server.ts.
       const resolvedBase = resolved[0]?.resolvedBase ?? 'HEAD';
-      return c.json({ scopeHash: scope.hash, base, resolvedBase, repos });
+      // Current branch of the primary repo, for the "<branch> vs <base>"
+      // title. In work-web mode the SPA synthesizes its context from the
+      // URL hash (no headBranch), so it reads this off the diff instead.
+      const head = git(['rev-parse', '--abbrev-ref', 'HEAD'], scope.paths[0]);
+      const headBranch =
+        head.exitCode === 0 && head.stdout && head.stdout !== 'HEAD'
+          ? head.stdout
+          : undefined;
+      return c.json({
+        scopeHash: scope.hash,
+        base,
+        resolvedBase,
+        headBranch,
+        repos,
+      });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
