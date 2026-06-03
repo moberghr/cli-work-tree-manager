@@ -140,9 +140,9 @@
   text-decoration-color: var(--muted);
 }
 
-/* Per-hunk selection. A reviewer checks off individual hunks; the checkbox
-   sits in the hunk header and a selected hunk gets a subtle left accent
-   plus a faintly tinted header. Client-side review progress only. */
+/* Per-hunk reviewed state. A reviewer checks off individual hunks; the
+   checkbox sits in the hunk header and a reviewed hunk gets a subtle left
+   accent plus a faintly tinted header. Client-side review progress only. */
 .wd-hunk-checkbox {
   display: inline-flex;
   align-items: center;
@@ -151,7 +151,7 @@
   cursor: pointer;
 }
 .wd-hunk-checkbox input { margin: 0; cursor: pointer; }
-.wd-hunk-row.wd-hunk-selected .wd-hunk-context {
+.wd-hunk-row.wd-hunk-reviewed .wd-hunk-context {
   border-left: 3px solid var(--add, #2da44e);
   background: var(--status-added-bg, rgba(45, 164, 78, 0.08));
 }

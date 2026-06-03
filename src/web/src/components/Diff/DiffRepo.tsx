@@ -11,7 +11,7 @@ interface Props {
   viewedPaths?: Set<string>;
   /** Called when the user toggles a file's viewed checkbox. */
   onToggleViewed?: (path: string, next: boolean) => void;
-  /** Scope key for per-hunk selection state. Threaded down to each file. */
+  /** Scope key for per-hunk reviewed state. Threaded down to each file. */
   hunkScopeKey?: string;
 }
 

@@ -25,47 +25,59 @@ class LocalStorageMock {
 (globalThis as unknown as { localStorage: LocalStorageMock }).localStorage =
   new LocalStorageMock();
 
-import { isSelected, readScope, setSelected } from '../../src/web/src/state/selected-hunks.js';
+import {
+  isReviewed,
+  readScope,
+  setReviewed,
+} from '../../src/web/src/state/reviewed-hunks.js';
 
 beforeEach(() => {
   (globalThis as unknown as { localStorage: LocalStorageMock }).localStorage.clear();
 });
 
-describe('selected-hunks state', () => {
+describe('reviewed-hunks state', () => {
   const scope = 'scope:review-x:repo-a:hunks';
-  const hunkKey = 'src/foo.ts@10-12';
+  const hunkKey = 'src/foo.ts@a1b2c3d4';
 
-  it('round-trips a selection through localStorage', () => {
-    expect(isSelected(scope, hunkKey)).toBe(false);
-    setSelected(scope, hunkKey, true);
-    expect(isSelected(scope, hunkKey)).toBe(true);
+  it('round-trips a reviewed mark through localStorage', () => {
+    expect(isReviewed(scope, hunkKey)).toBe(false);
+    setReviewed(scope, hunkKey, true);
+    expect(isReviewed(scope, hunkKey)).toBe(true);
     expect(readScope(scope)).toEqual(new Set([hunkKey]));
   });
 
-  it('readScope returns every selected hunk in the scope', () => {
-    setSelected(scope, 'a@1-1', true);
-    setSelected(scope, 'b@2-2', true);
-    expect(readScope(scope)).toEqual(new Set(['a@1-1', 'b@2-2']));
+  it('readScope returns every reviewed hunk in the scope', () => {
+    setReviewed(scope, 'a@0001', true);
+    setReviewed(scope, 'b@0002', true);
+    expect(readScope(scope)).toEqual(new Set(['a@0001', 'b@0002']));
   });
 
   it('toggling off removes the key (and prunes empty scopes)', () => {
-    setSelected(scope, hunkKey, true);
-    setSelected(scope, hunkKey, false);
-    expect(isSelected(scope, hunkKey)).toBe(false);
+    setReviewed(scope, hunkKey, true);
+    setReviewed(scope, hunkKey, false);
+    expect(isReviewed(scope, hunkKey)).toBe(false);
     expect(readScope(scope)).toEqual(new Set());
     // Empty scope should be pruned from the raw store.
     const raw = (globalThis as unknown as { localStorage: LocalStorageMock })
-      .localStorage.getItem('work-web:selected-hunks');
+      .localStorage.getItem('work-web:reviewed-hunks');
     expect(raw ? JSON.parse(raw) : {}).toEqual({});
   });
 
   it('keeps distinct scopes isolated — no leakage', () => {
     const other = 'scope:review-y:repo-b:hunks';
-    setSelected(scope, hunkKey, true);
-    setSelected(other, 'other@5-5', true);
+    setReviewed(scope, hunkKey, true);
+    setReviewed(other, 'other@5555', true);
     expect(readScope(scope)).toEqual(new Set([hunkKey]));
-    expect(readScope(other)).toEqual(new Set(['other@5-5']));
-    expect(isSelected(scope, 'other@5-5')).toBe(false);
-    expect(isSelected(other, hunkKey)).toBe(false);
+    expect(readScope(other)).toEqual(new Set(['other@5555']));
+    expect(isReviewed(scope, 'other@5555')).toBe(false);
+    expect(isReviewed(other, hunkKey)).toBe(false);
+  });
+
+  it('uses its own localStorage key, distinct from viewed-files', () => {
+    setReviewed(scope, hunkKey, true);
+    const ls = (globalThis as unknown as { localStorage: LocalStorageMock })
+      .localStorage;
+    expect(ls.getItem('work-web:reviewed-hunks')).not.toBeNull();
+    expect(ls.getItem('work-web:viewed-files')).toBeNull();
   });
 });

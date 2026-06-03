@@ -5,7 +5,8 @@ import { languageForPath } from '../../utils/language.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
-import { useSelectedHunks } from '../../hooks/use-selected-hunks.js';
+import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
+import { hunkContentKey } from '../../utils/hunk-key.js';
 
 type FileViewMode = 'diff' | 'preview' | 'split';
 
@@ -18,7 +19,7 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
-  /** Scope key for per-hunk selection state. Empty disables persistence. */
+  /** Scope key for per-hunk reviewed state. Empty disables persistence. */
   hunkScopeKey?: string;
 }
 
@@ -41,7 +42,7 @@ export function DiffFile({
   onToggleViewed,
   hunkScopeKey,
 }: Props) {
-  const { selectedHunkKeys, toggle: toggleHunk } = useSelectedHunks(
+  const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(
     hunkScopeKey ?? '',
   );
   // Stable, render-time highlighter. We highlight the full line text on
@@ -205,18 +206,24 @@ export function DiffFile({
               <col className="wd-col-content" />
             </colgroup>
             <tbody>
-              {file.hunks.map((h) => {
-                const hunkKey = `${file.path}@${h.oldStart}-${h.newStart}`;
+              {file.hunks.map((h, i) => {
+                // Content-derived key: stable across chokidar live-reload
+                // even when unrelated edits shift this hunk's line numbers,
+                // so the "reviewed" checkmark stays glued to the change.
+                const hunkKey = hunkContentKey(file.path, h);
                 return (
                   <DiffHunk
                     hunk={h}
-                    key={`${h.oldStart}-${h.newStart}`}
+                    // Suffix the array index so two byte-identical hunks in
+                    // the same file (same content hash) still get distinct
+                    // React keys.
+                    key={`${hunkKey}#${i}`}
                     review={review}
                     repo={repo}
                     file={file.path}
                     highlight={highlight}
-                    selected={selectedHunkKeys.has(hunkKey)}
-                    onToggleSelected={
+                    reviewed={reviewedHunkKeys.has(hunkKey)}
+                    onToggleReviewed={
                       hunkScopeKey
                         ? (next: boolean) => toggleHunk(hunkKey, next)
                         : undefined

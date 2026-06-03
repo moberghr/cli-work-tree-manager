@@ -18,10 +18,10 @@ interface Props {
   file?: string;
   /** Optional render-time syntax highlighter. When null we render plain text. */
   highlight?: Highlighter | null;
-  /** Whether this hunk is checked off (review progress state). */
-  selected?: boolean;
-  /** Toggle the selected flag. Wired by the parent so it can persist. */
-  onToggleSelected?: (next: boolean) => void;
+  /** Whether this hunk is checked off as reviewed (review progress state). */
+  reviewed?: boolean;
+  /** Toggle the reviewed flag. Wired by the parent so it can persist. */
+  onToggleReviewed?: (next: boolean) => void;
 }
 
 export function DiffHunk({
@@ -30,17 +30,17 @@ export function DiffHunk({
   repo,
   file,
   highlight,
-  selected,
-  onToggleSelected,
+  reviewed,
+  onToggleReviewed,
 }: Props) {
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
   const ctxText = hunk.context ? ' ' + hunk.context : '';
-  const showCheckbox = review && !!file && !!onToggleSelected;
+  const showCheckbox = review && !!file && !!onToggleReviewed;
   return (
     <>
-      <tr className={'wd-hunk-row' + (selected ? ' wd-hunk-selected' : '')}>
+      <tr className={'wd-hunk-row' + (reviewed ? ' wd-hunk-reviewed' : '')}>
         <td colSpan={4} className="wd-hunk-context">
           {showCheckbox && (
             <label
@@ -49,8 +49,9 @@ export function DiffHunk({
             >
               <input
                 type="checkbox"
-                checked={!!selected}
-                onChange={(e) => onToggleSelected!(e.target.checked)}
+                checked={!!reviewed}
+                aria-label={`Mark hunk reviewed: ${file} @@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
+                onChange={(e) => onToggleReviewed!(e.target.checked)}
               />
             </label>
           )}
