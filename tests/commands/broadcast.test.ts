@@ -5,7 +5,10 @@ import os from 'node:os';
 import { broadcastPrompt } from '../../src/core/broadcast.js';
 import { sessionIdFor } from '../../src/core/web-state.js';
 import { clearCommentStoreCache } from '../../src/core/comment-file-store.js';
-import { readPendingForSession } from '../../src/core/pending-delivery.js';
+import {
+  readPendingForSession,
+  formatPendingForPrompt,
+} from '../../src/core/pending-delivery.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 let tmpDir: string;
@@ -40,21 +43,21 @@ afterEach(() => {
 });
 
 describe('broadcastPrompt', () => {
-  it('targets the correct sessionIds for a target filter', () => {
-    const queued = broadcastPrompt(sessions, { target: 'api' }, 'hello');
+  it('targets the correct sessionIds for a target filter', async () => {
+    const queued = await broadcastPrompt(sessions, { target: 'api' }, 'hello');
     expect(queued.map((q) => q.sessionId).sort()).toEqual(
       [sessionIdFor(sessions[0]), sessionIdFor(sessions[1])].sort(),
     );
   });
 
-  it('targets all sessions with an empty filter', () => {
-    const queued = broadcastPrompt(sessions, {}, 'hello');
+  it('targets all sessions with an empty filter', async () => {
+    const queued = await broadcastPrompt(sessions, {}, 'hello');
     expect(queued).toHaveLength(3);
   });
 
-  it('creates a published user comment picked up by pending-delivery', () => {
+  it('creates a published user comment picked up by pending-delivery', async () => {
     const target = sessions[0];
-    broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'do the thing');
+    await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'do the thing');
 
     const sessionId = sessionIdFor(target);
     // It lands on disk as a comment file.
@@ -71,7 +74,37 @@ describe('broadcastPrompt', () => {
     expect(pending[0].side).toBe('general');
   });
 
-  it('throws on an empty prompt', () => {
-    expect(() => broadcastPrompt(sessions, {}, '   ')).toThrow();
+  it('preserves a multi-line broadcast body end to end', async () => {
+    const target = sessions[0];
+    const multiline = 'line one\nline two\nline three';
+    await broadcastPrompt(
+      sessions,
+      { target: 'api', branch: 'feat/a' },
+      multiline,
+    );
+    const sessionId = sessionIdFor(target);
+    clearCommentStoreCache();
+    const pending = readPendingForSession(sessionId);
+    expect(pending).toHaveLength(1);
+    // The full body survives — not just line 1.
+    expect(pending[0].body).toBe(multiline);
+    const out = formatPendingForPrompt(pending);
+    expect(out).toContain('line one');
+    expect(out).toContain('line two');
+    expect(out).toContain('line three');
+  });
+
+  it('appends rather than clobbering an existing comment file', async () => {
+    const target = sessions[0];
+    await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'first');
+    await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'second');
+    const sessionId = sessionIdFor(target);
+    clearCommentStoreCache();
+    const pending = readPendingForSession(sessionId);
+    expect(pending.map((c) => c.body).sort()).toEqual(['first', 'second']);
+  });
+
+  it('rejects an empty prompt', async () => {
+    await expect(broadcastPrompt(sessions, {}, '   ')).rejects.toThrow();
   });
 });

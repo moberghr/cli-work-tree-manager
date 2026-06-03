@@ -147,7 +147,10 @@ export function formatPendingForPrompt(pending: Comment[]): string {
   if (general.length > 0) {
     lines.push('## General notes');
     for (const c of general) {
-      lines.push(formatBody('-', c));
+      // General notes (this is where `work broadcast` lands) may be multi-line
+      // prompts — deliver the whole body, not just line 1. Only the byte cap
+      // applies. Inline/reply comments still use the one-line `formatBody`.
+      lines.push(formatFullBody('-', c));
     }
     lines.push('');
   }
@@ -189,6 +192,19 @@ function formatBody(prefix: string, c: Comment): string {
   const capped =
     lead.length > MAX_BODY_BYTES ? `${lead.slice(0, MAX_BODY_BYTES)}…` : lead;
   return `${prefix}: ${capped}${c.body.includes('\n') ? ' …' : ''}`;
+}
+
+/** Like `formatBody` but preserves the full multi-line body (only the byte
+ *  cap applies). Multi-line bodies are emitted under the bullet, indented, so
+ *  a broadcast prompt arrives intact rather than truncated to its first line. */
+function formatFullBody(prefix: string, c: Comment): string {
+  const body = c.body.trim();
+  const capped =
+    body.length > MAX_BODY_BYTES ? `${body.slice(0, MAX_BODY_BYTES)}…` : body;
+  const bodyLines = capped.split('\n');
+  if (bodyLines.length === 1) return `${prefix}: ${bodyLines[0]}`;
+  const [first, ...rest] = bodyLines;
+  return [`${prefix}: ${first}`, ...rest.map((l) => `  ${l}`)].join('\n');
 }
 
 /** Re-export so consumers don't have to know which module owns it. */

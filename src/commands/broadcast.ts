@@ -32,11 +32,11 @@ export const broadcastCommand: CommandModule = {
         type: 'string',
       })
       .option('all', {
-        describe: 'Broadcast to every session (default when no filter)',
+        describe: 'Required to broadcast to every session when no --target',
         type: 'boolean',
-        default: true,
+        default: false,
       }),
-  handler: (argv) => {
+  handler: async (argv) => {
     let prompt = (argv.prompt as string | undefined) ?? '';
     if (prompt === '-') {
       prompt = readStdin();
@@ -50,13 +50,26 @@ export const broadcastCommand: CommandModule = {
 
     const target = argv.target as string | undefined;
     const branch = argv.branch as string | undefined;
+    const all = argv.all as boolean;
     if (branch && !target) {
       console.error(chalk.red('--branch requires --target.'));
       process.exitCode = 1;
       return;
     }
+    // Guardrail: broadcasting to every session is a wide blast radius, so
+    // require an explicit --all (or a narrowing --target) rather than letting
+    // a bare `work broadcast "..."` fan out to the whole fleet by accident.
+    if (!target && !all) {
+      console.error(
+        chalk.red(
+          'Refusing to broadcast to every session. Pass --all to confirm, or --target <alias> to narrow.',
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
 
-    const queued = broadcastPrompt(loadHistory(), { target, branch }, prompt);
+    const queued = await broadcastPrompt(loadHistory(), { target, branch }, prompt);
 
     if (queued.length === 0) {
       console.log(chalk.yellow('No matching sessions to broadcast to.'));

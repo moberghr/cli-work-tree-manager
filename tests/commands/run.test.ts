@@ -5,6 +5,7 @@ import {
   anyFailed,
   type RunResult,
 } from '../../src/core/fleet.js';
+import { extractRun, stripRunToken } from '../../src/commands/run.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 function session(
@@ -65,6 +66,77 @@ describe('expandRunUnits', () => {
   it('preserves stable session-then-path order', () => {
     const units = expandRunUnits(selectSessions(sessions, { target: 'api' }));
     expect(units.map((u) => u.path)).toEqual(['/wt/api/a', '/wt/api/b']);
+  });
+});
+
+describe('stripRunToken', () => {
+  it('drops the doubled run command token yargs reports in argv._', () => {
+    expect(stripRunToken(['run', 'run', 'git', 'log'])).toEqual(['git', 'log']);
+  });
+
+  it('keeps a user-typed literal run after the command token', () => {
+    expect(stripRunToken(['run', 'run', 'run', 'echo'])).toEqual([
+      'run',
+      'echo',
+    ]);
+  });
+
+  it('handles the empty invocation', () => {
+    expect(stripRunToken(['run', 'run'])).toEqual([]);
+  });
+});
+
+describe('extractRun', () => {
+  it('captures a user command with its own flag verbatim (--oneline)', () => {
+    const { options, cmd } = extractRun(['git', 'log', '--oneline']);
+    expect(cmd).toEqual(['git', 'log', '--oneline']);
+    expect(options.parallel).toBeUndefined();
+  });
+
+  it('keeps a trailing user flag like eslint . --fix', () => {
+    const { cmd } = extractRun(['eslint', '.', '--fix']);
+    expect(cmd).toEqual(['eslint', '.', '--fix']);
+  });
+
+  it('does NOT let a user --parallel after the command be stolen', () => {
+    const { options, cmd } = extractRun(['x', '--parallel']);
+    expect(cmd).toEqual(['x', '--parallel']);
+    expect(options.parallel).toBeUndefined();
+  });
+
+  it('parses our own leading fleet flags before the command', () => {
+    const { options, cmd } = extractRun([
+      '--parallel',
+      '--target',
+      'api',
+      'git',
+      'status',
+    ]);
+    expect(options.parallel).toBe(true);
+    expect(options.target).toBe('api');
+    expect(cmd).toEqual(['git', 'status']);
+  });
+
+  it('parses --jobs / -j and keeps the rest as the command', () => {
+    expect(extractRun(['--jobs', '3', 'npm', 'test']).options.jobs).toBe(3);
+    const j = extractRun(['-j', '2', 'npm', 'run', 'build']);
+    expect(j.options.jobs).toBe(2);
+    expect(j.cmd).toEqual(['npm', 'run', 'build']);
+  });
+
+  it('treats a literal -- as the explicit command boundary', () => {
+    const { options, cmd } = extractRun([
+      '--parallel',
+      '--',
+      'x',
+      '--parallel',
+    ]);
+    expect(options.parallel).toBe(true);
+    expect(cmd).toEqual(['x', '--parallel']);
+  });
+
+  it('returns an empty command for no args', () => {
+    expect(extractRun([]).cmd).toEqual([]);
   });
 });
 
