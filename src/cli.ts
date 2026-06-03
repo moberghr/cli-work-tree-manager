@@ -45,6 +45,8 @@ function showHelp() {
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
   console.log('  work sync                                          - Fetch all repos and prune merged (non-interactive)');
   console.log('  work sync --dry-run                                - Show what sync would prune, remove nothing');
+  console.log('  work sync --force                                  - Also remove worktrees with uncommitted/unpushed changes');
+  console.log('  work sync --include-squash                         - Also prune squash-merged branches (lower confidence)');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
   console.log('  work diff [base]                                   - Open a GitHub-PR-style diff in your browser');
   console.log('  work todo                                          - List tasks');
