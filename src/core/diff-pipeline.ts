@@ -9,6 +9,7 @@ import {
   type MarkdownContent,
   type ParsedFile,
 } from './diff-parse.js';
+import { coverageLookup } from './lcov.js';
 
 const MARKDOWN_EXT_RE = /\.(md|markdown|mdx)$/i;
 
@@ -302,6 +303,13 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
 
   const files = parseGitDiff(combined);
 
+  // Attach per-file line-coverage from an lcov.info if the repo has one.
+  // Conservative: only files with a confident repo-relative path match get a
+  // coverage value; everything else is left undefined (no badge rendered).
+  // The lcov parse is memoized by (path, mtimeMs) inside `coverageLookup`, so
+  // a multi-MB lcov is NOT re-read on every SSE / chokidar refresh tick.
+  attachCoverage(root, files);
+
   // Augment markdown files with full before/after content so the SPA can
   // render a preview alongside the diff. Cheap (one `git show` + one fs
   // read per .md file), skipped entirely for non-markdown files.
@@ -311,6 +319,40 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
   }
 
   return files;
+}
+
+/**
+ * Attach line-coverage (+ lcov mtime + staleness) to each file in place.
+ * Staleness: a file whose working-tree source `mtimeMs` is NEWER than the
+ * lcov.info it was measured against has been edited since coverage was last
+ * recorded, so its percent is no longer authoritative. We flag it
+ * (`coverageStale`) rather than dropping the number outright — the SPA
+ * de-emphasizes / suppresses the badge and the tooltip carries the lcov
+ * timestamp so stale coverage is never presented as current.
+ */
+function attachCoverage(root: string, files: ParsedFile[]): void {
+  const { byPath, lcovMtimeMs } = coverageLookup(
+    root,
+    files.map((f) => f.path),
+  );
+  if (byPath.size === 0) return;
+  for (const f of files) {
+    const pct = byPath.get(f.path);
+    if (typeof pct !== 'number') continue;
+    f.coverage = pct;
+    if (lcovMtimeMs != null) {
+      f.coverageMtimeMs = lcovMtimeMs;
+      let srcMtimeMs: number | null = null;
+      try {
+        srcMtimeMs = fs.statSync(path.join(root, f.path)).mtimeMs;
+      } catch {
+        srcMtimeMs = null;
+      }
+      if (srcMtimeMs != null && srcMtimeMs > lcovMtimeMs) {
+        f.coverageStale = true;
+      }
+    }
+  }
 }
 
 export interface ComputeRangeDiffOptions {

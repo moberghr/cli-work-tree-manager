@@ -96,15 +96,22 @@ function runInPath(
  * of the returned results matches `units`. A worker-pool rather than a single
  * `Promise.all` so a large fleet doesn't fork every subprocess at once.
  */
-async function runPool(
+export async function runPool(
   units: RunUnit[],
   cmd: string,
   limit: number,
+  /** Polled before each unit is dequeued. Once it returns true (Ctrl-C),
+   *  workers stop spawning new units rather than draining the whole queue. */
+  isInterrupted: () => boolean = () => false,
 ): Promise<RunResult[]> {
   const results: RunResult[] = new Array(units.length);
   let next = 0;
   async function worker(): Promise<void> {
     while (true) {
+      // Bail BEFORE dequeuing/spawning the next unit once interrupted — the
+      // SIGINT handler has already killed in-flight children; we must not
+      // keep launching the remaining ones.
+      if (isInterrupted()) return;
       const idx = next++;
       if (idx >= units.length) return;
       const u = units[idx];
@@ -137,7 +144,7 @@ const DEFAULT_JOBS = 4;
 /** Our own fleet options. Everything else after the first bare token is the
  *  user's command and is captured verbatim. Booleans take no value; the rest
  *  consume the following token as their value. */
-const BOOLEAN_FLAGS = new Set(['--parallel', '--halt-on-error']);
+const BOOLEAN_FLAGS = new Set(['--parallel', '--halt-on-error', '--all']);
 const VALUE_FLAGS = new Set(['--target', '--branch', '--jobs', '-j']);
 
 /** Drop the leading `run` command token(s). Under our parser config yargs
@@ -157,6 +164,7 @@ export interface ExtractedRun {
     branch?: string;
     parallel?: boolean;
     haltOnError?: boolean;
+    all?: boolean;
     jobs?: number;
   };
   /** The user's command argv, captured verbatim (flags included). */
@@ -187,6 +195,7 @@ export function extractRun(args: string[]): ExtractedRun {
     if (BOOLEAN_FLAGS.has(tok)) {
       if (tok === '--parallel') options.parallel = true;
       else if (tok === '--halt-on-error') options.haltOnError = true;
+      else if (tok === '--all') options.all = true;
       continue;
     }
     if (VALUE_FLAGS.has(tok)) {
@@ -247,6 +256,11 @@ export const runCommand: CommandModule = {
         describe: 'Stop after the first failure (sequential only)',
         type: 'boolean',
         default: false,
+      })
+      .option('all', {
+        describe: 'Required to run in every worktree when no --target',
+        type: 'boolean',
+        default: false,
       }),
   handler: async (argv) => {
     // yargs dumps the whole invocation into `_` verbatim under our parser
@@ -266,6 +280,7 @@ export const runCommand: CommandModule = {
     const branch = options.branch;
     const parallel = options.parallel ?? false;
     const haltOnError = options.haltOnError ?? false;
+    const all = options.all ?? false;
     const jobs =
       options.jobs && Number.isFinite(options.jobs) && options.jobs > 0
         ? Math.floor(options.jobs)
@@ -275,6 +290,29 @@ export const runCommand: CommandModule = {
       console.error(chalk.red('--branch requires --target.'));
       process.exitCode = 1;
       return;
+    }
+
+    // Guardrail (mirrors `work broadcast`): running an arbitrary command in
+    // every worktree is a wide blast radius, so a bare unfiltered `work run`
+    // must opt in with --all rather than fanning out by accident.
+    if (!target && !all) {
+      console.error(
+        chalk.red(
+          'Refusing to run in every worktree. Pass --all to confirm, or --target <alias> to narrow.',
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    // --halt-on-error only applies to the sequential walk; the parallel pool
+    // has no first-failure stop. Warn rather than silently ignoring it.
+    if (parallel && haltOnError) {
+      console.error(
+        chalk.yellow(
+          'Warning: --halt-on-error has no effect with --parallel (it only applies to sequential runs).',
+        ),
+      );
     }
 
     const sessions = selectSessions(loadHistory(), { target, branch });
@@ -305,9 +343,12 @@ export const runCommand: CommandModule = {
 
     try {
       if (parallel) {
-        const settled = await runPool(units, cmd, jobs);
-        results.push(...settled);
-        for (const r of settled) console.log(label(r));
+        const settled = await runPool(units, cmd, jobs, () => interrupted);
+        // On interrupt the pool returns a sparse array (un-dequeued units are
+        // never filled); drop the holes before reporting.
+        const done = settled.filter((r): r is RunResult => r != null);
+        results.push(...done);
+        for (const r of done) console.log(label(r));
       } else {
         for (const unit of units) {
           if (interrupted) break;

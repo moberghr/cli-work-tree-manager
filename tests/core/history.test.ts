@@ -11,6 +11,7 @@ import {
   getSessionsForTarget,
   getRecentSessions,
   pruneStaleEntries,
+  upsertSessionWithPort,
   type WorktreeSession,
 } from '../../src/core/history.js';
 
@@ -170,6 +171,24 @@ describe('upsertSession', () => {
     expect(sessions.length).toBe(1);
     expect(sessions[0].lastAccessedAt).toBe('2099-01-01T00:00:00.000Z');
     expect(sessions[0].paths).toEqual(['/tmp/wt2']);
+  });
+
+  it('persists an allocated port and updates it on re-entry', async () => {
+    await upsertSession('api', false, 'feat', ['/tmp/wt'], undefined, undefined, 3005);
+
+    let sessions = loadHistory();
+    expect(sessions.length).toBe(1);
+    expect(sessions[0].port).toBe(3005);
+
+    // Re-entry without a port keeps the existing one.
+    await upsertSession('api', false, 'feat', ['/tmp/wt2']);
+    sessions = loadHistory();
+    expect(sessions[0].port).toBe(3005);
+
+    // Re-entry with a new port updates it.
+    await upsertSession('api', false, 'feat', ['/tmp/wt2'], undefined, undefined, 3010);
+    sessions = loadHistory();
+    expect(sessions[0].port).toBe(3010);
   });
 
   it('keeps separate entries for different branches', async () => {
@@ -349,5 +368,67 @@ describe('pruneStaleEntries', () => {
     const { kept, pruned } = pruneStaleEntries([]);
     expect(pruned).toBe(0);
     expect(kept).toEqual([]);
+  });
+});
+
+describe('upsertSessionWithPort (atomic allocate + persist)', () => {
+  // Use an uncommon range so the host liveness probe is very unlikely to hit a
+  // genuinely-bound port and skew the assertions; tmpDir exists so allocated
+  // ports count as held by active sessions on subsequent (locked) allocations.
+  const portRange = { start: 51000, end: 51099 };
+
+  it('persists the session together with an allocated port', async () => {
+    const { port } = await upsertSessionWithPort(
+      'api',
+      false,
+      'feat',
+      [tmpDir],
+      { portRange },
+    );
+    expect(port).toBeGreaterThanOrEqual(51000);
+    expect(port).toBeLessThanOrEqual(51099);
+
+    const saved = findSession(loadHistory(), 'api', 'feat');
+    expect(saved?.port).toBe(port);
+  });
+
+  it('keeps an already-allocated port stable on re-run', async () => {
+    const first = await upsertSessionWithPort('api', false, 'feat', [tmpDir], { portRange });
+    const second = await upsertSessionWithPort('api', false, 'feat', [tmpDir, tmpDir], { portRange });
+    expect(second.port).toBe(first.port);
+    expect(loadHistory()).toHaveLength(1);
+  });
+
+  it('gives concurrent allocations distinct ports (no TOCTOU collision)', async () => {
+    // Fire many allocations for distinct worktrees at once. Because allocate +
+    // persist happen inside one history lock, each call sees the prior writes
+    // and must pick a different port. An unlocked allocate-then-write would let
+    // them all read the same empty snapshot and collide.
+    const count = 8;
+    const results = await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        upsertSessionWithPort('api', false, `feat-${i}`, [tmpDir], { portRange }),
+      ),
+    );
+
+    const ports = results.map((r) => r.port);
+    expect(ports.every((p) => p !== undefined)).toBe(true);
+    expect(new Set(ports).size).toBe(count);
+
+    // History reflects every session with its unique port.
+    const history = loadHistory();
+    expect(history).toHaveLength(count);
+    expect(new Set(history.map((s) => s.port)).size).toBe(count);
+  });
+
+  it('persists the session even when the range is exhausted (port undefined)', async () => {
+    const tiny = { start: 51200, end: 51200 };
+    const a = await upsertSessionWithPort('api', false, 'one', [tmpDir], { portRange: tiny });
+    expect(a.port).toBe(51200);
+    // Range has a single port, already held by an active session => allocation
+    // fails, but the session must still be recorded.
+    const b = await upsertSessionWithPort('api', false, 'two', [tmpDir], { portRange: tiny });
+    expect(b.port).toBeUndefined();
+    expect(findSession(loadHistory(), 'api', 'two')).toBeDefined();
   });
 });

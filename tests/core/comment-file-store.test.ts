@@ -111,4 +111,71 @@ describe('comment-file-store', () => {
     expect(s2.snapshot()).toHaveLength(1);
     expect(s2.snapshot()[0].body).toBe('pub');
   });
+
+  it('does not clobber a concurrent out-of-band append on the next write', () => {
+    // Simulates the cross-process lost-update: `work web` holds a store and
+    // posts a comment, then a SEPARATE process (e.g. `work broadcast`) appends
+    // a comment straight to the file on disk. The next `work web` post must
+    // reload-under-lock and preserve the broadcast comment rather than
+    // persisting its stale in-memory snapshot over it.
+    const s = getCommentFileStore('sid');
+    const a = s.post({ body: 'from web A' });
+
+    // Out-of-band append straight to disk (mimics the broadcast process,
+    // which writes under the same advisory lock).
+    const file = commentsFileFor('sid');
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    onDisk.push({
+      id: 'broadcast-1',
+      repo: '',
+      file: '',
+      line: 0,
+      side: 'general',
+      body: 'from broadcast',
+      createdAt: new Date().toISOString(),
+      author: 'user',
+      status: 'published',
+    });
+    fs.writeFileSync(file, JSON.stringify(onDisk));
+
+    // The in-memory store is now stale (still only knows about A). Posting a
+    // new comment must NOT drop the broadcast comment.
+    const c = s.post({ body: 'from web C' });
+
+    clearCommentStoreCache();
+    const reloaded = getCommentFileStore('sid').snapshot();
+    const bodies = reloaded.map((x) => x.body).sort();
+    expect(bodies).toEqual(['from broadcast', 'from web A', 'from web C']);
+    // Ids preserved for both web comments.
+    expect(reloaded.find((x) => x.id === a.id)?.body).toBe('from web A');
+    expect(reloaded.find((x) => x.id === c.id)?.body).toBe('from web C');
+  });
+
+  it('a remove() reloads first so it does not resurrect or drop concurrent comments', () => {
+    const s = getCommentFileStore('sid');
+    const a = s.post({ body: 'A' });
+
+    // Concurrent out-of-band append.
+    const file = commentsFileFor('sid');
+    const onDisk = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    onDisk.push({
+      id: 'broadcast-1',
+      repo: '',
+      file: '',
+      line: 0,
+      side: 'general',
+      body: 'from broadcast',
+      createdAt: new Date().toISOString(),
+      author: 'user',
+      status: 'published',
+    });
+    fs.writeFileSync(file, JSON.stringify(onDisk));
+
+    // Remove A — the broadcast comment must remain on disk afterwards.
+    expect(s.remove(a.id)).toBe(true);
+
+    clearCommentStoreCache();
+    const reloaded = getCommentFileStore('sid').snapshot();
+    expect(reloaded.map((x) => x.body)).toEqual(['from broadcast']);
+  });
 });

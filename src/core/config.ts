@@ -2,6 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+/**
+ * An opt-in shell command that runs when a session changes status. The command
+ * runs with the session's directory as its cwd (passed as the spawn `cwd`
+ * option, never interpolated into the command string).
+ */
+export interface StatusHook {
+  on: 'idle' | 'needs_input';
+  command: string;
+}
+
 export interface WorkConfig {
   worktreesRoot: string;
   repos: Record<string, string>;
@@ -30,10 +40,45 @@ export interface WorkConfig {
   /** Editor command for opening worktrees. Default: "code" */
   editor?: string;
   /**
+   * Range of dev-server ports to allocate to worktrees (inclusive).
+   * Each worktree gets a stable port exposed as $PORT to the launched process.
+   * Default when unset: { start: 3000, end: 3099 }.
+   */
+  portRange?: { start: number; end: number };
+  /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
    * notification when a session goes idle or needs input. Default: off.
    */
   notifications?: boolean;
+  /**
+   * Opt-in shell commands run when a session changes status (idle /
+   * needs_input). Each command runs with the session dir as its cwd.
+   * Generalizes `notifications`; both paths work independently. Default: none.
+   */
+  statusHooks?: StatusHook[];
+}
+
+/** Lowest port we allow to be configured (avoid privileged ports < 1024). */
+const MIN_PORT = 1024;
+/** Highest valid TCP port. */
+const MAX_PORT = 65535;
+
+/**
+ * Validate a configured port range. Returns the normalized range when it is a
+ * pair of integers with `MIN_PORT <= start <= end <= MAX_PORT`, otherwise
+ * undefined (callers then fall back to the default range). Rejects non-integers,
+ * privileged/out-of-bounds ports, and reversed ranges.
+ */
+export function validatePortRange(
+  value: unknown,
+): { start: number; end: number } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { start, end } = value as { start?: unknown; end?: unknown };
+  if (typeof start !== 'number' || typeof end !== 'number') return undefined;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return undefined;
+  if (start < MIN_PORT || end > MAX_PORT) return undefined;
+  if (start > end) return undefined;
+  return { start, end };
 }
 
 export function getConfigDir(): string {
@@ -65,7 +110,9 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
+      portRange: validatePortRange(parsed.portRange),
       notifications: parsed.notifications === true,
+      statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
     };
   } catch {
     return null;

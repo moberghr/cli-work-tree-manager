@@ -5,7 +5,7 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { upsertSession } from './history.js';
+import { upsertSessionWithPort } from './history.js';
 import {
   git,
   parseWorktreeList,
@@ -299,6 +299,8 @@ export interface WorktreeSetupResult {
   paths: string[];
   /** Whether the target is a group. */
   isGroup: boolean;
+  /** Stable dev-server port allocated to this worktree, if allocation succeeded. */
+  port?: number;
 }
 
 /**
@@ -414,12 +416,21 @@ async function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  await upsertSession(groupName, true, branchName, allPaths, jiraKey, baseBranch);
+  const { port } = await upsertSessionWithPort(
+    groupName,
+    true,
+    branchName,
+    allPaths,
+    config,
+    jiraKey,
+    baseBranch,
+  );
 
   console.log('');
   console.log(`Branch: ${branchName}`);
+  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
 
-  return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true };
+  return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true, port };
 }
 
 async function setupSingleWorktree(
@@ -459,11 +470,20 @@ async function setupSingleWorktree(
     if (!success) return null;
   }
 
-  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey, baseBranch);
+  const { port } = await upsertSessionWithPort(
+    targetName,
+    false,
+    branchName,
+    [workTreePath],
+    config,
+    jiraKey,
+    baseBranch,
+  );
 
   console.log(`Branch: ${branchName}`);
+  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
 
-  return { launchDir: workTreePath, paths: [workTreePath], isGroup: false };
+  return { launchDir: workTreePath, paths: [workTreePath], isGroup: false, port };
 }
 
 /**

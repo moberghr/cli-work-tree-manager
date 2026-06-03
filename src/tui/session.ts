@@ -13,6 +13,8 @@ export interface PtyAiOptions {
   unsafe?: boolean;
   resume?: boolean;
   promptFile?: string;
+  /** Dev-server port exposed to the launched process as $PORT. */
+  port?: number;
 }
 
 export class PtySession {
@@ -64,15 +66,20 @@ export class PtySession {
       throw new Error('PtySession requires either a custom command or aiOptions');
     }
 
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
+    );
+    if (aiOptions?.port !== undefined) {
+      env.PORT = String(aiOptions.port);
+    }
+
     debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
     this.pty = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cwd,
       cols,
       rows,
-      env: Object.fromEntries(
-        Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
-      ),
+      env,
     });
     debug('PtySession spawned pid=', this.pty.pid);
 

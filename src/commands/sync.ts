@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
-import { fetchRemoteAsync } from '../core/git.js';
+import { fetchRemoteAsync, getUnpushedCommits } from '../core/git.js';
 import {
   collectPrunable,
   removeSingleEntry,
@@ -104,6 +104,7 @@ export const syncCommand: CommandModule = {
     let removed = 0;
     let failed = 0;
     let skippedDirty = 0;
+    let skippedUnpushed = 0;
     for (const entry of prunable) {
       // Safe by default: never force-remove a worktree with uncommitted
       // changes or unpushed commits unless --force was passed explicitly.
@@ -116,6 +117,28 @@ export const syncCommand: CommandModule = {
           ),
         );
         continue;
+      }
+
+      // A clean worktree may still hold commits not pushed to its upstream.
+      // removeSingleWorktree(force=false) refuses these, which would otherwise
+      // surface as a "Failed to remove" + exitCode=1. That's not a failure —
+      // it's the same safe-by-default skip as uncommitted changes. Detect it
+      // here and report it as a benign skip. (entry.hasChanges only covers the
+      // working tree, not unpushed history.)
+      if (!force) {
+        const unpushedRepos = entry.repos.filter(
+          (r) => getUnpushedCommits(r.worktreePath) !== '',
+        );
+        if (unpushedRepos.length > 0) {
+          skippedUnpushed++;
+          console.log(
+            chalk.yellow(
+              `  Skipping ${entry.target}: ${entry.branch} — unpushed commits ` +
+                `(pass --force to remove anyway).`,
+            ),
+          );
+          continue;
+        }
       }
 
       try {
@@ -153,6 +176,13 @@ export const syncCommand: CommandModule = {
       console.log(
         chalk.yellow(
           `Skipped ${skippedDirty} worktree(s) with local changes (use --force).`,
+        ),
+      );
+    }
+    if (skippedUnpushed > 0) {
+      console.log(
+        chalk.yellow(
+          `Skipped ${skippedUnpushed} worktree(s) with unpushed commits (use --force).`,
         ),
       );
     }

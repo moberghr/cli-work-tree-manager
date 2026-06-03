@@ -23,6 +23,7 @@ import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../core/hook-server.js';
 import { notifyDesktop, notifyKindForEvent } from '../core/notifier.js';
+import { runStatusHooks } from '../core/status-hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
@@ -485,6 +486,18 @@ export function App({ unsafe, onExit }: AppProps) {
           notifyDesktop(path.basename(pty.cwd), kind, {
             enabled: config?.notifications === true,
           });
+          // User-configurable status-change commands (opt-in via config).
+          // Fire-and-forget; independent of the desktop-notification path.
+          // Use the resolved PtySession launch dir (pty.cwd), not the raw hook
+          // cwd, so a group/sub-repo cwd doesn't run the hook in a sub-repo
+          // directory or expose a sub-repo basename as $WORK_SESSION — matching
+          // the notifyDesktop call above.
+          runStatusHooks(
+            kind,
+            pty.cwd,
+            path.basename(pty.cwd),
+            config?.statusHooks,
+          );
         }
       },
     });
@@ -634,7 +647,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const dir = s.isGroup ? path.dirname(existing) : existing;
     const resume = hasClaudeConversation(dir);
     const tool = getAiTool(config ?? {});
-    const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume });
+    const pty = new PtySession(dir, termInner, contentHeight - 2, undefined, { tool, unsafe, resume, port: s.port });
     void upsertSession(s.target, s.isGroup, s.branch, s.paths).catch((err) =>
       setMessage(`Failed to save session: ${(err as Error).message}`),
     );
@@ -787,7 +800,7 @@ export function App({ unsafe, onExit }: AppProps) {
       const launchDir = session.isGroup ? path.dirname(existing) : existing;
       const tool = getAiTool(config);
       const aiPty = new PtySession(launchDir, termInner, contentHeight - 2, undefined,
-        { tool, unsafe, promptFile });
+        { tool, unsafe, promptFile, port: session.port });
       registerPty(key, aiPty, `Session exited: ${projectName} / ${branchName}`);
       connectPty(key, aiPty);
       setMessage(`Launched: ${projectName}/${branchName}`);
