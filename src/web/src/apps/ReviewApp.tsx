@@ -1,13 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  fetchCheckpoints,
   fetchScopeDiff,
   fetchScopeDiffByHash,
   staticHasBranchScope,
+  type CheckpointEntry,
+  type CheckpointRangeEnd,
   type DiffBase,
   type RepoData,
   type ReviewContext,
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
+import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
 import { scopeHashReviewApi } from '../api/review-api.js';
@@ -58,11 +62,73 @@ export function ReviewApp({ context, scopeHash }: Props) {
     ? staticHasBranchScope()
     : true; // server mode always supports both — server resolves on demand.
 
+  // Checkpoint range — only meaningful in scope-mounted mode (work web).
+  // `null` means "no range selected yet, use default base mode" — the
+  // initial state until checkpoints load. `userPicked` flips true once
+  // the user manually selects a chip; from then on we don't auto-shift
+  // the selection when a new checkpoint arrives.
+  const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
+  const [range, setRange] = useState<{
+    from: number;
+    to: CheckpointRangeEnd;
+  } | null>(null);
+  const userPickedRef = useRef(false);
+
+  // Fetch checkpoint list on scope-mount + whenever a checkpoint event
+  // arrives. Default range = (last → working), so the user sees "what
+  // changed since the last automatic snapshot" without any clicks.
+  const refreshCheckpoints = useCallback(() => {
+    if (!scopeHash) return;
+    fetchCheckpoints(scopeHash).then(
+      (entries) => {
+        setCheckpoints(entries);
+        if (entries.length === 0) {
+          setRange(null);
+          return;
+        }
+        // Default range pins `from` to the FIRST entry — the "Initial"
+        // checkpoint taken when this scope first registered. The strip
+        // is a baseline-comparison tool: the user opened `wd` to see
+        // "everything since I started this session", not "since the
+        // most recent autosave". Auto-advancing `from` to the newest
+        // checkpoint would collapse the visible diff to "since the
+        // last save" each time an autosave fired, instantly losing the
+        // baseline they expected.
+        const firstId = entries[0].id;
+        if (!userPickedRef.current) {
+          setRange({ from: firstId, to: 'working' });
+          return;
+        }
+        // Validate an explicit user pick against the new entry list.
+        // If their `from` or `to` no longer exists (scope torn down +
+        // re-registered, or manifest rotated), reset to the default
+        // and clear the user-picked flag so subsequent arrivals
+        // auto-pin to the new Initial.
+        setRange((prev) => {
+          if (!prev) return { from: firstId, to: 'working' };
+          const fromExists = entries.some((e) => e.id === prev.from);
+          const toExists =
+            prev.to === 'working' || entries.some((e) => e.id === prev.to);
+          if (!fromExists || !toExists) {
+            userPickedRef.current = false;
+            return { from: firstId, to: 'working' };
+          }
+          return prev;
+        });
+      },
+      () => { /* silent — strip just stays hidden */ },
+    );
+  }, [scopeHash]);
+
+  useEffect(() => {
+    refreshCheckpoints();
+  }, [refreshCheckpoints]);
+
   useEffect(() => {
     const myReq = ++reqIdRef.current;
     setError(null);
     const fetcher = scopeHash
-      ? fetchScopeDiffByHash(scopeHash, diffBase)
+      ? fetchScopeDiffByHash(scopeHash, diffBase, range ?? undefined)
       : fetchScopeDiff(diffBase);
     fetcher.then(
       (data) => {
@@ -75,7 +141,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
         setError(err.message);
       },
     );
-  }, [reloadKey, diffBase, scopeHash]);
+  }, [reloadKey, diffBase, scopeHash, range]);
 
   // In scope-mounted mode, listen to the scope-narrowed SSE stream — it
   // only fires for THIS scope's file changes. Standalone mode uses the
@@ -87,9 +153,34 @@ export function ReviewApp({ context, scopeHash }: Props) {
     {
       events: {
         'diff-changed': () => setReloadKey((n) => n + 1),
+        'checkpoints-changed': () => refreshCheckpoints(),
       },
     },
   );
+
+  const selectCheckpoint = (toId: CheckpointRangeEnd) => {
+    userPickedRef.current = true;
+    setRange({ from: 0, to: toId });
+  };
+  const extendCheckpoint = (toId: CheckpointRangeEnd) => {
+    userPickedRef.current = true;
+    if (!range) {
+      setRange({ from: 0, to: toId });
+      return;
+    }
+    // Shift-click on the LEFT of the current "from" — drag the from
+    // endpoint leftward, keep "to" in place. Working is conceptually
+    // rightmost, so a Working shift-click can never land here.
+    if (toId !== 'working' && toId < range.from) {
+      setRange({ from: toId, to: range.to });
+      return;
+    }
+    // Click is on or to the right of "from" — move "to" to the click.
+    // Includes the case where the click lands inside the current range
+    // (narrows it) and the case where it lands past current "to"
+    // (extends rightward).
+    setRange({ from: range.from, to: toId });
+  };
 
   useEffect(() => {
     if (!repos || repos.length === 0) return;
@@ -273,6 +364,15 @@ export function ReviewApp({ context, scopeHash }: Props) {
           ) : (
             <>
               {!readOnly && <GeneralPane />}
+              {scopeHash && checkpoints.length > 1 && range && (
+                <CheckpointStrip
+                  entries={checkpoints}
+                  fromId={range.from}
+                  toId={range.to}
+                  onSelect={selectCheckpoint}
+                  onExtend={extendCheckpoint}
+                />
+              )}
               {hasTabs && (
                 <nav className="wd-web-repo-tabs">
                   {repos.map((r) => {
