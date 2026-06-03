@@ -17,7 +17,6 @@ import {
 import {
   formatSingleComment,
   startCommentServer,
-  startReadOnlyDiffServer,
 } from '../core/comment-server.js';
 import { diffReviewSnapshot } from '../core/review-poll.js';
 import { renderStatic } from '../core/static-renderer.js';
@@ -30,60 +29,11 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-// pid / process helpers
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readPid(pidPath: string): number | null {
-  try {
-    const raw = fs.readFileSync(pidPath, 'utf-8').trim();
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-function spawnDaemon(extraArgs: string[], logPath: string): number {
-  const out = fs.openSync(logPath, 'a');
-  const child = childSpawn(
-    process.execPath,
-    [process.argv[1], ...extraArgs, '--watch-daemon'],
-    {
-      detached: true,
-      stdio: ['ignore', out, out],
-      windowsHide: true,
-      cwd: process.cwd(),
-    },
-  );
-  child.unref();
-  fs.closeSync(out);
-  return child.pid ?? 0;
-}
-
-// paths
-interface ScopePaths {
-  /** Stable per-scope key; the daemon writes a URL file here. */
-  base: string;
-  pid: string;
-  log: string;
-  url: string;
-}
-
-function pathsForScope(repoSpecs: RepoSpec[]): ScopePaths {
-  const base = stableDiffPath(repoSpecs.map((r) => r.root));
-  return {
-    base,
-    pid: `${base}.pid`,
-    log: `${base}.log`,
-    url: `${base}.url`,
-  };
+/** Per-scope stable filesystem stem under ~/.work/diffs/. Used by the
+ *  static-render path to pick its output filename and (legacy) by the
+ *  `wd -c` comment-server fallback. */
+function scopePathStem(repoSpecs: RepoSpec[]): string {
+  return stableDiffPath(repoSpecs.map((r) => r.root));
 }
 
 // mode handlers
@@ -92,74 +42,141 @@ interface RenderContext {
   base: string;
   baseSource: ResolvedBase['source'];
   repoSpecs: RepoSpec[];
-  paths: ScopePaths;
+  /** Stable filesystem stem (no extension) under ~/.work/diffs/. The
+   *  static-render path appends `.html` to get its output file. */
+  scopeStem: string;
   scopeLabel: string;
 }
 
-function runStop(paths: ScopePaths): void {
-  const pid = readPid(paths.pid);
-  if (pid && isPidAlive(pid)) {
-    try {
-      process.kill(pid);
-      info(chalk.gray(`Stopped watcher (PID ${pid}).`));
-    } catch (err) {
-      console.error(chalk.red('Failed to stop watcher:'), (err as Error).message);
-    }
-  } else {
-    info(chalk.gray('No watcher running for this scope.'));
+/**
+ * `wd --stop`: de-register this scope from the running work web. The
+ * work web process itself keeps running — it's a singleton serving
+ * every scope, so killing the server because one user stopped one
+ * review would punish every other open tab. Use `work web --stop`
+ * to terminate the server.
+ */
+async function runStop(repoSpecs: RepoSpec[]): Promise<void> {
+  const webUrl = readWebUrl();
+  if (!webUrl) {
+    info(chalk.gray('No work web running — nothing to stop.'));
+    return;
   }
-  try { fs.unlinkSync(paths.pid); } catch { /* */ }
-  try { fs.unlinkSync(paths.url); } catch { /* */ }
+  // Compute the same scope hash work web does (sha1 of sorted root
+  // paths) and DELETE it. `scope-routes.ts` clears the auto-snapshot
+  // subscriber + manifest as part of that handler.
+  const hash = stableDiffPath(repoSpecs.map((r) => r.root))
+    .split(/[\\/]/)
+    .pop()!;
+  try {
+    const res = await fetch(`${webUrl}api/scopes/${hash}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) {
+      info(chalk.gray('De-registered this scope from work web.'));
+    } else {
+      info(
+        chalk.yellow(
+          `work web responded ${res.status} — scope may not have been registered.`,
+        ),
+      );
+    }
+  } catch (err) {
+    console.error(
+      chalk.red('Could not reach work web:'),
+      (err as Error).message,
+    );
+  }
 }
 
-/** Foreground daemon entrypoint. Starts the read-only review server and
- *  blocks until killed. The launcher reads the printed URL from the log. */
-async function runDaemon(ctx: RenderContext): Promise<void> {
-  fs.writeFileSync(ctx.paths.pid, String(process.pid));
-  const handle = await startReadOnlyDiffServer({
-    repos: ctx.repoSpecs,
-    scopeLabel: ctx.scopeLabel,
-    sessionBaseBranch: ctx.scope.session?.baseBranch,
-  });
-  fs.writeFileSync(ctx.paths.url, handle.url);
-  info(
-    chalk.gray(
-      `[live] watcher started, pid=${process.pid}, repos=${ctx.repoSpecs.map((r) => r.name).join(',')}, base=${ctx.base}, url=${handle.url}`,
-    ),
-  );
-  const shutdown = () => {
-    handle.stop();
-    try { fs.unlinkSync(ctx.paths.pid); } catch { /* */ }
-    try { fs.unlinkSync(ctx.paths.url); } catch { /* */ }
-    process.exit(0);
-  };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-  await new Promise(() => {});
+function webUrlFilePath(): string {
+  return path.join(os.homedir(), '.work', 'web.url');
 }
 
 /**
- * Try to register this scope with a running `work web` server. Returns
- * the browser URL to open (e.g. `http://127.0.0.1:54321/diff/abc123`)
- * when work web is up and accepting registrations, null otherwise.
+ * Resolve the path to the `work` binary given the path of whichever
+ * binary `wd`/`work` is currently running as. The `web` subcommand
+ * only lives on the `work` binary (`dist/bin.js`); when we're running
+ * as the `wd` shim (`dist/wd-bin.js`) we swap to the sibling. Tsup
+ * ships both into the same dir so the sibling-swap is always valid.
  *
- * Reads `~/.work/web.url` for the discovery handshake. Failure paths
- * (file missing, server unreachable, register endpoint returns non-200)
- * all yield null cleanly — the caller falls back to spawning its own
- * standalone daemon.
+ * Exported for testing — the autostart spawn relies on this to avoid
+ * passing `web --lean` to a binary that only knows `diff`.
+ */
+export function resolveWorkBinPath(selfArgv1: string): string {
+  if (selfArgv1.endsWith('wd-bin.js')) {
+    return path.join(path.dirname(selfArgv1), 'bin.js');
+  }
+  return selfArgv1;
+}
+
+function readWebUrl(): string | null {
+  try {
+    const v = fs.readFileSync(webUrlFilePath(), 'utf-8').trim();
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Spawn a detached, lean `work web` instance and wait for its url file
+ * to appear. Used when `wd` runs with no existing work web — instead of
+ * starting a per-scope standalone daemon, we boot a single shared
+ * server in "lean" mode (skips the Claude activity watcher + hook
+ * installation) and route every subsequent `wd` invocation through it.
+ *
+ * Returns the discovered URL on success, null on timeout. Safe against
+ * a concurrent `wd` racing to do the same thing: the second `work web`
+ * detects the singleton via the pid file and exits cleanly; the first
+ * winner's url file is what both invocations end up reading.
+ */
+async function ensureWorkWebRunning(): Promise<string | null> {
+  const existing = readWebUrl();
+  if (existing) return existing;
+
+  // Spawn `node <work-bin> web --lean --no-open` detached. We're
+  // running as either `dist/bin.js` (the `work` binary) or
+  // `dist/wd-bin.js` (the `wd` shim). The `web` subcommand only
+  // lives on the `work` binary; `resolveWorkBinPath` does the sibling
+  // swap when we're the shim.
+  const workBin = resolveWorkBinPath(process.argv[1]);
+  const out = fs.openSync(
+    path.join(os.homedir(), '.work', 'web-autostart.log'),
+    'a',
+  );
+  const child = childSpawn(
+    process.execPath,
+    [workBin, 'web', '--lean', '--no-open'],
+    {
+      detached: true,
+      stdio: ['ignore', out, out],
+      windowsHide: true,
+      // Inherit cwd doesn't matter for work web — its file-watches use
+      // ~/.work paths exclusively.
+    },
+  );
+  child.unref();
+  fs.closeSync(out);
+
+  // Poll the url file. Generous-ish timeout because cold startup
+  // includes resolving the SPA dist + binding a port + writing the
+  // file; 5 s leaves headroom for slow disks / antivirus on Windows.
+  const url = await waitForUrlFile(webUrlFilePath(), 5000);
+  return url;
+}
+
+/**
+ * Try to register this scope with a running (or just-spawned) `work
+ * web` server. Returns the browser URL to open
+ * (e.g. `http://127.0.0.1:54321/diff/abc123`) on success, null when
+ * everything (existing instance + autostart) failed.
  */
 async function tryRegisterWithWorkWeb(
   ctx: RenderContext,
   routeKind: 'diff' | 'review',
 ): Promise<string | null> {
-  const webUrlFile = path.join(os.homedir(), '.work', 'web.url');
-  let webUrl: string;
-  try {
-    webUrl = fs.readFileSync(webUrlFile, 'utf-8').trim();
-    if (!webUrl) return null;
-  } catch {
-    return null;
-  }
+  const webUrl = await ensureWorkWebRunning();
+  if (!webUrl) return null;
   try {
     const res = await fetch(`${webUrl}api/scopes`, {
       method: 'POST',
@@ -178,48 +195,29 @@ async function tryRegisterWithWorkWeb(
   }
 }
 
-/** Foreground launcher: opens a diff in the browser. Prefers a running
- *  `work web` (registers a scope, opens /diff/<hash>) so a single server
- *  process backs every `wd` invocation. Falls back to spawning a
- *  standalone daemon when work web isn't running. */
+/** Foreground launcher: opens a diff in the browser via `work web`. When
+ *  no work web is running, we auto-start a lean one (`tryRegisterWithWorkWeb`
+ *  handles the spawn + wait) — a single server backs every `wd` invocation
+ *  across all worktrees, no per-scope daemon class. */
 async function runLauncher(ctx: RenderContext): Promise<void> {
-  // Try work web first. When the dashboard is running, every `wd`
-  // invocation lives inside that one server — no extra processes, no
-  // extra ports, browser-bookmarkable URLs.
   const webRouteUrl = await tryRegisterWithWorkWeb(ctx, 'diff');
   if (webRouteUrl) {
-    info(chalk.gray(`Opening in work web: ${webRouteUrl}`));
+    info(chalk.gray(`Opening: ${webRouteUrl}`));
     openUrl(webRouteUrl);
     return;
   }
-
-  // Fallback: standalone daemon. Same lifecycle we had before
-  // (pid + url + log files keyed by scope hash).
-  const existing = readPid(ctx.paths.pid);
-  let url: string | null = null;
-  if (existing && isPidAlive(existing)) {
-    info(chalk.gray(`Watcher already running (PID ${existing}).`));
-    try { url = fs.readFileSync(ctx.paths.url, 'utf-8').trim(); } catch { /* */ }
-  } else {
-    try { fs.unlinkSync(ctx.paths.pid); } catch { /* stale */ }
-    try { fs.unlinkSync(ctx.paths.url); } catch { /* stale */ }
-    const passthrough = process.argv
-      .slice(2)
-      .filter((a) => a !== '--stop' && a !== '--watch');
-    const pid = spawnDaemon(passthrough, ctx.paths.log);
-    info(chalk.gray(`Started watcher (PID ${pid}). Log: ${ctx.paths.log}`));
-    info(chalk.gray('Stop with: wd --stop'));
-    url = await waitForUrlFile(ctx.paths.url, 3000);
-  }
-  if (!url) {
-    console.error(
-      chalk.red('Watcher did not report a URL — check the log:'),
-      ctx.paths.log,
-    );
-    return;
-  }
-  info(chalk.gray(`URL: ${url}`));
-  openUrl(url);
+  // Reached only on autostart failure (port refused, dist/web missing,
+  // 5 s wait elapsed). Surface a clear error rather than silently
+  // falling back to a per-scope process the user would then leak.
+  console.error(
+    chalk.red('Could not start or reach work web.'),
+  );
+  console.error(
+    chalk.gray(
+      `Tail ~/.work/web-autostart.log for diagnostics, or run \`work web\` in another shell to inspect startup directly.`,
+    ),
+  );
+  process.exitCode = 1;
 }
 
 /**
@@ -285,7 +283,7 @@ function runStatic(ctx: RenderContext, initialBranch: boolean): void {
     branch,
     initialBase: initialBranch && branch ? 'branch' : 'uncommitted',
   });
-  const filePath = `${ctx.paths.base}.html`;
+  const filePath = `${ctx.scopeStem}.html`;
   fs.writeFileSync(filePath, html, 'utf-8');
   info(chalk.gray(`Wrote ${filePath}`));
   openUrl(`file:///${filePath.replace(/\\/g, '/')}`);
@@ -315,14 +313,8 @@ function waitForUrlFile(filePath: string, timeoutMs: number): Promise<string | n
  * the caller falls back to a standalone server when this returns false.
  */
 async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
-  const webUrlFile = path.join(os.homedir(), '.work', 'web.url');
-  let webUrl: string;
-  try {
-    webUrl = fs.readFileSync(webUrlFile, 'utf-8').trim();
-    if (!webUrl) return false;
-  } catch {
-    return false;
-  }
+  const webUrl = await ensureWorkWebRunning();
+  if (!webUrl) return false;
 
   let hash: string;
   try {
@@ -552,13 +544,8 @@ export const diffCommand: CommandModule = {
       .option('stop', {
         type: 'boolean',
         default: false,
-        describe: 'Stop the background server for this scope.',
-      })
-      .option('watch-daemon', {
-        type: 'boolean',
-        default: false,
-        hidden: true,
-        describe: 'Internal: run the foreground watcher loop.',
+        describe:
+          "De-register this scope from work web. The work web server itself keeps running; use `work web --stop` to terminate the server.",
       })
       .option('comments', {
         type: 'boolean',
@@ -579,7 +566,12 @@ export const diffCommand: CommandModule = {
       branch: argv.branch as boolean | undefined,
     });
     const repoSpecs = buildRepoSpecs(scope, base);
-    const paths = pathsForScope(repoSpecs);
+    const scopeStem = scopePathStem(repoSpecs);
+
+    // `wd --stop` doesn't need the full ctx — it only needs the repo
+    // specs to derive the scope hash. Short-circuit before the
+    // status-message block so a stop call stays quiet.
+    if (argv.stop) return runStop(repoSpecs);
 
     // Use stderr for status messages so review mode's stdout stays clean
     // (the comments markdown is the only data wd writes to stdout).
@@ -599,16 +591,14 @@ export const diffCommand: CommandModule = {
       base,
       baseSource,
       repoSpecs,
-      paths,
+      scopeStem,
       scopeLabel,
     };
 
-    if (argv.stop) return runStop(ctx.paths);
-    if (argv['watch-daemon']) return runDaemon(ctx);
     if (argv.comments) return runReview(ctx);
     if (argv.static) return runStatic(ctx, !!argv.branch);
-    // Default: live server. Refresh in the browser to see changes; stop
-    // with `wd --stop`. Use --static for a self-contained HTML file.
+    // Default: live server via work web. `runLauncher` registers the
+    // scope (auto-spawning a lean work web when one isn't running).
     return runLauncher(ctx);
   },
 };

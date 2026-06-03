@@ -54,7 +54,12 @@ export function CheckpointStrip({
       role="tablist"
       aria-label="Checkpoint range"
     >
-      <span className="wd-checkpoint-label">Range:</span>
+      <span
+        className="wd-checkpoint-label"
+        title="Click a chip to set the right endpoint · Shift+click to set the left endpoint"
+      >
+        Range:
+      </span>
       {entries.map((e) => {
         const isFrom = e.id === fromId;
         const isTo = toId !== 'working' && e.id === toId;
@@ -68,7 +73,7 @@ export function CheckpointStrip({
         const display =
           e.label && e.label.trim().length > 0 ? e.label : `#${e.id}`;
         const ts = new Date(e.ts);
-        const title = `${display} — ${ts.toLocaleString()}\nClick: from Initial to here · Shift+click: extend range`;
+        const title = `${display} — ${ts.toLocaleString()}\nClick: set the right endpoint here\nShift+click: set the left endpoint here`;
         return (
           <button
             key={e.id}

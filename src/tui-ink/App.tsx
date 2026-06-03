@@ -123,7 +123,7 @@ function generateSlug(summary: string): Promise<string> {
     const child = execFile(
       'claude',
       ['-p', '--model', 'haiku'],
-      { encoding: 'utf-8', timeout: 10000 },
+      { encoding: 'utf-8', timeout: 10000, windowsHide: true },
       (err, stdout) => {
         const result = stdout?.trim()
           .toLowerCase()

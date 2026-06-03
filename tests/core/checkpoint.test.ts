@@ -128,6 +128,33 @@ describe('takeCheckpoint', () => {
     expect(orphan.exitCode).not.toBe(0);
   });
 
+  it('dedups by TREE sha, not commit sha — drops a snapshot whose content is identical even when HEAD moved', async () => {
+    // Stage uncommitted content (modified + untracked) so #0's
+    // snapshot captures a tree that's broader than HEAD's tree.
+    writeFile(repoA, 'extra.md', '# untracked\n');
+    writeFile(repoA, 'README.md', '# modified\n');
+
+    const first = await takeCheckpoint('treededup', [
+      { name: 'repoA', root: repoA },
+    ]);
+    expect(first).not.toBeNull();
+
+    // User commits the entire working tree. HEAD moves; working-tree
+    // content is unchanged. The next snapshot has the SAME tree as
+    // #0 but a different parent (so different commit sha). Commit-sha
+    // dedup would miss this; tree-sha dedup correctly drops it.
+    git(['add', '.'], repoA);
+    git(['commit', '-m', 'commit-working-tree', '--no-gpg-sign'], repoA);
+
+    const second = await takeCheckpoint('treededup', [
+      { name: 'repoA', root: repoA },
+    ]);
+    expect(second).toBeNull();
+
+    const manifest = loadManifest('treededup');
+    expect(manifest.entries).toHaveLength(1);
+  });
+
   it('appends a new entry when the working tree changed', async () => {
     await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     writeFile(repoA, 'README.md', '# v2\n');

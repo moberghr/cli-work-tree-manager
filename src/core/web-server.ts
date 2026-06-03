@@ -94,7 +94,29 @@ function computeSessionDiff(s: WorktreeSession, base: DiffBase): SessionDiffResu
   return { repos, resolvedBase: resolved[0]?.resolvedBase ?? 'HEAD' };
 }
 
-export async function startWebServer(): Promise<WebServerHandle> {
+export interface WebServerOptions {
+  /** When true, skip features that are only useful for the full
+   *  dashboard view (Claude transcript activity watcher, etc.). Used
+   *  when `wd` auto-starts work web on demand: the user opened a diff,
+   *  not the dashboard, so paying for activity tracking + Claude hooks
+   *  is wasted setup. Defaults to false (full dashboard).
+   *
+   *  Lean mode keeps:
+   *    - the SPA + diff/scope routes (the reason wd needs the server)
+   *    - history.json + tasks.json file-watches (cheap, polling)
+   *    - the broadcast / SSE infra
+   *  Lean mode skips:
+   *    - chokidar watcher over `~/.claude/projects` (activity feed)
+   *    - the 10s decay tick (sessions-changed re-broadcast)
+   *  Claude-hooks installation is gated separately in `work web`'s
+   *  command handler — it's not in `startWebServer`. */
+  lean?: boolean;
+}
+
+export async function startWebServer(
+  opts: WebServerOptions = {},
+): Promise<WebServerHandle> {
+  const { lean = false } = opts;
   const webRoot = resolveWebRoot();
   if (!webRoot) {
     throw new Error(
@@ -127,23 +149,28 @@ export async function startWebServer(): Promise<WebServerHandle> {
   // mid-turn. The same broadcast also covers our own PTYs writing here.
   const projectsRoot = claudeProjectsRoot();
   let activityWatcher: { stop(): void } | null = null;
-  try {
-    if (fs.existsSync(projectsRoot)) {
-      activityWatcher = createFsWatcher({
-        roots: [projectsRoot],
-        debounceMs: 250,
-        onChange: () => broadcast('sessions-changed', { ts: Date.now() }),
-      });
-    }
-  } catch { /* watcher startup is best-effort */ }
+  if (!lean) {
+    try {
+      if (fs.existsSync(projectsRoot)) {
+        activityWatcher = createFsWatcher({
+          roots: [projectsRoot],
+          debounceMs: 250,
+          onChange: () => broadcast('sessions-changed', { ts: Date.now() }),
+        });
+      }
+    } catch { /* watcher startup is best-effort */ }
+  }
 
   // Decay tick: even when nothing writes, sessions transition active → open
   // → stale purely by elapsed time. Re-broadcast every 10 s so the badges
-  // catch up. Cheap — the client just refetches /api/sessions.
-  const decayTick = setInterval(
-    () => broadcast('sessions-changed', { ts: Date.now() }),
-    10_000,
-  );
+  // catch up. Cheap — the client just refetches /api/sessions. Skipped
+  // in lean mode (no dashboard consumer).
+  const decayTick = lean
+    ? null
+    : setInterval(
+        () => broadcast('sessions-changed', { ts: Date.now() }),
+        10_000,
+      );
 
   const app = new Hono();
 
@@ -233,7 +260,7 @@ export async function startWebServer(): Promise<WebServerHandle> {
     stop: async () => {
       fs.unwatchFile(historyPath, onHistoryChange);
       fs.unwatchFile(tasksPath, onTasksChange);
-      clearInterval(decayTick);
+      if (decayTick) clearInterval(decayTick);
       activityWatcher?.stop();
       disposeAllWatchers();
       // Sweep checkpoint refs + manifests for every active scope BEFORE

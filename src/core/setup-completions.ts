@@ -44,7 +44,11 @@ function getWindowsDocumentsFolder(): string | null {
     const result = spawn.sync(
       exe,
       ['-NoProfile', '-Command', "[Environment]::GetFolderPath('MyDocuments')"],
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
     );
     if (result.status === 0 && result.stdout) {
       const dir = result.stdout.toString().trim();
@@ -60,6 +64,7 @@ function executableExists(name: string): boolean {
   const result = spawn.sync(cmd, [name], {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   return result.status === 0;
 }

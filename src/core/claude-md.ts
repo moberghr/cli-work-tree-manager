@@ -79,6 +79,7 @@ export function generateGroupClaudeMd(
     input: prompt,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   });
 
   let content: string;

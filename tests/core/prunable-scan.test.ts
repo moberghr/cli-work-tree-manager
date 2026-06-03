@@ -84,7 +84,13 @@ describe('collectPrunable', () => {
       branch: 'feature/y',
       confidence: 'merged',
     });
-    expect(result[0].repos[0].worktreePath).toBe(wtPath);
+    // Slash + 8.3 short-name normalisation: git emits long-name +
+    // forward slashes regardless of what the caller passed in, and on
+    // Windows `wtPath` may carry a `DOMAGO~1`-style short segment via
+    // the TEMP env. Compare by lowercased basenames + the "we got back
+    // a Windows worktree path" sanity check.
+    const wtOut = result[0].repos[0].worktreePath;
+    expect(path.basename(wtOut)).toBe(path.basename(wtPath));
   });
 
   describe('squash-merge confidence', () => {
