@@ -193,7 +193,7 @@ export const treeCommand: CommandModule = {
     if (!setupOnly) {
       const tool = getAiTool(config);
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(result.launchDir, tool, { unsafe, initialPrompt });
+      launchAi(result.launchDir, tool, { unsafe, initialPrompt }, result.port);
     }
   },
 };

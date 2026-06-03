@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
+import { allocateFreePort } from './port-allocator.js';
 
 export interface WorktreeSession {
   target: string;
@@ -14,6 +16,8 @@ export interface WorktreeSession {
   jiraKey?: string;
   /** Branch this worktree was forked from. Recorded when known at creation time. */
   baseBranch?: string;
+  /** Stable dev-server port allocated to this worktree, exposed as $PORT. */
+  port?: number;
 }
 
 export function getHistoryPath(): string {
@@ -106,6 +110,7 @@ export async function upsertSession(
   paths: string[],
   jiraKey?: string,
   baseBranch?: string,
+  port?: number,
 ): Promise<void> {
   await withHistoryLock(() => {
     const sessions = loadHistory();
@@ -117,6 +122,7 @@ export async function upsertSession(
       existing.lastAccessedAt = now;
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
+      if (port !== undefined) existing.port = port;
     } else {
       const session: WorktreeSession = {
         target,
@@ -128,10 +134,79 @@ export async function upsertSession(
       };
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
+      if (port !== undefined) session.port = port;
       sessions.push(session);
     }
 
     saveHistory(sessions);
+  });
+}
+
+/**
+ * Atomically allocate a stable dev-server port AND persist the session in a
+ * single locked critical section. Allocating over `loadHistory()` and then
+ * writing in a separate `upsertSession` call is a TOCTOU race: two concurrent
+ * `work tree` runs would both read the same history snapshot and pick the same
+ * port. Doing load + allocate + save under one `withHistoryLock` serializes
+ * concurrent allocations so each gets a distinct port.
+ *
+ * Port allocation is best-effort: if it fails (range exhausted, etc.) the
+ * session is still persisted, just without a port, and `port` comes back
+ * undefined. An already-allocated port on an existing session is preserved
+ * (idempotent re-runs keep their port).
+ *
+ * The allocation seed is `target:branch` (unique per worktree) so two repos
+ * that share a branch name don't collide on the same deterministic base offset.
+ */
+export async function upsertSessionWithPort(
+  target: string,
+  isGroup: boolean,
+  branch: string,
+  paths: string[],
+  config: Pick<WorkConfig, 'portRange'>,
+  jiraKey?: string,
+  baseBranch?: string,
+): Promise<{ port?: number }> {
+  return withHistoryLock(async () => {
+    const sessions = loadHistory();
+    const existing = findSession(sessions, target, branch);
+    const now = new Date().toISOString();
+
+    // Keep an already-assigned port; otherwise allocate against the current
+    // (locked) snapshot so concurrent callers can't pick the same one.
+    let port = existing?.port;
+    if (port === undefined) {
+      const seedKey = sessionKey(target, branch);
+      try {
+        port = await allocateFreePort(seedKey, config, sessions);
+      } catch {
+        port = undefined;
+      }
+    }
+
+    if (existing) {
+      existing.paths = paths;
+      existing.lastAccessedAt = now;
+      if (jiraKey) existing.jiraKey = jiraKey;
+      if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
+      if (port !== undefined) existing.port = port;
+    } else {
+      const session: WorktreeSession = {
+        target,
+        isGroup,
+        branch,
+        paths,
+        createdAt: now,
+        lastAccessedAt: now,
+      };
+      if (jiraKey) session.jiraKey = jiraKey;
+      if (baseBranch) session.baseBranch = baseBranch;
+      if (port !== undefined) session.port = port;
+      sessions.push(session);
+    }
+
+    saveHistory(sessions);
+    return { port };
   });
 }
 
