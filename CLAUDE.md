@@ -107,15 +107,19 @@ After building, `work` is available globally (via `npm link`). Rebuild after sou
 
 ```
 work init                                          # Interactive first-time setup
-work tree|t <target> <branch> [--base <branch>] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>]  # Create/switch to worktree
+work tree|t <target> <branch> [--base <branch>] [--here] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd)
 work remove <target> <branch> [--force]            # Remove worktree
 work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status
 work recent [count]                                # List recent sessions
 work resume [--unsafe]                             # Resume a recent session
 work dash [--unsafe]                               # Interactive session dashboard (TUI)
-work prune [--force]                               # Remove merged worktrees
+work prune [--force]                               # Remove merged worktrees (interactive)
+work sync [--dry-run] [--force] [--include-squash] # Fetch all repos in parallel + prune merged worktrees (non-interactive; skips dirty/unpushed unless --force, skips repos whose fetch failed)
 work completion [--install]                        # Shell completions
+
+work run <cmd...> [--target <a>] [--branch <b>] [--all] [--parallel] [--jobs N] [--halt-on-error]  # Run a shell command across worktrees (bare run needs --all; Ctrl-C kills the whole fleet)
+work broadcast <prompt|-> [--target <a>] [--branch <b>] [--all]  # Queue a prompt to every live session; delivered on each session's next turn via UserPromptSubmit hook (bare broadcast needs --all)
 
 work todo                                          # List open tasks
 work todo add <text>                               # Add a task
@@ -150,7 +154,7 @@ work hook <event>                                  # Internal — invoked by Cla
 ### Module Flow
 
 ```
-bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,dash,config,init,todo,diff,web,hook}.ts
+bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,sync,dash,web,config,init,todo,run,broadcast,diff,hook}.ts
 wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                        ↓
                                   core/worktree.ts (atomic + high-level operations)
@@ -163,10 +167,19 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/jira.ts               ← Jira issue fetching via acli
                                   ├── core/setup-completions.ts  ← shell profile detection & install
                                   ├── core/claude-activity.ts    ← reads ~/.claude/projects mtimes → active/open/stale
+                                  ├── core/port-allocator.ts     ← deterministic free-port pick for `work web` (portRange + liveness probe)
+                                  ├── core/notifier.ts           ← desktop notifications on idle/needs_input (osascript/notify-send/toast)
+                                  ├── core/status-hooks.ts       ← user shell hooks ({on,command}) on session status change
+                                  │
+                                  Fleet (the `work run` + `work broadcast` feature)
+                                  ├── core/fleet.ts                 ← selectSessions/expandRunUnits/runPool helpers (shared filter)
+                                  └── core/broadcast.ts             ← queue a prompt to live sessions via the comment store (locked write)
                                   │
                                   Diff stack (the `wd` + `work web` feature)
                                   ├── core/diff-parse.ts            ← unified-diff parser → ParsedFile[]
-                                  ├── core/diff-pipeline.ts         ← computeDiff (git diff + synthetic untracked)
+                                  ├── core/diff-pipeline.ts         ← computeDiff (git diff + synthetic untracked + lcov coverage)
+                                  ├── core/checkpoint.ts            ← per-scope working-tree snapshots (refs/wd/<hash>/<n>) for range diffs
+                                  ├── core/lcov.ts                  ← lcov.info parsing → per-file coverage % (cached by path+mtime)
                                   ├── core/diff-scope.ts            ← resolveScope/resolveBase/buildRepoSpecs + resolveRepoDiff (shared parent/merge-base helper)
                                   ├── core/repo-spec.ts             ← RepoSpec + stableDiffPath
                                   ├── core/static-renderer.ts       ← inlines bundle + JSON → self-contained HTML (`wd --static` mode)
