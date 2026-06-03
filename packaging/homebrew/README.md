@@ -6,7 +6,7 @@ Homebrew formula — the tap repo holds a copy.
 ## 1. npm (baseline)
 
 ```bash
-npm install -g work-tree     # installs `work` and `wd`
+npm install -g @moberg_hr/work-tree     # installs `work` and `wd`
 ```
 
 Publishing:
@@ -55,7 +55,7 @@ npm publish
 
 # 2. compute the sha256 of the published tarball
 VERSION=$(node -p "require('./package.json').version")
-URL="https://registry.npmjs.org/work-tree/-/work-tree-${VERSION}.tgz"
+URL="https://registry.npmjs.org/@moberg_hr/work-tree/-/work-tree-${VERSION}.tgz"
 SHA=$(curl -sL "$URL" | shasum -a 256 | cut -d' ' -f1)
 echo "url $URL"
 echo "sha256 $SHA"
