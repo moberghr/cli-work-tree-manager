@@ -1,8 +1,50 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isIgnoredWatchPath } from '../../src/core/fs-watcher.js';
+import { createFsWatcher, isIgnoredWatchPath } from '../../src/core/fs-watcher.js';
 
 const root = path.resolve('/repo');
+
+/** Wait up to `ms` for `cond()` to hold, polling every 25ms. */
+async function waitFor(cond: () => boolean, ms = 3000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (cond()) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return cond();
+}
+
+describe('createFsWatcher', () => {
+  it('fires onChange for a tracked file and stays quiet after stop()', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-fsw-'));
+    let hits = 0;
+    const watcher = createFsWatcher({
+      roots: [dir],
+      debounceMs: 20,
+      onChange: () => {
+        hits += 1;
+      },
+    });
+    try {
+      // Give the OS watch a moment to arm, then touch a real file.
+      await new Promise((r) => setTimeout(r, 100));
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'hello');
+      expect(await waitFor(() => hits > 0)).toBe(true);
+
+      const afterStart = hits;
+      watcher.stop();
+      await new Promise((r) => setTimeout(r, 50));
+      fs.writeFileSync(path.join(dir, 'b.txt'), 'world');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(hits).toBe(afterStart); // no events after stop()
+    } finally {
+      watcher.stop();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('isIgnoredWatchPath', () => {
   it('ignores dependency dirs (node_modules) at any depth — EMFILE guard', () => {
