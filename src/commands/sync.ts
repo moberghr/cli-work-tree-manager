@@ -20,12 +20,23 @@ export const syncCommand: CommandModule = {
         default: false,
       })
       .option('force', {
-        describe: 'Skip dirty-tree safety checks when removing (default: true)',
+        describe:
+          'Force-remove worktrees with uncommitted changes or unpushed commits ' +
+          '(default: false — such worktrees are skipped unless --force is given)',
         type: 'boolean',
-        default: true,
+        default: false,
+      })
+      .option('include-squash', {
+        describe:
+          'Also prune branches detected only via the squash-merge heuristic ' +
+          '(default: false — unattended sync requires true-merge confidence)',
+        type: 'boolean',
+        default: false,
       }),
   handler: async (argv) => {
     const dryRun = argv['dryRun'] as boolean;
+    const force = argv['force'] as boolean;
+    const includeSquash = argv['includeSquash'] as boolean;
 
     const config = ensureConfig();
 
@@ -34,6 +45,10 @@ export const syncCommand: CommandModule = {
       fs.existsSync(repoPath),
     );
 
+    // Repos whose fetch failed: their remote refs may be stale, so merge checks
+    // are unreliable. Skip pruning any worktree backed by these repos.
+    const skipAliases = new Set<string>();
+
     if (repoEntries.length > 0) {
       console.log(chalk.gray(`Fetching ${repoEntries.length} repo(s)...`));
       await Promise.all(
@@ -41,11 +56,13 @@ export const syncCommand: CommandModule = {
           try {
             await fetchRemoteAsync(repoPath);
           } catch (err) {
+            skipAliases.add(alias);
             console.log(
               chalk.yellow(
-                `  Warning: fetch failed for ${alias}: ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
+                `  Warning: fetch failed for ${alias} — skipping prune for this ` +
+                  `repo (refs may be stale): ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
               ),
             );
           }
@@ -56,7 +73,14 @@ export const syncCommand: CommandModule = {
 
     console.log(chalk.gray('Scanning worktrees for merged branches...\n'));
     // We already fetched in parallel above; skip the serial fetch in collect.
-    const prunable = collectPrunable(config, { fetch: false });
+    // print:false avoids double-printing the scan table — sync prints its own
+    // summary below.
+    const prunable = collectPrunable(config, {
+      fetch: false,
+      print: false,
+      includeSquash,
+      skipAliases,
+    });
 
     if (prunable.length === 0) {
       console.log(chalk.green('No merged worktrees found. Everything is in sync.'));
@@ -79,14 +103,38 @@ export const syncCommand: CommandModule = {
 
     let removed = 0;
     let failed = 0;
+    let skippedDirty = 0;
     for (const entry of prunable) {
+      // Safe by default: never force-remove a worktree with uncommitted
+      // changes or unpushed commits unless --force was passed explicitly.
+      if (entry.hasChanges && !force) {
+        skippedDirty++;
+        console.log(
+          chalk.yellow(
+            `  Skipping ${entry.target}: ${entry.branch} — uncommitted changes ` +
+              `(pass --force to remove anyway).`,
+          ),
+        );
+        continue;
+      }
+
       try {
-        if (entry.type === 'single') {
-          await removeSingleEntry(entry);
+        const ok =
+          entry.type === 'single'
+            ? await removeSingleEntry(entry, force)
+            : await removeGroupEntry(entry, config, force);
+        if (ok) {
+          removed++;
         } else {
-          await removeGroupEntry(entry, config);
+          // Non-throwing failure (e.g. removeSingleWorktree refused or git
+          // failed). Count it so process.exitCode is reliable for CI.
+          failed++;
+          console.log(
+            chalk.red(
+              `  Failed to remove ${entry.target}: ${entry.branch}`,
+            ),
+          );
         }
-        removed++;
       } catch (err) {
         failed++;
         console.log(
@@ -101,6 +149,13 @@ export const syncCommand: CommandModule = {
 
     console.log('');
     console.log(chalk.green(`Pruned ${removed} worktree(s).`));
+    if (skippedDirty > 0) {
+      console.log(
+        chalk.yellow(
+          `Skipped ${skippedDirty} worktree(s) with local changes (use --force).`,
+        ),
+      );
+    }
     if (failed > 0) {
       console.log(chalk.red(`Failed to remove ${failed} worktree(s).`));
       process.exitCode = 1;
