@@ -243,6 +243,34 @@ describe('computeDiff mdContent', () => {
     expect(paths).not.toContain('notes.md');
   });
 
+  it('detects a rename (+ edit) across a checkpoint range as one renamed entry', () => {
+    // -M on the diff-tree path must pair the deleted old path with the
+    // added new path instead of rendering them as a separate add + delete.
+    write('old.txt', 'line1\nline2\nline3\nline4\nline5\n');
+    commit('init');
+    const cpSha = snapshotRepo(tmpDir, 'rename', 0);
+    expect(cpSha).toBeTruthy();
+
+    git(['mv', 'old.txt', 'new.txt'], tmpDir);
+    write('new.txt', 'line1\nline2\nline3 edited\nline4\nline5\n');
+
+    const files = computeRangeDiff({
+      root: tmpDir,
+      fromRef: cpSha!,
+      toRef: 'working',
+    });
+    const renamed = files.find((f) => f.status === 'renamed');
+    expect(renamed).toBeDefined();
+    expect(renamed!.oldPath).toBe('old.txt');
+    expect(renamed!.newPath).toBe('new.txt');
+    expect(files.some((f) => f.status === 'added' && f.path === 'new.txt')).toBe(
+      false,
+    );
+    expect(
+      files.some((f) => f.status === 'deleted' && f.path === 'old.txt'),
+    ).toBe(false);
+  });
+
   it('does not read symlinks that target paths outside the repo root', () => {
     // On Windows, creating a regular file symlink requires Developer
     // Mode / Admin. Skip when symlink() throws EPERM rather than fail.

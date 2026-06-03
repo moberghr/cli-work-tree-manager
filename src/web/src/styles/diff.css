@@ -110,6 +110,34 @@
 }
 .wd-file-stats { margin-left: auto; }
 
+/* GitHub-style per-file collapse chevron. Points down when expanded,
+   right when collapsed (aria-expanded drives the rotation). */
+.wd-file-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.wd-file-collapse:hover { background: var(--hover); color: var(--fg); }
+.wd-chevron {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.12s ease;
+  transform: rotate(90deg); /* expanded → pointing down */
+}
+.wd-file-collapse[aria-expanded='false'] .wd-chevron {
+  transform: rotate(0deg); /* collapsed → pointing right */
+}
+
 /* Viewed checkbox. Collapsed body, dimmed header — matches GitHub's
    "Viewed" toggle. */
 .wd-viewed-label {
@@ -133,6 +161,13 @@
   border-bottom: none;
   border-radius: 6px;
   opacity: 0.7;
+}
+/* Collapsed (but not necessarily viewed): round the header and drop its
+   bottom border so it doesn't double up with the article border. No
+   dimming — that's reserved for the "viewed" state. */
+.wd-file.wd-file-collapsed .wd-file-header {
+  border-bottom: none;
+  border-radius: 6px;
 }
 .wd-tree-file.wd-tree-file-viewed > a .wd-tree-name {
   opacity: 0.55;
@@ -258,6 +293,55 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+/* Diff-fetch spinner, shown next to the label while a range/base switch
+   is loading so the click has immediate feedback. */
+.wd-checkpoint-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent, #58a6ff);
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: wd-spin 0.7s linear infinite;
+}
+@keyframes wd-spin {
+  to { transform: rotate(360deg); }
+}
+/* While a diff fetch is in flight, dim the diff body (but NOT the strip or
+   the loading bar, so the active chip + progress cue stay crisp) and block
+   clicks on stale content that's about to be replaced. */
+.wd-web-review-main[aria-busy='true']
+  > :not(.wd-checkpoint-strip):not(.wd-diff-loading-bar) {
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+/* Thin indeterminate progress bar at the top of the diff pane. Shown for
+   any in-flight diff fetch — works without a checkpoint strip (the
+   dashboard session view, or a scope with ≤1 checkpoint). Sticky so it
+   stays visible while scrolled. */
+.wd-diff-loading-bar {
+  position: sticky;
+  top: var(--tabs-offset, 0px);
+  z-index: 5;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent, #58a6ff) 22%, transparent);
+}
+.wd-diff-loading-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: var(--accent, #58a6ff);
+  animation: wd-loading-slide 0.9s ease-in-out infinite;
+}
+@keyframes wd-loading-slide {
+  0% { left: -35%; }
+  100% { left: 100%; }
 }
 .wd-checkpoint-chip {
   appearance: none;

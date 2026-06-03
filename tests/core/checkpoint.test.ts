@@ -128,31 +128,59 @@ describe('takeCheckpoint', () => {
     expect(orphan.exitCode).not.toBe(0);
   });
 
-  it('dedups by TREE sha, not commit sha — drops a snapshot whose content is identical even when HEAD moved', async () => {
-    // Stage uncommitted content (modified + untracked) so #0's
-    // snapshot captures a tree that's broader than HEAD's tree.
-    writeFile(repoA, 'extra.md', '# untracked\n');
-    writeFile(repoA, 'README.md', '# modified\n');
+  it('initial checkpoint baselines HEAD, not the working tree (pre-existing changes stay visible)', async () => {
+    // Pre-existing uncommitted work present at the moment the scope is
+    // registered (`wd` launched on a dirty worktree). If the Initial
+    // checkpoint snapshotted the working tree, these changes would be
+    // baked into the baseline and vanish from the default "Initial →
+    // working" range. The baseline must be HEAD instead.
+    writeFile(repoA, 'README.md', '# pre-existing change\n');
+    writeFile(repoA, 'new.txt', 'untracked\n');
 
-    const first = await takeCheckpoint('treededup', [
+    const initial = await takeCheckpoint('baseline', [
       { name: 'repoA', root: repoA },
     ]);
-    expect(first).not.toBeNull();
+    expect(initial).not.toBeNull();
+    expect(initial!.label).toBe('Initial');
+
+    // The Initial snapshot's tree must equal HEAD's tree — the working-
+    // tree changes are NOT folded into the baseline.
+    const headTree = git(['rev-parse', 'HEAD^{tree}'], repoA).stdout.trim();
+    const initialTree = git(
+      ['rev-parse', `${initial!.repos.repoA}^{tree}`],
+      repoA,
+    ).stdout.trim();
+    expect(initialTree).toBe(headTree);
+  });
+
+  it('dedups by TREE sha, not commit sha — drops a snapshot whose content is identical even when HEAD moved', async () => {
+    // Initial baseline (id 0 = HEAD's tree).
+    await takeCheckpoint('treededup', [{ name: 'repoA', root: repoA }]);
+
+    // Stage uncommitted content (modified + untracked) and capture it as
+    // id 1 — a working-tree snapshot whose tree is broader than HEAD's.
+    writeFile(repoA, 'extra.md', '# untracked\n');
+    writeFile(repoA, 'README.md', '# modified\n');
+    const second = await takeCheckpoint('treededup', [
+      { name: 'repoA', root: repoA },
+    ]);
+    expect(second).not.toBeNull();
+    expect(second!.id).toBe(1);
 
     // User commits the entire working tree. HEAD moves; working-tree
     // content is unchanged. The next snapshot has the SAME tree as
-    // #0 but a different parent (so different commit sha). Commit-sha
+    // id 1 but a different parent (so different commit sha). Commit-sha
     // dedup would miss this; tree-sha dedup correctly drops it.
     git(['add', '.'], repoA);
     git(['commit', '-m', 'commit-working-tree', '--no-gpg-sign'], repoA);
 
-    const second = await takeCheckpoint('treededup', [
+    const third = await takeCheckpoint('treededup', [
       { name: 'repoA', root: repoA },
     ]);
-    expect(second).toBeNull();
+    expect(third).toBeNull();
 
     const manifest = loadManifest('treededup');
-    expect(manifest.entries).toHaveLength(1);
+    expect(manifest.entries).toHaveLength(2);
   });
 
   it('appends a new entry when the working tree changed', async () => {
@@ -197,8 +225,18 @@ describe('takeCheckpoint', () => {
   });
 
   it('snapshots all repos in a group scope at once', async () => {
+    // Commit distinct content into each repo so their HEAD baselines
+    // differ. The Initial checkpoint captures HEAD (not the working
+    // tree), and both repos start from an identical committed README in
+    // beforeEach — so without distinct HEADs their baseline commits
+    // would (correctly) be identical and the distinctness check below
+    // would be meaningless.
     writeFile(repoA, 'a.md', 'A1\n');
     writeFile(repoB, 'b.md', 'B1\n');
+    git(['add', '.'], repoA);
+    git(['commit', '-m', 'a', '--no-gpg-sign'], repoA);
+    git(['add', '.'], repoB);
+    git(['commit', '-m', 'b', '--no-gpg-sign'], repoB);
     const entry = await takeCheckpoint('hashG', [
       { name: 'repoA', root: repoA },
       { name: 'repoB', root: repoB },

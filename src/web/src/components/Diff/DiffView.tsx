@@ -8,8 +8,10 @@ import {
 } from '../../api/client.js';
 import { sessionReviewApi } from '../../api/review-api.js';
 import { useSse } from '../../api/events.js';
+import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
 import { ReviewProvider } from '../../state/ReviewProvider.js';
 import { DiffRepo } from './DiffRepo.js';
+import { DiffLoadingBar } from './DiffLoadingBar.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
@@ -33,10 +35,7 @@ interface Props {
  * `diff === null` happens after the hooks.
  */
 export function DiffView({ session }: Props) {
-  const [diff, setDiff] = useState<SessionDiff | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const reqIdRef = useRef(0);
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   // Per-session diff scope. Defaults to uncommitted (the working-tree
   // view). 'branch' shows everything since this worktree was forked,
@@ -44,20 +43,17 @@ export function DiffView({ session }: Props) {
   // dev/develop).
   const [diffBase, setDiffBase] = useState<DiffBase>('uncommitted');
 
-  useEffect(() => {
-    const myReq = ++reqIdRef.current;
-    setError(null);
-    fetchSessionDiff(session.id, diffBase).then(
-      (data) => {
-        if (myReq !== reqIdRef.current) return;
-        setDiff(data);
-      },
-      (err: Error) => {
-        if (myReq !== reqIdRef.current) return;
-        setError(err.message);
-      },
-    );
-  }, [session.id, reloadKey, diffBase]);
+  // Shared fetch + deferred-loading hook (same one ReviewApp uses) so a
+  // base switch here gets the spinner/dim feedback instead of the old
+  // "frozen, then snaps" behaviour.
+  const {
+    data: diff,
+    error,
+    loading,
+  } = useDeferredDiffLoad(
+    () => fetchSessionDiff(session.id, diffBase),
+    [session.id, reloadKey, diffBase],
+  );
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
     events: {
@@ -236,6 +232,7 @@ export function DiffView({ session }: Props) {
         />
         <main
           className="wd-web-review-main"
+          aria-busy={loading}
           // Always set --tabs-offset (0px when no tabs) so the value is
           // present in every render. With keep-mounted-hidden dashboard
           // nav, an incoming pane that flips from hidden to visible would
@@ -243,6 +240,7 @@ export function DiffView({ session }: Props) {
           // layout jump when scrolling sticky-positioned file headers.
           style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
         >
+          {loading && <DiffLoadingBar />}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>

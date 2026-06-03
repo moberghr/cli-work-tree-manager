@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import hljs from 'highlight.js';
 import type { ParsedFile } from '../../api/client.js';
 import { languageForPath } from '../../utils/language.js';
@@ -73,6 +73,21 @@ export function DiffFile({
   const isLarge = totalChanged >= AUTO_COLLAPSE_LINES;
   const [expanded, setExpanded] = useState(!isLarge);
 
+  // GitHub-style per-file fold. The chevron in the header collapses the
+  // whole file body. A file starts folded when it carries no diff worth
+  // reading — a deletion, or a rename with no content change — or when
+  // it's marked "viewed" (GitHub parity). The chevron overrides this
+  // freely; the default only re-applies when one of its inputs changes
+  // (viewed toggles, or live-reload flips the file's status/hunks).
+  // Ephemeral (resets on scope switch), same as the large-file `expanded`
+  // gate above.
+  const isPureRename = file.status === 'renamed' && file.hunks.length === 0;
+  const autoCollapsed = !!viewed || file.status === 'deleted' || isPureRename;
+  const [collapsed, setCollapsed] = useState<boolean>(autoCollapsed);
+  useEffect(() => {
+    setCollapsed(autoCollapsed);
+  }, [autoCollapsed]);
+
   // Per-file view mode. Markdown files get a Diff | Preview | Split toggle —
   // Preview renders the new (or before, for deletions) content; Split shows
   // both rendered side-by-side. Non-markdown files always render the diff.
@@ -89,6 +104,13 @@ export function DiffFile({
     mdContent.before !== undefined &&
     mdContent.after !== undefined;
   const [viewMode, setViewMode] = useState<FileViewMode>('diff');
+  // Reset to the diff view whenever the file folds. The body gate is
+  // `!collapsed` (not `!viewed`), so without this an expand of a
+  // previously-Preview'd file would re-open straight into the rendered
+  // preview rather than the diff. GitHub always re-expands to the diff.
+  useEffect(() => {
+    if (collapsed) setViewMode('diff');
+  }, [collapsed]);
 
   const renamed =
     file.status === 'renamed' && file.oldPath !== file.newPath ? (
@@ -98,12 +120,28 @@ export function DiffFile({
     ) : null;
   return (
     <article
-      className={'wd-file' + (viewed ? ' wd-file-viewed' : '')}
+      className={
+        'wd-file' +
+        (viewed ? ' wd-file-viewed' : '') +
+        (collapsed ? ' wd-file-collapsed' : '')
+      }
       id={anchor}
       data-status={file.status}
       data-path={file.path}
     >
       <header className="wd-file-header">
+        <button
+          type="button"
+          className="wd-file-collapse"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand file' : 'Collapse file'}
+          title={collapsed ? 'Expand file' : 'Collapse file'}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          <span className="wd-chevron" aria-hidden="true">
+            ▸
+          </span>
+        </button>
         <span className={`wd-file-badge wd-status-${file.status}`}>
           {STATUS_LETTER[file.status]}
         </span>
@@ -114,7 +152,7 @@ export function DiffFile({
             <span className="wd-del">-{file.deleted}</span>
           </span>
         )}
-        {hasPreview && !viewed && (
+        {hasPreview && !collapsed && (
           <div
             className="wd-view-mode"
             role="tablist"
@@ -175,13 +213,15 @@ export function DiffFile({
           </label>
         )}
       </header>
-      {!viewed &&
+      {!collapsed &&
         (hasPreview && viewMode !== 'diff' ? (
           <MarkdownPreview file={file} mode={viewMode} />
         ) : file.isBinary ? (
           <div className="wd-binary">Binary file</div>
         ) : file.hunks.length === 0 ? (
-          <div className="wd-binary">No content changes</div>
+          <div className="wd-binary">
+            {isPureRename ? 'File renamed without changes' : 'No content changes'}
+          </div>
         ) : !expanded ? (
           <div className="wd-binary wd-large-file">
             <p>
