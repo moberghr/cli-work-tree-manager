@@ -16,6 +16,22 @@ export interface FsWatcher {
 }
 
 /**
+ * Whether chokidar should skip a path. Excludes `.git/` (constant git noise)
+ * and any `node_modules/` segment — recursively watching a large
+ * node_modules exhausts file descriptors (EMFILE) and wedges the server, and
+ * those files are git-ignored anyway so they never affect the diff.
+ */
+export function isIgnoredWatchPath(roots: string[], filePath: string): boolean {
+  const norm = filePath.replace(/\\/g, '/');
+  if (/(^|\/)node_modules(\/|$)/.test(norm)) return true;
+  for (const root of roots) {
+    const rel = path.relative(root, filePath).replace(/\\/g, '/');
+    if (rel === '.git' || rel.startsWith('.git/')) return true;
+  }
+  return false;
+}
+
+/**
  * Debounced chokidar watcher over one-or-more repo roots. Filters out
  * `.git/` to avoid the constant noise git generates internally. Shared
  * between `wd` (the diff server's reload trigger) and any other live
@@ -26,13 +42,7 @@ export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
   let debounceTimer: NodeJS.Timeout | null = null;
 
   const watcher = chokidar.watch(opts.roots, {
-    ignored: (filePath) => {
-      for (const root of opts.roots) {
-        const rel = path.relative(root, filePath).replace(/\\/g, '/');
-        if (rel === '.git' || rel.startsWith('.git/')) return true;
-      }
-      return false;
-    },
+    ignored: (filePath) => isIgnoredWatchPath(opts.roots, filePath),
     ignoreInitial: true,
     persistent: true,
     awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
