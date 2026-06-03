@@ -11,8 +11,10 @@ import {
   type ReviewContext,
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
+import { useDeferredDiffLoad } from '../hooks/use-deferred-diff-load.js';
 import { decideRange } from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
+import { DiffLoadingBar } from '../components/Diff/DiffLoadingBar.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
 import { scopeHashReviewApi } from '../api/review-api.js';
@@ -43,13 +45,7 @@ interface Props {
  * every render. Branching on `repos === null` happens after the hooks.
  */
 export function ReviewApp({ context, scopeHash }: Props) {
-  const [repos, setRepos] = useState<RepoData[] | null>(null);
-  const [resolvedBase, setResolvedBase] = useState<string | undefined>(
-    undefined,
-  );
-  const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const reqIdRef = useRef(0);
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   const readOnly = !!context.readOnly;
   // Per-view diff scope. Honors the server/CLI default; the user can
@@ -102,24 +98,22 @@ export function ReviewApp({ context, scopeHash }: Props) {
     refreshCheckpoints();
   }, [refreshCheckpoints]);
 
-  useEffect(() => {
-    const myReq = ++reqIdRef.current;
-    setError(null);
-    const fetcher = scopeHash
-      ? fetchScopeDiffByHash(scopeHash, diffBase, range ?? undefined)
-      : fetchScopeDiff(diffBase);
-    fetcher.then(
-      (data) => {
-        if (myReq !== reqIdRef.current) return;
-        setRepos(data.repos);
-        setResolvedBase(data.resolvedBase);
-      },
-      (err: Error) => {
-        if (myReq !== reqIdRef.current) return;
-        setError(err.message);
-      },
-    );
-  }, [reloadKey, diffBase, scopeHash, range]);
+  // Diff fetch + deferred loading state lives in the shared hook so the
+  // timing logic (and the "clear the show-timer the moment the fetch
+  // settles" rule) stays in one place for both this view and DiffView.
+  const {
+    data: diffData,
+    error,
+    loading,
+  } = useDeferredDiffLoad(
+    () =>
+      scopeHash
+        ? fetchScopeDiffByHash(scopeHash, diffBase, range ?? undefined)
+        : fetchScopeDiff(diffBase),
+    [reloadKey, diffBase, scopeHash, range],
+  );
+  const repos: RepoData[] | null = diffData?.repos ?? null;
+  const resolvedBase = diffData?.resolvedBase;
 
   // In scope-mounted mode, listen to the scope-narrowed SSE stream — it
   // only fires for THIS scope's file changes. Standalone mode uses the
@@ -338,6 +332,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
         />
         <main
           className="wd-web-review-main"
+          aria-busy={loading}
           // Always set --tabs-offset (0px when no tabs) — keeps the
           // sticky-header offset stable across tab switches in
           // keep-mounted-hidden layouts.
@@ -353,8 +348,10 @@ export function ReviewApp({ context, scopeHash }: Props) {
               toId={range.to}
               onSelect={selectCheckpoint}
               onExtend={extendCheckpoint}
+              busy={loading}
             />
           )}
+          {loading && <DiffLoadingBar />}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>

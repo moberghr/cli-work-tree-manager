@@ -9,7 +9,12 @@
  * a diff between any two (or between one and the live working tree).
  *
  * Snapshots are taken automatically:
- *   - once when a scope is first registered (the "Initial" point)
+ *   - once when a scope is first registered (the "Initial" point). This
+ *     baseline captures HEAD's tree, NOT the working tree — so a range of
+ *     "Initial → working" equals the full uncommitted diff (`git diff HEAD`
+ *     plus untracked), and any pre-existing uncommitted work the user
+ *     already had when `wd` launched stays visible instead of being baked
+ *     into an invisible baseline.
  *   - again whenever the scope's fs-watch debounce fires AND the working
  *     tree differs from the previous snapshot (the dedup keeps idle saves
  *     from spawning empty checkpoints)
@@ -31,9 +36,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import spawn from 'cross-spawn';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
+import { writeTempTree } from './git-tree-snapshot.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -95,10 +100,18 @@ export function loadManifest(scopeHash: string): CheckpointManifest {
 // the same scope must not race on `nextId`.)
 
 /**
- * Capture the working tree (incl. untracked, respecting .gitignore) of a
- * single repo as a commit and return its sha. Updates
+ * Capture a single repo as a commit and return its sha. Updates
  * `refs/wd/<scopeHash>/<id>` to point at the commit so git GC can't
  * reclaim it. Returns null on failure (caller should skip this repo).
+ *
+ * `includeWorkingTree` (default true) controls what tree is captured:
+ *   - true  — the working tree, incl. untracked files (subject to
+ *             .gitignore). This is the normal per-change snapshot.
+ *   - false — HEAD's tree verbatim (no `git add -A`). Used for the
+ *             "Initial" baseline so a diff of Initial → working reproduces
+ *             the full uncommitted diff rather than hiding pre-existing
+ *             changes inside the baseline. On a repo with no commits this
+ *             yields the empty tree (everything shows as added).
  *
  * Internally uses a temp `GIT_INDEX_FILE` so the user's real index is
  * untouched. The temp file is unlinked on success and on most failures.
@@ -107,95 +120,51 @@ export function snapshotRepo(
   repoRoot: string,
   scopeHash: string,
   id: number,
+  includeWorkingTree = true,
 ): string | null {
-  const tmpIndex = path.join(
-    os.tmpdir(),
-    `wd-cp-${process.pid}-${crypto.randomBytes(6).toString('hex')}.idx`,
-  );
+  // Build the tree (HEAD baseline, or full working tree) via the shared
+  // temp-index helper — same dance `diff-pipeline.ts` uses to diff against
+  // a checkpoint.
+  const tree = writeTempTree(repoRoot, { includeWorkingTree });
+  if (!tree) return null;
+  const { treeSha, headSha } = tree;
 
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: tmpIndex };
-  const run = (args: string[]) =>
-    spawn.sync('git', args, {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      env,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+  // commit-tree doesn't need the temp index. Use a fixed author/committer +
+  // date so two snapshots of identical content produce the SAME commit sha
+  // (the tree sha is already identical; matching commit shas help dedup).
+  // The dedup path in `takeCheckpoint` relies on this: when nothing changed
+  // between captures, every repo's recomputed sha matches the previous entry
+  // and the new manifest row is discarded. (The id isn't in the message; it
+  // lives in the ref name + manifest entry.)
+  const commitArgs = ['commit-tree', treeSha, '-m', 'wd checkpoint'];
+  if (headSha) commitArgs.push('-p', headSha);
+  const commitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'wd',
+    GIT_AUTHOR_EMAIL: 'wd@local',
+    GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+    GIT_COMMITTER_NAME: 'wd',
+    GIT_COMMITTER_EMAIL: 'wd@local',
+    GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+  };
+  const commit = spawn.sync('git', commitArgs, {
+    cwd: repoRoot,
+    encoding: 'utf-8',
+    env: commitEnv,
+    windowsHide: true,
+  });
+  if (commit.status !== 0 || !commit.stdout) return null;
+  const commitSha = commit.stdout.trim();
 
-  try {
-    // Detect whether HEAD exists. Fresh repos with no commits can still
-    // be snapshotted — we just skip the read-tree + parent below.
-    const headSha = (
-      spawn.sync('git', ['rev-parse', '--verify', 'HEAD'], {
-        cwd: repoRoot,
-        encoding: 'utf-8',
-        windowsHide: true,
-      }).stdout ?? ''
-    ).trim();
-    const hasHead = headSha.length > 0;
+  const refName = `refs/wd/${scopeHash}/${id}`;
+  const updateRef = spawn.sync('git', ['update-ref', refName, commitSha], {
+    cwd: repoRoot,
+    encoding: 'utf-8',
+    windowsHide: true,
+  });
+  if (updateRef.status !== 0) return null;
 
-    if (hasHead) {
-      const r = run(['read-tree', 'HEAD']);
-      if (r.status !== 0) return null;
-    }
-
-    // Stage every working-tree change INCLUDING untracked. `-A` against
-    // a temp index that was either empty or seeded from HEAD captures
-    // the full working-tree state (subject to .gitignore).
-    const add = run(['add', '-A']);
-    if (add.status !== 0) return null;
-
-    const wt = run(['write-tree']);
-    if (wt.status !== 0 || !wt.stdout) return null;
-    const treeSha = wt.stdout.trim();
-
-    // commit-tree doesn't need the temp index. We DO want it to be
-    // deterministic where possible — use a fixed author/committer so two
-    // snapshots of identical content produce the same commit sha (the
-    // tree sha is already identical; matching commit shas help dedup).
-    // Constant message + deterministic author/committer date below — so
-    // two snapshots of identical content produce the SAME commit sha. The
-    // dedup path in `takeCheckpoint` relies on this: when nothing changed
-    // between captures, every repo's recomputed sha matches the previous
-    // entry and the new manifest row is discarded. (The id isn't in the
-    // message; it lives in the ref name + manifest entry.)
-    const commitArgs = ['commit-tree', treeSha, '-m', 'wd checkpoint'];
-    if (hasHead) commitArgs.push('-p', headSha);
-    const commitEnv = {
-      ...process.env,
-      GIT_AUTHOR_NAME: 'wd',
-      GIT_AUTHOR_EMAIL: 'wd@local',
-      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
-      GIT_COMMITTER_NAME: 'wd',
-      GIT_COMMITTER_EMAIL: 'wd@local',
-      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
-    };
-    const commit = spawn.sync('git', commitArgs, {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      env: commitEnv,
-      windowsHide: true,
-    });
-    if (commit.status !== 0 || !commit.stdout) return null;
-    const commitSha = commit.stdout.trim();
-
-    const refName = `refs/wd/${scopeHash}/${id}`;
-    const updateRef = spawn.sync(
-      'git',
-      ['update-ref', refName, commitSha],
-      { cwd: repoRoot, encoding: 'utf-8', windowsHide: true },
-    );
-    if (updateRef.status !== 0) return null;
-
-    return commitSha;
-  } finally {
-    try {
-      if (fs.existsSync(tmpIndex)) fs.unlinkSync(tmpIndex);
-    } catch {
-      // Temp-file leftover isn't fatal — os will clean it eventually.
-    }
-  }
+  return commitSha;
 }
 
 export interface ScopeRepo {
@@ -234,9 +203,17 @@ export async function takeCheckpoint(
       ? 0
       : manifest.entries[manifest.entries.length - 1].id + 1;
 
+    // The first checkpoint baselines HEAD (not the working tree) so
+    // pre-existing uncommitted work stays visible in an "Initial → working"
+    // range. Every subsequent checkpoint captures the working tree.
     const captured: Record<string, string | null> = {};
     for (const repo of repos) {
-      captured[repo.name] = snapshotRepo(repo.root, scopeHash, nextId);
+      captured[repo.name] = snapshotRepo(
+        repo.root,
+        scopeHash,
+        nextId,
+        !isFirst,
+      );
     }
 
     // Delete `refs/wd/<hash>/<id>` in every listed repo. Used by both

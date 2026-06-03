@@ -16,6 +16,9 @@ interface Props {
    *  or vice-versa depending on which side of the current range the
    *  click landed. The component is dumb; the caller decides. */
   onExtend: (toId: CheckpointRangeEnd) => void;
+  /** A diff fetch for the selected range is in flight — show a spinner so
+   *  the click reads as "loading" instead of an unresponsive UI. */
+  busy?: boolean;
 }
 
 /**
@@ -31,6 +34,7 @@ export function CheckpointStrip({
   toId,
   onSelect,
   onExtend,
+  busy,
 }: Props) {
   if (entries.length === 0) return null;
 
@@ -53,6 +57,7 @@ export function CheckpointStrip({
       className="wd-checkpoint-strip"
       role="tablist"
       aria-label="Checkpoint range"
+      aria-busy={busy}
     >
       <span
         className="wd-checkpoint-label"
@@ -60,6 +65,13 @@ export function CheckpointStrip({
       >
         Range:
       </span>
+      {busy && (
+        <span
+          className="wd-checkpoint-spinner"
+          role="status"
+          aria-label="Loading diff"
+        />
+      )}
       {entries.map((e) => {
         const isFrom = e.id === fromId;
         const isTo = toId !== 'working' && e.id === toId;

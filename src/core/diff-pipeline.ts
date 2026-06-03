@@ -1,7 +1,5 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import spawn from 'cross-spawn';
 import { git } from './git.js';
 import {
@@ -10,6 +8,13 @@ import {
   type ParsedFile,
 } from './diff-parse.js';
 import { coverageLookup } from './lcov.js';
+import { writeTempTree } from './git-tree-snapshot.js';
+
+/** `git`'s rename-detection flag. Centralised so the three diff invocations
+ *  (HEAD-vs-working, checkpoint-vs-working, checkpoint-vs-checkpoint) stay in
+ *  lockstep — tuning the threshold (e.g. `-M40%`) or disabling it is a
+ *  one-line change here. */
+const RENAME_DETECT = '-M';
 
 const MARKDOWN_EXT_RE = /\.(md|markdown|mdx)$/i;
 
@@ -158,54 +163,18 @@ export interface ComputeDiffOptions {
 }
 
 /**
- * Build a tree-sha snapshot of the current working tree (including
- * untracked files, subject to .gitignore) without disturbing the real
- * git index — same temp-`GIT_INDEX_FILE` dance as `checkpoint.ts`. Used
- * by `computeRangeDiff` to do a true tree-vs-tree diff against a
- * checkpoint commit: `git diff <ref>` would otherwise produce phantom
- * "deleted" entries for files that were untracked-at-snapshot-time,
- * because git's working-tree diff goes through the real index and
- * untracked files appear "absent" from its perspective.
+ * Tree-sha snapshot of the current working tree (incl. untracked, subject to
+ * .gitignore) without disturbing the real git index. Used by
+ * `computeRangeDiff` to do a true tree-vs-tree diff against a checkpoint
+ * commit: `git diff <ref>` would otherwise produce phantom "deleted" entries
+ * for files that were untracked-at-snapshot-time, because git's working-tree
+ * diff goes through the real index and untracked files appear "absent".
+ *
+ * Thin wrapper over the shared `writeTempTree` helper (also used by
+ * `checkpoint.ts::snapshotRepo`).
  */
 function workingTreeTreeSha(root: string): string | null {
-  const tmpIndex = path.join(
-    os.tmpdir(),
-    `wd-diff-${process.pid}-${crypto.randomBytes(6).toString('hex')}.idx`,
-  );
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: tmpIndex };
-  const run = (args: string[]) =>
-    spawn.sync('git', args, {
-      cwd: root,
-      encoding: 'utf-8',
-      env,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-  try {
-    const headExists =
-      (
-        spawn.sync('git', ['rev-parse', '--verify', 'HEAD'], {
-          cwd: root,
-          encoding: 'utf-8',
-          windowsHide: true,
-        }).stdout ?? ''
-      ).trim().length > 0;
-    if (headExists) {
-      const r = run(['read-tree', 'HEAD']);
-      if (r.status !== 0) return null;
-    }
-    const add = run(['add', '-A']);
-    if (add.status !== 0) return null;
-    const wt = run(['write-tree']);
-    if (wt.status !== 0 || !wt.stdout) return null;
-    return wt.stdout.trim();
-  } finally {
-    try {
-      if (fs.existsSync(tmpIndex)) fs.unlinkSync(tmpIndex);
-    } catch {
-      /* */
-    }
-  }
+  return writeTempTree(root, { includeWorkingTree: true })?.treeSha ?? null;
 }
 
 /**
@@ -272,8 +241,10 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
   const trackedResult = spawn.sync(
     'git',
     // -w (ignore-all-space) hides pure whitespace changes so a reformat
-    // of indentation doesn't drown out the real changes.
-    ['diff', '--no-color', '--no-ext-diff', '-w', diffArg],
+    // of indentation doesn't drown out the real changes. RENAME_DETECT turns
+    // on rename detection so a `git mv` (+ edits) shows as one renamed entry
+    // with its inline diff instead of a separate delete + add pair.
+    ['diff', '--no-color', '--no-ext-diff', '-w', RENAME_DETECT, diffArg],
     {
       cwd: root,
       encoding: 'utf-8',
@@ -398,7 +369,10 @@ export function computeRangeDiff(opts: ComputeRangeDiffOptions): ParsedFile[] {
     if (!wtTreeSha) return [];
     const result = spawn.sync(
       'git',
-      ['diff-tree', '-r', '-p', '--no-color', '--no-ext-diff', fromRef, wtTreeSha],
+      // RENAME_DETECT: detect renames between the checkpoint tree and the
+      // working tree so a rename (with or without edits) renders as one
+      // entry, matching the HEAD-vs-working path above.
+      ['diff-tree', '-r', '-p', RENAME_DETECT, '--no-color', '--no-ext-diff', fromRef, wtTreeSha],
       {
         cwd: root,
         encoding: 'utf-8',
@@ -426,7 +400,9 @@ export function computeRangeDiff(opts: ComputeRangeDiffOptions): ParsedFile[] {
   // exactly one reformatting pass.
   const result = spawn.sync(
     'git',
-    ['diff', '--no-color', '--no-ext-diff', fromRef, toRef],
+    // RENAME_DETECT: rename detection between two checkpoint commits (no -w
+    // here — see the note above on why range diffs keep whitespace changes).
+    ['diff', '--no-color', '--no-ext-diff', RENAME_DETECT, fromRef, toRef],
     {
       cwd: root,
       encoding: 'utf-8',
