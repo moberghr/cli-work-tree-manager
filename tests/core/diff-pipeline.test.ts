@@ -289,3 +289,63 @@ describe('computeDiff mdContent', () => {
     expect(b!.mdContent?.after).toContain('# b2');
   });
 });
+
+describe('computeDiff coverage', () => {
+  it('attaches coverage + lcov mtime, and flags staleness when source is newer than lcov', () => {
+    write('src/a.ts', 'export const x = 1;\n');
+    commit('init');
+    write('src/a.ts', 'export const x = 2;\n');
+
+    // lcov measured at a fixed point in the past.
+    const lcov = [
+      'SF:src/a.ts',
+      'DA:1,1',
+      'LF:4',
+      'LH:3',
+      'end_of_record',
+    ].join('\n');
+    write('coverage/lcov.info', lcov);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(path.join(tmpDir, 'coverage', 'lcov.info'), past, past);
+    // Make the source file clearly NEWER than the lcov.
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(path.join(tmpDir, 'src', 'a.ts'), future, future);
+
+    const files = computeDiff({ root: tmpDir, diffArg: 'HEAD' });
+    const a = files.find((f) => f.path === 'src/a.ts');
+    expect(a).toBeDefined();
+    expect(a!.coverage).toBeCloseTo(75); // 3/4
+    expect(typeof a!.coverageMtimeMs).toBe('number');
+    // Source mtime > lcov mtime → stale.
+    expect(a!.coverageStale).toBe(true);
+  });
+
+  it('does not flag staleness when lcov is newer than the source', () => {
+    write('src/b.ts', 'export const y = 1;\n');
+    commit('init');
+    write('src/b.ts', 'export const y = 2;\n');
+
+    const lcov = ['SF:src/b.ts', 'LF:2', 'LH:2', 'end_of_record'].join('\n');
+    write('coverage/lcov.info', lcov);
+    // lcov clearly newer than the source file.
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(path.join(tmpDir, 'src', 'b.ts'), old, old);
+    const now = new Date();
+    fs.utimesSync(path.join(tmpDir, 'coverage', 'lcov.info'), now, now);
+
+    const files = computeDiff({ root: tmpDir, diffArg: 'HEAD' });
+    const b = files.find((f) => f.path === 'src/b.ts');
+    expect(b!.coverage).toBe(100);
+    expect(b!.coverageStale).toBeFalsy();
+  });
+
+  it('leaves coverage undefined when no lcov is present', () => {
+    write('src/c.ts', 'export const z = 1;\n');
+    commit('init');
+    write('src/c.ts', 'export const z = 2;\n');
+    const files = computeDiff({ root: tmpDir, diffArg: 'HEAD' });
+    const c = files.find((f) => f.path === 'src/c.ts');
+    expect(c!.coverage).toBeUndefined();
+    expect(c!.coverageMtimeMs).toBeUndefined();
+  });
+});

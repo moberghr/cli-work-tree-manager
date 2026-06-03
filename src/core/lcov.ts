@@ -92,45 +92,155 @@ export function findLcov(root: string): string | null {
   return null;
 }
 
+/**
+ * Cache of parsed lcov files keyed by absolute lcov path. `computeDiff` runs
+ * on every SSE / chokidar tick; an lcov.info can be multiple MB, so we MUST
+ * NOT re-read + re-parse it each refresh. The cache is invalidated when the
+ * file's `mtimeMs` changes (a fresh `npm test -- --coverage` run rewrites it).
+ */
+interface LcovCacheEntry {
+  mtimeMs: number;
+  parsed: Map<string, number>;
+}
+const lcovCache = new Map<string, LcovCacheEntry>();
+
+/**
+ * Read + parse the lcov at `lcovPath`, memoizing by `(path, mtimeMs)`. Returns
+ * the parsed `SF: → percent` map and the lcov's mtime (ms-since-epoch), or
+ * null when the file can't be stat'd / read. A multi-MB lcov is parsed once
+ * and reused until it is rewritten.
+ *
+ * Exported for testing the cache behavior.
+ */
+export function readParsedLcov(
+  lcovPath: string,
+): { parsed: Map<string, number>; mtimeMs: number } | null {
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(lcovPath).mtimeMs;
+  } catch {
+    lcovCache.delete(lcovPath);
+    return null;
+  }
+
+  const cached = lcovCache.get(lcovPath);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return { parsed: cached.parsed, mtimeMs };
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(lcovPath, 'utf-8');
+  } catch {
+    lcovCache.delete(lcovPath);
+    return null;
+  }
+
+  const parsed = parseLcov(content);
+  lcovCache.set(lcovPath, { mtimeMs, parsed });
+  return { parsed, mtimeMs };
+}
+
+/** Test hook: drop the in-memory parse cache. */
+export function clearLcovCache(): void {
+  lcovCache.clear();
+}
+
 /** Normalize a path for comparison: forward slashes, drop a leading `./`. */
 function normRel(p: string): string {
   return path.normalize(p).replace(/\\/g, '/').replace(/^\.\//, '');
 }
 
 /**
- * Read and parse the repo's lcov (if any) and return a map of repo-relative
- * path → line-coverage percent for the requested files only. lcov `SF:` paths
- * may be absolute or relative; both sides are normalized to repo-relative and
- * compared. Entries are only included on a confident path match.
+ * Canonicalize `root` once so SF:-path matching survives symlink / realpath
+ * divergence (macOS `/tmp` → `/private/tmp`, Linux bind mounts, Windows
+ * junctions) and case-insensitive filesystems. An absolute `SF:` path emitted
+ * by the coverage tool is resolved through `realpath` too, so both sides share
+ * a canonical namespace before `path.relative` runs — otherwise the relative
+ * path comes out `..`-prefixed and the match is silently lost.
  */
-export function coverageForFiles(
+function realRoot(root: string): string {
+  try {
+    return fs.realpathSync(path.resolve(root));
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+/**
+ * Canonicalize an absolute path by realpath-ing its deepest EXISTING ancestor
+ * and re-appending the not-yet-existing tail. `fs.realpathSync(absSf)` throws
+ * when the leaf doesn\'t exist on disk (lcov records files that may since have
+ * moved, or simply aren\'t present in a sparse checkout); a plain
+ * `path.resolve` fallback would leave the path in a different symlink
+ * namespace from `canonRoot` (macOS `/var/folders` TMPDIR, etc.) and the
+ * relative path would come out `..`-prefixed — silently dropping the match.
+ * Resolving the existing prefix keeps both sides in one canonical namespace.
+ */
+function canonicalize(absPath: string): string {
+  const resolved = path.resolve(absPath);
+  let dir = resolved;
+  const tail: string[] = [];
+  // Walk up until we hit a path that exists (realpath-able) or the root.
+  for (;;) {
+    try {
+      const realDir = fs.realpathSync(dir);
+      return tail.length ? path.join(realDir, ...tail.reverse()) : realDir;
+    } catch {
+      const parent = path.dirname(dir);
+      if (parent === dir) return resolved; // reached fs root, nothing realpath-able
+      tail.push(path.basename(dir));
+      dir = parent;
+    }
+  }
+}
+
+/** Resolve an absolute `SF:` path to repo-relative against the canonical root,
+ *  following symlinks (even when the leaf file is absent) so realpath
+ *  divergence and case-insensitive filesystems don\'t break the match. */
+function relForAbsSf(absSf: string, canonRoot: string): string {
+  return path.relative(canonRoot, canonicalize(absSf));
+}
+
+/**
+ * Result of a per-repo coverage lookup. `byPath` maps each requested
+ * repo-relative path that matched to its line-coverage percent. `lcovMtimeMs`
+ * is the mtime of the lcov.info the data came from (so callers can surface
+ * staleness), or null when no lcov was found.
+ */
+export interface CoverageLookup {
+  byPath: Map<string, number>;
+  lcovMtimeMs: number | null;
+}
+
+/**
+ * Read and parse the repo's lcov (if any) and return a map of repo-relative
+ * path → line-coverage percent for the requested files only, plus the lcov
+ * mtime. lcov `SF:` paths may be absolute or relative; both sides are
+ * normalized to a canonical repo-relative path and compared. Entries are only
+ * included on a confident path match.
+ *
+ * The underlying lcov parse is memoized by `(path, mtimeMs)` (see
+ * `readParsedLcov`) so a multi-MB file isn't re-read on every diff refresh.
+ */
+export function coverageLookup(
   root: string,
   relPaths: string[],
-): Map<string, number> {
+): CoverageLookup {
   const out = new Map<string, number>();
   const lcovPath = findLcov(root);
-  if (!lcovPath) return out;
+  if (!lcovPath) return { byPath: out, lcovMtimeMs: null };
 
-  let content: string;
-  try {
-    content = fs.readFileSync(lcovPath, 'utf-8');
-  } catch {
-    return out;
+  const read = readParsedLcov(lcovPath);
+  if (!read || read.parsed.size === 0) {
+    return { byPath: out, lcovMtimeMs: read?.mtimeMs ?? null };
   }
 
-  const parsed = parseLcov(content);
-  if (parsed.size === 0) return out;
-
   // Build a lookup keyed by normalized repo-relative SF path.
-  const normRoot = path.resolve(root);
+  const canonRoot = realRoot(root);
   const byRel = new Map<string, number>();
-  for (const [sf, pct] of parsed) {
-    let rel: string;
-    if (path.isAbsolute(sf)) {
-      rel = path.relative(normRoot, path.resolve(sf));
-    } else {
-      rel = sf;
-    }
+  for (const [sf, pct] of read.parsed) {
+    const rel = path.isAbsolute(sf) ? relForAbsSf(sf, canonRoot) : sf;
     byRel.set(normRel(rel), pct);
   }
 
@@ -139,5 +249,17 @@ export function coverageForFiles(
     if (typeof pct === 'number') out.set(rp, pct);
   }
 
-  return out;
+  return { byPath: out, lcovMtimeMs: read.mtimeMs };
+}
+
+/**
+ * Back-compat thin wrapper: returns just the `repo-relative path → percent`
+ * map (drops the lcov mtime). Prefer `coverageLookup` when you need staleness
+ * information.
+ */
+export function coverageForFiles(
+  root: string,
+  relPaths: string[],
+): Map<string, number> {
+  return coverageLookup(root, relPaths).byPath;
 }

@@ -165,6 +165,14 @@
   color: var(--del-fg);
   background: rgba(207, 34, 46, 0.12);
 }
+/* Stale coverage: the file's source was edited after the lcov.info was
+ * written, so the percent is no longer authoritative. De-emphasize the badge
+ * (muted + dashed outline) so it reads as "unverified", not current. */
+.wd-coverage-stale {
+  opacity: 0.55;
+  border: 1px dashed currentColor;
+  font-style: italic;
+}
 .wd-file-badge {
   width: 20px;
   height: 20px;
