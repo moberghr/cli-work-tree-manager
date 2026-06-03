@@ -2,6 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+/**
+ * An opt-in shell command that runs when a session changes status. The command
+ * runs with the session's directory as its cwd (passed as the spawn `cwd`
+ * option, never interpolated into the command string).
+ */
+export interface StatusHook {
+  on: 'idle' | 'needs_input';
+  command: string;
+}
+
 export interface WorkConfig {
   worktreesRoot: string;
   repos: Record<string, string>;
@@ -34,6 +44,12 @@ export interface WorkConfig {
    * notification when a session goes idle or needs input. Default: off.
    */
   notifications?: boolean;
+  /**
+   * Opt-in shell commands run when a session changes status (idle /
+   * needs_input). Each command runs with the session dir as its cwd.
+   * Generalizes `notifications`; both paths work independently. Default: none.
+   */
+  statusHooks?: StatusHook[];
 }
 
 export function getConfigDir(): string {
@@ -66,6 +82,7 @@ export function loadConfig(): WorkConfig | null {
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
       notifications: parsed.notifications === true,
+      statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
     };
   } catch {
     return null;

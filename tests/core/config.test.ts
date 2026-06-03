@@ -47,6 +47,7 @@ describe('loadConfig', () => {
       repos: { api: '/repos/api' },
       groups: { full: ['api'] },
       copyFiles: ['*.json'],
+      statusHooks: [],
     };
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(data));
 
@@ -121,7 +122,33 @@ describe('loadConfig', () => {
       copyFiles: [],
       // notifications is coerced to a real boolean (opt-in, default off).
       notifications: false,
+      statusHooks: [],
     });
+  });
+
+  it('preserves a valid statusHooks array', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({
+        worktreesRoot: '/wt',
+        statusHooks: [{ on: 'idle', command: 'beep' }],
+      }),
+    );
+    expect(loadConfig()?.statusHooks).toEqual([{ on: 'idle', command: 'beep' }]);
+  });
+
+  it('coerces a non-array statusHooks value to an empty array', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ worktreesRoot: '/wt', statusHooks: { on: 'idle' } }),
+    );
+    const loaded = loadConfig();
+    expect(loaded?.statusHooks).toEqual([]);
+    expect(Array.isArray(loaded?.statusHooks)).toBe(true);
   });
 });
 

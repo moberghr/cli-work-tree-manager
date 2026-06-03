@@ -23,6 +23,7 @@ import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../core/hook-server.js';
 import { notifyDesktop, notifyKindForEvent } from '../core/notifier.js';
+import { runStatusHooks } from '../core/status-hooks.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
@@ -485,6 +486,9 @@ export function App({ unsafe, onExit }: AppProps) {
           notifyDesktop(path.basename(pty.cwd), kind, {
             enabled: config?.notifications === true,
           });
+          // User-configurable status-change commands (opt-in via config).
+          // Fire-and-forget; independent of the desktop-notification path.
+          runStatusHooks(kind, cwd, path.basename(cwd), config?.statusHooks);
         }
       },
     });
