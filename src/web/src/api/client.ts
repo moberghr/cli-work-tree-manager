@@ -138,19 +138,51 @@ export function staticHasBranchScope(): boolean {
   return !!getBoot()?.diffs?.branch;
 }
 
+/** Endpoint of a checkpoint range. `'working'` is the live working tree
+ *  (only valid on the `to` side); numbers are checkpoint ids. */
+export type CheckpointRangeEnd = number | 'working';
+
 /**
  * Fetch a diff for a registered scope from the shared `work web` server.
  * Used by URLs like `/diff/<hash>` and `/review/<hash>` where the SPA is
  * served by `work web` and a `wd` invocation has registered the scope.
+ *
+ * When `range` is provided, the server resolves each endpoint to the
+ * commit captured at that checkpoint and returns a diff between them
+ * (instead of the default HEAD-vs-working). The `base` parameter is
+ * ignored in range mode.
  */
 export function fetchScopeDiffByHash(
   hash: string,
   base: DiffBase = 'uncommitted',
+  range?: { from: number; to: CheckpointRangeEnd },
 ): Promise<ScopeDiffResult> {
-  const q = base === 'branch' ? '?base=branch' : '';
+  const params = new URLSearchParams();
+  if (range) {
+    params.set('from', String(range.from));
+    params.set('to', String(range.to));
+  } else if (base === 'branch') {
+    params.set('base', 'branch');
+  }
+  const q = params.toString();
   return getJson<ScopeDiffResult>(
-    `/api/scopes/${encodeURIComponent(hash)}/diff${q}`,
+    `/api/scopes/${encodeURIComponent(hash)}/diff${q ? `?${q}` : ''}`,
   );
+}
+
+export interface CheckpointEntry {
+  id: number;
+  ts: string;
+  label?: string;
+  /** Per-repo commit sha (null when the repo had no HEAD at capture
+   *  time — diffs treat that side as the empty tree). */
+  repos: Record<string, string | null>;
+}
+
+export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
+  return getJson<{ entries: CheckpointEntry[] }>(
+    `/api/scopes/${encodeURIComponent(hash)}/checkpoints`,
+  ).then((r) => r.entries);
 }
 
 export interface CommentInput {
@@ -232,6 +264,18 @@ export interface ParsedFile {
   added: number;
   deleted: number;
   hunks: Hunk[];
+  /** Full file contents for `.md` / `.markdown` / `.mdx` files — populated
+   *  server-side so the SPA can render a Preview/Split view next to the
+   *  diff. Absent for non-markdown files. */
+  mdContent?: MarkdownContent;
+}
+
+export interface MarkdownContent {
+  before?: string;
+  after?: string;
+  /** Server-side flag: either side exceeded the size cap, so the SPA
+   *  must hide Preview/Split (rendering would blow the browser heap). */
+  tooLarge?: boolean;
 }
 
 export interface RepoData {

@@ -21,7 +21,8 @@ import { mountPanesRoutes } from './panes-routes.js';
 import { mountWorktreeRoutes } from './worktree-routes.js';
 import { mountScopeRoutes } from './scope-routes.js';
 import { mountTerminalRoutes } from './terminal-routes.js';
-import { disposeAllScopes } from './scope-manager.js';
+import { disposeAllScopes, listScopes } from './scope-manager.js';
+import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
 import { disposeAllPtys } from './pty-pool.js';
 import { resolveWebRoot } from './web-static.js';
@@ -235,6 +236,18 @@ export async function startWebServer(): Promise<WebServerHandle> {
       clearInterval(decayTick);
       activityWatcher?.stop();
       disposeAllWatchers();
+      // Sweep checkpoint refs + manifests for every active scope BEFORE
+      // wiping the registry — otherwise `refs/wd/<hash>/*` refs leak
+      // across `work web` restarts and accumulate without bound in
+      // every repo the user has reviewed.
+      for (const scope of listScopes()) {
+        try {
+          clearCheckpoints(scope.hash, scope.paths);
+        } catch {
+          // Best-effort — partial cleanup is fine, log only matters for
+          // diagnosis and doesn't change the shutdown outcome.
+        }
+      }
       disposeAllScopes();
       disposeAllPtys();
       wsBridge.close();
