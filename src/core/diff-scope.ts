@@ -237,7 +237,13 @@ export function resolveRepoDiff(
   if (base === 'uncommitted') {
     return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   }
-  const parent = sessionBaseBranch ?? findAnyParentBranch(root);
+  // Prefer a parent we're actually *ahead of* (`detectParentBranch` skips
+  // candidates whose merge-base is HEAD, e.g. a `dev` that already contains
+  // this branch). `findAnyParentBranch` would pick the most-recent merge-base
+  // even when it's HEAD — yielding a useless 0-commit "since branch" diff.
+  // Fall back to it only so the toggle still resolves to *something*.
+  const parent =
+    sessionBaseBranch ?? detectParentBranch(root) ?? findAnyParentBranch(root);
   if (!parent) return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   let diffArg = 'HEAD';
   const mb = git(['merge-base', parent, 'HEAD'], root);
