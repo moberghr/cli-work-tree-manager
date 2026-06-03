@@ -41,3 +41,41 @@ export async function withFileLock<T>(
     await release();
   }
 }
+
+/**
+ * Synchronous sibling of {@link withFileLock}. Serializes a read-modify-write
+ * across processes using the same advisory-lock mechanism, but without an
+ * `await` so it can be called from synchronous code paths (e.g. the
+ * file-backed comment store, whose API is sync and consumed by sync Hono
+ * route handlers). Caller is responsible for ensuring the target file exists
+ * first (see `ensureFile`).
+ */
+export function withFileLockSync<T>(filePath: string, fn: () => T): T {
+  // proper-lockfile's sync API forbids its own retry config (it requires an
+  // async flow), so we hand-roll a bounded retry: try to acquire, and on a
+  // contended lock (ELOCKED) sleep synchronously and try again.
+  const maxAttempts = 30;
+  let release: (() => void) | undefined;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      release = lockfile.lockSync(filePath, { stale: 10_000 });
+      break;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== 'ELOCKED' || attempt >= maxAttempts) throw err;
+      sleepSync(Math.min(25 * 2 ** Math.min(attempt, 4), 500));
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    release();
+  }
+}
+
+/** Block the current thread for `ms` milliseconds without spinning the CPU.
+ *  Used only by `withFileLockSync`'s contention backoff. */
+function sleepSync(ms: number): void {
+  const shared = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(shared, 0, 0, ms);
+}

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createCommentStore, type CommentInput, type CommentStore } from './comment-store.js';
+import { ensureFile, withFileLockSync, atomicWriteFile } from './fs-safe.js';
 import type { Comment } from './comment-types.js';
 
 /**
@@ -51,10 +52,7 @@ function readDisk(sessionId: string): Comment[] {
 
 function writeDisk(sessionId: string, comments: Comment[]): void {
   ensureDir();
-  const file = pathFor(sessionId);
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, JSON.stringify(comments, null, 2), 'utf-8');
-  fs.renameSync(tmp, file);
+  atomicWriteFile(pathFor(sessionId), JSON.stringify(comments, null, 2));
 }
 
 const cache = new Map<string, CommentFileStore>();
@@ -64,43 +62,69 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
   if (existing) return existing;
 
   const inner = createCommentStore();
-  // Seed from disk.
-  for (const c of readDisk(sessionId)) {
-    // Re-insert via post() would re-assign ids; instead push directly.
-    (inner.list() as Comment[]).push(c);
+
+  /** Replace the in-memory contents with the current on-disk contents.
+   *  Used to reconcile before a mutation so concurrent writers (e.g. a
+   *  `work broadcast` process appending under the same lock) aren't lost. */
+  function reloadInner(): void {
+    const list = inner.list() as Comment[];
+    list.length = 0;
+    for (const c of readDisk(sessionId)) list.push(c);
   }
 
-  function persist(): void {
-    writeDisk(sessionId, inner.snapshot());
+  // Seed from disk.
+  reloadInner();
+
+  /**
+   * Run a read-modify-write of this session's comment file under a
+   * cross-process lock (§5.2): acquire the lock, reload the in-memory store
+   * from disk so it reflects any concurrent appends, apply `mutate`, persist
+   * atomically, then release. `persisted` reports whether anything changed so
+   * a no-op (e.g. removing a missing id) can skip the write.
+   */
+  function lockedMutate<T>(
+    mutate: () => { value: T; persisted: boolean },
+  ): T {
+    const file = pathFor(sessionId);
+    ensureDir();
+    ensureFile(file, '[]');
+    return withFileLockSync(file, () => {
+      reloadInner();
+      const { value, persisted } = mutate();
+      if (persisted) writeDisk(sessionId, inner.snapshot());
+      return value;
+    });
   }
 
   const store: CommentFileStore = {
     list: () => inner.list(),
     snapshot: () => inner.snapshot(),
     post(input: CommentInput) {
-      const c = inner.post(input);
-      persist();
-      return c;
+      return lockedMutate(() => {
+        const c = inner.post(input);
+        return { value: c, persisted: true };
+      });
     },
     remove(id: string) {
-      const r = inner.remove(id);
-      if (r) persist();
-      return r;
+      return lockedMutate(() => {
+        const r = inner.remove(id);
+        return { value: r, persisted: r };
+      });
     },
     submit(summary: string | undefined) {
-      const result = inner.submit(summary);
-      persist();
-      return result;
+      return lockedMutate(() => {
+        const result = inner.submit(summary);
+        return { value: result, persisted: true };
+      });
     },
     discardDrafts() {
-      const n = inner.discardDrafts();
-      if (n > 0) persist();
-      return n;
+      return lockedMutate(() => {
+        const n = inner.discardDrafts();
+        return { value: n, persisted: n > 0 };
+      });
     },
     reload() {
-      const list = inner.list() as Comment[];
-      list.length = 0;
-      for (const c of readDisk(sessionId)) list.push(c);
+      reloadInner();
     },
   };
   cache.set(sessionId, store);
