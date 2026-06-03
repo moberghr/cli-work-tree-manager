@@ -44,6 +44,13 @@ interface ScanEntry {
   merged: boolean;
   into: string | null;
   hasChanges: boolean;
+  /**
+   * Merge confidence for this row. 'squash-merged' rows only matched the
+   * lower-confidence squash heuristic and are gated out of the prunable list
+   * by default — the table labels them distinctly so it never claims a row is
+   * a plain 'merged' when prune/sync will actually skip it.
+   */
+  confidence: MergeConfidence | null;
   /** Sub-label for group repos, e.g. "[straumur]" */
   subLabel?: string;
 }
@@ -155,6 +162,7 @@ export function collectPrunable(
           merged,
           into,
           hasChanges: !!changes,
+          confidence,
           subLabel: alias,
         });
 
@@ -207,6 +215,7 @@ export function collectPrunable(
         merged,
         into,
         hasChanges: !!changes,
+        confidence,
       });
 
       const squashGated = confidence === 'squash-merged' && !includeSquash;
@@ -247,7 +256,15 @@ export function printScanResults(results: ScanEntry[]): void {
     console.log(chalk.cyan(`${target}:`));
     for (const e of entries) {
       const parts: string[] = [];
-      parts.push(e.merged ? chalk.green(`merged into ${e.into}`) : chalk.red('not merged'));
+      if (!e.merged) {
+        parts.push(chalk.red('not merged'));
+      } else if (e.confidence === 'squash-merged') {
+        // Distinct label: squash matches are skipped by default (sync needs
+        // --include-squash), so don't show them as a plain 'merged'.
+        parts.push(chalk.yellow(`squash-merged into ${e.into} (skipped unless --include-squash)`));
+      } else {
+        parts.push(chalk.green(`merged into ${e.into}`));
+      }
       if (e.hasChanges) parts.push(chalk.yellow('uncommitted changes'));
 
       const label = e.subLabel
