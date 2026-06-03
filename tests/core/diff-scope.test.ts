@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process';
 import {
   buildRepoSpecs,
   resolveBase,
+  resolveRepoDiff,
   resolveScope,
 } from '../../src/core/diff-scope.js';
 import {
@@ -159,6 +160,37 @@ describe('resolveBase', () => {
     saveHistory([]);
     const scope = resolveScope(repoDir)!;
     expect(resolveBase(scope, {})).toEqual({ base: 'HEAD', source: 'default' });
+  });
+});
+
+describe('resolveRepoDiff (branch parent selection)', () => {
+  it('prefers a parent we are ahead of over a fully-merged branch', () => {
+    // main@init → feat adds a commit (ahead of main). `dev` is then created
+    // pointing AT feat's HEAD, so dev's merge-base with HEAD IS HEAD (0 ahead).
+    // "Since branch" must resolve to `main` (real divergence), not `dev`
+    // (which would yield a useless empty diff).
+    execSync('git branch main', { cwd: repoDir });
+    execSync('git checkout -q -b feat', { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'y');
+    execSync('git add . && git commit -q -m feat-work', { cwd: repoDir });
+    execSync('git branch dev', { cwd: repoDir }); // dev == feat HEAD
+
+    const r = resolveRepoDiff(repoDir, 'branch');
+    expect(r.resolvedBase).toBe('main');
+    // diffArg is the merge-base with main, not HEAD — so the diff is non-empty.
+    expect(r.diffArg).not.toBe('HEAD');
+  });
+
+  it('honours an explicit session base branch over detection', () => {
+    execSync('git branch main', { cwd: repoDir });
+    expect(resolveRepoDiff(repoDir, 'branch', 'main').resolvedBase).toBe('main');
+  });
+
+  it('uncommitted always resolves to HEAD', () => {
+    expect(resolveRepoDiff(repoDir, 'uncommitted')).toEqual({
+      resolvedBase: 'HEAD',
+      diffArg: 'HEAD',
+    });
   });
 });
 
