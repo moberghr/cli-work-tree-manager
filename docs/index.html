@@ -1171,7 +1171,7 @@
   <div class="container">
     <div class="sec-head"><span class="sec-num">03</span> Why teams use Work</div>
     <h2>Built for engineers running more than one branch at a time.</h2>
-    <p class="lede">Nine capabilities that separate Work from a shell alias around <code>git worktree add</code>.</p>
+    <p class="lede">Twelve capabilities that separate Work from a shell alias around <code>git worktree add</code>.</p>
 
     <div class="grid grid--3">
       <div class="card">
@@ -1244,6 +1244,30 @@
         </div>
         <h3>Cross-platform completion</h3>
         <p>Tab completion auto-installed for PowerShell 7/5.1, bash, and zsh during <code>work init</code>. Idempotent, marker-guarded, manual fallback documented.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="20" cy="6" r="1.5" fill="currentColor"/><circle cx="20" cy="12" r="1.5" fill="currentColor"/><circle cx="20" cy="18" r="1.5" fill="currentColor"/></svg>
+        </div>
+        <h3>Fleet commands</h3>
+        <p>One action, every worktree. <code>work run --all npm test</code> fans a shell command across the fleet (parallel, prefixed output, Ctrl-C kills all). <code>work broadcast --all "rebase onto main"</code> queues a prompt to every live AI session for its next turn.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>
+        </div>
+        <h3>Browser dashboard</h3>
+        <p><code>work web</code> brings every session — diff, review comments, and a live terminal — into one browser tab. A singleton process; every <code>wd</code> review registers as a scope on it instead of spawning its own port.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+        </div>
+        <h3>Idle notifications &amp; hooks</h3>
+        <p>Opt in to a desktop ping when a session finishes its turn or needs input, or wire a <code>statusHooks</code> shell command for sounds, Slack, anything. Plus <code>work sync</code> — fetch every repo and prune merged worktrees in one non-interactive sweep.</p>
       </div>
     </div>
   </div>
@@ -1731,9 +1755,11 @@
       <div class="terminal" style="margin:0">
         <div class="terminal-bar"><i></i><i></i><i></i></div>
 <pre><span class="k-dim">$</span> work tree api feature/login         <span class="k-dim"># create worktree, launch Claude</span>
-<span class="k-dim">$</span> work dash                            <span class="k-dim"># open the cockpit</span>
+<span class="k-dim">$</span> work dash                            <span class="k-dim"># open the cockpit (or `work web` in the browser)</span>
+<span class="k-dim">$</span> wd -c                                <span class="k-dim"># review the diff, comments flow to Claude</span>
+<span class="k-dim">$</span> work run --all npm test              <span class="k-dim"># fan a command across every worktree</span>
 <span class="k-dim">$</span> work resume                          <span class="k-dim"># jump back into a recent session</span>
-<span class="k-dim">$</span> work prune                           <span class="k-dim"># clean up merged branches</span></pre>
+<span class="k-dim">$</span> work sync                            <span class="k-dim"># fetch all repos + prune merged worktrees</span></pre>
       </div>
     </div>
 
