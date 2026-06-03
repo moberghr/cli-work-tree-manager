@@ -5,20 +5,27 @@ import type { Hunk } from '../api/client.js';
  * per-hunk "reviewed" checkbox across live-reload refreshes.
  *
  * The key is `${filePath}@${hash}` where the hash is derived from the hunk
- * BODY — the ordered (kind, content) of each line — and NOT from line
- * numbers. Line numbers (oldStart/newStart) shift whenever the user edits
- * an unrelated part of the file and chokidar pushes a fresh diff, which
- * would otherwise reset or misassign the checkmarks. The body is what the
- * reviewer actually checked off, so hashing it keeps the mark glued to the
- * same change.
+ * BODY — the ordered (kind, content) of each line — plus the hunk's
+ * `@@ ... @@` section header (`hunk.context`), and NOT from line numbers.
+ * Line numbers (oldStart/newStart) shift whenever the user edits an
+ * unrelated part of the file and chokidar pushes a fresh diff, which would
+ * otherwise reset or misassign the checkmarks. The body is what the reviewer
+ * actually checked off, so hashing it keeps the mark glued to the same
+ * change. The section header is folded in so two byte-identical hunk bodies
+ * in the same file (e.g. the same one-line change repeated under different
+ * functions) stay distinct rather than collapsing onto one key.
  *
- * FNV-1a (32-bit) over a tab/newline-delimited rendering of the lines —
- * deterministic, dependency-free, and good enough for a per-file collision
- * domain (a handful of hunks). Same body in two files yields the same hash
- * but the filePath prefix keeps the overall key distinct.
+ * FNV-1a (32-bit) over a tab/newline-delimited rendering of the lines plus
+ * the header — deterministic, dependency-free, and good enough for a
+ * per-file collision domain (a handful of hunks). Same body+header in two
+ * files yields the same hash but the filePath prefix keeps the overall key
+ * distinct.
  */
 export function hunkContentKey(filePath: string, hunk: Hunk): string {
-  let serialized = '';
+  // Lead with the section header so identical bodies under different
+  // contexts hash distinctly. The trailing newline separates it from the
+  // line rendering below.
+  let serialized = '@@' + hunk.context + '\n';
   for (const line of hunk.lines) {
     serialized += line.kind + '\t' + line.content + '\n';
   }

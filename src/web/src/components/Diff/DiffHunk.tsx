@@ -38,9 +38,13 @@ export function DiffHunk({
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
   const ctxText = hunk.context ? ' ' + hunk.context : '';
   const showCheckbox = review && !!file && !!onToggleReviewed;
+  // Only show the "reviewed" accent in review mode. In read-only views
+  // (static `wd` / `wd --server`) there's no checkbox to toggle it off, so a
+  // stale localStorage flag must not paint a green row the user can't clear.
+  const showReviewedAccent = showCheckbox && !!reviewed;
   return (
     <>
-      <tr className={'wd-hunk-row' + (reviewed ? ' wd-hunk-reviewed' : '')}>
+      <tr className={'wd-hunk-row' + (showReviewedAccent ? ' wd-hunk-reviewed' : '')}>
         <td colSpan={4} className="wd-hunk-context">
           {showCheckbox && (
             <label

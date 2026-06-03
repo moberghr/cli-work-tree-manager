@@ -1,30 +1,10 @@
+// @vitest-environment jsdom
+//
+// Uses the jsdom test environment (added as a devDependency by this PR) for a
+// real `localStorage`, matching the sibling use-reviewed-hunks.test.ts. The
+// module under test reads/writes `localStorage` at call time, so jsdom's
+// implementation is all we need.
 import { beforeEach, describe, expect, it } from 'vitest';
-
-// jsdom isn't installed in this repo, so provide a minimal localStorage
-// mock on globalThis before importing the module under test. The module
-// reads/writes localStorage at call time (not import time), so installing
-// the mock here is sufficient.
-class LocalStorageMock {
-  private store: Record<string, string> = {};
-  getItem(key: string): string | null {
-    return Object.prototype.hasOwnProperty.call(this.store, key)
-      ? this.store[key]
-      : null;
-  }
-  setItem(key: string, value: string): void {
-    this.store[key] = String(value);
-  }
-  removeItem(key: string): void {
-    delete this.store[key];
-  }
-  clear(): void {
-    this.store = {};
-  }
-}
-
-(globalThis as unknown as { localStorage: LocalStorageMock }).localStorage =
-  new LocalStorageMock();
-
 import {
   isReviewed,
   readScope,
@@ -32,7 +12,7 @@ import {
 } from '../../src/web/src/state/reviewed-hunks.js';
 
 beforeEach(() => {
-  (globalThis as unknown as { localStorage: LocalStorageMock }).localStorage.clear();
+  localStorage.clear();
 });
 
 describe('reviewed-hunks state', () => {
@@ -58,8 +38,7 @@ describe('reviewed-hunks state', () => {
     expect(isReviewed(scope, hunkKey)).toBe(false);
     expect(readScope(scope)).toEqual(new Set());
     // Empty scope should be pruned from the raw store.
-    const raw = (globalThis as unknown as { localStorage: LocalStorageMock })
-      .localStorage.getItem('work-web:reviewed-hunks');
+    const raw = localStorage.getItem('work-web:reviewed-hunks');
     expect(raw ? JSON.parse(raw) : {}).toEqual({});
   });
 
@@ -75,9 +54,7 @@ describe('reviewed-hunks state', () => {
 
   it('uses its own localStorage key, distinct from viewed-files', () => {
     setReviewed(scope, hunkKey, true);
-    const ls = (globalThis as unknown as { localStorage: LocalStorageMock })
-      .localStorage;
-    expect(ls.getItem('work-web:reviewed-hunks')).not.toBeNull();
-    expect(ls.getItem('work-web:viewed-files')).toBeNull();
+    expect(localStorage.getItem('work-web:reviewed-hunks')).not.toBeNull();
+    expect(localStorage.getItem('work-web:viewed-files')).toBeNull();
   });
 });

@@ -76,6 +76,18 @@ describe('hunkContentKey', () => {
     );
   });
 
+  it('distinguishes two identical-body hunks via their section header', () => {
+    // The same one-line change repeated under two different functions in one
+    // file: identical lines, different `@@ ... @@` context. Without folding
+    // the header in, both would collapse onto one key and toggling one would
+    // mark both.
+    const a = hunk({ context: ' function alpha() {', lines: body });
+    const b = hunk({ context: ' function beta() {', lines: body });
+    expect(hunkContentKey('src/foo.ts', a)).not.toBe(
+      hunkContentKey('src/foo.ts', b),
+    );
+  });
+
   it('distinguishes hunks whose bodies differ only in line order', () => {
     const a = hunk({
       lines: [line('add', 'one', null, 1), line('add', 'two', null, 2)],
