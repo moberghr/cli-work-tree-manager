@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import chokidar from 'chokidar';
@@ -57,15 +58,72 @@ export function isIgnoredWatchPath(roots: string[], filePath: string): boolean {
   return false;
 }
 
+// macOS and Windows support recursive fs.watch (backed by FSEvents /
+// ReadDirectoryChangesW) — a single OS handle covers the whole tree with
+// O(1) file descriptors. Linux has no recursive fs.watch, so we keep
+// chokidar there.
+const SUPPORTS_RECURSIVE_WATCH =
+  process.platform === 'darwin' || process.platform === 'win32';
+
+function logWatchError(err: unknown): void {
+  process.stderr.write(
+    chalk.yellow('[watcher] fs error: ') + (err as Error).message + '\n',
+  );
+}
+
 /**
- * Debounced chokidar watcher over one-or-more repo roots. Filters out
- * `.git/` to avoid the constant noise git generates internally. Shared
- * between `wd` (the diff server's reload trigger) and any other live
- * file-watcher need.
+ * Debounced recursive watcher over one-or-more repo roots, filtering out
+ * `.git/`, `node_modules/`, and build output. Shared between `wd` (the diff
+ * server's reload trigger) and any other live file-watcher need.
+ *
+ * On macOS/Windows this uses one recursive `fs.watch` per root: O(1) fds no
+ * matter how big the tree. chokidar (v4 — no bundled fsevents) instead opens
+ * one watch per directory, which on a large repo exhausts the process's file
+ * descriptors and starves the `git` subprocesses the diff server spawns
+ * (branch detection then silently returns nothing). Linux keeps chokidar.
  */
 export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
   const debounceMs = opts.debounceMs ?? 150;
   let debounceTimer: NodeJS.Timeout | null = null;
+
+  const fire = (): void => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      opts.onChange();
+    }, debounceMs);
+  };
+
+  if (SUPPORTS_RECURSIVE_WATCH) {
+    const watchers = opts.roots.map((root) => {
+      const w = fs.watch(root, { recursive: true }, (_event, filename) => {
+        // `filename` is relative to `root` (and may be null on some events).
+        // The single FSEvents handle still reports ignored dirs, so filter
+        // here to avoid spurious reloads from node_modules / build churn.
+        if (
+          filename &&
+          isIgnoredWatchPath([root], path.join(root, filename.toString()))
+        ) {
+          return;
+        }
+        fire();
+      });
+      w.on('error', logWatchError);
+      return w;
+    });
+    return {
+      stop() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        for (const w of watchers) {
+          try {
+            w.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      },
+    };
+  }
 
   const watcher = chokidar.watch(opts.roots, {
     ignored: (filePath) => isIgnoredWatchPath(opts.roots, filePath),
@@ -73,19 +131,8 @@ export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
     persistent: true,
     awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
   });
-
-  watcher.on('all', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      opts.onChange();
-    }, debounceMs);
-  });
-  watcher.on('error', (err) => {
-    process.stderr.write(
-      chalk.yellow('[watcher] fs error: ') + (err as Error).message + '\n',
-    );
-  });
+  watcher.on('all', fire);
+  watcher.on('error', logWatchError);
 
   return {
     stop() {
