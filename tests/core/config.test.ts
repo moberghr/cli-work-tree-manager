@@ -52,7 +52,8 @@ describe('loadConfig', () => {
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(data));
 
     const loaded = loadConfig();
-    expect(loaded).toEqual(data);
+    // notifications is coerced to a real boolean (opt-in, default off).
+    expect(loaded).toEqual({ ...data, notifications: false });
   });
 
   it('loads the opt-in notifications flag', () => {
@@ -65,14 +66,36 @@ describe('loadConfig', () => {
     expect(loadConfig()?.notifications).toBe(true);
   });
 
-  it('leaves notifications undefined when absent (opt-in default off)', () => {
+  it('coerces notifications to false when absent (opt-in default off)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
       JSON.stringify({ worktreesRoot: '/wt' }),
     );
-    expect(loadConfig()?.notifications).toBeUndefined();
+    expect(loadConfig()?.notifications).toBe(false);
+  });
+
+  it('coerces a truthy non-boolean notifications value to false (only true enables)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ worktreesRoot: '/wt', notifications: 'yes' }),
+    );
+    const loaded = loadConfig();
+    expect(loaded?.notifications).toBe(false);
+    expect(typeof loaded?.notifications).toBe('boolean');
+  });
+
+  it('coerces notifications: 1 to a real boolean false', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ worktreesRoot: '/wt', notifications: 1 }),
+    );
+    expect(loadConfig()?.notifications).toBe(false);
   });
 
   it('returns null for invalid JSON', () => {
@@ -97,6 +120,8 @@ describe('loadConfig', () => {
       repos: {},
       groups: {},
       copyFiles: [],
+      // notifications is coerced to a real boolean (opt-in, default off).
+      notifications: false,
       statusHooks: [],
     });
   });

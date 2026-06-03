@@ -35,6 +35,16 @@ describe('buildNotifyCommand', () => {
     expect(cmd?.args.join(' ')).toContain('ShowBalloonTip');
   });
 
+  it('prefers BurntToast and avoids a load-bearing multi-second sleep on win32', () => {
+    const cmd = buildNotifyCommand('feature-login', 'idle', 'win32');
+    const script = cmd!.args.join(' ');
+    // Best-effort: prefer a real WinRT toast via BurntToast when available.
+    expect(script).toContain('BurntToast');
+    expect(script).toContain('New-BurntToastNotification');
+    // The old 6-second Start-Sleep that leaked the process must be gone.
+    expect(script).not.toMatch(/Start-Sleep -Seconds \d/);
+  });
+
   it('returns null for unsupported platforms', () => {
     expect(buildNotifyCommand('x', 'idle', 'aix')).toBeNull();
     expect(buildNotifyCommand('x', 'idle', 'freebsd')).toBeNull();
@@ -156,6 +166,48 @@ describe('notifyDesktop', () => {
     // The registered async error handler must not throw (swallows ENOENT).
     const handler = child.on.mock.calls[0][1] as () => void;
     expect(() => handler()).not.toThrow();
+  });
+
+  it('spawns osascript with the expected argv on darwin', () => {
+    const child = { on: vi.fn(), unref: vi.fn() };
+    const spawnFn = vi.fn(() => child);
+    notifyDesktop('feature-login', 'idle', {
+      enabled: true,
+      platform: 'darwin',
+      spawnFn: spawnFn as never,
+    });
+    expect(spawnFn).toHaveBeenCalledWith(
+      'osascript',
+      [
+        '-e',
+        'display notification "Idle — finished its turn" with title "work: feature-login"',
+      ],
+      { detached: true, stdio: 'ignore' },
+    );
+    expect(child.unref).toHaveBeenCalled();
+  });
+
+  it('spawns powershell with the expected argv on win32', () => {
+    const child = { on: vi.fn(), unref: vi.fn() };
+    const spawnFn = vi.fn(() => child);
+    notifyDesktop('feature-login', 'needs_input', {
+      enabled: true,
+      platform: 'win32',
+      spawnFn: spawnFn as never,
+    });
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+    const [cmd, args, opts] = spawnFn.mock.calls[0] as [
+      string,
+      string[],
+      Record<string, unknown>,
+    ];
+    expect(cmd).toBe('powershell');
+    expect(args[0]).toBe('-NoProfile');
+    expect(args[1]).toBe('-Command');
+    expect(args[2]).toContain('Needs your input');
+    expect(args[2]).toContain('work: feature-login');
+    expect(opts).toEqual({ detached: true, stdio: 'ignore' });
+    expect(child.unref).toHaveBeenCalled();
   });
 
   it('swallows a throwing spawnFn (never throws to caller)', () => {

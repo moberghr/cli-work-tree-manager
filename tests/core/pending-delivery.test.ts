@@ -157,6 +157,29 @@ describe('formatPendingForPrompt', () => {
     expect(out).toContain('</system-reminder>');
   });
 
+  it('delivers multi-line general (broadcast) bodies in full, not just line 1', () => {
+    const store = getCommentFileStore('sid');
+    store.post({ body: 'line one\nline two\nline three', side: 'general' });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('line one');
+    expect(out).toContain('line two');
+    expect(out).toContain('line three');
+  });
+
+  it('keeps inline comments compacted to their first line', () => {
+    const store = getCommentFileStore('sid');
+    store.post({
+      body: 'headline\nsecond line should be dropped for inline',
+      repo: 'r',
+      file: 'a.ts',
+      line: 3,
+      side: 'right',
+    });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('headline');
+    expect(out).not.toContain('second line should be dropped for inline');
+  });
+
   it('truncates pathologically long bodies', () => {
     const store = getCommentFileStore('sid');
     const huge = 'x'.repeat(10_000);

@@ -81,8 +81,8 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
-      notifications: parsed.notifications,
-      statusHooks: parsed.statusHooks ?? [],
+      notifications: parsed.notifications === true,
+      statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
     };
   } catch {
     return null;
