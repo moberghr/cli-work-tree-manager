@@ -10,6 +10,15 @@ export interface ParsedFile {
   added: number;
   deleted: number;
   hunks: Hunk[];
+  /** Line-coverage percent for this file (from lcov). undefined when no lcov data is available. */
+  coverage?: number;
+  /** Epoch-ms mtime of the lcov.info the `coverage` value came from. Lets the
+   *  SPA show *when* the coverage was measured. undefined when no lcov data. */
+  coverageMtimeMs?: number;
+  /** True when this file's working-tree source is newer than the lcov.info the
+   *  coverage came from — i.e. the percent is stale and MUST NOT be presented
+   *  as authoritative. The SPA suppresses / de-emphasizes the badge. */
+  coverageStale?: boolean;
   /** Full file contents for markdown rendering. Populated only for `.md` /
    *  `.markdown` / `.mdx` files by the diff pipeline so the SPA can show a
    *  rendered preview. `before` is from `git show <diffArg>:<oldPath>`,

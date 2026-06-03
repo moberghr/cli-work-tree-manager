@@ -264,6 +264,14 @@ export interface ParsedFile {
   added: number;
   deleted: number;
   hunks: Hunk[];
+  /** Line-coverage percent (from lcov); undefined when no lcov data. */
+  coverage?: number;
+  /** Epoch-ms mtime of the lcov.info `coverage` came from; undefined when no
+   *  lcov data. Surfaced in the badge tooltip so coverage age is visible. */
+  coverageMtimeMs?: number;
+  /** True when the file's source is newer than the lcov.info — coverage is
+   *  stale and the badge is suppressed / de-emphasized. */
+  coverageStale?: boolean;
   /** Full file contents for `.md` / `.markdown` / `.mdx` files — populated
    *  server-side so the SPA can render a Preview/Split view next to the
    *  diff. Absent for non-markdown files. */

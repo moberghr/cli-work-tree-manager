@@ -3,6 +3,24 @@ import type { ParsedFile } from '../../api/client.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { buildTree, type TreeNode } from '../../utils/tree.js';
 
+/**
+ * Build the coverage-badge tooltip. Always states the line-coverage percent;
+ * when the lcov.info mtime is known it appends *when* coverage was measured,
+ * and when the file's source is newer than that lcov (`coverageStale`) it says
+ * so explicitly — so stale coverage is never presented as authoritative.
+ */
+function coverageTitle(file: ParsedFile): string {
+  const pct = Math.round(file.coverage ?? 0);
+  let s = `${pct}% line coverage`;
+  if (typeof file.coverageMtimeMs === 'number') {
+    s += ` (measured ${new Date(file.coverageMtimeMs).toLocaleString()})`;
+  }
+  if (file.coverageStale) {
+    s += ' — STALE: source edited since coverage was recorded';
+  }
+  return s;
+}
+
 interface Props {
   files: ParsedFile[];
   startIndex: number;
@@ -135,6 +153,21 @@ function TreeNodeView({
         </span>
         <span className="wd-tree-name">{node.name}</span>
         {stats}
+        {typeof node.file.coverage === 'number' && (
+          <span
+            className={`wd-coverage-badge wd-coverage-${
+              node.file.coverage >= 80
+                ? 'good'
+                : node.file.coverage >= 50
+                  ? 'fair'
+                  : 'poor'
+            }${node.file.coverageStale ? ' wd-coverage-stale' : ''}`}
+            title={coverageTitle(node.file)}
+          >
+            {Math.round(node.file.coverage)}%
+            {node.file.coverageStale ? ' ?' : ''}
+          </span>
+        )}
       </a>
     </li>
   );
