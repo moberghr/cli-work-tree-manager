@@ -106,6 +106,9 @@ export function DiffView({ session }: Props) {
   const scopeKey = activeRepo
     ? `session:${session.id}:${activeRepo.name}`
     : `session:${session.id}:_pending`;
+  const hunkScopeKey = activeRepo
+    ? `session:${session.id}:${activeRepo.name}:hunks`
+    : '';
   const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(
     scopeKey,
     pathToAnchor,
@@ -290,6 +293,7 @@ export function DiffView({ session }: Props) {
                 review
                 viewedPaths={viewedPaths}
                 onToggleViewed={toggleViewed}
+                hunkScopeKey={hunkScopeKey}
               />
             </>
           )}
