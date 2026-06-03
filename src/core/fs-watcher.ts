@@ -16,17 +16,43 @@ export interface FsWatcher {
 }
 
 /**
- * Whether chokidar should skip a path. Excludes `.git/` (constant git noise)
- * and any `node_modules/` segment — recursively watching a large
- * node_modules exhausts file descriptors (EMFILE) and wedges the server, and
- * those files are git-ignored anyway so they never affect the diff.
+ * Directory names the watcher must never descend into. chokidar (v4+, no
+ * fsevents) opens one OS watch per directory, so recursively watching a
+ * dependency install or build-output tree exhausts the process's file
+ * descriptors (EMFILE) and wedges the server. These are all git-ignored in
+ * practice, so changes there never affect the diff — at worst a manual
+ * browser refresh is needed for an edit inside one.
+ */
+const IGNORED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'bin', // .NET build output
+  'obj', // .NET build output
+  'dist',
+  'build',
+  'out',
+  'target', // Rust / JVM
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.turbo',
+  '.gradle',
+  'coverage',
+  '.vs',
+  '.idea',
+]);
+
+/**
+ * Whether chokidar should skip a path. A path is ignored when any segment
+ * *below one of the watched roots* is in {@link IGNORED_DIRS}. Matching
+ * relative to the root (not the absolute path) avoids false positives when an
+ * ancestor directory happens to be named e.g. `build`.
  */
 export function isIgnoredWatchPath(roots: string[], filePath: string): boolean {
-  const norm = filePath.replace(/\\/g, '/');
-  if (/(^|\/)node_modules(\/|$)/.test(norm)) return true;
   for (const root of roots) {
     const rel = path.relative(root, filePath).replace(/\\/g, '/');
-    if (rel === '.git' || rel.startsWith('.git/')) return true;
+    if (rel === '' || rel.startsWith('../')) continue; // not under this root
+    if (rel.split('/').some((seg) => IGNORED_DIRS.has(seg))) return true;
   }
   return false;
 }

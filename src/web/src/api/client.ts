@@ -54,6 +54,10 @@ export interface ReviewContext {
   mode: 'review';
   scopeLabel: string;
   repos: { name: string }[];
+  /** Current branch of the primary repo (`git rev-parse --abbrev-ref HEAD`).
+   *  Drives the "<headBranch> vs <base>" comparison title. Undefined in
+   *  detached-HEAD state or when not resolvable. */
+  headBranch?: string;
   /** When true, the comment UI is hidden — the SPA still renders the
    *  diff with live updates, but the user can't post / draft / submit. */
   readOnly?: boolean;

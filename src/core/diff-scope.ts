@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import { git } from './git.js';
@@ -23,6 +24,20 @@ function normPath(p: string): string {
 }
 
 /**
+ * Like {@link normPath} but resolves symlinks. `git rev-parse --show-toplevel`
+ * returns the realpath (e.g. macOS `/var` → `/private/var`), so comparing it
+ * to a stored session path must go through realpath on both sides. Falls back
+ * to {@link normPath} for paths that don't exist (e.g. unit-test fixtures).
+ */
+function realNorm(p: string): string {
+  try {
+    return normPath(fs.realpathSync(p));
+  } catch {
+    return normPath(p);
+  }
+}
+
+/**
  * Resolve what scope to diff based on cwd. Handles single-repo worktrees,
  * group worktrees (cwd at group root or anywhere inside a sub-repo), and
  * "random" git repos not managed by `work`.
@@ -31,11 +46,24 @@ export function resolveScope(cwd: string): DiffScope | null {
   const normCwd = normPath(cwd);
   const sessions = loadHistory();
 
+  // cwd's own git worktree root. Used to reject session-path matches that are
+  // really a *parent* repo: linked worktrees often live physically inside
+  // another repo (e.g. `<repo>/.claude/worktrees/<branch>`), so a naive prefix
+  // match collapses every nested worktree onto the parent's scope — they'd
+  // share one daemon and show each other's diff.
+  const top = git(['rev-parse', '--show-toplevel'], cwd);
+  const toplevel = top.exitCode === 0 && top.stdout ? top.stdout : null;
+  const realTop = toplevel ? realNorm(toplevel) : null;
+
   // 1. cwd is at or inside one of a session's repo paths.
   for (const s of sessions) {
     for (const p of s.paths) {
       const np = normPath(p);
       if (normCwd === np || normCwd.startsWith(np + '/')) {
+        // Only honour the match if this session path is cwd's actual worktree
+        // root. When cwd is in a nested worktree, its toplevel is deeper than
+        // `np` — skip so we resolve the real (nested) worktree below.
+        if (realTop && realNorm(p) !== realTop) continue;
         if (s.isGroup) {
           return {
             isGroup: true,
@@ -71,13 +99,12 @@ export function resolveScope(cwd: string): DiffScope | null {
   }
 
   // 3. Fall back to git rev-parse for repos not managed by `work`.
-  const toplevel = git(['rev-parse', '--show-toplevel'], cwd);
-  if (toplevel.exitCode !== 0 || !toplevel.stdout) return null;
+  if (!toplevel) return null;
   return {
     isGroup: false,
     session: null,
-    repos: [{ name: path.basename(toplevel.stdout), root: toplevel.stdout }],
-    activeRepoName: path.basename(toplevel.stdout),
+    repos: [{ name: path.basename(toplevel), root: toplevel }],
+    activeRepoName: path.basename(toplevel),
   };
 }
 
