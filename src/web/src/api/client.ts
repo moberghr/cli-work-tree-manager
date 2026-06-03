@@ -112,6 +112,10 @@ export function fetchContext(): Promise<AppContext> {
 export interface ScopeDiffResult {
   repos: RepoData[];
   resolvedBase?: string;
+  /** Current branch of the primary repo. Surfaced here (not just in
+   *  ReviewContext) because work-web scope views synthesize their context
+   *  from the URL hash and read the branch off the diff instead. */
+  headBranch?: string;
 }
 
 /**

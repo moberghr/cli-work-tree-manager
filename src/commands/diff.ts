@@ -103,10 +103,20 @@ function webUrlFilePath(): string {
  * passing `web --lean` to a binary that only knows `diff`.
  */
 export function resolveWorkBinPath(selfArgv1: string): string {
-  if (selfArgv1.endsWith('wd-bin.js')) {
-    return path.join(path.dirname(selfArgv1), 'bin.js');
+  // argv[1] may be a bin symlink, not the real file: a global npm install
+  // exposes `wd` as e.g. ~/.../bin/wd -> ../lib/.../dist/wd-bin.js. Resolve
+  // it so the wd-bin.js -> bin.js sibling-swap fires for global installs too;
+  // otherwise we'd spawn the `wd` shim with `web` args and it'd fail.
+  let real = selfArgv1;
+  try {
+    real = fs.realpathSync(selfArgv1);
+  } catch {
+    /* synthetic/non-existent path (e.g. unit tests) — use as given */
   }
-  return selfArgv1;
+  if (real.endsWith('wd-bin.js')) {
+    return path.join(path.dirname(real), 'bin.js');
+  }
+  return real;
 }
 
 function readWebUrl(): string | null {

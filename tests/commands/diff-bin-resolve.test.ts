@@ -1,8 +1,34 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { resolveWorkBinPath } from '../../src/commands/diff.js';
 
 describe('resolveWorkBinPath', () => {
+  it('resolves a bin symlink (global install) before the swap', () => {
+    // The real bug: a global npm install exposes `wd` as a symlink
+    // (~/.../bin/wd -> dist/wd-bin.js). argv[1] is the symlink, which
+    // doesn't end in `wd-bin.js`, so the swap was skipped and autostart
+    // spawned the `wd` shim with `web` args. Resolve the symlink first.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'work-bin-'));
+    try {
+      const dist = path.join(tmp, 'dist');
+      fs.mkdirSync(dist);
+      fs.writeFileSync(path.join(dist, 'wd-bin.js'), '');
+      fs.writeFileSync(path.join(dist, 'bin.js'), '');
+      const binDir = path.join(tmp, 'bin');
+      fs.mkdirSync(binDir);
+      const wdLink = path.join(binDir, 'wd');
+      fs.symlinkSync(path.join(dist, 'wd-bin.js'), wdLink);
+
+      expect(resolveWorkBinPath(wdLink)).toBe(
+        fs.realpathSync(path.join(dist, 'bin.js')),
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('swaps wd-bin.js → bin.js in the same directory', () => {
     // Bug we're guarding against: autostart used to spawn
     // `node <argv[1]> web --lean`, but argv[1] was `wd-bin.js`
