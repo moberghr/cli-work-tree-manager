@@ -5,8 +5,7 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { upsertSession, loadHistory } from './history.js';
-import { allocatePort } from './port-allocator.js';
+import { upsertSessionWithPort } from './history.js';
 import {
   git,
   parseWorktreeList,
@@ -305,21 +304,6 @@ export interface WorktreeSetupResult {
 }
 
 /**
- * Best-effort port allocation. A failure must never abort worktree creation —
- * it only warns and returns undefined.
- */
-function tryAllocatePort(worktreeName: string, config: WorkConfig): number | undefined {
-  try {
-    return allocatePort(worktreeName, config, loadHistory());
-  } catch (err) {
-    console.log(
-      chalk.yellow(`  ⚠ Could not allocate a dev-server port: ${(err as Error).message}`),
-    );
-    return undefined;
-  }
-}
-
-/**
  * High-level worktree setup: resolve target, create worktree(s), copy group
  * CLAUDE.md, and record the session. Used by both the CLI command and the TUI.
  *
@@ -432,8 +416,15 @@ async function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
-  const port = tryAllocatePort(path.basename(groupWorktreePath), config);
-  await upsertSession(groupName, true, branchName, allPaths, jiraKey, baseBranch, port);
+  const { port } = await upsertSessionWithPort(
+    groupName,
+    true,
+    branchName,
+    allPaths,
+    config,
+    jiraKey,
+    baseBranch,
+  );
 
   console.log('');
   console.log(`Branch: ${branchName}`);
@@ -479,8 +470,15 @@ async function setupSingleWorktree(
     if (!success) return null;
   }
 
-  const port = tryAllocatePort(path.basename(workTreePath), config);
-  await upsertSession(targetName, false, branchName, [workTreePath], jiraKey, baseBranch, port);
+  const { port } = await upsertSessionWithPort(
+    targetName,
+    false,
+    branchName,
+    [workTreePath],
+    config,
+    jiraKey,
+    baseBranch,
+  );
 
   console.log(`Branch: ${branchName}`);
   if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));

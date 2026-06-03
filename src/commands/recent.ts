@@ -88,7 +88,7 @@ export const recentCommand: CommandModule = {
       const tool = getAiTool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(launchPath, tool, { unsafe, resume: true });
+      launchAi(launchPath, tool, { unsafe, resume: true }, choice.port);
       return;
     }
 

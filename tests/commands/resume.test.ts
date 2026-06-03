@@ -86,6 +86,24 @@ describe('resume updates lastAccessedAt', () => {
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
       { unsafe: false, resume: true },
+      undefined, // no port on this session
+    );
+  });
+
+  it('passes the session port to launchAi as $PORT', async () => {
+    seedConfig();
+    const session = makeSession({ port: 3042 });
+    seedHistory([session]);
+
+    vi.mocked(select).mockResolvedValueOnce(session);
+
+    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+
+    expect(launchAi).toHaveBeenCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false, resume: true },
+      3042,
     );
   });
 
@@ -128,6 +146,7 @@ describe('recent --resume updates lastAccessedAt', () => {
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
       { unsafe: false, resume: true },
+      undefined, // no port on this session
     );
   });
 });

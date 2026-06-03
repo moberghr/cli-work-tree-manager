@@ -37,6 +37,29 @@ export interface WorkConfig {
   portRange?: { start: number; end: number };
 }
 
+/** Lowest port we allow to be configured (avoid privileged ports < 1024). */
+const MIN_PORT = 1024;
+/** Highest valid TCP port. */
+const MAX_PORT = 65535;
+
+/**
+ * Validate a configured port range. Returns the normalized range when it is a
+ * pair of integers with `MIN_PORT <= start <= end <= MAX_PORT`, otherwise
+ * undefined (callers then fall back to the default range). Rejects non-integers,
+ * privileged/out-of-bounds ports, and reversed ranges.
+ */
+export function validatePortRange(
+  value: unknown,
+): { start: number; end: number } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { start, end } = value as { start?: unknown; end?: unknown };
+  if (typeof start !== 'number' || typeof end !== 'number') return undefined;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return undefined;
+  if (start < MIN_PORT || end > MAX_PORT) return undefined;
+  if (start > end) return undefined;
+  return { start, end };
+}
+
 export function getConfigDir(): string {
   const dir = path.join(os.homedir(), '.work');
   if (!fs.existsSync(dir)) {
@@ -66,12 +89,7 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
-      portRange:
-        parsed.portRange &&
-        typeof parsed.portRange.start === 'number' &&
-        typeof parsed.portRange.end === 'number'
-          ? { start: parsed.portRange.start, end: parsed.portRange.end }
-          : undefined,
+      portRange: validatePortRange(parsed.portRange),
     };
   } catch {
     return null;

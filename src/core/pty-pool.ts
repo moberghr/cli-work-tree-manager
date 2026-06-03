@@ -43,6 +43,7 @@ export function getOrCreatePty(sessionId: string): PooledPty | null {
   const pty = new PtySession(cwd, 120, 32, undefined, {
     tool,
     resume: true,
+    port: session.port,
   });
 
   const subscribers = new Set<(data: string) => void>();
