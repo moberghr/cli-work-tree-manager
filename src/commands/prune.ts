@@ -23,7 +23,10 @@ export const pruneCommand: CommandModule = {
 
     const config = ensureConfig();
     console.log(chalk.gray('Scanning worktrees for merged branches...\n'));
-    const prunable = collectPrunable(config);
+    // Interactive prune is human-confirmed (the user sees the list and picks),
+    // so squash-merged matches are safe to surface here. `work sync` stays gated
+    // to true-merge confidence by default (opt in via --include-squash).
+    const prunable = collectPrunable(config, { includeSquash: true });
 
     if (prunable.length === 0) {
       console.log(chalk.green('No merged worktrees found. Nothing to prune.'));

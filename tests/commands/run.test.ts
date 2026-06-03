@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   selectSessions,
   expandRunUnits,
   anyFailed,
   type RunResult,
+  type RunUnit,
 } from '../../src/core/fleet.js';
-import { extractRun, stripRunToken } from '../../src/commands/run.js';
+import { extractRun, stripRunToken, runPool } from '../../src/commands/run.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 function session(
@@ -138,6 +142,18 @@ describe('extractRun', () => {
   it('returns an empty command for no args', () => {
     expect(extractRun([]).cmd).toEqual([]);
   });
+
+  it('parses --all as a leading boolean fleet flag', () => {
+    const { options, cmd } = extractRun(['--all', 'git', 'status']);
+    expect(options.all).toBe(true);
+    expect(cmd).toEqual(['git', 'status']);
+  });
+
+  it('does NOT let a user --all after the command be stolen', () => {
+    const { options, cmd } = extractRun(['mytool', '--all']);
+    expect(cmd).toEqual(['mytool', '--all']);
+    expect(options.all).toBeUndefined();
+  });
 });
 
 describe('anyFailed', () => {
@@ -158,5 +174,59 @@ describe('anyFailed', () => {
   it('treats a signalled (null code) result as failure', () => {
     const results: RunResult[] = [{ ...base, code: null, ok: false }];
     expect(anyFailed(results)).toBe(true);
+  });
+});
+
+describe('runPool interruption', () => {
+  it('stops spawning units once interrupted (no new children after Ctrl-C)', async () => {
+    if (process.platform === 'win32') return; // POSIX `sh -c` only.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'work-runpool-'));
+    try {
+      const units: RunUnit[] = Array.from({ length: 5 }, (_, i) => ({
+        session: {
+          target: 't',
+          branch: `b${i}`,
+          paths: [tmp],
+          isGroup: false,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastAccessedAt: '2026-01-01T00:00:00.000Z',
+        } as WorktreeSession,
+        path: tmp,
+      }));
+
+      // Each unit appends a line to ran.log. We flip interrupted to true after
+      // the first unit completes; with limit=1 the worker must bail before
+      // dequeuing any of the remaining four.
+      let interrupted = false;
+      let completed = 0;
+      const cmd = `echo run >> "${path.join(tmp, 'ran.log')}"`;
+      // Wrap the real command so we can flip the flag deterministically after
+      // the first unit's child closes — we poll completion via the log file.
+      const markerCmd = `${cmd} && true`;
+
+      // Use a tiny isInterrupted that becomes true once at least one unit has
+      // been observed as completed on disk.
+      const isInterrupted = () => {
+        const log = path.join(tmp, 'ran.log');
+        completed = fs.existsSync(log)
+          ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).length
+          : 0;
+        if (completed >= 1) interrupted = true;
+        return interrupted;
+      };
+
+      const results = await runPool(units, markerCmd, 1, isInterrupted);
+
+      const log = path.join(tmp, 'ran.log');
+      const lines = fs.existsSync(log)
+        ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean)
+        : [];
+      // Exactly one unit ran; the pool bailed before launching the rest.
+      expect(lines).toHaveLength(1);
+      const settled = results.filter((r) => r != null);
+      expect(settled).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
