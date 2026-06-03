@@ -55,6 +55,17 @@
   font-size: 11px;
   color: var(--muted);
 }
+/* Branch-vs-base comparison subtitle. Slightly larger than the file-count
+   line; the branch names render at normal text weight/colour, "vs" muted. */
+.wd-web-review-sidebar-header p.wd-web-compare {
+  margin-top: 5px;
+  font-size: 12px;
+}
+.wd-web-review-sidebar-header p.wd-web-compare strong {
+  color: var(--fg);
+  font-weight: 600;
+  word-break: break-all;
+}
 /* Diff-scope segmented toggle (Uncommitted | Since branch). Same shape
    as GitHub's "viewed" / "split" controls — small, low-contrast until
    active. */

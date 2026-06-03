@@ -115,6 +115,16 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const repos: RepoData[] | null = diffData?.repos ?? null;
   const resolvedBase = diffData?.resolvedBase;
 
+  // Reflect the comparison in the browser tab title: "<branch> vs <base>".
+  useEffect(() => {
+    const head = context.headBranch ?? 'HEAD';
+    const what =
+      diffBase === 'branch' && resolvedBase
+        ? `${head} vs ${resolvedBase}`
+        : `${head} · uncommitted`;
+    document.title = `${what} — ${context.scopeLabel}`;
+  }, [context.headBranch, context.scopeLabel, diffBase, resolvedBase]);
+
   // In scope-mounted mode, listen to the scope-narrowed SSE stream — it
   // only fires for THIS scope's file changes. Standalone mode uses the
   // global /events stream (its diff server only handles one scope).
@@ -260,6 +270,20 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <aside className="wd-web-review-sidebar">
           <header className="wd-web-review-sidebar-header">
             <h1>{context.scopeLabel}</h1>
+            <p className="wd-web-compare">
+              {diffBase === 'branch' && resolvedBase ? (
+                <>
+                  <strong>{context.headBranch ?? 'HEAD'}</strong>
+                  <span className="wd-web-muted"> vs </span>
+                  <strong>{resolvedBase}</strong>
+                </>
+              ) : (
+                <>
+                  <span className="wd-web-muted">uncommitted on </span>
+                  <strong>{context.headBranch ?? 'working tree'}</strong>
+                </>
+              )}
+            </p>
             <p>
               {isEmpty ? (
                 <span className="wd-web-muted">no changes</span>

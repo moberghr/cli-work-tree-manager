@@ -5,6 +5,7 @@ import { streamSSE } from 'hono/streaming';
 import { computeDiff } from './diff-pipeline.js';
 import { createFsWatcher } from './fs-watcher.js';
 import { resolveRepoDiff } from './diff-scope.js';
+import { git } from './git.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import type { RepoSpec } from './repo-spec.js';
@@ -78,14 +79,24 @@ export async function startDiffServer(
   // same-origin so its requests don't trigger preflight. The Host guard in
   // `launch` rejects cross-origin requests before they reach any handler.
 
-  app.get('/api/context', (c) =>
-    c.json({
+  app.get('/api/context', (c) => {
+    // Current branch of the primary repo, for the "<branch> vs <base>" title.
+    const primaryRoot = opts.repos[0]?.root;
+    let headBranch: string | undefined;
+    if (primaryRoot) {
+      const head = git(['rev-parse', '--abbrev-ref', 'HEAD'], primaryRoot);
+      if (head.exitCode === 0 && head.stdout && head.stdout !== 'HEAD') {
+        headBranch = head.stdout;
+      }
+    }
+    return c.json({
       mode: 'review',
       scopeLabel: opts.scopeLabel,
       repos: opts.repos.map((r) => ({ name: r.name })),
       readOnly: !!opts.readOnly,
-    }),
-  );
+      headBranch,
+    });
+  });
 
   app.get('/api/diff', (c) => {
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';
