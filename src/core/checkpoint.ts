@@ -265,14 +265,31 @@ export async function takeCheckpoint(
       return null;
     }
 
-    // Dedup: when not forced, compare against the previous entry. If every
-    // repo's sha matches (and there's at least one), skip — nothing changed.
+    // Dedup: when not forced, compare against the previous entry by
+    // TREE sha rather than commit sha. Two captures of the same working
+    // tree produce identical trees but can have different commit shas
+    // (different parent because HEAD moved, different `-p` argument
+    // when one capture saw an empty HEAD). Compare-by-tree means we
+    // drop checkpoints that didn't actually change any content —
+    // exactly what the user expects from "no changes since last snapshot".
     if (!opts.force && !isFirst) {
       const prev = manifest.entries[manifest.entries.length - 1];
-      const allMatch = Object.keys(captured).every(
-        (k) => captured[k] === prev.repos[k],
-      );
-      if (allMatch) {
+      const treeOf = (root: string, commitSha: string | null): string | null => {
+        if (!commitSha) return null;
+        const r = spawn.sync(
+          'git',
+          ['rev-parse', `${commitSha}^{tree}`],
+          { cwd: root, encoding: 'utf-8', windowsHide: true },
+        );
+        if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+        return r.stdout.trim() || null;
+      };
+      const allTreesMatch = repos.every((repo) => {
+        const curTree = treeOf(repo.root, captured[repo.name]);
+        const prevTree = treeOf(repo.root, prev.repos[repo.name] ?? null);
+        return curTree !== null && curTree === prevTree;
+      });
+      if (allTreesMatch) {
         rollbackRefs();
         return null;
       }

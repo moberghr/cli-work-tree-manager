@@ -10,6 +10,18 @@ import { syncCommand } from '../../src/commands/sync.js';
 // Controllable wrapper around the real removeSingleWorktree so individual
 // tests can force a non-throwing failure (returns false) for a chosen path.
 const failingPaths = new Set<string>();
+// Normalise slash direction + case + Windows 8.3 short-name expansion.
+// The test stores `wtPath` as the path it constructed (potentially with
+// `DOMAGO~1`-style short segments if TEMP is set that way), but git emits
+// the canonical long-name form with forward slashes from `worktree list`.
+// `realpathSync.native` is the only Node API that expands 8.3 on Windows.
+function canonPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p).replace(/\\/g, '/').toLowerCase();
+  } catch {
+    return p.replace(/\\/g, '/').toLowerCase();
+  }
+}
 vi.mock('../../src/core/worktree.js', async () => {
   const actual = await vi.importActual<typeof import('../../src/core/worktree.js')>(
     '../../src/core/worktree.js',
@@ -22,7 +34,10 @@ vi.mock('../../src/core/worktree.js', async () => {
       branchName: string,
       force: boolean,
     ): boolean => {
-      if (failingPaths.has(worktreePath)) return false;
+      const incoming = canonPath(worktreePath);
+      for (const p of failingPaths) {
+        if (canonPath(p) === incoming) return false;
+      }
       return actual.removeSingleWorktree(repoPath, worktreePath, branchName, force);
     },
   };

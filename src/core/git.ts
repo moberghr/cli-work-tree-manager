@@ -286,10 +286,15 @@ export function fetchRemote(cwd: string): void {
 /** Async version of fetchRemote — non-blocking. */
 export async function fetchRemoteAsync(cwd: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    execFile('git', ['fetch', '--quiet'], { cwd, timeout: 30000 }, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+    execFile(
+      'git',
+      ['fetch', '--quiet'],
+      { cwd, timeout: 30000, windowsHide: true },
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      },
+    );
   });
   if (!getDefaultBranch(cwd)) {
     git(['remote', 'set-head', 'origin', '--auto'], cwd);

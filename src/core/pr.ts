@@ -24,10 +24,19 @@ export type BranchPrMap = Map<string, PullRequestInfo[]>;
 
 function execAsync(cmd: string, args: string[], cwd: string, timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, encoding: 'utf-8', timeout }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout ?? '');
-    });
+    // `windowsHide: true` prevents a console window from flashing on
+    // Windows whenever the PRs pane refreshes. Without it, opening
+    // the PRs pane in `work web` triggers a visible terminal popup
+    // for every configured repo's `gh pr list` invocation.
+    execFile(
+      cmd,
+      args,
+      { cwd, encoding: 'utf-8', timeout, windowsHide: true },
+      (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout ?? '');
+      },
+    );
   });
 }
 

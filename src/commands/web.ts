@@ -103,6 +103,13 @@ export const webCommand: CommandModule = {
         type: 'boolean',
         default: false,
         describe: 'Stop a running work web instance and exit.',
+      })
+      .option('lean', {
+        type: 'boolean',
+        default: false,
+        hidden: true,
+        describe:
+          'Internal: start without dashboard-only features (Claude activity watcher + hooks). Used by `wd` when it auto-starts work web for a diff-only session.',
       }),
   handler: async (argv) => {
     if (argv.stop) {
@@ -139,41 +146,52 @@ export const webCommand: CommandModule = {
     try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
     try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
 
-    const handle = await startWebServer();
+    const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
+    const handle = await startWebServer({ lean });
     try {
       fs.mkdirSync(path.dirname(urlFilePath()), { recursive: true });
       fs.writeFileSync(urlFilePath(), handle.url);
       fs.writeFileSync(pidFilePath(), String(process.pid));
     } catch { /* */ }
 
-    info(chalk.gray(`work web running at ${handle.url}`));
+    info(
+      chalk.gray(
+        `work web running at ${handle.url}${lean ? ' (lean — diff-only mode)' : ''}`,
+      ),
+    );
     info(chalk.gray('Press Ctrl+C to stop. Or: `work web --stop` from another shell.'));
     if (argv.open) openUrl(handle.url);
 
-    // Install hooks so any live Claude in a worktree we know about picks
-    // up pending review comments without the user having to type. Both
-    // are no-ops when nothing's pending. Removed cleanly on shutdown.
-    await Promise.all([
-      installCommandHook({
-        owner: 'web',
-        event: 'UserPromptSubmit',
-        command: 'work hook prompt-submit',
-        timeoutSec: 5,
-      }),
-      installCommandHook({
-        owner: 'web',
-        event: 'Stop',
-        command: 'work hook stop',
-        timeoutSec: 5,
-      }),
-    ]).catch(() => { /* best-effort */ });
+    // Install Claude hooks so any live Claude in a worktree we know
+    // about picks up pending review comments without the user having
+    // to type. Both are no-ops when nothing's pending. Removed cleanly
+    // on shutdown. Skipped in lean mode — a diff-only session doesn't
+    // need to mutate the user's ~/.claude/settings.json.
+    if (!lean) {
+      await Promise.all([
+        installCommandHook({
+          owner: 'web',
+          event: 'UserPromptSubmit',
+          command: 'work hook prompt-submit',
+          timeoutSec: 5,
+        }),
+        installCommandHook({
+          owner: 'web',
+          event: 'Stop',
+          command: 'work hook stop',
+          timeoutSec: 5,
+        }),
+      ]).catch(() => { /* best-effort */ });
+    }
 
     const shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
       try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
-      try { removeCommandHookSync('web', 'UserPromptSubmit'); } catch { /* */ }
-      try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
+      if (!lean) {
+        try { removeCommandHookSync('web', 'UserPromptSubmit'); } catch { /* */ }
+        try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
+      }
       handle.stop();
       process.exit(0);
     };

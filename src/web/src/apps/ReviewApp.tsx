@@ -11,6 +11,7 @@ import {
   type ReviewContext,
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
+import { decideRange } from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
@@ -82,38 +83,15 @@ export function ReviewApp({ context, scopeHash }: Props) {
     fetchCheckpoints(scopeHash).then(
       (entries) => {
         setCheckpoints(entries);
-        if (entries.length === 0) {
-          setRange(null);
-          return;
-        }
-        // Default range pins `from` to the FIRST entry — the "Initial"
-        // checkpoint taken when this scope first registered. The strip
-        // is a baseline-comparison tool: the user opened `wd` to see
-        // "everything since I started this session", not "since the
-        // most recent autosave". Auto-advancing `from` to the newest
-        // checkpoint would collapse the visible diff to "since the
-        // last save" each time an autosave fired, instantly losing the
-        // baseline they expected.
-        const firstId = entries[0].id;
-        if (!userPickedRef.current) {
-          setRange({ from: firstId, to: 'working' });
-          return;
-        }
-        // Validate an explicit user pick against the new entry list.
-        // If their `from` or `to` no longer exists (scope torn down +
-        // re-registered, or manifest rotated), reset to the default
-        // and clear the user-picked flag so subsequent arrivals
-        // auto-pin to the new Initial.
         setRange((prev) => {
-          if (!prev) return { from: firstId, to: 'working' };
-          const fromExists = entries.some((e) => e.id === prev.from);
-          const toExists =
-            prev.to === 'working' || entries.some((e) => e.id === prev.to);
-          if (!fromExists || !toExists) {
-            userPickedRef.current = false;
-            return { from: firstId, to: 'working' };
-          }
-          return prev;
+          const decision = decideRange(
+            entries,
+            userPickedRef.current,
+            prev,
+          );
+          if (decision.resetUserPicked) userPickedRef.current = false;
+          if (decision.kind === 'legacy') return null;
+          return decision.range;
         });
       },
       () => { /* silent — strip just stays hidden */ },
@@ -158,28 +136,36 @@ export function ReviewApp({ context, scopeHash }: Props) {
     },
   );
 
+  // Plain click sets `to`. Shift-click sets `from`. Each endpoint is
+  // independent — moving one never silently resets the other. This is
+  // the model GitHub uses on its commit-range picker too: click to
+  // anchor one side, shift-click to anchor the other.
+  //
+  // After every change, normalise so `from <= to` (treating 'working'
+  // as +∞). The server rejects reversed ranges with 400; without this,
+  // shift-clicking past the current `to` would 400 every diff fetch
+  // until the user clicks again to fix it.
+  const normaliseRange = (
+    from: number,
+    to: CheckpointRangeEnd,
+  ): { from: number; to: CheckpointRangeEnd } => {
+    if (to === 'working') return { from, to };
+    if (from > to) return { from: to, to: from };
+    return { from, to };
+  };
   const selectCheckpoint = (toId: CheckpointRangeEnd) => {
     userPickedRef.current = true;
-    setRange({ from: 0, to: toId });
+    const fromId = range?.from ?? 0;
+    setRange(normaliseRange(fromId, toId));
   };
-  const extendCheckpoint = (toId: CheckpointRangeEnd) => {
+  const extendCheckpoint = (clickedId: CheckpointRangeEnd) => {
     userPickedRef.current = true;
-    if (!range) {
-      setRange({ from: 0, to: toId });
-      return;
-    }
-    // Shift-click on the LEFT of the current "from" — drag the from
-    // endpoint leftward, keep "to" in place. Working is conceptually
-    // rightmost, so a Working shift-click can never land here.
-    if (toId !== 'working' && toId < range.from) {
-      setRange({ from: toId, to: range.to });
-      return;
-    }
-    // Click is on or to the right of "from" — move "to" to the click.
-    // Includes the case where the click lands inside the current range
-    // (narrows it) and the case where it lands past current "to"
-    // (extends rightward).
-    setRange({ from: range.from, to: toId });
+    // `from` must be a real checkpoint id — Working as a left endpoint
+    // is meaningless and rejected server-side. Silently no-op a
+    // Working shift-click.
+    if (clickedId === 'working') return;
+    const toId: CheckpointRangeEnd = range?.to ?? 'working';
+    setRange(normaliseRange(clickedId, toId));
   };
 
   useEffect(() => {
@@ -244,9 +230,19 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = repos.length > 1;
   // Empty-state copy mirrors DiffView's three-bucket diagnostic so the
-  // user knows whether detection failed or the branch is just up to date.
+  // user knows whether detection failed or the branch is just up to
+  // date. Range mode adds a fourth bucket — picking two checkpoints
+  // that bracket no work returns an empty diff, and the user needs
+  // to know which range produced it (not be told "No uncommitted
+  // changes" when their tree has plenty).
   let emptyMessage: string;
-  if (diffBase === 'uncommitted') {
+  if (range) {
+    const toLabel =
+      range.to === 'working' ? 'working tree' : `checkpoint #${range.to}`;
+    const fromLabel =
+      range.from === 0 ? 'Initial' : `checkpoint #${range.from}`;
+    emptyMessage = `No changes between ${fromLabel} and ${toLabel}. Pick a different range from the strip above.`;
+  } else if (diffBase === 'uncommitted') {
     emptyMessage = 'No uncommitted changes.';
   } else if (!resolvedBase || resolvedBase === 'HEAD') {
     emptyMessage =
@@ -347,6 +343,18 @@ export function ReviewApp({ context, scopeHash }: Props) {
           // keep-mounted-hidden layouts.
           style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
         >
+          {/* Strip lives OUTSIDE the empty/non-empty fork so a chip
+             pick that produces an empty range doesn't strand the user:
+             they need to keep clicking other chips to escape. */}
+          {scopeHash && checkpoints.length > 1 && range && (
+            <CheckpointStrip
+              entries={checkpoints}
+              fromId={range.from}
+              toId={range.to}
+              onSelect={selectCheckpoint}
+              onExtend={extendCheckpoint}
+            />
+          )}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>
@@ -367,15 +375,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
           ) : (
             <>
               {!readOnly && <GeneralPane />}
-              {scopeHash && checkpoints.length > 1 && range && (
-                <CheckpointStrip
-                  entries={checkpoints}
-                  fromId={range.from}
-                  toId={range.to}
-                  onSelect={selectCheckpoint}
-                  onExtend={extendCheckpoint}
-                />
-              )}
               {hasTabs && (
                 <nav className="wd-web-repo-tabs">
                   {repos.map((r) => {

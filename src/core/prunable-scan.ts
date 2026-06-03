@@ -198,11 +198,17 @@ export function collectPrunable(
     // Skip repos we couldn't fetch — stale refs make merge checks unreliable.
     if (skipAliases.has(alias)) continue;
 
-    const worktrees = parseWorktreeList(repoPath);
-    const normalizedRepoPath = path.resolve(repoPath);
+    // `git worktree list --porcelain` always emits the main worktree
+    // (the original `.git` repo) first, with linked worktrees after.
+    // Drop the head of the list rather than comparing paths — the path
+    // comparison is fragile on Windows where `repoPath` may carry a
+    // legacy 8.3 short-name segment (e.g. `C:\Users\DOMAGO~1\...`)
+    // while git always emits the canonical long-name form. `path.resolve`
+    // doesn't bridge that gap, and `realpathSync` on Windows doesn't
+    // expand 8.3 names either.
+    const worktrees = parseWorktreeList(repoPath).slice(1);
 
     for (const wt of worktrees) {
-      if (path.resolve(wt.path) === normalizedRepoPath) continue;
       if (!wt.branch) continue;
       if (groupCoveredKeys.has(`${alias}:${wt.branch}`)) continue;
 

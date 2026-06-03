@@ -157,7 +157,14 @@ describe('coverageLookup (mtime + realpath)', () => {
     clearLcovCache();
     const realDir = mkTmp();
     const linkDir = path.join(os.tmpdir(), `lcov-link-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    fs.symlinkSync(realDir, linkDir);
+    try {
+      fs.symlinkSync(realDir, linkDir);
+    } catch (err) {
+      // Windows: creating a directory symlink requires Developer Mode
+      // or admin privileges. Skip rather than fail the suite.
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') return;
+      throw err;
+    }
     tmpDirs.push(linkDir);
 
     // SF: paths reference the canonical (real) directory.
