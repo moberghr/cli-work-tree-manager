@@ -22,6 +22,7 @@ import { openUrl } from '../utils/platform.js';
 import { PtySession, type SessionStatus } from '../tui/session.js';
 import { debug } from '../core/logger.js';
 import { HookServer, type HookEvent } from '../core/hook-server.js';
+import { notifyDesktop, notifyKindForEvent } from '../core/notifier.js';
 import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
@@ -68,6 +69,15 @@ function hasClaudeConversation(dir: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Stable notification-dedup key for a PTY: its resolved launch directory.
+ * findPtyByCwd matches hook cwds by prefix against this, so deriving the key
+ * here collapses all sub-repo / group child cwds onto the one PtySession.
+ */
+function ptyDedupKey(pty: PtySession): string {
+  return path.resolve(pty.cwd).toLowerCase();
 }
 
 function loadSessions(): WorktreeSession[] {
@@ -236,6 +246,8 @@ export function App({ unsafe, onExit }: AppProps) {
   const acliAvailableRef = useRef(acliAvailable);
   acliAvailableRef.current = acliAvailable;
   const hookServerRef = useRef<HookServer | null>(null);
+  // Sessions already alerted for their current idle period (notification dedupe).
+  const notifiedSessionsRef = useRef<Set<string>>(new Set());
 
   // Layout — reactive to terminal resize
   const [dims, setDims] = useState(() => ({
@@ -453,6 +465,27 @@ export function App({ unsafe, onExit }: AppProps) {
         } else if (event === 'prompt_submit') {
           pty.setIdle(false);
         }
+        // Desktop notification (opt-in; no-op when disabled/unsupported).
+        // De-duped per session per idle period via notifyKindForEvent, so the
+        // first idle alerts and repeated Stop events don't spam — independent
+        // of PtySession's initial idle state.
+        //
+        // The dedup key is derived from the resolved PtySession identity
+        // (its launch dir), NOT the raw hook cwd. findPtyByCwd matches by
+        // prefix, so multiple sub-repo / group cwds resolve to one PtySession;
+        // keying off the raw cwd would let that single session notify multiple
+        // times for distinct child paths.
+        const dedupKey = ptyDedupKey(pty);
+        const kind = notifyKindForEvent(
+          event,
+          dedupKey,
+          notifiedSessionsRef.current,
+        );
+        if (kind) {
+          notifyDesktop(path.basename(pty.cwd), kind, {
+            enabled: config?.notifications === true,
+          });
+        }
       },
     });
     hookServerRef.current = hookServer;
@@ -477,6 +510,7 @@ export function App({ unsafe, onExit }: AppProps) {
           try { pty.dispose(); } catch { /* already gone */ }
         }
         ptySessions.current.clear();
+        notifiedSessionsRef.current.clear();
       } catch { /* best effort */ }
       // cleanupSync() is synchronous fs work, safe in a process 'exit' handler.
       try { hookServerRef.current?.cleanupSync(); } catch { /* best effort */ }
@@ -571,6 +605,9 @@ export function App({ unsafe, onExit }: AppProps) {
     ptySessions.current.set(key, pty);
     pty.onExit = (code: number) => {
       debug('onExit PTY', { key, code });
+      // Evict the notification-dedup entry so a future PTY for the same dir
+      // re-arms (and the Set doesn't grow unbounded across the session).
+      notifiedSessionsRef.current.delete(ptyDedupKey(pty));
       pty.dispose();
       ptySessions.current.delete(key);
       if (activeKeyRef.current === key) {
@@ -1230,7 +1267,11 @@ export function App({ unsafe, onExit }: AppProps) {
         const s = row.session;
         const k = sessionKey(s);
         const pty = ptySessions.current.get(k);
-        if (pty) { pty.dispose(); ptySessions.current.delete(k); }
+        if (pty) {
+          notifiedSessionsRef.current.delete(ptyDedupKey(pty));
+          pty.dispose();
+          ptySessions.current.delete(k);
+        }
         if (activeKeyRef.current === k) {
           setActiveKey(null);
           setTermLines([]);

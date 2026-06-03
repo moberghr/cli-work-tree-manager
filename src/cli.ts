@@ -9,6 +9,7 @@ import { statusCommand } from './commands/status.js';
 import { recentCommand } from './commands/recent.js';
 import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
+import { syncCommand } from './commands/sync.js';
 import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
@@ -16,6 +17,8 @@ import { hydrateCommand } from './commands/hydrate.js';
 import { diffCommand } from './commands/diff.js';
 import { webCommand } from './commands/web.js';
 import { hookCommand } from './commands/hook.js';
+import { runCommand } from './commands/run.js';
+import { broadcastCommand } from './commands/broadcast.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -42,8 +45,13 @@ function showHelp() {
   console.log('  work web                                           - Browser dashboard (one tab, every session)');
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
+  console.log('  work sync                                          - Fetch all repos and prune merged (non-interactive)');
+  console.log('  work sync --dry-run                                - Show what sync would prune, remove nothing');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
   console.log('  work diff [base]                                   - Open a GitHub-PR-style diff in your browser');
+  console.log('  work run <cmd...>                                  - Run a command in every worktree');
+  console.log('  work run <cmd...> --target <alias> --parallel      - Filter + run concurrently');
+  console.log('  work broadcast <prompt>                            - Queue a prompt to every live session');
   console.log('  work todo                                          - List tasks');
   console.log('  work todo add <text>                               - Add a task');
   console.log('  work todo done <id>                                - Mark task complete');
@@ -93,12 +101,15 @@ export function run(argv: string[]) {
     .command(recentCommand)
     .command(resumeCommand)
     .command(pruneCommand)
+    .command(syncCommand)
     .command(dashCommand)
     .command(todoCommand)
     .command(hydrateCommand)
     .command(diffCommand)
     .command(webCommand)
     .command(hookCommand)
+    .command(runCommand)
+    .command(broadcastCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

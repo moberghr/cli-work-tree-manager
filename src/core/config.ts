@@ -27,14 +27,19 @@ export interface WorkConfig {
     /** Flag for passing an inline prompt; empty string = positional arg. */
     prompt?: string;
   };
-  /** Editor command for opening worktrees. Default: "code" */
-  editor?: string;
-  /**
-   * Range of dev-server ports to allocate to worktrees (inclusive).
-   * Each worktree gets a stable port exposed as $PORT to the launched process.
-   * Default when unset: { start: 3000, end: 3099 }.
-   */
-  portRange?: { start: number; end: number };
+   /** Editor command for opening worktrees. Default: "code" */
+   editor?: string;
+   /**
+    * Range of dev-server ports to allocate to worktrees (inclusive).
+    * Each worktree gets a stable port exposed as $PORT to the launched process.
+    * Default when unset: { start: 3000, end: 3099 }.
+    */
+   portRange?: { start: number; end: number };
+   /**
+    * Opt-in desktop notifications. When true, the dashboard fires an OS
+    * notification when a session goes idle or needs input. Default: off.
+    */
+   notifications?: boolean;
 }
 
 /** Lowest port we allow to be configured (avoid privileged ports < 1024). */
@@ -49,15 +54,15 @@ const MAX_PORT = 65535;
  * privileged/out-of-bounds ports, and reversed ranges.
  */
 export function validatePortRange(
-  value: unknown,
+   value: unknown,
 ): { start: number; end: number } | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const { start, end } = value as { start?: unknown; end?: unknown };
-  if (typeof start !== 'number' || typeof end !== 'number') return undefined;
-  if (!Number.isInteger(start) || !Number.isInteger(end)) return undefined;
-  if (start < MIN_PORT || end > MAX_PORT) return undefined;
-  if (start > end) return undefined;
-  return { start, end };
+   if (!value || typeof value !== 'object') return undefined;
+   const { start, end } = value as { start?: unknown; end?: unknown };
+   if (typeof start !== 'number' || typeof end !== 'number') return undefined;
+   if (!Number.isInteger(start) || !Number.isInteger(end)) return undefined;
+   if (start < MIN_PORT || end > MAX_PORT) return undefined;
+   if (start > end) return undefined;
+   return { start, end };
 }
 
 export function getConfigDir(): string {
@@ -90,6 +95,7 @@ export function loadConfig(): WorkConfig | null {
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
       portRange: validatePortRange(parsed.portRange),
+      notifications: parsed.notifications === true,
     };
   } catch {
     return null;
