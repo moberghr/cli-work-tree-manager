@@ -1,59 +1,50 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchSessions, type SessionSummary } from '../api/client.js';
 import { useSse } from '../api/events.js';
-import { DiffView } from '../components/Diff/DiffView.js';
-import { PtyView } from '../components/Terminal/PtyView.js';
-import { SessionList } from '../components/Sidebar/SessionList.js';
-import { PrsPane } from '../components/Sidebar/PrsPane.js';
-import { TasksPane, taskSlug } from '../components/Sidebar/TasksPane.js';
-import { JiraPane, jiraSlug } from '../components/Sidebar/JiraPane.js';
-import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
-import { markViewed, readAllViewed } from '../state/viewed.js';
+import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
+import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
+import { PrsTab } from '../components/Dashboard/tabs/PrsTab.js';
+import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
 import {
-  MAX_OPEN_SESSIONS,
-  readOpened,
-  writeOpened,
-} from '../state/opened-sessions.js';
+  TasksTab,
+  taskSlug,
+} from '../components/Dashboard/tabs/TasksTab.js';
+import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
+import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
+import {
+  DEFAULT_ROUTE,
+  parseHash,
+  toHash,
+  type DashboardRoute,
+  type DashboardTab,
+  type SessionSubTab,
+} from '../state/dashboard-route.js';
 
-type Tab = 'diff' | 'terminal';
+const TAB_LABEL: Record<DashboardTab, string> = {
+  sessions: 'Sessions',
+  prs: 'PRs',
+  jira: 'Jira',
+  tasks: 'Tasks',
+};
 
 /**
- * Dashboard root. Keeps a window of recently-opened session views mounted
- * (hidden via display:none) so switching between sessions is instant —
- * no WebSocket reconnect, no xterm re-render, no diff refetch. Server-side
- * PTYs and chokidar watchers are already long-lived; this just stops the
- * browser from throwing away its view of them every time the user clicks.
+ * Dashboard root. Reads/writes the URL hash for routing, fetches the
+ * cross-cutting sessions list once (refreshed via SSE), and renders the
+ * appropriate tab or session-detail view inside `DashboardLayout`.
+ *
+ * This is the `work web` direct-load view. `wd`'s `/diff/<hash>` opens
+ * `ReviewApp` instead (the bare reviewer) — different shell entirely.
  */
 export function DashboardApp() {
-  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(() =>
-    parseSelectedFromHash(),
+  const [route, setRoute] = useState<DashboardRoute>(() =>
+    parseHash(window.location.hash),
   );
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Reload counter — bumped when history.json or comment counts change.
-  const [sessionsKey, setSessionsKey] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchSessions().then(
-      (data) => { if (!cancelled) setSessions(data); },
-      (err: Error) => { if (!cancelled) setError(err.message); },
-    );
-    return () => { cancelled = true; };
-  }, [sessionsKey]);
-
-  useSse('/events', {
-    events: {
-      'sessions-changed': () => setSessionsKey((n) => n + 1),
-      'comments-changed': () => setSessionsKey((n) => n + 1),
-    },
-  });
-
-  const [viewed, setViewed] = useState(() => readAllViewed());
-
-  // New-worktree modal. Initial prefill is set when opened from a PR,
-  // Jira issue, or task — empty otherwise.
+  // Modal state — opened from any tab's "create worktree from this thing"
+  // action. The initial values pre-fill the form for PR/Jira/Task picks.
   const [newOpen, setNewOpen] = useState(false);
   const [newInitial, setNewInitial] = useState<{
     target?: string;
@@ -61,300 +52,260 @@ export function DashboardApp() {
     base?: string;
     jiraKey?: string;
   } | null>(null);
-  function openNew(initial: typeof newInitial = null) {
-    setNewInitial(initial);
-    setNewOpen(true);
-  }
 
-  // URL hash sync — `#/sessions/<id>` is the source of truth for selection.
+  // Sync route ↔ URL hash. Listen to back/forward; push when we navigate.
   useEffect(() => {
-    const onHash = () => setSelectedId(parseSelectedFromHash());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    const onHashChange = () => setRoute(parseHash(window.location.hash));
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  const selectSession = useCallback((id: string) => {
-    window.location.hash = `#/sessions/${id}`;
+  const navigate = useCallback((next: DashboardRoute) => {
+    const targetHash = toHash(next);
+    if (window.location.hash === targetHash) return;
+    window.location.hash = targetHash;
+    // hashchange listener will pick this up and call setRoute; setting
+    // state here too keeps the UI immediate.
+    setRoute(next);
   }, []);
 
-  /** Drop a session from the Active set. Persists; reload-safe. If the
-   *  user closed the currently-selected session, jump to the nearest
-   *  remaining one in the open window. */
-  const closeSession = useCallback(
-    (id: string) => {
-      setOpenedIds((prev) => {
-        const next = prev.filter((x) => x !== id);
-        // If we just closed the active session, navigate to its neighbour.
-        if (id === selectedId) {
-          const fallback = next[next.length - 1] ?? null;
-          if (fallback) {
-            window.location.hash = `#/sessions/${fallback}`;
-          } else {
-            // No sessions left in the open window — clear the hash so
-            // the empty state shows.
-            history.replaceState(null, '', window.location.pathname);
-            setSelectedId(null);
-          }
-        }
-        return next;
+  // Fetch + auto-refresh sessions. SSE bumps `refreshKey` on activity.
+  useEffect(() => {
+    let cancelled = false;
+    fetchSessions().then(
+      (data) => {
+        if (!cancelled) setSessions(data);
+      },
+      (err: Error) => {
+        if (!cancelled) setError(err.message);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  useSse('/events', {
+    events: {
+      'sessions-changed': () => setRefreshKey((n) => n + 1),
+      'comments-changed': () => setRefreshKey((n) => n + 1),
+    },
+  });
+
+  // -- Navigation handlers --------------------------------------------------
+  const goTab = useCallback(
+    (tab: DashboardTab) => {
+      navigate({ tab, sessionId: null, sessionSubTab: 'diff' });
+    },
+    [navigate],
+  );
+  const openSession = useCallback(
+    (sessionId: string) => {
+      // Preserve the current tab as the breadcrumb target.
+      navigate({
+        tab: route.tab,
+        sessionId,
+        sessionSubTab: 'diff',
       });
     },
-    [selectedId],
+    [navigate, route.tab],
   );
-
-  // -- Open-set bookkeeping -------------------------------------------------
-  //
-  // openedIds is the LRU window of sessions whose views are kept mounted.
-  // Whenever the user selects a session, we move it to the end (most
-  // recent). When the window exceeds MAX_OPEN_SESSIONS, the least recent
-  // session falls off — its DiffView + PtyView unmount, its WebSocket
-  // closes, and re-opening that session reconnects from scratch (the
-  // server-side PTY is still there in the pool, so output replays).
-  const [openedIds, setOpenedIds] = useState<string[]>(() => {
-    const stored = readOpened();
-    if (selectedId && !stored.includes(selectedId)) {
-      stored.push(selectedId);
-      return stored.slice(-MAX_OPEN_SESSIONS);
-    }
-    return stored;
-  });
-  useEffect(() => {
-    if (!selectedId) return;
-    setOpenedIds((prev) => {
-      // Already in the set — leave the order alone. Sessions get pinned
-      // to the position they first landed at; switching between them
-      // doesn't shuffle the sidebar around under the user's cursor.
-      if (prev.includes(selectedId)) return prev;
-      const next = [...prev, selectedId];
-      return next.slice(-MAX_OPEN_SESSIONS);
-    });
-  }, [selectedId]);
-  // Persist on every change so the Active group survives a reload.
-  useEffect(() => {
-    writeOpened(openedIds);
-  }, [openedIds]);
-
-  // Per-session tab — switching sessions takes you back to whatever tab
-  // you were on for THAT session. Defaults to 'diff' for unseen sessions.
-  const [tabBySession, setTabBySession] = useState<Record<string, Tab>>({});
-  const activeTab: Tab = selectedId
-    ? (tabBySession[selectedId] ?? 'diff')
-    : 'diff';
-  const setActiveTab = useCallback(
-    (tab: Tab) => {
-      if (!selectedId) return;
-      setTabBySession((prev) => ({ ...prev, [selectedId]: tab }));
+  const setSubTab = useCallback(
+    (sub: SessionSubTab) => {
+      if (!route.sessionId) return;
+      navigate({ ...route, sessionSubTab: sub });
     },
-    [selectedId],
+    [navigate, route],
+  );
+  const backFromSession = useCallback(() => {
+    navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'diff' });
+  }, [navigate, route.tab]);
+  const goHome = useCallback(() => goTab('sessions'), [goTab]);
+
+  // Modal helpers — each tab passes its onPick handler that calls one of
+  // these to open the modal with a sensible prefill.
+  const openNew = useCallback(
+    (initial: typeof newInitial = null) => {
+      setNewInitial(initial);
+      setNewOpen(true);
+    },
+    [],
   );
 
-  // Lazy-mount PtyView: don't spawn a Claude PTY for a session just
-  // because the user clicked it. Wait until they ask for the Terminal
-  // tab. After that the PtyView stays mounted for as long as the
-  // session is in the open window.
-  const [terminalMounted, setTerminalMounted] = useState<Set<string>>(
-    () => new Set(),
-  );
+  // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
+  // `j/k` walks the rail. Ignore when typing in an input.
   useEffect(() => {
-    if (activeTab !== 'terminal' || !selectedId) return;
-    setTerminalMounted((prev) => {
-      if (prev.has(selectedId)) return prev;
-      const next = new Set(prev);
-      next.add(selectedId);
-      return next;
-    });
-  }, [activeTab, selectedId]);
-
-  // Drop terminalMounted entries for sessions that fell out of openedIds.
-  useEffect(() => {
-    setTerminalMounted((prev) => {
-      const open = new Set(openedIds);
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (open.has(id)) next.add(id);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-  }, [openedIds]);
-
-  const selected = sessions?.find((s) => s.id === selectedId) ?? null;
-
-  // Mark a session viewed when it opens (drives the unread badge baseline).
-  useEffect(() => {
-    if (!selected) return;
-    markViewed(selected.id, selected.claudeCount ?? 0);
-    setViewed(readAllViewed());
-  }, [selected?.id, selected?.claudeCount]);
-
-  // -- Keyboard navigation --------------------------------------------------
-  //
-  // Cmd/Ctrl+1..9 jump to the Nth most-recently-opened session — same
-  // muscle memory as browser tabs / tmux windows. Cmd/Ctrl+\ toggles
-  // between Diff and Terminal for the current session.
-  const recentOrder = useMemo(() => [...openedIds].reverse(), [openedIds]);
-  const recentOrderRef = useRef(recentOrder);
-  recentOrderRef.current = recentOrder;
-  useEffect(() => {
+    let pendingG = false;
+    let pendingGTimer: ReturnType<typeof setTimeout> | null = null;
+    const inField = () => {
+      const el = document.activeElement;
+      return !!el && (
+        el.tagName === 'INPUT' ||
+        el.tagName === 'TEXTAREA' ||
+        (el as HTMLElement).isContentEditable
+      );
+    };
     const onKey = (e: KeyboardEvent) => {
-      const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return;
-      if (e.key >= '1' && e.key <= '9') {
-        const idx = Number(e.key) - 1;
-        const id = recentOrderRef.current[idx];
-        if (id) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (inField()) return;
+      if (pendingG) {
+        pendingG = false;
+        if (pendingGTimer) clearTimeout(pendingGTimer);
+        const map: Record<string, DashboardTab> = {
+          s: 'sessions',
+          p: 'prs',
+          j: 'jira',
+          t: 'tasks',
+        };
+        if (map[e.key]) {
           e.preventDefault();
-          selectSession(id);
+          goTab(map[e.key]);
+          return;
         }
-      } else if (e.key === '\\') {
-        e.preventDefault();
-        setActiveTab(activeTab === 'diff' ? 'terminal' : 'diff');
+      }
+      if (e.key === 'g') {
+        pendingG = true;
+        pendingGTimer = setTimeout(() => { pendingG = false; }, 750);
+        return;
+      }
+      // j / k — move down/up through the sorted sessions list.
+      if (e.key === 'j' || e.key === 'k') {
+        if (sessions.length === 0) return;
+        const sorted = [...sessions].sort((a, b) =>
+          b.lastAccessedAt.localeCompare(a.lastAccessedAt),
+        );
+        const currentIdx = route.sessionId
+          ? sorted.findIndex((s) => s.id === route.sessionId)
+          : -1;
+        const delta = e.key === 'j' ? 1 : -1;
+        const nextIdx = Math.max(
+          0,
+          Math.min(sorted.length - 1, currentIdx + delta),
+        );
+        const next = sorted[nextIdx];
+        if (next) {
+          e.preventDefault();
+          openSession(next.id);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectSession, setActiveTab, activeTab]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (pendingGTimer) clearTimeout(pendingGTimer);
+    };
+  }, [goTab, openSession, route.sessionId, sessions]);
 
-  // -- Render ---------------------------------------------------------------
-  const openSessions = useMemo(() => {
-    if (!sessions) return [];
-    const byId = new Map(sessions.map((s) => [s.id, s]));
-    return openedIds.flatMap((id) => {
-      const s = byId.get(id);
-      return s ? [s] : [];
-    });
-  }, [sessions, openedIds]);
+  // Set of Jira keys that already have a worktree, for the Jira tab's
+  // "already-has-worktree" badge.
+  const sessionJiraKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions) if (s.jiraKey) set.add(s.jiraKey);
+    return set;
+  }, [sessions]);
+
+  // Current session (if route points at one).
+  const activeSession = route.sessionId
+    ? sessions.find((s) => s.id === route.sessionId) ?? null
+    : null;
+
+  const currentScopeLabel = activeSession
+    ? `${activeSession.target}/${activeSession.branch}`
+    : undefined;
+
+  // -- Render --------------------------------------------------------------
+  let body: React.ReactNode;
+  if (error && sessions.length === 0) {
+    body = <div className="wd-tab-error">{error}</div>;
+  } else if (activeSession) {
+    body = (
+      <SessionDetail
+        session={activeSession}
+        subTab={route.sessionSubTab}
+        onSelectSubTab={setSubTab}
+        onBack={backFromSession}
+        backLabel={TAB_LABEL[route.tab]}
+      />
+    );
+  } else if (route.sessionId) {
+    // Routed to a session that doesn't exist (yet?). Show a placeholder
+    // rather than dropping the user back to Sessions.
+    body = (
+      <div className="wd-tab-empty">
+        Session not found. It may have been removed.
+        <br />
+        <button
+          type="button"
+          className="wd-btn-secondary"
+          onClick={backFromSession}
+        >
+          Back to {TAB_LABEL[route.tab]}
+        </button>
+      </div>
+    );
+  } else {
+    switch (route.tab) {
+      case 'sessions':
+        body = (
+          <SessionsTab
+            sessions={sessions}
+            onOpenSession={openSession}
+            onNewWorktree={() => openNew(null)}
+          />
+        );
+        break;
+      case 'prs':
+        body = (
+          <PrsTab
+            onPick={(pr) =>
+              openNew({ target: pr.repoAlias, branch: pr.branch })
+            }
+          />
+        );
+        break;
+      case 'jira':
+        body = (
+          <JiraTab
+            onPick={(issue) =>
+              openNew({
+                branch: `feat/${issue.key}`,
+                jiraKey: issue.key,
+              })
+            }
+            sessionJiraKeys={sessionJiraKeys}
+          />
+        );
+        break;
+      case 'tasks':
+        body = (
+          <TasksTab
+            onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })}
+          />
+        );
+        break;
+    }
+  }
 
   return (
-    <div className="wd-web-layout">
-      <aside className="wd-web-sidebar">
-        <header className="wd-web-sidebar-header">
-          <div className="wd-web-sidebar-title-row">
-            <h1>work web</h1>
-            <button
-              type="button"
-              className="wd-web-sidebar-action"
-              onClick={() => openNew(null)}
-              title="New worktree"
-              aria-label="New worktree"
-            >
-              +
-            </button>
-          </div>
-          <p>
-            {sessions
-              ? `${sessions.length} session${sessions.length === 1 ? '' : 's'}`
-              : error
-                ? 'failed to load'
-                : 'loading…'}
-          </p>
-        </header>
-        {error && <div className="wd-web-error">{error}</div>}
-        {sessions && (
-          <SessionList
-            sessions={sessions}
-            selectedId={selectedId}
-            viewed={viewed}
-            activeIds={recentOrder}
-            onSelect={selectSession}
-            onCloseActive={closeSession}
-          />
-        )}
-        <PrsPane
-          onPick={(pr) =>
-            openNew({ target: pr.repoAlias, branch: pr.branch })
-          }
-        />
-        <TasksPane
-          onPick={(t) =>
-            openNew({ branch: 'todo/' + taskSlug(t.text) })
-          }
-        />
-        <JiraPane
-          onPick={(issue) =>
-            openNew({ branch: jiraSlug(issue), jiraKey: issue.key })
-          }
-        />
-      </aside>
-      <main className="wd-web-main">
-        {selected ? (
-          <div className="wd-web-tabs-wrap">
-            <nav className="wd-web-main-tabs">
-              <button
-                type="button"
-                className={
-                  'wd-web-main-tab' +
-                  (activeTab === 'diff' ? ' wd-web-main-tab-active' : '')
-                }
-                onClick={() => setActiveTab('diff')}
-                title="Diff (Ctrl+\\)"
-              >
-                Diff
-              </button>
-              <button
-                type="button"
-                className={
-                  'wd-web-main-tab' +
-                  (activeTab === 'terminal' ? ' wd-web-main-tab-active' : '')
-                }
-                onClick={() => setActiveTab('terminal')}
-                title="Terminal (Ctrl+\\)"
-              >
-                Terminal
-              </button>
-            </nav>
-            <div className="wd-web-tab-body">
-              {/*
-                Render every opened session's views; hide all but the
-                currently-active one. Mounting persists xterm + WebSocket
-                + diff state across switches so navigation is instant.
-              */}
-              {openSessions.map((s) => {
-                const isVisible = s.id === selectedId;
-                const sessionTab = tabBySession[s.id] ?? 'diff';
-                return (
-                  <div
-                    key={s.id}
-                    className="wd-web-session-pane"
-                    style={{ display: isVisible ? 'flex' : 'none' }}
-                  >
-                    <div
-                      className="wd-web-pane-slot"
-                      style={{
-                        display: sessionTab === 'diff' ? 'block' : 'none',
-                      }}
-                    >
-                      <DiffView session={s} />
-                    </div>
-                    {terminalMounted.has(s.id) && (
-                      <div
-                        className="wd-web-pane-slot"
-                        style={{
-                          display:
-                            sessionTab === 'terminal' ? 'flex' : 'none',
-                        }}
-                      >
-                        <PtyView sessionId={s.id} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <EmptyState count={sessions?.length ?? 0} />
-        )}
-      </main>
+    <>
+      <DashboardLayout
+        route={route}
+        sessions={sessions}
+        currentScopeLabel={currentScopeLabel}
+        onSelectTab={goTab}
+        onSelectSession={openSession}
+        onHome={goHome}
+        onNewWorktree={() => openNew(null)}
+      >
+        {body}
+      </DashboardLayout>
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
           onCreated={(id) => {
             setNewOpen(false);
             setNewInitial(null);
-            // SSE will refresh the list; navigate immediately.
-            window.location.hash = `#/sessions/${id}`;
+            openSession(id);
           }}
           onClose={() => {
             setNewOpen(false);
@@ -362,21 +313,8 @@ export function DashboardApp() {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
-function parseSelectedFromHash(): string | null {
-  const m = window.location.hash.match(/^#\/sessions\/([^/]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
-}
-
-function EmptyState({ count }: { count: number }) {
-  return (
-    <div className="wd-web-empty">
-      {count === 0
-        ? 'No worktree sessions yet. Run `work tree <target> <branch>` in any terminal.'
-        : 'Select a session in the sidebar.'}
-    </div>
-  );
-}
+export default DashboardApp;

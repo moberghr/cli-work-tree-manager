@@ -1,0 +1,655 @@
+/* ===========================================================================
+ * Dashboard chrome — top nav + session rail + main canvas.
+ *
+ * Scoped to `work web` direct-load (DashboardApp). The bare `wd` review
+ * view (ReviewApp) lives in diff.css + review.css and is untouched.
+ * =========================================================================*/
+
+.wd-dash-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+/* ---- Top nav -------------------------------------------------------------*/
+
+.wd-dash-topnav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  height: 44px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.wd-dash-brand {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.wd-dash-brand:hover { background: var(--hover); }
+
+.wd-dash-tabs {
+  display: flex;
+  list-style: none;
+  margin: 0 0 0 8px;
+  padding: 0;
+  gap: 2px;
+  height: 100%;
+  align-items: stretch;
+}
+.wd-dash-tabs li {
+  display: flex;
+  align-items: stretch;
+}
+
+.wd-dash-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 0 16px;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  border-bottom: 2px solid transparent;
+  /* Vertically centre the label and shift the underline up just enough
+     to align with the bottom of the topnav border. Otherwise the
+     active underline sits ON the topnav border and looks like nothing. */
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: -1px;
+  transition: color 80ms ease, border-color 80ms ease, background 80ms ease;
+  border-radius: 0;
+}
+.wd-dash-tab:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-dash-tab:focus-visible {
+  outline: 2px solid var(--accent, #0969da);
+  outline-offset: -3px;
+}
+.wd-dash-tab-active {
+  color: var(--fg);
+  border-bottom-color: var(--accent, #0969da);
+  font-weight: 500;
+}
+.wd-dash-tab-active:hover {
+  background: transparent;
+}
+
+.wd-dash-topnav-spacer { flex: 1; }
+
+.wd-dash-current-scope {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+/* ---- Body: rail + main ---------------------------------------------------*/
+
+.wd-dash-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.wd-dash-rail {
+  width: 160px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg, var(--header-bg));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wd-dash-rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+}
+.wd-dash-rail-header h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0;
+}
+.wd-dash-rail-new {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wd-dash-rail-new:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.wd-dash-rail-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.wd-dash-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.wd-dash-rail-item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 1px;
+  overflow: hidden;
+}
+.wd-dash-rail-item:hover { background: var(--hover); }
+.wd-dash-rail-item-active {
+  background: color-mix(in srgb, var(--accent, #0969da) 12%, transparent);
+  font-weight: 500;
+}
+
+.wd-dash-rail-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+
+.wd-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.wd-rail-dot-active { background: #2ea043; }   /* green */
+.wd-rail-dot-open   { background: #d29922; }   /* amber */
+.wd-rail-dot-stale  { background: #6e7681; }   /* grey */
+
+.wd-dash-rail-pending {
+  font-size: 10px;
+  color: white;
+  background: #8957e5;
+  border-radius: 8px;
+  padding: 1px 5px;
+}
+.wd-dash-rail-drafts {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+
+.wd-dash-rail-overflow {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 6px 12px;
+}
+
+.wd-dash-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Tab common chrome ---------------------------------------------------*/
+
+/* Pane wrapper for tab content (Sessions/PRs/Jira/Tasks). Distinct from
+   `.wd-dash-tab` which is the button class on the top-nav tabs. */
+.wd-dash-tab-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.wd-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wd-tab-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+.wd-tab-header-muted {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 13px;
+}
+.wd-tab-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+.wd-tab-controls select {
+  margin-left: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.wd-tab-empty {
+  padding: 32px 24px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+.wd-tab-error {
+  padding: 16px 24px;
+  color: var(--del-fg, #d1242f);
+  font-size: 13px;
+}
+
+/* ---- Sessions tab: card grid ---------------------------------------------*/
+
+.wd-session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 16px 24px;
+  overflow-y: auto;
+}
+.wd-session-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 80ms ease, transform 80ms ease;
+}
+.wd-session-card:hover {
+  border-color: var(--accent, #0969da);
+}
+.wd-session-card:focus-visible {
+  outline: 2px solid var(--accent, #0969da);
+  outline-offset: 1px;
+}
+.wd-session-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+}
+.wd-session-card-target { color: var(--muted); }
+.wd-session-card-sep { color: var(--muted); }
+.wd-session-card-branch { font-weight: 500; }
+.wd-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+.wd-card-dot-active { background: #2ea043; }
+.wd-card-dot-open   { background: #d29922; }
+.wd-card-dot-stale  { background: #6e7681; }
+.wd-session-card-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---- PRs tab: table ------------------------------------------------------*/
+
+.wd-pr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  overflow-y: auto;
+}
+.wd-pr-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--header-bg);
+  z-index: 1;
+}
+.wd-pr-table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.wd-pr-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.wd-pr-group-label {
+  background: var(--sidebar-bg, var(--header-bg));
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--fg);
+}
+.wd-pr-row { cursor: pointer; }
+.wd-pr-row:hover { background: var(--hover); }
+.wd-pr-num { font-family: monospace; color: var(--muted); }
+.wd-pr-branch {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-pr-title { font-weight: 500; }
+.wd-pr-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 6px;
+  background: var(--border);
+  color: var(--muted);
+}
+.wd-pr-check { font-size: 14px; }
+.wd-pr-check-ok      { color: #2ea043; }
+.wd-pr-check-fail    { color: #d1242f; }
+.wd-pr-check-pending { color: #d29922; }
+.wd-pr-check-none    { color: var(--muted); }
+.wd-pr-actions { text-align: right; }
+.wd-pr-actions a { color: var(--muted); text-decoration: none; }
+.wd-pr-actions a:hover { color: var(--accent, #0969da); }
+
+/* ---- Jira tab: kanban ----------------------------------------------------*/
+
+.wd-jira-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  padding: 16px 24px;
+  overflow-y: auto;
+}
+.wd-jira-col {
+  background: var(--sidebar-bg, var(--header-bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+}
+.wd-jira-col-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wd-jira-col-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wd-jira-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.wd-jira-card:hover { border-color: var(--accent, #0969da); }
+.wd-jira-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.wd-jira-card-key {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #0969da);
+}
+.wd-jira-card-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+}
+.wd-jira-card-link:hover { color: var(--fg); }
+.wd-jira-card-summary {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wd-jira-card-has-session {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #2ea043;
+}
+
+/* ---- Tasks tab: flat list ------------------------------------------------*/
+
+.wd-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 24px;
+  overflow-y: auto;
+}
+.wd-task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-task-row:hover { background: var(--hover); }
+.wd-task-row-done .wd-task-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.wd-task-text {
+  flex: 1;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wd-task-action {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.wd-task-remove {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+.wd-task-remove:hover { color: var(--del-fg, #d1242f); }
+.wd-task-add {
+  display: flex;
+  gap: 6px;
+}
+.wd-task-add input {
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 4px 8px;
+  width: 220px;
+}
+
+/* ---- Session detail (drill-in) -------------------------------------------*/
+
+.wd-session-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.wd-session-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wd-back-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+}
+.wd-back-link:hover { color: var(--accent, #0969da); }
+.wd-session-detail h1 {
+  font-size: 16px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-weight: 500;
+}
+.wd-session-detail-target { color: var(--muted); }
+.wd-session-detail-sep { color: var(--muted); margin: 0 2px; }
+.wd-session-detail-branch { font-weight: 600; }
+
+.wd-session-subtabs {
+  display: flex;
+  gap: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wd-session-subtab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 10px 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-session-subtab:hover { color: var(--fg); }
+.wd-session-subtab-active {
+  color: var(--fg);
+  border-bottom-color: var(--accent, #0969da);
+  font-weight: 500;
+}
+.wd-session-subtab-badge {
+  background: var(--accent, #0969da);
+  color: white;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.wd-session-subtab-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wd-session-comments {
+  list-style: none;
+  margin: 0;
+  padding: 12px 24px;
+  overflow-y: auto;
+}
+.wd-session-comment {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+.wd-session-comment-header {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.wd-session-comment-body {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
