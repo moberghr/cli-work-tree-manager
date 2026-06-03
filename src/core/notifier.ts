@@ -64,16 +64,38 @@ export function buildNotifyCommand(
   if (platform === 'win32') {
     const t = escapePwshSingle(title);
     const m = escapePwshSingle(message);
-    // Built-in balloon tip via System.Windows.Forms — no external module.
+    // The Windows path is BEST-EFFORT. There is no reliable, dependency-free
+    // way to raise a real toast from a short-lived headless PowerShell process:
+    //   - WinRT toasts require a registered AppUserModelID; without one they
+    //     are silently dropped on many systems.
+    //   - A System.Windows.Forms NotifyIcon balloon needs a live message pump,
+    //     and disposing the process immediately can cancel the balloon before
+    //     it renders — but keeping the process alive leaks a lingering pwsh.
+    // We therefore prefer BurntToast (proper WinRT toasts) when the module is
+    // installed, and otherwise fall back to a balloon shown without a
+    // load-bearing Start-Sleep: we pump messages briefly (DoEvents) so the
+    // balloon has a chance to appear, then dispose. This may occasionally
+    // no-op, which is acceptable for an opt-in convenience notification.
     const script =
       "$ErrorActionPreference='SilentlyContinue';" +
+      // Preferred path: BurntToast (real WinRT toast, no lingering process).
+      'if(Get-Module -ListAvailable -Name BurntToast){' +
+      'Import-Module BurntToast;' +
+      `New-BurntToastNotification -Text '${t}','${m}';` +
+      '}else{' +
+      // Fallback: transient balloon. Pump messages so it can render without a
+      // multi-second sleep, then dispose so the process exits promptly.
       'Add-Type -AssemblyName System.Windows.Forms;' +
       'Add-Type -AssemblyName System.Drawing;' +
       '$n=New-Object System.Windows.Forms.NotifyIcon;' +
       '$n.Icon=[System.Drawing.SystemIcons]::Information;' +
       '$n.Visible=$true;' +
       `$n.ShowBalloonTip(5000,'${t}','${m}',[System.Windows.Forms.ToolTipIcon]::Info);` +
-      'Start-Sleep -Seconds 6;$n.Dispose()';
+      '[System.Windows.Forms.Application]::DoEvents();' +
+      'Start-Sleep -Milliseconds 500;' +
+      '[System.Windows.Forms.Application]::DoEvents();' +
+      '$n.Dispose();' +
+      '}';
     return { cmd: 'powershell', args: ['-NoProfile', '-Command', script] };
   }
 

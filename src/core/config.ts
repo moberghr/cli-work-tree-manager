@@ -65,7 +65,7 @@ export function loadConfig(): WorkConfig | null {
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,
-      notifications: parsed.notifications,
+      notifications: parsed.notifications === true,
     };
   } catch {
     return null;
