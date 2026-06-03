@@ -10,6 +10,22 @@ export interface ParsedFile {
   added: number;
   deleted: number;
   hunks: Hunk[];
+  /** Full file contents for markdown rendering. Populated only for `.md` /
+   *  `.markdown` / `.mdx` files by the diff pipeline so the SPA can show a
+   *  rendered preview. `before` is from `git show <diffArg>:<oldPath>`,
+   *  `after` is the working-tree file. Either side may be absent for
+   *  added / deleted files. */
+  mdContent?: MarkdownContent;
+}
+
+export interface MarkdownContent {
+  before?: string;
+  after?: string;
+  /** Set when either side exceeded the per-side size cap. The SPA uses
+   *  this to hide the Preview/Split toggle — rendering a 10 MB
+   *  markdown blob in the diff payload would balloon SSE reloads and
+   *  blow the browser heap. */
+  tooLarge?: boolean;
 }
 
 export interface Hunk {

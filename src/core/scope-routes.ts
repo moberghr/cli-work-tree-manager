@@ -1,9 +1,17 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { computeDiff } from './diff-pipeline.js';
+import spawn from 'cross-spawn';
+import { computeDiff, computeRangeDiff } from './diff-pipeline.js';
 import { resolveRepoDiff } from './diff-scope.js';
+import {
+  clearCheckpoints,
+  loadManifest,
+  takeCheckpoint,
+  type CheckpointEntry,
+} from './checkpoint.js';
 import {
   commentStoreIdForScope,
   getScope,
@@ -46,6 +54,53 @@ export interface ScopeMountOptions {
 export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   // -- Lifecycle -----------------------------------------------------------
 
+  // Scopes that already have an auto-snapshot subscriber wired. The
+  // register endpoint is idempotent (same paths → same hash), and we
+  // only want one subscriber per scope no matter how many times `wd`
+  // re-registers in the same `work web` lifetime.
+  const checkpointWatched = new Set<string>();
+
+  // Per-scope fingerprint of the last working-tree state we observed.
+  // `git status --porcelain --no-renames -z` is dramatically cheaper
+  // than the full snapshot path (`git add -A` against a temp index +
+  // write-tree + commit-tree + update-ref ≈ 6 spawns per repo) — when
+  // a save touches an `.gitignore`'d file or doesn't actually change
+  // content (editor rewriting the same bytes), the status output is
+  // unchanged and we can skip the whole snapshot pipeline.
+  const lastStatus = new Map<string, string>();
+
+  function workingTreeFingerprint(paths: string[]): string {
+    const parts: string[] = [];
+    for (const p of paths) {
+      const r = spawn.sync(
+        'git',
+        ['status', '--porcelain', '--no-renames', '-z'],
+        { cwd: p, encoding: 'utf-8', windowsHide: true },
+      );
+      parts.push(r.stdout ?? '');
+    }
+    return parts.join('\0|\0');
+  }
+
+  // In-process bus for checkpoint events — lets the per-scope SSE handler
+  // forward `checkpoints-changed` to subscribers of a single scope's
+  // stream. Server-level `/events` still gets the same event via
+  // `opts.broadcast`; both paths are needed because the SPA chooses one
+  // stream or the other depending on whether it's mounted via `work web`
+  // or running standalone.
+  const scopeBus = new EventEmitter();
+  scopeBus.setMaxListeners(0);
+
+  /** Build the repo list for `takeCheckpoint`. The `name` field is the
+   *  manifest key — must be unique within a scope, otherwise two repos
+   *  with the same basename in a group worktree would overwrite each
+   *  other's SHA in the entry. Using the full resolved path guarantees
+   *  uniqueness (paths in a scope are already de-duplicated by
+   *  `registerScope`'s sort+normalise). */
+  function scopeRepos(scopePaths: string[]) {
+    return scopePaths.map((p) => ({ name: p, root: p }));
+  }
+
   app.post(
     '/api/scopes',
     zValidator(
@@ -60,6 +115,63 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       try {
         const scope = registerScope(paths, label);
         opts.broadcast('scopes-changed', { hash: scope.hash });
+
+        const announceCheckpoint = (entry: CheckpointEntry) => {
+          const payload = { scopeHash: scope.hash, id: entry.id };
+          opts.broadcast('checkpoints-changed', payload);
+          scopeBus.emit('checkpoints-changed', payload);
+        };
+
+        // Initial snapshot — establishes the "Initial" checkpoint that
+        // every subsequent fs-change snapshot diffs against. Fire and
+        // forget: `git add -A` against a large untracked tree can take
+        // hundreds of ms, and the `wd` foreground caller is waiting on
+        // this response to open the browser. The SPA fetches checkpoints
+        // separately and will see the initial entry once it lands (or
+        // via the `checkpoints-changed` SSE event below).
+        if (loadManifest(scope.hash).entries.length === 0) {
+          takeCheckpoint(scope.hash, scopeRepos(scope.paths))
+            .then((entry) => {
+              if (entry) announceCheckpoint(entry);
+            })
+            .catch((err) => {
+              // Best-effort, but DO surface persistent failures (disk
+              // full on `~/.work/diffs/`, stale lockfile, git permission
+              // denied). `installConsoleLogger` mirrors console.error
+              // into `~/.work/debug.log`, giving the user a diagnostic
+              // trail even though we don't fail the request.
+              console.error('[checkpoint] initial snapshot failed:', err);
+            });
+        }
+
+        // Wire an auto-snapshot subscriber that fires on every debounced
+        // fs change for this scope. A cheap `git status` fingerprint
+        // gate short-circuits before the expensive snapshot pipeline
+        // when the working tree hasn't moved — common when editor
+        // autosave rewrites a file with identical content, or when
+        // chokidar fires for an `.gitignore`'d path that git wouldn't
+        // capture anyway.
+        if (!checkpointWatched.has(scope.hash)) {
+          checkpointWatched.add(scope.hash);
+          subscribeScope(scope.hash, () => {
+            try {
+              const fp = workingTreeFingerprint(scope.paths);
+              if (lastStatus.get(scope.hash) === fp) return;
+              lastStatus.set(scope.hash, fp);
+            } catch {
+              // Fingerprint failure shouldn't block the snapshot — fall
+              // through to takeCheckpoint and let its own logic decide.
+            }
+            takeCheckpoint(scope.hash, scopeRepos(scope.paths))
+              .then((entry) => {
+                if (entry) announceCheckpoint(entry);
+              })
+              .catch((err) => {
+                console.error('[checkpoint] auto-snapshot failed:', err);
+              });
+          });
+        }
+
         return c.json({
           hash: scope.hash,
           diffUrl: `/diff/${scope.hash}`,
@@ -77,18 +189,111 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   app.get('/api/scopes', (c) => c.json({ scopes: listScopes() }));
 
   app.delete('/api/scopes/:hash', (c) => {
-    const ok = removeScope(c.req.param('hash'));
-    if (ok) opts.broadcast('scopes-changed', { hash: c.req.param('hash') });
+    const hash = c.req.param('hash');
+    // Capture the paths BEFORE removeScope — the scope-manager entry
+    // is gone after that, and clearCheckpoints needs the repo roots
+    // to delete each `refs/wd/<hash>/<n>` ref. Without this cleanup,
+    // refs + the manifest leak forever: git GC can't reclaim the
+    // commits behind a named ref, and a re-register with the same
+    // paths would skip the Initial snapshot because the stale
+    // manifest still has entries.
+    const scope = getScope(hash);
+    const repoPaths = scope ? [...scope.paths] : [];
+    const ok = removeScope(hash);
+    // `removeScope` clears the scope's fs-watch subscribers; drop our
+    // record of having wired one so a re-register of the same paths
+    // rewires the auto-snapshot subscriber instead of silently doing
+    // nothing.
+    checkpointWatched.delete(hash);
+    lastStatus.delete(hash);
+    if (repoPaths.length > 0) clearCheckpoints(hash, repoPaths);
+    if (ok) opts.broadcast('scopes-changed', { hash });
     return c.json({ ok });
   });
 
   // -- Diff ----------------------------------------------------------------
 
+  /** Parse "0", "1", ... as a numeric id; everything else as undefined.
+   *  The literal "working" stays as the sentinel — only meaningful for
+   *  the `to` parameter. */
+  function parseCheckpointParam(
+    raw: string | undefined,
+  ): number | 'working' | undefined {
+    if (raw === undefined || raw === '') return undefined;
+    if (raw === 'working') return 'working';
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0) return n;
+    return undefined;
+  }
+
   app.get('/api/scopes/:hash/diff', (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';
+    const fromParam = parseCheckpointParam(c.req.query('from'));
+    const toParam = parseCheckpointParam(c.req.query('to'));
     try {
+      // `from='working'` is meaningless — the working tree only makes
+      // sense as the right endpoint. Reject explicitly instead of
+      // silently falling through to legacy mode and serving a HEAD-vs-
+      // working diff that looks like the requested range.
+      if (fromParam === 'working') {
+        return c.json(
+          { error: "'working' is not valid as a from-checkpoint" },
+          400,
+        );
+      }
+      // Checkpoint-range mode: ignore `base`, look up commits from the
+      // manifest, run computeRangeDiff per repo. Either endpoint can be
+      // an id or (for `to`) 'working'. Missing checkpoint id for a repo
+      // → fall back to HEAD (treats that repo as if there's no snapshot).
+      if (fromParam !== undefined) {
+        const manifest = loadManifest(scope.hash);
+        const fromEntry = manifest.entries.find((e) => e.id === fromParam);
+        if (!fromEntry) {
+          return c.json({ error: `unknown from checkpoint ${fromParam}` }, 400);
+        }
+        let toEntry: CheckpointEntry | undefined;
+        if (toParam !== undefined && toParam !== 'working') {
+          toEntry = manifest.entries.find((e) => e.id === toParam);
+          if (!toEntry) {
+            return c.json({ error: `unknown to checkpoint ${toParam}` }, 400);
+          }
+          // Reject reversed ranges. `git diff <toSha> <fromSha>` produces
+          // an inverted diff (adds look like deletes) — clearly wrong but
+          // would still return 200. Surface the misuse so callers (the
+          // SPA or curl users) get a clear error instead of confusing
+          // output.
+          if (toEntry.id < fromEntry.id) {
+            return c.json(
+              { error: `to (${toEntry.id}) must be >= from (${fromEntry.id})` },
+              400,
+            );
+          }
+        }
+        const repos = scope.paths.map((p) => {
+          // Manifest is keyed by full path (see `scopeRepos`). The
+          // response's `name` is still the basename — it's the user-
+          // visible repo tab label and doesn't need to be unique-by-key.
+          const fromSha = fromEntry.repos[p] ?? 'HEAD';
+          const toSha: string | 'working' =
+            toEntry === undefined ? 'working' : (toEntry.repos[p] ?? 'HEAD');
+          return {
+            name: path.basename(p),
+            root: p,
+            files: computeRangeDiff({ root: p, fromRef: fromSha, toRef: toSha }),
+          };
+        });
+        return c.json({
+          scopeHash: scope.hash,
+          base: 'uncommitted',
+          resolvedBase: `checkpoint-${fromEntry.id}`,
+          from: fromEntry.id,
+          to: toEntry?.id ?? 'working',
+          repos,
+        });
+      }
+
       // Resolve each repo independently — they may have different parent
       // branches in a group worktree. Each entry carries its own
       // `resolvedBase` so the UI can label per-repo if it wants to.
@@ -107,6 +312,18 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
+  });
+
+  // -- Checkpoints ---------------------------------------------------------
+
+  app.get('/api/scopes/:hash/checkpoints', (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const manifest = loadManifest(scope.hash);
+    return c.json({
+      scopeHash: scope.hash,
+      entries: manifest.entries,
+    });
   });
 
   // -- Comments ------------------------------------------------------------
@@ -220,10 +437,24 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
           })
           .catch(() => { /* */ });
       });
+      // Relay checkpoint events for THIS scope only. The auto-snapshot
+      // subscriber emits to `scopeBus` whenever a new checkpoint passes
+      // the dedup, so the SPA's strip refreshes without polling.
+      const onCheckpoint = (payload: { scopeHash: string; id: number }) => {
+        if (payload.scopeHash !== scope.hash) return;
+        stream
+          .writeSSE({
+            event: 'checkpoints-changed',
+            data: JSON.stringify(payload),
+          })
+          .catch(() => { /* */ });
+      };
+      scopeBus.on('checkpoints-changed', onCheckpoint);
       await stream.writeSSE({ event: 'connected', data: '' });
       await new Promise<void>((resolve) => {
         stream.onAbort(() => {
           unsubscribe?.();
+          scopeBus.off('checkpoints-changed', onCheckpoint);
           resolve();
         });
       });

@@ -3,8 +3,11 @@ import hljs from 'highlight.js';
 import type { ParsedFile } from '../../api/client.js';
 import { languageForPath } from '../../utils/language.js';
 import { STATUS_LETTER } from '../../utils/status.js';
+import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { useSelectedHunks } from '../../hooks/use-selected-hunks.js';
+
+type FileViewMode = 'diff' | 'preview' | 'split';
 
 interface Props {
   file: ParsedFile;
@@ -69,6 +72,23 @@ export function DiffFile({
   const isLarge = totalChanged >= AUTO_COLLAPSE_LINES;
   const [expanded, setExpanded] = useState(!isLarge);
 
+  // Per-file view mode. Markdown files get a Diff | Preview | Split toggle —
+  // Preview renders the new (or before, for deletions) content; Split shows
+  // both rendered side-by-side. Non-markdown files always render the diff.
+  // Server may also flag `tooLarge: true` to opt the file out of preview
+  // when content would balloon the payload (large auto-generated docs).
+  const mdContent = file.mdContent;
+  const hasPreview =
+    !!mdContent &&
+    !mdContent.tooLarge &&
+    (mdContent.before !== undefined || mdContent.after !== undefined);
+  const hasSplit =
+    !!mdContent &&
+    !mdContent.tooLarge &&
+    mdContent.before !== undefined &&
+    mdContent.after !== undefined;
+  const [viewMode, setViewMode] = useState<FileViewMode>('diff');
+
   const renamed =
     file.status === 'renamed' && file.oldPath !== file.newPath ? (
       <span className="wd-rename">
@@ -93,6 +113,52 @@ export function DiffFile({
             <span className="wd-del">-{file.deleted}</span>
           </span>
         )}
+        {hasPreview && !viewed && (
+          <div
+            className="wd-view-mode"
+            role="tablist"
+            aria-label="File view mode"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'diff'}
+              className={
+                'wd-view-mode-btn' +
+                (viewMode === 'diff' ? ' wd-view-mode-btn-active' : '')
+              }
+              onClick={() => setViewMode('diff')}
+            >
+              Diff
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'preview'}
+              className={
+                'wd-view-mode-btn' +
+                (viewMode === 'preview' ? ' wd-view-mode-btn-active' : '')
+              }
+              onClick={() => setViewMode('preview')}
+            >
+              Preview
+            </button>
+            {hasSplit && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === 'split'}
+                className={
+                  'wd-view-mode-btn' +
+                  (viewMode === 'split' ? ' wd-view-mode-btn-active' : '')
+                }
+                onClick={() => setViewMode('split')}
+              >
+                Split
+              </button>
+            )}
+          </div>
+        )}
         {onToggleViewed && (
           <label
             className="wd-viewed-label"
@@ -109,7 +175,9 @@ export function DiffFile({
         )}
       </header>
       {!viewed &&
-        (file.isBinary ? (
+        (hasPreview && viewMode !== 'diff' ? (
+          <MarkdownPreview file={file} mode={viewMode} />
+        ) : file.isBinary ? (
           <div className="wd-binary">Binary file</div>
         ) : file.hunks.length === 0 ? (
           <div className="wd-binary">No content changes</div>
@@ -161,4 +229,37 @@ export function DiffFile({
         ))}
     </article>
   );
+}
+
+interface MarkdownPreviewProps {
+  file: ParsedFile;
+  mode: FileViewMode;
+}
+
+/**
+ * Rendered preview for markdown files. `preview` shows the after-content
+ * (or before for deletions), `split` shows both sides side-by-side. The
+ * source strings are pre-fetched by the diff pipeline; this component is
+ * pure rendering.
+ */
+function MarkdownPreview({ file, mode }: MarkdownPreviewProps) {
+  const md = file.mdContent!;
+  if (mode === 'split' && md.before !== undefined && md.after !== undefined) {
+    return (
+      <div className="wd-md-split">
+        <div className="wd-md-split-side wd-md-split-before">
+          <header className="wd-md-split-label">Before</header>
+          <Markdown source={md.before} block className="wd-md-preview" />
+        </div>
+        <div className="wd-md-split-side wd-md-split-after">
+          <header className="wd-md-split-label">After</header>
+          <Markdown source={md.after} block className="wd-md-preview" />
+        </div>
+      </div>
+    );
+  }
+  // Preview mode: prefer after-content (the new version). Falls back to
+  // before for deleted files where only the old version exists.
+  const source = md.after ?? md.before ?? '';
+  return <Markdown source={source} block className="wd-md-preview" />;
 }

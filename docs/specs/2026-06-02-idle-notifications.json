@@ -1,0 +1,30 @@
+{
+  "slug": "idle-notifications",
+  "date": "2026-06-02",
+  "scope_classification": "small-feature",
+  "security_impact": "low",
+  "open_decisions": [],
+  "change_manifest": [
+    "src/core/notifier.ts",
+    "src/core/config.ts",
+    "src/tui-ink/App.tsx",
+    "tests/core/notifier.test.ts"
+  ],
+  "public_contracts": [
+    "notifier.ts: notifyDesktop(sessionName, kind, opts?)",
+    "notifier.ts: buildNotifyCommand(sessionName, kind, platform)",
+    "notifier.ts: type NotifyKind = 'idle' | 'needs_input'",
+    "config.ts: WorkConfig.notifications?: boolean"
+  ],
+  "out_of_scope": [
+    "work web browser notifications",
+    "Slack/ntfy/webhook transports",
+    "suppress notifications for the focused session",
+    "work.ps1 PowerShell port",
+    "work config toggle subcommand"
+  ],
+  "batches": [
+    { "id": 1, "title": "notifier core module + config flag + tests" },
+    { "id": 2, "title": "wire notifier into dash hook callback" }
+  ]
+}
