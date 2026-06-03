@@ -7,6 +7,9 @@
     "work": "./dist/bin.js",
     "wd": "./dist/wd-bin.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsup",
@@ -15,7 +18,8 @@
     "dev": "tsx src/bin.ts",
     "dev:web": "vite",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "git",
@@ -23,6 +27,14 @@
     "cli"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moberghr/cli-work-tree-manager.git"
+  },
+  "homepage": "https://github.com/moberghr/cli-work-tree-manager#readme",
+  "bugs": {
+    "url": "https://github.com/moberghr/cli-work-tree-manager/issues"
+  },
   "engines": {
     "node": ">=18"
   },
