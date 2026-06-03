@@ -150,8 +150,16 @@ export function getDefaultBranch(cwd: string): string | null {
   return null;
 }
 
-/** Result of checking a branch against a single base ref. */
-type MergeCheck = 'merged' | 'stale' | 'unrelated';
+/**
+ * Result of checking a branch against a single base ref.
+ *
+ * 'merged' is a high-confidence true merge (the branch tip is reachable from
+ * base via a merge/fast-forward). 'squash-merged' is the lower-confidence
+ * heuristic match from {@link checkSquashMerged} — the branch's squashed patch
+ * already appears in base, but there is no real merge commit linking the two.
+ * Callers that prune unattended should treat 'squash-merged' as opt-in only.
+ */
+type MergeCheck = 'merged' | 'squash-merged' | 'stale' | 'unrelated';
 
 /**
  * Check if a branch is truly merged into a base ref (not just a stale branch
@@ -159,14 +167,15 @@ type MergeCheck = 'merged' | 'stale' | 'unrelated';
  *
  * Returns 'stale' if the branch tip is on the base's first-parent chain
  * (no unique work). Returns 'merged' if the branch has unique commits that
- * are all reachable from base. Returns 'unrelated' otherwise.
+ * are all reachable from base. Returns 'squash-merged' if only the squash
+ * heuristic matched. Returns 'unrelated' otherwise.
  */
 function checkMergeStatus(branch: string, baseRef: string, cwd: string): MergeCheck {
   // 1. Branch must be an ancestor of base (all its commits are in base)
   const branchInBase = git(['merge-base', '--is-ancestor', branch, baseRef], cwd);
   if (branchInBase.exitCode !== 0) {
-    // Not a regular merge — check for squash merge.
-    if (checkSquashMerged(branch, baseRef, cwd)) return 'merged';
+    // Not a regular merge — check for squash merge (low-confidence heuristic).
+    if (checkSquashMerged(branch, baseRef, cwd)) return 'squash-merged';
     return 'unrelated';
   }
 
@@ -210,10 +219,19 @@ function checkSquashMerged(branch: string, baseRef: string, cwd: string): boolea
   return cherry.stdout.startsWith('-');
 }
 
+/** Confidence level for a positive merge result. */
+export type MergeConfidence = 'merged' | 'squash-merged';
+
 export interface MergeCheckResult {
   merged: boolean;
   /** The base ref it matched against (e.g. "origin/main"), or null if not merged. */
   into: string | null;
+  /**
+   * How the match was determined when `merged` is true: 'merged' is a
+   * high-confidence true merge; 'squash-merged' is the lower-confidence
+   * squash heuristic. Null when not merged.
+   */
+  confidence: MergeConfidence | null;
 }
 
 export function isBranchMerged(
@@ -236,19 +254,23 @@ export function isBranchMerged(
     if (remoteBranchExists(base, cwd)) {
       const baseRef = `origin/${base}`;
       const status = checkMergeStatus(branch, baseRef, cwd);
-      if (status === 'merged') return { merged: true, into: baseRef };
-      if (status === 'stale') return { merged: false, into: null };
+      if (status === 'merged') return { merged: true, into: baseRef, confidence: 'merged' };
+      if (status === 'squash-merged')
+        return { merged: true, into: baseRef, confidence: 'squash-merged' };
+      if (status === 'stale') return { merged: false, into: null, confidence: null };
     }
 
     // Fall back to local base branch
     if (localBranchExists(base, cwd)) {
       const status = checkMergeStatus(branch, base, cwd);
-      if (status === 'merged') return { merged: true, into: base };
-      if (status === 'stale') return { merged: false, into: null };
+      if (status === 'merged') return { merged: true, into: base, confidence: 'merged' };
+      if (status === 'squash-merged')
+        return { merged: true, into: base, confidence: 'squash-merged' };
+      if (status === 'stale') return { merged: false, into: null, confidence: null };
     }
   }
 
-  return { merged: false, into: null };
+  return { merged: false, into: null, confidence: null };
 }
 
 /** Fetch latest remote refs for a repo and ensure origin/HEAD is set. */

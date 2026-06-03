@@ -9,6 +9,7 @@ import { statusCommand } from './commands/status.js';
 import { recentCommand } from './commands/recent.js';
 import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
+import { syncCommand } from './commands/sync.js';
 import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
@@ -42,6 +43,8 @@ function showHelp() {
   console.log('  work web                                           - Browser dashboard (one tab, every session)');
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
+  console.log('  work sync                                          - Fetch all repos and prune merged (non-interactive)');
+  console.log('  work sync --dry-run                                - Show what sync would prune, remove nothing');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
   console.log('  work diff [base]                                   - Open a GitHub-PR-style diff in your browser');
   console.log('  work todo                                          - List tasks');
@@ -93,6 +96,7 @@ export function run(argv: string[]) {
     .command(recentCommand)
     .command(resumeCommand)
     .command(pruneCommand)
+    .command(syncCommand)
     .command(dashCommand)
     .command(todoCommand)
     .command(hydrateCommand)
