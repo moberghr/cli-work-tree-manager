@@ -88,6 +88,35 @@ describe('resolveScope', () => {
     expect(scope!.activeRepoName).toBeNull();
   });
 
+  it('resolves a nested worktree to its own root, not the parent session', () => {
+    // A linked worktree living physically inside a session repo
+    // (<repo>/.claude/worktrees/<branch>) must NOT collapse onto the parent's
+    // scope — otherwise two branches share one daemon. Regression test.
+    execSync('git worktree add -q -b feat-nested .claude/worktrees/nested', {
+      cwd: repoDir,
+    });
+    const nested = path.join(repoDir, '.claude', 'worktrees', 'nested');
+    // The parent repo is a known session; the nested worktree is not.
+    saveHistory([session({ paths: [repoDir] })]);
+
+    const scope = resolveScope(nested);
+    expect(scope).not.toBeNull();
+    expect(scope!.session).toBeNull(); // parent match rejected
+    // Root is the nested worktree itself, so its scope hash differs.
+    expect(path.basename(scope!.repos[0].root)).toBe('nested');
+  });
+
+  it('still matches the parent session from a subdirectory of that same worktree', () => {
+    // Guard against over-correction: a plain subdir (same worktree, same
+    // toplevel) must still resolve to the session.
+    const sub = path.join(repoDir, 'src');
+    fs.mkdirSync(sub);
+    saveHistory([session({ paths: [repoDir] })]);
+    const scope = resolveScope(sub);
+    expect(scope!.session).not.toBeNull();
+    expect(path.basename(scope!.repos[0].root)).toBe(path.basename(repoDir));
+  });
+
   it('falls back to git rev-parse for unknown cwds inside a real repo', () => {
     saveHistory([]);
     const scope = resolveScope(repoDir);
