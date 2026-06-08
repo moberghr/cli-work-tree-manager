@@ -4,7 +4,7 @@ import {
   findSessionForCwd,
   formatPendingForPrompt,
   markDelivered,
-  readPendingForSession,
+  readPendingForWorktree,
   sessionIdFor,
 } from '../core/pending-delivery.js';
 
@@ -52,7 +52,7 @@ export function computeHookOutput(input: HookInput): HookOutput | null {
   if (activity.state === 'stale') return null;
 
   const sessionId = sessionIdFor(session);
-  const pending = readPendingForSession(sessionId);
+  const pending = readPendingForWorktree(session);
   if (pending.length === 0) return null;
 
   const text = formatPendingForPrompt(pending);

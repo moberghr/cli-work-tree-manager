@@ -16,6 +16,11 @@ interface Props {
    *  or vice-versa depending on which side of the current range the
    *  click landed. The component is dumb; the caller decides. */
   onExtend: (toId: CheckpointRangeEnd) => void;
+  /** Whether the range is currently driving the diff. When false the strip
+   *  is dimmed — a range is pinned for display, but the diff is showing a
+   *  base view (Uncommitted / Since branch); clicking a chip activates the
+   *  range comparison. */
+  active: boolean;
   /** A diff fetch for the selected range is in flight — show a spinner so
    *  the click reads as "loading" instead of an unresponsive UI. */
   busy?: boolean;
@@ -34,6 +39,7 @@ export function CheckpointStrip({
   toId,
   onSelect,
   onExtend,
+  active,
   busy,
 }: Props) {
   if (entries.length === 0) return null;
@@ -54,7 +60,10 @@ export function CheckpointStrip({
 
   return (
     <nav
-      className="wd-checkpoint-strip"
+      className={
+        'wd-checkpoint-strip' +
+        (active ? '' : ' wd-checkpoint-strip-inactive')
+      }
       role="tablist"
       aria-label="Checkpoint range"
       aria-busy={busy}

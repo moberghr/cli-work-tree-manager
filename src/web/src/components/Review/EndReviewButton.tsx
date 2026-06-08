@@ -9,9 +9,29 @@ import { Modal } from './Modal.js';
 export function EndReviewButton() {
   const review = useReview();
   const [modalOpen, setModalOpen] = useState(false);
-  const [busy, setBusy] = useState<'idle' | 'submitting' | 'ending'>('idle');
+  const [busy, setBusy] = useState<
+    'idle' | 'submitting' | 'ending' | 'ended'
+  >('idle');
   const draftCount = selectDrafts(review.comments).length;
   const publishedCount = selectPublishedCount(review.comments);
+
+  // Mark the review ended in the UI. The scope itself stays alive
+  // server-side (the tab keeps working, the URL stays viewable) — this
+  // just settles the button out of its transient "Closing…" state so it
+  // doesn't look hung. Any attached `wd -c` CLI exits on its next poll.
+  const finishEnded = () => {
+    setModalOpen(false);
+    setBusy('ended');
+  };
+
+  const label =
+    busy === 'idle'
+      ? 'End review '
+      : busy === 'submitting'
+        ? 'Submitting… '
+        : busy === 'ending'
+          ? 'Closing… '
+          : 'Review ended ';
 
   return (
     <>
@@ -21,7 +41,7 @@ export function EndReviewButton() {
         onClick={() => setModalOpen(true)}
         disabled={busy !== 'idle'}
       >
-        {busy === 'idle' ? 'End review ' : busy === 'submitting' ? 'Submitting… ' : 'Closing… '}
+        {label}
         <span className="wd-done-count">{publishedCount}</span>
       </button>
       {modalOpen && (
@@ -42,6 +62,7 @@ export function EndReviewButton() {
                       await review.submitReview('');
                       setBusy('ending');
                       await review.done();
+                      finishEnded();
                     } catch {
                       // Reset so the button isn't stuck; keep the modal open
                       // so the user can retry.
@@ -59,6 +80,7 @@ export function EndReviewButton() {
                   setBusy('ending');
                   try {
                     await review.done();
+                    finishEnded();
                   } catch {
                     setBusy('idle');
                   }

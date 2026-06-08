@@ -70,6 +70,14 @@ export function ReviewApp({ context, scopeHash }: Props) {
     to: CheckpointRangeEnd;
   } | null>(null);
   const userPickedRef = useRef(false);
+  // Whether the checkpoint range actually drives the diff. `decideRange`
+  // auto-pins a range (Initial → working) for the strip's display whenever
+  // 2+ checkpoints exist, but it must NOT hijack the Uncommitted/Since-branch
+  // tabs — the server treats a from/to range as overriding `base`, so a
+  // pinned range would silently serve the checkpoint diff under whichever
+  // base tab looks selected. Range comparison is opt-in: clicking a chip
+  // turns it on, clicking a base tab turns it back off.
+  const [rangeActive, setRangeActive] = useState(false);
 
   // Fetch checkpoint list on scope-mount + whenever a checkpoint event
   // arrives. Default range = (last → working), so the user sees "what
@@ -108,9 +116,13 @@ export function ReviewApp({ context, scopeHash }: Props) {
   } = useDeferredDiffLoad(
     () =>
       scopeHash
-        ? fetchScopeDiffByHash(scopeHash, diffBase, range ?? undefined)
+        ? fetchScopeDiffByHash(
+            scopeHash,
+            diffBase,
+            rangeActive ? (range ?? undefined) : undefined,
+          )
         : fetchScopeDiff(diffBase),
-    [reloadKey, diffBase, scopeHash, range],
+    [reloadKey, diffBase, scopeHash, range, rangeActive],
   );
   const repos: RepoData[] | null = diffData?.repos ?? null;
   const resolvedBase = diffData?.resolvedBase;
@@ -121,12 +133,18 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // Reflect the comparison in the browser tab title: "<branch> vs <base>".
   useEffect(() => {
     const head = headBranch ?? 'HEAD';
-    const what =
-      diffBase === 'branch' && resolvedBase
-        ? `${head} vs ${resolvedBase}`
-        : `${head} · uncommitted`;
+    let what: string;
+    if (rangeActive && range) {
+      const from = range.from === 0 ? 'Initial' : `#${range.from}`;
+      const to = range.to === 'working' ? 'working' : `#${range.to}`;
+      what = `${from} → ${to}`;
+    } else if (diffBase === 'branch' && resolvedBase) {
+      what = `${head} vs ${resolvedBase}`;
+    } else {
+      what = `${head} · uncommitted`;
+    }
     document.title = `${what} — ${context.scopeLabel}`;
-  }, [headBranch, context.scopeLabel, diffBase, resolvedBase]);
+  }, [headBranch, context.scopeLabel, diffBase, resolvedBase, rangeActive, range]);
 
   // In scope-mounted mode, listen to the scope-narrowed SSE stream — it
   // only fires for THIS scope's file changes. Standalone mode uses the
@@ -160,8 +178,15 @@ export function ReviewApp({ context, scopeHash }: Props) {
     if (from > to) return { from: to, to: from };
     return { from, to };
   };
+  // Switch to a plain base diff (Uncommitted / Since branch), turning off
+  // any active checkpoint-range comparison so the tab actually takes effect.
+  const selectBase = (base: DiffBase) => {
+    setRangeActive(false);
+    setDiffBase(base);
+  };
   const selectCheckpoint = (toId: CheckpointRangeEnd) => {
     userPickedRef.current = true;
+    setRangeActive(true);
     const fromId = range?.from ?? 0;
     setRange(normaliseRange(fromId, toId));
   };
@@ -171,6 +196,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
     // is meaningless and rejected server-side. Silently no-op a
     // Working shift-click.
     if (clickedId === 'working') return;
+    setRangeActive(true);
     const toId: CheckpointRangeEnd = range?.to ?? 'working';
     setRange(normaliseRange(clickedId, toId));
   };
@@ -243,7 +269,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // to know which range produced it (not be told "No uncommitted
   // changes" when their tree has plenty).
   let emptyMessage: string;
-  if (range) {
+  if (rangeActive && range) {
     const toLabel =
       range.to === 'working' ? 'working tree' : `checkpoint #${range.to}`;
     const fromLabel =
@@ -274,7 +300,19 @@ export function ReviewApp({ context, scopeHash }: Props) {
           <header className="wd-web-review-sidebar-header">
             <h1>{context.scopeLabel}</h1>
             <p className="wd-web-compare">
-              {diffBase === 'branch' && resolvedBase ? (
+              {rangeActive && range ? (
+                <>
+                  <strong>
+                    {range.from === 0 ? 'Initial' : `checkpoint #${range.from}`}
+                  </strong>
+                  <span className="wd-web-muted"> → </span>
+                  <strong>
+                    {range.to === 'working'
+                      ? 'working tree'
+                      : `checkpoint #${range.to}`}
+                  </strong>
+                </>
+              ) : diffBase === 'branch' && resolvedBase ? (
                 <>
                   <strong>{headBranch ?? 'HEAD'}</strong>
                   <span className="wd-web-muted"> vs </span>
@@ -296,7 +334,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
                   {hasTabs ? ` across ${repos.length} repos` : ''}
                 </>
               )}
-              {diffBase === 'branch' && resolvedBase && (
+              {!rangeActive && diffBase === 'branch' && resolvedBase && (
                 <>
                   {' '}
                   <span className="wd-web-muted">vs {resolvedBase}</span>
@@ -312,28 +350,28 @@ export function ReviewApp({ context, scopeHash }: Props) {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={diffBase === 'uncommitted'}
+                  aria-selected={!rangeActive && diffBase === 'uncommitted'}
                   className={
                     'wd-web-diff-scope-btn' +
-                    (diffBase === 'uncommitted'
+                    (!rangeActive && diffBase === 'uncommitted'
                       ? ' wd-web-diff-scope-btn-active'
                       : '')
                   }
-                  onClick={() => setDiffBase('uncommitted')}
+                  onClick={() => selectBase('uncommitted')}
                 >
                   Uncommitted
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={diffBase === 'branch'}
+                  aria-selected={!rangeActive && diffBase === 'branch'}
                   className={
                     'wd-web-diff-scope-btn' +
-                    (diffBase === 'branch'
+                    (!rangeActive && diffBase === 'branch'
                       ? ' wd-web-diff-scope-btn-active'
                       : '')
                   }
-                  onClick={() => setDiffBase('branch')}
+                  onClick={() => selectBase('branch')}
                 >
                   Since branch
                 </button>
@@ -373,6 +411,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
               entries={checkpoints}
               fromId={range.from}
               toId={range.to}
+              active={rangeActive}
               onSelect={selectCheckpoint}
               onExtend={extendCheckpoint}
               busy={loading}
@@ -388,7 +427,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
                   <button
                     type="button"
                     className="wd-web-link-btn"
-                    onClick={() => setDiffBase('branch')}
+                    onClick={() => selectBase('branch')}
                   >
                     Since branch
                   </button>{' '}
