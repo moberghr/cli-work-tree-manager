@@ -7,11 +7,14 @@ import {
   formatPendingForPrompt,
   markDelivered,
   readPendingForSession,
+  readPendingForWorktree,
 } from '../../src/core/pending-delivery.js';
 import {
   clearCommentStoreCache,
   getCommentFileStore,
 } from '../../src/core/comment-file-store.js';
+import { scopeHashFor } from '../../src/core/repo-spec.js';
+import { sessionIdFor } from '../../src/core/web-state.js';
 import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
 
 let tmpDir: string;
@@ -129,6 +132,54 @@ describe('readPendingForSession + markDelivered', () => {
     );
     const arr = JSON.parse(fs.readFileSync(deliveredPath, 'utf-8'));
     expect(arr).toEqual([c.id]);
+  });
+});
+
+describe('readPendingForWorktree (session + wd scope bridge)', () => {
+  // `wd` stores its review comments under a scope-hash store, not the
+  // session store. The hook must surface those too, otherwise comments
+  // left in the `wd` review UI never reach the Claude in that worktree.
+  // Use a POSIX-absolute path so it's stable under `path.resolve` (which
+  // production applies before hashing). Windows-style 'C:/...' would be
+  // treated as relative on the test host.
+  const WT = '/work/repo';
+  // Mirror production's hash derivation (resolve then hash).
+  function scopeStoreIdFor(paths: string[]): string {
+    return `scope-${scopeHashFor(paths.map((p) => path.resolve(p)))}`;
+  }
+
+  it('surfaces comments left in a wd scope store for the worktree', () => {
+    const s = session({ paths: [WT] });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const c = scopeStore.post({ body: 'from wd review' });
+    const pending = readPendingForWorktree(s);
+    expect(pending.map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it('merges session-store and scope-store comments', () => {
+    const s = session({ paths: [WT] });
+    const sessionStore = getCommentFileStore(sessionIdFor(s));
+    const a = sessionStore.post({ body: 'dashboard comment' });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const b = scopeStore.post({ body: 'wd comment' });
+    const pending = readPendingForWorktree(s);
+    expect(pending.map((x) => x.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('respects the per-session delivered set for scope comments', () => {
+    const s = session({ paths: [WT] });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const c = scopeStore.post({ body: 'wd comment' });
+    expect(readPendingForWorktree(s)).toHaveLength(1);
+    markDelivered(sessionIdFor(s), [c.id]);
+    expect(readPendingForWorktree(s)).toHaveLength(0);
+  });
+
+  it('does not pull in another worktree’s scope comments', () => {
+    const s = session({ paths: [WT] });
+    const otherScope = getCommentFileStore(scopeStoreIdFor(['/work/other']));
+    otherScope.post({ body: 'belongs to a different worktree' });
+    expect(readPendingForWorktree(s)).toHaveLength(0);
   });
 });
 

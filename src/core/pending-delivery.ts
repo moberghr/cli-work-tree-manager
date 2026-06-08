@@ -25,6 +25,7 @@ import {
   commentsFileFor,
   getCommentFileStore,
 } from './comment-file-store.js';
+import { scopeHashFor } from './repo-spec.js';
 import type { Comment } from './comment-types.js';
 
 function pathFor(sessionId: string): {
@@ -83,6 +84,11 @@ export function findSessionForCwd(cwd: string): WorktreeSession | null {
   return best?.session ?? null;
 }
 
+function isPendingFor(delivered: Set<string>) {
+  return (c: Comment) =>
+    c.status === 'published' && c.author === 'user' && !delivered.has(c.id);
+}
+
 /** Returns published user comments that haven't been delivered yet.
  *  Reads through the file-store cache so we see in-flight writes
  *  (`session-meta.ts` and other readers couldn't, when they re-read the
@@ -91,12 +97,57 @@ export function readPendingForSession(sessionId: string): Comment[] {
   const paths = pathFor(sessionId);
   const comments = getCommentFileStore(sessionId).snapshot();
   const delivered = new Set(readJson<string[]>(paths.delivered, []));
-  return comments.filter(
-    (c) =>
-      c.status === 'published' &&
-      c.author === 'user' &&
-      !delivered.has(c.id),
+  return comments.filter(isPendingFor(delivered));
+}
+
+/** Comment-store ids for every `wd` scope that could cover this worktree.
+ *  A scope is keyed by `sha1` of its sorted repo roots (see
+ *  `repo-spec.scopeHashFor`), so from a session's paths we can rebuild the
+ *  exact ids without consulting `work web`'s in-memory scope registry:
+ *    - the whole-set hash → a group `wd` opened at the group root, or the
+ *      single-repo `wd` (one path);
+ *    - each individual path's hash → a `wd` opened inside one sub-repo of a
+ *      group worktree.
+ *  `registerScope` hashes `path.resolve()`d roots, so we resolve here too or
+ *  the hashes won't line up. Mirrors `scope-manager.commentStoreIdForScope`
+ *  (`scope-<hash>`). */
+function scopeStoreIdsForPaths(paths: string[]): string[] {
+  const resolved = paths.map((p) => path.resolve(p));
+  const ids = new Set<string>();
+  ids.add(`scope-${scopeHashFor(resolved)}`);
+  for (const p of resolved) ids.add(`scope-${scopeHashFor([p])}`);
+  return [...ids];
+}
+
+/**
+ * Pending comments for a whole worktree: the session's own comment store
+ * PLUS any `wd` / `wd -c` scope review store covering the same paths.
+ *
+ * `wd` registers its review under a scope-hash comment store, not the
+ * session store the hook reads — without this merge, comments left in the
+ * `wd` review UI would never reach the Claude running in that worktree.
+ * Delivered-tracking stays per-session (one `<sessionId>.delivered.json`),
+ * so a comment surfaced here won't be re-delivered regardless of which
+ * store it came from.
+ */
+export function readPendingForWorktree(session: WorktreeSession): Comment[] {
+  const sessionId = sessionIdFor(session);
+  const delivered = new Set(
+    readJson<string[]>(pathFor(sessionId).delivered, []),
   );
+  const pending = isPendingFor(delivered);
+  const seen = new Set<string>();
+  const out: Comment[] = [];
+  const collect = (storeId: string) => {
+    for (const c of getCommentFileStore(storeId).snapshot()) {
+      if (seen.has(c.id) || !pending(c)) continue;
+      seen.add(c.id);
+      out.push(c);
+    }
+  };
+  collect(sessionId);
+  for (const storeId of scopeStoreIdsForPaths(session.paths)) collect(storeId);
+  return out;
 }
 
 /** Persist a delivery batch. Adds these ids to the delivered set so they

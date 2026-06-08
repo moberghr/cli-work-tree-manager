@@ -287,6 +287,12 @@
   flex-wrap: wrap;
   font-size: 12px;
 }
+/* Range pinned but not driving the diff (a base tab is active). Dim the
+   strip so it reads as "available" rather than "applied"; chips stay
+   clickable to opt into range comparison. */
+.wd-checkpoint-strip-inactive {
+  opacity: 0.55;
+}
 .wd-checkpoint-label {
   color: var(--muted);
   margin-right: 4px;
