@@ -16,3 +16,9 @@
 ## Control-char regexes: write `\uXXXX`, not raw bytes
 - **What happened:** Typing a literal control-character range into a regex via the editor embedded raw bytes, making the line un-matchable for later edits and unclear in review.
 - **Rule:** Always express control-character classes as explicit escapes, e.g. `/[\u0000-\u001f\u007f]/g`.
+
+## Test files escape `tsc` — type-check them explicitly
+- **What happened:** A subagent-written test (`tests/core/status-hooks.test.ts`) had real type errors (untyped `vi.fn()` mock spread into, then `mock.calls[0][1]` indexed). `npx tsc --noEmit` passed and `vitest` passed too, so it looked green — but the editor/LSP flagged it. Root cause: `tsconfig.json` has `"exclude": ["tests"]`, and vitest transpiles via esbuild without type-checking.
+- **Rule:** A green `tsc` + green `vitest` does NOT mean the tests are type-correct. When a test mocks a function and inspects `mock.calls`, give the `vi.fn()` a variadic signature (`vi.fn((..._a: unknown[]) => ...)`). To verify a test's types, run `tsc` against a temp config that `include`s the test (`{ "extends": "./tsconfig.json", "include": ["src/**/*", "<the.test.ts>"] }`).
+- **Why it matters:** Type bugs in tests rot silently and mislead future readers about the contract under test.
+- **When it applies:** Any repo where `tests/` is excluded from the typecheck config (this one) — especially for subagent-authored tests.
