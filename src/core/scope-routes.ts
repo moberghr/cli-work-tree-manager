@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { computeDiff, computeRangeDiff } from './diff-pipeline.js';
+import { readContextLines } from './file-context.js';
 import { resolveRepoDiff } from './diff-scope.js';
 import { git } from './git.js';
 import {
@@ -327,6 +328,37 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
+  });
+
+  // -- Expand context ------------------------------------------------------
+  //
+  // Reveals the unchanged lines around a hunk ("expand lines" in the SPA).
+  // The expandable region is identical on both diff sides, so the client
+  // reads one side and maps old line numbers via the gap offset. `ref` is
+  // omitted for the common working-tree case; supplied (a checkpoint sha)
+  // when the diff's new side is a committed snapshot.
+  app.get('/api/scopes/:hash/file-lines', (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const repoName = c.req.query('repo') ?? '';
+    const relPath = c.req.query('path') ?? '';
+    const start = Number(c.req.query('start'));
+    const end = Number(c.req.query('end'));
+    const ref = c.req.query('ref') || undefined;
+    if (!relPath || !Number.isInteger(start) || !Number.isInteger(end)) {
+      return c.json({ error: 'bad path/start/end' }, 400);
+    }
+    // Resolve the repo root. Single-repo scopes have exactly one path;
+    // group scopes key each repo's response `name` by basename, so match
+    // the same way the diff route labels them.
+    const root =
+      scope.paths.length === 1
+        ? scope.paths[0]
+        : scope.paths.find((p) => path.basename(p) === repoName);
+    if (!root) return c.json({ error: 'unknown repo' }, 404);
+    const result = readContextLines({ root, relPath, start, end, ref });
+    if (!result) return c.json({ error: 'cannot read file' }, 400);
+    return c.json(result);
   });
 
   // -- Checkpoints ---------------------------------------------------------

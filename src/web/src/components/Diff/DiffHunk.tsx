@@ -7,6 +7,7 @@ import {
 } from '../../utils/intraline.js';
 import { useReviewOptional } from '../../state/ReviewProvider.js';
 import { CommentLineRow } from '../Review/CommentLineRow.js';
+import { hunkHeading } from '../../utils/hunk-heading.js';
 import type { Highlighter } from './DiffFile.js';
 
 interface Props {
@@ -22,6 +23,12 @@ interface Props {
   reviewed?: boolean;
   /** Toggle the reviewed flag. Wired by the parent so it can persist. */
   onToggleReviewed?: (next: boolean) => void;
+  /** Whether this hunk renders its own `@@ … @@` heading row. The parent
+   *  sets this false when the heading is already shown on the expander bar
+   *  of the gap directly above (GitHub-style single bar), or when the lines
+   *  above are contiguous (gap fully expanded / adjacent hunk). Defaults to
+   *  true. The review checkbox, when present, is shown regardless. */
+  showHeading?: boolean;
 }
 
 export function DiffHunk({
@@ -32,37 +39,45 @@ export function DiffHunk({
   highlight,
   reviewed,
   onToggleReviewed,
+  showHeading = true,
 }: Props) {
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
-  const ctxText = hunk.context ? ' ' + hunk.context : '';
   const showCheckbox = review && !!file && !!onToggleReviewed;
   // Only show the "reviewed" accent in review mode. In read-only views
   // (static `wd` / `wd --server`) there's no checkbox to toggle it off, so a
   // stale localStorage flag must not paint a green row the user can't clear.
   const showReviewedAccent = showCheckbox && !!reviewed;
+  // The full `@@ -a,b +c,d @@ <context>` heading, like GitHub. The parent
+  // suppresses it (`showHeading=false`) when the gap's expander bar above
+  // already shows it, or when the lines above are contiguous.
+  const showHeadingText = showHeading;
+  // Render the row when it carries something: the heading, or the review
+  // checkbox (which has nowhere else to live).
+  const showHeaderRow = showHeadingText || showCheckbox;
   return (
     <>
-      <tr className={'wd-hunk-row' + (showReviewedAccent ? ' wd-hunk-reviewed' : '')}>
-        <td colSpan={4} className="wd-hunk-context">
-          {showCheckbox && (
-            <label
-              className="wd-hunk-checkbox"
-              title="Mark this hunk as reviewed"
-            >
-              <input
-                type="checkbox"
-                checked={!!reviewed}
-                aria-label={`Mark hunk reviewed: ${file} @@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
-                onChange={(e) => onToggleReviewed!(e.target.checked)}
-              />
-            </label>
-          )}
-          @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines}{' '}
-          @@{ctxText}
-        </td>
-      </tr>
+      {showHeaderRow && (
+        <tr className={'wd-hunk-row' + (showReviewedAccent ? ' wd-hunk-reviewed' : '')}>
+          <td colSpan={4} className="wd-hunk-context">
+            {showCheckbox && (
+              <label
+                className="wd-hunk-checkbox"
+                title="Mark this hunk as reviewed"
+              >
+                <input
+                  type="checkbox"
+                  checked={!!reviewed}
+                  aria-label={`Mark hunk reviewed: ${file} lines ${hunk.newStart}–${hunk.newStart + hunk.newLines - 1}`}
+                  onChange={(e) => onToggleReviewed!(e.target.checked)}
+                />
+              </label>
+            )}
+            {showHeadingText && hunkHeading(hunk)}
+          </td>
+        </tr>
+      )}
       {rows.map((r) => (
         <Fragment key={`${r.oldNum ?? 'x'}-${r.newNum ?? 'x'}`}>
           <DiffSideRow

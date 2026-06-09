@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { decideRange } from '../../src/web/src/state/checkpoint-range.js';
+import {
+  decideRange,
+  rangeEmptyMessage,
+} from '../../src/web/src/state/checkpoint-range.js';
 import type { CheckpointEntry } from '../../src/web/src/api/client.js';
 
 function entry(id: number, label?: string): CheckpointEntry {
@@ -86,5 +89,37 @@ describe('decideRange', () => {
       kind: 'range',
       range: { from: 0, to: 'working' },
     });
+  });
+});
+
+describe('rangeEmptyMessage', () => {
+  it('explains that the newest checkpoint matches the working tree', () => {
+    const msg = rangeEmptyMessage({ from: 21, to: 'working' }, 21);
+    expect(msg).toContain('checkpoint #21');
+    expect(msg).toContain('most recent snapshot');
+    expect(msg).toContain('earlier checkpoint');
+    // Must NOT show the generic hint in this case.
+    expect(msg).not.toContain('Pick a different range');
+  });
+
+  it('labels Initial specially when it is the latest-and-only checkpoint', () => {
+    const msg = rangeEmptyMessage({ from: 0, to: 'working' }, 0);
+    expect(msg).toContain('Initial is the most recent snapshot');
+  });
+
+  it('uses the generic message for an older from-checkpoint', () => {
+    const msg = rangeEmptyMessage({ from: 19, to: 'working' }, 21);
+    expect(msg).toContain('No changes between checkpoint #19 and working tree');
+    expect(msg).toContain('Pick a different range');
+  });
+
+  it('uses the generic message for a checkpoint-to-checkpoint range', () => {
+    const msg = rangeEmptyMessage({ from: 0, to: 5 }, 21);
+    expect(msg).toContain('No changes between Initial and checkpoint #5');
+  });
+
+  it('falls back to the generic message when the latest id is unknown', () => {
+    const msg = rangeEmptyMessage({ from: 21, to: 'working' }, undefined);
+    expect(msg).toContain('Pick a different range');
   });
 });

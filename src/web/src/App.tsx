@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchContext, type AppContext } from './api/client.js';
 import { DashboardApp } from './apps/DashboardApp.js';
 import { ReviewApp } from './apps/ReviewApp.js';
+import { FileApp } from './apps/FileApp.js';
 
 /**
  * Top-level router. Three modes:
@@ -26,9 +27,15 @@ export function App() {
 
   // Parse the URL path once. /diff/abc123 and /review/abc123 take
   // precedence over the server-reported mode — same SPA serves both.
-  const urlScope = parseScopeFromPath(window.location.pathname);
+  // /file[/<hash>] is the standalone whole-file view (its own self-loading
+  // component, no context needed).
+  const urlFile = parseFileFromPath(window.location.pathname);
+  const urlScope = urlFile ? null : parseScopeFromPath(window.location.pathname);
 
   useEffect(() => {
+    // The file view loads its own content from the query string — skip the
+    // context round-trip entirely.
+    if (urlFile) return;
     // Scope URLs short-circuit the context fetch — we synthesize a
     // ReviewContext below. Avoids an extra round-trip and means
     // /diff/<hash> still works if /api/context is misbehaving.
@@ -49,6 +56,9 @@ export function App() {
     return () => { cancelled = true; };
   }, []);
 
+  if (urlFile) {
+    return <FileApp hash={urlFile.hash} />;
+  }
   if (error) {
     return <div className="wd-web-error">{error}</div>;
   }
@@ -72,4 +82,12 @@ function parseScopeFromPath(
   const m = pathname.match(/^\/(diff|review)\/([a-zA-Z0-9_-]+)\/?$/);
   if (!m) return null;
   return { kind: m[1] as 'diff' | 'review', hash: m[2] };
+}
+
+/** Detect `/file/<hash>` (scope-mounted) or `/file` (standalone). The
+ *  repo/path live in the query string, parsed by FileApp itself. */
+function parseFileFromPath(pathname: string): { hash?: string } | null {
+  const m = pathname.match(/^\/file(?:\/([a-zA-Z0-9_-]+))?\/?$/);
+  if (!m) return null;
+  return { hash: m[1] };
 }

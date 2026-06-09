@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import hljs from 'highlight.js';
 import type { ParsedFile } from '../../api/client.js';
 import { languageForPath } from '../../utils/language.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
+import { GapRegion } from './GapRegion.js';
 import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
+import { computeGaps } from '../../utils/expand.js';
+import { hunkHeading } from '../../utils/hunk-heading.js';
+import { useExpandOptional } from '../../state/ExpandProvider.js';
 
 type FileViewMode = 'diff' | 'preview' | 'split';
 
@@ -45,6 +49,18 @@ export function DiffFile({
   const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(
     hunkScopeKey ?? '',
   );
+  // "Open whole file" link. Only when a server-backed expand provider is
+  // present (suppressed in static mode) and the working-tree file actually
+  // exists — deleted/binary files have nothing to open.
+  const expand = useExpandOptional();
+  // When an expand provider is mounted, gaps render an expander bar that
+  // carries the below-hunk context; without one (static mode) each hunk
+  // falls back to showing its own context label.
+  const canExpand = !!expand;
+  const openFileHref =
+    expand && repo && !file.isBinary && file.status !== 'deleted'
+      ? expand.fileHref(repo, file.path)
+      : null;
   // Stable, render-time highlighter. We highlight the full line text on
   // demand; cells with intra-line spans skip this path (the word-diff
   // markup wins). React owns the DOM via dangerouslySetInnerHTML — no
@@ -111,6 +127,37 @@ export function DiffFile({
   useEffect(() => {
     if (collapsed) setViewMode('diff');
   }, [collapsed]);
+
+  // Expandable unchanged regions (head / between-hunks / tail). Computed
+  // from the hunks alone — independent of `repo` so the header-hiding
+  // logic below is correct even when no expand provider is mounted. The
+  // GapRegion render sites gate on `repo` separately.
+  const gapByKey = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof computeGaps>[number]>();
+    for (const g of computeGaps(file.hunks)) m.set(g.key, g);
+    return m;
+  }, [file.hunks]);
+
+  // Gaps that have been fully expanded — their `@@` divider on the hunk
+  // below is then redundant and gets suppressed. Stable per-gap handlers
+  // keep GapRegion's notify-effect from firing every render.
+  const [closedGaps, setClosedGaps] = useState<Set<string>>(() => new Set());
+  const setGapClosed = useCallback((key: string, isClosed: boolean) => {
+    setClosedGaps((prev) => {
+      if (isClosed === prev.has(key)) return prev;
+      const next = new Set(prev);
+      if (isClosed) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  const gapHandlers = useMemo(() => {
+    const m = new Map<string, (closed: boolean) => void>();
+    for (const key of gapByKey.keys()) {
+      m.set(key, (closed: boolean) => setGapClosed(key, closed));
+    }
+    return m;
+  }, [gapByKey, setGapClosed]);
 
   const renamed =
     file.status === 'renamed' && file.oldPath !== file.newPath ? (
@@ -198,6 +245,17 @@ export function DiffFile({
             )}
           </div>
         )}
+        {openFileHref && (
+          <a
+            className="wd-file-openfile"
+            href={openFileHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open the whole file in a new tab"
+          >
+            Open file ↗
+          </a>
+        )}
         {onToggleViewed && (
           <label
             className="wd-viewed-label"
@@ -246,31 +304,81 @@ export function DiffFile({
               <col className="wd-col-content" />
             </colgroup>
             <tbody>
+              {repo && gapByKey.has('head') && (
+                <GapRegion
+                  repo={repo}
+                  file={file.path}
+                  gap={gapByKey.get('head')!}
+                  highlight={highlight}
+                  onClosedChange={gapHandlers.get('head')}
+                  belowHeading={file.hunks[0] ? hunkHeading(file.hunks[0]) : undefined}
+                />
+              )}
               {file.hunks.map((h, i) => {
                 // Content-derived key: stable across chokidar live-reload
                 // even when unrelated edits shift this hunk's line numbers,
                 // so the "reviewed" checkmark stays glued to the change.
                 const hunkKey = hunkContentKey(file.path, h);
+                const midGap = gapByKey.get(`mid-${i}`);
+                // Decide whether THIS hunk renders its own `@@ … @@` heading.
+                // It doesn't when the heading is already carried by the
+                // expander bar of the gap above (GitHub single-bar), nor when
+                // the lines above are contiguous (gap fully expanded, or
+                // adjacent to the previous hunk). When no expand provider is
+                // mounted (static mode) the gap has no bar, so the hunk shows
+                // its own heading as a fallback.
+                const gapAboveKey = i === 0 ? 'head' : `mid-${i - 1}`;
+                const hasGapAbove = gapByKey.has(gapAboveKey);
+                const gapAboveClosed = closedGaps.has(gapAboveKey);
+                const barAboveShowsHeading =
+                  canExpand && hasGapAbove && !gapAboveClosed;
+                const contiguousAbove =
+                  gapAboveClosed || (!hasGapAbove && i > 0);
+                const showOwnHeading = !barAboveShowsHeading && !contiguousAbove;
                 return (
-                  <DiffHunk
-                    hunk={h}
-                    // Suffix the array index so two byte-identical hunks in
-                    // the same file (same content hash) still get distinct
-                    // React keys.
-                    key={`${hunkKey}#${i}`}
-                    review={review}
-                    repo={repo}
-                    file={file.path}
-                    highlight={highlight}
-                    reviewed={reviewedHunkKeys.has(hunkKey)}
-                    onToggleReviewed={
-                      hunkScopeKey
-                        ? (next: boolean) => toggleHunk(hunkKey, next)
-                        : undefined
-                    }
-                  />
+                  // Suffix the array index so two byte-identical hunks in
+                  // the same file (same content hash) still get distinct
+                  // React keys.
+                  <Fragment key={`${hunkKey}#${i}`}>
+                    <DiffHunk
+                      hunk={h}
+                      review={review}
+                      repo={repo}
+                      file={file.path}
+                      highlight={highlight}
+                      reviewed={reviewedHunkKeys.has(hunkKey)}
+                      onToggleReviewed={
+                        hunkScopeKey
+                          ? (next: boolean) => toggleHunk(hunkKey, next)
+                          : undefined
+                      }
+                      showHeading={showOwnHeading}
+                    />
+                    {repo && midGap && (
+                      <GapRegion
+                        repo={repo}
+                        file={file.path}
+                        gap={midGap}
+                        highlight={highlight}
+                        onClosedChange={gapHandlers.get(`mid-${i}`)}
+                        belowHeading={
+                          file.hunks[i + 1]
+                            ? hunkHeading(file.hunks[i + 1])
+                            : undefined
+                        }
+                      />
+                    )}
+                  </Fragment>
                 );
               })}
+              {repo && gapByKey.has('tail') && (
+                <GapRegion
+                  repo={repo}
+                  file={file.path}
+                  gap={gapByKey.get('tail')!}
+                  highlight={highlight}
+                />
+              )}
             </tbody>
           </table>
         ))}

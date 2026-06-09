@@ -3,6 +3,7 @@ import { Hono, type Context } from 'hono';
 import { serve, type ServerType } from '@hono/node-server';
 import { streamSSE } from 'hono/streaming';
 import { computeDiff } from './diff-pipeline.js';
+import { readContextLines } from './file-context.js';
 import { createFsWatcher } from './fs-watcher.js';
 import { resolveRepoDiff } from './diff-scope.js';
 import { git } from './git.js';
@@ -123,6 +124,28 @@ export async function startDiffServer(
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
+  });
+
+  // Reveal unchanged context lines around a hunk ("expand lines"). Maps the
+  // SPA's repo name back to its RepoSpec root; single-repo scopes (the
+  // common standalone case) skip the lookup.
+  app.get('/api/file-lines', (c) => {
+    const repoName = c.req.query('repo') ?? '';
+    const relPath = c.req.query('path') ?? '';
+    const start = Number(c.req.query('start'));
+    const end = Number(c.req.query('end'));
+    const ref = c.req.query('ref') || undefined;
+    if (!relPath || !Number.isInteger(start) || !Number.isInteger(end)) {
+      return c.json({ error: 'bad path/start/end' }, 400);
+    }
+    const root =
+      opts.repos.length === 1
+        ? opts.repos[0].root
+        : opts.repos.find((r) => r.name === repoName)?.root;
+    if (!root) return c.json({ error: 'unknown repo' }, 404);
+    const result = readContextLines({ root, relPath, start, end, ref });
+    if (!result) return c.json({ error: 'cannot read file' }, 400);
+    return c.json(result);
   });
 
   app.get('/events', (c) =>

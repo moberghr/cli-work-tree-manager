@@ -550,3 +550,140 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* git's enclosing-function hint (the only part of the old `@@` header we
+   keep). Rendered monospace so a signature reads like code. */
+.wd-hunk-fn {
+  font-family: var(--mono, monospace);
+  opacity: 0.85;
+}
+
+/* Expand-context ("show rest of the file") controls between hunks.
+   GitHub-style fatter bar: a column of expand arrows on the left, then the
+   `@@ … @@` heading stacked above the hidden-line count. */
+.wd-expander-cell {
+  background: var(--hunk-bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0 !important;
+}
+.wd-expander {
+  display: flex;
+  align-items: stretch;
+  font-size: 11px;
+  color: var(--hunk-fg);
+}
+.wd-expander-arrows {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wd-expander-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--ln-bg);
+  color: var(--hunk-fg);
+  cursor: pointer;
+  line-height: 1;
+  font-size: 11px;
+}
+.wd-expander-btn:hover:not(:disabled) {
+  background: var(--add-line-bg);
+}
+.wd-expander-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.wd-expander-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 3px 8px;
+  min-width: 0;
+  line-height: 1.45;
+}
+/* `@@ … @@` heading on the expander bar — left-aligned, truncates so a long
+   signature doesn't blow out the row. */
+.wd-expander-heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.wd-expander-label {
+  color: var(--ln-fg);
+  user-select: none;
+}
+
+/* "Open whole file" link in the file header. */
+.wd-file-openfile {
+  font-size: 11px;
+  color: var(--hunk-fg);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.wd-file-openfile:hover { text-decoration: underline; }
+
+/* Standalone whole-file view (the /file route, opened in a new tab). */
+.wd-fileview {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.wd-fileview-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--header-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  z-index: 1;
+}
+.wd-fileview-path {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+.wd-fileview-meta { font-size: 11px; color: var(--ln-fg); }
+.wd-fileview-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-top: none;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.wd-fileview-ln {
+  width: 1%;
+  min-width: 48px;
+  padding: 0 12px;
+  text-align: right;
+  color: var(--ln-fg);
+  background: var(--ln-bg);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.wd-fileview-content {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: top;
+}

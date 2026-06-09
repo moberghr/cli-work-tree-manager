@@ -178,6 +178,7 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   Diff stack (the `wd` + `work web` feature)
                                   ├── core/diff-parse.ts            ← unified-diff parser → ParsedFile[]
                                   ├── core/diff-pipeline.ts         ← computeDiff (git diff + synthetic untracked + lcov coverage)
+                                  ├── core/file-context.ts          ← readContextLines: path-safe file slice for "expand lines" + whole-file view (served at /api/[scopes/<hash>/]file-lines; SPA route /file[/<hash>])
                                   ├── core/checkpoint.ts            ← per-scope working-tree snapshots (refs/wd/<hash>/<n>) for range diffs
                                   ├── core/lcov.ts                  ← lcov.info parsing → per-file coverage % (cached by path+mtime)
                                   ├── core/diff-scope.ts            ← resolveScope/resolveBase/buildRepoSpecs + resolveRepoDiff (shared parent/merge-base helper)
@@ -215,12 +216,13 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   └── commands/hook.ts              ← `work hook prompt-submit|stop` CLI invoked by Claude Code
                                   │
                                   web/src/ (React SPA — bundled to dist/web/ via Vite)
-                                  ├── App.tsx                      ← top-level: fetches /api/context, dispatches
+                                  ├── App.tsx                      ← top-level: routes /diff|/review|/file, else fetches /api/context
                                   ├── apps/ReviewApp.tsx           ← single-scope view (`wd` static / `wd --server` / `wd -c`)
                                   ├── apps/DashboardApp.tsx        ← multi-session view (`work web`)
-                                  ├── components/{Diff,Review,Sidebar,Terminal,Layout}/* (shared components)
+                                  ├── apps/FileApp.tsx             ← whole-file read-only view (/file route, opened from "Open file ↗")
+                                  ├── components/{Diff,Review,Sidebar,Terminal,Layout}/* (shared components; Diff/GapRegion = "expand lines")
                                   ├── hooks/use-{viewed-files,scrollspy}.ts
-                                  └── state/{ReviewProvider,viewed,viewed-files}.ts
+                                  └── state/{ReviewProvider,ExpandProvider,viewed,viewed-files}.ts
                                   │
                                   tui-ink/ (Ink/React TUI for `work dash`)
                                   ├── App.tsx                    ← main layout, keyboard handling, session management
