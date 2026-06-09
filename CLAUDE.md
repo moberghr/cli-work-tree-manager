@@ -42,7 +42,6 @@ The highest-impact rules. Full standards in `.claude/rules/`.
 - **§0.2** WHEN doing a read-modify-write on shared `~/.work/` JSON state, route it through `withFileLock` + `atomicWriteFile` (`src/core/fs-safe.ts`) — concurrent `work` processes corrupt unlocked writes. See `.claude/rules/data-layer.md` §5.2.
 - **§0.3** React/Ink is the terminal renderer ONLY — NEVER use DOM/web/browser APIs. Ink imports belong under `src/tui-ink/`. See `.claude/rules/architecture.md` §2.3.
 - **§0.4** WHEN building git/shell commands, use `cross-spawn` with an argv array — DO NOT interpolate branch names or paths into a shell string (command-injection risk). See `.claude/rules/security.md` §1.1.
-- **§0.5** The PowerShell port (`work.ps1`) is a SEPARATE implementation — editing TS does NOT update it. See `.claude/rules/project-specific.md` §9.2.
 
 ---
 
@@ -68,7 +67,7 @@ Detailed rules in `.claude/rules/` (auto-loaded by Claude Code):
 | `testing.md` | Vitest, test layout | §4.x |
 | `data-layer.md` | `~/.work/` JSON state, locking, atomic writes | §5.x |
 | `git-workflow.md` | Branches, commits, PRs | §8.x |
-| `project-specific.md` | Binaries, PowerShell port, tsup externals | §9.x |
+| `project-specific.md` | Binaries, tsup externals | §9.x |
 
 Full reference docs (read on-demand by skills and review agents):
 - `.claude/references/architecture-principles.md` — Architecture principles (this repo)
@@ -107,7 +106,7 @@ After building, `work` is available globally (via `npm link`). Rebuild after sou
 
 ```
 work init                                          # Interactive first-time setup
-work tree|t <target> <branch> [--base <branch>] [--here] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd)
+work tree|t <target> <branch> [--base <branch>|--base <alias>=<branch> ...] [--here] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd). --base is repeatable: a bare branch forks every repo, alias=branch sets per-repo bases for a group (e.g. --base backend=dev --base frontend=feat/x)
 work remove <target> <branch> [--force]            # Remove worktree
 work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status

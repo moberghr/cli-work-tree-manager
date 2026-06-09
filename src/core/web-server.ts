@@ -84,7 +84,9 @@ interface SessionDiffResult {
  * per-repo if it wants to (groups may have different parents per repo).
  */
 function computeSessionDiff(s: WorktreeSession, base: DiffBase): SessionDiffResult {
-  const resolved = s.paths.map((p) => resolveRepoDiff(p, base, s.baseBranch));
+  const resolved = s.paths.map((p) =>
+    resolveRepoDiff(p, base, s.baseBranches?.[p] ?? s.baseBranch),
+  );
   const repos = s.paths.map((p, i) => ({
     name: path.basename(p),
     root: p,

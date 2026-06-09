@@ -487,8 +487,6 @@ work-tree/
 │   ├── completions/            # Dynamic tab-completion handler
 │   └── utils/
 ├── tests/                      # vitest suites
-├── work.ps1                    # PowerShell shim
-├── work-completions.ps1        # PowerShell completion script
 ├── tsup.config.ts
 └── package.json
 ```

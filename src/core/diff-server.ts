@@ -20,6 +20,9 @@ export interface DiffServerOptions {
    *  When set, the `?base=branch` route uses it instead of auto-detection,
    *  so the diff matches what the user actually declared. */
   sessionBaseBranch?: string;
+  /** Per-repo fork points keyed by repo root. Overrides `sessionBaseBranch`
+   *  for individual repos in a group forked with different bases per repo. */
+  sessionBaseBranches?: Record<string, string>;
   /** Debounce for fs.watch events before broadcasting diff-changed. */
   watchDebounceMs?: number;
   /** When true, /api/context advertises readOnly=true and the SPA hides
@@ -111,7 +114,11 @@ export async function startDiffServer(
       const resolved = opts.repos.map((r) =>
         base === 'uncommitted'
           ? { resolvedBase: 'HEAD', diffArg: r.diffArg }
-          : resolveRepoDiff(r.root, 'branch', opts.sessionBaseBranch),
+          : resolveRepoDiff(
+              r.root,
+              'branch',
+              opts.sessionBaseBranches?.[r.root] ?? opts.sessionBaseBranch,
+            ),
       );
       const repos = opts.repos.map((r, i) => ({
         name: r.name,

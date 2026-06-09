@@ -23,6 +23,9 @@ export interface CommentServerOptions {
   /** Session baseBranch — threaded to the diff server so `?base=branch`
    *  honours the user's recorded base instead of auto-detecting. */
   sessionBaseBranch?: string;
+  /** Per-repo fork points keyed by repo root (group worktrees forked with
+   *  different bases per repo). Overrides `sessionBaseBranch` per repo. */
+  sessionBaseBranches?: Record<string, string>;
   onComment?: (comment: Comment) => void;
   onCommentDeleted?: (id: string) => void;
   onSubmitReviewStart?: (info: { count: number; summary: Comment | null }) => void;
@@ -127,6 +130,7 @@ export async function startCommentServer(
     repos: opts.repos,
     scopeLabel: opts.scopeLabel,
     sessionBaseBranch: opts.sessionBaseBranch,
+    sessionBaseBranches: opts.sessionBaseBranches,
     watchDebounceMs: opts.watchDebounceMs,
     attachRoutes,
   });

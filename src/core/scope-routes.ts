@@ -6,7 +6,7 @@ import path from 'node:path';
 import spawn from 'cross-spawn';
 import { computeDiff, computeRangeDiff } from './diff-pipeline.js';
 import { readContextLines } from './file-context.js';
-import { resolveRepoDiff } from './diff-scope.js';
+import { resolveRepoDiff, sessionBaseForPath } from './diff-scope.js';
 import { git } from './git.js';
 import {
   clearCheckpoints,
@@ -298,8 +298,13 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
 
       // Resolve each repo independently — they may have different parent
       // branches in a group worktree. Each entry carries its own
-      // `resolvedBase` so the UI can label per-repo if it wants to.
-      const resolved = scope.paths.map((p) => resolveRepoDiff(p, base));
+      // `resolvedBase` so the UI can label per-repo if it wants to. The
+      // recorded fork point (`work tree --base`) wins over auto-detection,
+      // per-repo — so a group forked `backend=dev frontend=feat/x` diffs
+      // each repo against its own base.
+      const resolved = scope.paths.map((p) =>
+        resolveRepoDiff(p, base, sessionBaseForPath(p)),
+      );
       const repos = scope.paths.map((p, i) => ({
         name: path.basename(p),
         root: p,

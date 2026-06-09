@@ -8,7 +8,6 @@
 - [ ] **Subprocess safety** — git/shell commands use `cross-spawn` with an argv array; no shell-string interpolation of branch names or paths.
 - [ ] **Ink/React rendering** — terminal UI uses Ink primitives only; no DOM/web/browser APIs; stable keys on rendered lists.
 - [ ] **Two binaries** — CLI-wiring changes account for both `work` (`src/bin.ts`) and `wd` (`src/wd-bin.ts`) where relevant.
-- [ ] **PowerShell parity** — user-facing CLI changes that should reach Windows users are mirrored in `work.ps1` (separate implementation).
 - [ ] **Tests for new public behavior** — new core functions / commands have a Vitest test under `tests/`.
 - [ ] **No PII in logs** — `~/.work/debug.log` and console output don't leak secrets or sensitive paths.
 - [ ] **No hardcoded secrets** — no tokens, credentials, or absolute user-specific paths committed.

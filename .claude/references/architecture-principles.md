@@ -63,7 +63,6 @@ mtk-version: 7.10.0
 ## 7. Infrastructure
 - [EXTRACTED] No containers, no IaC, no CI workflows. Evidence: no `.github/` directory (`ls .github` → absent), no `Dockerfile`/`docker-compose` found.
 - [EXTRACTED] Distribution is npm only (binaries published from `dist/`). Evidence: `package.json` `bin`, `build: "tsup"`.
-- [INFERRED:0.6] A PowerShell port (`work.ps1`, `work-completions.ps1`) ships alongside the TS CLI as an alternative entry on Windows. Evidence: `work.ps1` (54KB), `work-completions.ps1` at repo root.
 
 ## 8. Cross-Cutting Concerns
 - [EXTRACTED] Global error handling installs `uncaughtException`/`unhandledRejection` handlers that special-case `node-pty` "already exited" errors and inquirer `ExitPromptError`, logging fatals to `~/.work/debug.log`. Evidence: `src/bin.ts:18-46`.

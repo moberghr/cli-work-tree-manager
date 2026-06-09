@@ -33,4 +33,3 @@
 
 ## Other Patterns
 - Build: tsup to ESM (`npm run build`), local dev via `tsx` (`npm run dev`).
-- A parallel PowerShell implementation (`work.ps1`) ships at repo root for Windows — keep feature parity in mind when changing CLI behavior, but it is a separate codebase, not generated from the TS source.

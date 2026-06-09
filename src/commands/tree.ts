@@ -8,6 +8,7 @@ import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
 import { upsertSession } from '../core/history.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
+import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
 
 export const treeCommand: CommandModule = {
   command: ['tree [target] [branch]', 't [target] [branch]'],
@@ -39,7 +40,8 @@ export const treeCommand: CommandModule = {
         default: false,
       })
       .option('base', {
-        describe: 'Create the new branch from this base branch instead of HEAD',
+        describe:
+          'Base branch to fork from instead of HEAD. Repeatable. Use a bare branch (--base dev) for all repos, or alias=branch (--base backend=dev --base frontend=feat/x) for per-repo bases in a group.',
         type: 'string',
       })
       .option('prompt', {
@@ -68,7 +70,17 @@ export const treeCommand: CommandModule = {
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
     const setupOnly = argv['setup-only'] as boolean;
-    const baseBranch = argv.base as string | undefined;
+    let baseSpec;
+    try {
+      baseSpec = parseBaseSpec(argv.base as string | string[] | undefined);
+    } catch (err) {
+      if (err instanceof BaseSpecError) {
+        console.error(err.message);
+        process.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
     const jiraKey = argv['jira-key'] as string | undefined;
     const promptFile = argv['prompt-file'] as string | undefined;
     let initialPrompt = argv.prompt as string | undefined;
@@ -114,12 +126,10 @@ export const treeCommand: CommandModule = {
     }
 
     // --base requires a branch name
-    if (baseBranch && !branchName) {
+    if (!isEmptyBaseSpec(baseSpec) && !branchName) {
       console.error('--base requires a branch name');
       console.log(
-        chalk.yellow(
-          `Usage: work tree ${targetName} <branch> --base ${baseBranch}`,
-        ),
+        chalk.yellow(`Usage: work tree ${targetName} <branch> --base <base>`),
       );
       process.exitCode = 1;
       return;
@@ -177,7 +187,7 @@ export const treeCommand: CommandModule = {
     }
 
     // Create/switch worktree via shared core logic
-    const result = await setupWorktree(targetName, branchName, config, baseBranch, jiraKey);
+    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey);
     if (!result) {
       process.exitCode = 1;
       return;

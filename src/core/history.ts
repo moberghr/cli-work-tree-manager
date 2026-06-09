@@ -14,8 +14,14 @@ export interface WorktreeSession {
   createdAt: string;
   lastAccessedAt: string;
   jiraKey?: string;
-  /** Branch this worktree was forked from. Recorded when known at creation time. */
+  /** Branch this worktree was forked from. Recorded when known at creation time.
+   *  For groups with a single shared base this is that base; with per-repo bases
+   *  it's the representative/default (see `baseBranches` for the per-repo map). */
   baseBranch?: string;
+  /** Per-repo fork point, keyed by worktree path (same strings as `paths`).
+   *  Set when `work tree --base alias=branch` gives repos different bases.
+   *  Diff routes prefer this over `baseBranch` for a given repo. */
+  baseBranches?: Record<string, string>;
   /** Stable dev-server port allocated to this worktree, exposed as $PORT. */
   port?: number;
 }
@@ -166,11 +172,14 @@ export async function upsertSessionWithPort(
   config: Pick<WorkConfig, 'portRange'>,
   jiraKey?: string,
   baseBranch?: string,
+  baseBranches?: Record<string, string>,
 ): Promise<{ port?: number }> {
   return withHistoryLock(async () => {
     const sessions = loadHistory();
     const existing = findSession(sessions, target, branch);
     const now = new Date().toISOString();
+
+    const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
 
     // Keep an already-assigned port; otherwise allocate against the current
     // (locked) snapshot so concurrent callers can't pick the same one.
@@ -189,6 +198,7 @@ export async function upsertSessionWithPort(
       existing.lastAccessedAt = now;
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
+      if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
       if (port !== undefined) existing.port = port;
     } else {
       const session: WorktreeSession = {
@@ -201,6 +211,7 @@ export async function upsertSessionWithPort(
       };
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
+      if (hasPerRepo) session.baseBranches = baseBranches;
       if (port !== undefined) session.port = port;
       sessions.push(session);
     }

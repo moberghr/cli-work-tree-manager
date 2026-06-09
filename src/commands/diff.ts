@@ -257,16 +257,22 @@ function runStatic(ctx: RenderContext, initialBranch: boolean): void {
   const primaryRoot =
     ctx.scope.repos.find((r) => r.name === ctx.scope.activeRepoName)?.root ??
     ctx.scope.repos[0].root;
-  // Use the lenient finder so the toggle stays available even when the
-  // branch has no commits past its parent yet (the diff will just be
-  // empty — better than no tab at all).
+  // Per-repo fork points (group worktrees forked with different bases). Each
+  // repo's spec resolves against its own base inside buildRepoSpecs.
+  const perRepoBase = ctx.scope.session?.baseBranches;
+  // Representative parent for the badge label: the active repo's recorded
+  // base, else the session default, else lenient auto-detect. The lenient
+  // finder keeps the toggle available even when the branch has no commits
+  // past its parent yet (the diff just renders empty — better than no tab).
   const parent =
-    ctx.scope.session?.baseBranch ?? findAnyParentBranch(primaryRoot);
+    perRepoBase?.[primaryRoot] ??
+    ctx.scope.session?.baseBranch ??
+    findAnyParentBranch(primaryRoot);
   const branch =
     parent === null
       ? undefined
       : {
-          specs: buildRepoSpecs(ctx.scope, parent),
+          specs: buildRepoSpecs(ctx.scope, parent, perRepoBase),
           resolvedBase: parent,
         };
 
@@ -479,6 +485,7 @@ async function runReview(ctx: RenderContext): Promise<void> {
     repos: ctx.repoSpecs,
     scopeLabel: ctx.scopeLabel,
     sessionBaseBranch: ctx.scope.session?.baseBranch,
+    sessionBaseBranches: ctx.scope.session?.baseBranches,
     onComment,
     onCommentDeleted,
     onSubmitReviewStart,

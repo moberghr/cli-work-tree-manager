@@ -17,6 +17,13 @@ import {
   getUnpushedCommits,
 } from './git.js';
 import { copyConfigFiles } from './copy-files.js';
+import {
+  type BaseSpec,
+  baseForAlias,
+  baseSpecOverrideAliases,
+  isEmptyBaseSpec,
+  toBaseSpec,
+} from './base-spec.js';
 
 /**
  * Create a single git worktree for one repo.
@@ -313,19 +320,20 @@ export async function setupWorktree(
   targetName: string,
   branchName: string,
   config: WorkConfig,
-  baseBranch?: string,
+  base?: string | BaseSpec,
   jiraKey?: string,
 ): Promise<WorktreeSetupResult | null> {
-  debug('setupWorktree', { targetName, branchName, baseBranch, jiraKey });
+  const spec = toBaseSpec(base);
+  debug('setupWorktree', { targetName, branchName, spec, jiraKey });
   const target = resolveProjectTarget(targetName, config);
   if (!target) { debug('setupWorktree: target not found', targetName); return null; }
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 
   if (target.isGroup) {
-    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, baseBranch, jiraKey);
+    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey);
   } else {
-    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, baseBranch, jiraKey);
+    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey);
   }
 }
 
@@ -335,20 +343,34 @@ async function setupGroupWorktree(
   branchName: string,
   workTreeDirName: string,
   config: WorkConfig,
-  baseBranch?: string,
+  spec: BaseSpec,
   jiraKey?: string,
 ): Promise<WorktreeSetupResult | null> {
   const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
 
-  // Pre-validate --base across all repos before creating anything
-  if (baseBranch) {
+  // Pre-validate --base across all repos before creating anything. Each repo
+  // resolves its own base: a per-repo override (`alias=branch`) if present,
+  // otherwise the bare default.
+  if (!isEmptyBaseSpec(spec)) {
+    const unknownAliases = baseSpecOverrideAliases(spec).filter(
+      (a) => !repoAliases.includes(a),
+    );
+    if (unknownAliases.length > 0) {
+      console.error(
+        `--base names repo(s) not in group '${groupName}': ${unknownAliases.join(', ')}. Group repos: ${repoAliases.join(', ')}`,
+      );
+      return null;
+    }
+
     const missingBase: string[] = [];
     const branchExists: string[] = [];
 
     for (const alias of repoAliases) {
       const repoPath = config.repos[alias];
-      if (!localBranchExists(baseBranch, repoPath) && !remoteBranchExists(baseBranch, repoPath)) {
-        missingBase.push(alias);
+      const repoBase = baseForAlias(spec, alias);
+      if (!repoBase) continue; // no base applied to this repo → forks HEAD
+      if (!localBranchExists(repoBase, repoPath) && !remoteBranchExists(repoBase, repoPath)) {
+        missingBase.push(`${alias} (${repoBase})`);
       }
       if (localBranchExists(branchName, repoPath) || remoteBranchExists(branchName, repoPath)) {
         branchExists.push(alias);
@@ -356,7 +378,7 @@ async function setupGroupWorktree(
     }
 
     if (missingBase.length > 0) {
-      console.error(`Base branch '${baseBranch}' not found in: ${missingBase.join(', ')}`);
+      console.error(`Base branch not found in: ${missingBase.join(', ')}`);
       return null;
     }
     if (branchExists.length > 0) {
@@ -372,17 +394,21 @@ async function setupGroupWorktree(
   fs.mkdirSync(groupWorktreePath, { recursive: true });
 
   const createdWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
+  // Per-repo fork point, keyed by worktree path (matches the session `paths`).
+  const baseBranches: Record<string, string> = {};
 
   for (const alias of repoAliases) {
     const repoPath = config.repos[alias];
     const repoName = path.basename(repoPath);
     const subWorktreePath = path.join(groupWorktreePath, repoName);
+    const repoBase = baseForAlias(spec, alias);
 
     console.log(chalk.cyan(`[${alias}] (${repoName}):`));
-    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, baseBranch);
+    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, repoBase);
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
+      if (repoBase) baseBranches[subWorktreePath] = repoBase;
     } else {
       // Rollback
       console.log('');
@@ -416,6 +442,11 @@ async function setupGroupWorktree(
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
+  // Representative base for the single-line "vs X" badge: the explicit
+  // default, else a per-repo value only when every repo shares it.
+  const distinctBases = [...new Set(Object.values(baseBranches))];
+  const representativeBase =
+    spec.default ?? (distinctBases.length === 1 ? distinctBases[0] : undefined);
   const { port } = await upsertSessionWithPort(
     groupName,
     true,
@@ -423,7 +454,8 @@ async function setupGroupWorktree(
     allPaths,
     config,
     jiraKey,
-    baseBranch,
+    representativeBase,
+    baseBranches,
   );
 
   console.log('');
@@ -438,12 +470,22 @@ async function setupSingleWorktree(
   branchName: string,
   workTreeDirName: string,
   config: WorkConfig,
-  baseBranch?: string,
+  spec: BaseSpec,
   jiraKey?: string,
 ): Promise<WorktreeSetupResult | null> {
   const repoPath = config.repos[targetName];
   const repoName = path.basename(repoPath);
   let workTreePath = path.join(config.worktreesRoot, repoName, workTreeDirName);
+
+  // For a single repo, the only valid per-repo override alias is the target.
+  const unknownAliases = baseSpecOverrideAliases(spec).filter((a) => a !== targetName);
+  if (unknownAliases.length > 0) {
+    console.error(
+      `--base names repo(s) other than '${targetName}': ${unknownAliases.join(', ')}`,
+    );
+    return null;
+  }
+  const baseBranch = baseForAlias(spec, targetName);
 
   if (!fs.existsSync(repoPath)) {
     console.error(`Repository path does not exist: ${repoPath}`);
@@ -478,6 +520,7 @@ async function setupSingleWorktree(
     config,
     jiraKey,
     baseBranch,
+    baseBranch ? { [workTreePath]: baseBranch } : undefined,
   );
 
   console.log(`Branch: ${branchName}`);

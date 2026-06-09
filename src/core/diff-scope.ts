@@ -197,12 +197,24 @@ export function resolveBase(
   return { base: 'HEAD', source: 'default' };
 }
 
-/** Compute per-repo merge-base when comparing against a non-HEAD ref. */
-export function buildRepoSpecs(scope: DiffScope, base: string): RepoSpec[] {
+/**
+ * Compute per-repo merge-base when comparing against a non-HEAD ref.
+ *
+ * `perRepoBase` (keyed by repo root) overrides `base` for individual repos —
+ * used by group worktrees forked with different bases per repo
+ * (`work tree --base backend=dev --base frontend=feat/x`). A repo without an
+ * override falls back to the shared `base`.
+ */
+export function buildRepoSpecs(
+  scope: DiffScope,
+  base: string,
+  perRepoBase?: Record<string, string>,
+): RepoSpec[] {
   return scope.repos.map((r) => {
-    let diffArg = base;
-    if (base !== 'HEAD') {
-      const mb = git(['merge-base', base, 'HEAD'], r.root);
+    const repoBase = perRepoBase?.[r.root] ?? base;
+    let diffArg = repoBase;
+    if (repoBase !== 'HEAD') {
+      const mb = git(['merge-base', repoBase, 'HEAD'], r.root);
       if (mb.exitCode === 0 && mb.stdout) diffArg = mb.stdout;
     }
     return { name: r.name, root: r.root, diffArg };
@@ -249,4 +261,26 @@ export function resolveRepoDiff(
   const mb = git(['merge-base', parent, 'HEAD'], root);
   if (mb.exitCode === 0 && mb.stdout) diffArg = mb.stdout;
   return { resolvedBase: parent, diffArg };
+}
+
+/**
+ * Look up the recorded fork point for a worktree path from session history.
+ * Prefers the per-repo base (`baseBranches`) for that exact path, falling
+ * back to the session's representative `baseBranch`. Returns undefined when
+ * the path isn't a known worktree — callers then auto-detect.
+ *
+ * Used by the scope diff route, which only carries repo paths (no session),
+ * so a `wd` forked with `--base feat/x` still diffs against `feat/x` even
+ * though auto-detection wouldn't find a non-mainline parent.
+ */
+export function sessionBaseForPath(root: string): string | undefined {
+  const norm = normPath(root);
+  for (const s of loadHistory()) {
+    for (const p of s.paths) {
+      if (normPath(p) === norm) {
+        return s.baseBranches?.[p] ?? s.baseBranch;
+      }
+    }
+  }
+  return undefined;
 }
