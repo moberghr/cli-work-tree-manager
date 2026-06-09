@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   fetchCheckpoints,
   fetchScopeDiff,
@@ -12,11 +19,12 @@ import {
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
 import { useDeferredDiffLoad } from '../hooks/use-deferred-diff-load.js';
-import { decideRange } from '../state/checkpoint-range.js';
+import { decideRange, rangeEmptyMessage } from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffLoadingBar } from '../components/Diff/DiffLoadingBar.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
+import { ExpandProvider } from '../state/ExpandProvider.js';
 import { scopeHashReviewApi } from '../api/review-api.js';
 import { PendingPill } from '../components/Review/PendingPill.js';
 import { EndReviewButton } from '../components/Review/EndReviewButton.js';
@@ -270,11 +278,10 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // changes" when their tree has plenty).
   let emptyMessage: string;
   if (rangeActive && range) {
-    const toLabel =
-      range.to === 'working' ? 'working tree' : `checkpoint #${range.to}`;
-    const fromLabel =
-      range.from === 0 ? 'Initial' : `checkpoint #${range.from}`;
-    emptyMessage = `No changes between ${fromLabel} and ${toLabel}. Pick a different range from the strip above.`;
+    const latestId = checkpoints.length
+      ? checkpoints[checkpoints.length - 1].id
+      : undefined;
+    emptyMessage = rangeEmptyMessage(range, latestId);
   } else if (diffBase === 'uncommitted') {
     emptyMessage = 'No uncommitted changes.';
   } else if (!resolvedBase || resolvedBase === 'HEAD') {
@@ -484,10 +491,20 @@ export function ReviewApp({ context, scopeHash }: Props) {
     </div>
   );
 
-  if (readOnly) return layout;
+  // "Expand lines" reads file content from the server, so it's wired in
+  // every server-backed mode (read-only `wd` included) but suppressed for
+  // static `wd --static` files, which have no backend to fetch from.
+  const withExpand = (node: ReactNode) =>
+    context.staticMode ? (
+      node
+    ) : (
+      <ExpandProvider scopeHash={scopeHash}>{node}</ExpandProvider>
+    );
+
+  if (readOnly) return withExpand(layout);
   // For scope-mounted review (`/review/<hash>`), point the provider at
   // the scope's comment endpoints. Standalone `wd -c` uses the default
   // scopeReviewApi which targets the bare `/api/comments`.
   const reviewApi = scopeHash ? scopeHashReviewApi(scopeHash) : undefined;
-  return <ReviewProvider api={reviewApi}>{layout}</ReviewProvider>;
+  return withExpand(<ReviewProvider api={reviewApi}>{layout}</ReviewProvider>);
 }

@@ -178,6 +178,42 @@ export function fetchScopeDiffByHash(
   );
 }
 
+export interface FileLinesResult {
+  /** Requested slice (may be shorter than asked when the file ends first). */
+  lines: string[];
+  /** Echoed 1-based first line of `lines`. */
+  start: number;
+  /** Total line count of the file at this ref. */
+  totalLines: number;
+  /** True when there is nothing further below to expand. */
+  eof: boolean;
+}
+
+/** Fetch a range of file lines to reveal unchanged context around a hunk.
+ *  `hash` selects the scope-mounted endpoint (`work web`); pass undefined
+ *  for the standalone diff-server route. `ref` is omitted for the common
+ *  working-tree case. */
+export function fetchFileLines(
+  hash: string | undefined,
+  repo: string,
+  filePath: string,
+  start: number,
+  end: number,
+  ref?: string,
+): Promise<FileLinesResult> {
+  const params = new URLSearchParams({
+    repo,
+    path: filePath,
+    start: String(start),
+    end: String(end),
+  });
+  if (ref) params.set('ref', ref);
+  const base = hash
+    ? `/api/scopes/${encodeURIComponent(hash)}/file-lines`
+    : '/api/file-lines';
+  return getJson<FileLinesResult>(`${base}?${params.toString()}`);
+}
+
 export interface CheckpointEntry {
   id: number;
   ts: string;

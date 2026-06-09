@@ -63,3 +63,42 @@ export function decideRange(
   }
   return { kind: 'range', range: prev };
 }
+
+/** Human label for a checkpoint range endpoint. */
+function endpointLabel(end: CheckpointRangeEnd): string {
+  if (end === 'working') return 'working tree';
+  return end === 0 ? 'Initial' : `checkpoint #${end}`;
+}
+
+/**
+ * Empty-state copy for a checkpoint range that produced no diff.
+ *
+ * The common trap: every checkpoint except Initial is captured *from* the
+ * working tree, so the newest checkpoint is identical to the live tree
+ * until the next edit. Picking "newest → working" is therefore always
+ * empty — and the generic "pick a different range" hint doesn't explain
+ * why. When that's the case we say so explicitly and point the user at an
+ * earlier checkpoint. `latestId` is the id of the most recent checkpoint
+ * (undefined when none are known).
+ */
+export function rangeEmptyMessage(
+  range: CheckpointRange,
+  latestId: number | undefined,
+): string {
+  const fromLabel = endpointLabel(range.from);
+  if (
+    range.to === 'working' &&
+    latestId !== undefined &&
+    range.from === latestId
+  ) {
+    return (
+      `${fromLabel} is the most recent snapshot — it already matches your ` +
+      `working tree, so there's nothing to show. Pick an earlier checkpoint ` +
+      `to see recent changes.`
+    );
+  }
+  return (
+    `No changes between ${fromLabel} and ${endpointLabel(range.to)}. ` +
+    `Pick a different range from the strip above.`
+  );
+}
