@@ -7,6 +7,7 @@ import {
   effectiveLastAccessedAt,
   getClaudeActivityMs,
   readSessionActivity,
+  resolveResumeLaunch,
 } from '../../src/core/claude-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
@@ -151,5 +152,72 @@ describe('effectiveLastAccessedAt', () => {
     session.lastAccessedAt = new Date().toISOString();
     const ms = new Date(effectiveLastAccessedAt(session)).getTime();
     expect(Math.abs(ms - Date.now())).toBeLessThan(2_000);
+  });
+});
+
+describe('resolveResumeLaunch', () => {
+  // resolveResumeLaunch filters paths by existsSync, so use real dirs.
+  function mkdir(...segments: string[]): string {
+    const dir = path.join(tmpDir, ...segments);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  it('single repo: resumes in the repo path when a transcript exists', () => {
+    const repo = mkdir('repo');
+    touch(projectDirFor(repo), 'a.jsonl', 5_000);
+    const out = resolveResumeLaunch(fakeSession([repo]));
+    expect(out.launchPath).toBe(repo);
+    expect(out.hasConversation).toBe(true);
+  });
+
+  it('reports hasConversation=false and the default path when no transcript exists', () => {
+    const repo = mkdir('repo');
+    const out = resolveResumeLaunch(fakeSession([repo]));
+    expect(out.launchPath).toBe(repo);
+    expect(out.hasConversation).toBe(false);
+  });
+
+  it('group: resumes in the group root when the transcript is there', () => {
+    const root = mkdir('group', 'feat-x');
+    const api = mkdir('group', 'feat-x', 'api');
+    const web = mkdir('group', 'feat-x', 'web');
+    touch(projectDirFor(root), 'a.jsonl', 5_000);
+    const out = resolveResumeLaunch(fakeSession([api, web], true));
+    expect(out.launchPath).toBe(root);
+    expect(out.hasConversation).toBe(true);
+  });
+
+  it('group: resumes in the sub-repo the user actually worked in', () => {
+    mkdir('group', 'feat-x');
+    const api = mkdir('group', 'feat-x', 'api');
+    const web = mkdir('group', 'feat-x', 'web');
+    // The conversation lives in a sub-repo, not the group root — this is the
+    // case that produced "No conversation found to continue".
+    touch(projectDirFor(web), 'a.jsonl', 5_000);
+    const out = resolveResumeLaunch(fakeSession([api, web], true));
+    expect(out.launchPath).toBe(web);
+    expect(out.hasConversation).toBe(true);
+  });
+
+  it('group: falls back to the group root when no transcript exists anywhere', () => {
+    const root = mkdir('group', 'feat-x');
+    const api = mkdir('group', 'feat-x', 'api');
+    const web = mkdir('group', 'feat-x', 'web');
+    const out = resolveResumeLaunch(fakeSession([api, web], true));
+    expect(out.launchPath).toBe(root);
+    expect(out.hasConversation).toBe(false);
+  });
+
+  it('group: picks the most recently used location among several', () => {
+    const root = mkdir('group', 'feat-x');
+    const api = mkdir('group', 'feat-x', 'api');
+    const web = mkdir('group', 'feat-x', 'web');
+    touch(projectDirFor(root), 'a.jsonl', 60_000); // older
+    touch(projectDirFor(api), 'a.jsonl', 5_000); // newest
+    touch(projectDirFor(web), 'a.jsonl', 30_000);
+    const out = resolveResumeLaunch(fakeSession([api, web], true));
+    expect(out.launchPath).toBe(api);
+    expect(out.hasConversation).toBe(true);
   });
 });

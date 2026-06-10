@@ -66,6 +66,52 @@ export function effectiveLastAccessedAt(session: WorktreeSession): string {
   return new Date(bestMs).toISOString();
 }
 
+/**
+ * Pick the directory to relaunch Claude in when resuming a session.
+ *
+ * Claude's `--continue` only finds a conversation when the launch cwd matches
+ * the directory the transcript was written for. A group session may have been
+ * worked in the group root OR inside a specific sub-repo, and a session may
+ * have no transcript at all (Claude was never actually used). So we consider
+ * every plausible cwd — group root(s) and each sub-repo for groups, the repo
+ * path for single-repo sessions — and pick the one with the most recent
+ * transcript.
+ *
+ * Returns `hasConversation: false` (with the default launch path) when no
+ * transcript exists anywhere; the caller should then start a fresh session
+ * instead of passing `--continue`, which would error out and drop the user
+ * back to the shell.
+ */
+export function resolveResumeLaunch(session: WorktreeSession): {
+  launchPath: string;
+  hasConversation: boolean;
+} {
+  const existing = session.paths.filter((p) => fs.existsSync(p));
+  const first = existing[0] ?? session.paths[0];
+  // Default cwd: group root (parent of a sub-repo) for groups, the repo path
+  // itself for single-repo sessions.
+  const defaultPath = session.isGroup ? path.dirname(first) : first;
+
+  const candidates = new Set<string>();
+  if (session.isGroup) {
+    for (const p of existing) candidates.add(path.dirname(p)); // group root(s)
+    for (const p of existing) candidates.add(p); // sub-repos
+  } else {
+    for (const p of existing) candidates.add(p);
+  }
+
+  let launchPath = defaultPath;
+  let bestMs = 0;
+  for (const c of candidates) {
+    const ms = getClaudeActivityMs(c);
+    if (ms > bestMs) {
+      bestMs = ms;
+      launchPath = c;
+    }
+  }
+  return { launchPath, hasConversation: bestMs > 0 };
+}
+
 export type ActivityState = 'active' | 'open' | 'stale';
 
 /** Active: Claude wrote a turn in the last 30 s — currently thinking. */
