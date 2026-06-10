@@ -19,7 +19,9 @@ export interface SidebarProps {
   activeKey: string | null;
   width: number;
   height: number;
-  branchInput?: { value: string } | null;
+  branchInput?: { value: string; pos: number } | null;
+  /** Active session filter — shown in the pane title. Null = no filter. */
+  filter?: { value: string; editing: boolean } | null;
 }
 
 export interface PrPaneProps {
@@ -45,7 +47,7 @@ export interface TaskPaneProps {
   focused: boolean;
   width: number;
   height: number;
-  taskInput?: string | null;
+  taskInput?: { value: string; pos: number } | null;
 }
 
 export type SidebarRow =
@@ -67,7 +69,7 @@ export function buildSessionRows(sessions: WorktreeSession[], statusMap?: Map<st
   for (const s of sessions) {
     const key = `${s.target}:${s.branch}`;
     const status = statusMap?.get(key);
-    if (status === 'running' || status === 'idle') {
+    if (status !== undefined && status !== 'stopped') {
       active.push(s);
     } else {
       inactive.push(s);
@@ -218,6 +220,64 @@ export function sessionKey(s: WorktreeSession): string {
   return `${s.target}:${s.branch}`;
 }
 
+/**
+ * Scroll offset that keeps the cursor-selected row visible (with a 1-row
+ * margin). Pure and exported so the mouse click handler can map a clicked
+ * visual row back to the same window the pane actually rendered.
+ */
+export function computeScrollOffset(rows: SidebarRow[], cursor: number, contentHeight: number): number {
+  let cursorRowIdx = 0;
+  let selectableCount = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type !== 'header') {
+      if (selectableCount === cursor) {
+        cursorRowIdx = i;
+        break;
+      }
+      selectableCount++;
+    }
+  }
+
+  if (rows.length > contentHeight && cursorRowIdx >= contentHeight - 1) {
+    return Math.min(
+      cursorRowIdx - contentHeight + 2,
+      rows.length - contentHeight,
+    );
+  }
+  return 0;
+}
+
+/**
+ * Render a text input value with a visible cursor at `pos`. When `budget` is
+ * given, shows a sliding window of at most `budget` cells that keeps the
+ * cursor visible (long values scroll horizontally instead of wrapping).
+ */
+function InputText({ value, pos, budget }: { value: string; pos: number; budget?: number }): React.ReactElement {
+  let v = value;
+  let p = pos;
+  if (budget !== undefined && value.length + 1 > budget) {
+    const windowLen = Math.max(1, budget - 1); // reserve one cell for the cursor block
+    const start = Math.max(0, p - windowLen);
+    v = value.slice(start, start + windowLen);
+    p = pos - start;
+  }
+  if (p >= v.length) {
+    return (
+      <>
+        <Text>{v}</Text>
+        <Text dimColor>█</Text>
+      </>
+    );
+  }
+  return (
+    <>
+      <Text>{v.slice(0, p)}</Text>
+      <Text inverse>{v[p]}</Text>
+      <Text>{v.slice(p + 1)}</Text>
+    </>
+  );
+}
+
 function truncate(str: string, max: number): string {
   if (max <= 1) return '';
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
@@ -285,8 +345,11 @@ function SessionRow({
   active: boolean;
   width: number;
 }): React.ReactElement {
-  const dotChar = status === 'idle' ? '◆' : status === 'running' ? '●' : '○';
-  const dotColor = status === 'idle' ? 'yellow' : status === 'running' ? 'green' : 'gray';
+  // ● running, ◆ needs input, ◇ turn finished, ○ stopped
+  const dotChar =
+    status === 'attention' ? '◆' : status === 'idle' ? '◇' : status === 'running' ? '●' : '○';
+  const dotColor =
+    status === 'attention' ? 'yellow' : status === 'idle' ? 'cyan' : status === 'running' ? 'green' : 'gray';
   const agoStr = timeAgo(effectiveLastAccessedAt(s));
 
   const mergedLen = merged ? 8 : 0; // " merged"
@@ -331,7 +394,7 @@ function ProjectRow({
   isGroup: boolean;
   selected: boolean;
   focused: boolean;
-  branchInput?: { value: string } | null;
+  branchInput?: { value: string; pos: number } | null;
   width: number;
 }): React.ReactElement {
   const marker = selected && focused ? '›' : ' ';
@@ -345,8 +408,8 @@ function ProjectRow({
         <Text color="magenta">{truncate(name, width - 15)}</Text>
         <Text> </Text>
         <Text color="cyan">branch:</Text>
-        <Text> {branchInput.value}</Text>
-        <Text dimColor>█</Text>
+        <Text> </Text>
+        <InputText value={branchInput.value} pos={branchInput.pos} />
       </Box>
     );
   }
@@ -427,29 +490,8 @@ function BorderedPane({
   const innerWidth = width - 2;
   const contentHeight = height - 2;
 
-  // Find the row index of the cursor-selected item so we can scroll to it
-  let cursorRowIdx = 0;
-  let selectableCount = 0;
-  for (let i = 0; i < sidebarRows.length; i++) {
-    if (sidebarRows[i].type !== 'header') {
-      if (selectableCount === cursor) {
-        cursorRowIdx = i;
-        break;
-      }
-      selectableCount++;
-    }
-  }
-
-  // Compute scroll offset to keep cursor visible (with 1-row margin)
-  let scrollOffset = 0;
-  if (sidebarRows.length > contentHeight) {
-    if (cursorRowIdx >= contentHeight - 1) {
-      scrollOffset = Math.min(
-        cursorRowIdx - contentHeight + 2,
-        sidebarRows.length - contentHeight,
-      );
-    }
-  }
+  // Scroll offset that keeps the cursor visible (shared with click handling)
+  const scrollOffset = computeScrollOffset(sidebarRows, cursor, contentHeight);
 
   const rendered: React.ReactNode[] = [];
   let selectableIdx = 0;
@@ -473,9 +515,16 @@ function BorderedPane({
     }
   }
 
-  const topBorder = title
-    ? '┌─ ' + title + ' ' + '─'.repeat(Math.max(0, innerWidth - title.length - 3)) + '┐'
-    : '┌' + '─'.repeat(innerWidth) + '┐';
+  // Scroll indicators: rows hidden above/below the visible window
+  const hiddenAbove = scrollOffset;
+  const hiddenBelow = Math.max(0, sidebarRows.length - (scrollOffset + contentHeight));
+  const upText = hiddenAbove > 0 ? ` ↑${hiddenAbove} ` : '';
+  const downText = hiddenBelow > 0 ? ` ↓${hiddenBelow} ` : '';
+
+  const titlePart = title ? '─ ' + title + ' ' : '';
+  const topFill = Math.max(0, innerWidth - titlePart.length - upText.length);
+  const topBorder = '┌' + titlePart + '─'.repeat(topFill) + upText + '┐';
+  const bottomBorder = '└' + '─'.repeat(Math.max(0, innerWidth - downText.length)) + downText + '┘';
 
   return (
     <Box flexDirection="column" width={width}>
@@ -487,14 +536,17 @@ function BorderedPane({
           <Text color={borderColor}>│</Text>
         </Box>
       ))}
-      <Text color={borderColor}>{'└' + '─'.repeat(innerWidth) + '┘'}</Text>
+      <Text color={borderColor}>{bottomBorder}</Text>
     </Box>
   );
 }
 
-export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, activeKey, width, height, branchInput }: SidebarProps) {
+export const Sidebar = React.memo(function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCounts, mergedSet, prMap, activeKey, width, height, branchInput, filter }: SidebarProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
+  const title = filter
+    ? `Worktrees /${filter.value}${filter.editing ? '█' : ''}`
+    : 'Worktrees';
 
   return (
     <BorderedPane
@@ -502,7 +554,7 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
       cursor={cursor}
       focused={focused}
       borderColor={borderColor}
-      title="Worktrees"
+      title={title}
       width={width}
       height={height}
       renderRow={(row, i, sel) => {
@@ -541,7 +593,7 @@ export function Sidebar({ sidebarRows, cursor, focused, statusMap, conflictCount
       }}
     />
   );
-}
+});
 
 function statusColor(status: string): string | undefined {
   const lower = status.toLowerCase();
@@ -577,7 +629,7 @@ function JiraListRow({
   );
 }
 
-export function PrPane({ prRows, cursor, focused, localBranches, width, height }: PrPaneProps) {
+export const PrPane = React.memo(function PrPane({ prRows, cursor, focused, localBranches, width, height }: PrPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
 
@@ -607,7 +659,7 @@ export function PrPane({ prRows, cursor, focused, localBranches, width, height }
       }}
     />
   );
-}
+});
 
 function TaskListRow({
   task,
@@ -639,19 +691,18 @@ function TaskListRow({
   );
 }
 
-function TaskInputRow({ value, width }: { value: string; width: number }): React.ReactElement {
+function TaskInputRow({ value, pos, width }: { value: string; pos: number; width: number }): React.ReactElement {
   const budget = Math.max(4, width - 8);
   return (
     <Box width={width}>
       <Text>  </Text>
       <Text color="cyan">+ </Text>
-      <Text>{truncate(value, budget)}</Text>
-      <Text dimColor>█</Text>
+      <InputText value={value} pos={pos} budget={budget} />
     </Box>
   );
 }
 
-export function TaskPane({ taskRows, cursor, focused, width, height, taskInput }: TaskPaneProps) {
+export const TaskPane = React.memo(function TaskPane({ taskRows, cursor, focused, width, height, taskInput }: TaskPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
@@ -659,7 +710,7 @@ export function TaskPane({ taskRows, cursor, focused, width, height, taskInput }
   // If input is active, render it manually at the top
   if (taskInput !== null && taskInput !== undefined) {
     const rendered: React.ReactNode[] = [];
-    rendered.push(<TaskInputRow key="input" value={taskInput} width={innerWidth} />);
+    rendered.push(<TaskInputRow key="input" value={taskInput.value} pos={taskInput.pos} width={innerWidth} />);
 
     let selectableIdx = 0;
     for (let i = 0; i < contentHeight - 1 && i < taskRows.length; i++) {
@@ -720,9 +771,9 @@ export function TaskPane({ taskRows, cursor, focused, width, height, taskInput }
       }}
     />
   );
-}
+});
 
-export function JiraPane({ jiraRows, cursor, focused, width, height }: JiraPaneProps) {
+export const JiraPane = React.memo(function JiraPane({ jiraRows, cursor, focused, width, height }: JiraPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
 
@@ -751,4 +802,4 @@ export function JiraPane({ jiraRows, cursor, focused, width, height }: JiraPaneP
       }}
     />
   );
-}
+});

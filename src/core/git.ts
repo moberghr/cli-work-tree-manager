@@ -331,6 +331,153 @@ export function countConflicts(branch: string, cwd: string): number {
   return conflicts;
 }
 
+/**
+ * Run a git command asynchronously in the given cwd. Mirrors {@link git} but
+ * never blocks the event loop — use from interactive UIs (the TUI dashboard).
+ */
+export function gitAsync(args: string[], cwd: string): Promise<GitResult> {
+  debug('gitAsync', args.join(' '), `cwd=${cwd}`);
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      args,
+      { cwd, encoding: 'utf-8', timeout: 60000, windowsHide: true },
+      (err, stdout, stderr) => {
+        const r = {
+          stdout: (stdout ?? '').toString().trim(),
+          stderr: (stderr ?? '').toString().trim(),
+          exitCode: err ? ((err as NodeJS.ErrnoException & { code?: number | string }).code as number | undefined) ?? 1 : 0,
+        };
+        if (typeof r.exitCode !== 'number') r.exitCode = 1;
+        if (r.exitCode !== 0) {
+          debug('gitAsync failed', { args, exitCode: r.exitCode, stderr: r.stderr });
+        }
+        resolve(r);
+      },
+    );
+  });
+}
+
+async function getDefaultBranchAsync(cwd: string): Promise<string | null> {
+  const result = await gitAsync(['symbolic-ref', 'refs/remotes/origin/HEAD'], cwd);
+  if (result.exitCode === 0 && result.stdout) {
+    return result.stdout.replace(/^refs\/remotes\/origin\//, '');
+  }
+  return null;
+}
+
+async function refExistsAsync(ref: string, cwd: string): Promise<boolean> {
+  return (await gitAsync(['rev-parse', '--verify', ref], cwd)).exitCode === 0;
+}
+
+/** Async mirror of {@link checkSquashMerged}. */
+async function checkSquashMergedAsync(branch: string, baseRef: string, cwd: string): Promise<boolean> {
+  const mb = await gitAsync(['merge-base', baseRef, branch], cwd);
+  if (mb.exitCode !== 0) return false;
+
+  const tree = await gitAsync(['rev-parse', `${branch}^{tree}`], cwd);
+  if (tree.exitCode !== 0) return false;
+
+  const dangling = await gitAsync(['commit-tree', tree.stdout, '-p', mb.stdout, '-m', ''], cwd);
+  if (dangling.exitCode !== 0) return false;
+
+  const cherry = await gitAsync(['cherry', baseRef, dangling.stdout], cwd);
+  if (cherry.exitCode !== 0) return false;
+
+  return cherry.stdout.startsWith('-');
+}
+
+/** Async mirror of {@link checkMergeStatus}. */
+async function checkMergeStatusAsync(branch: string, baseRef: string, cwd: string): Promise<MergeCheck> {
+  const branchInBase = await gitAsync(['merge-base', '--is-ancestor', branch, baseRef], cwd);
+  if (branchInBase.exitCode !== 0) {
+    if (await checkSquashMergedAsync(branch, baseRef, cwd)) return 'squash-merged';
+    return 'unrelated';
+  }
+
+  const baseInBranch = await gitAsync(['merge-base', '--is-ancestor', baseRef, branch], cwd);
+  if (baseInBranch.exitCode === 0) return 'merged';
+
+  const tip = await gitAsync(['rev-parse', branch], cwd);
+  if (tip.exitCode !== 0) return 'unrelated';
+  const mainLine = await gitAsync(['rev-list', '--first-parent', '-n', '500', baseRef], cwd);
+  if (mainLine.exitCode === 0 && mainLine.stdout.includes(tip.stdout)) {
+    return 'stale';
+  }
+
+  return 'merged';
+}
+
+/** Async mirror of {@link isBranchMerged} — non-blocking, for interactive UIs. */
+export async function isBranchMergedAsync(
+  branch: string,
+  cwd: string,
+  baseBranch?: string,
+): Promise<MergeCheckResult> {
+  const defaultBranch = await getDefaultBranchAsync(cwd);
+  const bases = baseBranch
+    ? [baseBranch]
+    : [defaultBranch, 'main', 'master'].filter(
+        (b): b is string => b !== null,
+      );
+  const uniqueBases = [...new Set(bases)];
+
+  for (const base of uniqueBases) {
+    if (await refExistsAsync(`origin/${base}`, cwd)) {
+      const baseRef = `origin/${base}`;
+      const status = await checkMergeStatusAsync(branch, baseRef, cwd);
+      if (status === 'merged') return { merged: true, into: baseRef, confidence: 'merged' };
+      if (status === 'squash-merged')
+        return { merged: true, into: baseRef, confidence: 'squash-merged' };
+      if (status === 'stale') return { merged: false, into: null, confidence: null };
+    }
+
+    if (await refExistsAsync(base, cwd)) {
+      const status = await checkMergeStatusAsync(branch, base, cwd);
+      if (status === 'merged') return { merged: true, into: base, confidence: 'merged' };
+      if (status === 'squash-merged')
+        return { merged: true, into: base, confidence: 'squash-merged' };
+      if (status === 'stale') return { merged: false, into: null, confidence: null };
+    }
+  }
+
+  return { merged: false, into: null, confidence: null };
+}
+
+/** Async mirror of {@link countConflicts} — non-blocking, for interactive UIs. */
+export async function countConflictsAsync(branch: string, cwd: string): Promise<number> {
+  const defaultBranch = (await getDefaultBranchAsync(cwd)) ?? 'main';
+  const base = (await refExistsAsync(`origin/${defaultBranch}`, cwd))
+    ? `origin/${defaultBranch}`
+    : defaultBranch;
+
+  const mergeBase = await gitAsync(['merge-base', base, branch], cwd);
+  if (mergeBase.exitCode !== 0) return 0;
+
+  const result = await gitAsync(['merge-tree', mergeBase.stdout, base, branch], cwd);
+  const conflicts = (result.stdout.match(/^<<<<<<< /gm) || []).length;
+  return conflicts;
+}
+
+/**
+ * Async mirror of {@link rebaseOntoMain} — non-blocking (includes a network
+ * fetch, so the sync version can freeze an interactive UI for seconds).
+ * Returns error message or null on success.
+ */
+export async function rebaseOntoMainAsync(branch: string, cwd: string): Promise<string | null> {
+  const defaultBranch = (await getDefaultBranchAsync(cwd)) ?? 'main';
+  await gitAsync(['fetch', '--quiet'], cwd);
+  const base = (await refExistsAsync(`origin/${defaultBranch}`, cwd))
+    ? `origin/${defaultBranch}`
+    : defaultBranch;
+  const result = await gitAsync(['rebase', base, branch], cwd);
+  if (result.exitCode !== 0) {
+    await gitAsync(['rebase', '--abort'], cwd);
+    return result.stderr || 'Rebase failed';
+  }
+  return null;
+}
+
 /** Check for unpushed commits. Returns the log output or empty string. */
 export function getUnpushedCommits(cwd: string): string {
   const branch = getCurrentBranch(cwd);

@@ -13,7 +13,7 @@ import {
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
-import { rebaseOntoMain, countConflicts, isBranchMerged, fetchRemoteAsync } from '../core/git.js';
+import { rebaseOntoMainAsync, countConflictsAsync, isBranchMergedAsync, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
 import { getTasks, addTask, completeTask, uncompleteTask, removeTask, editTask, getTasksPath_, type Task } from '../core/tasks.js';
@@ -28,11 +28,13 @@ import { renderBufferLines } from './renderer-lines.js';
 import {
   Sidebar, PrPane, JiraPane, TaskPane,
   buildSessionRows, buildProjectRows, buildPrRows, buildJiraRows, buildTaskRows,
-  countSelectable, cursorToRow, visualRowToCursor, sessionKey,
+  countSelectable, cursorToRow, visualRowToCursor, computeScrollOffset, sessionKey,
   type SidebarRow,
 } from './Sidebar.js';
 import { TerminalPane } from './TerminalPane.js';
 import { StatusBar } from './StatusBar.js';
+import { HelpOverlay } from './HelpOverlay.js';
+import { splitInputChunks, editLine, KEYS, type LineState } from './line-editor.js';
 
 const DETACH_KEY = '\x1D'; // Ctrl+]
 const TAB_KEY = '\t';
@@ -62,7 +64,9 @@ enum TopPaneMode {
 function hasClaudeConversation(dir: string): boolean {
   try {
     const resolved = path.resolve(dir);
-    const projectDir = resolved.replace(/[/\\:]/g, '-');
+    // Claude Code encodes project dirs by replacing EVERY non-alphanumeric
+    // char with '-' (verified against ~/.claude/projects: ".claude" → "-claude").
+    const projectDir = resolved.replace(/[^a-zA-Z0-9-]/g, '-');
     const claudeProjectPath = path.join(os.homedir(), '.claude', 'projects', projectDir);
     if (!fs.existsSync(claudeProjectPath)) return false;
     const files = fs.readdirSync(claudeProjectPath);
@@ -165,7 +169,7 @@ export function App({ unsafe, onExit }: AppProps) {
   const [jiraCursor, setJiraCursor] = useState(0);
   const [taskCursor, setTaskCursor] = useState(0);
   const [tasks, setTasks] = useState<Task[]>(getTasks);
-  const [taskInput, setTaskInput] = useState<string | null>(null);
+  const [taskInput, setTaskInput] = useState<LineState | null>(null);
   const [taskEditId, setTaskEditId] = useState<number | null>(null);
   const taskEditIdRef = useRef(taskEditId);
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([]);
@@ -183,11 +187,22 @@ export function App({ unsafe, onExit }: AppProps) {
   const termScrollBack = useRef(0);
   const [statusVersion, setStatusVersion] = useState(0);
   const [topPaneMode, setTopPaneMode] = useState(TopPaneMode.SESSIONS);
-  const [branchInput, setBranchInput] = useState<{ projectName: string; value: string; isGroup: boolean } | null>(null);
+  const [branchInput, setBranchInput] = useState<{ projectName: string; value: string; pos: number; isGroup: boolean } | null>(null);
   const [pendingBranch, setPendingBranch] = useState<string | null>(null);
   const [pendingJiraIssue, setPendingJiraIssue] = useState<JiraIssue | null>(null);
   const [pendingTask, setPendingTask] = useState<Task | null>(null);
   const [savedSessionCursor, setSavedSessionCursor] = useState(0);
+  const [showHelp, setShowHelp] = useState(false);
+  /** Session-list filter; `editing` = '/' input mode is active. */
+  const [filter, setFilter] = useState<{ value: string; editing: boolean } | null>(null);
+  /** Session key armed for removal — second `d` confirms (destructive op). */
+  const [pendingRemoveKey, setPendingRemoveKey] = useState<string | null>(null);
+  /** State mirror of termScrollBack (ref) so the UI can show a paused badge. */
+  const [termScroll, setTermScroll] = useState(0);
+  const setScrollBack = useCallback((n: number) => {
+    termScrollBack.current = n;
+    setTermScroll(n);
+  }, []);
 
   const localBranches = useMemo(() => new Set(sessions.map((s) => s.branch)), [sessions]);
   const projectRows = useMemo(() => buildProjectRows(projects), [projects]);
@@ -195,16 +210,25 @@ export function App({ unsafe, onExit }: AppProps) {
   const jiraRows = useMemo(() => buildJiraRows(jiraIssues), [jiraIssues]);
   const taskRows = useMemo(() => buildTaskRows(tasks), [tasks]);
 
+  /** Sessions narrowed by the `/` filter (matches branch or target). */
+  const filteredSessions = useMemo(() => {
+    const q = filter?.value.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter(
+      (s) => s.branch.toLowerCase().includes(q) || s.target.toLowerCase().includes(q),
+    );
+  }, [sessions, filter]);
+
   const ptySessions = useRef(new Map<string, PtySession>());
   const sessionRows = useMemo(() => {
     const sMap = new Map<string, SessionStatus>();
     for (const [key, pty] of ptySessions.current) {
       if (pty.exited) continue;
-      sMap.set(key, pty.idle ? 'idle' : 'running');
+      sMap.set(key, pty.status);
     }
-    return buildSessionRows(sessions, sMap);
+    return buildSessionRows(filteredSessions, sMap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, statusVersion]);
+  }, [filteredSessions, statusVersion]);
   const topRows = topPaneMode === TopPaneMode.SESSIONS ? sessionRows : projectRows;
   const renderPending = useRef(false);
   const focusRef = useRef(focus);
@@ -246,6 +270,14 @@ export function App({ unsafe, onExit }: AppProps) {
   prRowsRef.current = prRows;
   const acliAvailableRef = useRef(acliAvailable);
   acliAvailableRef.current = acliAvailable;
+  const showHelpRef = useRef(showHelp);
+  showHelpRef.current = showHelp;
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const pendingRemoveRef = useRef(pendingRemoveKey);
+  pendingRemoveRef.current = pendingRemoveKey;
+  /** Guards against overlapping `u` rebases (async, may take seconds). */
+  const rebasingRef = useRef(false);
   const hookServerRef = useRef<HookServer | null>(null);
   // Sessions already alerted for their current idle period (notification dedupe).
   const notifiedSessionsRef = useRef<Set<string>>(new Set());
@@ -267,17 +299,25 @@ export function App({ unsafe, onExit }: AppProps) {
   const prPaneHeight = Math.max(5, Math.floor((contentHeight - jiraPaneHeight - taskPaneHeight) * 0.45));
   const sessionPaneHeight = contentHeight - prPaneHeight - taskPaneHeight - jiraPaneHeight;
 
+  // Layout snapshot for the stdin handler — refreshed every render so mouse
+  // hit-testing stays correct after resizes / pane-visibility changes.
+  const layoutRef = useRef({ sidebarWidth, termInner, contentHeight, sessionPaneHeight, prPaneHeight, jiraPaneHeight, taskPaneHeight });
+  layoutRef.current = { sidebarWidth, termInner, contentHeight, sessionPaneHeight, prPaneHeight, jiraPaneHeight, taskPaneHeight };
+
   // Update terminal title — icon + count per state, hide if 0
   useEffect(() => {
+    let attentionCount = 0;
     let idleCount = 0;
     let runningCount = 0;
     for (const pty of ptySessions.current.values()) {
       if (pty.exited) continue;
-      if (pty.idle) idleCount++;
+      if (pty.status === 'attention') attentionCount++;
+      else if (pty.status === 'idle') idleCount++;
       else runningCount++;
     }
     const parts: string[] = [];
-    if (idleCount > 0) parts.push(`🟡 ${idleCount}`);
+    if (attentionCount > 0) parts.push(`🟡 ${attentionCount}`);
+    if (idleCount > 0) parts.push(`🔵 ${idleCount}`);
     if (runningCount > 0) parts.push(`🟢 ${runningCount}`);
     const title = parts.length > 0 ? parts.join('  ') : 'work dash';
     process.stdout.write(`\x1B]0;${title}\x07`);
@@ -286,7 +326,6 @@ export function App({ unsafe, onExit }: AppProps) {
   const computeGeneration = useRef(0);
   const computeConflictsAndMerged = useCallback((sessionList: WorktreeSession[]) => {
     const generation = ++computeGeneration.current;
-    const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
     (async () => {
       const counts = new Map<string, number>();
@@ -294,17 +333,16 @@ export function App({ unsafe, onExit }: AppProps) {
 
       for (const s of sessionList) {
         if (computeGeneration.current !== generation) return; // cancelled
-        await tick(); // yield to keep UI responsive (git calls are sync)
 
         const existing = s.paths.find((p) => fs.existsSync(p));
         if (!existing || !s.branch) continue;
         const key = sessionKey(s);
         try {
-          const c = countConflicts(s.branch, existing);
+          const c = await countConflictsAsync(s.branch, existing);
           if (c > 0) counts.set(key, c);
         } catch { /* ignore */ }
         try {
-          const { merged: isMerged } = isBranchMerged(s.branch, existing);
+          const { merged: isMerged } = await isBranchMergedAsync(s.branch, existing);
           if (isMerged) merged.add(key);
         } catch { /* ignore */ }
       }
@@ -316,11 +354,12 @@ export function App({ unsafe, onExit }: AppProps) {
     })();
   }, []);
 
-  const refreshPrs = useCallback(() => {
-    if (!ghAvailable || !config || prFetching.current) return;
+  /** Returns a promise so callers can report "synced" only when done. */
+  const refreshPrs = useCallback((): Promise<void> => {
+    if (!ghAvailable || !config || prFetching.current) return Promise.resolve();
     prFetching.current = true;
     setMessage('Loading PRs...');
-    fetchAllPullRequests(config.repos)
+    return fetchAllPullRequests(config.repos)
       .then((prs) => {
         setPrMap(prs);
         setMessage('');
@@ -329,10 +368,11 @@ export function App({ unsafe, onExit }: AppProps) {
       .finally(() => { prFetching.current = false; });
   }, [ghAvailable, config]);
 
-  const refreshJira = useCallback(() => {
-    if (!acliAvailable || jiraFetching.current) return;
+  /** Returns a promise so callers can report "synced" only when done. */
+  const refreshJira = useCallback((): Promise<void> => {
+    if (!acliAvailable || jiraFetching.current) return Promise.resolve();
     jiraFetching.current = true;
-    fetchMyJiraIssues()
+    return fetchMyJiraIssues()
       .then((issues) => setJiraIssues(issues))
       .catch(() => {})
       .finally(() => { jiraFetching.current = false; });
@@ -348,11 +388,13 @@ export function App({ unsafe, onExit }: AppProps) {
     computeConflictsAndMerged(updated);
   }, [computeConflictsAndMerged]);
 
-  const buildStatusMap = useCallback(() => {
-    const map = new Map<string, 'stopped' | 'running' | 'idle'>();
+  // Memoized so the memoized Sidebar isn't invalidated by a fresh Map each
+  // render (terminal output re-renders App every 50ms while Claude streams).
+  const statusMap = useMemo(() => {
+    const map = new Map<string, SessionStatus>();
     for (const [key, pty] of ptySessions.current) {
       if (pty.exited) continue;
-      map.set(key, pty.idle ? 'idle' : 'running');
+      map.set(key, pty.status);
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -364,6 +406,10 @@ export function App({ unsafe, onExit }: AppProps) {
     setTimeout(() => {
       renderPending.current = false;
       try {
+        // The active session may have changed within the debounce window —
+        // never paint a stale PTY's buffer over the current one.
+        const activeKey = activeKeyRef.current;
+        if (!activeKey || ptySessions.current.get(activeKey) !== pty) return;
         // If scrolled back, don't auto-update (user is reading scrollback)
         if (termScrollBack.current > 0) return;
         const lines = renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2);
@@ -381,6 +427,18 @@ export function App({ unsafe, onExit }: AppProps) {
       setTermLines(renderBufferLines(pty.terminal.buffer.active, termInner, contentHeight - 2, termScrollBack.current));
     } catch { /* */ }
   }, [termInner, contentHeight]);
+
+  /** Scroll the active terminal's history. Positive = up (into history). */
+  const scrollTerminal = useCallback((linesUp: number) => {
+    const pty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
+    if (!pty || pty.exited) return;
+    const maxScroll = pty.terminal.buffer.active.baseY;
+    const next = Math.max(0, Math.min(maxScroll, termScrollBack.current + linesUp));
+    if (next !== termScrollBack.current) {
+      setScrollBack(next);
+      renderTermAtScroll();
+    }
+  }, [setScrollBack, renderTermAtScroll]);
 
   const findPtyByCwd = useCallback((cwd: string): PtySession | undefined => {
     const normalized = path.resolve(cwd).toLowerCase();
@@ -461,10 +519,12 @@ export function App({ unsafe, onExit }: AppProps) {
       callback: (cwd: string, event: HookEvent) => {
         const pty = findPtyByCwd(cwd);
         if (!pty) return;
-        if (event === 'stop' || event === 'notification') {
-          pty.setIdle(true);
+        if (event === 'notification') {
+          pty.setStatus('attention'); // explicitly waiting on user input
+        } else if (event === 'stop') {
+          pty.setStatus('idle'); // turn finished
         } else if (event === 'prompt_submit') {
-          pty.setIdle(false);
+          pty.setStatus('running');
         }
         // Desktop notification (opt-in; no-op when disabled/unsupported).
         // De-duped per session per idle period via notifyKindForEvent, so the
@@ -541,7 +601,7 @@ export function App({ unsafe, onExit }: AppProps) {
     const k = sessionKey(s);
     if (activeKeyRef.current === k) return;
 
-    termScrollBack.current = 0;
+    setScrollBack(0);
     if (activeKeyRef.current) {
       ptySessions.current.get(activeKeyRef.current)?.setOutputHandler(undefined);
     }
@@ -604,6 +664,7 @@ export function App({ unsafe, onExit }: AppProps) {
     if (activeKeyRef.current && activeKeyRef.current !== key) {
       ptySessions.current.get(activeKeyRef.current)?.setOutputHandler(undefined);
     }
+    setScrollBack(0);
     setActiveKey(key);
     setFocus(Focus.TERMINAL);
     pty.resize(termInner, contentHeight - 2);
@@ -812,8 +873,10 @@ export function App({ unsafe, onExit }: AppProps) {
 
   // Raw stdin input handling
   useEffect(() => {
-    const handler = (data: Buffer) => {
-      const key = data.toString('utf8');
+    /** Handle one decoded token (escape sequence, control char, or text run). */
+    const handleKey = (key: string) => {
+      // Layout snapshot — read via ref so mouse hit-testing survives resizes
+      const layout = layoutRef.current;
 
       // Mouse wheel: scroll the pane under the cursor
       const mouseMatch = MOUSE_SGR_RE.exec(key);
@@ -824,52 +887,58 @@ export function App({ unsafe, onExit }: AppProps) {
         if (button === 64 || button === 65) {
           const delta = button === 64 ? -1 : 1;
           // Determine which pane the mouse is over based on column and row
-          if (col <= sidebarWidth) {
+          if (col <= layout.sidebarWidth) {
             // Left column — determine which pane by row
-            if (row <= sessionPaneHeight) {
+            if (row <= layout.sessionPaneHeight) {
               moveSessionCursor(delta);
-            } else if (row <= sessionPaneHeight + prPaneHeight) {
+            } else if (row <= layout.sessionPaneHeight + layout.prPaneHeight) {
               movePrCursor(delta);
-            } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
+            } else if (layout.jiraPaneHeight > 0 && row <= layout.sessionPaneHeight + layout.prPaneHeight + layout.jiraPaneHeight) {
               moveJiraCursor(delta);
             } else {
               moveTaskCursor(delta);
             }
           } else {
             // Right column (terminal) — scroll through scrollback buffer
-            const pty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
-            if (pty && !pty.exited) {
-              const maxScroll = pty.terminal.buffer.active.baseY;
-              const newScroll = Math.max(0, Math.min(maxScroll, termScrollBack.current - delta * 3));
-              if (newScroll !== termScrollBack.current) {
-                termScrollBack.current = newScroll;
-                renderTermAtScroll();
-              }
-            }
+            scrollTerminal(-delta * 3);
           }
           return;
         }
         // Left click (button 0): focus the pane under cursor and select the clicked row
         if (button === 0) {
-          if (col <= sidebarWidth) {
-            // row is 1-indexed, each pane has a 1-row top border, so content starts at paneStart + 2
-            if (row <= sessionPaneHeight) {
+          if (col <= layout.sidebarWidth) {
+            // row is 1-indexed, each pane has a 1-row top border, so content
+            // starts at paneStart + 2. Clicked visual row + the pane's scroll
+            // offset = the actual row index in the full rows array.
+            if (row <= layout.sessionPaneHeight) {
               setFocus(Focus.SESSIONS);
               const visualIdx = row - 2; // skip top border
-              if (visualIdx >= 0) setSessionCursor(visualRowToCursor(topRowsRef.current, visualIdx));
-            } else if (row <= sessionPaneHeight + prPaneHeight) {
+              if (visualIdx >= 0) {
+                const offset = computeScrollOffset(topRowsRef.current, sessionCursorRef.current, layout.sessionPaneHeight - 2);
+                setSessionCursor(visualRowToCursor(topRowsRef.current, visualIdx + offset));
+              }
+            } else if (row <= layout.sessionPaneHeight + layout.prPaneHeight) {
               setFocus(Focus.PRS);
-              const visualIdx = row - sessionPaneHeight - 2;
-              if (visualIdx >= 0) setPrCursor(visualRowToCursor(prRowsRef.current, visualIdx));
-            } else if (jiraPaneHeight > 0 && row <= sessionPaneHeight + prPaneHeight + jiraPaneHeight) {
+              const visualIdx = row - layout.sessionPaneHeight - 2;
+              if (visualIdx >= 0) {
+                const offset = computeScrollOffset(prRowsRef.current, prCursorRef.current, layout.prPaneHeight - 2);
+                setPrCursor(visualRowToCursor(prRowsRef.current, visualIdx + offset));
+              }
+            } else if (layout.jiraPaneHeight > 0 && row <= layout.sessionPaneHeight + layout.prPaneHeight + layout.jiraPaneHeight) {
               setFocus(Focus.JIRA);
-              const visualIdx = row - sessionPaneHeight - prPaneHeight - 2;
-              if (visualIdx >= 0) setJiraCursor(visualRowToCursor(jiraRowsRef.current, visualIdx));
+              const visualIdx = row - layout.sessionPaneHeight - layout.prPaneHeight - 2;
+              if (visualIdx >= 0) {
+                const offset = computeScrollOffset(jiraRowsRef.current, jiraCursorRef.current, layout.jiraPaneHeight - 2);
+                setJiraCursor(visualRowToCursor(jiraRowsRef.current, visualIdx + offset));
+              }
             } else {
               setFocus(Focus.TASKS);
-              const taskStart = sessionPaneHeight + prPaneHeight + jiraPaneHeight;
+              const taskStart = layout.sessionPaneHeight + layout.prPaneHeight + layout.jiraPaneHeight;
               const visualIdx = row - taskStart - 2;
-              if (visualIdx >= 0) setTaskCursor(visualRowToCursor(taskRowsRef.current, visualIdx));
+              if (visualIdx >= 0) {
+                const offset = computeScrollOffset(taskRowsRef.current, taskCursorRef.current, layout.taskPaneHeight - 2);
+                setTaskCursor(visualRowToCursor(taskRowsRef.current, visualIdx + offset));
+              }
             }
           } else {
             const activePty = activeKeyRef.current ? ptySessions.current.get(activeKeyRef.current) : undefined;
@@ -882,19 +951,28 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
-      // Branch input mode (top pane)
+      // Help overlay: swallow everything; ?, esc or q closes
+      if (showHelpRef.current) {
+        if (key === '?' || key === KEYS.ESC || key === 'q' || key === KEYS.CTRL_C) {
+          setShowHelp(false);
+        }
+        return;
+      }
+
+      // Branch input mode (top pane) — full line editing via editLine
       if (branchInputRef.current) {
-        if (key === '\x1B' || key === '\x03') {
+        const { projectName, isGroup, value, pos } = branchInputRef.current;
+        const { state, action } = editLine({ value, pos }, key);
+        if (action === 'cancel') {
           setBranchInput(null);
           setTopPaneMode(TopPaneMode.PROJECTS);
           setMessage('Esc to go back');
           return;
         }
-        if (key === '\r') {
-          const { projectName, value, isGroup } = branchInputRef.current;
+        if (action === 'submit') {
           setBranchInput(null);
-          if (value.trim()) {
-            handleCreateWorktree(projectName, value.trim());
+          if (state.value.trim()) {
+            handleCreateWorktree(projectName, state.value.trim());
           } else if (!isGroup) {
             handleLaunchBaseRepo(projectName);
           } else {
@@ -902,12 +980,33 @@ export function App({ unsafe, onExit }: AppProps) {
           }
           return;
         }
-        if (key === '\x7F' || key === '\b') {
-          setBranchInput((prev) => prev ? { ...prev, value: prev.value.slice(0, -1) } : null);
+        setBranchInput({ projectName, isGroup, ...state });
+        return;
+      }
+
+      // Session-filter input mode (`/` in the sessions pane)
+      if (filterRef.current?.editing) {
+        // Arrows still navigate the (live-filtered) list while typing
+        if (key === KEYS.UP) { moveSessionCursor(-1); return; }
+        if (key === KEYS.DOWN) { moveSessionCursor(1); return; }
+        const current = filterRef.current.value;
+        const { state, action } = editLine({ value: current, pos: current.length }, key);
+        if (action === 'cancel') {
+          setFilter(null);
+          setSessionCursor(0);
+          setMessage('');
           return;
         }
-        if (key.charCodeAt(0) < 32) return;
-        setBranchInput((prev) => prev ? { ...prev, value: prev.value + key } : null);
+        if (action === 'submit' || key === TAB_KEY) {
+          const value = current.trim();
+          setFilter(value ? { value, editing: false } : null);
+          setMessage(value ? `Filtering: ${value} (esc clears)` : '');
+          return;
+        }
+        if (state.value !== current) {
+          setFilter({ value: state.value, editing: true });
+          setSessionCursor(0);
+        }
         return;
       }
 
@@ -942,14 +1041,32 @@ export function App({ unsafe, onExit }: AppProps) {
           setMessage('');
           return;
         }
+        // Keyboard scrollback (mirrors the mouse wheel)
+        if (key === KEYS.PAGE_UP) {
+          scrollTerminal(Math.max(1, layout.contentHeight - 3));
+          return;
+        }
+        if (key === KEYS.PAGE_DOWN) {
+          scrollTerminal(-Math.max(1, layout.contentHeight - 3));
+          return;
+        }
         // Reset scroll to bottom when typing
-        termScrollBack.current = 0;
+        if (termScrollBack.current > 0) setScrollBack(0);
         ptySessions.current.get(activeKeyRef.current!)?.write(key);
         return;
       }
 
       // --- Left pane navigation ---
       setMessage('');
+
+      // Any key other than a second `d` disarms a pending worktree removal
+      if (pendingRemoveRef.current && key !== 'd') setPendingRemoveKey(null);
+
+      // Help overlay from any left pane
+      if (key === '?') {
+        setShowHelp(true);
+        return;
+      }
 
       // Global sync (G = shift+g) from any left pane
       if (key === 'G') {
@@ -965,14 +1082,34 @@ export function App({ unsafe, onExit }: AppProps) {
             );
           }
           refreshSessions();
-          refreshPrs();
-          refreshJira();
+          await Promise.all([refreshPrs(), refreshJira()]);
           refreshTasks();
           computeConflictsAndMerged(sessionsRef.current);
           setSyncing(false);
           setMessage('All synced');
         })();
         return;
+      }
+
+      // Page jumps in the focused left pane (skip while typing a task)
+      if (taskInputRef.current === null) {
+        const pageJump = (dir: 1 | -1, full: boolean) => {
+          const heightFor =
+            focusRef.current === Focus.PRS ? layout.prPaneHeight :
+            focusRef.current === Focus.JIRA ? layout.jiraPaneHeight :
+            focusRef.current === Focus.TASKS ? layout.taskPaneHeight :
+            layout.sessionPaneHeight;
+          const page = Math.max(1, full ? heightFor - 2 : Math.floor((heightFor - 2) / 2));
+          const delta = page * dir;
+          if (focusRef.current === Focus.PRS) movePrCursor(delta);
+          else if (focusRef.current === Focus.JIRA) moveJiraCursor(delta);
+          else if (focusRef.current === Focus.TASKS) moveTaskCursor(delta);
+          else moveSessionCursor(delta);
+        };
+        if (key === KEYS.PAGE_UP) { pageJump(-1, true); return; }
+        if (key === KEYS.PAGE_DOWN) { pageJump(1, true); return; }
+        if (key === KEYS.CTRL_U) { pageJump(-1, false); return; }
+        if (key === KEYS.CTRL_D) { pageJump(1, false); return; }
       }
 
       // Project picker mode (top pane)
@@ -1016,7 +1153,7 @@ export function App({ unsafe, onExit }: AppProps) {
               handleCreateWorktree(row.name, branch);
             } else {
               setTopPaneMode(TopPaneMode.BRANCH_INPUT);
-              setBranchInput({ projectName: row.name, value: '', isGroup: row.isGroup });
+              setBranchInput({ projectName: row.name, value: '', pos: 0, isGroup: row.isGroup });
               setMessage(row.isGroup
                 ? 'Type branch name, Enter to create, Esc to cancel'
                 : 'Type branch name (empty for base repo), Enter to create, Esc to cancel');
@@ -1029,16 +1166,17 @@ export function App({ unsafe, onExit }: AppProps) {
 
       // Tasks pane focused
       if (focusRef.current === Focus.TASKS) {
-        // Task input mode
+        // Task input mode — full line editing via editLine
         if (taskInputRef.current !== null) {
-          if (key === '\x1B' || key === '\x03') {
+          const { state, action } = editLine(taskInputRef.current, key);
+          if (action === 'cancel') {
             setTaskInput(null);
             setTaskEditId(null);
             setMessage('');
             return;
           }
-          if (key === '\r') {
-            const text = taskInputRef.current.trim();
+          if (action === 'submit') {
+            const text = taskInputRef.current.value.trim();
             const editId = taskEditIdRef.current;
             setTaskInput(null);
             setTaskEditId(null);
@@ -1053,12 +1191,7 @@ export function App({ unsafe, onExit }: AppProps) {
             }
             return;
           }
-          if (key === '\x7F' || key === '\b') {
-            setTaskInput((prev) => prev !== null ? prev.slice(0, -1) : null);
-            return;
-          }
-          if (key.charCodeAt(0) < 32) return;
-          setTaskInput((prev) => prev !== null ? prev + key : null);
+          setTaskInput(state);
           return;
         }
 
@@ -1079,7 +1212,7 @@ export function App({ unsafe, onExit }: AppProps) {
 
         // Add new task
         if (key === 'a') {
-          setTaskInput('');
+          setTaskInput({ value: '', pos: 0 });
           setMessage('Type task, Enter to add, Esc to cancel');
           return;
         }
@@ -1089,7 +1222,7 @@ export function App({ unsafe, onExit }: AppProps) {
           const row = cursorToRow(taskRowsRef.current, taskCursorRef.current);
           if (row?.type === 'task') {
             setTaskEditId(row.task.id);
-            setTaskInput(row.task.text);
+            setTaskInput({ value: row.task.text, pos: row.task.text.length });
             setMessage('Edit task, Enter to save, Esc to cancel');
           }
           return;
@@ -1262,6 +1395,20 @@ export function App({ unsafe, onExit }: AppProps) {
         return;
       }
 
+      // Esc clears an active filter
+      if (key === KEYS.ESC && filterRef.current) {
+        setFilter(null);
+        setSessionCursor(0);
+        return;
+      }
+
+      // / starts (or edits) the session filter
+      if (key === '/' && topPaneModeRef.current === TopPaneMode.SESSIONS) {
+        setFilter({ value: filterRef.current?.value ?? '', editing: true });
+        setMessage('Type to filter, Enter to keep, Esc to clear');
+        return;
+      }
+
       if (key === '\x1B[A' || key === 'k') { moveSessionCursor(-1); return; }
       if (key === '\x1B[B' || key === 'j') { moveSessionCursor(1); return; }
 
@@ -1279,6 +1426,15 @@ export function App({ unsafe, onExit }: AppProps) {
 
         const s = row.session;
         const k = sessionKey(s);
+
+        // Destructive (`work remove --force`): require a second `d` to confirm
+        if (pendingRemoveRef.current !== k) {
+          setPendingRemoveKey(k);
+          setMessage(`Remove ${s.target}/${s.branch}? Press d again to confirm, any other key cancels`);
+          return;
+        }
+        setPendingRemoveKey(null);
+
         const pty = ptySessions.current.get(k);
         if (pty) {
           notifiedSessionsRef.current.delete(ptyDedupKey(pty));
@@ -1334,14 +1490,21 @@ export function App({ unsafe, onExit }: AppProps) {
         const s = row.session;
         const existing = s.paths.find((p) => fs.existsSync(p));
         if (!existing) { setMessage('Session path no longer exists'); return; }
+        if (rebasingRef.current) { setMessage('A rebase is already running'); return; }
+        rebasingRef.current = true;
         setMessage(`Rebasing ${s.branch}...`);
-        const err = rebaseOntoMain(s.branch, existing);
-        if (err) {
-          setMessage(`Rebase failed: ${err}`);
-        } else {
-          setMessage(`Rebased ${s.branch} onto main`);
-          computeConflictsAndMerged(sessionsRef.current);
-        }
+        // Async — includes a network fetch; the sync version froze the UI
+        void rebaseOntoMainAsync(s.branch, existing)
+          .then((err) => {
+            if (err) {
+              setMessage(`Rebase failed: ${err}`);
+            } else {
+              setMessage(`Rebased ${s.branch} onto main`);
+              computeConflictsAndMerged(sessionsRef.current);
+            }
+          })
+          .catch((e: unknown) => setMessage(`Rebase failed: ${(e as Error).message}`))
+          .finally(() => { rebasingRef.current = false; });
         return;
       }
 
@@ -1358,7 +1521,7 @@ export function App({ unsafe, onExit }: AppProps) {
             );
           }
           refreshSessions();
-          refreshPrs();
+          await refreshPrs();
           computeConflictsAndMerged(sessionsRef.current);
           setSyncing(false);
           setMessage('Sessions synced');
@@ -1368,17 +1531,25 @@ export function App({ unsafe, onExit }: AppProps) {
 
       if (key === 'r') {
         refreshSessions();
-        refreshPrs();
-        refreshJira();
+        void refreshPrs();
+        void refreshJira();
         refreshTasks();
         if (!ghAvailable) setMessage('Refreshed');
         return;
       }
     };
 
+    const handler = (data: Buffer) => {
+      // Tokenize the chunk so batched input (held-down keys, fast mouse
+      // wheel, pasted text) is handled event-by-event instead of dropped.
+      for (const key of splitInputChunks(data.toString('utf8'))) {
+        handleKey(key);
+      }
+    };
+
     process.stdin.on('data', handler);
     return () => { process.stdin.removeListener('data', handler); };
-  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, refreshTasks, moveSessionCursor, movePrCursor, moveJiraCursor, moveTaskCursor, syncSessionCursorToActive, handleCreateWorktree, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [onExit, activateSession, refreshSessions, refreshPrs, refreshJira, refreshTasks, moveSessionCursor, movePrCursor, moveJiraCursor, moveTaskCursor, syncSessionCursorToActive, handleCreateWorktree, handleLaunchBaseRepo, savedSessionCursor, config, computeConflictsAndMerged, syncing, ghAvailable, prMap, scrollTerminal, setScrollBack]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resize handling
   useEffect(() => {
@@ -1392,6 +1563,11 @@ export function App({ unsafe, onExit }: AppProps) {
           const newTermInner = newCols - Math.min(60, Math.floor(newCols * 0.525)) - 2;
           const newContentHeight = newRows - 3;
           pty.resize(newTermInner, newContentHeight);
+          // Re-render immediately — otherwise the pane shows stale-width
+          // lines until the PTY happens to produce output.
+          try {
+            setTermLines(renderBufferLines(pty.terminal.buffer.active, newTermInner, newContentHeight, termScrollBack.current));
+          } catch { /* buffer not ready */ }
         }
       }
     };
@@ -1412,64 +1588,68 @@ export function App({ unsafe, onExit }: AppProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const statusMap = buildStatusMap();
-
   const placeholder = !activeKey
     ? 'Select a session and press Enter'
     : 'Press Enter to start session';
 
   return (
     <Box flexDirection="column" width={cols} height={rows}>
-      <Box flexDirection="row" height={contentHeight}>
-        <Box flexDirection="column" width={sidebarWidth}>
-          <Sidebar
-            sidebarRows={topRows}
-            cursor={sessionCursor}
-            focused={focus === Focus.SESSIONS}
-            statusMap={statusMap}
-            conflictCounts={conflictCounts}
-            mergedSet={mergedSet}
-            prMap={prMap}
-            activeKey={activeKey}
-            width={sidebarWidth}
-            height={sessionPaneHeight}
-            branchInput={branchInput}
-          />
-          <PrPane
-            prRows={prRows}
-            cursor={prCursor}
-            focused={focus === Focus.PRS}
-            localBranches={localBranches}
-            width={sidebarWidth}
-            height={prPaneHeight}
-          />
-          {jiraPaneHeight > 0 && (
-            <JiraPane
-              jiraRows={jiraRows}
-              cursor={jiraCursor}
-              focused={focus === Focus.JIRA}
+      {showHelp ? (
+        <HelpOverlay width={cols} height={contentHeight} />
+      ) : (
+        <Box flexDirection="row" height={contentHeight}>
+          <Box flexDirection="column" width={sidebarWidth}>
+            <Sidebar
+              sidebarRows={topRows}
+              cursor={sessionCursor}
+              focused={focus === Focus.SESSIONS}
+              statusMap={statusMap}
+              conflictCounts={conflictCounts}
+              mergedSet={mergedSet}
+              prMap={prMap}
+              activeKey={activeKey}
               width={sidebarWidth}
-              height={jiraPaneHeight}
+              height={sessionPaneHeight}
+              branchInput={branchInput}
+              filter={filter}
             />
-          )}
-          <TaskPane
-            taskRows={taskRows}
-            cursor={taskCursor}
-            focused={focus === Focus.TASKS}
-            width={sidebarWidth}
-            height={taskPaneHeight}
-            taskInput={taskInput}
+            <PrPane
+              prRows={prRows}
+              cursor={prCursor}
+              focused={focus === Focus.PRS}
+              localBranches={localBranches}
+              width={sidebarWidth}
+              height={prPaneHeight}
+            />
+            {jiraPaneHeight > 0 && (
+              <JiraPane
+                jiraRows={jiraRows}
+                cursor={jiraCursor}
+                focused={focus === Focus.JIRA}
+                width={sidebarWidth}
+                height={jiraPaneHeight}
+              />
+            )}
+            <TaskPane
+              taskRows={taskRows}
+              cursor={taskCursor}
+              focused={focus === Focus.TASKS}
+              width={sidebarWidth}
+              height={taskPaneHeight}
+              taskInput={taskInput}
+            />
+          </Box>
+          <TerminalPane
+            lines={termLines}
+            width={termWidth}
+            height={contentHeight}
+            focused={focus === Focus.TERMINAL}
+            placeholder={placeholder}
+            title="Terminal"
+            scrollback={termScroll}
           />
         </Box>
-        <TerminalPane
-          lines={termLines}
-          width={termWidth}
-          height={contentHeight}
-          focused={focus === Focus.TERMINAL}
-          placeholder={placeholder}
-          title="Terminal"
-        />
-      </Box>
+      )}
       <StatusBar message={message} pane={focus === Focus.TERMINAL ? 'terminal' : focus === Focus.PRS ? 'prs' : focus === Focus.JIRA ? 'jira' : focus === Focus.TASKS ? 'tasks' : 'sessions'} syncing={syncing} />
     </Box>
   );

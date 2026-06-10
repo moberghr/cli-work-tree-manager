@@ -26,7 +26,9 @@ export async function startDashboard(unsafe: boolean): Promise<void> {
   process.stdin.resume();
 
   const restore = () => {
-    process.stdout.write('\x1B]0;\x07\x1B[?25h\x1B[?1049l');
+    // Reset title, disable mouse tracking (App enables it but its React
+    // cleanup doesn't run on signal/crash exits), show cursor, leave alt screen.
+    process.stdout.write('\x1B]0;\x07\x1B[?1000l\x1B[?1006l\x1B[?25h\x1B[?1049l');
   };
 
   try {

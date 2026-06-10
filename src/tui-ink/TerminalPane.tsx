@@ -8,9 +8,11 @@ export interface TerminalPaneProps {
   focused: boolean;
   placeholder?: string;
   title?: string;
+  /** Lines scrolled back from the live bottom. >0 pauses live updates. */
+  scrollback?: number;
 }
 
-export function TerminalPane({ lines, width, height, focused, placeholder, title }: TerminalPaneProps) {
+export const TerminalPane = React.memo(function TerminalPane({ lines, width, height, focused, placeholder, title, scrollback }: TerminalPaneProps) {
   const borderColor = focused ? 'cyan' : 'gray';
   const innerWidth = width - 2;
   const contentHeight = height - 2;
@@ -42,9 +44,19 @@ export function TerminalPane({ lines, width, height, focused, placeholder, title
     }
   }
 
+  // When scrolled back, surface it in the title so a paused pane doesn't
+  // look like a hung session.
+  const scrolledTitle =
+    scrollback && scrollback > 0
+      ? `${title ?? 'Terminal'} ─ ↑${scrollback} paused (pgdn/type to resume)`
+      : title;
+  const topBorder = scrolledTitle
+    ? '┌─ ' + scrolledTitle + ' ' + '─'.repeat(Math.max(0, innerWidth - scrolledTitle.length - 3)) + '┐'
+    : '┌' + '─'.repeat(innerWidth) + '┐';
+
   return (
     <Box flexDirection="column" width={width}>
-      <Text color={borderColor}>{title ? '┌─ ' + title + ' ' + '─'.repeat(Math.max(0, innerWidth - title.length - 3)) + '┐' : '┌' + '─'.repeat(innerWidth) + '┐'}</Text>
+      <Text color={scrollback && scrollback > 0 ? 'yellow' : borderColor}>{topBorder}</Text>
       {content.map((row, i) => (
         <Box key={i}>
           <Text color={borderColor}>{'│'}</Text>
@@ -55,4 +67,4 @@ export function TerminalPane({ lines, width, height, focused, placeholder, title
       <Text color={borderColor}>{'└' + '─'.repeat(innerWidth) + '┘'}</Text>
     </Box>
   );
-}
+});
