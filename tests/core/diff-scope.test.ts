@@ -23,10 +23,10 @@ beforeEach(() => {
   // Make a real git repo so the rev-parse fallback path can run.
   repoDir = path.join(tmpDir, 'extern-repo');
   fs.mkdirSync(repoDir);
-  // Force the initial branch to `master` so the tests that create `main`
-  // (`git branch main`) don't collide on machines whose git defaults
-  // `init.defaultBranch` to `main`.
-  execSync('git init -q -b master', { cwd: repoDir });
+  // Force the initial branch to `main` so the suite is deterministic
+  // regardless of the machine's `init.defaultBranch`. Tests that need `main`
+  // therefore rely on it existing from init — they must NOT re-create it.
+  execSync('git init -q -b main', { cwd: repoDir });
   execSync('git config user.email t@t.t', { cwd: repoDir });
   execSync('git config user.name t', { cwd: repoDir });
   fs.writeFileSync(path.join(repoDir, 'a.txt'), 'x');
@@ -171,8 +171,7 @@ describe('resolveRepoDiff (branch parent selection)', () => {
     // main@init → feat adds a commit (ahead of main). `dev` is then created
     // pointing AT feat's HEAD, so dev's merge-base with HEAD IS HEAD (0 ahead).
     // "Since branch" must resolve to `main` (real divergence), not `dev`
-    // (which would yield a useless empty diff).
-    execSync('git branch main', { cwd: repoDir });
+    // (which would yield a useless empty diff). `main` already exists from init.
     execSync('git checkout -q -b feat', { cwd: repoDir });
     fs.writeFileSync(path.join(repoDir, 'b.txt'), 'y');
     execSync('git add . && git commit -q -m feat-work', { cwd: repoDir });
@@ -185,7 +184,7 @@ describe('resolveRepoDiff (branch parent selection)', () => {
   });
 
   it('honours an explicit session base branch over detection', () => {
-    execSync('git branch main', { cwd: repoDir });
+    // `main` already exists from init.
     expect(resolveRepoDiff(repoDir, 'branch', 'main').resolvedBase).toBe('main');
   });
 
