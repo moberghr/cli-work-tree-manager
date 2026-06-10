@@ -4,8 +4,26 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolveWorkBinPath } from '../../src/commands/diff.js';
 
+/** Windows refuses symlink creation without elevation / Developer Mode
+ *  (EPERM). Probe once so the symlink-specific case skips cleanly there
+ *  instead of failing, while still running on CI and Unix. */
+function symlinkSupported(): boolean {
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'work-symprobe-'));
+  try {
+    const target = path.join(probe, 'target');
+    fs.writeFileSync(target, '');
+    fs.symlinkSync(target, path.join(probe, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true });
+  }
+}
+const CAN_SYMLINK = symlinkSupported();
+
 describe('resolveWorkBinPath', () => {
-  it('resolves a bin symlink (global install) before the swap', () => {
+  it.skipIf(!CAN_SYMLINK)('resolves a bin symlink (global install) before the swap', () => {
     // The real bug: a global npm install exposes `wd` as a symlink
     // (~/.../bin/wd -> dist/wd-bin.js). argv[1] is the symlink, which
     // doesn't end in `wd-bin.js`, so the swap was skipped and autostart

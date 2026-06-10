@@ -23,7 +23,10 @@ beforeEach(() => {
   // Make a real git repo so the rev-parse fallback path can run.
   repoDir = path.join(tmpDir, 'extern-repo');
   fs.mkdirSync(repoDir);
-  execSync('git init -q', { cwd: repoDir });
+  // Force the initial branch to `master` so the tests that create `main`
+  // (`git branch main`) don't collide on machines whose git defaults
+  // `init.defaultBranch` to `main`.
+  execSync('git init -q -b master', { cwd: repoDir });
   execSync('git config user.email t@t.t', { cwd: repoDir });
   execSync('git config user.name t', { cwd: repoDir });
   fs.writeFileSync(path.join(repoDir, 'a.txt'), 'x');

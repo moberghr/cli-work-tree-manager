@@ -24,14 +24,20 @@ function normPath(p: string): string {
 }
 
 /**
- * Like {@link normPath} but resolves symlinks. `git rev-parse --show-toplevel`
- * returns the realpath (e.g. macOS `/var` → `/private/var`), so comparing it
- * to a stored session path must go through realpath on both sides. Falls back
- * to {@link normPath} for paths that don't exist (e.g. unit-test fixtures).
+ * Like {@link normPath} but resolves to the OS-canonical real path.
+ * `git rev-parse --show-toplevel` returns the realpath (e.g. macOS `/var` →
+ * `/private/var`, and on Windows the long-form name), so comparing it to a
+ * stored session path must canonicalize both sides the same way.
+ *
+ * Uses `realpathSync.native`: the plain `realpathSync` does NOT expand Windows
+ * 8.3 short names (`DOMAGO~1` → `DomagojMedo`), so a session path under a
+ * short-name parent would never match git's long-form toplevel. `.native`
+ * resolves both 8.3 and symlinks. Falls back to {@link normPath} for paths
+ * that don't exist (e.g. unit-test fixtures).
  */
 function realNorm(p: string): string {
   try {
-    return normPath(fs.realpathSync(p));
+    return normPath(fs.realpathSync.native(p));
   } catch {
     return normPath(p);
   }
