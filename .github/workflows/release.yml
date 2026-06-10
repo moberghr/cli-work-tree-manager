@@ -1,0 +1,87 @@
+# Publishes the package to npm and bumps the Homebrew tap formula whenever a
+# GitHub Release is published.
+#
+# npm auth uses Trusted Publishing (OIDC) — no NPM_TOKEN secret. One-time setup
+# on npmjs.com: package @moberg_hr/work-tree -> Settings -> Trusted Publisher ->
+# GitHub Actions, org/user "moberghr", repo "cli-work-tree-manager", workflow
+# "release.yml". Requires npm CLI >= 11.5.1 (upgraded below; Node 20 ships 10.x).
+#
+# Required repository secrets:
+#   HOMEBREW_TAP_TOKEN - PAT (contents:write) on moberghr/homebrew-work-tree
+#
+# Release flow: bump package.json version + merge to main, then create a GitHub
+# Release whose tag matches that version (e.g. v1.5.2). This workflow verifies
+# the tag matches package.json, publishes the exact packed tarball to npm, then
+# points the tap's Formula/work.rb at the new url + sha256.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token npm exchanges for publish credentials
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; Node 20 bundles npm 10.x.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Verify release tag matches package.json version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Release tag '$TAG' does not match package.json version '$PKG_VERSION'"
+            exit 1
+          fi
+          echo "VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
+
+      - name: Pack tarball and compute sha256
+        run: |
+          TARBALL="$(npm pack --silent)"
+          SHA256="$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "Packed $TARBALL  sha256=$SHA256"
+
+      - name: Publish to npm (trusted publishing / OIDC)
+        run: npm publish "$TARBALL" --access public
+
+      - name: Update Homebrew tap formula
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/moberghr/homebrew-work-tree.git" tap
+          FORMULA="tap/Formula/work.rb"
+          URL="https://registry.npmjs.org/@moberg_hr/work-tree/-/work-tree-${VERSION}.tgz"
+          sed -i -E "s#^( *url )\".*\"#\1\"${URL}\"#" "$FORMULA"
+          sed -i -E "s#^( *sha256 )\".*\"#\1\"${SHA256}\"#" "$FORMULA"
+
+          cd tap
+          if git diff --quiet; then
+            echo "Formula already up to date for ${VERSION} — nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/work.rb
+          git commit -m "work ${VERSION}"
+          git push
