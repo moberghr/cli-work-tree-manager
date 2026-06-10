@@ -1,8 +1,12 @@
 # Publishes the package to npm and bumps the Homebrew tap formula whenever a
 # GitHub Release is published.
 #
+# npm auth uses Trusted Publishing (OIDC) — no NPM_TOKEN secret. One-time setup
+# on npmjs.com: package @moberg_hr/work-tree -> Settings -> Trusted Publisher ->
+# GitHub Actions, org/user "moberghr", repo "cli-work-tree-manager", workflow
+# "release.yml". Requires npm CLI >= 11.5.1 (upgraded below; Node 20 ships 10.x).
+#
 # Required repository secrets:
-#   NPM_TOKEN          - npm automation token with publish rights on @moberg_hr
 #   HOMEBREW_TAP_TOKEN - PAT (contents:write) on moberghr/homebrew-work-tree
 #
 # Release flow: bump package.json version + merge to main, then create a GitHub
@@ -18,6 +22,10 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mint the OIDC token npm exchanges for publish credentials
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +34,9 @@ jobs:
           node-version: 20
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; Node 20 bundles npm 10.x.
+      - run: npm install -g npm@latest
 
       - run: npm ci
       - run: npm run typecheck
@@ -51,10 +62,8 @@ jobs:
           echo "SHA256=$SHA256" >> "$GITHUB_ENV"
           echo "Packed $TARBALL  sha256=$SHA256"
 
-      - name: Publish to npm
+      - name: Publish to npm (trusted publishing / OIDC)
         run: npm publish "$TARBALL" --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Update Homebrew tap formula
         env:
