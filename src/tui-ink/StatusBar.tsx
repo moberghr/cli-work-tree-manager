@@ -8,14 +8,14 @@ export interface StatusBarProps {
 }
 
 const PANE_HINTS: Record<StatusBarProps['pane'], string> = {
-  sessions: ' tab pane  j/k nav  enter start  n new  d remove  . editor  u rebase  g sync  G sync all  q quit ',
-  tasks: ' tab pane  j/k nav  enter toggle  a add  e edit  w worktree  d remove  g sync  G sync all  q quit ',
-  prs: ' tab pane  j/k nav  enter checkout  g sync  G sync all  q quit ',
-  jira: ' tab pane  j/k nav  enter worktree  o open  g sync  G sync all  q quit ',
-  terminal: ' tab pane  ctrl+] detach ',
+  sessions: ' tab pane  j/k nav  / filter  enter start  n new  d remove  u rebase  g sync  ? help  q quit ',
+  tasks: ' tab pane  j/k nav  enter toggle  a add  e edit  w worktree  d remove  ? help  q quit ',
+  prs: ' tab pane  j/k nav  enter checkout  o open  g sync  ? help  q quit ',
+  jira: ' tab pane  j/k nav  enter worktree  o open  g sync  ? help  q quit ',
+  terminal: ' tab pane  ctrl+] detach  pgup/pgdn scroll ',
 };
 
-export function StatusBar({ message, pane, syncing }: StatusBarProps) {
+export const StatusBar = React.memo(function StatusBar({ message, pane, syncing }: StatusBarProps) {
   if (message) {
     return (
       <Box>
@@ -36,6 +36,8 @@ export function StatusBar({ message, pane, syncing }: StatusBarProps) {
           <Text dimColor>{' working  '}</Text>
           <Text color="yellow">◆</Text>
           <Text dimColor>{' needs input  '}</Text>
+          <Text color="cyan">◇</Text>
+          <Text dimColor>{' done  '}</Text>
           <Text dimColor>{'○ stopped]'}</Text>
         </>
       )}
@@ -43,4 +45,4 @@ export function StatusBar({ message, pane, syncing }: StatusBarProps) {
       {syncing && <Text color="cyan"> syncing</Text>}
     </Box>
   );
-}
+});

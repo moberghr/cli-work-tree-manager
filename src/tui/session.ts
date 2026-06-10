@@ -5,7 +5,15 @@ import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
 
 const { Terminal } = xtermHeadless;
 
-export type SessionStatus = 'stopped' | 'running' | 'idle';
+/**
+ * Session display status. 'idle' = finished its turn (Stop hook);
+ * 'attention' = explicitly waiting on user input (Notification hook);
+ * 'running' = actively working; 'stopped' = no live PTY.
+ */
+export type SessionStatus = 'stopped' | 'running' | 'idle' | 'attention';
+
+/** Live (non-stopped) status of a PTY-backed session. */
+export type PtyStatus = 'running' | 'idle' | 'attention';
 
 export interface PtyAiOptions {
   /** Resolved AI tool spec (from `getAiTool(config)`). */
@@ -23,7 +31,7 @@ export class PtySession {
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
-  private _idle = true;
+  private _status: PtyStatus = 'idle';
   private _outputBuffer = '';
   private _loggedOutput = false;
   onExit?: (code: number) => void;
@@ -112,14 +120,20 @@ export class PtySession {
     return this._exited;
   }
 
+  /** True when the session is not actively working (idle or needs input). */
   get idle() {
-    return this._idle;
+    return this._status !== 'running';
   }
 
-  /** Called by the dashboard when a hook event indicates idle state change. */
-  setIdle(idle: boolean) {
-    if (this._exited || this._idle === idle) return;
-    this._idle = idle;
+  /** Live status: 'running', 'idle' (turn finished) or 'attention' (needs input). */
+  get status(): PtyStatus {
+    return this._status;
+  }
+
+  /** Called by the dashboard when a hook event indicates a state change. */
+  setStatus(status: PtyStatus) {
+    if (this._exited || this._status === status) return;
+    this._status = status;
     this.onStatusChange?.();
   }
 
