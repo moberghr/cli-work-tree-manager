@@ -1,11 +1,10 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
-import { effectiveLastAccessedAt } from '../core/claude-activity.js';
+import { effectiveLastAccessedAt, resolveResumeLaunch } from '../core/claude-activity.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
@@ -80,15 +79,24 @@ export const recentCommand: CommandModule = {
         return;
       }
 
-      // For groups, launch in the parent directory (group root), not a single repo subfolder
-      const launchPath = choice.isGroup ? path.dirname(firstExisting) : firstExisting;
+      // Resume where Claude actually has a transcript (group root or the
+      // sub-repo the user worked in); start fresh when none exists so
+      // `--continue` doesn't error out. Mirrors `work resume`.
+      const { launchPath, hasConversation } = resolveResumeLaunch(choice);
 
       await upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
       const tool = getAiTool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));
+      if (!hasConversation) {
+        console.log(
+          chalk.yellow(
+            `No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`,
+          ),
+        );
+      }
       console.log(`Starting ${tool.cmd}...`);
-      launchAi(launchPath, tool, { unsafe, resume: true }, choice.port);
+      launchAi(launchPath, tool, { unsafe, resume: hasConversation }, choice.port);
       return;
     }
 

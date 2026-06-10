@@ -49,6 +49,15 @@ function makeSession(overrides: Partial<WorktreeSession> = {}): WorktreeSession 
   };
 }
 
+/** Write a fake Claude transcript for a cwd under the mocked ~/.claude/projects
+ *  so resolveResumeLaunch sees a resumable conversation (resume: true). */
+function seedTranscript(cwd: string): void {
+  const slug = path.resolve(cwd).replace(/[^A-Za-z0-9]/g, '-');
+  const dir = path.join(tmpDir, '.claude', 'projects', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'session.jsonl'), '{}\n');
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-test-'));
   worktreePath = path.join(tmpDir, 'fake-worktree');
@@ -71,6 +80,7 @@ describe('resume updates lastAccessedAt', () => {
     seedConfig();
     const session = makeSession();
     seedHistory([session]);
+    seedTranscript(worktreePath); // existing conversation → resume: true
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
@@ -94,6 +104,7 @@ describe('resume updates lastAccessedAt', () => {
     seedConfig();
     const session = makeSession({ port: 3042 });
     seedHistory([session]);
+    seedTranscript(worktreePath);
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
@@ -104,6 +115,24 @@ describe('resume updates lastAccessedAt', () => {
       expect.objectContaining({ cmd: 'claude' }),
       { unsafe: false, resume: true },
       3042,
+    );
+  });
+
+  it('starts a fresh session (resume: false) when no transcript exists', async () => {
+    seedConfig();
+    const session = makeSession();
+    seedHistory([session]);
+    // No seedTranscript — Claude was never used in this worktree.
+
+    vi.mocked(select).mockResolvedValueOnce(session);
+
+    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+
+    expect(launchAi).toHaveBeenCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false, resume: false },
+      undefined,
     );
   });
 
@@ -126,6 +155,7 @@ describe('recent --resume updates lastAccessedAt', () => {
     seedConfig();
     const session = makeSession();
     seedHistory([session]);
+    seedTranscript(worktreePath);
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
