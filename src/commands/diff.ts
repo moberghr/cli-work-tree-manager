@@ -129,6 +129,34 @@ function readWebUrl(): string | null {
 }
 
 /**
+ * Best-effort liveness probe for a recorded `work web` URL. The `web.url`
+ * file outlives the process that wrote it (crash, kill -9, reboot), so a
+ * non-empty file is NOT proof a server is listening. Hit `api/context`
+ * (same endpoint `work web`'s own singleton check uses) with a short
+ * timeout: a 2xx means a real server is serving there; anything else
+ * (connection refused, abort, non-ok) means the URL is stale.
+ *
+ * Exported for testing.
+ */
+export async function webServerResponds(
+  url: string,
+  timeoutMs = 1500,
+): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${url}api/context`, { signal: ctrl.signal });
+      return res.ok;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Spawn a detached, lean `work web` instance and wait for its url file
  * to appear. Used when `wd` runs with no existing work web — instead of
  * starting a per-scope standalone daemon, we boot a single shared
@@ -142,7 +170,16 @@ function readWebUrl(): string | null {
  */
 async function ensureWorkWebRunning(): Promise<string | null> {
   const existing = readWebUrl();
-  if (existing) return existing;
+  // A non-empty url file is not proof of a live server — it survives
+  // crashes and kill -9. Probe before trusting it. If it's stale, fall
+  // through to spawn a fresh server. We also delete the stale file first:
+  // otherwise `waitForUrlFile` below would read the leftover dead URL and
+  // return it immediately, never waiting for the new server's URL, and the
+  // subsequent scope POST would fail with connection-refused.
+  if (existing) {
+    if (await webServerResponds(existing)) return existing;
+    try { fs.unlinkSync(webUrlFilePath()); } catch { /* already gone */ }
+  }
 
   // Spawn `node <work-bin> web --lean --no-open` detached. We're
   // running as either `dist/bin.js` (the `work` binary) or

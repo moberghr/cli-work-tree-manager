@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveWorkBinPath } from '../../src/commands/diff.js';
+import { resolveWorkBinPath, webServerResponds } from '../../src/commands/diff.js';
 
 /** Windows refuses symlink creation without elevation / Developer Mode
  *  (EPERM). Probe once so the symlink-specific case skips cleanly there
@@ -93,5 +93,49 @@ describe('resolveWorkBinPath', () => {
         'bin.js',
       ),
     );
+  });
+});
+
+describe('webServerResponds', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns true when the server answers 2xx at api/context', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await webServerResponds('http://127.0.0.1:1234/')).toBe(true);
+    // Probes the same endpoint work web's own singleton check uses.
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:1234/api/context',
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+  });
+
+  it('returns false on a non-ok response (stale process holding the port)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false }) as Response));
+    expect(await webServerResponds('http://127.0.0.1:1234/')).toBe(false);
+  });
+
+  it('returns false when the connection is refused (dead url file)', async () => {
+    // The real bug: web.url survives a crashed server. fetch rejects with
+    // ECONNREFUSED; we must report the URL as not-live so autostart fires.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED');
+    }));
+    expect(await webServerResponds('http://127.0.0.1:59289/')).toBe(false);
+  });
+
+  it('returns false (does not hang) when the server never responds', async () => {
+    // fetch that respects the abort signal — simulates a hung port.
+    vi.stubGlobal('fetch', vi.fn((_url: string, opts: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        opts.signal.addEventListener('abort', () =>
+          reject(new Error('aborted')),
+        );
+      }),
+    ));
+    expect(await webServerResponds('http://127.0.0.1:1234/', 50)).toBe(false);
   });
 });
