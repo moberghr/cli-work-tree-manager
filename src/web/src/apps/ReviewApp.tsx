@@ -58,6 +58,25 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   const readOnly = !!context.readOnly;
+  // Flips true when this scope's review ends (End Review here or in
+  // another tab). Used to close this tab's SSE streams: an ended review
+  // doesn't need live updates, and idle tabs that keep their EventSources
+  // open pin browser connection slots — a few stale review tabs could
+  // starve the per-host pool and hang every later fetch.
+  const [reviewEnded, setReviewEnded] = useState(false);
+  // Stable api identity (a fresh object per render would re-trigger the
+  // provider's refetch effect on every render). When the review has
+  // ended, hand the provider a variant with no SSE path so it
+  // disconnects its stream.
+  const reviewApi = useMemo(
+    () => (scopeHash ? scopeHashReviewApi(scopeHash) : undefined),
+    [scopeHash],
+  );
+  const effectiveReviewApi = useMemo(
+    () =>
+      reviewApi && reviewEnded ? { ...reviewApi, ssePath: '' } : reviewApi,
+    [reviewApi, reviewEnded],
+  );
   // Per-view diff scope. Honors the server/CLI default; the user can
   // toggle in-browser. Tab visibility is gated by whether the branch
   // scope is actually available (CLI couldn't detect a parent → no
@@ -160,16 +179,21 @@ export function ReviewApp({ context, scopeHash }: Props) {
   }, [headBranch, context.scopeLabel, diffBase, resolvedBase, rangeActive, range]);
 
   // In scope-mounted mode, listen to the scope-narrowed SSE stream — it
-  // only fires for THIS scope's file changes. Standalone mode uses the
-  // global /events stream (its diff server only handles one scope).
+  // fires for THIS scope's file/checkpoint/review events. Standalone mode
+  // uses the global /events stream (its diff server only handles one
+  // scope). Once the review ends, disconnect (`null` URL) — see
+  // `reviewEnded` above.
   useSse(
-    scopeHash
-      ? `/api/scopes/${encodeURIComponent(scopeHash)}/events`
-      : '/events',
+    reviewEnded
+      ? null
+      : scopeHash
+        ? `/api/scopes/${encodeURIComponent(scopeHash)}/events`
+        : '/events',
     {
       events: {
         'diff-changed': () => setReloadKey((n) => n + 1),
         'checkpoints-changed': () => refreshCheckpoints(),
+        'review-done': () => setReviewEnded(true),
       },
     },
   );
@@ -617,8 +641,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
 
   if (readOnly) return withExpand(layout);
   // For scope-mounted review (`/review/<hash>`), point the provider at
-  // the scope's comment endpoints. Standalone `wd -c` uses the default
-  // scopeReviewApi which targets the bare `/api/comments`.
-  const reviewApi = scopeHash ? scopeHashReviewApi(scopeHash) : undefined;
-  return withExpand(<ReviewProvider api={reviewApi}>{layout}</ReviewProvider>);
+  // the scope's comment endpoints (memoized above). Standalone `wd -c`
+  // uses the default scopeReviewApi which targets the bare `/api/comments`.
+  return withExpand(
+    <ReviewProvider api={effectiveReviewApi}>{layout}</ReviewProvider>,
+  );
 }

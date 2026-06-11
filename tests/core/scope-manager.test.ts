@@ -150,3 +150,27 @@ describe('suppressScopeWatch — reload-loop guard', () => {
     }
   });
 });
+
+describe('reviveScope', () => {
+  it('clears the ended flag so a re-registered scope is a fresh review', async () => {
+    const { registerScope, markScopeEnded, reviveScope, getScope, disposeAllScopes } =
+      await import('../../src/core/scope-manager.js');
+    const repoPath = path.join(tmpHome, 'repos', 'myrepo');
+    fs.mkdirSync(repoPath, { recursive: true });
+    try {
+      const scope = registerScope([repoPath], 'revive');
+      expect(markScopeEnded(scope.hash)).toBe(true);
+      expect(getScope(scope.hash)?.ended).toBe(true);
+
+      expect(reviveScope(scope.hash)).toBe(true);
+      expect(getScope(scope.hash)?.ended).toBe(false);
+
+      // Idempotent: an already-live scope reports false
+      expect(reviveScope(scope.hash)).toBe(false);
+      // Unknown hash reports false
+      expect(reviveScope('nope')).toBe(false);
+    } finally {
+      disposeAllScopes();
+    }
+  });
+});

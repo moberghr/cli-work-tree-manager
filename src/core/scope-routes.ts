@@ -24,6 +24,7 @@ import {
   markScopeEnded,
   registerScope,
   removeScope,
+  reviveScope,
   ScopePathRejectedError,
   scopesForCwd,
   subscribeScope,
@@ -118,6 +119,17 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   const scopeBus = new EventEmitter();
   scopeBus.setMaxListeners(0);
 
+  /** Broadcast a comment event on BOTH streams: the server-level /events
+   *  stream and the scope-narrowed /api/scopes/:hash/events stream (via
+   *  scopeBus). The review SPA listens on the scope stream so each tab
+   *  holds a single SSE connection instead of one per concern. */
+  function emitCommentsChanged(
+    payload: { scopeHash: string } & Record<string, unknown>,
+  ): void {
+    opts.broadcast('comments-changed', payload);
+    scopeBus.emit('comments-changed', payload);
+  }
+
   /** Build the repo list for `takeCheckpoint`. The `name` field is the
    *  manifest key — must be unique within a scope, otherwise two repos
    *  with the same basename in a group worktree would overwrite each
@@ -141,6 +153,19 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       const { paths, label } = c.req.valid('json');
       try {
         const scope = registerScope(paths, label);
+
+        // Re-registering an ENDED scope means a new `wd -c` run on the same
+        // paths. Reset the flag and clear the previous run's comments —
+        // otherwise the CLI proxy replays the old comments as new and sees
+        // `ended: true` on its first poll, emitting `--- review done ---`
+        // immediately.
+        if (reviveScope(scope.hash)) {
+          const cleared = commentStore(scope.hash).clearAll();
+          if (cleared > 0) {
+            emitCommentsChanged({ scopeHash: scope.hash });
+          }
+        }
+
         opts.broadcast('scopes-changed', { hash: scope.hash });
 
         const announceCheckpoint = (entry: CheckpointEntry) => {
@@ -512,7 +537,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       const store = commentStore(scope.hash);
       try {
         const comment = store.post(c.req.valid('json'));
-        opts.broadcast('comments-changed', {
+        emitCommentsChanged({
           scopeHash: scope.hash,
           id: comment.id,
         });
@@ -529,7 +554,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     const store = commentStore(scope.hash);
     const removed = store.remove(c.req.param('cid'));
     if (removed) {
-      opts.broadcast('comments-changed', {
+      emitCommentsChanged({
         scopeHash: scope.hash,
         deleted: c.req.param('cid'),
       });
@@ -549,7 +574,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
         c.req.valid('json').resolved,
       );
       if (updated) {
-        opts.broadcast('comments-changed', {
+        emitCommentsChanged({
           scopeHash: scope.hash,
           id: updated.id,
         });
@@ -566,7 +591,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       if (!scope) return c.json({ error: 'unknown scope' }, 404);
       const store = commentStore(scope.hash);
       const result = store.submit(c.req.valid('json').summary);
-      opts.broadcast('comments-changed', {
+      emitCommentsChanged({
         scopeHash: scope.hash,
         submittedCount: result.drafts.length,
       });
@@ -583,7 +608,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     const store = commentStore(scope.hash);
     const discarded = store.discardDrafts();
     if (discarded > 0) {
-      opts.broadcast('comments-changed', { scopeHash: scope.hash });
+      emitCommentsChanged({ scopeHash: scope.hash });
     }
     return c.json({ discarded, comments: store.snapshot() });
   });
@@ -598,7 +623,9 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     const store = commentStore(scope.hash);
     const count = store.list().length;
     markScopeEnded(scope.hash);
-    opts.broadcast('review-done', { scopeHash: scope.hash, count });
+    const payload = { scopeHash: scope.hash, count };
+    opts.broadcast('review-done', payload);
+    scopeBus.emit('review-done', payload);
     return c.json({ ok: true, count });
   });
 
@@ -633,11 +660,38 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
           .catch(() => { /* */ });
       };
       scopeBus.on('checkpoints-changed', onCheckpoint);
+      // Relay comment + review-lifecycle events for THIS scope so the
+      // review SPA can subscribe to one stream per tab (instead of also
+      // holding the global /events stream open — browsers cap concurrent
+      // connections per host, and stale review tabs were starving the
+      // pool, leaving fresh tabs stuck on "Loading diff…").
+      const onComments = (payload: { scopeHash: string }) => {
+        if (payload.scopeHash !== scope.hash) return;
+        stream
+          .writeSSE({
+            event: 'comments-changed',
+            data: JSON.stringify(payload),
+          })
+          .catch(() => { /* */ });
+      };
+      scopeBus.on('comments-changed', onComments);
+      const onDone = (payload: { scopeHash: string }) => {
+        if (payload.scopeHash !== scope.hash) return;
+        stream
+          .writeSSE({
+            event: 'review-done',
+            data: JSON.stringify(payload),
+          })
+          .catch(() => { /* */ });
+      };
+      scopeBus.on('review-done', onDone);
       await stream.writeSSE({ event: 'connected', data: '' });
       await new Promise<void>((resolve) => {
         stream.onAbort(() => {
           unsubscribe?.();
           scopeBus.off('checkpoints-changed', onCheckpoint);
+          scopeBus.off('comments-changed', onComments);
+          scopeBus.off('review-done', onDone);
           resolve();
         });
       });

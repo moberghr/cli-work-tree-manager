@@ -17,6 +17,10 @@ import type { Comment } from './comment-types.js';
 export interface CommentFileStore extends CommentStore {
   /** Drop the cached in-memory store and reload from disk. */
   reload(): void;
+  /** Remove every comment (memory + disk). Returns how many were removed.
+   *  Used when a finished scope review is re-registered — the new run
+   *  starts from a clean slate instead of replaying the old comments. */
+  clearAll(): number;
 }
 
 /** Canonical location of all per-session comment files. A function so it
@@ -131,6 +135,14 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
     },
     reload() {
       reloadInner();
+    },
+    clearAll() {
+      return lockedMutate(() => {
+        const list = inner.list() as Comment[];
+        const n = list.length;
+        list.length = 0;
+        return { value: n, persisted: n > 0 };
+      });
     },
   };
   cache.set(sessionId, store);
