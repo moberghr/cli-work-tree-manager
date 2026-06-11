@@ -143,6 +143,19 @@ export function markScopeEnded(hash: string): boolean {
   return true;
 }
 
+/**
+ * Clear a scope's `ended` flag. Called when a scope is re-registered —
+ * a new `wd -c` run on the same paths is a fresh review, not a replay of
+ * the finished one. Returns true when the flag was actually set (so the
+ * caller knows to also reset the previous run's comments).
+ */
+export function reviveScope(hash: string): boolean {
+  const entry = scopes.get(hash);
+  if (!entry || !entry.scope.ended) return false;
+  entry.scope.ended = false;
+  return true;
+}
+
 export function getScope(hash: string): Scope | null {
   return scopes.get(hash)?.scope ?? null;
 }

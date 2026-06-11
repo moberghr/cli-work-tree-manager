@@ -92,11 +92,13 @@ export function scopeHashReviewApi(hash: string): ReviewApi {
     done: async () => {
       await postJson(`${base}/done`, {});
     },
-    // Listen on the global /events stream — scope-routes broadcasts
-    // `comments-changed` there with a `scopeHash` payload. The per-scope
-    // `/api/scopes/<hash>/events` stream only fires `diff-changed`, which
-    // is consumed separately by ReviewApp's own useSse.
-    ssePath: '/events',
+    // Listen on the scope-narrowed stream — scope-routes relays
+    // `comments-changed` there (alongside diff/checkpoint events), so a
+    // review tab shares ONE pooled SSE connection with ReviewApp's own
+    // useSse instead of also pinning the global /events stream. Browsers
+    // cap connections per host; the second stream per tab was starving
+    // the pool once a few review tabs accumulated.
+    ssePath: `${base}/events`,
     matchesEvent: (payload) => {
       if (!payload || typeof payload !== 'object') return false;
       const p = payload as { scopeHash?: string };

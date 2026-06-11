@@ -179,3 +179,23 @@ describe('comment-file-store', () => {
     expect(reloaded.map((x) => x.body)).toEqual(['from broadcast']);
   });
 });
+
+describe('clearAll', () => {
+  it('removes every comment from memory and disk and reports the count', () => {
+    const s = getCommentFileStore('sid-clear');
+    s.post({ body: 'one' });
+    s.post({ body: 'two' });
+    expect(s.clearAll()).toBe(2);
+    expect(s.list()).toHaveLength(0);
+    const onDisk = JSON.parse(
+      fs.readFileSync(commentsFileFor('sid-clear'), 'utf-8'),
+    ) as unknown[];
+    expect(onDisk).toEqual([]);
+  });
+
+  it('is a no-op on an empty store', () => {
+    const s = getCommentFileStore('sid-clear-empty');
+    expect(s.clearAll()).toBe(0);
+    expect(s.list()).toHaveLength(0);
+  });
+});

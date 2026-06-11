@@ -150,3 +150,52 @@ describe('GET /api/scopes/:hash/diff range mode', () => {
     expect(body.repos[0].files.length).toBeGreaterThan(0);
   });
 });
+
+describe('re-registering an ended scope (fresh `wd -c` run)', () => {
+  it('resets `ended` and clears the previous review comments', async () => {
+    const hash = await register();
+
+    // Run 1: post a comment, then End Review.
+    let res = await app.request(`/api/scopes/${hash}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'old comment' }),
+    });
+    expect(res.status).toBe(200);
+    res = await app.request(`/api/scopes/${hash}/done`, { method: 'POST' });
+    expect(res.status).toBe(200);
+
+    // The CLI poll shape after run 1: old comment present + ended.
+    res = await app.request(`/api/scopes/${hash}/comments`);
+    let body = (await res.json()) as { comments: unknown[]; ended?: boolean };
+    expect(body.ended).toBe(true);
+    expect(body.comments).toHaveLength(1);
+
+    // Run 2: `wd -c` re-registers the same paths → same hash, fresh review.
+    const hash2 = await register();
+    expect(hash2).toBe(hash);
+
+    res = await app.request(`/api/scopes/${hash}/comments`);
+    body = (await res.json()) as { comments: unknown[]; ended?: boolean };
+    expect(body.ended).toBe(false);
+    expect(body.comments).toHaveLength(0);
+  });
+
+  it('does not clear comments when re-registering a live (not ended) scope', async () => {
+    const hash = await register();
+    let res = await app.request(`/api/scopes/${hash}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'still relevant' }),
+    });
+    expect(res.status).toBe(200);
+
+    const hash2 = await register();
+    expect(hash2).toBe(hash);
+
+    res = await app.request(`/api/scopes/${hash}/comments`);
+    const body = (await res.json()) as { comments: unknown[]; ended?: boolean };
+    expect(body.ended).toBe(false);
+    expect(body.comments).toHaveLength(1);
+  });
+});
