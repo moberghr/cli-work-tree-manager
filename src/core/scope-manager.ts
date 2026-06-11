@@ -41,6 +41,13 @@ interface ScopeEntry {
   scope: Scope;
   watcher: FsWatcher | null;
   subscribers: Set<() => void>;
+  /** ms-since-epoch until which fs-watch events for this scope are ignored.
+   *  The diff server sets a short window right after it computes a diff so
+   *  the `.git` churn from its OWN git commands (e.g. the `to=working`
+   *  range diff's `git add -A` / `write-tree`) doesn't fire a reload — which
+   *  would refetch the diff, churn `.git` again, and loop. Real user edits
+   *  land outside this window and still reload. */
+  suppressWatchUntil: number;
 }
 
 const scopes = new Map<string, ScopeEntry>();
@@ -117,7 +124,12 @@ export function registerScope(paths: string[], label?: string): Scope {
     createdAt: new Date().toISOString(),
     ended: false,
   };
-  scopes.set(hash, { scope, watcher: null, subscribers: new Set() });
+  scopes.set(hash, {
+    scope,
+    watcher: null,
+    subscribers: new Set(),
+    suppressWatchUntil: 0,
+  });
   return scope;
 }
 
@@ -133,6 +145,38 @@ export function markScopeEnded(hash: string): boolean {
 
 export function getScope(hash: string): Scope | null {
   return scopes.get(hash)?.scope ?? null;
+}
+
+/** Ignore this scope's fs-watch events for the next `ms`. The diff server
+ *  calls this right after computing a diff so its own `.git` churn doesn't
+ *  trigger a reload (which would recompute → churn → loop). */
+export function suppressScopeWatch(hash: string, ms: number): void {
+  const entry = scopes.get(hash);
+  if (entry) entry.suppressWatchUntil = Date.now() + ms;
+}
+
+/**
+ * Pure predicate: does a scope with these repo roots cover `cwd`? True when
+ * cwd equals a root, sits inside one, or contains one (the group-root case,
+ * where Claude runs in the parent of the sub-repos). Exported for testing
+ * without the registry / config allowlist.
+ */
+export function scopeCoversCwd(paths: string[], cwd: string): boolean {
+  const nc = normaliseForCompare(cwd);
+  return paths.some((p) => {
+    const np = normaliseForCompare(p);
+    return np === nc || np.startsWith(nc + '/') || nc.startsWith(np + '/');
+  });
+}
+
+/**
+ * Scopes relevant to `cwd` — used by the `work hook checkpoint` bridge to
+ * snapshot the right scope when a Claude turn ends.
+ */
+export function scopesForCwd(cwd: string): Scope[] {
+  return Array.from(scopes.values())
+    .map((e) => e.scope)
+    .filter((s) => scopeCoversCwd(s.paths, cwd));
 }
 
 export function listScopes(): Scope[] {
@@ -167,6 +211,10 @@ export function subscribeScope(
       roots: entry.scope.paths,
       debounceMs: 150,
       onChange: () => {
+        // Ignore the burst of `.git` churn our own diff computation just
+        // produced (see suppressWatchUntil) — firing here would loop the
+        // live-reload. Real edits arrive outside the window.
+        if (Date.now() < entry.suppressWatchUntil) return;
         for (const sub of entry.subscribers) {
           try { sub(); } catch { /* */ }
         }

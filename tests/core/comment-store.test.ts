@@ -70,6 +70,34 @@ describe('createCommentStore', () => {
     expect(s.snapshot()).toHaveLength(0);
   });
 
+  it("post() accepts a whole-file comment (side: 'file')", () => {
+    const s = createCommentStore();
+    const c = s.post({ body: 'file note', side: 'file', repo: 'r', file: 'f.ts' });
+    expect(c.side).toBe('file');
+    expect(c.file).toBe('f.ts');
+    expect(c.line).toBe(0);
+  });
+
+  it('setResolved() toggles the flag and returns the updated comment', () => {
+    const s = createCommentStore();
+    const c = s.post({ body: 'x' });
+    expect(c.resolved).toBeUndefined();
+    const r = s.setResolved(c.id, true);
+    expect(r?.id).toBe(c.id);
+    expect(r?.resolved).toBe(true);
+    // Unresolving drops the key (false is stored as undefined).
+    expect(s.setResolved(c.id, false)?.resolved).toBeUndefined();
+  });
+
+  it('setResolved() returns null for unknown ids and no-op toggles', () => {
+    const s = createCommentStore();
+    const c = s.post({ body: 'x' });
+    expect(s.setResolved('nope', true)).toBeNull();
+    s.setResolved(c.id, true);
+    // Already true → no change → null.
+    expect(s.setResolved(c.id, true)).toBeNull();
+  });
+
   it('submit() promotes drafts to published in chronological order and adds a summary', () => {
     const s = createCommentStore();
     const d1 = s.post({ body: 'd1', status: 'draft' });

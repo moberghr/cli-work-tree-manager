@@ -11,9 +11,12 @@ import { git } from './git.js';
 import {
   clearCheckpoints,
   loadManifest,
+  setCheckpointLabel,
   takeCheckpoint,
   type CheckpointEntry,
 } from './checkpoint.js';
+import { summarizeCheckpoint } from './checkpoint-summary.js';
+import { getClaudeActivityMs, claudeActiveWithin } from './claude-activity.js';
 import {
   commentStoreIdForScope,
   getScope,
@@ -22,10 +25,16 @@ import {
   registerScope,
   removeScope,
   ScopePathRejectedError,
+  scopesForCwd,
   subscribeScope,
+  suppressScopeWatch,
 } from './scope-manager.js';
 import { getCommentFileStore } from './comment-file-store.js';
-import { commentInputSchema, submitReviewSchema } from './comment-schemas.js';
+import {
+  commentInputSchema,
+  resolveSchema,
+  submitReviewSchema,
+} from './comment-schemas.js';
 import { streamSSE } from 'hono/streaming';
 
 export interface ScopeMountOptions {
@@ -70,6 +79,22 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   // content (editor rewriting the same bytes), the status output is
   // unchanged and we can skip the whole snapshot pipeline.
   const lastStatus = new Map<string, string>();
+
+  // Per-scope coalescing timer for auto-snapshots. Rather than checkpointing
+  // on every 150ms fs-watch burst (one checkpoint per file-save — far too
+  // granular to be meaningful), we wait for edits to settle AND for Claude's
+  // transcript to go quiet, so a whole turn's worth of changes collapses into
+  // ONE checkpoint. Hook-free (reads ~/.claude/projects mtimes), so it works
+  // in the lean `wd` autostart that installs no Claude hooks.
+  const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Working tree must be quiet this long before the timer snapshots. */
+  const CHECKPOINT_SETTLE_MS = 4000;
+  /** If Claude wrote its transcript within this window, a session is active
+   *  for the scope and the Stop hook owns checkpoints — the timer suppresses
+   *  itself entirely so it can never fire before/around a Claude turn. The
+   *  timer only acts when no Claude has been active for this long (manual
+   *  edits with no session). */
+  const CLAUDE_SESSION_MS = 5 * 60_000;
 
   function workingTreeFingerprint(paths: string[]): string {
     const parts: string[] = [];
@@ -155,22 +180,46 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
         // capture anyway.
         if (!checkpointWatched.has(scope.hash)) {
           checkpointWatched.add(scope.hash);
-          subscribeScope(scope.hash, () => {
+          const hash = scope.hash;
+          // Fires once the edit burst settles. Defers while Claude is still
+          // writing its transcript so the checkpoint maps to a finished turn,
+          // then runs the cheap status-fingerprint gate before the expensive
+          // snapshot pipeline.
+          const runSnapshot = () => {
+            snapshotTimers.delete(hash);
+            const claudeMs = scope.paths.reduce(
+              (m, p) => Math.max(m, getClaudeActivityMs(p)),
+              0,
+            );
+            if (claudeActiveWithin(claudeMs, Date.now(), CLAUDE_SESSION_MS)) {
+              // A Claude session is active for this scope — the Stop hook is
+              // authoritative for checkpoints, so the timer stands down. This
+              // is what guarantees the timer can never snapshot before Claude
+              // finishes a turn. It only acts below when no Claude is around.
+              return;
+            }
             try {
               const fp = workingTreeFingerprint(scope.paths);
-              if (lastStatus.get(scope.hash) === fp) return;
-              lastStatus.set(scope.hash, fp);
+              if (lastStatus.get(hash) === fp) return;
+              lastStatus.set(hash, fp);
             } catch {
               // Fingerprint failure shouldn't block the snapshot — fall
               // through to takeCheckpoint and let its own logic decide.
             }
-            takeCheckpoint(scope.hash, scopeRepos(scope.paths))
+            takeCheckpoint(hash, scopeRepos(scope.paths))
               .then((entry) => {
                 if (entry) announceCheckpoint(entry);
               })
               .catch((err) => {
                 console.error('[checkpoint] auto-snapshot failed:', err);
               });
+          };
+          // Coalesce: every fs burst resets the settle timer, so a flurry of
+          // saves produces one checkpoint at the end, not one per save.
+          subscribeScope(hash, () => {
+            const pending = snapshotTimers.get(hash);
+            if (pending) clearTimeout(pending);
+            snapshotTimers.set(hash, setTimeout(runSnapshot, CHECKPOINT_SETTLE_MS));
           });
         }
 
@@ -190,6 +239,33 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
 
   app.get('/api/scopes', (c) => c.json({ scopes: listScopes() }));
 
+  // Stop-hook bridge: `work hook checkpoint` POSTs the Claude cwd here when a
+  // turn ends, giving us the authoritative, precise per-turn checkpoint. We
+  // snapshot every scope covering that cwd; dedup-by-tree makes a turn that
+  // changed nothing a no-op. No-op (200) when the cwd isn't a tracked scope —
+  // the Stop hook is global and fires for every Claude session.
+  app.post(
+    '/api/checkpoint',
+    zValidator('json', z.object({ cwd: z.string().min(1) })),
+    async (c) => {
+      const { cwd } = c.req.valid('json');
+      const matched = scopesForCwd(cwd);
+      let snapshotted = 0;
+      for (const s of matched) {
+        const entry = await takeCheckpoint(s.hash, scopeRepos(s.paths)).catch(
+          () => null,
+        );
+        if (entry) {
+          const payload = { scopeHash: s.hash, id: entry.id };
+          opts.broadcast('checkpoints-changed', payload);
+          scopeBus.emit('checkpoints-changed', payload);
+          snapshotted++;
+        }
+      }
+      return c.json({ ok: true, scopes: matched.length, snapshotted });
+    },
+  );
+
   app.delete('/api/scopes/:hash', (c) => {
     const hash = c.req.param('hash');
     // Capture the paths BEFORE removeScope — the scope-manager entry
@@ -208,6 +284,11 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     // nothing.
     checkpointWatched.delete(hash);
     lastStatus.delete(hash);
+    const pendingTimer = snapshotTimers.get(hash);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      snapshotTimers.delete(hash);
+    }
     if (repoPaths.length > 0) clearCheckpoints(hash, repoPaths);
     if (ok) opts.broadcast('scopes-changed', { hash });
     return c.json({ ok });
@@ -286,6 +367,10 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
             files: computeRangeDiff({ root: p, fromRef: fromSha, toRef: toSha }),
           };
         });
+        // Suppress the fs-watch churn our own git commands (writeTempTree's
+        // `git add -A` for a `to=working` range) just produced — otherwise it
+        // fires `diff-changed` → refetch → recompute → loop.
+        suppressScopeWatch(scope.hash, 800);
         return c.json({
           scopeHash: scope.hash,
           base: 'uncommitted',
@@ -323,6 +408,9 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
         head.exitCode === 0 && head.stdout && head.stdout !== 'HEAD'
           ? head.stdout
           : undefined;
+      // Same self-churn suppression as the range branch (e.g. the
+      // HEAD-vs-working `git diff` refreshing `.git/index`).
+      suppressScopeWatch(scope.hash, 800);
       return c.json({
         scopeHash: scope.hash,
         base,
@@ -378,6 +466,28 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     });
   });
 
+  // Lazy + cached Claude summary of what changed at a checkpoint. The SPA
+  // calls this for the selected `to` endpoint; the result is persisted to
+  // the manifest `label` so it's generated at most once per checkpoint.
+  app.post('/api/scopes/:hash/checkpoints/:id/summary', async (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id) || id < 0) {
+      return c.json({ error: 'bad checkpoint id' }, 400);
+    }
+    const entry = loadManifest(scope.hash).entries.find((e) => e.id === id);
+    if (!entry) return c.json({ error: 'unknown checkpoint' }, 404);
+    // Cached, or the Initial baseline (nothing to summarise).
+    if (entry.label && entry.label.trim()) return c.json({ label: entry.label });
+    if (id === 0) return c.json({ label: 'Initial' });
+
+    const label = await summarizeCheckpoint(scope.hash, scopeRepos(scope.paths), id);
+    await setCheckpointLabel(scope.hash, id, label);
+    opts.broadcast('checkpoints-changed', { scopeHash: scope.hash, id });
+    return c.json({ label });
+  });
+
   // -- Comments ------------------------------------------------------------
 
   function commentStore(hash: string) {
@@ -426,6 +536,27 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     }
     return c.json({ comments: store.snapshot() });
   });
+
+  app.post(
+    '/api/scopes/:hash/comments/:cid/resolve',
+    zValidator('json', resolveSchema),
+    (c) => {
+      const scope = getScope(c.req.param('hash'));
+      if (!scope) return c.json({ error: 'unknown scope' }, 404);
+      const store = commentStore(scope.hash);
+      const updated = store.setResolved(
+        c.req.param('cid'),
+        c.req.valid('json').resolved,
+      );
+      if (updated) {
+        opts.broadcast('comments-changed', {
+          scopeHash: scope.hash,
+          id: updated.id,
+        });
+      }
+      return c.json({ comments: store.snapshot() });
+    },
+  );
 
   app.post(
     '/api/scopes/:hash/submit-review',

@@ -178,7 +178,8 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/diff-parse.ts            ← unified-diff parser → ParsedFile[]
                                   ├── core/diff-pipeline.ts         ← computeDiff (git diff + synthetic untracked + lcov coverage)
                                   ├── core/file-context.ts          ← readContextLines: path-safe file slice for "expand lines" + whole-file view (served at /api/[scopes/<hash>/]file-lines; SPA route /file[/<hash>])
-                                  ├── core/checkpoint.ts            ← per-scope working-tree snapshots (refs/wd/<hash>/<n>) for range diffs
+                                  ├── core/checkpoint.ts            ← per-scope working-tree snapshots (refs/wd/<hash>/<n>) for range diffs; setCheckpointLabel caches a name
+                                  ├── core/checkpoint-summary.ts    ← lazy one-line Claude summary of a checkpoint's delta (claude -p, heuristic fallback), cached in the manifest label
                                   ├── core/lcov.ts                  ← lcov.info parsing → per-file coverage % (cached by path+mtime)
                                   ├── core/diff-scope.ts            ← resolveScope/resolveBase/buildRepoSpecs + resolveRepoDiff (shared parent/merge-base helper)
                                   ├── core/repo-spec.ts             ← RepoSpec + stableDiffPath
@@ -187,7 +188,7 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/comment-server.ts        ← Hono sub-app: per-scope review (used by standalone `wd -c`)
                                   ├── core/comment-store.ts         ← pure in-memory comment model
                                   ├── core/comment-file-store.ts    ← file-backed wrapper + commentsDir()/commentsFileFor()
-                                  ├── core/comment-types.ts         ← Comment + CommentSide/Status/Author (shared with SPA)
+                                  ├── core/comment-types.ts         ← Comment + CommentSide/Status/Author (shared with SPA). side 'file' = whole-file comment; `resolved` flag = mark-done
                                   ├── core/comment-schemas.ts       ← shared zod schemas for comment routes (server-side only)
                                   ├── core/review-poll.ts           ← pure diffReviewSnapshot helper (poll loop in `wd -c` proxy)
                                   ├── core/fs-watcher.ts            ← chokidar wrapper with debounce
@@ -212,7 +213,7 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/command-hook-installer.ts ← command-type Claude hooks (text injection; used by `work web`)
                                   ├── core/settings-editor.ts       ← atomic edits to ~/.claude/settings.json (shared)
                                   ├── core/pending-delivery.ts      ← find session for cwd; format pending; mark delivered
-                                  └── commands/hook.ts              ← `work hook prompt-submit|stop` CLI invoked by Claude Code
+                                  └── commands/hook.ts              ← `work hook prompt-submit|stop|checkpoint` CLI invoked by Claude Code (checkpoint = Stop-hook bridge → POST /api/checkpoint to snapshot the cwd's scope)
                                   │
                                   web/src/ (React SPA — bundled to dist/web/ via Vite)
                                   ├── App.tsx                      ← top-level: routes /diff|/review|/file, else fetches /api/context
@@ -283,7 +284,13 @@ Second binary (`dist/wd-bin.js`, shim `wd`) that surfaces a GitHub-PR-style diff
 - **Owned-PTY push** in `core/session-comment-routes.ts`: when a comment is posted and `work web`'s pool already owns a PTY for that session (the user opened the Terminal tab), the route handler writes the formatted reminder directly to stdin. Idle Claudes in our own PTY get the comment without any hook round-trip.
 - For external Claudes that are fully idle, neither path fires — the dashboard shows a purple `→N` "waiting for Claude" badge until the user does anything in that terminal.
 
-The legacy `wd-review` skill at `.claude/skills/wd-review/SKILL.md` is still used for the `wd -c` foreground flow (stdout marker stream + curl replies via `~/.work/diffs/latest-review.url`). Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body.
+The legacy `wd-review` skill at `.claude/skills/wd-review/SKILL.md` is still used for the `wd -c` foreground flow (stdout marker stream + curl replies via `~/.work/diffs/latest-review.url`). Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body. In the normal work-web flow, reply to `POST /api/scopes/<hash>/comments` (hash from the `/review/<hash>` URL), NOT `/api/comments`.
+
+### Checkpoint trigger + reload-loop guard
+
+Checkpoints are **authoritatively taken per Claude turn**: `work web` installs a `Stop` command hook (`work hook checkpoint`, owner `web-checkpoint`, in BOTH lean and full mode) which POSTs the cwd to `POST /api/checkpoint`; `scope-routes` maps cwd→scope (`scopesForCwd`) and snapshots (dedup-by-tree makes a no-change turn a no-op). The fs-watch auto-snapshot is now a **fallback that suppresses itself while a Claude session is active** (`claudeActiveWithin`, `core/claude-activity.ts`) so it can never fire mid-turn before the hook — it only checkpoints manual edits when no Claude is around.
+
+§ WHEN touching the scope diff server, preserve `suppressScopeWatch` (`core/scope-manager.ts`): the `to=working` range diff runs `git add -A`/`write-tree`, whose `.git` churn surfaces as nameless `fs.watch` events that can't be path-filtered. The diff route calls `suppressScopeWatch(hash, 800)` after computing so that self-induced churn doesn't fire `diff-changed` → refetch → recompute → **reload loop**. Real edits land outside the window and still reload. Checkpoint names come from `core/checkpoint-summary.ts` (lazy `claude -p`, cached). Comment `resolved` (mark-done) and `side:'file'` (whole-file) are routed via `/api/scopes/<hash>/comments/:cid/resolve` and the normal POST with `side:'file'`.
 
 ### Configuration
 

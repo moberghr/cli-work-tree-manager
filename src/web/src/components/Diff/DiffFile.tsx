@@ -11,6 +11,9 @@ import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
+import { useReviewOptional, useReview } from '../../state/ReviewProvider.js';
+import { CommentItem } from '../Review/CommentItem.js';
+import { Composer } from '../Review/Composer.js';
 
 type FileViewMode = 'diff' | 'preview' | 'split';
 
@@ -49,6 +52,10 @@ export function DiffFile({
   const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(
     hunkScopeKey ?? '',
   );
+  // Whole-file comments need the review context + a repo name. Suppressed in
+  // static / dashboard-readonly mode where no ReviewProvider is mounted.
+  const reviewCtx = useReviewOptional();
+  const fileCommentsOn = !!review && !!reviewCtx && !!repo;
   // "Open whole file" link. Only when a server-backed expand provider is
   // present (suppressed in static mode) and the working-tree file actually
   // exists — deleted/binary files have nothing to open.
@@ -256,6 +263,24 @@ export function DiffFile({
             Open file ↗
           </a>
         )}
+        {fileCommentsOn && (
+          <button
+            type="button"
+            className="wd-file-comment-btn"
+            title="Comment on the whole file"
+            onClick={() =>
+              reviewCtx!.openComposerAt({
+                repo: repo!,
+                file: file.path,
+                line: 0,
+                side: 'file',
+                lineContent: '',
+              })
+            }
+          >
+            💬 Comment on file
+          </button>
+        )}
         {onToggleViewed && (
           <label
             className="wd-viewed-label"
@@ -271,6 +296,7 @@ export function DiffFile({
           </label>
         )}
       </header>
+      {fileCommentsOn && <FileCommentSection repo={repo!} file={file.path} />}
       {!collapsed &&
         (hasPreview && viewMode !== 'diff' ? (
           <MarkdownPreview file={file} mode={viewMode} />
@@ -383,6 +409,51 @@ export function DiffFile({
           </table>
         ))}
     </article>
+  );
+}
+
+/**
+ * Whole-file (GitHub-style) comments, rendered between the file header and
+ * its diff body. Lists the file-level thread(s) and shows the composer when
+ * the user has opened it via the header's "Comment on file" button. Only
+ * mounted when a ReviewProvider is present (see `fileCommentsOn`).
+ */
+function FileCommentSection({ repo, file }: { repo: string; file: string }) {
+  const review = useReview();
+  const comments = review.comments.filter(
+    (c) => c.side === 'file' && !c.parentId && c.repo === repo && c.file === file,
+  );
+  const composerOpen =
+    review.openComposer !== null &&
+    review.openComposer.side === 'file' &&
+    review.openComposer.repo === repo &&
+    review.openComposer.file === file;
+
+  if (comments.length === 0 && !composerOpen) return null;
+
+  return (
+    <div className="wd-file-comments">
+      {comments.map((c) => (
+        <CommentItem key={c.id} comment={c} currentLineContent={null} />
+      ))}
+      {composerOpen && (
+        <Composer
+          context={`${repo}/${file} · whole file`}
+          onSubmit={async (body, status) => {
+            await review.postComment({
+              repo,
+              file,
+              line: 0,
+              side: 'file',
+              body,
+              status,
+            });
+            review.closeComposer();
+          }}
+          onCancel={() => review.closeComposer()}
+        />
+      )}
+    </div>
   );
 }
 

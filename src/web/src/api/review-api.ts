@@ -13,6 +13,7 @@ export interface ReviewApi {
   fetch(): Promise<Comment[]>;
   post(input: CommentInput): Promise<{ comments: Comment[] }>;
   delete(id: string): Promise<{ comments: Comment[] }>;
+  resolve(id: string, resolved: boolean): Promise<{ comments: Comment[] }>;
   submit(summary: string): Promise<{ comments: Comment[]; count: number }>;
   discard(): Promise<{ comments: Comment[]; discarded: number }>;
   done(): Promise<void>;
@@ -54,6 +55,8 @@ export function scopeReviewApi(): ReviewApi {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
+    resolve: (id, resolved) =>
+      postJson(`/api/comments/${encodeURIComponent(id)}/resolve`, { resolved }),
     submit: (summary) => postJson('/api/submit-review', { summary }),
     discard: () => postJson('/api/discard-review', {}),
     done: async () => {
@@ -80,6 +83,10 @@ export function scopeHashReviewApi(hash: string): ReviewApi {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
+    resolve: (id, resolved) =>
+      postJson(`${base}/comments/${encodeURIComponent(id)}/resolve`, {
+        resolved,
+      }),
     submit: (summary) => postJson(`${base}/submit-review`, { summary }),
     discard: () => postJson(`${base}/discard-review`, {}),
     done: async () => {
@@ -113,6 +120,10 @@ export function sessionReviewApi(sessionId: string): ReviewApi {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
+    resolve: (id, resolved) =>
+      postJson(`${base}/comments/${encodeURIComponent(id)}/resolve`, {
+        resolved,
+      }),
     submit: (summary) => postJson(`${base}/submit-review`, { summary }),
     discard: () => postJson(`${base}/discard-review`, {}),
     // Dashboard sessions don't expose /done — they live for the whole

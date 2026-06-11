@@ -229,6 +229,18 @@ export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
   ).then((r) => r.entries);
 }
 
+/** Lazily generate (or return the cached) one-line Claude summary of what
+ *  changed at a checkpoint. The server caches it in the manifest `label`. */
+export function fetchCheckpointSummary(
+  hash: string,
+  id: number,
+): Promise<{ label: string }> {
+  return postJson<{ label: string }>(
+    `/api/scopes/${encodeURIComponent(hash)}/checkpoints/${id}/summary`,
+    {},
+  );
+}
+
 export interface CommentInput {
   repo?: string;
   file?: string;

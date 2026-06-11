@@ -49,12 +49,32 @@ function CommentsPanelRow({ comment }: { comment: Comment }) {
     if (!file) return;
     // Scroll into view and flash the first matching row.
     file.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    flashLine(file, comment.line, comment.side);
+    // Whole-file comments have no line to flash — the file scroll is enough.
+    if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
   }
+  const loc =
+    comment.side === 'general'
+      ? 'General'
+      : comment.side === 'file'
+        ? `${comment.file} · whole file`
+        : `${comment.file}:${comment.line}`;
+  // Resolved threads stay listed but are dimmed + checked (the user asked to
+  // keep them visible in the left list, only collapsed in the diff).
   return (
-    <li className="wd-comments-panel-row" onClick={onClick}>
+    <li
+      className={
+        'wd-comments-panel-row' +
+        (comment.resolved ? ' wd-comments-panel-row-resolved' : '')
+      }
+      onClick={onClick}
+    >
       <div className="wd-comments-panel-loc">
-        {comment.side === 'general' ? 'General' : `${comment.file}:${comment.line}`}
+        {comment.resolved && (
+          <span className="wd-resolved-check" aria-hidden="true">
+            ✓{' '}
+          </span>
+        )}
+        {loc}
       </div>
       <div className="wd-comments-panel-body">{comment.body.split('\n')[0]}</div>
     </li>

@@ -9,7 +9,9 @@
 
 export type CommentAuthor = 'user' | 'claude';
 export type CommentStatus = 'published' | 'draft';
-export type CommentSide = 'left' | 'right' | 'general';
+/** 'file' is a whole-file comment (GitHub-style): `file` set, `line` 0, no
+ *  specific side. 'general' is not tied to any file. */
+export type CommentSide = 'left' | 'right' | 'general' | 'file';
 
 export interface Comment {
   id: string;
@@ -34,4 +36,8 @@ export interface Comment {
   /** 'published' streams to stdout immediately; 'draft' is held until the
    *  user submits the review batch via POST /api/submit-review. */
   status: CommentStatus;
+  /** True when the user has marked this thread done. Set on the top-level
+   *  comment; the UI collapses the thread in the diff and dims it (but keeps
+   *  it listed) in the comments panel. */
+  resolved?: boolean;
 }

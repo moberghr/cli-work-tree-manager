@@ -8,7 +8,11 @@ import {
 } from './diff-server.js';
 import type { RepoSpec } from './repo-spec.js';
 import type { Comment } from './comment-types.js';
-import { commentInputSchema, submitReviewSchema } from './comment-schemas.js';
+import {
+  commentInputSchema,
+  resolveSchema,
+  submitReviewSchema,
+} from './comment-schemas.js';
 
 export type {
   Comment,
@@ -84,6 +88,19 @@ export async function startCommentServer(
       if (removed && opts.onCommentDeleted) opts.onCommentDeleted(id);
       return c.json({ comments: store.snapshot() });
     });
+
+    routes.post(
+      '/api/comments/:id/resolve',
+      zValidator('json', resolveSchema),
+      (c) => {
+        const updated = store.setResolved(
+          c.req.param('id'),
+          c.req.valid('json').resolved,
+        );
+        if (updated) api.broadcast('comments-changed', { id: updated.id });
+        return c.json({ comments: store.snapshot() });
+      },
+    );
 
     routes.post(
       '/api/submit-review',
@@ -166,7 +183,9 @@ export function formatSingleComment(c: Comment): string {
   const header =
     c.side === 'general'
       ? `**General review comment**`
-      : `**${c.repo}/${c.file}** : line ${c.line} (${c.side})`;
+      : c.side === 'file'
+        ? `**${c.repo}/${c.file}** : whole file`
+        : `**${c.repo}/${c.file}** : line ${c.line} (${c.side})`;
   const meta: string[] = [];
   if (c.author === 'claude') meta.push('author: claude');
   if (c.parentId) meta.push(`reply-to: ${c.parentId}`);

@@ -285,6 +285,27 @@ export async function takeCheckpoint(
   });
 }
 
+/**
+ * Set (cache) a checkpoint's human label. Runs under the same file lock as
+ * `takeCheckpoint` so a concurrent auto-snapshot can't clobber the write.
+ * No-op when the id isn't found. Idempotent.
+ */
+export async function setCheckpointLabel(
+  scopeHash: string,
+  id: number,
+  label: string,
+): Promise<void> {
+  const file = manifestPath(scopeHash);
+  ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
+  await withFileLock(file, () => {
+    const manifest = loadManifest(scopeHash);
+    const entry = manifest.entries.find((e) => e.id === id);
+    if (!entry || entry.label === label) return;
+    entry.label = label;
+    atomicWriteFile(file, JSON.stringify(manifest, null, 2));
+  });
+}
+
 /** Remove the manifest + every ref for this scope. Called when a scope
  *  is explicitly torn down. Best-effort — partial failure leaves orphaned
  *  refs but doesn't otherwise corrupt state. */

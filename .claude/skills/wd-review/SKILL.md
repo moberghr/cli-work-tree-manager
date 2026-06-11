@@ -86,15 +86,37 @@ Anything on `stderr` is just status logging — ignore it.
 
 ## Replying to a comment
 
-Use the URL you captured from the `--- review started ---` marker — store it as a `URL=` shell variable in the same conversation and reuse it for every reply. **Write the JSON body to a temp file** and post via `--data-binary "@file"` — inline `-d '...'` will explode the moment your reply contains an apostrophe or a quote:
+**Pick the reply endpoint from the shape of the `url:` line** you captured at the `--- review started ---` marker. `wd -c` runs in one of two modes and they post to different routes:
+
+| `url:` shape | Mode | Reply endpoint |
+|---|---|---|
+| `http://host:port/review/<hash>` | **work web scope** (the normal case — `wd -c` registered a review scope on the singleton `work web`) | `http://host:port/api/scopes/<hash>/comments` |
+| `http://host:port/` (no `/review/` segment) | **standalone server** (fallback when work-web autostart failed) | `http://host:port/api/comments` |
+
+Do NOT just append `api/comments` to the `url:` value — in scope mode that yields `…/review/<hash>api/comments`, which 404s. Parse the URL: if the path is `/review/<hash>`, the base is everything before `/review/`, and `<hash>` is that last segment.
+
+**Write the JSON body to a temp file** and post via `--data-binary "@file"` — inline `-d '...'` will explode the moment your reply contains an apostrophe or a quote:
 
 ```bash
-cat > "$CLAUDE_JOB_DIR/reply.json" <<'EOF'
+# Derive BASE + ENDPOINT from the captured url: line.
+URL="<the url: value from the --- review started --- marker>"
+if [[ "$URL" == */review/* ]]; then
+  BASE="${URL%/review/*}"
+  HASH="${URL##*/review/}"; HASH="${HASH%%/*}"
+  ENDPOINT="$BASE/api/scopes/$HASH/comments"   # work web scope mode
+else
+  ENDPOINT="${URL%/}/api/comments"             # standalone server mode
+fi
+
+# Use mktemp, NOT $CLAUDE_JOB_DIR — that var isn't reliably set, and an empty
+# value resolves to /reply.json → "Permission denied".
+REPLY_JSON="$(mktemp)"
+cat > "$REPLY_JSON" <<'EOF'
 {"parentId":"<comment-id>","author":"claude","body":"<your reply, can contain ' and \" freely>"}
 EOF
-# URL was set when you read the --- review started --- marker.
 curl -s -X POST -H "Content-Type: application/json" \
-  --data-binary "@$CLAUDE_JOB_DIR/reply.json" "${URL}api/comments"
+  --data-binary "@$REPLY_JSON" "$ENDPOINT"
+rm -f "$REPLY_JSON"
 ```
 
 If you forget the URL mid-conversation, re-scan the Bash output file from the `wd -c` background task — the `url:` line is at the top, in the first `--- review started ---` block.
@@ -109,7 +131,7 @@ The reply renders threaded under the original comment in the user's browser. Set
 
 ## Behavior notes
 
-- **Reviews are per-scope, not global.** Each `wd -c` binds its own port and emits its own URL on its own stdout marker. Two `wd -c` instances in different worktrees coexist. The URL never lives on disk — it only flows through the stream you spawned — so you can only ever post to the review you started, never to someone else's by accident.
+- **Reviews are per-scope, not global.** In the normal (work-web) mode every `wd -c` registers a distinct scope `<hash>` on the one shared `work web` server, so its URL is `…/review/<hash>` — the *hash* is what's unique per worktree, not a per-review port. Two `wd -c` instances in different worktrees coexist as two scopes on the same server. The URL/hash flows only through the stream you spawned, so post replies to the `<hash>` from *your* `--- review started ---` marker and you can't hit someone else's review. (In the standalone-server fallback each `wd -c` binds its own port instead.)
 - **Don't restart `wd -c` on file edits.** The watcher inside the running session reloads the browser automatically when you edit files.
 - **Live reload is deferred while composing.** If the user is mid-comment when you save a file, their reload is queued and applied as soon as they save/cancel the composer. You don't need to handle this.
 - **Don't open the browser yourself.** `wd -c` opens it. You only start the process.

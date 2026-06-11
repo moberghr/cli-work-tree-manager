@@ -16,7 +16,7 @@ interface ComposerTarget {
   repo: string;
   file: string;
   line: number;
-  side: 'left' | 'right';
+  side: 'left' | 'right' | 'file';
   lineContent: string;
 }
 
@@ -32,6 +32,7 @@ interface ReviewState {
 interface ReviewActions {
   postComment: (input: CommentInput) => Promise<void>;
   deleteComment: (id: string) => Promise<void>;
+  resolveComment: (id: string, resolved: boolean) => Promise<void>;
   submitReview: (summary: string) => Promise<void>;
   discardReview: () => Promise<void>;
   done: () => Promise<void>;
@@ -111,6 +112,14 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
     },
     [api],
   );
+  const resolveComment = useCallback(
+    async (id: string, resolved: boolean) => {
+      const res = await api.resolve(id, resolved);
+      ++reqIdRef.current;
+      setComments(res.comments);
+    },
+    [api],
+  );
   const submitReview = useCallback(
     async (summary: string) => {
       const res = await api.submit(summary);
@@ -139,6 +148,7 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
       openReplyTo,
       postComment,
       deleteComment,
+      resolveComment,
       submitReview,
       discardReview,
       done,
@@ -160,6 +170,7 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
       openReplyTo,
       postComment,
       deleteComment,
+      resolveComment,
       submitReview,
       discardReview,
       done,
@@ -186,7 +197,13 @@ export function selectDrafts(comments: Comment[]): Comment[] {
   return comments.filter((c) => c.status === 'draft');
 }
 export function selectPublishedCount(comments: Comment[]): number {
-  return comments.reduce((n, c) => (c.status === 'published' ? n + 1 : n), 0);
+  // Only the user's own delivered comments. Claude's replies are published
+  // too (author: 'claude'), but counting them would inflate the "End review"
+  // badge — one user comment + one Claude reply must read as 1, not 2.
+  return comments.reduce(
+    (n, c) => (c.status === 'published' && c.author === 'user' ? n + 1 : n),
+    0,
+  );
 }
 export function selectHasDrafts(comments: Comment[]): boolean {
   return comments.some((c) => c.status === 'draft');

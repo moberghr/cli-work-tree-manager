@@ -8,7 +8,11 @@ import {
   markDelivered,
   readPendingForSession,
 } from './pending-delivery.js';
-import { commentInputSchema, submitReviewSchema } from './comment-schemas.js';
+import {
+  commentInputSchema,
+  resolveSchema,
+  submitReviewSchema,
+} from './comment-schemas.js';
 
 export interface MountOptions {
   /** Server-level broadcast — used to emit comments-changed events scoped
@@ -68,6 +72,22 @@ export function mountSessionCommentRoutes(
     if (removed) opts.broadcast('comments-changed', { sessionId: id, deleted: cid });
     return c.json({ comments: store.snapshot() });
   });
+
+  app.post(
+    '/api/sessions/:id/comments/:cid/resolve',
+    zValidator('json', resolveSchema),
+    (c) => {
+      const id = c.req.param('id');
+      if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
+      const store = getCommentFileStore(id);
+      const updated = store.setResolved(
+        c.req.param('cid'),
+        c.req.valid('json').resolved,
+      );
+      if (updated) opts.broadcast('comments-changed', { sessionId: id, id: updated.id });
+      return c.json({ comments: store.snapshot() });
+    },
+  );
 
   app.post(
     '/api/sessions/:id/submit-review',

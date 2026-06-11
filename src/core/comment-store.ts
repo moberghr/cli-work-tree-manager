@@ -39,6 +39,9 @@ export interface CommentStore {
   post(input: CommentInput): Comment;
   /** Remove a comment by id. Returns true if anything was removed. */
   remove(id: string): boolean;
+  /** Mark a comment resolved/unresolved. Returns the updated comment, or
+   *  null if the id wasn't found or the flag was already at that value. */
+  setResolved(id: string, resolved: boolean): Comment | null;
   /** Promote all drafts to published, optionally creating a summary comment
    *  from `summary` text. Returns the batch info. */
   submit(summary: string | undefined): SubmitInfo;
@@ -68,7 +71,12 @@ export function createCommentStore(): CommentStore {
       }
       const parent = findParent(input.parentId);
       const side = input.side ?? parent?.side ?? 'general';
-      if (side !== 'left' && side !== 'right' && side !== 'general') {
+      if (
+        side !== 'left' &&
+        side !== 'right' &&
+        side !== 'general' &&
+        side !== 'file'
+      ) {
         throw new Error('invalid side');
       }
       const c: Comment = {
@@ -98,6 +106,15 @@ export function createCommentStore(): CommentStore {
       if (idx < 0) return false;
       comments.splice(idx, 1);
       return true;
+    },
+
+    setResolved(id, resolved) {
+      const c = comments.find((x) => x.id === id);
+      if (!c) return null;
+      const next = resolved || undefined; // store true, drop the key for false
+      if (c.resolved === next) return null;
+      c.resolved = next;
+      return c;
     },
 
     submit(summary) {

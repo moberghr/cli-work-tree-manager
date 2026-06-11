@@ -273,20 +273,20 @@ wd -c               # interactive review: leave comments inline, stream to stdou
 
 `wd` resolves the scope from your `cwd`: inside a single-repo worktree it diffs that repo; inside a group worktree (root or any sub-repo) it diffs every repo in the group and renders one tab per repo. Untracked files are included as synthesized "new file" diffs without touching your git index.
 
-**One server, every scope.** If a `work web` dashboard is running, `wd` and `wd -c` register as a *scope* on it and open `/diff/<hash>` or `/review/<hash>` — no new process, no extra port. When `work web` isn't up, `wd` falls back to spawning its own detached daemon (state under `~/.work/diffs/<scope-hash>.{pid,url}`). Either way the live page reloads itself over SSE when files change.
+**One server, every scope.** `wd` and `wd -c` register as a *scope* on the singleton `work web` and open `/diff/<hash>` or `/review/<hash>` — no new process, no extra port. When no `work web` is running, `wd` auto-starts a lean one in the background (`work web --lean --no-open`) and registers on that. Either way the live page reloads itself over SSE when files change.
 
 ### Modes
 
 | Mode | What it does |
 |:---|:---|
-| `wd` (default) | **Live server.** Prefers a running `work web`; otherwise spawns a detached daemon. Refresh the browser to pick up saved-file changes (chokidar + SSE, per-repo dirty tracking). Stop with `wd --stop`. `--server` / `--watch` are kept as back-compat aliases. |
+| `wd` (default) | **Live server.** Registers on a running `work web`, or auto-starts a lean one in the background. Refresh the browser to pick up saved-file changes (chokidar + SSE, per-repo dirty tracking). De-register this scope with `wd --stop`. `--server` / `--watch` are kept as back-compat aliases. |
 | `wd --static` | Renders a fully self-contained HTML file to `~/.work/diffs/<scope-hash>.html` (bundle + diff JSON inlined), opens via `file://`, and exits. No server, no live reload — survives the CLI. |
 | `wd -c` | **Interactive review.** Click any line number to drop an inline comment; each comment streams to stdout as a markdown marker as it's saved. Blocks until you click "Done & Send" (or Ctrl+C). |
 
 ### Reading the diff
 
 - **Uncommitted vs Since branch** — toggle between the working-tree diff and the full PR-style diff against the branch this worktree was forked from.
-- **Checkpoints + range diff** — `wd` automatically snapshots each repo's working tree (including untracked files) as it watches, holding the snapshots alive behind `refs/wd/<scope>/<n>` refs. A checkpoint strip lets you diff between any two points in time — "what changed since I started", or between checkpoint #2 and #5 — not just against a static ref.
+- **Checkpoints + range diff** — `wd` snapshots each repo's working tree (including untracked files) and holds the snapshots alive behind `refs/wd/<scope>/<n>` refs. Snapshots are taken **per Claude turn** (via the Stop hook) and when edits settle, so each one is a meaningful unit of work rather than one-per-save. A **Range** picker — a single `From → To` dropdown with a pinned *All changes* reset — lets you diff any two points: the full diff, a single checkpoint's own changes (click it), or any span (shift-click to widen the start). Each checkpoint is labelled with a one-line **Claude-generated summary** of what it changed (generated lazily, cached in the manifest), so you pick by meaning, not by number.
 - **Coverage badges** — if a `coverage/lcov.info` (or `lcov.info`) is present, each file shows its line-coverage percentage. The badge is de-emphasized and flagged when the source has been edited since the coverage report was written, so you don't trust stale numbers.
 - **Reviewed-hunk checkboxes** — tick individual hunks as you review them. The state is keyed on a content hash of the hunk (not line numbers), so it survives live reloads and unrelated edits elsewhere in the file, and persists per-scope in `localStorage`.
 - **Expand context** — each hunk separator is a GitHub-style bar showing the `@@ … @@` heading; where lines are collapsed, converging `↓` / `↑` controls on it reveal the hidden lines a chunk at a time (or all the way to the top/bottom of the file). When a gap is fully expanded — or two hunks are already adjacent — the lines become contiguous and the separator drops away.
@@ -308,7 +308,9 @@ Other features in review mode:
 
 - **Markdown comments** — both your comments and Claude's replies render as formatted markdown (code blocks, lists, links), not raw text.
 - **Live reload** via SSE — the page refreshes itself when files change; reloads are deferred while you're composing so your draft isn't lost.
-- **Threaded replies** — a wrapping process can POST replies via `${URL}/api/comments` with `parentId` and `author: 'claude'`; they render inline under the original comment with distinct styling.
+- **Threaded replies** — a wrapping process posts replies with `parentId` and `author: 'claude'`. In the normal (work-web) flow that's `POST <web>/api/scopes/<hash>/comments`, where `<hash>` is the segment from the `/review/<hash>` URL; the standalone fallback is `POST <url>/api/comments`. Replies render inline under the original with distinct styling.
+- **Resolve / mark done** — mark a comment thread resolved: it collapses to a one-line bar in the diff (click to reopen), and stays listed but dimmed + struck-through in the comments panel, so you can fold away what's handled without losing the record.
+- **Whole-file comments** — a *Comment on file* button in each file header attaches a comment to the file as a whole (GitHub-style), not a specific line.
 - **Drafts & submit** — stage multiple comments as drafts, then submit them in one batch (GitHub-style).
 - **Outdated detection** — the line's raw content is captured at compose time; if the file changes underneath, the comment is dimmed with an "outdated" badge.
 - **General comments** — a top-of-page composer for review notes that aren't tied to any line.

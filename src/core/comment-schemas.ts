@@ -11,7 +11,7 @@ export const commentInputSchema = z.object({
   repo: z.string().optional(),
   file: z.string().optional(),
   line: z.number().int().optional(),
-  side: z.enum(['left', 'right', 'general']).optional(),
+  side: z.enum(['left', 'right', 'general', 'file']).optional(),
   body: z.string().min(1),
   status: z.enum(['published', 'draft']).optional(),
   lineContent: z.string().optional(),
@@ -21,4 +21,8 @@ export const commentInputSchema = z.object({
 
 export const submitReviewSchema = z.object({
   summary: z.string().optional(),
+});
+
+export const resolveSchema = z.object({
+  resolved: z.boolean(),
 });

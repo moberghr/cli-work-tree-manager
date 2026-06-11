@@ -8,6 +8,7 @@ import {
 } from 'react';
 import {
   fetchCheckpoints,
+  fetchCheckpointSummary,
   fetchScopeDiff,
   fetchScopeDiffByHash,
   staticHasBranchScope,
@@ -33,6 +34,7 @@ import { FileTree } from '../components/Sidebar/FileTree.js';
 import { CommentsPanel } from '../components/Sidebar/CommentsPanel.js';
 import { useViewedFiles } from '../hooks/use-viewed-files.js';
 import { useScrollspy } from '../hooks/use-scrollspy.js';
+import { useSidebarOverflowsViewport } from '../hooks/use-sidebar-overflow.js';
 import {
   ResizeDivider,
   useSidebarWidth,
@@ -86,6 +88,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // base tab looks selected. Range comparison is opt-in: clicking a chip
   // turns it on, clicking a base tab turns it back off.
   const [rangeActive, setRangeActive] = useState(false);
+  // True while a lazy checkpoint-summary request is in flight for the
+  // currently-selected `to` checkpoint.
+  const [summarizing, setSummarizing] = useState(false);
 
   // Fetch checkpoint list on scope-mount + whenever a checkpoint event
   // arrives. Default range = (last → working), so the user sees "what
@@ -192,21 +197,39 @@ export function ReviewApp({ context, scopeHash }: Props) {
     setRangeActive(false);
     setDiffBase(base);
   };
-  const selectCheckpoint = (toId: CheckpointRangeEnd) => {
+  // Dropdown endpoint setters. Each keeps the other endpoint and activates
+  // the range comparison; normaliseRange guards against a reversed pick.
+  const setRangeFrom = (id: number) => {
     userPickedRef.current = true;
     setRangeActive(true);
-    const fromId = range?.from ?? 0;
-    setRange(normaliseRange(fromId, toId));
+    setRange((prev) => normaliseRange(id, prev?.to ?? 'working'));
   };
-  const extendCheckpoint = (clickedId: CheckpointRangeEnd) => {
+  const setRangeTo = (end: CheckpointRangeEnd) => {
     userPickedRef.current = true;
-    // `from` must be a real checkpoint id — Working as a left endpoint
-    // is meaningless and rejected server-side. Silently no-op a
-    // Working shift-click.
-    if (clickedId === 'working') return;
     setRangeActive(true);
-    const toId: CheckpointRangeEnd = range?.to ?? 'working';
-    setRange(normaliseRange(clickedId, toId));
+    setRange((prev) => normaliseRange(prev?.from ?? 0, end));
+  };
+  // Plain-click a checkpoint → show JUST its own diff: the previous checkpoint
+  // → this one. 'working' → changes since the last checkpoint; Initial → the
+  // whole thing (it has no predecessor). Uses the ordered list so it's robust
+  // to any id gaps.
+  const pickSingleCheckpoint = (end: CheckpointRangeEnd) => {
+    userPickedRef.current = true;
+    setRangeActive(true);
+    if (end === 'working') {
+      const lastId = checkpoints.length
+        ? checkpoints[checkpoints.length - 1].id
+        : 0;
+      setRange({ from: lastId, to: 'working' });
+      return;
+    }
+    if (end === 0) {
+      setRange({ from: 0, to: 'working' }); // Initial = everything from the start
+      return;
+    }
+    const idx = checkpoints.findIndex((e) => e.id === end);
+    const fromId = idx > 0 ? checkpoints[idx - 1].id : 0;
+    setRange({ from: fromId, to: end });
   };
 
   useEffect(() => {
@@ -215,6 +238,72 @@ export function ReviewApp({ context, scopeHash }: Props) {
       setActiveRepoName(repos[0].name);
     }
   }, [repos, activeRepoName]);
+
+  // Lazily fetch a Claude summary for the selected `to` checkpoint (skipping
+  // Initial / Working and anything already summarised). The server caches the
+  // result in the manifest `label`; we patch it into local state so the
+  // dropdown option + subtitle update without waiting for an SSE refresh.
+  useEffect(() => {
+    // Any path where we are NOT fetching must clear `summarizing` — otherwise
+    // the "summarising…" subtitle stays stuck. This matters because the
+    // auto-latest pass below can land the label for the selected `to` while
+    // our fetch is in flight: `checkpoints` then changes, this effect re-runs,
+    // finds the entry already labelled, and must reset the flag rather than
+    // return early with it left on.
+    if (!scopeHash || !rangeActive || !range || range.to === 'working' || range.to === 0) {
+      setSummarizing(false);
+      return;
+    }
+    const toId = range.to;
+    const entry = checkpoints.find((e) => e.id === toId);
+    if (!entry || (entry.label && entry.label.trim())) {
+      setSummarizing(false);
+      return;
+    }
+    let cancelled = false;
+    setSummarizing(true);
+    fetchCheckpointSummary(scopeHash, toId).then(
+      ({ label }) => {
+        if (cancelled) return;
+        setSummarizing(false);
+        if (label && label.trim()) {
+          setCheckpoints((prev) =>
+            prev.map((e) => (e.id === toId ? { ...e, label } : e)),
+          );
+        }
+      },
+      () => {
+        if (!cancelled) setSummarizing(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeHash, rangeActive, range, checkpoints]);
+
+  // Eagerly summarise the MOST RECENT checkpoint (debounced) so the picker's
+  // newest entry reads as a summary, not a bare #id — that's the one the user
+  // most often wants ("what did the latest change do?"). The 2.5s settle
+  // window means a burst of saves only summarises the final, stable state
+  // rather than every transient checkpoint in between.
+  useEffect(() => {
+    if (!scopeHash || checkpoints.length === 0) return;
+    const latest = checkpoints[checkpoints.length - 1];
+    if (latest.id === 0 || (latest.label && latest.label.trim())) return;
+    const timer = setTimeout(() => {
+      fetchCheckpointSummary(scopeHash, latest.id).then(
+        ({ label }) => {
+          if (label && label.trim()) {
+            setCheckpoints((prev) =>
+              prev.map((e) => (e.id === latest.id ? { ...e, label } : e)),
+            );
+          }
+        },
+        () => { /* leave it as #id; selecting it will retry */ },
+      );
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [scopeHash, checkpoints]);
 
   const repoStartIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -261,6 +350,14 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const activeAnchor = useScrollspy(activeRepo?.name ?? '_pending');
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const layoutRef = useRef<HTMLDivElement>(null);
+  // In page-scroll mode the sidebar stays in the document's scroll box (so
+  // Ctrl+F ticks for file-tree matches share the viewport scrollbar) until
+  // the tree is taller than the viewport, when it becomes its own scroller.
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarScrolls = useSidebarOverflowsViewport(sidebarRef, [
+    activeRepo?.name,
+    repos?.length,
+  ]);
 
   // ---- Hooks above this line, branches below ----------------------------
 
@@ -300,10 +397,20 @@ export function ReviewApp({ context, scopeHash }: Props) {
   const layout = (
     <div
       ref={layoutRef}
-      className="wd-web-review-layout"
+      // `--page` makes the diff scroll on the document, not an inner box, so
+      // Chrome paints Ctrl+F match ticks on the viewport scrollbar. Only this
+      // full-page view opts in — the dashboard's DiffView keeps the bounded
+      // inner scroller (see .wd-web-review-layout--page in review.css).
+      className="wd-web-review-layout wd-web-review-layout--page"
       style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}
     >
-        <aside className="wd-web-review-sidebar">
+        <aside
+          ref={sidebarRef}
+          className={
+            'wd-web-review-sidebar' +
+            (sidebarScrolls ? ' wd-sidebar-scrolls' : '')
+          }
+        >
           <header className="wd-web-review-sidebar-header">
             <h1>{context.scopeLabel}</h1>
             <p className="wd-web-compare">
@@ -419,9 +526,16 @@ export function ReviewApp({ context, scopeHash }: Props) {
               fromId={range.from}
               toId={range.to}
               active={rangeActive}
-              onSelect={selectCheckpoint}
-              onExtend={extendCheckpoint}
+              onChangeFrom={setRangeFrom}
+              onChangeTo={setRangeTo}
+              onPickSingle={pickSingleCheckpoint}
               busy={loading}
+              summary={
+                range.to !== 'working' && range.to !== 0
+                  ? (checkpoints.find((e) => e.id === range.to)?.label ?? null)
+                  : null
+              }
+              summaryLoading={summarizing}
             />
           )}
           {loading && <DiffLoadingBar />}

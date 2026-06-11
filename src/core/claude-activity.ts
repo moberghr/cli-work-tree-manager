@@ -34,6 +34,21 @@ function latestJsonlMtimeMs(projectDir: string): number {
   return latest;
 }
 
+/**
+ * True when a transcript mtime shows Claude wrote within `windowMs` of `nowMs`
+ * — i.e. a Claude session is active for that path. Absent/zero activity →
+ * false. The scope auto-snapshot timer uses this to stay out of the way while
+ * Claude is around (the Stop hook owns checkpoints then); the timer only fires
+ * for manual edits when no Claude session is active.
+ */
+export function claudeActiveWithin(
+  activityMs: number,
+  nowMs: number,
+  windowMs: number,
+): boolean {
+  return activityMs > 0 && nowMs - activityMs < windowMs;
+}
+
 export function getClaudeActivityMs(launchPath: string): number {
   const dir = path.join(
     os.homedir(),

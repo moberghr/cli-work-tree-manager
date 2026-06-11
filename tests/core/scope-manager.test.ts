@@ -34,6 +34,16 @@ afterEach(() => {
   vi.resetModules();
 });
 
+/** Poll `cond()` every 25ms up to `ms`. */
+async function waitFor(cond: () => boolean, ms = 3000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (cond()) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return cond();
+}
+
 describe('registerScope path allowlist (S-2)', () => {
   it('accepts paths inside a configured repo', async () => {
     const { registerScope, disposeAllScopes } = await import(
@@ -103,5 +113,40 @@ describe('registerScope path allowlist (S-2)', () => {
     // label can be updated on re-register
     expect(b.label).toBe('two');
     disposeAllScopes();
+  });
+});
+
+describe('suppressScopeWatch — reload-loop guard', () => {
+  it('drops fs-watch events inside the window, fires again after it clears', async () => {
+    const { registerScope, subscribeScope, suppressScopeWatch, disposeAllScopes } =
+      await import('../../src/core/scope-manager.js');
+    const repoPath = path.join(tmpHome, 'repos', 'myrepo');
+    fs.mkdirSync(repoPath, { recursive: true });
+    const scope = registerScope([repoPath], 'sup');
+
+    let hits = 0;
+    const unsub = subscribeScope(scope.hash, () => {
+      hits += 1;
+    });
+    try {
+      // Let the OS watch arm.
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Suppress (as the diff server does after computing a diff): a change
+      // now must NOT fire — this is exactly the `.git`-churn-during-diff case
+      // that used to loop the live-reload.
+      suppressScopeWatch(scope.hash, 5000);
+      fs.writeFileSync(path.join(repoPath, 'a.txt'), '1');
+      await new Promise((r) => setTimeout(r, 600)); // > 150ms debounce
+      expect(hits).toBe(0);
+
+      // Clear the window; a real edit must reload again (live-reload intact).
+      suppressScopeWatch(scope.hash, 0);
+      fs.writeFileSync(path.join(repoPath, 'b.txt'), '2');
+      expect(await waitFor(() => hits > 0)).toBe(true);
+    } finally {
+      unsub?.();
+      disposeAllScopes();
+    }
   });
 });

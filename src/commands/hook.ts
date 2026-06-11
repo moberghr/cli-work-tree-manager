@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { CommandModule } from 'yargs';
 import { readSessionActivity } from '../core/claude-activity.js';
 import {
@@ -21,7 +24,40 @@ import {
  *   - Claude isn't actively running in this worktree (paranoia — the hook
  *     only fires from inside a running Claude, but we double-check)
  */
-export type HookEvent = 'prompt-submit' | 'stop';
+export type HookEvent = 'prompt-submit' | 'stop' | 'checkpoint';
+
+/**
+ * Fire-and-forget: tell the running `work web` to take a checkpoint for this
+ * worktree. Invoked from Claude Code's Stop hook so checkpoints map exactly
+ * to finished turns (the authoritative trigger; the scope's fallback timer
+ * stands down whenever a Claude session is active). Silent + best-effort —
+ * no work web running, or cwd not a tracked scope, is a no-op.
+ */
+async function triggerCheckpoint(cwd: string): Promise<void> {
+  let base: string;
+  try {
+    base = fs
+      .readFileSync(path.join(os.homedir(), '.work', 'web.url'), 'utf-8')
+      .trim();
+  } catch {
+    return; // no work web running
+  }
+  if (!base) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    await fetch(`${base}api/checkpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd }),
+      signal: controller.signal,
+    });
+  } catch {
+    /* best-effort — never block Claude's turn on a checkpoint */
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface HookInput {
   event: HookEvent;
@@ -108,13 +144,19 @@ export const hookCommand: CommandModule = {
   builder: (y) =>
     y.positional('event', {
       type: 'string',
-      choices: ['prompt-submit', 'stop'] as const,
+      choices: ['prompt-submit', 'stop', 'checkpoint'] as const,
       describe: 'Hook event name',
     }),
   handler: async (argv) => {
     const event = argv.event as HookEvent;
     const payload = await readStdinJson();
     const cwd = payload.cwd ?? process.cwd();
+    // Checkpoint bridge is independent of comment delivery: just nudge work
+    // web to snapshot, emit nothing to Claude's context.
+    if (event === 'checkpoint') {
+      await triggerCheckpoint(cwd);
+      return;
+    }
     const result = computeHookOutput({ event, cwd });
     if (!result || !result.sessionId) return;
     process.stdout.write(result.stdout);

@@ -184,6 +184,18 @@ export const webCommand: CommandModule = {
       ]).catch(() => { /* best-effort */ });
     }
 
+    // Checkpoint-on-turn-end hook. Installed in BOTH lean and full mode —
+    // unlike comment delivery, meaningful per-turn checkpoints are the whole
+    // point of the `wd` diff view. Distinct owner so it's managed separately
+    // from the comment hooks. Fires `work hook checkpoint`, which nudges this
+    // server to snapshot the cwd's scope (a no-op when none matches).
+    await installCommandHook({
+      owner: 'web-checkpoint',
+      event: 'Stop',
+      command: 'work hook checkpoint',
+      timeoutSec: 5,
+    }).catch(() => { /* best-effort */ });
+
     const shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
@@ -192,6 +204,7 @@ export const webCommand: CommandModule = {
         try { removeCommandHookSync('web', 'UserPromptSubmit'); } catch { /* */ }
         try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
       }
+      try { removeCommandHookSync('web-checkpoint', 'Stop'); } catch { /* */ }
       handle.stop();
       process.exit(0);
     };

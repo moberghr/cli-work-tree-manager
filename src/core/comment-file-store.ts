@@ -111,6 +111,12 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
         return { value: r, persisted: r };
       });
     },
+    setResolved(id: string, resolved: boolean) {
+      return lockedMutate(() => {
+        const c = inner.setResolved(id, resolved);
+        return { value: c, persisted: c !== null };
+      });
+    },
     submit(summary: string | undefined) {
       return lockedMutate(() => {
         const result = inner.submit(summary);

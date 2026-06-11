@@ -99,6 +99,56 @@
   height: 100vh;
 }
 
+/* ---- Standalone `wd` page: scroll on the document, not an inner box ----
+   Chrome only paints Ctrl+F find-in-page match ticks on the *viewport*
+   scrollbar — never on a nested overflow:auto container. The default
+   layout above scrolls inside .wd-web-review-main, so the page body never
+   scrolls and the ticks have nowhere to land.
+
+   This modifier (set only by the full-page ReviewApp — App.tsx routes
+   /diff & /review to it) hands the scroll back to the document. The
+   embedded dashboard diff (DiffView) deliberately keeps the bounded inner
+   scroller: it sits next to a terminal pane and must not grow the page. */
+.wd-web-review-layout--page {
+  height: auto;
+  min-height: 100vh;
+}
+.wd-web-review-layout--page > .wd-web-review-sidebar {
+  /* Pin the sidebar while the document scrolls. align-self:start stops the
+     grid stretching it to full content height (which would leave no room
+     for it to stick).
+
+     Default: grow with content and stay in the document's scroll box —
+     overflow:visible so it is NOT a scroll container. A nested
+     overflow:auto box (even one not currently overflowing) is its own
+     find-in-page tickmark scroller in Chrome, so a Ctrl+F match in the
+     file tree would wipe the viewport scrollbar's match ticks. Keeping it
+     in the document scroller means file-tree matches share the page
+     scrollbar and the ticks stay put. */
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: auto;
+  overflow: visible;
+}
+.wd-web-review-layout--page > .wd-web-review-sidebar.wd-sidebar-scrolls {
+  /* Only when the tree is taller than the viewport (toggled by
+     useSidebarOverflowsViewport) does the sidebar become its own scroller.
+     Then its own — now visible — scrollbar legitimately hosts the ticks for
+     matches inside it, and the diff stays put while you scroll the tree. */
+  height: 100vh;
+  overflow-y: auto;
+}
+.wd-web-review-layout--page > .wd-web-review-main {
+  /* No inner scroller — the diff flows into normal document height so the
+     viewport scrollbar (and its find ticks) own the scroll. min-width:0
+     keeps a wide diff line from blowing the grid track out into a
+     horizontal page scrollbar. */
+  overflow: visible;
+  height: auto;
+  min-width: 0;
+}
+
 /* File tree pane in the sidebar. */
 .wd-tree-pane {
   padding: 8px;
@@ -425,6 +475,63 @@
 }
 .wd-comment-action-link { color: var(--hunk-fg); }
 .wd-comment-delete { color: var(--del-fg); }
+
+/* Resolved (done) threads. In the diff a resolved thread collapses to a
+   one-line bar; expanded it's dimmed. */
+.wd-comment-resolved-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  margin: 2px 0;
+  padding: 4px 8px;
+  background: var(--current);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wd-comment-resolved-bar:hover { background: var(--hover); }
+.wd-resolved-check { color: var(--add-fg); font-weight: 700; }
+.wd-resolved-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.wd-resolved-replies { color: var(--muted); flex-shrink: 0; }
+.wd-resolved-show {
+  flex-shrink: 0;
+  color: var(--hunk-fg);
+  font-size: 11px;
+}
+.wd-comment-resolved { opacity: 0.7; }
+.wd-comments-panel-row-resolved { opacity: 0.55; }
+.wd-comments-panel-row-resolved .wd-comments-panel-loc { text-decoration: line-through; }
+.wd-comments-panel-row-resolved .wd-resolved-check { text-decoration: none; }
+
+/* Whole-file (GitHub-style) comments. */
+.wd-file-comment-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.wd-file-comment-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-file-comments {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+}
 
 /* Composer form (inline + reply). */
 .wd-comment-form {
