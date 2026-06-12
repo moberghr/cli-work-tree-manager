@@ -6,8 +6,7 @@
 
 **A cross-platform TypeScript CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code (or any AI CLI), and orchestrate everything — PRs, Jira issues, local tasks, diffs, and reviews — from a terminal dashboard or a single browser tab.**
 
-[![Version](https://img.shields.io/github/v/release/moberghr/cli-work-tree-manager?sort=semver&color=blue&label=version)](https://github.com/moberghr/cli-work-tree-manager/releases)
-[![npm](https://img.shields.io/npm/v/@moberg_hr/work-tree?color=cb3837&logo=npm)](https://www.npmjs.com/package/@moberg_hr/work-tree)
+[![npm](https://img.shields.io/npm/v/@moberg_hr/work-tree?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/@moberg_hr/work-tree)
 [![Website](https://img.shields.io/badge/website-moberghr.github.io-6d28d9.svg)](https://moberghr.github.io/cli-work-tree-manager/)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-339933.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
