@@ -1,5 +1,14 @@
+import hljs from 'highlight.js';
+import cshtmlRazor from 'highlightjs-cshtml-razor';
+
+// Razor (.cshtml/.razor) isn't part of the highlight.js bundle, so register the
+// dedicated grammar here — both highlight consumers (DiffFile, FileApp) import
+// this module before they call hljs.highlight, and hljs is a module singleton.
+hljs.registerLanguage('cshtml-razor', cshtmlRazor);
+
 /** Map file extension → highlight.js language identifier. Only languages in
- *  the "common" hljs bundle are mapped — others fall through to no highlight. */
+ *  the "common" hljs bundle (plus the cshtml-razor grammar registered above)
+ *  are mapped — others fall through to no highlight. */
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
   js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
@@ -12,6 +21,7 @@ const EXT_TO_LANG: Record<string, string> = {
   kt: 'kotlin', kts: 'kotlin',
   swift: 'swift',
   cs: 'csharp',
+  cshtml: 'cshtml-razor', razor: 'cshtml-razor',
   c: 'c', h: 'c',
   cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp',
   php: 'php',
