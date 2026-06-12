@@ -1,0 +1,18 @@
+{
+  "name": "work-tree",
+  "description": "Claude Code skills shipped with the work-tree CLI (work / wd)",
+  "owner": {
+    "name": "Moberg HR",
+    "url": "https://github.com/moberghr"
+  },
+  "plugins": [
+    {
+      "name": "work-tree",
+      "description": "Skills for the work-tree CLI — wd-review drives interactive `wd -c` browser diff reviews",
+      "version": "1.9.1",
+      "source": "./plugins/work-tree",
+      "category": "productivity",
+      "tags": ["git", "worktree", "diff", "review"]
+    }
+  ]
+}
