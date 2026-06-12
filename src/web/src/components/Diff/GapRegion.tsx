@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
 import {
   gapOffset,
@@ -7,7 +7,7 @@ import {
   nextTopRange,
   type DiffGap,
 } from '../../utils/expand.js';
-import type { Highlighter } from './DiffFile.js';
+import { highlightBlock } from '../../utils/highlight.js';
 
 interface RevealedLine {
   newNum: number;
@@ -19,7 +19,8 @@ interface Props {
   repo: string;
   file: string;
   gap: DiffGap;
-  highlight?: Highlighter | null;
+  /** Resolved hljs language for this file, or null to render plain text. */
+  lang?: string | null;
   /** Notifies the parent when this gap becomes fully revealed (no hidden
    *  lines left between its anchors) so it can drop the now-redundant `@@`
    *  header on the hunk below. Only fires for gaps with a lower anchor —
@@ -43,7 +44,7 @@ export function GapRegion({
   repo,
   file,
   gap,
-  highlight,
+  lang,
   onClosedChange,
   belowHeading,
 }: Props) {
@@ -65,6 +66,24 @@ export function GapRegion({
   useEffect(() => {
     onClosedChange?.(closed);
   }, [closed, onClosedChange]);
+
+  // Highlight each revealed run as a contiguous block (top and bottom are two
+  // separate runs) so stateful grammars keep context, then key by line object
+  // for per-cell lookup. Same rationale as DiffHunk's per-side highlighting.
+  const lineHtml = useMemo(() => {
+    if (!lang) return null;
+    const m = new Map<RevealedLine, string>();
+    const fill = (run: RevealedLine[]) => {
+      const html = highlightBlock(run.map((l) => l.content), lang);
+      run.forEach((l, i) => {
+        const h = html[i];
+        if (h) m.set(l, h);
+      });
+    };
+    fill(topLines);
+    fill(bottomLines);
+    return m;
+  }, [lang, topLines, bottomLines]);
 
   if (!exp) return null;
 
@@ -117,7 +136,7 @@ export function GapRegion({
   return (
     <>
       {topLines.map((l) => (
-        <ContextRow key={`t-${l.newNum}`} line={l} highlight={highlight} />
+        <ContextRow key={`t-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} />
       ))}
       {showExpander && (
         <tr className="wd-row wd-expander-row">
@@ -173,7 +192,7 @@ export function GapRegion({
         </tr>
       )}
       {bottomLines.map((l) => (
-        <ContextRow key={`b-${l.newNum}`} line={l} highlight={highlight} />
+        <ContextRow key={`b-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} />
       ))}
     </>
   );
@@ -181,30 +200,29 @@ export function GapRegion({
 
 function ContextRow({
   line,
-  highlight,
+  html,
 }: {
   line: RevealedLine;
-  highlight?: Highlighter | null;
+  html: string | null;
 }) {
   return (
     <tr className="wd-row wd-row-context">
       <td className="wd-ln wd-ln-old wd-context">{line.oldNum}</td>
-      <ContextCell content={line.content} highlight={highlight} />
+      <ContextCell content={line.content} html={html} />
       <td className="wd-ln wd-ln-new wd-context">{line.newNum}</td>
-      <ContextCell content={line.content} highlight={highlight} />
+      <ContextCell content={line.content} html={html} />
     </tr>
   );
 }
 
 function ContextCell({
   content,
-  highlight,
+  html,
 }: {
   content: string;
-  highlight?: Highlighter | null;
+  html: string | null;
 }) {
-  const html = highlight ? highlight(content) : null;
-  if (html !== null && html !== undefined) {
+  if (html !== null) {
     return (
       <td
         className="wd-content wd-context"

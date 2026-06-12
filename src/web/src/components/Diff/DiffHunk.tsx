@@ -8,7 +8,55 @@ import {
 import { useReviewOptional } from '../../state/ReviewProvider.js';
 import { CommentLineRow } from '../Review/CommentLineRow.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
-import type { Highlighter } from './DiffFile.js';
+import { highlightBlock } from '../../utils/highlight.js';
+
+/** Per-side maps from a line number to its pre-highlighted HTML for one hunk. */
+interface HunkLineHtml {
+  old: Map<number, string>;
+  new: Map<number, string>;
+}
+
+/**
+ * Highlight each side of a hunk as a contiguous block, then index the result
+ * by line number. Highlighting the whole side at once (rather than line by
+ * line) is what lets a stateful grammar — e.g. Razor's `@code { … }` C#
+ * sublanguage, or a multi-line comment/string — keep its context across lines.
+ * Returns null when there's no language to highlight with.
+ *
+ * Each side is highlighted in isolation, so context lines are (intentionally)
+ * highlighted on both sides — they can sit in different grammar state on the
+ * old vs new side. Limitation: a hunk is highlighted on its own, so when a
+ * stateful opener (an `@code {`, a `/*`, a backtick) lives in elided context
+ * ABOVE the hunk, that hunk renders unhighlighted — the opener isn't in the
+ * block. "Open file ↗" (FileApp) highlights the whole file and is the escape
+ * hatch; widening this would mean fetching full-file context per hunk.
+ */
+function buildHunkHighlight(
+  hunk: Hunk,
+  lang: string | null | undefined,
+): HunkLineHtml | null {
+  if (!lang) return null;
+  const oldRows: { num: number; content: string }[] = [];
+  const newRows: { num: number; content: string }[] = [];
+  for (const ln of hunk.lines) {
+    if ((ln.kind === 'context' || ln.kind === 'delete') && ln.oldNum !== null) {
+      oldRows.push({ num: ln.oldNum, content: ln.content });
+    }
+    if ((ln.kind === 'context' || ln.kind === 'add') && ln.newNum !== null) {
+      newRows.push({ num: ln.newNum, content: ln.content });
+    }
+  }
+  const toMap = (rows: { num: number; content: string }[]): Map<number, string> => {
+    const html = highlightBlock(rows.map((r) => r.content), lang);
+    const m = new Map<number, string>();
+    rows.forEach((r, i) => {
+      const h = html[i];
+      if (h) m.set(r.num, h);
+    });
+    return m;
+  };
+  return { old: toMap(oldRows), new: toMap(newRows) };
+}
 
 interface Props {
   hunk: Hunk;
@@ -17,8 +65,8 @@ interface Props {
   /** Required when review is true — used to scope comments and the composer. */
   repo?: string;
   file?: string;
-  /** Optional render-time syntax highlighter. When null we render plain text. */
-  highlight?: Highlighter | null;
+  /** Resolved hljs language for this file, or null to render plain text. */
+  lang?: string | null;
   /** Whether this hunk is checked off as reviewed (review progress state). */
   reviewed?: boolean;
   /** Toggle the reviewed flag. Wired by the parent so it can persist. */
@@ -36,7 +84,7 @@ export function DiffHunk({
   review = false,
   repo,
   file,
-  highlight,
+  lang,
   reviewed,
   onToggleReviewed,
   showHeading = true,
@@ -44,6 +92,9 @@ export function DiffHunk({
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
+  // Highlight both sides of the hunk as contiguous blocks (preserves
+  // multi-line grammar state), keyed by line number for per-cell lookup.
+  const lineHtml = useMemo(() => buildHunkHighlight(hunk, lang), [hunk, lang]);
   const showCheckbox = review && !!file && !!onToggleReviewed;
   // Only show the "reviewed" accent in review mode. In read-only views
   // (static `wd` / `wd --server`) there's no checkbox to toggle it off, so a
@@ -85,7 +136,7 @@ export function DiffHunk({
             review={review}
             repo={repo}
             file={file}
-            highlight={highlight}
+            lineHtml={lineHtml}
           />
           {review && repo && file && (
             <CommentLineRow
@@ -108,13 +159,13 @@ function DiffSideRow({
   review,
   repo,
   file,
-  highlight,
+  lineHtml,
 }: {
   row: SideRow;
   review: boolean;
   repo?: string;
   file?: string;
-  highlight?: Highlighter | null;
+  lineHtml: HunkLineHtml | null;
 }) {
   const reviewCtx = useReviewOptional();
   const enabled = review && !!repo && !!file && !!reviewCtx;
@@ -148,7 +199,7 @@ function DiffSideRow({
         text={row.oldContent}
         spans={row.oldSpans}
         kind="delete"
-        highlight={highlight}
+        html={row.oldNum !== null ? (lineHtml?.old.get(row.oldNum) ?? null) : null}
       />
       <td
         className={
@@ -164,7 +215,7 @@ function DiffSideRow({
         text={row.newContent}
         spans={row.newSpans}
         kind="add"
-        highlight={highlight}
+        html={row.newNum !== null ? (lineHtml?.new.get(row.newNum) ?? null) : null}
       />
     </tr>
   );
@@ -175,13 +226,13 @@ function ContentCell({
   text,
   spans,
   kind,
-  highlight,
+  html,
 }: {
   className: string;
   text: string;
   spans: IntraSpan[] | undefined;
   kind: 'add' | 'delete';
-  highlight?: Highlighter | null;
+  html: string | null;
 }) {
   // When the line has word-level diff spans, render those (skip hljs —
   // intra-line markup wins; mirrors GitHub's behaviour).
@@ -200,8 +251,7 @@ function ContentCell({
       </td>
     );
   }
-  const html = highlight ? highlight(text) : null;
-  if (html !== null && html !== undefined) {
+  if (html !== null) {
     return (
       <td
         className={className}

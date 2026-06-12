@@ -1,7 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import hljs from 'highlight.js';
 import type { ParsedFile } from '../../api/client.js';
-import { languageForPath } from '../../utils/language.js';
+import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
@@ -29,8 +28,6 @@ interface Props {
   /** Scope key for per-hunk reviewed state. Empty disables persistence. */
   hunkScopeKey?: string;
 }
-
-export type Highlighter = (text: string) => string | null;
 
 /** Lines (added + deleted) past which we don't auto-render the diff
  *  table. The user can click "Load diff" to opt in. Same rationale as
@@ -68,24 +65,16 @@ export function DiffFile({
     expand && repo && !file.isBinary && file.status !== 'deleted'
       ? expand.fileHref(repo, file.path)
       : null;
-  // Stable, render-time highlighter. We highlight the full line text on
-  // demand; cells with intra-line spans skip this path (the word-diff
-  // markup wins). React owns the DOM via dangerouslySetInnerHTML — no
-  // post-paint mutation, no reuse-across-renders staleness.
-  const highlight = useMemo<Highlighter | null>(() => {
-    if (file.isBinary) return null;
-    const lang = languageForPath(file.path);
-    if (!lang || !hljs.getLanguage(lang)) return null;
-    return (text: string) => {
-      if (!text.trim()) return null;
-      try {
-        return hljs.highlight(text, { language: lang, ignoreIllegals: true })
-          .value;
-      } catch {
-        return null;
-      }
-    };
-  }, [file.isBinary, file.path]);
+  // Resolved highlight language for this file (null = no highlighting). The
+  // actual highlighting happens per-hunk in DiffHunk / per-gap in GapRegion,
+  // which highlight a contiguous block at once so stateful grammars (Razor's
+  // `@code` C# sublanguage, multi-line comments/strings) keep their context —
+  // line-by-line highlighting would lose it. React owns the DOM via
+  // dangerouslySetInnerHTML — no post-paint mutation.
+  const lang = useMemo(
+    () => (file.isBinary ? null : resolveHighlightLang(file.path)),
+    [file.isBinary, file.path],
+  );
 
   // Large-file gate. Auto-generated migrations / lockfile churn / bundle
   // diffs can have tens of thousands of rows; rendering them all at once
@@ -335,7 +324,7 @@ export function DiffFile({
                   repo={repo}
                   file={file.path}
                   gap={gapByKey.get('head')!}
-                  highlight={highlight}
+                  lang={lang}
                   onClosedChange={gapHandlers.get('head')}
                   belowHeading={file.hunks[0] ? hunkHeading(file.hunks[0]) : undefined}
                 />
@@ -371,7 +360,7 @@ export function DiffFile({
                       review={review}
                       repo={repo}
                       file={file.path}
-                      highlight={highlight}
+                      lang={lang}
                       reviewed={reviewedHunkKeys.has(hunkKey)}
                       onToggleReviewed={
                         hunkScopeKey
@@ -385,7 +374,7 @@ export function DiffFile({
                         repo={repo}
                         file={file.path}
                         gap={midGap}
-                        highlight={highlight}
+                        lang={lang}
                         onClosedChange={gapHandlers.get(`mid-${i}`)}
                         belowHeading={
                           file.hunks[i + 1]
@@ -402,7 +391,7 @@ export function DiffFile({
                   repo={repo}
                   file={file.path}
                   gap={gapByKey.get('tail')!}
-                  highlight={highlight}
+                  lang={lang}
                 />
               )}
             </tbody>

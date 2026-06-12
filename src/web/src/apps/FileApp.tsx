@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import hljs from 'highlight.js';
 import { fetchFileLines } from '../api/client.js';
-import { languageForPath } from '../utils/language.js';
+import { highlightBlock, resolveHighlightLang } from '../utils/highlight.js';
 
 interface Props {
   /** Scope hash for the `work web` endpoint; undefined → standalone server. */
@@ -47,19 +46,14 @@ export function FileApp({ hash }: Props) {
     document.title = filePath ? `${filePath} — file` : 'file';
   }, [filePath]);
 
-  const highlight = useMemo(() => {
-    const lang = languageForPath(filePath);
-    if (!lang || !hljs.getLanguage(lang)) return null;
-    return (text: string): string | null => {
-      if (!text.trim()) return null;
-      try {
-        return hljs.highlight(text, { language: lang, ignoreIllegals: true })
-          .value;
-      } catch {
-        return null;
-      }
-    };
-  }, [filePath]);
+  // Highlight the whole file as one block (not line by line) so stateful
+  // grammars — Razor's `@code` C# sublanguage, multi-line comments/strings —
+  // keep context across lines. Result is indexed by line.
+  const htmlLines = useMemo(() => {
+    const lang = resolveHighlightLang(filePath);
+    if (!lang || !lines) return null;
+    return highlightBlock(lines, lang);
+  }, [filePath, lines]);
 
   if (error) {
     return <div className="wd-web-error">{error}</div>;
@@ -79,11 +73,13 @@ export function FileApp({ hash }: Props) {
       <table className="wd-fileview-table">
         <tbody>
           {lines.map((content, i) => {
-            const html = highlight ? highlight(content) : null;
+            // null (blank line / no language) → plain branch, which renders a
+            // space so the blank line keeps its row height.
+            const html = htmlLines?.[i] ?? null;
             return (
               <tr key={i} className="wd-fileview-row">
                 <td className="wd-fileview-ln">{i + 1}</td>
-                {html !== null && html !== undefined ? (
+                {html !== null ? (
                   <td
                     className="wd-fileview-content"
                     dangerouslySetInnerHTML={{ __html: html }}
