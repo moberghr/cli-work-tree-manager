@@ -70,4 +70,25 @@ describe('highlightToLines', () => {
     expect(resolveHighlightLang('Foo.cshtml')).toBe('cshtml-razor');
     expect(resolveHighlightLang('Foo.unknownext')).toBeNull();
   });
+
+  it('highlights .NET/C# project & markup files as XML', () => {
+    for (const f of [
+      'Strings.resx',
+      'MySolution.slnx',
+      'MyProject.csproj',
+      'Directory.Build.props',
+      'Directory.Build.targets',
+      'MyPackage.nuspec',
+      'MainWindow.xaml',
+      'MainWindow.axaml',
+      'Resources.resw',
+      'web.config',
+    ]) {
+      expect(resolveHighlightLang(f)).toBe('xml');
+    }
+  });
+
+  it('highlights C# script files as csharp', () => {
+    expect(resolveHighlightLang('build.csx')).toBe('csharp');
+  });
 });
