@@ -3,6 +3,7 @@ dist/
 coverage/
 *.tsbuildinfo
 .DS_Store
+.idea/
 /.tool-versions
 tasks/todo.md
 .claude.local.md
