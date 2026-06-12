@@ -284,7 +284,7 @@ Second binary (`dist/wd-bin.js`, shim `wd`) that surfaces a GitHub-PR-style diff
 - **Owned-PTY push** in `core/session-comment-routes.ts`: when a comment is posted and `work web`'s pool already owns a PTY for that session (the user opened the Terminal tab), the route handler writes the formatted reminder directly to stdin. Idle Claudes in our own PTY get the comment without any hook round-trip.
 - For external Claudes that are fully idle, neither path fires — the dashboard shows a purple `→N` "waiting for Claude" badge until the user does anything in that terminal.
 
-The legacy `wd-review` skill at `.claude/skills/wd-review/SKILL.md` is still used for the `wd -c` foreground flow (stdout marker stream + curl replies via `~/.work/diffs/latest-review.url`). Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body. In the normal work-web flow, reply to `POST /api/scopes/<hash>/comments` (hash from the `/review/<hash>` URL), NOT `/api/comments`.
+The legacy `wd-review` skill at `plugins/work-tree/skills/wd-review/SKILL.md` (shipped via the `work-tree` Claude Code plugin marketplace — see `.claude-plugin/marketplace.json`; registered automatically by `scripts/postinstall.mjs` on npm install) is still used for the `wd -c` foreground flow (stdout marker stream + curl replies via `~/.work/diffs/latest-review.url`). Replies must use `--data-binary "@file"` not inline `-d '...'` to survive apostrophes in the body. In the normal work-web flow, reply to `POST /api/scopes/<hash>/comments` (hash from the `/review/<hash>` URL), NOT `/api/comments`.
 
 ### Checkpoint trigger + reload-loop guard
 

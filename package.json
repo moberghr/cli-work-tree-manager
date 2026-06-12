@@ -8,7 +8,10 @@
     "wd": "./dist/wd-bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts/postinstall.mjs",
+    ".claude-plugin",
+    "plugins"
   ],
   "scripts": {
     "build": "npm run build:server && npm run build:web",
@@ -19,7 +22,8 @@
     "dev:web": "vite",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "keywords": [
     "git",

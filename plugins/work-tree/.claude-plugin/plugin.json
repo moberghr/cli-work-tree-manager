@@ -1,0 +1,11 @@
+{
+  "name": "work-tree",
+  "description": "Skills for the work-tree CLI — wd-review drives interactive `wd -c` browser diff reviews",
+  "version": "1.9.1",
+  "author": {
+    "name": "Moberg HR",
+    "url": "https://github.com/moberghr"
+  },
+  "homepage": "https://github.com/moberghr/cli-work-tree-manager",
+  "strict": false
+}
