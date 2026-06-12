@@ -42,6 +42,11 @@ Work is the missing layer between `git worktree` and your AI assistant. Every br
 
 ```bash
 # 1. Install (Node 18+, Git required)
+
+# Option A — Homebrew (macOS / Linux)
+brew install moberghr/work-tree/work    # provides `work` and `wd`
+
+# Option B — from source
 git clone https://github.com/moberghr/cli-work-tree-manager work
 cd work
 npm install
