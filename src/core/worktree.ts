@@ -26,6 +26,36 @@ import {
 } from './base-spec.js';
 
 /**
+ * Pull latest changes for a worktree we're switching into (not freshly
+ * created). Runs fetch + pull in the worktree's own directory. Best-effort:
+ * a branch with no upstream is skipped silently; a failed pull (dirty tree,
+ * conflicts) only warns and never blocks switching into the worktree.
+ */
+function pullExistingWorktree(worktreePath: string, branchName: string): void {
+  // Skip purely local branches — `git pull` would print a "no tracking
+  // information" error that reads as a failure rather than a no-op.
+  const upstream = git(
+    ['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`],
+    worktreePath,
+  );
+  if (upstream.exitCode !== 0) return;
+
+  console.log(`  Pulling latest changes for ${branchName}...`);
+  // Fetch first so origin/* is fresh even if the pull below can't fast-forward.
+  git(['fetch', '--quiet'], worktreePath);
+  const pull = git(['pull', '--quiet'], worktreePath);
+  if (pull.exitCode !== 0) {
+    console.log(
+      chalk.yellow(
+        `  ⚠ Could not pull '${branchName}' (uncommitted changes or conflicts). Worktree may be behind origin.`,
+      ),
+    );
+    const firstErrLine = pull.stderr.split('\n')[0];
+    if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+  }
+}
+
+/**
  * Create a single git worktree for one repo.
  * Returns true on success, false on failure.
  *
@@ -50,6 +80,7 @@ export function createSingleWorktree(
         console.log(
           chalk.yellow(`  Worktree already exists at: ${worktreePath}`),
         );
+        pullExistingWorktree(worktreePath, branchName);
         return true;
       }
     }
@@ -507,6 +538,7 @@ async function setupSingleWorktree(
     }
     console.log(`Worktree already exists at: ${existing.path}`);
     workTreePath = existing.path;
+    pullExistingWorktree(workTreePath, branchName);
   } else {
     const success = createSingleWorktree(repoPath, workTreePath, branchName, config, baseBranch);
     if (!success) return null;

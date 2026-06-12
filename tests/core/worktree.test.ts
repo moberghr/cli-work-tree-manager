@@ -58,6 +58,35 @@ describe('createSingleWorktree', () => {
     expect(result).toBe(true);
   });
 
+  it('pulls latest changes when switching into an existing tracked worktree', () => {
+    // Set up a bare "origin" the worktree branch can track.
+    const originDir = path.join(tmpDir, 'origin.git');
+    git(['init', '--bare', '-b', 'main', originDir], tmpDir);
+    git(['remote', 'add', 'origin', originDir], repoDir);
+    git(['push', '-u', 'origin', 'main'], repoDir);
+
+    // Create a worktree on a branch (forked from main HEAD) and publish it so
+    // it has an upstream. At this point feature/pull == main.
+    const wtPath = path.join(wtDir, 'feature-pull');
+    createSingleWorktree(repoDir, wtPath, 'feature/pull', config);
+    git(['push', '-u', 'origin', 'feature/pull'], wtPath);
+    const headBefore = git(['rev-parse', 'HEAD'], wtPath).stdout;
+
+    // Land a new commit and advance origin/feature/pull to it. The main repo's
+    // main branch (== feature/pull's fork point) fast-forwards the remote ref.
+    fs.writeFileSync(path.join(repoDir, 'remote-change.txt'), 'from origin');
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'remote commit', '--no-gpg-sign'], repoDir);
+    git(['push', 'origin', 'main:feature/pull'], repoDir);
+
+    // Re-running on the existing worktree should fast-forward it to origin.
+    const result = createSingleWorktree(repoDir, wtPath, 'feature/pull', config);
+
+    expect(result).toBe(true);
+    expect(git(['rev-parse', 'HEAD'], wtPath).stdout).not.toBe(headBefore);
+    expect(fs.existsSync(path.join(wtPath, 'remote-change.txt'))).toBe(true);
+  });
+
   it('fails if branch is checked out in another worktree', () => {
     const wt1 = path.join(wtDir, 'wt1');
     const wt2 = path.join(wtDir, 'wt2');
