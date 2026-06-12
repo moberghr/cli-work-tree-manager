@@ -13,7 +13,14 @@ import { Hono } from 'hono';
 import { mountScopeRoutes } from '../../src/core/scope-routes.js';
 import { disposeAllScopes } from '../../src/core/scope-manager.js';
 import { git } from '../../src/core/git.js';
-import { takeCheckpoint } from '../../src/core/checkpoint.js';
+import { takeCheckpoint, loadManifest } from '../../src/core/checkpoint.js';
+
+// Stub the lazy Claude summary so checkpoint naming never spawns `claude -p`
+// during tests. ensureSummary still runs (and persists the label), just with
+// a deterministic, instant result.
+vi.mock('../../src/core/checkpoint-summary.js', () => ({
+  summarizeCheckpoint: vi.fn(async () => 'mock summary'),
+}));
 
 let tmpHome: string;
 let repoDir: string;
@@ -66,6 +73,72 @@ describe('GET /api/scopes/:hash/checkpoints', () => {
   it('returns 404 for an unknown scope', async () => {
     const res = await app.request('/api/scopes/nope/checkpoints');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('per-instruction checkpoints (/api/checkpoint + /seal)', () => {
+  /** Poll the checkpoints endpoint until at least `n` entries exist. The
+   *  Initial snapshot is taken fire-and-forget by register, so we must wait
+   *  for it before driving the Stop-hook route (otherwise the first POST
+   *  would itself create the Initial entry and skew the ids). */
+  async function waitForEntries(hash: string, n: number): Promise<void> {
+    for (let i = 0; i < 40; i++) {
+      const res = await app.request(`/api/scopes/${hash}/checkpoints`);
+      const body = (await res.json()) as { entries: unknown[] };
+      if (body.entries.length >= n) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`timed out waiting for ${n} checkpoint(s)`);
+  }
+
+  const checkpoint = (cwd: string) =>
+    app.request('/api/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd }),
+    });
+  const seal = (cwd: string) =>
+    app.request('/api/checkpoint/seal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd }),
+    });
+
+  it('refreshes the live step across turns and opens a fresh one after a prompt', async () => {
+    const hash = await register();
+    await waitForEntries(hash, 1); // Initial #0
+
+    // Turn 1 of instruction A → opens step #1.
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'turn 1\n');
+    expect((await (await checkpoint(repoDir)).json()).snapshotted).toBe(1);
+    let m = loadManifest(hash);
+    expect(m.entries).toHaveLength(2);
+    const idAfterTurn1 = m.entries[1].id;
+    const shaAfterTurn1 = m.entries[1].repos[repoDir];
+
+    // Turn 2 of the SAME instruction → refreshes step #1, does NOT append.
+    fs.writeFileSync(path.join(repoDir, 'a.txt'), 'turn 1\nturn 2\n');
+    await checkpoint(repoDir);
+    m = loadManifest(hash);
+    expect(m.entries).toHaveLength(2); // still two — no per-turn proliferation
+    expect(m.entries[1].id).toBe(idAfterTurn1);
+    expect(m.entries[1].repos[repoDir]).not.toBe(shaAfterTurn1); // content moved
+
+    // New user prompt seals the live step.
+    expect((await (await seal(repoDir)).json()).sealed).toBe(1);
+
+    // Instruction B → opens a brand-new step #2.
+    fs.writeFileSync(path.join(repoDir, 'b.txt'), 'instruction B\n');
+    await checkpoint(repoDir);
+    m = loadManifest(hash);
+    expect(m.entries).toHaveLength(3);
+    expect(m.entries[2].id).toBe(idAfterTurn1 + 1);
+  });
+
+  it('seal is a no-op for an untracked cwd', async () => {
+    const res = await seal(path.join(tmpHome, 'not', 'a', 'scope'));
+    expect(res.status).toBe(200);
+    expect((await res.json()).sealed).toBe(0);
   });
 });
 

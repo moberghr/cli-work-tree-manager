@@ -12,6 +12,7 @@ import spawn from 'cross-spawn';
 import path from 'node:path';
 import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';
+import { internalClaudeEnv } from './internal-claude.js';
 import type { ParsedFile } from './diff-parse.js';
 
 export interface SummaryRepo {
@@ -109,6 +110,9 @@ function runClaude(prompt: string, timeoutMs = 25_000): Promise<string | null> {
       child = spawn('claude', ['-p'], {
         stdio: ['pipe', 'pipe', 'ignore'],
         windowsHide: true,
+        // Tag as internal so this naming run doesn't recursively trip work's
+        // own UserPromptSubmit/Stop checkpoint hooks (see internal-claude.ts).
+        env: { ...process.env, ...internalClaudeEnv() },
       });
     } catch {
       finish(null);

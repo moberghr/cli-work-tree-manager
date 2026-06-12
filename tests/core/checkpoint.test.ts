@@ -5,6 +5,7 @@ import os from 'node:os';
 import { git } from '../../src/core/git.js';
 import {
   takeCheckpoint,
+  updateCheckpoint,
   loadManifest,
   snapshotRepo,
   clearCheckpoints,
@@ -320,6 +321,67 @@ describe('takeCheckpoint', () => {
     ]);
     expect(entry2).not.toBeNull();
     expect(entry2!.id).toBe(0); // Fresh manifest for s2.
+  });
+});
+
+describe('updateCheckpoint (per-instruction live step refresh)', () => {
+  it('refreshes an existing entry in place when content changed (no new id)', async () => {
+    await takeCheckpoint('hashU', [{ name: 'repoA', root: repoA }]); // #0
+    writeFile(repoA, 'work.txt', 'turn 1\n');
+    const live = await takeCheckpoint('hashU', [{ name: 'repoA', root: repoA }]);
+    expect(live!.id).toBe(1);
+    const shaAfterTurn1 = live!.repos.repoA;
+
+    // Same instruction, next turn: more changes refresh the SAME step.
+    writeFile(repoA, 'work.txt', 'turn 1\nturn 2\n');
+    const res = await updateCheckpoint('hashU', [{ name: 'repoA', root: repoA }], 1);
+    expect(res.status).toBe('updated');
+    if (res.status !== 'updated') throw new Error('unreachable');
+    expect(res.entry.id).toBe(1);
+    expect(res.entry.repos.repoA).not.toBe(shaAfterTurn1);
+
+    // Still exactly two entries — no per-turn proliferation.
+    const manifest = loadManifest('hashU');
+    expect(manifest.entries).toHaveLength(2);
+    // The ref for id 1 points at the refreshed commit.
+    const refSha = git(['rev-parse', 'refs/wd/hashU/1'], repoA).stdout.trim();
+    expect(refSha).toBe(res.entry.repos.repoA);
+  });
+
+  it('returns "unchanged" and preserves the ref when nothing changed', async () => {
+    await takeCheckpoint('hashU2', [{ name: 'repoA', root: repoA }]); // #0
+    writeFile(repoA, 'work.txt', 'turn 1\n');
+    const live = await takeCheckpoint('hashU2', [{ name: 'repoA', root: repoA }]);
+    const sha = live!.repos.repoA;
+
+    const res = await updateCheckpoint('hashU2', [{ name: 'repoA', root: repoA }], 1);
+    expect(res.status).toBe('unchanged');
+    // Manifest entry + ref untouched.
+    const manifest = loadManifest('hashU2');
+    expect(manifest.entries[1].repos.repoA).toBe(sha);
+    const refSha = git(['rev-parse', 'refs/wd/hashU2/1'], repoA).stdout.trim();
+    expect(refSha).toBe(sha);
+  });
+
+  it('returns "missing" when the id does not exist', async () => {
+    await takeCheckpoint('hashU3', [{ name: 'repoA', root: repoA }]); // #0 only
+    const res = await updateCheckpoint('hashU3', [{ name: 'repoA', root: repoA }], 99);
+    expect(res.status).toBe('missing');
+  });
+
+  it('clears the label on a real update so it gets re-summarised', async () => {
+    await takeCheckpoint('hashU4', [{ name: 'repoA', root: repoA }]); // #0
+    writeFile(repoA, 'work.txt', 'a\n');
+    await takeCheckpoint('hashU4', [{ name: 'repoA', root: repoA }]); // #1
+    // Pretend the SPA had already named it.
+    const before = loadManifest('hashU4');
+    before.entries[1].label = 'Old name';
+    fs.writeFileSync(manifestPath('hashU4'), JSON.stringify(before, null, 2));
+
+    writeFile(repoA, 'work.txt', 'a\nb\n');
+    const res = await updateCheckpoint('hashU4', [{ name: 'repoA', root: repoA }], 1);
+    expect(res.status).toBe('updated');
+    expect(loadManifest('hashU4').entries[1].label).toBeUndefined();
   });
 });
 

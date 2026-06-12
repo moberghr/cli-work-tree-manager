@@ -13,6 +13,7 @@ import {
   type WorktreeSession,
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
+import { internalClaudeEnv } from '../core/internal-claude.js';
 import { rebaseOntoMainAsync, countConflictsAsync, isBranchMergedAsync, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
@@ -127,7 +128,13 @@ function generateSlug(summary: string): Promise<string> {
     const child = execFile(
       'claude',
       ['-p', '--model', 'haiku'],
-      { encoding: 'utf-8', timeout: 10000, windowsHide: true },
+      {
+        encoding: 'utf-8',
+        timeout: 10000,
+        windowsHide: true,
+        // Internal call — don't trip work's checkpoint hooks (see internal-claude.ts).
+        env: { ...process.env, ...internalClaudeEnv() },
+      },
       (err, stdout) => {
         const result = stdout?.trim()
           .toLowerCase()

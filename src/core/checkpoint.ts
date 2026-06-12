@@ -285,6 +285,101 @@ export async function takeCheckpoint(
   });
 }
 
+export type UpdateCheckpointResult =
+  | { status: 'updated'; entry: CheckpointEntry }
+  | { status: 'unchanged' }
+  | { status: 'missing' };
+
+/**
+ * Re-snapshot every repo into an EXISTING checkpoint `id`, replacing its
+ * captured shas + timestamp in place. This is the "one step per instruction"
+ * primitive: while a Claude instruction is in progress, each turn refreshes
+ * the same (live) checkpoint instead of appending a brand-new step, so all
+ * the turns answering one prompt collapse into a single entry. The label is
+ * cleared on a real change so the caller re-summarises the new content.
+ *
+ * Returns:
+ *   - { status:'updated', entry } — content changed and was written
+ *   - { status:'unchanged' }      — the refreshed tree matches what's stored
+ *   - { status:'missing' }        — no entry with `id`, or a repo snapshot
+ *                                   failed (caller should append instead)
+ *
+ * Ref/manifest consistency: `snapshotRepo` overwrites `refs/wd/<hash>/<id>`.
+ * On both the 'missing' (partial-failure) and 'unchanged' paths we restore
+ * each ref to the entry's recorded sha so a moved ref can't orphan the commit
+ * the manifest still points at.
+ */
+export async function updateCheckpoint(
+  scopeHash: string,
+  repos: ScopeRepo[],
+  id: number,
+): Promise<UpdateCheckpointResult> {
+  const file = manifestPath(scopeHash);
+  ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
+  return withFileLock(file, () => {
+    const manifest = loadManifest(scopeHash);
+    const entry = manifest.entries.find((e) => e.id === id);
+    if (!entry) return { status: 'missing' as const };
+
+    const refName = `refs/wd/${scopeHash}/${id}`;
+    const restoreRefs = () => {
+      for (const repo of repos) {
+        const old = entry.repos[repo.name] ?? null;
+        if (old) {
+          spawn.sync('git', ['update-ref', refName, old], {
+            cwd: repo.root,
+            encoding: 'utf-8',
+            windowsHide: true,
+          });
+        } else {
+          spawn.sync('git', ['update-ref', '-d', refName], {
+            cwd: repo.root,
+            encoding: 'utf-8',
+            windowsHide: true,
+          });
+        }
+      }
+    };
+
+    // Capture the current working tree into the SAME ref id (overwrites the
+    // previous commit for this id).
+    const captured: Record<string, string | null> = {};
+    for (const repo of repos) {
+      captured[repo.name] = snapshotRepo(repo.root, scopeHash, id, true);
+    }
+    if (repos.some((r) => captured[r.name] === null)) {
+      restoreRefs();
+      return { status: 'missing' as const };
+    }
+
+    const treeOf = (root: string, commitSha: string | null): string | null => {
+      if (!commitSha) return null;
+      const r = spawn.sync('git', ['rev-parse', `${commitSha}^{tree}`], {
+        cwd: root,
+        encoding: 'utf-8',
+        windowsHide: true,
+      });
+      if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+      return r.stdout.trim() || null;
+    };
+    const unchanged = repos.every((repo) => {
+      const curTree = treeOf(repo.root, captured[repo.name]);
+      const prevTree = treeOf(repo.root, entry.repos[repo.name] ?? null);
+      return curTree !== null && curTree === prevTree;
+    });
+    if (unchanged) {
+      restoreRefs();
+      return { status: 'unchanged' as const };
+    }
+
+    entry.repos = captured;
+    entry.ts = new Date().toISOString();
+    delete entry.label; // content changed → re-summarise
+    atomicWriteFile(file, JSON.stringify(manifest, null, 2));
+    return { status: 'updated' as const, entry };
+  });
+}
+
 /**
  * Set (cache) a checkpoint's human label. Runs under the same file lock as
  * `takeCheckpoint` so a concurrent auto-snapshot can't clobber the write.

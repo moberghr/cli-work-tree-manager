@@ -13,6 +13,7 @@ import {
   loadManifest,
   setCheckpointLabel,
   takeCheckpoint,
+  updateCheckpoint,
   type CheckpointEntry,
 } from './checkpoint.js';
 import { summarizeCheckpoint } from './checkpoint-summary.js';
@@ -81,6 +82,18 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   // unchanged and we can skip the whole snapshot pipeline.
   const lastStatus = new Map<string, string>();
 
+  // Per-scope id of the "live" (in-progress) checkpoint — the step for the
+  // instruction Claude is currently answering. While set, each turn's Stop
+  // hook REFRESHES this checkpoint (updateCheckpoint) instead of appending a
+  // new one, so every turn answering one prompt collapses into a single step.
+  // A new user prompt (UserPromptSubmit → /api/checkpoint/seal) clears it, so
+  // the next turn opens a fresh step. Cleared on scope teardown.
+  const liveCheckpoint = new Map<string, number>();
+
+  // `${hash}:${id}` of checkpoints with a summary request in flight, so a
+  // burst of refreshes for the same live step doesn't stack `claude -p` runs.
+  const summarizing = new Set<string>();
+
   // Per-scope coalescing timer for auto-snapshots. Rather than checkpointing
   // on every 150ms fs-watch burst (one checkpoint per file-save — far too
   // granular to be meaningful), we wait for edits to settle AND for Claude's
@@ -138,6 +151,29 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
    *  `registerScope`'s sort+normalise). */
   function scopeRepos(scopePaths: string[]) {
     return scopePaths.map((p) => ({ name: p, root: p }));
+  }
+
+  /** Name a checkpoint at creation: run the (lazy, cached) Claude summary in
+   *  the background and persist it to the manifest label, then broadcast so
+   *  the picker re-renders with the name. Fire-and-forget; guarded so the
+   *  same step never has two `claude -p` runs in flight. The Initial baseline
+   *  (id 0) keeps its "Initial" label and is skipped. */
+  function ensureSummary(scope: { hash: string; paths: string[] }, id: number) {
+    if (id === 0) return;
+    const key = `${scope.hash}:${id}`;
+    if (summarizing.has(key)) return;
+    summarizing.add(key);
+    summarizeCheckpoint(scope.hash, scopeRepos(scope.paths), id)
+      .then((label) => setCheckpointLabel(scope.hash, id, label))
+      .then(() => {
+        const payload = { scopeHash: scope.hash, id };
+        opts.broadcast('checkpoints-changed', payload);
+        scopeBus.emit('checkpoints-changed', payload);
+      })
+      .catch(() => {
+        /* best-effort — selecting the step in the UI will retry */
+      })
+      .finally(() => summarizing.delete(key));
   }
 
   app.post(
@@ -233,7 +269,10 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
             }
             takeCheckpoint(hash, scopeRepos(scope.paths))
               .then((entry) => {
-                if (entry) announceCheckpoint(entry);
+                if (entry) {
+                  announceCheckpoint(entry);
+                  ensureSummary(scope, entry.id);
+                }
               })
               .catch((err) => {
                 console.error('[checkpoint] auto-snapshot failed:', err);
@@ -265,10 +304,13 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
   app.get('/api/scopes', (c) => c.json({ scopes: listScopes() }));
 
   // Stop-hook bridge: `work hook checkpoint` POSTs the Claude cwd here when a
-  // turn ends, giving us the authoritative, precise per-turn checkpoint. We
-  // snapshot every scope covering that cwd; dedup-by-tree makes a turn that
-  // changed nothing a no-op. No-op (200) when the cwd isn't a tracked scope —
-  // the Stop hook is global and fires for every Claude session.
+  // turn ends. We map cwd → scope(s) and REFRESH the instruction's live step
+  // rather than appending one per turn: if the scope has a live checkpoint
+  // (an instruction is in progress) we update it in place; otherwise we open a
+  // new step and mark it live. A new prompt seals the live step (see
+  // /api/checkpoint/seal) so the NEXT turn opens a fresh one. Net effect: one
+  // step per instruction, always reflecting the latest turn's result. No-op
+  // (200) when the cwd isn't a tracked scope — the Stop hook is global.
   app.post(
     '/api/checkpoint',
     zValidator('json', z.object({ cwd: z.string().min(1) })),
@@ -277,17 +319,67 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       const matched = scopesForCwd(cwd);
       let snapshotted = 0;
       for (const s of matched) {
-        const entry = await takeCheckpoint(s.hash, scopeRepos(s.paths)).catch(
-          () => null,
-        );
+        const liveId = liveCheckpoint.get(s.hash);
+        let entry: CheckpointEntry | null = null;
+
+        if (liveId !== undefined) {
+          // Refresh the in-progress step with this turn's working tree.
+          const res = await updateCheckpoint(
+            s.hash,
+            scopeRepos(s.paths),
+            liveId,
+          ).catch(() => ({ status: 'missing' as const }));
+          if (res.status === 'updated') {
+            entry = res.entry;
+          } else if (res.status === 'missing') {
+            // The live step vanished (manifest cleared) — fall through to
+            // open a fresh one below.
+            liveCheckpoint.delete(s.hash);
+          }
+          // 'unchanged' → nothing changed this turn; keep the live step as-is.
+        }
+
+        if (entry === null && !liveCheckpoint.has(s.hash)) {
+          // No live step (first turn of an instruction, or it was sealed):
+          // append a new one and mark it live.
+          const appended = await takeCheckpoint(
+            s.hash,
+            scopeRepos(s.paths),
+          ).catch(() => null);
+          if (appended) {
+            entry = appended;
+            liveCheckpoint.set(s.hash, appended.id);
+          }
+        }
+
         if (entry) {
           const payload = { scopeHash: s.hash, id: entry.id };
           opts.broadcast('checkpoints-changed', payload);
           scopeBus.emit('checkpoints-changed', payload);
+          ensureSummary(s, entry.id);
           snapshotted++;
         }
       }
       return c.json({ ok: true, scopes: matched.length, snapshotted });
+    },
+  );
+
+  // UserPromptSubmit bridge: `work hook checkpoint-seal` POSTs the Claude cwd
+  // here when the user submits a new prompt. Sealing clears the scope's live
+  // step so the work answering THIS prompt opens a fresh checkpoint instead of
+  // folding into the previous instruction's step. No snapshot is taken — the
+  // previous instruction's result was already captured by its last Stop.
+  app.post(
+    '/api/checkpoint/seal',
+    zValidator('json', z.object({ cwd: z.string().min(1) })),
+    (c) => {
+      const { cwd } = c.req.valid('json');
+      const matched = scopesForCwd(cwd);
+      let sealed = 0;
+      for (const s of matched) {
+        if (liveCheckpoint.delete(s.hash)) sealed++;
+      }
+      return c.json({ ok: true, scopes: matched.length, sealed });
     },
   );
 
@@ -309,6 +401,10 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     // nothing.
     checkpointWatched.delete(hash);
     lastStatus.delete(hash);
+    liveCheckpoint.delete(hash);
+    for (const key of summarizing) {
+      if (key.startsWith(`${hash}:`)) summarizing.delete(key);
+    }
     const pendingTimer = snapshotTimers.get(hash);
     if (pendingTimer) {
       clearTimeout(pendingTimer);

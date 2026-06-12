@@ -10,6 +10,7 @@ import {
   readPendingForWorktree,
   sessionIdFor,
 } from '../core/pending-delivery.js';
+import { isInternalClaude } from '../core/internal-claude.js';
 
 /**
  * `work hook prompt-submit` / `work hook stop` — invoked by Claude Code's
@@ -24,16 +25,21 @@ import {
  *   - Claude isn't actively running in this worktree (paranoia — the hook
  *     only fires from inside a running Claude, but we double-check)
  */
-export type HookEvent = 'prompt-submit' | 'stop' | 'checkpoint';
+export type HookEvent =
+  | 'prompt-submit'
+  | 'stop'
+  | 'checkpoint'
+  | 'checkpoint-seal';
 
 /**
- * Fire-and-forget: tell the running `work web` to take a checkpoint for this
- * worktree. Invoked from Claude Code's Stop hook so checkpoints map exactly
- * to finished turns (the authoritative trigger; the scope's fallback timer
- * stands down whenever a Claude session is active). Silent + best-effort —
- * no work web running, or cwd not a tracked scope, is a no-op.
+ * Fire-and-forget POST to the running `work web`. Shared by the two
+ * checkpoint hooks: `checkpoint` (Stop) hits `api/checkpoint` to refresh the
+ * instruction's live step; `checkpoint-seal` (UserPromptSubmit) hits
+ * `api/checkpoint/seal` to close it so the next prompt opens a fresh step.
+ * Silent + best-effort — no work web running, or cwd not a tracked scope, is
+ * a no-op, and we never block Claude's turn on it.
  */
-async function triggerCheckpoint(cwd: string): Promise<void> {
+async function postToWeb(route: string, cwd: string): Promise<void> {
   let base: string;
   try {
     base = fs
@@ -46,7 +52,7 @@ async function triggerCheckpoint(cwd: string): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    await fetch(`${base}api/checkpoint`, {
+    await fetch(`${base}${route}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cwd }),
@@ -144,17 +150,27 @@ export const hookCommand: CommandModule = {
   builder: (y) =>
     y.positional('event', {
       type: 'string',
-      choices: ['prompt-submit', 'stop', 'checkpoint'] as const,
+      choices: ['prompt-submit', 'stop', 'checkpoint', 'checkpoint-seal'] as const,
       describe: 'Hook event name',
     }),
   handler: async (argv) => {
+    // Bail when this hook fired from one of work's OWN internal `claude -p`
+    // runs (checkpoint naming, Jira slug, CLAUDE.md gen). Those headless
+    // Claudes inherit the WORK_INTERNAL_CLAUDE marker; without this guard the
+    // checkpoint-naming run recursively seals + spawns checkpoints, fragmenting
+    // one Claude round into many spurious steps. See internal-claude.ts.
+    if (isInternalClaude()) return;
     const event = argv.event as HookEvent;
     const payload = await readStdinJson();
     const cwd = payload.cwd ?? process.cwd();
-    // Checkpoint bridge is independent of comment delivery: just nudge work
-    // web to snapshot, emit nothing to Claude's context.
+    // Checkpoint bridges are independent of comment delivery: just nudge work
+    // web, emit nothing to Claude's context.
     if (event === 'checkpoint') {
-      await triggerCheckpoint(cwd);
+      await postToWeb('api/checkpoint', cwd);
+      return;
+    }
+    if (event === 'checkpoint-seal') {
+      await postToWeb('api/checkpoint/seal', cwd);
       return;
     }
     const result = computeHookOutput({ event, cwd });

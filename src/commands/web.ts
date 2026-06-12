@@ -196,6 +196,17 @@ export const webCommand: CommandModule = {
       timeoutSec: 5,
     }).catch(() => { /* best-effort */ });
 
+    // Seal-on-prompt hook — the instruction boundary. A new user prompt
+    // closes the current step so the work answering it opens a fresh one
+    // (one step per instruction, not per turn). Installed in BOTH modes, same
+    // owner as the Stop checkpoint hook above.
+    await installCommandHook({
+      owner: 'web-checkpoint',
+      event: 'UserPromptSubmit',
+      command: 'work hook checkpoint-seal',
+      timeoutSec: 5,
+    }).catch(() => { /* best-effort */ });
+
     const shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
@@ -205,6 +216,7 @@ export const webCommand: CommandModule = {
         try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
       }
       try { removeCommandHookSync('web-checkpoint', 'Stop'); } catch { /* */ }
+      try { removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'); } catch { /* */ }
       handle.stop();
       process.exit(0);
     };
