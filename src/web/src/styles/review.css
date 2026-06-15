@@ -1,5 +1,13 @@
 /* Review-mode UI (composer, comments, modals, pending pill, end-review button). */
 
+/* Full-page wrapper (full-page `/diff` & `/review` only): a block column
+   holding the full-width sticky toolbar above the sidebar|main grid. Stays in
+   the document scroll (no inner scroller) so Ctrl+F match ticks land on the
+   viewport scrollbar. */
+.wd-web-review-page {
+  min-height: 100vh;
+}
+
 /* Layout: sidebar | drag-divider | main. Sidebar width is driven by a CSS
    custom property so the divider can update it on pointer-move without
    rerendering React on every pixel. */
@@ -99,6 +107,91 @@
   height: 100vh;
 }
 
+/* Sticky "Files changed" toolbar over the diff (GitHub-style). Pinned to the
+   top of the scroll so the range picker + comparison summary stay visible
+   while scrolling a long diff. Single row, fixed height (--topbar-h) so the
+   sticky repo-tab / file headers below it can offset by a known amount.
+   z-index sits above the repo-tabs bar (5) and file headers (3). */
+.wd-web-difftoolbar {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--topbar-h, 40px);
+  padding: 0 16px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.wd-web-difftoolbar-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.wd-web-difftoolbar-title {
+  font-weight: 600;
+  color: var(--fg);
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-web-difftoolbar-count {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.wd-web-difftoolbar-compare {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.wd-web-difftoolbar-compare strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+.wd-web-difftoolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+/* The diff-scope toggle loses its sidebar top-margin in the toolbar. */
+.wd-web-difftoolbar-controls .wd-web-diff-scope {
+  margin-top: 0;
+}
+/* Flatten the checkpoint strip into the toolbar row: drop its standalone
+   padding/border/background (the toolbar supplies the bar), lay the button
+   and its summary side by side, and truncate a long summary instead of
+   wrapping to a second line. */
+.wd-web-difftoolbar .wd-checkpoint-range {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wd-web-difftoolbar .wd-checkpoint-summary {
+  margin: 0;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Open the popover aligned to the picker's right edge — it sits at the right
+   end of the toolbar, so a left-anchored menu would overflow off-screen. */
+.wd-web-difftoolbar .wd-checkpoint-pop {
+  left: auto;
+  right: 0;
+}
+
 /* ---- Standalone `wd` page: scroll on the document, not an inner box ----
    Chrome only paints Ctrl+F find-in-page match ticks on the *viewport*
    scrollbar — never on a nested overflow:auto container. The default
@@ -111,7 +204,9 @@
    scroller: it sits next to a terminal pane and must not grow the page. */
 .wd-web-review-layout--page {
   height: auto;
-  min-height: 100vh;
+  /* Sits below the full-width sticky toolbar — fill the rest of the viewport
+     so a short diff still pins the sidebar full-height without overflowing. */
+  min-height: calc(100vh - var(--topbar-h, 0px));
 }
 .wd-web-review-layout--page > .wd-web-review-sidebar {
   /* Pin the sidebar while the document scrolls. align-self:start stops the
@@ -124,9 +219,10 @@
      find-in-page tickmark scroller in Chrome, so a Ctrl+F match in the
      file tree would wipe the viewport scrollbar's match ticks. Keeping it
      in the document scroller means file-tree matches share the page
-     scrollbar and the ticks stay put. */
+     scrollbar and the ticks stay put. Sticks just below the full-width
+     toolbar (--topbar-h). */
   position: sticky;
-  top: 0;
+  top: var(--topbar-h, 0px);
   align-self: start;
   height: auto;
   overflow: visible;
@@ -136,7 +232,7 @@
      useSidebarOverflowsViewport) does the sidebar become its own scroller.
      Then its own — now visible — scrollbar legitimately hosts the ticks for
      matches inside it, and the diff stays put while you scroll the tree. */
-  height: 100vh;
+  height: calc(100vh - var(--topbar-h, 0px));
   overflow-y: auto;
 }
 .wd-web-review-layout--page > .wd-web-review-main {

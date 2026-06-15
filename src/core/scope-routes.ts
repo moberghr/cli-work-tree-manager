@@ -10,7 +10,9 @@ import { resolveRepoDiff, sessionBaseForPath } from './diff-scope.js';
 import { git } from './git.js';
 import {
   clearCheckpoints,
+  headAdvancedSinceInitial,
   loadManifest,
+  resetBaseline,
   setCheckpointLabel,
   takeCheckpoint,
   updateCheckpoint,
@@ -176,6 +178,44 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       .finally(() => summarizing.delete(key));
   }
 
+  /**
+   * Keep the checkpoint baseline pinned to the LAST COMMIT. When HEAD has
+   * advanced since the Initial baseline — a commit landed (yours or Claude's),
+   * or a pull/merge moved the branch — drop the now-stale step history and
+   * re-baseline at the new HEAD. Net effect: the checkpoint strip only ever
+   * shows the steps taken since your last commit, and "Initial → working"
+   * stays equal to the uncommitted diff (it can never balloon across a
+   * commit). The committed/branch arc is intentionally NOT modelled here —
+   * that's the "Since branch" diff (vs the parent branch).
+   *
+   * Called before every checkpoint write (Stop-hook, auto-snapshot) and on
+   * scope register, so a commit resets the strip at the next opportunity.
+   * Returns true when it reset. Idempotent: once Initial == HEAD, returns
+   * false until HEAD moves again (no reload loop).
+   */
+  async function rebaselineIfHeadAdvanced(
+    hash: string,
+    paths: string[],
+  ): Promise<boolean> {
+    const repos = scopeRepos(paths);
+    // Cheap pre-check OUTSIDE the lock so the common no-commit path (every
+    // checkpoint event) stays lock-free. A benign TOCTOU remains — two
+    // concurrent callers may both reset — but `resetBaseline` is atomic and
+    // idempotent (both produce the same single-Initial manifest), so there's
+    // no half-state. The dangerous interleaving (clear vs new-Initial) is
+    // what the single lock inside `resetBaseline` closes.
+    if (!headAdvancedSinceInitial(hash, repos)) return false;
+    liveCheckpoint.delete(hash);
+    lastStatus.delete(hash);
+    const entry = await resetBaseline(hash, repos).catch(() => null);
+    if (entry) {
+      const payload = { scopeHash: hash, id: entry.id };
+      opts.broadcast('checkpoints-changed', payload);
+      scopeBus.emit('checkpoints-changed', payload);
+    }
+    return true;
+  }
+
   app.post(
     '/api/scopes',
     zValidator(
@@ -210,26 +250,33 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
           scopeBus.emit('checkpoints-changed', payload);
         };
 
-        // Initial snapshot — establishes the "Initial" checkpoint that
-        // every subsequent fs-change snapshot diffs against. Fire and
-        // forget: `git add -A` against a large untracked tree can take
-        // hundreds of ms, and the `wd` foreground caller is waiting on
+        // Establish / refresh the "Initial" checkpoint — the baseline every
+        // subsequent step diffs against. Two cases:
+        //   - empty manifest: first time this scope is seen → take Initial.
+        //   - existing manifest: the baseline is pinned to the last commit, so
+        //     if HEAD advanced since (a commit/pull/merge between sessions)
+        //     re-baseline at the new HEAD (`rebaselineIfHeadAdvanced`).
+        // Fire and forget: `git add -A` against a large untracked tree can
+        // take hundreds of ms, and the `wd` foreground caller is waiting on
         // this response to open the browser. The SPA fetches checkpoints
-        // separately and will see the initial entry once it lands (or
-        // via the `checkpoints-changed` SSE event below).
+        // separately and will see the entry once it lands (or via the
+        // `checkpoints-changed` SSE event below).
         if (loadManifest(scope.hash).entries.length === 0) {
           takeCheckpoint(scope.hash, scopeRepos(scope.paths))
             .then((entry) => {
               if (entry) announceCheckpoint(entry);
             })
             .catch((err) => {
-              // Best-effort, but DO surface persistent failures (disk
-              // full on `~/.work/diffs/`, stale lockfile, git permission
-              // denied). `installConsoleLogger` mirrors console.error
-              // into `~/.work/debug.log`, giving the user a diagnostic
-              // trail even though we don't fail the request.
+              // Best-effort, but DO surface persistent failures (disk full on
+              // `~/.work/diffs/`, stale lockfile, git permission denied).
+              // `installConsoleLogger` mirrors console.error into
+              // `~/.work/debug.log` for a diagnostic trail.
               console.error('[checkpoint] initial snapshot failed:', err);
             });
+        } else {
+          rebaselineIfHeadAdvanced(scope.hash, scope.paths).catch((err) => {
+            console.error('[checkpoint] re-baseline failed:', err);
+          });
         }
 
         // Wire an auto-snapshot subscriber that fires on every debounced
@@ -267,7 +314,11 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
               // Fingerprint failure shouldn't block the snapshot — fall
               // through to takeCheckpoint and let its own logic decide.
             }
-            takeCheckpoint(hash, scopeRepos(scope.paths))
+            // A manual commit (no Claude around) advances HEAD — re-baseline
+            // first so the strip resets to "since the last commit", then
+            // capture any remaining uncommitted edits as the first new step.
+            rebaselineIfHeadAdvanced(hash, scope.paths)
+              .then(() => takeCheckpoint(hash, scopeRepos(scope.paths)))
               .then((entry) => {
                 if (entry) {
                   announceCheckpoint(entry);
@@ -319,6 +370,12 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       const matched = scopesForCwd(cwd);
       let snapshotted = 0;
       for (const s of matched) {
+        // A commit may have landed this turn (Claude or the user committed) —
+        // re-baseline first so steps are always "since the last commit". This
+        // clears the live step too, so the logic below opens a fresh step
+        // capturing any post-commit uncommitted edits.
+        await rebaselineIfHeadAdvanced(s.hash, s.paths);
+
         const liveId = liveCheckpoint.get(s.hash);
         let entry: CheckpointEntry | null = null;
 

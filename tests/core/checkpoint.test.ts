@@ -9,6 +9,8 @@ import {
   loadManifest,
   snapshotRepo,
   clearCheckpoints,
+  headAdvancedSinceInitial,
+  resetBaseline,
   manifestPath,
 } from '../../src/core/checkpoint.js';
 
@@ -382,6 +384,125 @@ describe('updateCheckpoint (per-instruction live step refresh)', () => {
     const res = await updateCheckpoint('hashU4', [{ name: 'repoA', root: repoA }], 1);
     expect(res.status).toBe('updated');
     expect(loadManifest('hashU4').entries[1].label).toBeUndefined();
+  });
+});
+
+describe('headAdvancedSinceInitial', () => {
+  it('is false on a fresh baseline with only uncommitted edits', async () => {
+    await takeCheckpoint('hashH', [{ name: repoA, root: repoA }]);
+    // Dirty the working tree — uncommitted changes don't move HEAD's tree.
+    writeFile(repoA, 'README.md', '# dirty\n');
+    writeFile(repoA, 'untracked.txt', 'x\n');
+    expect(
+      headAdvancedSinceInitial('hashH', [{ name: repoA, root: repoA }]),
+    ).toBe(false);
+  });
+
+  it('is true once HEAD advances past the baseline (a commit landed)', async () => {
+    await takeCheckpoint('hashH2', [{ name: repoA, root: repoA }]);
+    // Simulate the branch advancing (e.g. a `git pull`/merge): commit moves
+    // HEAD and its tree.
+    writeFile(repoA, 'feature.txt', 'upstream work\n');
+    git(['add', '.'], repoA);
+    git(['commit', '-m', 'advance', '--no-gpg-sign'], repoA);
+    expect(
+      headAdvancedSinceInitial('hashH2', [{ name: repoA, root: repoA }]),
+    ).toBe(true);
+  });
+
+  it('is false when there is no manifest yet', () => {
+    expect(
+      headAdvancedSinceInitial('never-seen', [{ name: repoA, root: repoA }]),
+    ).toBe(false);
+  });
+
+  it('is true when ANY repo in a group advanced', async () => {
+    await takeCheckpoint('hashHG', [
+      { name: repoA, root: repoA },
+      { name: repoB, root: repoB },
+    ]);
+    // Only repoB advances; repoA stays put.
+    writeFile(repoB, 'b2.txt', 'b advanced\n');
+    git(['add', '.'], repoB);
+    git(['commit', '-m', 'b advance', '--no-gpg-sign'], repoB);
+    expect(
+      headAdvancedSinceInitial('hashHG', [
+        { name: repoA, root: repoA },
+        { name: repoB, root: repoB },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe('resetBaseline', () => {
+  it('replaces history with a single Initial at HEAD and removes orphaned step refs', async () => {
+    await takeCheckpoint('reset1', [{ name: repoA, root: repoA }]); // #0
+    writeFile(repoA, 'a.txt', 'step1\n');
+    await takeCheckpoint('reset1', [{ name: repoA, root: repoA }]); // #1
+    writeFile(repoA, 'b.txt', 'step2\n');
+    await takeCheckpoint('reset1', [{ name: repoA, root: repoA }]); // #2
+    expect(loadManifest('reset1').entries).toHaveLength(3);
+    for (const id of [0, 1, 2]) {
+      expect(
+        git(['rev-parse', '--verify', '--quiet', `refs/wd/reset1/${id}`], repoA)
+          .exitCode,
+      ).toBe(0);
+    }
+
+    // Branch advances (commit), then re-baseline.
+    git(['add', '.'], repoA);
+    git(['commit', '-m', 'advance', '--no-gpg-sign'], repoA);
+    const headTree = git(['rev-parse', 'HEAD^{tree}'], repoA).stdout.trim();
+
+    const entry = await resetBaseline('reset1', [{ name: repoA, root: repoA }]);
+    expect(entry).not.toBeNull();
+    expect(entry!.id).toBe(0);
+    expect(entry!.label).toBe('Initial');
+
+    // Manifest collapses to a single Initial baselining the new HEAD.
+    const m = loadManifest('reset1');
+    expect(m.entries).toHaveLength(1);
+    expect(m.entries[0].id).toBe(0);
+    const initTree = git(
+      ['rev-parse', `${m.entries[0].repos[repoA]}^{tree}`],
+      repoA,
+    ).stdout.trim();
+    expect(initTree).toBe(headTree);
+
+    // id 0 ref present (overwritten); the orphaned step refs are gone.
+    expect(
+      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/0'], repoA)
+        .exitCode,
+    ).toBe(0);
+    expect(
+      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/1'], repoA)
+        .exitCode,
+    ).not.toBe(0);
+    expect(
+      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/2'], repoA)
+        .exitCode,
+    ).not.toBe(0);
+  });
+
+  it('re-baselines all repos in a group at once', async () => {
+    const repos = [
+      { name: repoA, root: repoA },
+      { name: repoB, root: repoB },
+    ];
+    await takeCheckpoint('reset2', repos);
+    writeFile(repoA, 'x.txt', 'x\n');
+    await takeCheckpoint('reset2', repos);
+    expect(loadManifest('reset2').entries.length).toBeGreaterThanOrEqual(2);
+
+    git(['add', '.'], repoA);
+    git(['commit', '-m', 'a', '--no-gpg-sign'], repoA);
+
+    const entry = await resetBaseline('reset2', repos);
+    expect(entry).not.toBeNull();
+    const m = loadManifest('reset2');
+    expect(m.entries).toHaveLength(1);
+    expect(m.entries[0].repos[repoA]).toMatch(/^[0-9a-f]{40}$/);
+    expect(m.entries[0].repos[repoB]).toMatch(/^[0-9a-f]{40}$/);
   });
 });
 

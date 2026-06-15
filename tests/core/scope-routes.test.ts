@@ -272,3 +272,122 @@ describe('re-registering an ended scope (fresh `wd -c` run)', () => {
     expect(body.comments).toHaveLength(1);
   });
 });
+
+describe('re-baseline on branch advance', () => {
+  /** Poll until the manifest's Initial (id 0) entry baselines `expectedTree`
+   *  (its commit's tree sha). The re-baseline is fire-and-forget. */
+  async function waitForInitialTree(
+    hash: string,
+    expectedTree: string,
+  ): Promise<void> {
+    for (let i = 0; i < 40; i++) {
+      const m = loadManifest(hash);
+      const initial = m.entries.find((e) => e.id === 0);
+      if (initial) {
+        const sha = initial.repos[repoDir];
+        const tree = sha
+          ? git(['rev-parse', `${sha}^{tree}`], repoDir).stdout.trim()
+          : '';
+        if (tree === expectedTree) return;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error('timed out waiting for re-baselined Initial');
+  }
+
+  it('drops stale history and re-baselines when HEAD advanced since the baseline', async () => {
+    const hash = await register();
+    // Wait for the first Initial.
+    await waitForInitialTree(
+      hash,
+      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
+    );
+
+    // Accumulate a working-tree checkpoint so there's history to drop.
+    fs.writeFileSync(path.join(repoDir, 'work.txt'), 'session work\n');
+    await app.request('/api/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repoDir }),
+    });
+    expect(loadManifest(hash).entries.length).toBeGreaterThanOrEqual(2);
+
+    // The branch advances (simulating a `git pull`/merge of upstream work).
+    fs.writeFileSync(path.join(repoDir, 'upstream.txt'), 'merged in\n');
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'advance branch', '--no-gpg-sign'], repoDir);
+    const newHeadTree = git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim();
+
+    // Re-register (a fresh `wd` in the same worktree, same hash).
+    const hash2 = await register();
+    expect(hash2).toBe(hash);
+
+    // The stale baseline + history are dropped; Initial now baselines the
+    // new HEAD, so "Initial → working" tracks only this session's work.
+    await waitForInitialTree(hash, newHeadTree);
+    const m = loadManifest(hash);
+    expect(m.entries).toHaveLength(1);
+    expect(m.entries[0].id).toBe(0);
+    expect(m.entries[0].label).toBe('Initial');
+  });
+
+  it('resets to a fresh baseline when a commit lands between turns (Stop-hook path)', async () => {
+    const hash = await register();
+    await waitForInitialTree(
+      hash,
+      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
+    );
+
+    // Uncommitted work → a Stop-hook checkpoint opens step #1.
+    fs.writeFileSync(path.join(repoDir, 'wip.txt'), 'work in progress\n');
+    await app.request('/api/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repoDir }),
+    });
+    expect(loadManifest(hash).entries).toHaveLength(2);
+
+    // The work gets committed (HEAD advances, working tree goes clean).
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'ship wip', '--no-gpg-sign'], repoDir);
+    const newHeadTree = git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim();
+
+    // The next turn's Stop hook re-baselines: the strip resets to just the
+    // Initial baseline at the new HEAD (no leftover step, tree is clean).
+    await app.request('/api/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repoDir }),
+    });
+    const m = loadManifest(hash);
+    expect(m.entries).toHaveLength(1);
+    expect(m.entries[0].id).toBe(0);
+    const initTree = git(
+      ['rev-parse', `${m.entries[0].repos[repoDir]}^{tree}`],
+      repoDir,
+    ).stdout.trim();
+    expect(initTree).toBe(newHeadTree);
+  });
+
+  it('leaves the baseline alone when only uncommitted edits exist (no HEAD move)', async () => {
+    const hash = await register();
+    await waitForInitialTree(
+      hash,
+      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
+    );
+    fs.writeFileSync(path.join(repoDir, 'work.txt'), 'session work\n');
+    await app.request('/api/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repoDir }),
+    });
+    const before = loadManifest(hash).entries.length;
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    // Re-register with a dirty-but-not-advanced worktree → history preserved.
+    await register();
+    // Give any (incorrect) async re-baseline a chance to run.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(loadManifest(hash).entries.length).toBe(before);
+  });
+});

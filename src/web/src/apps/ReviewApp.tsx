@@ -413,6 +413,111 @@ export function ReviewApp({ context, scopeHash }: Props) {
     emptyMessage = `No commits since \`${resolvedBase}\` — branch is up to date or already merged.`;
   }
 
+  // Sticky toolbar over the diff, GitHub "Files changed" style: identity +
+  // file count + comparison summary on the left, the diff-scope tabs and the
+  // checkpoint range picker on the right. Pinned to the top of the scroll so
+  // the range picker (and what you're comparing) stays visible while you
+  // scroll a long diff. Rendered for every state — including empty — so the
+  // controls that let you escape an empty range/base are always reachable.
+  const compareSummary =
+    rangeActive && range ? (
+      <>
+        <strong>{range.from === 0 ? 'Initial' : `#${range.from}`}</strong>
+        <span className="wd-web-muted"> → </span>
+        <strong>{range.to === 'working' ? 'working' : `#${range.to}`}</strong>
+      </>
+    ) : diffBase === 'branch' && resolvedBase ? (
+      <>
+        <strong>{headBranch ?? 'HEAD'}</strong>
+        <span className="wd-web-muted"> vs </span>
+        <strong>{resolvedBase}</strong>
+      </>
+    ) : (
+      <>
+        <span className="wd-web-muted">uncommitted on </span>
+        <strong>{headBranch ?? 'working tree'}</strong>
+      </>
+    );
+  const toolbar = (
+    <div className="wd-web-difftoolbar">
+      <div className="wd-web-difftoolbar-info">
+        <span className="wd-web-difftoolbar-title" title={context.scopeLabel}>
+          {context.scopeLabel}
+        </span>
+        <span className="wd-web-difftoolbar-count">
+          {isEmpty ? (
+            <span className="wd-web-muted">no changes</span>
+          ) : (
+            <>
+              {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
+              {hasTabs ? ` · ${repos.length} repos` : ''}
+            </>
+          )}
+        </span>
+        <span className="wd-web-difftoolbar-compare">{compareSummary}</span>
+      </div>
+      <div className="wd-web-difftoolbar-controls">
+        {hasBranchTab && (
+          <div
+            className="wd-web-diff-scope"
+            role="tablist"
+            aria-label="Diff scope"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!rangeActive && diffBase === 'uncommitted'}
+              className={
+                'wd-web-diff-scope-btn' +
+                (!rangeActive && diffBase === 'uncommitted'
+                  ? ' wd-web-diff-scope-btn-active'
+                  : '')
+              }
+              onClick={() => selectBase('uncommitted')}
+            >
+              Uncommitted
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!rangeActive && diffBase === 'branch'}
+              className={
+                'wd-web-diff-scope-btn' +
+                (!rangeActive && diffBase === 'branch'
+                  ? ' wd-web-diff-scope-btn-active'
+                  : '')
+              }
+              onClick={() => selectBase('branch')}
+            >
+              Since branch
+            </button>
+          </div>
+        )}
+        {/* Range picker lives in the toolbar so it's pinned with everything
+           else. Outside the empty/non-empty fork — a chip pick that produces
+           an empty range must not strand the user. */}
+        {scopeHash && checkpoints.length > 1 && range && (
+          <CheckpointStrip
+            entries={checkpoints}
+            fromId={range.from}
+            toId={range.to}
+            active={rangeActive}
+            onChangeFrom={setRangeFrom}
+            onChangeTo={setRangeTo}
+            onPickSingle={pickSingleCheckpoint}
+            busy={loading}
+            summary={
+              range.to !== 'working' && range.to !== 0
+                ? (checkpoints.find((e) => e.id === range.to)?.label ?? null)
+                : null
+            }
+            summaryLoading={summarizing}
+          />
+        )}
+      </div>
+    </div>
+  );
+
   // In read-only mode (static files, `wd`, `wd --server`) there's no
   // backing comment server — mounting ReviewProvider would trigger a
   // useless fetch('/api/comments') that 405s on a server and CORS-fails
@@ -420,14 +525,34 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // child that needs review state already calls useReviewOptional().
   const layout = (
     <div
+      // Full-width column: the sticky toolbar spans the whole viewport, with
+      // the sidebar tree + diff grid below it (GitHub "Files changed" shape).
+      // CSS vars live here so they cascade to BOTH the toolbar and the grid:
+      //   --topbar-h   reserves the sticky toolbar's height (sidebar sticks
+      //                below it; in-diff sticky headers offset by it).
+      //   --tabs-offset is the repo-tabs bar height (0 when no group tabs).
+      //   --sidebar-width drives the grid's sidebar column.
+      // `layoutRef` MUST be on this element — the one that owns the
+      // React-managed `--sidebar-width` — because ResizeDivider writes that
+      // var imperatively to `layoutRef.current` during a drag. If it pointed
+      // at the inner grid instead, the grid would keep a stale inline var that
+      // shadows state-driven updates (double-click reset would never apply).
       ref={layoutRef}
-      // `--page` makes the diff scroll on the document, not an inner box, so
-      // Chrome paints Ctrl+F match ticks on the viewport scrollbar. Only this
-      // full-page view opts in — the dashboard's DiffView keeps the bounded
-      // inner scroller (see .wd-web-review-layout--page in review.css).
-      className="wd-web-review-layout wd-web-review-layout--page"
-      style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}
+      className="wd-web-review-page"
+      style={{
+        ['--sidebar-width' as string]: `${sidebarWidth}px`,
+        ['--topbar-h' as string]: '40px',
+        ['--tabs-offset' as string]: hasTabs ? '36px' : '0px',
+      }}
     >
+      {toolbar}
+      <div
+        // `--page` makes the diff scroll on the document, not an inner box, so
+        // Chrome paints Ctrl+F match ticks on the viewport scrollbar. Only this
+        // full-page view opts in — the dashboard's DiffView keeps the bounded
+        // inner scroller (see .wd-web-review-layout--page in review.css).
+        className="wd-web-review-layout wd-web-review-layout--page"
+      >
         <aside
           ref={sidebarRef}
           className={
@@ -435,87 +560,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
             (sidebarScrolls ? ' wd-sidebar-scrolls' : '')
           }
         >
-          <header className="wd-web-review-sidebar-header">
-            <h1>{context.scopeLabel}</h1>
-            <p className="wd-web-compare">
-              {rangeActive && range ? (
-                <>
-                  <strong>
-                    {range.from === 0 ? 'Initial' : `checkpoint #${range.from}`}
-                  </strong>
-                  <span className="wd-web-muted"> → </span>
-                  <strong>
-                    {range.to === 'working'
-                      ? 'working tree'
-                      : `checkpoint #${range.to}`}
-                  </strong>
-                </>
-              ) : diffBase === 'branch' && resolvedBase ? (
-                <>
-                  <strong>{headBranch ?? 'HEAD'}</strong>
-                  <span className="wd-web-muted"> vs </span>
-                  <strong>{resolvedBase}</strong>
-                </>
-              ) : (
-                <>
-                  <span className="wd-web-muted">uncommitted on </span>
-                  <strong>{headBranch ?? 'working tree'}</strong>
-                </>
-              )}
-            </p>
-            <p>
-              {isEmpty ? (
-                <span className="wd-web-muted">no changes</span>
-              ) : (
-                <>
-                  {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
-                  {hasTabs ? ` across ${repos.length} repos` : ''}
-                </>
-              )}
-              {!rangeActive && diffBase === 'branch' && resolvedBase && (
-                <>
-                  {' '}
-                  <span className="wd-web-muted">vs {resolvedBase}</span>
-                </>
-              )}
-            </p>
-            {hasBranchTab && (
-              <div
-                className="wd-web-diff-scope"
-                role="tablist"
-                aria-label="Diff scope"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!rangeActive && diffBase === 'uncommitted'}
-                  className={
-                    'wd-web-diff-scope-btn' +
-                    (!rangeActive && diffBase === 'uncommitted'
-                      ? ' wd-web-diff-scope-btn-active'
-                      : '')
-                  }
-                  onClick={() => selectBase('uncommitted')}
-                >
-                  Uncommitted
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!rangeActive && diffBase === 'branch'}
-                  className={
-                    'wd-web-diff-scope-btn' +
-                    (!rangeActive && diffBase === 'branch'
-                      ? ' wd-web-diff-scope-btn-active'
-                      : '')
-                  }
-                  onClick={() => selectBase('branch')}
-                >
-                  Since branch
-                </button>
-              </div>
-            )}
-          </header>
           {!isEmpty && activeRepo && (
             <>
               <FileTree
@@ -533,35 +577,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
           width={sidebarWidth}
           onCommit={setSidebarWidth}
         />
-        <main
-          className="wd-web-review-main"
-          aria-busy={loading}
-          // Always set --tabs-offset (0px when no tabs) — keeps the
-          // sticky-header offset stable across tab switches in
-          // keep-mounted-hidden layouts.
-          style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
-        >
-          {/* Strip lives OUTSIDE the empty/non-empty fork so a chip
-             pick that produces an empty range doesn't strand the user:
-             they need to keep clicking other chips to escape. */}
-          {scopeHash && checkpoints.length > 1 && range && (
-            <CheckpointStrip
-              entries={checkpoints}
-              fromId={range.from}
-              toId={range.to}
-              active={rangeActive}
-              onChangeFrom={setRangeFrom}
-              onChangeTo={setRangeTo}
-              onPickSingle={pickSingleCheckpoint}
-              busy={loading}
-              summary={
-                range.to !== 'working' && range.to !== 0
-                  ? (checkpoints.find((e) => e.id === range.to)?.label ?? null)
-                  : null
-              }
-              summaryLoading={summarizing}
-            />
-          )}
+        <main className="wd-web-review-main" aria-busy={loading}>
           {loading && <DiffLoadingBar />}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
@@ -626,6 +642,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
         </main>
         {!readOnly && !isEmpty && <PendingPill />}
         {!readOnly && !isEmpty && <EndReviewButton />}
+      </div>
     </div>
   );
 

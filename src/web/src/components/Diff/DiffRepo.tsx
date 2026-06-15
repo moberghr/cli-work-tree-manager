@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import type { RepoData } from '../../api/client.js';
+import { buildTree, flattenTreeFiles } from '../../utils/tree.js';
 import { DiffFile } from './DiffFile.js';
 
 interface Props {
@@ -23,6 +25,21 @@ export function DiffRepo({
   onToggleViewed,
   hunkScopeKey,
 }: Props) {
+  // Render files in the same directory-grouped, alphabetical order the
+  // sidebar tree uses (GitHub-style) so the left tree and the right diff
+  // list read top-to-bottom in lockstep. Each leaf keeps its ORIGINAL anchor
+  // index (`startIndex + position in repo.files`) — the tree assigns the same
+  // index via buildTree, so the tree↔diff anchor links stay correct even
+  // though the visual order differs from git's raw diff order.
+  //
+  // Memoized on (files, startIndex): ReviewApp re-renders on every scrollspy
+  // tick, and rebuilding the whole tree each time is wasted work for a large
+  // diff. Mirrors FileTree, which memoizes the same buildTree call. The hook
+  // runs before the empty-list early return (rules of hooks).
+  const ordered = useMemo(
+    () => flattenTreeFiles(buildTree(repo.files, startIndex)),
+    [repo.files, startIndex],
+  );
   if (repo.files.length === 0) {
     return (
       <div className="wd-web-empty">
@@ -32,17 +49,17 @@ export function DiffRepo({
   }
   return (
     <div className="wd-repo-files">
-      {repo.files.map((f, i) => (
+      {ordered.map((leaf) => (
         <DiffFile
-          key={f.path}
-          file={f}
-          anchor={`wd-file-${startIndex + i}`}
+          key={leaf.file.path}
+          file={leaf.file}
+          anchor={`wd-file-${leaf.index}`}
           review={review}
           repo={repo.name}
-          viewed={viewedPaths?.has(f.path)}
+          viewed={viewedPaths?.has(leaf.file.path)}
           onToggleViewed={
             onToggleViewed
-              ? (next: boolean) => onToggleViewed(f.path, next)
+              ? (next: boolean) => onToggleViewed(leaf.file.path, next)
               : undefined
           }
           hunkScopeKey={hunkScopeKey}

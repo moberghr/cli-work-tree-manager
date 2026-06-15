@@ -381,6 +381,75 @@ export async function updateCheckpoint(
 }
 
 /**
+ * Atomically re-baseline a scope at the current HEAD: under a SINGLE file
+ * lock, capture a fresh "Initial" snapshot (HEAD's tree, not the working
+ * tree) for every repo into id 0, delete the refs of all previous steps, and
+ * replace the manifest with just that Initial entry.
+ *
+ * This is the locked, all-or-nothing form of "clearCheckpoints +
+ * takeCheckpoint": doing those as two separate (and, for clearCheckpoints,
+ * unlocked) steps let a concurrent checkpoint write interleave between the
+ * clear and the new Initial — leaving a dangling ref or a dropped entry.
+ * Holding one lock across the whole reset closes that window.
+ *
+ * Returns the new Initial entry, or null if any repo's snapshot failed (the
+ * manifest is left untouched in that case; the partial id-0 ref is undone).
+ */
+export async function resetBaseline(
+  scopeHash: string,
+  repos: ScopeRepo[],
+): Promise<CheckpointEntry | null> {
+  const file = manifestPath(scopeHash);
+  ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
+  return withFileLock(file, () => {
+    const prevIds = loadManifest(scopeHash).entries.map((e) => e.id);
+
+    // Fresh Initial baselines HEAD (includeWorkingTree=false). snapshotRepo
+    // overwrites refs/wd/<hash>/0 in place.
+    const captured: Record<string, string | null> = {};
+    for (const repo of repos) {
+      captured[repo.name] = snapshotRepo(repo.root, scopeHash, 0, false);
+    }
+
+    const delRef = (id: number) => {
+      for (const repo of repos) {
+        spawn.sync('git', ['update-ref', '-d', `refs/wd/${scopeHash}/${id}`], {
+          cwd: repo.root,
+          encoding: 'utf-8',
+          windowsHide: true,
+        });
+      }
+    };
+
+    // Any repo failed → undo the partial id-0 write, leave the old manifest.
+    if (repos.some((r) => captured[r.name] === null)) {
+      delRef(0);
+      return null;
+    }
+
+    // Drop every previous step's ref except id 0 (just overwritten with the
+    // fresh Initial). These are the now-orphaned snapshots being discarded.
+    for (const id of prevIds) {
+      if (id !== 0) delRef(id);
+    }
+
+    const entry: CheckpointEntry = {
+      id: 0,
+      ts: new Date().toISOString(),
+      label: 'Initial',
+      repos: captured,
+    };
+    const manifest: CheckpointManifest = {
+      version: 1,
+      scopeHash,
+      entries: [entry],
+    };
+    atomicWriteFile(file, JSON.stringify(manifest, null, 2));
+    return entry;
+  });
+}
+
+/**
  * Set (cache) a checkpoint's human label. Runs under the same file lock as
  * `takeCheckpoint` so a concurrent auto-snapshot can't clobber the write.
  * No-op when the id isn't found. Idempotent.
@@ -398,6 +467,49 @@ export async function setCheckpointLabel(
     if (!entry || entry.label === label) return;
     entry.label = label;
     atomicWriteFile(file, JSON.stringify(manifest, null, 2));
+  });
+}
+
+/**
+ * True when the branch has advanced (pull / merge / new commit) since the
+ * Initial (id 0) checkpoint was captured — i.e. any repo's current HEAD tree
+ * differs from the tree the Initial baseline recorded.
+ *
+ * The Initial checkpoint commits HEAD's tree verbatim (`snapshotRepo` with
+ * `includeWorkingTree=false`), so its tree equals HEAD-at-capture's tree. When
+ * that no longer matches the live HEAD's tree the baseline is stale, and an
+ * "Initial → working" range silently absorbs every commit pulled in since
+ * (e.g. a `git pull`/merge of an upstream branch) — ballooning the diff far
+ * beyond the user's own work. Callers re-baseline when this returns true.
+ *
+ * Returns false when there's no Initial entry, when HEAD can't be resolved, or
+ * when every recorded tree still matches (uncommitted edits don't move HEAD's
+ * tree, so a dirty-but-not-advanced worktree is correctly left alone).
+ */
+export function headAdvancedSinceInitial(
+  scopeHash: string,
+  repos: ScopeRepo[],
+): boolean {
+  const manifest = loadManifest(scopeHash);
+  const initial = manifest.entries.find((e) => e.id === 0);
+  if (!initial) return false;
+  const treeOf = (root: string, rev: string): string | null => {
+    const r = spawn.sync('git', ['rev-parse', `${rev}^{tree}`], {
+      cwd: root,
+      encoding: 'utf-8',
+      windowsHide: true,
+    });
+    if (r.status !== 0 || typeof r.stdout !== 'string') return null;
+    return r.stdout.trim() || null;
+  };
+  return repos.some((repo) => {
+    const headTree = treeOf(repo.root, 'HEAD');
+    if (headTree === null) return false; // can't resolve HEAD → don't reset
+    const baselineSha = initial.repos[repo.name];
+    if (!baselineSha) return true; // baseline had no commit, HEAD exists now
+    const baselineTree = treeOf(repo.root, baselineSha);
+    if (baselineTree === null) return false; // baseline ref gone → leave it
+    return baselineTree !== headTree;
   });
 }
 

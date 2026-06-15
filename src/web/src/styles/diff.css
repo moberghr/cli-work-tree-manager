@@ -44,9 +44,10 @@
      sub-repos at any depth in a group worktree. Sits above the file
      headers (which use top: 0 inside their own article) — when a file
      header reaches this position it scrolls under us. z-index keeps
-     us above the diff table. */
+     us above the diff table. Slots below the sticky diff toolbar
+     (--topbar-h; 0 where there's no toolbar, e.g. the dashboard view). */
   position: sticky;
-  top: 0;
+  top: var(--topbar-h, 0px);
   z-index: 5;
 }
 .wd-web-repo-tab {
@@ -83,20 +84,23 @@
   border-radius: 6px;
   margin-bottom: 12px;
   background: var(--bg);
-  /* Anchor jumps from the sidebar land below the sticky repo-tabs bar
-     when present (group worktrees). The var defaults to 0 in single-repo
-     mode; the layout sets it to the tabs height when tabs are rendered. */
-  scroll-margin-top: calc(var(--tabs-offset, 0px) + 4px);
+  /* Anchor jumps from the sidebar land below the sticky toolbar + repo-tabs
+     bar when present. The vars default to 0 where absent (single-repo mode
+     has no tabs; the dashboard view has no toolbar). */
+  scroll-margin-top: calc(
+    var(--topbar-h, 0px) + var(--tabs-offset, 0px) + 4px
+  );
 }
 .wd-file-header {
   /* Sticky inside its own article — when the next file's header appears,
      it pushes this one out. This is the GitHub PR file-list behaviour:
      the header you're scrolling under always belongs to the currently-
      focused file, never floats above an unrelated section.
-     `top` slots below the repo-tabs bar when one is shown (group
-     worktrees set --tabs-offset to its height); 0 otherwise. */
+     `top` slots below the sticky toolbar (--topbar-h) plus the repo-tabs
+     bar when one is shown (group worktrees set --tabs-offset to its
+     height); both default to 0 where absent. */
   position: sticky;
-  top: var(--tabs-offset, 0px);
+  top: calc(var(--topbar-h, 0px) + var(--tabs-offset, 0px));
   z-index: 3;
   background: var(--header-bg);
   padding: 6px 12px;
@@ -451,10 +455,10 @@
 /* Thin indeterminate progress bar at the top of the diff pane. Shown for
    any in-flight diff fetch — works without a checkpoint strip (the
    dashboard session view, or a scope with ≤1 checkpoint). Sticky so it
-   stays visible while scrolled. */
+   stays visible while scrolled — pinned just under the toolbar + repo-tabs. */
 .wd-diff-loading-bar {
   position: sticky;
-  top: var(--tabs-offset, 0px);
+  top: calc(var(--topbar-h, 0px) + var(--tabs-offset, 0px));
   z-index: 5;
   height: 2px;
   overflow: hidden;
