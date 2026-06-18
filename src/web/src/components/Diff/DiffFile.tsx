@@ -5,6 +5,7 @@ import { STATUS_LETTER } from '../../utils/status.js';
 import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
+import { NewFileView } from './NewFileView.js';
 import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
@@ -310,6 +311,8 @@ export function DiffFile({
               Load diff
             </button>
           </div>
+        ) : file.status === 'added' ? (
+          <NewFileView file={file} lang={lang} review={review} repo={repo} />
         ) : (
           <table className="wd-diff-table wd-side">
             <colgroup>

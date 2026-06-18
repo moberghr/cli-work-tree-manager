@@ -605,6 +605,10 @@
 }
 .wd-diff-table .wd-col-ln { width: 50px; }
 .wd-diff-table .wd-col-content { width: calc(50% - 50px); }
+/* Full-width single-column layout for added files (NewFileView): one line-number
+   column, the rest of the width for content. The unclassed content <col> takes
+   the remaining space under table-layout: fixed. */
+.wd-diff-table.wd-newfile .wd-col-ln { width: 50px; }
 .wd-ln {
   background: var(--ln-bg);
   color: var(--ln-fg);
