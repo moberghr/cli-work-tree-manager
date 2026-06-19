@@ -135,3 +135,21 @@ export function pairLines(lines: HunkLine[]): SideRow[] {
 export function hunkRows(hunk: Hunk): SideRow[] {
   return pairLines(hunk.lines);
 }
+
+/** Collect every added line across a file's hunks, in order. Used by the
+ *  full-width "new file" renderer: a brand-new file is one `@@ -0,0 +N @@`
+ *  hunk of all-`add` lines, but we walk every hunk/line so any added-line
+ *  layout is handled. `no-newline` markers are skipped. */
+export function addedLines(
+  hunks: Hunk[],
+): { newNum: number; content: string }[] {
+  const out: { newNum: number; content: string }[] = [];
+  for (const hunk of hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === 'add' && line.newNum !== null) {
+        out.push({ newNum: line.newNum, content: line.content });
+      }
+    }
+  }
+  return out;
+}

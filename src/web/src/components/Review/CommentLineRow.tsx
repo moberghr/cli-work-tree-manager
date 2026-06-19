@@ -5,7 +5,7 @@ import {
 import { Composer } from './Composer.js';
 import { CommentItem } from './CommentItem.js';
 
-interface SideContent {
+export interface SideContent {
   comments: ReturnType<typeof selectCommentsForLine>;
   composerOpen: boolean;
   lineContent: string;
@@ -83,7 +83,7 @@ export function CommentLineRow({
   );
 }
 
-function SidePanel({
+export function SidePanel({
   repo,
   file,
   side,
