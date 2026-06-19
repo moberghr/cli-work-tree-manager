@@ -102,6 +102,37 @@
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Split | Unified layout toggle. Same segmented-control styling as the
+   diff-scope toggle above (GitHub's "Split / Unified"). */
+.wd-diff-mode {
+  display: inline-flex;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.wd-diff-mode-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+.wd-diff-mode-btn:last-child { border-right: 0; }
+.wd-diff-mode-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-diff-mode-btn-active {
+  background: var(--current);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* In the sticky toolbar the toggle loses its sidebar top-margin. */
+.wd-web-difftoolbar-controls .wd-diff-mode { margin-top: 0; }
+
 .wd-web-review-main {
   overflow-y: auto;
   height: 100vh;

@@ -83,6 +83,54 @@ export function CommentLineRow({
   );
 }
 
+/**
+ * One injected `<tr>` for the unified (inline) layout: a single full-width
+ * cell carrying the thread + composer for one line. Unlike the split
+ * `CommentLineRow` (which has a left and a right half), an inline row is a
+ * single line on a single side — a deletion comments on `left`/oldNum, an
+ * addition or context line on `right`/newNum. Renders nothing unless the
+ * line has activity. `colSpan` spans the unified table's three columns.
+ */
+export function InlineCommentRow({
+  repo,
+  file,
+  line,
+  side,
+  content,
+}: {
+  repo: string;
+  file: string;
+  line: number;
+  side: 'left' | 'right';
+  content: string;
+}) {
+  const review = useReview();
+  const comments = selectCommentsForLine(review.comments, repo, file, line, side);
+  const composerOpen =
+    review.openComposer !== null &&
+    review.openComposer.repo === repo &&
+    review.openComposer.file === file &&
+    review.openComposer.line === line &&
+    review.openComposer.side === side;
+
+  if (comments.length === 0 && !composerOpen) return null;
+
+  const sideContent: SideContent = {
+    comments,
+    composerOpen,
+    lineContent: content,
+    line,
+    side,
+  };
+  return (
+    <tr className="wd-comment-row">
+      <td colSpan={3} className="wd-comment-side">
+        <SidePanel repo={repo} file={file} side={sideContent} />
+      </td>
+    </tr>
+  );
+}
+
 export function SidePanel({
   repo,
   file,

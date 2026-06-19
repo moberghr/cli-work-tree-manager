@@ -3,6 +3,7 @@ import { fetchContext, type AppContext } from './api/client.js';
 import { DashboardApp } from './apps/DashboardApp.js';
 import { ReviewApp } from './apps/ReviewApp.js';
 import { FileApp } from './apps/FileApp.js';
+import { DiffModeProvider } from './state/DiffModeProvider.js';
 
 /**
  * Top-level router. Three modes:
@@ -21,7 +22,17 @@ import { FileApp } from './apps/FileApp.js';
  * fallback in `spa-handler.ts` serves index.html for any non-/api path,
  * so deep links work directly.
  */
+/** Wraps the router in the cross-cutting providers every view shares.
+ *  DiffModeProvider supplies the split/unified preference to the whole tree. */
 export function App() {
+  return (
+    <DiffModeProvider>
+      <AppRoutes />
+    </DiffModeProvider>
+  );
+}
+
+function AppRoutes() {
   const [context, setContext] = useState<AppContext | null>(null);
   const [error, setError] = useState<string | null>(null);
 

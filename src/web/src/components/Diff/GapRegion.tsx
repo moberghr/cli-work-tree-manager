@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
+import { useDiffMode } from '../../state/DiffModeProvider.js';
 import {
   gapOffset,
   hiddenRemaining,
@@ -49,6 +50,7 @@ export function GapRegion({
   belowHeading,
 }: Props) {
   const exp = useExpandOptional();
+  const mode = useDiffMode();
   const [topLines, setTopLines] = useState<RevealedLine[]>([]);
   const [bottomLines, setBottomLines] = useState<RevealedLine[]>([]);
   const [eof, setEof] = useState(false);
@@ -136,11 +138,16 @@ export function GapRegion({
   return (
     <>
       {topLines.map((l) => (
-        <ContextRow key={`t-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} />
+        <ContextRow
+          key={`t-${l.newNum}`}
+          line={l}
+          html={lineHtml?.get(l) ?? null}
+          unified={mode === 'unified'}
+        />
       ))}
       {showExpander && (
         <tr className="wd-row wd-expander-row">
-          <td className="wd-expander-cell" colSpan={4}>
+          <td className="wd-expander-cell" colSpan={mode === 'unified' ? 3 : 4}>
             <div className="wd-expander">
               <div className="wd-expander-arrows">
                 {/* Converging arrows, GitHub-style: the down-chevron (top)
@@ -192,7 +199,12 @@ export function GapRegion({
         </tr>
       )}
       {bottomLines.map((l) => (
-        <ContextRow key={`b-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} />
+        <ContextRow
+          key={`b-${l.newNum}`}
+          line={l}
+          html={lineHtml?.get(l) ?? null}
+          unified={mode === 'unified'}
+        />
       ))}
     </>
   );
@@ -201,10 +213,24 @@ export function GapRegion({
 function ContextRow({
   line,
   html,
+  unified,
 }: {
   line: RevealedLine;
   html: string | null;
+  unified: boolean;
 }) {
+  // Unified: both gutters then a single content cell. Split: old gutter +
+  // content, new gutter + content (content duplicated, since context is
+  // identical on both sides).
+  if (unified) {
+    return (
+      <tr className="wd-row wd-row-context">
+        <td className="wd-ln wd-ln-old wd-context">{line.oldNum}</td>
+        <td className="wd-ln wd-ln-new wd-context">{line.newNum}</td>
+        <ContextCell content={line.content} html={html} />
+      </tr>
+    );
+  }
   return (
     <tr className="wd-row wd-row-context">
       <td className="wd-ln wd-ln-old wd-context">{line.oldNum}</td>
