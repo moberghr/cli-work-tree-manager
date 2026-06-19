@@ -12,6 +12,7 @@ import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
 import { ReviewProvider } from '../../state/ReviewProvider.js';
 import { DiffRepo } from './DiffRepo.js';
 import { DiffLoadingBar } from './DiffLoadingBar.js';
+import { DiffModeToggle } from './DiffModeToggle.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
@@ -212,6 +213,7 @@ export function DiffView({ session }: Props) {
                 Since branch
               </button>
             </div>
+            <DiffModeToggle />
           </header>
           {!isEmpty && activeRepo && (
             <>

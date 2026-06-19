@@ -136,6 +136,83 @@ export function hunkRows(hunk: Hunk): SideRow[] {
   return pairLines(hunk.lines);
 }
 
+/** One row in the unified (inline) layout: a single line of content that is
+ *  either an unchanged context line, a deletion, or an addition — the
+ *  GitHub "unified" diff shape. Context rows carry both line numbers; a
+ *  deletion carries only the old number, an addition only the new one. */
+export interface InlineRow {
+  kind: 'context' | 'delete' | 'add';
+  oldNum: number | null;
+  newNum: number | null;
+  content: string;
+  /** Word-level diff spans, when this row is part of a paired -/+ change. */
+  spans?: IntraSpan[];
+}
+
+/** Flatten a hunk into unified rows: context lines in place, then each
+ *  change block as its run of deletions followed by its run of additions
+ *  (the order git's unified diff already uses). Intra-line spans are
+ *  computed by pairing deletions with additions by index within the block —
+ *  the same pairing `pairLines` uses for the split view — so a word-level
+ *  edit highlights identically in both layouts. */
+export function inlineRows(hunk: Hunk): InlineRow[] {
+  const out: InlineRow[] = [];
+  let dels: HunkLine[] = [];
+  let adds: HunkLine[] = [];
+
+  const flush = () => {
+    const paired = Math.min(dels.length, adds.length);
+    const delSpans: (IntraSpan[] | undefined)[] = [];
+    const addSpans: (IntraSpan[] | undefined)[] = [];
+    for (let i = 0; i < paired; i++) {
+      const intra = computeIntraLine(dels[i].content, adds[i].content);
+      if (intra) {
+        delSpans[i] = intra.oldSpans;
+        addSpans[i] = intra.newSpans;
+      }
+    }
+    dels.forEach((d, i) => {
+      out.push({
+        kind: 'delete',
+        oldNum: d.oldNum,
+        newNum: null,
+        content: d.content,
+        spans: delSpans[i],
+      });
+    });
+    adds.forEach((a, i) => {
+      out.push({
+        kind: 'add',
+        oldNum: null,
+        newNum: a.newNum,
+        content: a.content,
+        spans: addSpans[i],
+      });
+    });
+    dels = [];
+    adds = [];
+  };
+
+  for (const line of hunk.lines) {
+    if (line.kind === 'no-newline') continue;
+    if (line.kind === 'delete') {
+      dels.push(line);
+    } else if (line.kind === 'add') {
+      adds.push(line);
+    } else {
+      flush();
+      out.push({
+        kind: 'context',
+        oldNum: line.oldNum,
+        newNum: line.newNum,
+        content: line.content,
+      });
+    }
+  }
+  flush();
+  return out;
+}
+
 /** Collect every added line across a file's hunks, in order. Used by the
  *  full-width "new file" renderer: a brand-new file is one `@@ -0,0 +N @@`
  *  hunk of all-`add` lines, but we walk every hunk/line so any added-line

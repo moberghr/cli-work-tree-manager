@@ -12,6 +12,7 @@ import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
 import { useReviewOptional, useReview } from '../../state/ReviewProvider.js';
+import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentItem } from '../Review/CommentItem.js';
 import { Composer } from '../Review/Composer.js';
 
@@ -50,6 +51,10 @@ export function DiffFile({
   const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(
     hunkScopeKey ?? '',
   );
+  // Split (side-by-side) vs unified (inline) layout — a global, persisted
+  // preference. Drives the table's column layout here; DiffHunk and GapRegion
+  // read the same mode to emit matching rows.
+  const diffMode = useDiffMode();
   // Whole-file comments need the review context + a repo name. Suppressed in
   // static / dashboard-readonly mode where no ReviewProvider is mounted.
   const reviewCtx = useReviewOptional();
@@ -314,12 +319,26 @@ export function DiffFile({
         ) : file.status === 'added' ? (
           <NewFileView file={file} lang={lang} review={review} repo={repo} />
         ) : (
-          <table className="wd-diff-table wd-side">
+          <table
+            className={
+              'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')
+            }
+          >
             <colgroup>
-              <col className="wd-col-ln" />
-              <col className="wd-col-content" />
-              <col className="wd-col-ln" />
-              <col className="wd-col-content" />
+              {diffMode === 'unified' ? (
+                <>
+                  <col className="wd-col-ln" />
+                  <col className="wd-col-ln" />
+                  <col />
+                </>
+              ) : (
+                <>
+                  <col className="wd-col-ln" />
+                  <col className="wd-col-content" />
+                  <col className="wd-col-ln" />
+                  <col className="wd-col-content" />
+                </>
+              )}
             </colgroup>
             <tbody>
               {repo && gapByKey.has('head') && (
