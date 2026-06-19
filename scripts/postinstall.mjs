@@ -5,9 +5,9 @@
 
 import { spawnSync } from 'node:child_process';
 
-const MARKETPLACE_REPO = 'moberghr/cli-work-tree-manager';
-const MARKETPLACE_NAME = 'work-tree';
-const PLUGIN_SPEC = 'work-tree@work-tree';
+const MARKETPLACE_REPO = 'moberghr/moberg-plugins';
+const MARKETPLACE_NAME = 'moberg-plugins';
+const PLUGIN_SPEC = 'work-tree@moberg-plugins';
 
 // All argv values below are static literals — nothing user-controlled is
 // interpolated. shell:true is required on Windows where `claude` is a .cmd shim.
@@ -33,7 +33,7 @@ function main() {
     const add = claude([
       'plugin', 'marketplace', 'add', MARKETPLACE_REPO,
       '--scope', 'user',
-      '--sparse', '.claude-plugin', 'plugins',
+      '--sparse', '.claude-plugin',
     ]);
     if (add.error || add.status !== 0) {
       console.log('work-tree: could not register the Claude Code plugin marketplace (run `claude plugin marketplace add ' + MARKETPLACE_REPO + '` manually).');
