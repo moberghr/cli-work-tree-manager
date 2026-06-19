@@ -321,7 +321,14 @@ Other features in review mode:
 - **General comments** — a top-of-page composer for review notes that aren't tied to any line.
 - **Stable scope hash** — keep one tab open across repeated `wd` / `wd -c` invocations for the same worktree.
 
-When running standalone (no `work web`), the live URL is published to `~/.work/diffs/latest-review.url` so any local tool can find it without scraping stdout. A ready-made Claude Code skill ships as the `work-tree` plugin (`plugins/work-tree/skills/wd-review/SKILL.md`) — installing the npm package auto-registers the plugin marketplace and installs the plugin when the `claude` CLI is present. To add it manually: `claude plugin marketplace add moberghr/cli-work-tree-manager && claude plugin install work-tree@work-tree`. Then say *"review my changes with wd"* in any Claude session to drive the loop.
+When running standalone (no `work web`), the live URL is published to `~/.work/diffs/latest-review.url` so any local tool can find it without scraping stdout. A ready-made Claude Code skill ships as the `work-tree` plugin (`plugins/work-tree/skills/wd-review/SKILL.md`) — installing the npm package auto-registers the plugin marketplace and installs the plugin when the `claude` CLI is present. To add it manually from the Moberg plugin marketplace:
+
+```bash
+/plugin marketplace add moberghr/moberg-plugins
+/plugin install work-tree@moberg-plugins
+```
+
+Then say *"review my changes with wd"* in any Claude session to drive the loop.
 
 ---
 
