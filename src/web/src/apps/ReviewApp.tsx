@@ -34,7 +34,7 @@ import { GeneralPane } from '../components/Review/GeneralPane.js';
 import { FileTree } from '../components/Sidebar/FileTree.js';
 import { CommentsPanel } from '../components/Sidebar/CommentsPanel.js';
 import { useViewedFiles } from '../hooks/use-viewed-files.js';
-import { useScrollspy } from '../hooks/use-scrollspy.js';
+import { useFollowActiveInSidebar, useScrollspy } from '../hooks/use-scrollspy.js';
 import { useSidebarOverflowsViewport } from '../hooks/use-sidebar-overflow.js';
 import {
   ResizeDivider,
@@ -383,6 +383,11 @@ export function ReviewApp({ context, scopeHash }: Props) {
     activeRepo?.name,
     repos?.length,
   ]);
+
+  // Keep the active file visible in the tree as you scroll the diff — but only
+  // once the sidebar is its own scroller (a tree taller than the viewport);
+  // otherwise the whole tree is on screen and nothing needs to move.
+  useFollowActiveInSidebar(sidebarRef, activeAnchor, sidebarScrolls);
 
   // ---- Hooks above this line, branches below ----------------------------
 

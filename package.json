@@ -1,6 +1,6 @@
 {
   "name": "@moberg_hr/work-tree",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "Cross-platform Git worktree manager for multiple repositories",
   "type": "module",
   "bin": {

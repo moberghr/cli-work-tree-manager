@@ -18,7 +18,7 @@ import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
 import { PendingPill } from '../Review/PendingPill.js';
 import { useViewedFiles } from '../../hooks/use-viewed-files.js';
-import { useScrollspy } from '../../hooks/use-scrollspy.js';
+import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import {
   ResizeDivider,
   useSidebarWidth,
@@ -115,6 +115,12 @@ export function DiffView({ session }: Props) {
   );
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const layoutRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  // The dashboard sidebar is always its own scroller (overflow-y:auto,
+  // height:100vh), so the active row drifts off-screen without this — always
+  // enabled here.
+  useFollowActiveInSidebar(sidebarRef, activeAnchor, true);
 
   // ---- Hooks above this line, branches below ----------------------------
 
@@ -151,7 +157,7 @@ export function DiffView({ session }: Props) {
         className="wd-web-review-layout"
         style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}
       >
-        <aside className="wd-web-review-sidebar">
+        <aside ref={sidebarRef} className="wd-web-review-sidebar">
           <header className="wd-web-review-sidebar-header">
             <h1>
               {session.target}
