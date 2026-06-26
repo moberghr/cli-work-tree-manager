@@ -1,9 +1,27 @@
 ---
 name: wd-review
-description: Open an interactive diff review in the user's browser via `wd -c`, stream each comment back as the user writes it, and react to it (make the change, answer the question, or reply via the comment API). Use when the user says "review my changes", "open a wd review", "let me review with wd", "review with wd", or similar.
+description: Open the `wd` browser diff viewer so the USER can review changes themselves. Trigger ONLY when the user explicitly references wd or asks to look at the diff themselves — "open wd", "open a wd review", "review with wd", "let me review with wd", "let me look at the diff", "show me the diff". DEFAULT is read-only — run plain `wd` and stop. Drive the interactive `wd -c` loop ONLY when the user explicitly asks for it ("review with wd interactively", "stream my comments back", "wd -c", "drive the review"). Do NOT trigger on a bare "review my changes"/"review the diff" with no mention of wd — that means the user wants Claude to perform a code review (use the code-review skill), not the wd viewer. If the user runs `wd` themselves, do nothing.
 ---
 
-The `wd` CLI on this machine (a global npm bin) ships an interactive review mode. `wd -c` opens a side-by-side diff in the user's browser, lets them click any line number to leave an inline comment, and **streams each comment to stdout as it is saved**. You start the session, react to each comment as it arrives, and the session stays alive until the user clicks "End review" (or the process is killed).
+## Pick the mode first — read-only is the default
+
+This skill is ONLY for opening the `wd` browser diff viewer for the user. It is NOT for Claude reviewing code.
+
+**First, check this isn't a request for Claude to review.** A bare "review my changes", "review the diff", "review the PR", or "can you review this" with **no mention of wd** means the user wants *Claude* to perform a code review — that is the **code-review** skill, not this one. Do not open `wd` for those; let the code-review skill handle them. This skill triggers only when the user explicitly references `wd` or clearly says they want to look at the diff *themselves* ("open wd", "let me review with wd", "show me the diff", "let me look at it").
+
+Once you know it's a `wd` request, pick the mode. **Default to read-only.**
+
+- **User already ran `wd` themselves (e.g. `!wd`, or a `wd`/`wd -c` command in the transcript) → do NOTHING.** Seeing the user run `wd` is NOT a request for you to start a review. Do not launch your own `wd`, do not launch `wd -c`, do not start a background task or Monitor. The diff is theirs to review on their own. At most acknowledge in one line and wait for them to ask for a change. Never run a review process in parallel with one the user started.
+- **Read-only (DEFAULT).** Triggered when the user asks you to open the wd viewer — "open wd", "open a wd review", "let me review with wd", "review with wd" — without explicitly asking for the interactive loop. Just run plain **`wd`** (NOT `wd -c`) — it opens the read-only diff in the browser. Tell the user it's open and **STOP**: do not start a background task, do not tail output with Monitor, do not edit any files. They review on their own and will come back to you if they want changes. The rest of this document does not apply in this mode.
+- **Interactive (`wd -c`) — only on explicit request.** Triggered only when the user clearly wants Claude in the loop: "interactively", "stream my comments", "react to my comments as I write them", "drive the review", "wd -c", or similar. Only then follow the lifecycle/driving instructions below.
+
+If you are unsure which one they mean, default to read-only and ask whether they want the interactive mode.
+
+---
+
+## Interactive mode (`wd -c`)
+
+Everything below applies **only** in interactive mode (see above). `wd -c` opens a side-by-side diff in the user's browser, lets them click any line number to leave an inline comment, and **streams each comment to stdout as it is saved**. You start the session, react to each comment as it arrives, and the session stays alive until the user clicks "End review" (or the process is killed).
 
 ## Lifecycle markers on stdout
 
