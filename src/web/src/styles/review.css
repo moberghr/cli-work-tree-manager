@@ -133,6 +133,24 @@
 /* In the sticky toolbar the toggle loses its sidebar top-margin. */
 .wd-web-difftoolbar-controls .wd-diff-mode { margin-top: 0; }
 
+/* Light/dark theme toggle — a single square icon button matching the
+   segmented-control border/hover language. */
+.wd-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wd-theme-toggle:hover { background: var(--hover); color: var(--fg); }
+
 .wd-web-review-main {
   overflow-y: auto;
   height: 100vh;
@@ -555,12 +573,12 @@
   margin-bottom: 2px;
 }
 .wd-comment.wd-author-claude {
-  border-left: 3px solid #7c3aed;
-  background: rgba(124, 58, 237, 0.07);
+  border-left: 3px solid var(--claude-fg);
+  background: var(--claude-bg);
   padding-left: 8px;
   border-radius: 0 4px 4px 0;
 }
-.wd-comment.wd-author-claude .wd-comment-author { color: #7c3aed; }
+.wd-comment.wd-author-claude .wd-comment-author { color: var(--claude-fg); }
 .wd-comment-reply {
   margin-left: 20px;
   border-top: 1px dashed var(--border);

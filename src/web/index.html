@@ -4,6 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>work web — sessions</title>
+    <!-- Stamp the theme on <html> before first paint so there's no
+         light-then-dark flash. Persisted choice wins; otherwise follow the
+         OS. The ThemeProvider takes over once React mounts. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('wd:theme');
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
