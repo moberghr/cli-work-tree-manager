@@ -4,6 +4,7 @@ import { DashboardApp } from './apps/DashboardApp.js';
 import { ReviewApp } from './apps/ReviewApp.js';
 import { FileApp } from './apps/FileApp.js';
 import { DiffModeProvider } from './state/DiffModeProvider.js';
+import { ThemeProvider } from './state/ThemeProvider.js';
 
 /**
  * Top-level router. Three modes:
@@ -23,12 +24,15 @@ import { DiffModeProvider } from './state/DiffModeProvider.js';
  * so deep links work directly.
  */
 /** Wraps the router in the cross-cutting providers every view shares.
- *  DiffModeProvider supplies the split/unified preference to the whole tree. */
+ *  ThemeProvider owns the light/dark preference; DiffModeProvider supplies
+ *  the split/unified preference to the whole tree. */
 export function App() {
   return (
-    <DiffModeProvider>
-      <AppRoutes />
-    </DiffModeProvider>
+    <ThemeProvider>
+      <DiffModeProvider>
+        <AppRoutes />
+      </DiffModeProvider>
+    </ThemeProvider>
   );
 }
 

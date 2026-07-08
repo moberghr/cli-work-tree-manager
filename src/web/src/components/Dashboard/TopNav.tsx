@@ -1,4 +1,5 @@
 import type { DashboardRoute } from '../../state/dashboard-route.js';
+import { VERSION } from '../../version.js';
 
 interface Props {
   active: DashboardRoute['tab'];
@@ -44,6 +45,9 @@ export function TopNav({ active, onSelect, currentScopeLabel, onHome }: Props) {
       >
         work
       </button>
+      <span className="wd-dash-version" title={`work-tree v${VERSION}`}>
+        v{VERSION}
+      </span>
       <ul className="wd-dash-tabs" role="tablist">
         {TABS.map((t) => (
           <li key={t.key}>

@@ -1,7 +1,15 @@
-/* Design tokens — GitHub PR page palette. Light only for now; dark mode
-   will return when there's a user-controlled toggle (OS preference is
-   intentionally ignored — too many users want this tool to stay light). */
-:root {
+/* Design tokens — GitHub's Primer palette.
+
+   Two themes, selected by `data-theme` on <html>:
+     - light  → Primer "light default"
+     - dark   → Primer "dark default"
+
+   The attribute is stamped synchronously by the inline boot script in
+   index.html (before first paint, so no flash) and thereafter owned by the
+   ThemeProvider. Default follows the OS (`prefers-color-scheme`); a user
+   toggle overrides it and persists to localStorage (`wd:theme`). */
+:root,
+:root[data-theme='light'] {
   color-scheme: light;
   --bg: #fff;
   --fg: #1f2328;
@@ -16,4 +24,26 @@
   --del-fg: #cf222e;
   --code-bg: #f6f8fa;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  /* Claude-authored review comments (purple accent). */
+  --claude-fg: #7c3aed;
+  --claude-bg: rgba(124, 58, 237, 0.07);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --fg: #e6edf3;
+  --border: #30363d;
+  --muted: #8b949e;
+  --sidebar-bg: #161b22;
+  --header-bg: #161b22;
+  --hover: #21262d;
+  --current: rgba(56, 139, 253, 0.15);
+  --accent: #2f81f7;
+  --add-fg: #3fb950;
+  --del-fg: #f85149;
+  --code-bg: #161b22;
+  --shadow-sm: 0 1px 2px rgba(1, 4, 9, 0.4);
+  --claude-fg: #d2a8ff;
+  --claude-bg: rgba(188, 140, 255, 0.12);
 }
