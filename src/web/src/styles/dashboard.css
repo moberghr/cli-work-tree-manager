@@ -38,6 +38,13 @@
   border-radius: 4px;
 }
 .wd-dash-brand:hover { background: var(--hover); }
+/* Shipped version — quiet monospace tag next to the brand. */
+.wd-dash-version {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 2px;
+}
 
 .wd-dash-tabs {
   display: flex;

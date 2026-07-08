@@ -25,6 +25,7 @@ import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffLoadingBar } from '../components/Diff/DiffLoadingBar.js';
 import { DiffModeToggle } from '../components/Diff/DiffModeToggle.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
+import { VERSION } from '../version.js';
 import { DiffRepo } from '../components/Diff/DiffRepo.js';
 import { ReviewProvider } from '../state/ReviewProvider.js';
 import { ExpandProvider } from '../state/ExpandProvider.js';
@@ -464,6 +465,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <span className="wd-web-difftoolbar-compare">{compareSummary}</span>
       </div>
       <div className="wd-web-difftoolbar-controls">
+        <span className="wd-web-version" title={`work-tree v${VERSION}`}>
+          v{VERSION}
+        </span>
         <ThemeToggle />
         <DiffModeToggle />
         {hasBranchTab && (
