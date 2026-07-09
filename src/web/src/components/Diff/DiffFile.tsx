@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
@@ -106,6 +113,28 @@ export function DiffFile({
     setCollapsed(autoCollapsed);
   }, [autoCollapsed]);
 
+  // When the user marks a file "viewed" mid-scroll, its body collapses and all
+  // the content above the viewport shrinks — leaving them scrolled past the
+  // next file and forced to scroll back up. Snap this file's header to the top
+  // instead (the `.wd-file` scroll-margin-top lands it just below the sticky
+  // toolbar) so the next file sits right beneath it. Only fires on an explicit
+  // user toggle-on, not on initial mount or persisted-viewed load. Double rAF
+  // waits for the collapse layout to settle before measuring.
+  const articleRef = useRef<HTMLElement>(null);
+  const handleToggleViewed = useCallback(
+    (next: boolean) => {
+      onToggleViewed?.(next);
+      if (next) {
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            articleRef.current?.scrollIntoView({ block: 'start' });
+          }),
+        );
+      }
+    },
+    [onToggleViewed],
+  );
+
   // Per-file view mode. Markdown files get a Diff | Preview | Split toggle —
   // Preview renders the new (or before, for deletions) content; Split shows
   // both rendered side-by-side. Non-markdown files always render the diff.
@@ -169,6 +198,7 @@ export function DiffFile({
     ) : null;
   return (
     <article
+      ref={articleRef}
       className={
         'wd-file' +
         (viewed ? ' wd-file-viewed' : '') +
@@ -285,7 +315,7 @@ export function DiffFile({
               type="checkbox"
               className="wd-viewed-checkbox"
               checked={!!viewed}
-              onChange={(e) => onToggleViewed(e.target.checked)}
+              onChange={(e) => handleToggleViewed(e.target.checked)}
             />
             Viewed
           </label>
