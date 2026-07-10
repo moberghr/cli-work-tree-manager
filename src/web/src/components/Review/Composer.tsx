@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { selectHasDrafts, useReviewOptional } from '../../state/ReviewProvider.js';
 
 interface Props {
   /** Header line shown above the textarea, e.g. "api/src/users.ts : line 42 (right)". */
@@ -27,6 +28,10 @@ export function Composer({
 }: Props) {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
+  // Once a review has pending (draft) comments, the review has already begun —
+  // GitHub collapses the two-button choice into a single "Add review comment".
+  const review = useReviewOptional();
+  const reviewStarted = review ? selectHasDrafts(review.comments) : false;
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
@@ -47,7 +52,9 @@ export function Composer({
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      submit('published');
+      // When starting a review is an option, Ctrl+Enter defaults to it (batching)
+      // rather than posting a single comment.
+      submit(allowDraft ? 'draft' : 'published');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancel();
@@ -68,24 +75,47 @@ export function Composer({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        {allowDraft && (
+        {allowDraft ? (
+          reviewStarted ? (
+            // Review already in progress — a single action adds to it.
+            <button
+              type="button"
+              className="wd-btn-primary"
+              onClick={() => submit('draft')}
+              disabled={!value.trim()}
+            >
+              Add review comment (Ctrl+Enter)
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="wd-btn-secondary"
+                onClick={() => submit('published')}
+                disabled={!value.trim()}
+              >
+                {publishLabel}
+              </button>
+              <button
+                type="button"
+                className="wd-btn-primary"
+                onClick={() => submit('draft')}
+                disabled={!value.trim()}
+              >
+                {draftLabel} (Ctrl+Enter)
+              </button>
+            </>
+          )
+        ) : (
           <button
             type="button"
-            className="wd-btn-secondary"
-            onClick={() => submit('draft')}
+            className="wd-btn-primary"
+            onClick={() => submit('published')}
             disabled={!value.trim()}
           >
-            {draftLabel}
+            {publishLabel} (Ctrl+Enter)
           </button>
         )}
-        <button
-          type="button"
-          className="wd-btn-primary"
-          onClick={() => submit('published')}
-          disabled={!value.trim()}
-        >
-          {publishLabel} (Ctrl+Enter)
-        </button>
       </div>
     </div>
   );
