@@ -64,7 +64,9 @@ function writeAtomic(s: SettingsFile): void {
   try {
     const target = resolveLinkTarget(settingsPath());
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    atomicWriteFile(target, JSON.stringify(s, null, 2));
+    // Trailing newline: this file is commonly symlinked into a dotfiles
+    // repo, and a missing one shows up as a diff artefact on every edit.
+    atomicWriteFile(target, `${JSON.stringify(s, null, 2)}\n`);
   } catch { /* best-effort */ }
 }
 

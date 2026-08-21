@@ -104,6 +104,14 @@ describe('editSettings', () => {
     expect(JSON.parse(fs.readFileSync(real, 'utf8')).hooks).toBeUndefined();
   });
 
+  it('ends the file with a newline', async () => {
+    linkToDotfiles({ model: 'opus' });
+    await editSettings((s) => { s.hooks!.Stop = []; });
+    expect(fs.readFileSync(real, 'utf8').endsWith('}\n')).toBe(true);
+    editSettingsSync((s) => { delete s.hooks; });
+    expect(fs.readFileSync(real, 'utf8').endsWith('}\n')).toBe(true);
+  });
+
   it('creates a plain file when nothing exists yet', async () => {
     await editSettings((s) => { s.hooks!.Stop = []; });
     expect(fs.existsSync(link)).toBe(true);
