@@ -12,14 +12,20 @@
  * Everything here writes through `editSettings`, which does a single
  * tmp-file + rename atomic write under a process-level mutex (best-effort —
  * no cross-process locking, but the rename is OS-atomic and the in-process
- * mutex is enough to serialize the dash + web case).
+ * mutex is enough to serialize the dash + web case). The rename follows
+ * symlinks (`atomicWriteFile`) so a settings.json symlinked into a dotfiles
+ * repo keeps being a symlink after we edit it.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { atomicWriteFile, resolveLinkTarget } from './fs-safe.js';
 
-const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
+/** Resolved lazily (not at module load) so tests can stub `os.homedir`. */
+function settingsPath(): string {
+  return path.join(os.homedir(), '.claude', 'settings.json');
+}
 const OWNER_TAG = '_workHookOwner';
 const PID_TAG = '_workHookPid';
 const LEGACY_TAGS = ['_workDash', '_work2Dash'];
@@ -42,20 +48,25 @@ export const HOOK_TAGS = {
 
 function readSettings(): SettingsFile {
   try {
-    if (!fs.existsSync(SETTINGS_PATH)) return {};
-    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) as SettingsFile;
+    const p = settingsPath();
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, 'utf8')) as SettingsFile;
   } catch {
     return {};
   }
 }
 
-/** Atomic write: tmp-file + rename. Caller must hold the in-process queue. */
+/**
+ * Atomic write: tmp-file + rename, through the symlink to the real file.
+ * Caller must hold the in-process queue.
+ */
 function writeAtomic(s: SettingsFile): void {
   try {
-    fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-    const tmp = `${SETTINGS_PATH}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tmp, JSON.stringify(s, null, 2), 'utf-8');
-    fs.renameSync(tmp, SETTINGS_PATH);
+    const target = resolveLinkTarget(settingsPath());
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    // Trailing newline: this file is commonly symlinked into a dotfiles
+    // repo, and a missing one shows up as a diff artefact on every edit.
+    atomicWriteFile(target, `${JSON.stringify(s, null, 2)}\n`);
   } catch { /* best-effort */ }
 }
 

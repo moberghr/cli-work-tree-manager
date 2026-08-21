@@ -1,14 +1,53 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import lockfile from 'proper-lockfile';
+
+/**
+ * Resolve a path through any symlinks so a tmp-file + rename write replaces
+ * the LINK TARGET, not the link. Users routinely symlink config into a
+ * dotfiles repo (`~/.claude/settings.json` -> `~/.dotfiles/.../settings.json`);
+ * renaming over the link silently detaches it, so our edit lands in a new
+ * regular file and the dotfiles copy stops being the live one.
+ *
+ * Walks links by hand instead of `fs.realpathSync` so a dangling link (target
+ * not created yet) still resolves to where it points. Falls back to the path
+ * as given when there's nothing there or the links form a cycle. Resolving
+ * also keeps the tmp file on the target's filesystem, so the rename can't
+ * fail with EXDEV when the link crosses a mount.
+ */
+export function resolveLinkTarget(filePath: string): string {
+  let current = filePath;
+  const seen = new Set<string>([current]);
+  for (let i = 0; i < 32; i++) {
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      return current; // nothing there — write where we were told
+    }
+    if (!stat.isSymbolicLink()) return current;
+    const next = path.resolve(path.dirname(current), fs.readlinkSync(current));
+    if (seen.has(next)) return filePath; // link cycle — don't touch it
+    seen.add(next);
+    current = next;
+  }
+  return filePath;
+}
 
 /**
  * Write a file atomically. Writes to a sibling tmp file and renames
  * over the target, so a crash mid-write can't leave a truncated file.
+ * Symlinks are followed first (see {@link resolveLinkTarget}) and the
+ * existing file's mode is preserved across the replace.
  */
 export function atomicWriteFile(filePath: string, content: string): void {
-  const tmpPath = `${filePath}.tmp-${process.pid}`;
+  const target = resolveLinkTarget(filePath);
+  const tmpPath = `${target}.tmp-${process.pid}`;
   fs.writeFileSync(tmpPath, content, 'utf-8');
-  fs.renameSync(tmpPath, filePath);
+  try {
+    fs.chmodSync(tmpPath, fs.statSync(target).mode & 0o777);
+  } catch { /* target is new — default umask is right */ }
+  fs.renameSync(tmpPath, target);
 }
 
 /**
