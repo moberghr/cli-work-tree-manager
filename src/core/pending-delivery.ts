@@ -26,6 +26,7 @@ import {
   getCommentFileStore,
 } from './comment-file-store.js';
 import { scopeHashFor } from './repo-spec.js';
+import { atomicWriteFile } from './fs-safe.js';
 import type { Comment } from './comment-types.js';
 
 function pathFor(sessionId: string): {
@@ -48,9 +49,7 @@ function readJson<T>(filePath: string, fallback: T): T {
 
 function writeAtomic(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, content, 'utf-8');
-  fs.renameSync(tmp, filePath);
+  atomicWriteFile(filePath, content);
 }
 
 /** Norm-path comparison that mirrors what we do server-side. */
