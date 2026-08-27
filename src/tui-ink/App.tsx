@@ -14,6 +14,7 @@ import {
 } from '../core/history.js';
 import { loadConfig } from '../core/config.js';
 import { internalClaudeEnv } from '../core/internal-claude.js';
+import { hasClaudeConversation } from '../core/claude-activity.js';
 import { rebaseOntoMainAsync, countConflictsAsync, isBranchMergedAsync, fetchRemoteAsync } from '../core/git.js';
 import { fetchAllPullRequests, isGhAvailable, type BranchPrMap } from '../core/pr.js';
 import { fetchMyJiraIssues, isAcliAvailable, type JiraIssue } from '../core/jira.js';
@@ -61,21 +62,6 @@ enum TopPaneMode {
 }
 
 
-/** Check if Claude has an existing conversation for a directory. */
-function hasClaudeConversation(dir: string): boolean {
-  try {
-    const resolved = path.resolve(dir);
-    // Claude Code encodes project dirs by replacing EVERY non-alphanumeric
-    // char with '-' (verified against ~/.claude/projects: ".claude" → "-claude").
-    const projectDir = resolved.replace(/[^a-zA-Z0-9-]/g, '-');
-    const claudeProjectPath = path.join(os.homedir(), '.claude', 'projects', projectDir);
-    if (!fs.existsSync(claudeProjectPath)) return false;
-    const files = fs.readdirSync(claudeProjectPath);
-    return files.some((f) => f.endsWith('.jsonl'));
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Stable notification-dedup key for a PTY: its resolved launch directory.

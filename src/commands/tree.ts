@@ -3,9 +3,10 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
-import { setupWorktree } from '../core/worktree.js';
+import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
+import { hasClaudeConversation } from '../core/claude-activity.js';
 import { upsertSession } from '../core/history.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
@@ -39,6 +40,18 @@ export const treeCommand: CommandModule = {
         type: 'boolean',
         default: false,
       })
+      .option('pull', {
+        describe:
+          'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
+        type: 'boolean',
+        default: true,
+      })
+      .option('fresh', {
+        describe:
+          'Start a new AI conversation instead of continuing the previous one for this directory',
+        type: 'boolean',
+        default: false,
+      })
       .option('base', {
         describe:
           'Base branch to fork from instead of HEAD. Repeatable. Use a bare branch (--base dev) for all repos, or alias=branch (--base backend=dev --base frontend=feat/x) for per-repo bases in a group.',
@@ -69,6 +82,8 @@ export const treeCommand: CommandModule = {
     const here = argv.here as boolean;
     const open = argv.open as boolean;
     const unsafe = argv.unsafe as boolean;
+    const pull = argv.pull as boolean;
+    const fresh = argv.fresh as boolean;
     const setupOnly = argv['setup-only'] as boolean;
     let baseSpec;
     try {
@@ -96,6 +111,26 @@ export const treeCommand: CommandModule = {
     }
 
     const config = ensureConfig();
+
+    /**
+     * Launch the AI tool, continuing the previous conversation for this
+     * directory when there is one. `--continue` errors out ("No conversation
+     * found to continue") in a directory the tool has never run in, so the flag
+     * is gated on an existing transcript.
+     */
+    const launchTool = (dir: string, port?: number): void => {
+      const tool = getAiTool(config);
+      const resume = !fresh && hasClaudeConversation(dir);
+      if (resume) {
+        console.log(
+          chalk.gray(
+            `Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`,
+          ),
+        );
+      }
+      console.log(`Starting ${tool.cmd}...`);
+      launchAi(dir, tool, { unsafe, initialPrompt, resume }, port);
+    };
 
     // --here: infer target and branch from the current worktree directory
     if (here) {
@@ -175,19 +210,19 @@ export const treeCommand: CommandModule = {
       console.log(`Repo path: ${repoPath}`);
 
       const currentBranch = getCurrentBranch(repoPath) ?? '(detached)';
+      // Detached HEAD has no upstream to pull from — skip rather than warn.
+      if (pull && currentBranch && currentBranch !== '(detached)') {
+        pullLatestForBranch(repoPath, currentBranch);
+      }
       await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
 
       if (open) openVSCode(repoPath);
-      if (!setupOnly) {
-        const tool = getAiTool(config);
-        console.log(`Starting ${tool.cmd}...`);
-        launchAi(repoPath, tool, { unsafe, initialPrompt });
-      }
+      if (!setupOnly) launchTool(repoPath);
       return;
     }
 
     // Create/switch worktree via shared core logic
-    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey);
+    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull });
     if (!result) {
       process.exitCode = 1;
       return;
@@ -200,10 +235,6 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
-    if (!setupOnly) {
-      const tool = getAiTool(config);
-      console.log(`Starting ${tool.cmd}...`);
-      launchAi(result.launchDir, tool, { unsafe, initialPrompt }, result.port);
-    }
+    if (!setupOnly) launchTool(result.launchDir, result.port);
   },
 };

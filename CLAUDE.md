@@ -106,7 +106,7 @@ After building, `work` is available globally (via `npm link`). Rebuild after sou
 
 ```
 work init                                          # Interactive first-time setup
-work tree|t <target> <branch> [--base <branch>|--base <alias>=<branch> ...] [--here] [--open] [--unsafe] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd). --base is repeatable: a bare branch forks every repo, alias=branch sets per-repo bases for a group (e.g. --base backend=dev --base frontend=feat/x)
+work tree|t <target> [branch] [--base <branch>|--base <alias>=<branch> ...] [--here] [--open] [--unsafe] [--no-pull] [--fresh] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd; omit branch to work on the base repo). --base is repeatable: a bare branch forks every repo, alias=branch sets per-repo bases for a group (e.g. --base backend=dev --base frontend=feat/x). Switching into an existing checkout pulls + resumes the prior AI conversation; --no-pull / --fresh opt out
 work remove <target> <branch> [--force]            # Remove worktree
 work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status
@@ -258,6 +258,15 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 - **Reactive session detection:** Uses `fs.watch` on `history.json` to detect new sessions created externally (e.g., `work tree` in another terminal).
 - **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR/Jira data is loaded.
 - **Context-sensitive status bar:** Shows different keybinding hints depending on which pane is focused.
+
+### Re-entering a worktree (pull + resume)
+
+`work tree` is both "create" and "switch back", and switching back is the common case. Whenever the target checkout already exists — an existing worktree, or the base repo when the branch positional is omitted — two things happen before the AI tool launches:
+
+- **Pull.** `pullLatestForBranch()` (`core/worktree.ts`) runs fetch + pull in that directory. Best-effort by design: a branch with no upstream returns early (a bare `git pull` there prints a "no tracking information" error that reads as a failure), and a pull blocked by a dirty tree or conflicts only warns. It must never block getting into the worktree. Threaded through `setupWorktree(..., { pull })` → `createSingleWorktree(..., pull)`; `--no-pull` sets it false. A freshly created worktree skips this — it is already at the branch tip.
+- **Resume.** `launchTool()` in `commands/tree.ts` passes `resume: true` so the tool gets its resume flag (`--continue` for Claude Code). Gated on `hasClaudeConversation(dir)` (`core/claude-activity.ts`, a transcript-exists check over `~/.claude/projects/<encoded-cwd>/*.jsonl`) because `--continue` hard-errors with "No conversation found to continue" in a directory Claude has never run in — the same gate `work resume` and the TUI use. `--fresh` opts out.
+
+§ WHEN adding another launch path, resolve the resume flag through `hasClaudeConversation` rather than passing `--continue` unconditionally.
 
 ### Session Tracking
 

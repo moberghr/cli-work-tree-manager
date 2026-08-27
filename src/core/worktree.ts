@@ -26,12 +26,12 @@ import {
 } from './base-spec.js';
 
 /**
- * Pull latest changes for a worktree we're switching into (not freshly
- * created). Runs fetch + pull in the worktree's own directory. Best-effort:
- * a branch with no upstream is skipped silently; a failed pull (dirty tree,
- * conflicts) only warns and never blocks switching into the worktree.
+ * Pull latest changes for a checkout we're switching into (a worktree that
+ * already existed, or the base repo). Runs fetch + pull in that directory.
+ * Best-effort: a branch with no upstream is skipped silently; a failed pull
+ * (dirty tree, conflicts) only warns and never blocks the switch.
  */
-function pullExistingWorktree(worktreePath: string, branchName: string): void {
+export function pullLatestForBranch(worktreePath: string, branchName: string): void {
   // Skip purely local branches — `git pull` would print a "no tracking
   // information" error that reads as a failure rather than a no-op.
   const upstream = git(
@@ -62,6 +62,9 @@ function pullExistingWorktree(worktreePath: string, branchName: string): void {
  * When `baseBranch` is provided, the new branch is created from that base
  * instead of HEAD. Only valid for new branches — errors if the target branch
  * already exists locally or on remote.
+ *
+ * `pull` (default true) only affects the already-exists path: a freshly created
+ * worktree is at its branch tip anyway.
  */
 export function createSingleWorktree(
   repoPath: string,
@@ -69,6 +72,7 @@ export function createSingleWorktree(
   branchName: string,
   config: WorkConfig,
   baseBranch?: string,
+  pull = true,
 ): boolean {
   debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
 
@@ -80,7 +84,7 @@ export function createSingleWorktree(
         console.log(
           chalk.yellow(`  Worktree already exists at: ${worktreePath}`),
         );
-        pullExistingWorktree(worktreePath, branchName);
+        if (pull) pullLatestForBranch(worktreePath, branchName);
         return true;
       }
     }
@@ -327,6 +331,15 @@ export function removeSingleWorktree(
   }
 }
 
+/** Caller-tunable behavior for {@link setupWorktree}. */
+export interface WorktreeSetupOptions {
+  /**
+   * Pull latest changes when switching into a worktree that already exists.
+   * Default true; `work tree --no-pull` turns it off.
+   */
+  pull?: boolean;
+}
+
 /**
  * Result of setupWorktree — everything needed to launch an AI session.
  */
@@ -353,18 +366,19 @@ export async function setupWorktree(
   config: WorkConfig,
   base?: string | BaseSpec,
   jiraKey?: string,
+  opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   const spec = toBaseSpec(base);
-  debug('setupWorktree', { targetName, branchName, spec, jiraKey });
+  debug('setupWorktree', { targetName, branchName, spec, jiraKey, opts });
   const target = resolveProjectTarget(targetName, config);
   if (!target) { debug('setupWorktree: target not found', targetName); return null; }
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 
   if (target.isGroup) {
-    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey);
+    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts);
   } else {
-    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey);
+    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
   }
 }
 
@@ -376,6 +390,7 @@ async function setupGroupWorktree(
   config: WorkConfig,
   spec: BaseSpec,
   jiraKey?: string,
+  opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
 
@@ -435,7 +450,7 @@ async function setupGroupWorktree(
     const repoBase = baseForAlias(spec, alias);
 
     console.log(chalk.cyan(`[${alias}] (${repoName}):`));
-    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, repoBase);
+    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, repoBase, opts.pull !== false);
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
@@ -503,6 +518,7 @@ async function setupSingleWorktree(
   config: WorkConfig,
   spec: BaseSpec,
   jiraKey?: string,
+  opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   const repoPath = config.repos[targetName];
   const repoName = path.basename(repoPath);
@@ -538,9 +554,9 @@ async function setupSingleWorktree(
     }
     console.log(`Worktree already exists at: ${existing.path}`);
     workTreePath = existing.path;
-    pullExistingWorktree(workTreePath, branchName);
+    if (opts.pull !== false) pullLatestForBranch(workTreePath, branchName);
   } else {
-    const success = createSingleWorktree(repoPath, workTreePath, branchName, config, baseBranch);
+    const success = createSingleWorktree(repoPath, workTreePath, branchName, config, baseBranch, opts.pull !== false);
     if (!success) return null;
   }
 

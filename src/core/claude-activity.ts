@@ -59,6 +59,16 @@ export function getClaudeActivityMs(launchPath: string): number {
   return latestJsonlMtimeMs(dir);
 }
 
+/**
+ * True when the AI tool's resume flag (`--continue`) will actually find a
+ * conversation for this exact cwd. Claude Code errors out with "No conversation
+ * found to continue" when the flag is passed in a directory it has never run
+ * in, so callers gate on this before adding it.
+ */
+export function hasClaudeConversation(dir: string): boolean {
+  return getClaudeActivityMs(dir) > 0;
+}
+
 function getLaunchPaths(session: WorktreeSession): string[] {
   if (!session.isGroup) return [...session.paths];
   // Groups launch Claude in the parent (group root), not a repo subfolder.

@@ -6,6 +6,7 @@ import {
   claudeProjectsRoot,
   effectiveLastAccessedAt,
   getClaudeActivityMs,
+  hasClaudeConversation,
   readSessionActivity,
   resolveResumeLaunch,
 } from '../../src/core/claude-activity.js';
@@ -79,6 +80,26 @@ describe('getClaudeActivityMs', () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'something.txt'), '');
     expect(getClaudeActivityMs('C:/work/repo')).toBe(0);
+  });
+});
+
+describe('hasClaudeConversation', () => {
+  it('is false when the tool has never run in that directory', () => {
+    // Gate for `--continue`: passing it here would error out with
+    // "No conversation found to continue".
+    expect(hasClaudeConversation('C:/work/never-opened')).toBe(false);
+  });
+
+  it('is false when the project dir holds no transcript', () => {
+    const dir = projectDirFor('C:/work/repo');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes.txt'), '');
+    expect(hasClaudeConversation('C:/work/repo')).toBe(false);
+  });
+
+  it('is true once a transcript exists, however old', () => {
+    touch(projectDirFor('C:/work/repo'), 'a.jsonl', 90 * 24 * 60 * 60_000);
+    expect(hasClaudeConversation('C:/work/repo')).toBe(true);
   });
 });
 

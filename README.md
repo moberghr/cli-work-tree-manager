@@ -82,6 +82,7 @@ work dash
 ```
 work init                                              # Interactive first-time setup
 work tree|t <target> <branch> [flags]                  # Create or switch to a worktree
+work tree|t <target>                                   # Work on the base repo (no worktree) — pulls + continues the last conversation
 work tree --here                                       # Infer target+branch from the current worktree
 work remove <target> <branch> [--force]                # Remove a worktree
 work list [target]                                     # List worktrees
@@ -111,7 +112,16 @@ wd --stop                                              # Stop the background ser
 wd -c                                                  # Interactive review with streaming comments
 ```
 
-`work tree` flags: `--here` (infer target+branch from cwd), `--base <branch>` (branch from a specific base), `--open` (open the configured editor), `--unsafe` (skip AI-tool permission checks), `--prompt "..."` / `--prompt-file <path>` (send an initial prompt), `--jira-key <KEY>` (link a Jira issue to the session), `--setup-only` (create the worktree without launching the AI tool).
+`work tree` flags: `--here` (infer target+branch from cwd), `--base <branch>` (branch from a specific base), `--open` (open the configured editor), `--unsafe` (skip AI-tool permission checks), `--no-pull` (skip the pull when switching into an existing checkout), `--fresh` (start a new AI conversation instead of continuing the last one), `--prompt "..."` / `--prompt-file <path>` (send an initial prompt), `--jira-key <KEY>` (link a Jira issue to the session), `--setup-only` (create the worktree without launching the AI tool).
+
+### Switching back into a worktree
+
+Creating a worktree and *returning* to one are the same command, and the second case is the common one. When the checkout already exists — an existing worktree, or the base repo when you run `work tree <target>` with no branch — `work tree`:
+
+1. **Pulls latest** for the checked-out branch, when it tracks a remote. Best-effort: a purely local branch is skipped silently, and a pull blocked by uncommitted changes or conflicts warns and carries on rather than stopping you from getting in. `--no-pull` skips it.
+2. **Continues the previous AI conversation** for that directory, by passing the tool's resume flag (`--continue` for Claude Code). This is gated on a transcript actually existing for that exact path, so a first visit starts fresh instead of erroring out. `--fresh` forces a new conversation.
+
+A freshly created worktree does neither: it is already at its branch tip and has no conversation to resume.
 
 ### Branch resolution order
 

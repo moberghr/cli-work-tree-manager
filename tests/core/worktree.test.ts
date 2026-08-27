@@ -87,6 +87,30 @@ describe('createSingleWorktree', () => {
     expect(fs.existsSync(path.join(wtPath, 'remote-change.txt'))).toBe(true);
   });
 
+  it('skips the pull when pull=false', () => {
+    const originDir = path.join(tmpDir, 'origin.git');
+    git(['init', '--bare', '-b', 'main', originDir], tmpDir);
+    git(['remote', 'add', 'origin', originDir], repoDir);
+    git(['push', '-u', 'origin', 'main'], repoDir);
+
+    const wtPath = path.join(wtDir, 'feature-nopull');
+    createSingleWorktree(repoDir, wtPath, 'feature/nopull', config);
+    git(['push', '-u', 'origin', 'feature/nopull'], wtPath);
+    const headBefore = git(['rev-parse', 'HEAD'], wtPath).stdout;
+
+    fs.writeFileSync(path.join(repoDir, 'remote-change.txt'), 'from origin');
+    git(['add', '.'], repoDir);
+    git(['commit', '-m', 'remote commit', '--no-gpg-sign'], repoDir);
+    git(['push', 'origin', 'main:feature/nopull'], repoDir);
+
+    const result = createSingleWorktree(repoDir, wtPath, 'feature/nopull', config, undefined, false);
+
+    expect(result).toBe(true);
+    // Still parked on the old commit — origin moved on without us.
+    expect(git(['rev-parse', 'HEAD'], wtPath).stdout).toBe(headBefore);
+    expect(fs.existsSync(path.join(wtPath, 'remote-change.txt'))).toBe(false);
+  });
+
   it('fails if branch is checked out in another worktree', () => {
     const wt1 = path.join(wtDir, 'wt1');
     const wt2 = path.join(wtDir, 'wt2');
