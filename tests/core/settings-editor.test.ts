@@ -73,8 +73,14 @@ describe('atomicWriteFile', () => {
   it('preserves the existing file mode', () => {
     fs.writeFileSync(link, '{}');
     fs.chmodSync(link, 0o600);
+    // Windows has no POSIX permission bits — chmod only toggles the read-only
+    // attribute and the mode reads back as 0o666 whatever we asked for. Compare
+    // against the mode the target actually ended up with, so the invariant
+    // under test (the mode survives the rename) holds on both platforms; on
+    // POSIX that is still exactly 0o600.
+    const before = fs.statSync(link).mode & 0o777;
     atomicWriteFile(link, 'x');
-    expect(fs.statSync(link).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(link).mode & 0o777).toBe(before);
   });
 
   it('leaves no tmp files behind', () => {
