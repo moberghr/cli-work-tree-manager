@@ -4,7 +4,8 @@
 # npm auth uses Trusted Publishing (OIDC) — no NPM_TOKEN secret. One-time setup
 # on npmjs.com: package @moberg_hr/work-tree -> Settings -> Trusted Publisher ->
 # GitHub Actions, org/user "moberghr", repo "cli-work-tree-manager", workflow
-# "release.yml". Requires npm CLI >= 11.5.1 (upgraded below; Node 20 ships 10.x).
+# "release.yml". Requires npm CLI >= 11.5.1, which Node 24 bundles (npm 11.9+),
+# so there is no global npm install step to drift out of sync with the runner.
 #
 # Required repository secrets:
 #   HOMEBREW_TAP_TOKEN - PAT (contents:write) on moberghr/homebrew-work-tree
@@ -31,15 +32,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
-
-      # Trusted publishing needs npm >= 11.5.1; Node 20 bundles npm 10.x.
-      # Pinned to the 11.x line ON PURPOSE: `npm@latest` is now npm 12, which
-      # requires Node >= 22.22 and hard-fails EBADENGINE on this runner's
-      # Node 20. Raise this only together with node-version above.
-      - run: npm install -g npm@^11.5.1
 
       - run: npm ci
       - run: npm run typecheck

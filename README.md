@@ -41,7 +41,7 @@ Work is the missing layer between `git worktree` and your AI assistant. Every br
 ## Quick Start
 
 ```bash
-# 1. Install (Node 18+, Git required)
+# 1. Install (Node 24+, Git required)
 
 # Option A — Homebrew (macOS / Linux)
 brew install moberghr/work-tree/work    # provides `work` and `wd`
@@ -69,7 +69,7 @@ work dash
 
 | Tool | Required | Used for |
 |:---|:---|:---|
-| **Node.js 18+** | yes | Runtime |
+| **Node.js 24+** | yes | Runtime |
 | **Git** | yes | Worktree operations |
 | **[Claude Code CLI](https://claude.ai/code)** | recommended | Default AI tool auto-launched on `work tree`; group CLAUDE.md generation. Any other CLI works too — set `aiCommand` in config. |
 | **[GitHub CLI (`gh`)](https://cli.github.com/)** | optional | PR pane in the dashboard / `work web` |
