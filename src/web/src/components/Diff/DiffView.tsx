@@ -12,6 +12,8 @@ import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
 import { ReviewProvider } from '../../state/ReviewProvider.js';
 import { DiffRepo } from './DiffRepo.js';
 import { DiffLoadingBar } from './DiffLoadingBar.js';
+import { DiffCheckingChip } from './DiffCheckingChip.js';
+import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
@@ -36,7 +38,6 @@ interface Props {
  * `diff === null` happens after the hooks.
  */
 export function DiffView({ session }: Props) {
-  const [reloadKey, setReloadKey] = useState(0);
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   // Per-session diff scope. Defaults to uncommitted (the working-tree
   // view). 'branch' shows everything since this worktree was forked,
@@ -51,14 +52,22 @@ export function DiffView({ session }: Props) {
     data: diff,
     error,
     loading,
+    checking,
+    pending,
+    applyPending,
+    reload,
+    checkForUpdates,
   } = useDeferredDiffLoad(
     () => fetchSessionDiff(session.id, diffBase),
-    [session.id, reloadKey, diffBase],
+    [session.id, diffBase],
   );
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
     events: {
-      'diff-changed': () => setReloadKey((n) => n + 1),
+      // Stage the new diff instead of swapping it in — a Claude turn writing
+      // files must not re-render the diff under someone reading it. The
+      // update banner hands control to the user.
+      'diff-changed': () => checkForUpdates(),
     },
   });
 
@@ -116,6 +125,17 @@ export function DiffView({ session }: Props) {
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const layoutRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  // The dashboard diff scrolls inside <main> (not the document), so "back to
+  // the top" on reload has to move that element.
+  const mainRef = useRef<HTMLElement>(null);
+
+  // The "Reload" action: refetch from the server and return to the top —
+  // a browser refresh's useful half, without tearing down the dashboard
+  // (attached terminal, route, sidebar width all survive).
+  const reloadFromTop = () => {
+    reload();
+    mainRef.current?.scrollTo({ top: 0 });
+  };
 
   // The dashboard sidebar is always its own scroller (overflow-y:auto,
   // height:100vh), so the active row drifts off-screen without this — always
@@ -128,6 +148,10 @@ export function DiffView({ session }: Props) {
   if (!diff) return <div className="wd-web-empty">Loading diff…</div>;
 
   const totalFiles = diff.repos.reduce((s, r) => s + r.files.length, 0);
+  // File count of the staged (not-yet-shown) diff, for the banner's summary.
+  const pendingFileCount = pending
+    ? pending.repos.reduce((s, r) => s + r.files.length, 0)
+    : null;
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = diff.repos.length > 1;
   // Three flavours of empty depending on what scope failed:
@@ -220,6 +244,14 @@ export function DiffView({ session }: Props) {
               </button>
             </div>
             <DiffModeToggle />
+            {pending && (
+              <DiffUpdateChip
+                filesChanged={pendingFileCount}
+                onShow={applyPending}
+                onReload={reloadFromTop}
+              />
+            )}
+            {checking && !pending && <DiffCheckingChip />}
           </header>
           {!isEmpty && activeRepo && (
             <>
@@ -239,6 +271,7 @@ export function DiffView({ session }: Props) {
           onCommit={setSidebarWidth}
         />
         <main
+          ref={mainRef}
           className="wd-web-review-main"
           aria-busy={loading}
           // Always set --tabs-offset (0px when no tabs) so the value is

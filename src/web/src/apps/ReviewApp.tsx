@@ -23,6 +23,8 @@ import { useDeferredDiffLoad } from '../hooks/use-deferred-diff-load.js';
 import { decideRange, rangeEmptyMessage } from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffLoadingBar } from '../components/Diff/DiffLoadingBar.js';
+import { DiffCheckingChip } from '../components/Diff/DiffCheckingChip.js';
+import { DiffUpdateChip } from '../components/Diff/DiffUpdateChip.js';
 import { DiffModeToggle } from '../components/Diff/DiffModeToggle.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
 import { VERSION } from '../version.js';
@@ -58,7 +60,6 @@ interface Props {
  * every render. Branching on `repos === null` happens after the hooks.
  */
 export function ReviewApp({ context, scopeHash }: Props) {
-  const [reloadKey, setReloadKey] = useState(0);
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   const readOnly = !!context.readOnly;
   // Flips true when this scope's review ends (End Review here or in
@@ -130,7 +131,14 @@ export function ReviewApp({ context, scopeHash }: Props) {
           );
           if (decision.resetUserPicked) userPickedRef.current = false;
           if (decision.kind === 'legacy') return null;
-          return decision.range;
+          // Keep the previous object when the decision is the same range:
+          // `range` is a diff-fetch dependency, and a new-but-equal object
+          // would refetch the identical diff on every checkpoint event.
+          const next = decision.range;
+          if (prev && prev.from === next.from && prev.to === next.to) {
+            return prev;
+          }
+          return next;
         });
       },
       () => { /* silent — strip just stays hidden */ },
@@ -148,6 +156,11 @@ export function ReviewApp({ context, scopeHash }: Props) {
     data: diffData,
     error,
     loading,
+    checking,
+    pending,
+    applyPending,
+    reload,
+    checkForUpdates,
   } = useDeferredDiffLoad(
     () =>
       scopeHash
@@ -157,7 +170,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
             rangeActive ? (range ?? undefined) : undefined,
           )
         : fetchScopeDiff(diffBase),
-    [reloadKey, diffBase, scopeHash, range, rangeActive],
+    [diffBase, scopeHash, range, rangeActive],
   );
   const repos: RepoData[] | null = diffData?.repos ?? null;
   const resolvedBase = diffData?.resolvedBase;
@@ -194,7 +207,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
         : '/events',
     {
       events: {
-        'diff-changed': () => setReloadKey((n) => n + 1),
+        // Fetch quietly and stage the result — never re-render the diff
+        // out from under someone who's mid-scroll. The banner offers it.
+        'diff-changed': () => checkForUpdates(),
         'checkpoints-changed': () => refreshCheckpoints(),
         'review-done': () => setReviewEnded(true),
       },
@@ -210,6 +225,14 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // as +∞). The server rejects reversed ranges with 400; without this,
   // shift-clicking past the current `to` would 400 every diff fetch
   // until the user clicks again to fix it.
+  // The "Reload" action: refetch from the server and go back to the top —
+  // the useful half of a browser refresh, without discarding the page (this
+  // view scrolls the document, so the window is the scroller).
+  const reloadFromTop = () => {
+    reload();
+    window.scrollTo({ top: 0 });
+  };
+
   const normaliseRange = (
     from: number,
     to: CheckpointRangeEnd,
@@ -397,6 +420,10 @@ export function ReviewApp({ context, scopeHash }: Props) {
   if (!repos) return <div className="wd-web-empty">Loading diff…</div>;
 
   const totalFiles = repos.reduce((s, r) => s + r.files.length, 0);
+  // File count of the staged (not-yet-shown) diff, for the banner's summary.
+  const pendingFileCount = pending
+    ? pending.repos.reduce((s, r) => s + r.files.length, 0)
+    : null;
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = repos.length > 1;
   // Empty-state copy mirrors DiffView's three-bucket diagnostic so the
@@ -463,6 +490,17 @@ export function ReviewApp({ context, scopeHash }: Props) {
           )}
         </span>
         <span className="wd-web-difftoolbar-compare">{compareSummary}</span>
+        {/* Live-update surface sits in the LEFT group: it grows into the
+           slack next to the compare summary, so the right-hand controls
+           (tabs, checkpoint picker) never shift when it appears. */}
+        {pending && (
+          <DiffUpdateChip
+            filesChanged={pendingFileCount}
+            onShow={applyPending}
+            onReload={reloadFromTop}
+          />
+        )}
+        {checking && !pending && <DiffCheckingChip />}
       </div>
       <div className="wd-web-difftoolbar-controls">
         <span className="wd-web-version" title={`work-tree v${VERSION}`}>

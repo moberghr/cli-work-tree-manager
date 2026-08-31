@@ -501,6 +501,84 @@
   0% { left: -35%; }
   100% { left: 100%; }
 }
+
+/* ---- Live updates: staged, never auto-applied -----------------------------
+   The diff no longer swaps itself out while you read (see
+   hooks/use-deferred-diff-load.ts). Two affordances replace the old auto
+   reload: a "checking…" chip in the header while a background fetch runs,
+   and the banner below once a genuinely different diff is waiting. */
+.wd-diff-checking {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-diff-checking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #58a6ff);
+  animation: wd-checking-pulse 1s ease-in-out infinite;
+}
+@keyframes wd-checking-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+/* Inline header control — deliberately NOT a banner over the diff. Anything
+   inserted above the diff shifts every line down the instant new changes are
+   detected, which is the exact jump staged reloads exist to avoid. The
+   toolbar / sidebar header is fixed-height, so this pill appears and
+   disappears without moving a single row of the diff. */
+.wd-diff-update {
+  display: inline-flex;
+  align-items: center;
+  /* The toolbar's info group aligns on the text baseline; this pill has its
+     own box, so centre it instead of letting the border sit on the baseline. */
+  align-self: center;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--header-bg));
+}
+.wd-diff-update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+.wd-diff-update-text { color: var(--fg); }
+.wd-diff-update-btn {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--sidebar-bg);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-diff-update-btn:hover { background: var(--hover); }
+.wd-diff-update-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.wd-diff-update-btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wd-diff-checking-dot { animation: none; opacity: 0.7; }
+  .wd-diff-loading-bar::before { animation: none; width: 100%; opacity: 0.6; }
+}
 /* Per-file view-mode toggle (markdown preview). Three small segmented
    buttons in the file header. Sits just left of the Viewed checkbox. */
 .wd-view-mode {
