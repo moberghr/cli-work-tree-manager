@@ -8,7 +8,7 @@ export default defineConfig({
   // Only clean tsup's own outputs — Vite owns dist/web/ and shouldn't be wiped.
   clean: ['bin.js', 'bin.js.map', 'wd-bin.js', 'wd-bin.js.map'],
   format: ['esm'],
-  target: 'node24',
+  target: 'node22',
   sourcemap: true,
   splitting: false,
   define: {
