@@ -133,13 +133,20 @@ export function createWorktree(
   return postJson('/api/worktrees', req);
 }
 
+export interface RemoveWorktreeOptions {
+  /** Discard uncommitted changes / unpushed commits. */
+  force?: boolean;
+  /** Only forget the session; leave the worktree on disk. */
+  sessionOnly?: boolean;
+}
+
 export function removeWorktree(
   sessionId: string,
-  force: boolean,
-): Promise<{ ok: true }> {
+  opts: RemoveWorktreeOptions = {},
+): Promise<{ ok: true; worktreeRemoved: boolean }> {
   return postJson(
     `/api/sessions/${encodeURIComponent(sessionId)}/worktree`,
-    { force },
+    opts,
     'DELETE',
   );
 }

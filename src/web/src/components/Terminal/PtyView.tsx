@@ -77,8 +77,15 @@ export function PtyView({ sessionId }: Props) {
       else pendingInput.push(data);
     });
 
+    // A drag fires the observer every frame; only tell the server when the
+    // grid actually changes.
+    let sentCols = term.cols;
+    let sentRows = term.rows;
     const onResize = () => {
       fit.fit();
+      if (term.cols === sentCols && term.rows === sentRows) return;
+      sentCols = term.cols;
+      sentRows = term.rows;
       if (ready) {
         ws.send(
           JSON.stringify({
@@ -89,9 +96,17 @@ export function PtyView({ sessionId }: Props) {
         );
       }
     };
-    window.addEventListener('resize', onResize);
+    // Observe the host, not just the window: dragging the dashboard's rail
+    // divider resizes the pane without any window resize event.
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => onResize())
+        : null;
+    if (observer) observer.observe(hostRef.current);
+    else window.addEventListener('resize', onResize);
 
     return () => {
+      observer?.disconnect();
       window.removeEventListener('resize', onResize);
       inputSub.dispose();
       try { ws.close(); } catch { /* */ }

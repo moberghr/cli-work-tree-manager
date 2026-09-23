@@ -41,6 +41,67 @@
   width: 2px;
   left: 1px;
 }
+/* Grip pill centred on the line so the handle is discoverable. It overhangs
+   the 4px strip, which also widens the grab target. `min(50%, 50vh)` keeps
+   it on the first screen when the divider is document-tall (full-page wd). */
+.wd-resize-divider::after {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: min(50%, 50vh);
+  width: 8px;
+  height: 22px;
+  padding: 1px 0;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-color: var(--bg);
+  /* Three stacked dots: an 18px content box tiled with 6px dot cells. */
+  background-image: radial-gradient(circle, var(--muted) 1px, transparent 1.5px);
+  background-size: 6px 6px;
+  background-position: center top;
+  background-repeat: repeat-y;
+  background-origin: content-box;
+  background-clip: content-box;
+  transition: border-color 0.12s;
+}
+.wd-resize-divider:hover::after,
+.wd-resize-divider.wd-resize-dragging::after {
+  border-color: var(--accent);
+  background-image: radial-gradient(circle, var(--accent) 1px, transparent 1.5px);
+}
+/* Horizontal handle (resizes a height, e.g. the sidebar comments panel). */
+.wd-resize-divider.wd-resize-divider-y {
+  cursor: row-resize;
+  height: 4px;
+  flex-shrink: 0;
+}
+/* Same grip, turned sideways: three dots in a row. */
+.wd-resize-divider.wd-resize-divider-y::after {
+  top: 50%;
+  width: 22px;
+  height: 8px;
+  padding: 0 1px;
+  background-position: left center;
+  background-repeat: repeat-x;
+}
+.wd-resize-divider.wd-resize-divider-y::before {
+  top: 1.5px;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 1px;
+}
+.wd-resize-divider.wd-resize-divider-y:hover::before,
+.wd-resize-divider.wd-resize-divider-y.wd-resize-dragging::before {
+  width: auto;
+  left: 0;
+  top: 1px;
+  height: 2px;
+}
 .wd-web-review-sidebar {
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
@@ -48,6 +109,27 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+/* `work web` session diff: the sidebar is split into a scrolling file tree
+   and a height-resizable comments panel, instead of one long scroller. */
+.wd-web-review-sidebar.wd-web-review-sidebar-split {
+  overflow: hidden;
+}
+.wd-sidebar-split-top {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+}
+.wd-sidebar-split-bottom {
+  height: var(--comments-height, 220px);
+  /* Never let the comments panel squeeze the tree + header out. */
+  max-height: calc(100% - 160px);
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.wd-sidebar-split-bottom > .wd-comments-panel {
+  border-top: none;
+  margin-top: 0;
 }
 .wd-web-review-sidebar-header {
   padding: 14px 16px 10px;
@@ -805,6 +887,32 @@
   border-color: var(--hunk-fg);
 }
 .wd-modal button:hover { filter: brightness(1.05); }
+.wd-modal button.wd-btn-danger {
+  background: var(--del-fg);
+  color: #fff;
+  border-color: var(--del-fg);
+}
+.wd-modal button:disabled { opacity: 0.6; cursor: default; }
+/* Delete-session modal. */
+.wd-modal code {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  color: var(--fg);
+}
+.wd-delete-paths {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.wd-delete-force {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.wd-modal p.wd-delete-error {
+  color: var(--del-fg);
+}
 .wd-submit-summary {
   width: 100%;
   min-height: 80px;

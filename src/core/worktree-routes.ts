@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { Hono } from 'hono';
@@ -6,7 +7,12 @@ import { z } from 'zod';
 import { loadConfig } from './config.js';
 import { setupWorktree, teardownWorktree } from './worktree.js';
 import { removeSession } from './history.js';
-import { findSession, sessionIdFor } from './web-state.js';
+import {
+  disposeSessionWatcher,
+  findSession,
+  sessionIdFor,
+} from './web-state.js';
+import { disposePty } from './pty-pool.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
 
@@ -19,7 +25,7 @@ export interface WorktreeMutOptions {
  * needs to reach parity with `work dash`:
  *
  *   POST   /api/worktrees             — create (target + branch [+ base])
- *   DELETE /api/sessions/:id/worktree — remove (with force flag)
+ *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
  *   POST   /api/sessions/:id/open-editor — spawn `code <path>`
@@ -81,7 +87,15 @@ export function mountWorktreeRoutes(
   );
 
   // -- Remove ------------------------------------------------------------
-  const removeSchema = z.object({ force: z.boolean().optional() });
+  // `force` discards uncommitted/unpushed work; `sessionOnly` just forgets
+  // the history entry and leaves the worktree on disk. When none of the
+  // session's paths exist any more (removed by hand, `git worktree prune`,
+  // ...) there's nothing to tear down, so we forget the session directly
+  // instead of failing forever.
+  const removeSchema = z.object({
+    force: z.boolean().optional(),
+    sessionOnly: z.boolean().optional(),
+  });
   app.delete(
     '/api/sessions/:id/worktree',
     zValidator('json', removeSchema),
@@ -92,27 +106,39 @@ export function mountWorktreeRoutes(
       const config = loadConfig();
       if (!config) return c.json({ error: 'no config' }, 400);
 
-      const { force } = c.req.valid('json');
+      const { force, sessionOnly } = c.req.valid('json');
       try {
-        const ok = teardownWorktree(
-          session.target,
-          session.isGroup,
-          session.branch,
-          config,
-          force ?? false,
-        );
-        if (!ok) {
-          return c.json(
-            {
-              error:
-                'remove blocked (uncommitted changes — pass force:true to override)',
-            },
-            409,
+        // Release our own handles on the tree first — a live Claude PTY
+        // (cwd inside the worktree) or an open directory watch blocks the
+        // delete on Windows.
+        disposePty(id);
+        await disposeSessionWatcher(id);
+
+        const onDisk = session.paths.some((p) => fs.existsSync(p));
+        let worktreeRemoved = false;
+        if (!sessionOnly && onDisk) {
+          const ok = teardownWorktree(
+            session.target,
+            session.isGroup,
+            session.branch,
+            config,
+            force ?? false,
           );
+          if (!ok) {
+            return c.json(
+              {
+                error:
+                  'Worktree not removed: uncommitted changes, unpushed commits, ' +
+                  'or git refused. Retry with force, or forget the session only.',
+              },
+              409,
+            );
+          }
+          worktreeRemoved = true;
         }
         await removeSession(session.target, session.branch);
         opts.broadcast('sessions-changed', { ts: Date.now() });
-        return c.json({ ok: true });
+        return c.json({ ok: true, worktreeRemoved });
       } catch (err) {
         return c.json({ error: (err as Error).message }, 500);
       }

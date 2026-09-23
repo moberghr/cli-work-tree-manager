@@ -1,5 +1,6 @@
 import type { DashboardRoute } from '../../state/dashboard-route.js';
 import { VERSION } from '../../version.js';
+import { ThemeToggle } from '../ThemeToggle.js';
 
 interface Props {
   active: DashboardRoute['tab'];
@@ -28,7 +29,8 @@ const TABS: TabDef[] = [
 ];
 
 /**
- * Top navigation strip: brand + primary tabs + current-scope hint. The
+ * Top navigation strip: brand + primary tabs + current-scope hint + the
+ * light/dark theme toggle (shared, persisted preference — see ThemeProvider). The
  * tabs are the cross-cutting lenses of the dashboard (`Sessions`,
  * `PRs`, `Jira`, `Tasks`). A session-detail view (drill-in) lives
  * outside this nav and breadcrumbs back to whichever tab the user
@@ -76,6 +78,7 @@ export function TopNav({ active, onSelect, currentScopeLabel, onHome }: Props) {
           {currentScopeLabel}
         </span>
       )}
+      <ThemeToggle />
     </nav>
   );
 }

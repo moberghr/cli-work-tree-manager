@@ -1,8 +1,13 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
 import { TopNav } from './TopNav.js';
 import { SessionRail } from './SessionRail.js';
+import {
+  RAIL_SPEC,
+  ResizeDivider,
+  useResizableSize,
+} from '../Layout/ResizeDivider.js';
 
 interface Props {
   route: DashboardRoute;
@@ -25,7 +30,8 @@ interface Props {
  *   └──────┴───────────────────────────────────────────────┘
  *
  * Top nav + rail stay visible across every dashboard view; only the
- * main slot swaps. ReviewApp (the bare `wd` deep-link view) does NOT
+ * main slot swaps. The rail is resizable (drag the divider; the width
+ * persists in localStorage). ReviewApp (the bare `wd` deep-link view) does NOT
  * mount this — it's a different shell entirely.
  */
 export function DashboardLayout({
@@ -38,6 +44,10 @@ export function DashboardLayout({
   onNewWorktree,
   children,
 }: Props) {
+  const { size: railWidth, setSize: setRailWidth } =
+    useResizableSize(RAIL_SPEC);
+  // Owns `--rail-width`; ResizeDivider writes it here during a drag.
+  const bodyRef = useRef<HTMLDivElement>(null);
   return (
     <div className="wd-dash-layout">
       <TopNav
@@ -46,12 +56,22 @@ export function DashboardLayout({
         currentScopeLabel={currentScopeLabel}
         onHome={onHome}
       />
-      <div className="wd-dash-body">
+      <div
+        ref={bodyRef}
+        className="wd-dash-body"
+        style={{ [RAIL_SPEC.cssVar as string]: `${railWidth}px` }}
+      >
         <SessionRail
           sessions={sessions}
           activeSessionId={route.sessionId}
           onSelect={onSelectSession}
           onNewWorktree={onNewWorktree}
+        />
+        <ResizeDivider
+          layoutRef={bodyRef}
+          size={railWidth}
+          onCommit={setRailWidth}
+          spec={RAIL_SPEC}
         />
         <main className="wd-dash-main">{children}</main>
       </div>

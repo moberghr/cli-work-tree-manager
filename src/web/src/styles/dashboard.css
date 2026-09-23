@@ -123,13 +123,18 @@
 }
 
 .wd-dash-rail {
-  width: 160px;
+  /* Driven by the rail ResizeDivider (which also draws the separator). */
+  width: var(--rail-width, 160px);
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
   background: var(--sidebar-bg, var(--header-bg));
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.wd-dash-body > .wd-resize-divider {
+  width: 4px;
+  flex-shrink: 0;
 }
 
 .wd-dash-rail-header {
@@ -336,13 +341,114 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+/* Grouped Sessions view: one scroller holding a section per project. */
+.wd-session-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+.wd-session-groups .wd-session-grid {
+  overflow: visible;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.wd-session-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 24px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+.wd-session-group-name {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+.wd-session-group-kind {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+/* Member repos of a multi-repo group, as pills after the GROUP badge. */
+.wd-session-group-repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wd-session-group-repos li {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--fg);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 8px;
+}
+/* On cards the badge carries the repo list as a tooltip. */
+.wd-session-group-kind-hint { cursor: help; }
+
+/* Delete button — hidden until the card is hovered / focused. */
+.wd-session-card-delete {
+  appearance: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.wd-session-card:hover .wd-session-card-delete,
+.wd-session-card:focus-within .wd-session-card-delete,
+.wd-session-card-delete:focus-visible {
+  opacity: 1;
+}
+.wd-session-card-delete:hover {
+  color: var(--del-fg);
+  border-color: var(--border);
+  background: var(--hover);
+}
+
+/* Card = project/group name (row 1) · branch (row 2) · meta (row 3). */
+.wd-session-card-target {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-session-card-branch {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wd-session-card-target { color: var(--muted); }
-.wd-session-card-sep { color: var(--muted); }
-.wd-session-card-branch { font-weight: 500; }
 .wd-card-dot {
   width: 8px;
   height: 8px;
@@ -589,6 +695,26 @@
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-weight: 500;
 }
+.wd-session-detail-delete {
+  appearance: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-session-detail-delete:hover {
+  color: var(--del-fg);
+  border-color: var(--del-fg);
+  background: var(--hover);
+}
 .wd-session-detail-target { color: var(--muted); }
 .wd-session-detail-sep { color: var(--muted); margin: 0 2px; }
 .wd-session-detail-branch { font-weight: 600; }
@@ -633,6 +759,22 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* The diff layout defaults to 100vh (full-page wd). Inside the session
+   detail it sits under the top nav + header + sub-tabs, so fill the
+   remaining space instead — otherwise its bottom is clipped off-screen. */
+.wd-session-subtab-body > .wd-web-review-layout {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+  /* Pin the row to the container so the sidebar/main scroll internally
+     rather than the implicit row growing to fit their content. */
+  grid-template-rows: minmax(0, 1fr);
+}
+.wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-main {
+  height: auto;
+  min-height: 0;
 }
 
 .wd-session-comments {
