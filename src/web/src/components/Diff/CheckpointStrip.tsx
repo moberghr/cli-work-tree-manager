@@ -22,11 +22,10 @@ interface Props {
    *  is dimmed — a range is pinned for display, but the diff is showing a
    *  base view (Uncommitted / Since branch); picking a row activates it. */
   active: boolean;
-  /** A diff fetch for the selected range is in flight. */
+  /** A diff fetch for the selected range is in flight. Reflected as
+   *  `aria-busy` only — the visible cue is the header's busy chip, so the
+   *  toolbar doesn't carry two spinners saying the same thing. */
   busy?: boolean;
-  /** Lazy Claude summary of what changed at the `to` checkpoint. */
-  summary?: string | null;
-  summaryLoading?: boolean;
 }
 
 /** Option label: the cached Claude summary if present, else `#id`. */
@@ -65,8 +64,6 @@ export function CheckpointStrip({
   onPickSingle,
   active,
   busy,
-  summary,
-  summaryLoading,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -138,30 +135,7 @@ export function CheckpointStrip({
             ▾
           </span>
         </button>
-        {busy && (
-          <span
-            className="wd-checkpoint-spinner"
-            role="status"
-            aria-label="Loading diff"
-          />
-        )}
       </div>
-
-      {(summary || summaryLoading) && (
-        <div
-          className="wd-checkpoint-summary"
-          title="What changed at the selected checkpoint"
-        >
-          {/* Prefer the summary the moment it exists — never show
-              "summarising…" once we have a name (guards against a stale
-              loading flag from a races with the auto-latest pass). */}
-          {summary ? (
-            summary
-          ) : (
-            <span className="wd-checkpoint-summary-loading">summarising…</span>
-          )}
-        </div>
-      )}
 
       {open && (
         <div className="wd-checkpoint-pop" role="listbox" aria-label="Checkpoints">

@@ -5,6 +5,10 @@ interface Props {
   onShow: () => void;
   /** Soft reload: refetch from the server and jump back to the top. */
   onReload: () => void;
+  /** Show ONLY what arrived — a checkpoint range from where the diff on
+   *  screen stood to the live tree. Omitted when no checkpoint baseline is
+   *  known (no checkpoints yet), in which case the button is not rendered. */
+  onShowNewOnly?: () => void;
 }
 
 /**
@@ -17,14 +21,21 @@ interface Props {
  * jump this whole feature exists to prevent. The header is fixed-height and
  * already sticky, so this appears and disappears without touching layout.
  *
- * Two actions on purpose. "Show" applies the payload we already fetched
- * without touching scroll — you carry on reading where you were. "Reload"
- * re-fetches from the server and jumps to the top: what a browser refresh
- * would give you, done in-place so the page (terminal, expanded context,
- * sidebar width, dashboard route) survives. Reading mid-file wants the
- * first; coming back after a long Claude run usually wants the second.
+ * Three actions, by what you want to end up looking at. "Show" applies the
+ * payload we already fetched without touching scroll — the whole diff,
+ * carry on reading where you were. "Only new" narrows the view to a
+ * checkpoint range covering just what landed while you were reading, which
+ * is the fastest way to see what Claude did without re-reading the rest.
+ * "Reload" re-fetches and jumps to the top: what a browser refresh would
+ * give you, done in-place so the page (terminal, expanded context, sidebar
+ * width, dashboard route) survives.
  */
-export function DiffUpdateChip({ filesChanged, onShow, onReload }: Props) {
+export function DiffUpdateChip({
+  filesChanged,
+  onShow,
+  onReload,
+  onShowNewOnly,
+}: Props) {
   const count =
     typeof filesChanged === 'number' && filesChanged > 0
       ? `${filesChanged} file${filesChanged === 1 ? '' : 's'}`
@@ -44,6 +55,16 @@ export function DiffUpdateChip({ filesChanged, onShow, onReload }: Props) {
       >
         Show
       </button>
+      {onShowNewOnly && (
+        <button
+          type="button"
+          className="wd-diff-update-btn"
+          onClick={onShowNewOnly}
+          title="Show only what changed since the last checkpoint in the diff you are looking at"
+        >
+          Only new
+        </button>
+      )}
       <button
         type="button"
         className="wd-diff-update-btn"

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  checkpointAtOrBefore,
   decideRange,
   rangeEmptyMessage,
 } from '../../src/web/src/state/checkpoint-range.js';
@@ -121,5 +122,51 @@ describe('rangeEmptyMessage', () => {
   it('falls back to the generic message when the latest id is unknown', () => {
     const msg = rangeEmptyMessage({ from: 21, to: 'working' }, undefined);
     expect(msg).toContain('Pick a different range');
+  });
+});
+
+describe('checkpointAtOrBefore ("Only new" baseline)', () => {
+  const at = (id: number, iso: string): CheckpointEntry => ({
+    id,
+    ts: iso,
+    repos: {},
+  });
+  const cps = [
+    at(0, '2026-09-23T10:00:00Z'),
+    at(1, '2026-09-23T10:05:00Z'),
+    at(2, '2026-09-23T10:10:00Z'),
+  ];
+  const ms = (iso: string) => Date.parse(iso);
+
+  it('picks the newest checkpoint taken before the diff was fetched', () => {
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T10:07:00Z'))).toBe(1);
+  });
+
+  it('counts a checkpoint taken at the exact fetch instant as seen', () => {
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T10:05:00Z'))).toBe(1);
+  });
+
+  it('resolves once a late checkpoint list arrives (first-load race)', () => {
+    // The diff lands before the checkpoint list: nothing to resolve yet...
+    expect(checkpointAtOrBefore([], ms('2026-09-23T10:12:00Z'))).toBeNull();
+    // ...and the same fetch time resolves correctly when the list shows up,
+    // instead of staying null for the whole session.
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T10:12:00Z'))).toBe(2);
+  });
+
+  it('includes a checkpoint the list learns about after a reload (reload race)', () => {
+    // Reload fetched at 10:12, but the list still only knew 0..1 when the
+    // diff landed. Once checkpoint 2 (10:10, BEFORE the fetch) arrives, the
+    // baseline moves to it — the reloaded diff already contains that turn.
+    expect(checkpointAtOrBefore(cps.slice(0, 2), ms('2026-09-23T10:12:00Z'))).toBe(1);
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T10:12:00Z'))).toBe(2);
+  });
+
+  it('ignores checkpoints taken after the fetch — those are the new part', () => {
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T10:01:00Z'))).toBe(0);
+  });
+
+  it('is null when the diff predates every checkpoint', () => {
+    expect(checkpointAtOrBefore(cps, ms('2026-09-23T09:00:00Z'))).toBeNull();
   });
 });

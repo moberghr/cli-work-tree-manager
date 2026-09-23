@@ -222,9 +222,7 @@
   white-space: nowrap;
 }
 /* Flatten the checkpoint strip into the toolbar row: drop its standalone
-   padding/border/background (the toolbar supplies the bar), lay the button
-   and its summary side by side, and truncate a long summary instead of
-   wrapping to a second line. */
+   padding/border/background (the toolbar supplies the bar). */
 .wd-web-difftoolbar .wd-checkpoint-range {
   padding: 0;
   border: 0;
@@ -233,13 +231,6 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-.wd-web-difftoolbar .wd-checkpoint-summary {
-  margin: 0;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* Open the popover aligned to the picker's right edge — it sits at the right
    end of the toolbar, so a left-anchored menu would overflow off-screen. */

@@ -108,22 +108,21 @@ describe('CheckpointStrip (GitHub-style single dropdown)', () => {
     expect(to).toEqual(['working']);
   });
 
-  it('shows the name (never "summarising…") once a summary exists, even if the loading flag is stale', () => {
-    // Regression: the loading flag could get stranded true when the auto-
-    // latest pass landed the label while the selected-to fetch was in flight.
-    render({ toId: 2, summary: 'collapse resolved threads', summaryLoading: true });
-    expect(q('.wd-checkpoint-summary')!.textContent).toContain(
-      'collapse resolved threads',
-    );
-    expect(q('.wd-checkpoint-summary-loading')).toBeNull();
+  it('carries busy as aria-busy only — no second spinner in the toolbar', () => {
+    // The visible in-flight cue is the header's busy chip; a spinner here
+    // would say the same thing twice, a few pixels apart.
+    render({ toId: 2, busy: true });
+    expect(q('.wd-checkpoint-range')!.getAttribute('aria-busy')).toBe('true');
+    expect(q('.wd-checkpoint-spinner')).toBeNull();
   });
 
-  it('shows the busy spinner and the lazy summary subtitle', () => {
-    render({ toId: 2, summary: 'collapse resolved threads', busy: true });
-    expect(q('.wd-checkpoint-spinner')).not.toBeNull();
-    expect(q('.wd-checkpoint-range')!.getAttribute('aria-busy')).toBe('true');
-    expect(q('.wd-checkpoint-summary')!.textContent).toContain(
-      'collapse resolved threads',
-    );
+  it('shows the selected range on the trigger, with no trailing summary text', () => {
+    // Labels come from the entries themselves; an unnamed checkpoint reads
+    // as #id. Nothing trails the picker any more.
+    render({ fromId: 1, toId: 2 });
+    const trigger = q('.wd-checkpoint-btn-range')!.textContent!;
+    expect(trigger).toContain('add resolve route');
+    expect(trigger).toContain('#2');
+    expect(q('.wd-checkpoint-summary')).toBeNull();
   });
 });

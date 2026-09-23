@@ -11,8 +11,7 @@ import { useSse } from '../../api/events.js';
 import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
 import { ReviewProvider } from '../../state/ReviewProvider.js';
 import { DiffRepo } from './DiffRepo.js';
-import { DiffLoadingBar } from './DiffLoadingBar.js';
-import { DiffCheckingChip } from './DiffCheckingChip.js';
+import { DiffBusyChip } from './DiffBusyChip.js';
 import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { FileTree } from '../Sidebar/FileTree.js';
@@ -251,7 +250,9 @@ export function DiffView({ session }: Props) {
                 onReload={reloadFromTop}
               />
             )}
-            {checking && !pending && <DiffCheckingChip />}
+            {(loading || (checking && !pending)) && (
+              <DiffBusyChip label={loading ? 'loading…' : 'checking…'} />
+            )}
           </header>
           {!isEmpty && activeRepo && (
             <>
@@ -281,7 +282,6 @@ export function DiffView({ session }: Props) {
           // layout jump when scrolling sticky-positioned file headers.
           style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
         >
-          {loading && <DiffLoadingBar />}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>

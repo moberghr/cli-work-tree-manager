@@ -20,10 +20,13 @@ import {
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
 import { useDeferredDiffLoad } from '../hooks/use-deferred-diff-load.js';
-import { decideRange, rangeEmptyMessage } from '../state/checkpoint-range.js';
+import {
+  checkpointAtOrBefore,
+  decideRange,
+  rangeEmptyMessage,
+} from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
-import { DiffLoadingBar } from '../components/Diff/DiffLoadingBar.js';
-import { DiffCheckingChip } from '../components/Diff/DiffCheckingChip.js';
+import { DiffBusyChip } from '../components/Diff/DiffBusyChip.js';
 import { DiffUpdateChip } from '../components/Diff/DiffUpdateChip.js';
 import { DiffModeToggle } from '../components/Diff/DiffModeToggle.js';
 import { ThemeToggle } from '../components/ThemeToggle.js';
@@ -111,9 +114,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // base tab looks selected. Range comparison is opt-in: clicking a chip
   // turns it on, clicking a base tab turns it back off.
   const [rangeActive, setRangeActive] = useState(false);
-  // True while a lazy checkpoint-summary request is in flight for the
-  // currently-selected `to` checkpoint.
-  const [summarizing, setSummarizing] = useState(false);
 
   // Fetch checkpoint list on scope-mount + whenever a checkpoint event
   // arrives. Default range = (last → working), so the user sees "what
@@ -149,6 +149,16 @@ export function ReviewApp({ context, scopeHash }: Props) {
     refreshCheckpoints();
   }, [refreshCheckpoints]);
 
+  // When each diff payload's request STARTED, keyed by the payload object.
+  // "Only new" needs to know which checkpoints the diff on screen already
+  // contains: every checkpoint taken before its fetch began. Tagging the
+  // payload (rather than snapshotting a baseline when it lands) lets the
+  // baseline be resolved at render time against the CURRENT checkpoint list,
+  // so a checkpoint list that loads after the diff, or a refresh that lands
+  // after a reload, still resolves correctly. A WeakMap keeps the tag off the
+  // payload itself, which the staging hook compares structurally.
+  const fetchedAtRef = useRef(new WeakMap<object, number>());
+
   // Diff fetch + deferred loading state lives in the shared hook so the
   // timing logic (and the "clear the show-timer the moment the fetch
   // settles" rule) stays in one place for both this view and DiffView.
@@ -162,14 +172,20 @@ export function ReviewApp({ context, scopeHash }: Props) {
     reload,
     checkForUpdates,
   } = useDeferredDiffLoad(
-    () =>
-      scopeHash
+    () => {
+      const startedAt = Date.now();
+      const req = scopeHash
         ? fetchScopeDiffByHash(
             scopeHash,
             diffBase,
             rangeActive ? (range ?? undefined) : undefined,
           )
-        : fetchScopeDiff(diffBase),
+        : fetchScopeDiff(diffBase);
+      return req.then((d) => {
+        fetchedAtRef.current.set(d, startedAt);
+        return d;
+      });
+    },
     [diffBase, scopeHash, range, rangeActive],
   );
   const repos: RepoData[] | null = diffData?.repos ?? null;
@@ -259,6 +275,19 @@ export function ReviewApp({ context, scopeHash }: Props) {
     setRangeActive(true);
     setRange((prev) => normaliseRange(prev?.from ?? 0, end));
   };
+  // "Only new": narrow to the changes since the last checkpoint the diff on
+  // screen already contained (`shownBaseline`, declared further down). That's
+  // checkpoint granularity: edits on screen that no checkpoint captured yet
+  // (a page opened mid-turn) come round again. The range refetches as a
+  // normal foreground load, which also clears the staged payload — so this
+  // replaces "Show" rather than stacking with it.
+  const showNewOnly = () => {
+    if (shownBaseline === null) return;
+    userPickedRef.current = true;
+    setRangeActive(true);
+    setRange({ from: shownBaseline, to: 'working' });
+  };
+
   // Plain-click a checkpoint → show JUST its own diff: the previous checkpoint
   // → this one. 'working' → changes since the last checkpoint; Initial → the
   // whole thing (it has no predecessor). Uses the ordered list so it's robust
@@ -294,37 +323,23 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // result in the manifest `label`; we patch it into local state so the
   // dropdown option + subtitle update without waiting for an SSE refresh.
   useEffect(() => {
-    // Any path where we are NOT fetching must clear `summarizing` — otherwise
-    // the "summarising…" subtitle stays stuck. This matters because the
-    // auto-latest pass below can land the label for the selected `to` while
-    // our fetch is in flight: `checkpoints` then changes, this effect re-runs,
-    // finds the entry already labelled, and must reset the flag rather than
-    // return early with it left on.
     if (!scopeHash || !rangeActive || !range || range.to === 'working' || range.to === 0) {
-      setSummarizing(false);
       return;
     }
     const toId = range.to;
     const entry = checkpoints.find((e) => e.id === toId);
-    if (!entry || (entry.label && entry.label.trim())) {
-      setSummarizing(false);
-      return;
-    }
+    if (!entry || (entry.label && entry.label.trim())) return;
     let cancelled = false;
-    setSummarizing(true);
     fetchCheckpointSummary(scopeHash, toId).then(
       ({ label }) => {
         if (cancelled) return;
-        setSummarizing(false);
         if (label && label.trim()) {
           setCheckpoints((prev) =>
             prev.map((e) => (e.id === toId ? { ...e, label } : e)),
           );
         }
       },
-      () => {
-        if (!cancelled) setSummarizing(false);
-      },
+      () => { /* leave the bare #id; re-selecting it retries */ },
     );
     return () => {
       cancelled = true;
@@ -354,6 +369,17 @@ export function ReviewApp({ context, scopeHash }: Props) {
     }, 2500);
     return () => clearTimeout(timer);
   }, [scopeHash, checkpoints]);
+
+  // Which checkpoint the diff CURRENTLY ON SCREEN sits on top of: the newest
+  // one taken before that diff's request started (see `fetchedAtRef`).
+  // Derived every render, so it tracks late checkpoint-list refreshes.
+  const shownFetchedAt = diffData
+    ? fetchedAtRef.current.get(diffData)
+    : undefined;
+  const shownBaseline =
+    shownFetchedAt === undefined
+      ? null
+      : checkpointAtOrBefore(checkpoints, shownFetchedAt);
 
   const repoStartIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -498,9 +524,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
             filesChanged={pendingFileCount}
             onShow={applyPending}
             onReload={reloadFromTop}
+            onShowNewOnly={shownBaseline !== null ? showNewOnly : undefined}
           />
         )}
-        {checking && !pending && <DiffCheckingChip />}
+        {(loading || (checking && !pending)) && (
+          <DiffBusyChip label={loading ? 'loading…' : 'checking…'} />
+        )}
       </div>
       <div className="wd-web-difftoolbar-controls">
         <span className="wd-web-version" title={`work-tree v${VERSION}`}>
@@ -557,12 +586,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
             onChangeTo={setRangeTo}
             onPickSingle={pickSingleCheckpoint}
             busy={loading}
-            summary={
-              range.to !== 'working' && range.to !== 0
-                ? (checkpoints.find((e) => e.id === range.to)?.label ?? null)
-                : null
-            }
-            summaryLoading={summarizing}
           />
         )}
       </div>
@@ -629,7 +652,6 @@ export function ReviewApp({ context, scopeHash }: Props) {
           onCommit={setSidebarWidth}
         />
         <main className="wd-web-review-main" aria-busy={loading}>
-          {loading && <DiffLoadingBar />}
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>

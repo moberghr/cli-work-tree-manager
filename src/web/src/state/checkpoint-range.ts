@@ -64,6 +64,29 @@ export function decideRange(
   return { kind: 'range', range: prev };
 }
 
+/**
+ * The newest checkpoint taken at or before `atMs`, or null when none was.
+ *
+ * A diff whose request started at `atMs` already contains every checkpoint
+ * taken before that moment, so this is the "you've seen up to here" point
+ * the "Only new" action diffs from. Time-based on purpose: resolving it
+ * against the live checkpoint list means a list that arrives late (first
+ * load) or refreshes after a reload still gives the right answer, where a
+ * baseline snapshotted when the diff landed would be missing or one behind.
+ * `entries` is id-ordered, and ids and timestamps rise together.
+ */
+export function checkpointAtOrBefore(
+  entries: CheckpointEntry[],
+  atMs: number,
+): number | null {
+  let found: number | null = null;
+  for (const e of entries) {
+    const t = Date.parse(e.ts);
+    if (Number.isFinite(t) && t <= atMs) found = e.id;
+  }
+  return found;
+}
+
 /** Human label for a checkpoint range endpoint. */
 function endpointLabel(end: CheckpointRangeEnd): string {
   if (end === 'working') return 'working tree';
