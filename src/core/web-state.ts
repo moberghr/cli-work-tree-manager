@@ -83,9 +83,26 @@ export function subscribeSession(
     if (entry!.subscribers.size === 0) {
       if (entry!.debounce) clearTimeout(entry!.debounce);
       entry!.watcher.close().catch(() => { /* */ });
-      sessionWatchers.delete(sessionId);
+      if (sessionWatchers.get(sessionId) === entry) {
+        sessionWatchers.delete(sessionId);
+      }
     }
   };
+}
+
+/**
+ * Force-stop one session's watcher regardless of subscribers. Used before
+ * removing a worktree: on Windows an open directory watch keeps a handle
+ * on the tree and makes `git worktree remove` fail. Late unsubscribes from
+ * the orphaned entry are harmless (see the identity check above).
+ */
+export async function disposeSessionWatcher(sessionId: string): Promise<void> {
+  const entry = sessionWatchers.get(sessionId);
+  if (!entry) return;
+  sessionWatchers.delete(sessionId);
+  if (entry.debounce) clearTimeout(entry.debounce);
+  entry.subscribers.clear();
+  await entry.watcher.close().catch(() => { /* */ });
 }
 
 /** Stop every active session watcher. Called on server shutdown. */

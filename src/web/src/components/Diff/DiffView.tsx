@@ -21,7 +21,9 @@ import { PendingPill } from '../Review/PendingPill.js';
 import { useViewedFiles } from '../../hooks/use-viewed-files.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import {
+  COMMENTS_SPEC,
   ResizeDivider,
+  useResizableSize,
   useSidebarWidth,
 } from '../Layout/ResizeDivider.js';
 
@@ -122,6 +124,8 @@ export function DiffView({ session }: Props) {
     `${session.id}:${activeRepo?.name ?? '_pending'}`,
   );
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
+  const { size: commentsHeight, setSize: setCommentsHeight } =
+    useResizableSize(COMMENTS_SPEC);
   const layoutRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   // The dashboard diff scrolls inside <main> (not the document), so "back to
@@ -136,10 +140,13 @@ export function DiffView({ session }: Props) {
     mainRef.current?.scrollTo({ top: 0 });
   };
 
-  // The dashboard sidebar is always its own scroller (overflow-y:auto,
-  // height:100vh), so the active row drifts off-screen without this — always
-  // enabled here.
-  useFollowActiveInSidebar(sidebarRef, activeAnchor, true);
+  // The sidebar splits into file tree (top, own scroller) | drag handle |
+  // comments panel (bottom, resizable height).
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+
+  // The tree pane is always its own scroller, so the active row drifts
+  // off-screen without this — always enabled here.
+  useFollowActiveInSidebar(treeScrollRef, activeAnchor, true);
 
   // ---- Hooks above this line, branches below ----------------------------
 
@@ -180,7 +187,11 @@ export function DiffView({ session }: Props) {
         className="wd-web-review-layout"
         style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}
       >
-        <aside ref={sidebarRef} className="wd-web-review-sidebar">
+        <aside
+          ref={sidebarRef}
+          className="wd-web-review-sidebar wd-web-review-sidebar-split"
+          style={{ [COMMENTS_SPEC.cssVar as string]: `${commentsHeight}px` }}
+        >
           <header className="wd-web-review-sidebar-header">
             <h1>
               {session.target}
@@ -256,19 +267,29 @@ export function DiffView({ session }: Props) {
           </header>
           {!isEmpty && activeRepo && (
             <>
-              <FileTree
-                files={activeRepo.files}
-                startIndex={activeStart}
-                selectedAnchor={activeAnchor}
-                viewedAnchors={viewedAnchors}
+              <div ref={treeScrollRef} className="wd-sidebar-split-top">
+                <FileTree
+                  files={activeRepo.files}
+                  startIndex={activeStart}
+                  selectedAnchor={activeAnchor}
+                  viewedAnchors={viewedAnchors}
+                />
+              </div>
+              <ResizeDivider
+                layoutRef={sidebarRef}
+                size={commentsHeight}
+                onCommit={setCommentsHeight}
+                spec={COMMENTS_SPEC}
               />
-              <CommentsPanel repoName={activeRepo.name} />
+              <div className="wd-sidebar-split-bottom">
+                <CommentsPanel repoName={activeRepo.name} />
+              </div>
             </>
           )}
         </aside>
         <ResizeDivider
           layoutRef={layoutRef}
-          width={sidebarWidth}
+          size={sidebarWidth}
           onCommit={setSidebarWidth}
         />
         <main

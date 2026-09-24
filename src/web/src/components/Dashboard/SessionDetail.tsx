@@ -5,6 +5,7 @@ import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { relativeTime } from '../../utils/time.js';
+import { TrashIcon } from './tabs/SessionsTab.js';
 
 interface Props {
   session: SessionSummary;
@@ -14,6 +15,8 @@ interface Props {
    *  PRs, Jira, or Tasks. */
   onBack: () => void;
   backLabel: string;
+  /** Opens the delete-session confirmation. */
+  onDelete: () => void;
 }
 
 /**
@@ -34,6 +37,7 @@ export function SessionDetail({
   onSelectSubTab,
   onBack,
   backLabel,
+  onDelete,
 }: Props) {
   return (
     <div className="wd-session-detail">
@@ -54,6 +58,14 @@ export function SessionDetail({
         <span className="wd-tab-header-muted">
           {relativeTime(session.lastAccessedAt)}
         </span>
+        <button
+          type="button"
+          className="wd-session-detail-delete"
+          onClick={onDelete}
+          title="Delete this session (and its worktree)"
+        >
+          <TrashIcon /> Delete
+        </button>
       </header>
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton

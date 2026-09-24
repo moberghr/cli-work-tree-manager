@@ -648,7 +648,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
         </aside>
         <ResizeDivider
           layoutRef={layoutRef}
-          width={sidebarWidth}
+          size={sidebarWidth}
           onCommit={setSidebarWidth}
         />
         <main className="wd-web-review-main" aria-busy={loading}>

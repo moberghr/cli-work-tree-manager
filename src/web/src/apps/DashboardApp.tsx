@@ -11,6 +11,7 @@ import {
 } from '../components/Dashboard/tabs/TasksTab.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
+import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import {
   DEFAULT_ROUTE,
   parseHash,
@@ -52,6 +53,9 @@ export function DashboardApp() {
     base?: string;
     jiraKey?: string;
   } | null>(null);
+
+  // Session pending delete confirmation (card trash button / detail header).
+  const [deleting, setDeleting] = useState<SessionSummary | null>(null);
 
   // Sync route ↔ URL hash. Listen to back/forward; push when we navigate.
   useEffect(() => {
@@ -132,6 +136,21 @@ export function DashboardApp() {
     [],
   );
 
+  const onSessionDeleted = useCallback(
+    (id: string) => {
+      setDeleting(null);
+      // Drop it locally right away; the SSE-driven refetch confirms.
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      setRefreshKey((n) => n + 1);
+      if (route.sessionId === id) {
+        navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'diff' });
+      }
+    },
+    [navigate, route.sessionId, route.tab],
+  );
+
+  const modalOpen = newOpen || deleting !== null;
+
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
   useEffect(() => {
@@ -148,6 +167,8 @@ export function DashboardApp() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (inField()) return;
+      // A modal is up — don't navigate out from under it.
+      if (modalOpen) return;
       if (pendingG) {
         pendingG = false;
         if (pendingGTimer) clearTimeout(pendingGTimer);
@@ -194,7 +215,7 @@ export function DashboardApp() {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, route.sessionId, sessions]);
+  }, [goTab, openSession, route.sessionId, sessions, modalOpen]);
 
   // Set of Jira keys that already have a worktree, for the Jira tab's
   // "already-has-worktree" badge.
@@ -225,6 +246,7 @@ export function DashboardApp() {
         onSelectSubTab={setSubTab}
         onBack={backFromSession}
         backLabel={TAB_LABEL[route.tab]}
+        onDelete={() => setDeleting(activeSession)}
       />
     );
   } else if (route.sessionId) {
@@ -251,6 +273,7 @@ export function DashboardApp() {
             sessions={sessions}
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
+            onDeleteSession={setDeleting}
           />
         );
         break;
@@ -311,6 +334,13 @@ export function DashboardApp() {
             setNewOpen(false);
             setNewInitial(null);
           }}
+        />
+      )}
+      {deleting && (
+        <DeleteSessionModal
+          session={deleting}
+          onDeleted={onSessionDeleted}
+          onClose={() => setDeleting(null)}
         />
       )}
     </>

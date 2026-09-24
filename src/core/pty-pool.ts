@@ -86,6 +86,13 @@ export function peekPty(sessionId: string): boolean {
   return !!existing && !existing.isExited();
 }
 
+/** Kill one session's PTY (if any). Called before removing a worktree so
+ *  the Claude process doesn't hold its cwd open (Windows refuses to delete
+ *  a directory that is some process's working directory). */
+export function disposePty(sessionId: string): void {
+  pool.get(sessionId)?.dispose();
+}
+
 export function disposeAllPtys(): void {
   for (const p of pool.values()) p.dispose();
   pool.clear();
