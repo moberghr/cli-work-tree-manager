@@ -108,9 +108,10 @@ export const attachCommand: CommandModule = {
       });
     });
     let replayed = false;
-    process.stdout.on('resize', () => {
+    const onResize = () => {
       sendFrame({ type: 'resize', cols: process.stdout.columns, rows: process.stdout.rows });
-    });
+    };
+    process.stdout.on('resize', onResize);
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
         process.stdout.write(data as Buffer);
@@ -151,7 +152,13 @@ export const attachCommand: CommandModule = {
       });
     });
     restoreTty();
+    process.stdout.off('resize', onResize);
     if (message) process.stderr.write('\r\n' + chalk.gray(message) + '\r\n');
-    process.exit(exitCode);
+    // Let the event loop drain instead of process.exit(): on Windows,
+    // exiting while a fetch's AbortSignal.timeout is still pending trips a
+    // libuv assertion (`!(handle->flags & UV_HANDLE_CLOSING)`, exit code
+    // 0xC0000409) — i.e. a quick detach crashed.
+    stdin.destroy();
+    process.exitCode = exitCode;
   },
 };

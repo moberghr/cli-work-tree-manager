@@ -200,16 +200,31 @@ export class PtyRegistry {
     };
   }
 
-  /** Explicit kill (worktree removal, user closed the session). Removed
-   *  from the persisted list so it is NOT restored. */
-  kill(id: string): void {
+  /**
+   * Explicit kill (worktree removal, user closed the session). Removed
+   * from the persisted list so it is NOT restored.
+   *
+   * Resolves once the process has actually exited (or after `timeoutMs`):
+   * on Windows a just-killed process still holds its cwd for a moment, and
+   * the caller's next step is usually deleting that very directory.
+   */
+  async kill(id: string, timeoutMs = 3000): Promise<void> {
     const e = this.entries.get(id);
     if (!e) return;
     this.entries.delete(id);
     e.subscribers.clear();
     e.exitSubscribers.clear();
+    const exited = e.pty.exited
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, timeoutMs);
+          e.pty.onExit = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
     e.pty.dispose();
-    void this.persist();
+    await Promise.all([exited, this.persist()]);
   }
 
   /**

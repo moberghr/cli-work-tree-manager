@@ -124,7 +124,7 @@ export async function startPtyHost(
           return info ? send(res, 200, info) : send(res, 404, { error: 'not found' });
         }
         if (!m[2] && req.method === 'DELETE') {
-          registry.kill(id);
+          await registry.kill(id);
           return send(res, 200, {});
         }
       }

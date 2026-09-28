@@ -107,7 +107,9 @@ describe('PtyRegistry', () => {
   it('forgets an explicitly killed session', async () => {
     const reg = makeRegistry();
     reg.spawn('a', { cwd: '/x', tool });
-    reg.kill('a');
+    const killed = reg.kill('a');
+    spawned[0].pty.exit(0); // the fake exits when killed
+    await killed;
     await reg.flush();
     expect(spawned[0].pty.disposed).toBe(true);
     expect(readSaved()).toEqual({});

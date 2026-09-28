@@ -1,8 +1,10 @@
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty-host.js';
 import { ensureHost, findHost, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
-import { readHostInfo } from '../core/pty-host-protocol.js';
+import { hostInfoPath, readHostInfo } from '../core/pty-host-protocol.js';
 import { loadHistory } from '../core/history.js';
 import { sessionIdFor } from '../core/web-state.js';
 import { resolveWorkBinPath } from './diff.js';
@@ -11,17 +13,29 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-/** Kill the running host. Its PTYs die with it, but the persisted session
- *  list stays, so the next host start restores them with --continue. */
+/** Kill the running host and its PTYs. The persisted session list stays,
+ *  so the next host start restores them with --continue. */
 function stopHost(): boolean {
   const hostInfo = readHostInfo();
   if (!hostInfo) return false;
-  try {
-    process.kill(hostInfo.pid);
-    return true;
-  } catch {
-    return false;
+  let stopped = false;
+  if (process.platform === 'win32') {
+    // TerminateProcess on the host alone can orphan its ConPTY children —
+    // Claudes that keep running unseen, and that a restore would then
+    // duplicate on the same conversation. Kill the whole tree.
+    const r = spawnSync('taskkill', ['/PID', String(hostInfo.pid), '/T', '/F'], { stdio: 'ignore' });
+    stopped = r.status === 0;
+  } else {
+    try {
+      process.kill(hostInfo.pid);
+      stopped = true;
+    } catch { /* already gone */ }
   }
+  // On Windows process.kill is TerminateProcess — the host never runs its
+  // own cleanup — so remove the discovery file here. Harmless either way
+  // (clients health-check it) but it shouldn't linger.
+  try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
+  return stopped;
 }
 
 async function printStatus(): Promise<void> {
