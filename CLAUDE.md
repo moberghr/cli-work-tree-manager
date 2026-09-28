@@ -311,6 +311,12 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 `core/history.ts` stores worktree sessions in `~/.work/history.json`. Keyed by `target + branch`. The `tree` command calls `upsertSession()` before launching Claude; `remove` calls `removeSession()` on success. The `status` command reads history + live git info; `recent` lists sessions sorted by last access.
 
+**Session identity & state.** The id is `sessionIdFor` (`core/session-id.ts`: sha1(target:branch), 12 hex). Everything per-session beyond history — `status/<id>.json`, `comments/<id>.json`, `comments/<id>.delivered.json`, the `pty-sessions.json` entry — is listed in `core/session-store.ts`; `removeSession` (and `work status --prune`) purge it all, so a re-created session never inherits old state.
+
+§ WHEN adding per-session state, add its path to `sessionStatePaths` in `core/session-store.ts`.
+
+**Finding work web.** `core/web-discovery.ts` owns `web.url` / `web.pid`. The files outlive the process and PIDs get reused, so `work web --stop` kills only after `/api/context` answers with the recorded pid (`probeWeb`); `webServerResponds` is liveness only. The PTY host has the same rule (`/health` + token + pid).
+
 ### Diff Review (`wd`)
 
 Second binary (`dist/wd-bin.js`, shim `wd`) that surfaces a GitHub-PR-style diff in the browser. Two modes, both rendering the same React SPA at `dist/web/`. The SPA reads `/api/context` (or `window.__WD_BOOT__` in static mode) to decide which screen and whether the comment UI is enabled.

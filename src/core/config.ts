@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { atomicWriteFile } from './fs-safe.js';
 
 /**
  * An opt-in shell command that runs when a session changes status. The command
@@ -127,8 +128,9 @@ export function loadConfig(): WorkConfig | null {
 }
 
 export function saveConfig(config: WorkConfig): void {
-  const configPath = getConfigPath();
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  // Atomic (write temp + rename): a crash or a concurrent reader can never
+  // see a half-written config (§5.3 — history/tasks already did this).
+  atomicWriteFile(getConfigPath(), JSON.stringify(config, null, 2));
 }
 
 export function ensureConfig(): WorkConfig {

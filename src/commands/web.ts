@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../core/web-server.js';
@@ -13,76 +10,54 @@ import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
 import { setAutostart } from '../core/autostart.js';
 import { isPidAlive } from '../core/process.js';
+import {
+  clearWebDiscovery,
+  probeWeb,
+  readWebPid,
+  readWebUrl,
+  webServerResponds,
+  writeWebDiscovery,
+} from '../core/web-discovery.js';
 import { bestEffort, swallow } from '../core/best-effort.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-function urlFilePath(): string {
-  return path.join(os.homedir(), '.work', 'web.url');
-}
-function pidFilePath(): string {
-  return path.join(os.homedir(), '.work', 'web.pid');
-}
+export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 
-
-function readPid(): number | null {
-  try {
-    const raw = fs.readFileSync(pidFilePath(), 'utf-8').trim();
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-function readUrl(): string | null {
-  try {
-    const v = fs.readFileSync(urlFilePath(), 'utf-8').trim();
-    return v || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Best-effort ping. We don't strictly need it — the PID check above is
- *  authoritative — but a 200 from /api/context confirms the server is
- *  actually serving, not just a stale process holding the port. */
-async function pingsAlive(url: string, timeoutMs = 500): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url + 'api/context', { signal: ctrl.signal });
-    clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-function stopExisting(): boolean {
-  const pid = readPid();
+/**
+ * Stop the running work web — only after it proves it's work web with the
+ * recorded pid (it answers /api/context with its own pid). A stale
+ * web.pid can name a process that reused the PID after a crash/reboot;
+ * killing that blind could take down anything.
+ */
+export async function stopExisting(
+  kill: (pid: number) => void = (pid) => process.kill(pid),
+): Promise<WebStopOutcome> {
+  const pid = readWebPid();
+  const url = readWebUrl();
   if (!pid) {
-    info(chalk.gray('No work web running.'));
-    return false;
+    clearWebDiscovery();
+    return 'not-running';
   }
-  if (!isPidAlive(pid)) {
-    info(chalk.gray(`Stale PID ${pid} — cleaning up.`));
-    try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
-    try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
-    return false;
+  if (!isPidAlive(pid) || !url) {
+    clearWebDiscovery();
+    return 'stale';
+  }
+  const probe = await probeWeb(url, 3000);
+  if (probe.kind === 'timeout') return 'unresponsive';
+  if (probe.kind === 'gone' || (probe.pid !== null && probe.pid !== pid)) {
+    clearWebDiscovery();
+    return 'stale';
   }
   try {
-    process.kill(pid);
-    info(chalk.gray(`Stopped work web (PID ${pid}).`));
-    try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
-    try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
-    return true;
-  } catch (err) {
-    info(chalk.red(`Failed to stop PID ${pid}: ${(err as Error).message}`));
-    return false;
+    kill(pid);
+  } catch {
+    return 'failed';
   }
+  clearWebDiscovery();
+  return 'stopped';
 }
 
 export const webCommand: CommandModule = {
@@ -116,8 +91,19 @@ export const webCommand: CommandModule = {
       }),
   handler: async (argv) => {
     if (argv.stop) {
-      stopExisting();
-      process.exit(0);
+      const outcome = await stopExisting();
+      info(
+        chalk.gray(
+          {
+            stopped: 'Stopped work web.',
+            'not-running': 'No work web running.',
+            stale: 'No work web running (removed stale discovery files; nothing was killed).',
+            unresponsive: 'work web is not responding (busy?). Nothing was stopped — try again in a moment.',
+            failed: 'Could not stop work web.',
+          }[outcome],
+        ),
+      );
+      process.exit(outcome === 'failed' || outcome === 'unresponsive' ? 1 : 0);
     }
     if (argv.autostart) {
       try {
@@ -136,10 +122,10 @@ export const webCommand: CommandModule = {
     // each one holds a port, and only the most-recently-started is
     // discoverable via `web.url`. Detect a live previous instance and
     // either reuse it (open browser) or refuse to start.
-    const existingPid = readPid();
+    const existingPid = readWebPid();
     if (existingPid && isPidAlive(existingPid)) {
-      const url = readUrl();
-      if (url && (await pingsAlive(url))) {
+      const url = readWebUrl();
+      if (url && (await webServerResponds(url, 500))) {
         info(
           chalk.gray(
             `work web already running at ${url} (PID ${existingPid}). Opening browser.`,
@@ -157,18 +143,13 @@ export const webCommand: CommandModule = {
     }
     // Stale files from a crashed previous run — wipe before we write
     // our own.
-    try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
-    try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
+    clearWebDiscovery();
 
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
     const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
     const handle = await startWebServer({ lean });
-    try {
-      fs.mkdirSync(path.dirname(urlFilePath()), { recursive: true });
-      fs.writeFileSync(urlFilePath(), handle.url);
-      fs.writeFileSync(pidFilePath(), String(process.pid));
-    } catch { /* */ }
+    bestEffort('write work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
 
     info(
       chalk.gray(
@@ -247,8 +228,7 @@ export const webCommand: CommandModule = {
 
     const shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
-      try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
-      try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
+      clearWebDiscovery();
       if (!lean) {
         bestEffort(`remove Claude hook web/UserPromptSubmit`, () => removeCommandHookSync('web', 'UserPromptSubmit'));
         bestEffort(`remove Claude hook web/Stop`, () => removeCommandHookSync('web', 'Stop'));
@@ -266,8 +246,7 @@ export const webCommand: CommandModule = {
     // Windows doesn't deliver SIGTERM reliably; trap exit too so we
     // best-effort clean up our pid/url files even on abrupt deaths.
     process.on('exit', () => {
-      try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
-      try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
+      clearWebDiscovery();
     });
     await new Promise(() => {});
   },

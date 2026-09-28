@@ -5,6 +5,7 @@ import { getConfigDir } from './config.js';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
 import { allocateFreePort } from './port-allocator.js';
+import { purgeSessionState } from './session-store.js';
 
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
@@ -224,7 +225,7 @@ export async function setSessionArchived(
 }
 
 export async function removeSession(target: string, branch: string): Promise<void> {
-  await withHistoryLock(() => {
+  const removed = await withHistoryLock(() => {
     const sessions = loadHistory();
     const filtered = sessions.filter(
       (s) => !(s.target === target && s.branch === branch),
@@ -232,8 +233,13 @@ export async function removeSession(target: string, branch: string): Promise<voi
 
     if (filtered.length !== sessions.length) {
       saveHistory(filtered);
+      return true;
     }
+    return false;
   });
+  // The session's other state (status, comments, saved PTY entry) goes
+  // with it — see session-store.ts.
+  if (removed) await purgeSessionState(target, branch);
 }
 
 export function getSessionsForTarget(
@@ -281,6 +287,9 @@ export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> 
     const sessions = loadHistory();
     const { kept, pruned } = pruneStaleEntries(sessions);
     if (pruned > 0) saveHistory(kept);
+    return { pruned, gone: sessions.filter((s) => !kept.includes(s)) };
+  }).then(async ({ pruned, gone }) => {
+    for (const s of gone) await purgeSessionState(s.target, s.branch);
     return { pruned };
   });
 }

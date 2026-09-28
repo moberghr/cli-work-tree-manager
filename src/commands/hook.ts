@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import type { CommandModule } from 'yargs';
 import { readSessionActivity } from '../core/claude-activity.js';
 import {
@@ -11,6 +8,7 @@ import {
   sessionIdFor,
 } from '../core/pending-delivery.js';
 import { isInternalClaude } from '../core/internal-claude.js';
+import { readWebUrl } from '../core/web-discovery.js';
 import {
   lastAssistantText,
   recordStatusEvent,
@@ -51,15 +49,8 @@ const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'statu
  * a no-op, and we never block Claude's turn on it.
  */
 async function postToWeb(route: string, cwd: string): Promise<void> {
-  let base: string;
-  try {
-    base = fs
-      .readFileSync(path.join(os.homedir(), '.work', 'web.url'), 'utf-8')
-      .trim();
-  } catch {
-    return; // no work web running
-  }
-  if (!base) return;
+  const base = readWebUrl();
+  if (!base) return; // no work web running
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {

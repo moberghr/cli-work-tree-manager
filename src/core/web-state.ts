@@ -1,16 +1,9 @@
 import path from 'node:path';
-import crypto from 'node:crypto';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { loadHistory, type WorktreeSession } from './history.js';
+import { sessionIdFor } from './session-id.js';
 
-/** Stable per-session id, same algorithm as web-server. */
-export function sessionIdFor(s: WorktreeSession): string {
-  return crypto
-    .createHash('sha1')
-    .update(`${s.target}:${s.branch}`)
-    .digest('hex')
-    .slice(0, 12);
-}
+export { sessionIdFor } from './session-id.js';
 
 export function findSession(sessionId: string): WorktreeSession | null {
   return loadHistory().find((s) => sessionIdFor(s) === sessionId) ?? null;

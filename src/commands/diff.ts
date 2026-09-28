@@ -22,6 +22,7 @@ import { diffReviewSnapshot } from '../core/review-poll.js';
 import { renderStatic } from '../core/static-renderer.js';
 import { openUrl } from '../utils/platform.js';
 import { spawnDetachedWork } from '../core/process.js';
+import { readWebUrl, webServerResponds, webUrlPath } from '../core/web-discovery.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
  *  be piped or captured by callers (notably `wd -c` review mode, where
@@ -89,48 +90,11 @@ async function runStop(repoSpecs: RepoSpec[]): Promise<void> {
   }
 }
 
-function webUrlFilePath(): string {
-  return path.join(os.homedir(), '.work', 'web.url');
-}
-
 export { resolveWorkBinPath } from '../utils/work-bin.js';
 
-function readWebUrl(): string | null {
-  try {
-    const v = fs.readFileSync(webUrlFilePath(), 'utf-8').trim();
-    return v || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Best-effort liveness probe for a recorded `work web` URL. The `web.url`
- * file outlives the process that wrote it (crash, kill -9, reboot), so a
- * non-empty file is NOT proof a server is listening. Hit `api/context`
- * (same endpoint `work web`'s own singleton check uses) with a short
- * timeout: a 2xx means a real server is serving there; anything else
- * (connection refused, abort, non-ok) means the URL is stale.
- *
- * Exported for testing.
- */
-export async function webServerResponds(
-  url: string,
-  timeoutMs = 1500,
-): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${url}api/context`, { signal: ctrl.signal });
-      return res.ok;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return false;
-  }
-}
+// Discovery of the running work web lives in core/web-discovery.ts;
+// webServerResponds is re-exported for existing callers/tests.
+export { webServerResponds } from '../core/web-discovery.js';
 
 /**
  * Spawn a detached, lean `work web` instance and wait for its url file
@@ -154,7 +118,7 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // subsequent scope POST would fail with connection-refused.
   if (existing) {
     if (await webServerResponds(existing)) return existing;
-    try { fs.unlinkSync(webUrlFilePath()); } catch { /* already gone */ }
+    try { fs.unlinkSync(webUrlPath()); } catch { /* already gone */ }
   }
 
   // Spawn `node <work-bin> web --lean --no-open` detached. We're
@@ -168,7 +132,7 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // Poll the url file. Generous-ish timeout because cold startup
   // includes resolving the SPA dist + binding a port + writing the
   // file; 5 s leaves headroom for slow disks / antivirus on Windows.
-  const url = await waitForUrlFile(webUrlFilePath(), 5000);
+  const url = await waitForUrlFile(webUrlPath(), 5000);
   return url;
 }
 

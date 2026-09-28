@@ -21,8 +21,7 @@ export interface WorktreeMutOptions {
 }
 
 /**
- * Hono sub-app exposing the worktree mutation surface that the dashboard
- * needs to reach parity with `work dash`:
+ * Hono sub-app exposing the dashboard's worktree mutation surface:
  *
  *   POST   /api/worktrees             — create (target + branch [+ base])
  *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
@@ -67,16 +66,8 @@ export function mountWorktreeRoutes(
         }
         opts.broadcast('sessions-changed', { ts: Date.now() });
         // Re-derive the new session id so the client can route to it
-        // immediately. sessionIdFor takes a WorktreeSession, but we
-        // have the same inputs — hash sha1(target+':'+branch).
-        const id = sessionIdFor({
-          target,
-          isGroup: result.isGroup,
-          branch,
-          paths: result.paths,
-          createdAt: '',
-          lastAccessedAt: '',
-        });
+        // immediately (it's just sha1(target:branch)).
+        const id = sessionIdFor({ target, branch });
         return c.json({
           sessionId: id,
           launchDir: result.launchDir,

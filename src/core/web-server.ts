@@ -190,7 +190,9 @@ export async function startWebServer(
 
   const app = new Hono();
 
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard' }));
+  // pid lets `work web --stop` confirm it's killing THIS server, not a
+  // process that reused a stale web.pid (core/web-discovery.ts).
+  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid }));
 
   // `+N −M` per row, computed in the background (never inline) and
   // broadcast once when values change — see diff-stat.ts.
