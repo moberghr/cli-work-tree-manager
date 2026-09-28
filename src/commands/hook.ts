@@ -16,6 +16,7 @@ import {
   recordStatusEvent,
   type StatusEvent,
 } from '../core/session-status.js';
+import { bestEffortAsync } from '../core/best-effort.js';
 
 /**
  * `work hook prompt-submit` / `work hook stop` — invoked by Claude Code's
@@ -218,11 +219,13 @@ export const hookCommand: CommandModule = {
       const session = findSessionForCwd(cwd);
       const statusEvent = statusEventFor(event, payload);
       if (!session || !statusEvent) return;
-      try {
+      // Best-effort — never block Claude's turn on bookkeeping — but logged,
+      // so "why does the inbox not show this session?" has an answer.
+      const recorded = await bestEffortAsync(`record status ${event} for ${session.target}:${session.branch}`, async () => {
         await recordStatusEvent(sessionIdFor(session), statusEvent);
-      } catch {
-        return; // best-effort — never block Claude's turn on bookkeeping
-      }
+        return true;
+      });
+      if (!recorded) return;
       await postToWeb('api/status-changed', cwd);
       return;
     }

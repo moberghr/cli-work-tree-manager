@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { WorktreeSession } from './history.js';
 import type { DiffStat } from './api-types.js';
+import { logSwallowed } from './best-effort.js';
 
 export type { DiffStat } from './api-types.js';
 
@@ -117,7 +118,10 @@ export class DiffStatCache {
       const job = this.queue.shift()!;
       this.running++;
       computeDiffStat(job.paths, this.run)
-        .catch(() => null)
+        .catch((err) => {
+          logSwallowed(`diff stat for ${job.id}`, err);
+          return null;
+        })
         .then((stat) => {
           const e = this.entries.get(job.id)!;
           const changed = JSON.stringify(e.stat) !== JSON.stringify(stat);

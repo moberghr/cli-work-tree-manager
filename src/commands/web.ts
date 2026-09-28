@@ -13,6 +13,7 @@ import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
 import { setAutostart } from '../core/autostart.js';
 import { isPidAlive } from '../core/process.js';
+import { bestEffort, swallow } from '../core/best-effort.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -218,7 +219,7 @@ export const webCommand: CommandModule = {
         ).map(([event, command]) =>
           installCommandHook({ owner: 'web-status', event, command, timeoutSec: 5 }),
         ),
-      ]).catch(() => { /* best-effort */ });
+      ]).catch(swallow('install Claude hooks (comments/status) in ~/.claude/settings.json'));
     }
 
     // Checkpoint-on-turn-end hook. Installed in BOTH lean and full mode —
@@ -231,7 +232,7 @@ export const webCommand: CommandModule = {
       event: 'Stop',
       command: 'work hook checkpoint',
       timeoutSec: 5,
-    }).catch(() => { /* best-effort */ });
+    }).catch(swallow('install Claude checkpoint hook in ~/.claude/settings.json'));
 
     // Seal-on-prompt hook — the instruction boundary. A new user prompt
     // closes the current step so the work answering it opens a fresh one
@@ -242,21 +243,21 @@ export const webCommand: CommandModule = {
       event: 'UserPromptSubmit',
       command: 'work hook checkpoint-seal',
       timeoutSec: 5,
-    }).catch(() => { /* best-effort */ });
+    }).catch(swallow('install Claude checkpoint hook in ~/.claude/settings.json'));
 
     const shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
       try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
       if (!lean) {
-        try { removeCommandHookSync('web', 'UserPromptSubmit'); } catch { /* */ }
-        try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
+        bestEffort(`remove Claude hook web/UserPromptSubmit`, () => removeCommandHookSync('web', 'UserPromptSubmit'));
+        bestEffort(`remove Claude hook web/Stop`, () => removeCommandHookSync('web', 'Stop'));
         for (const ev of ['UserPromptSubmit', 'Stop', 'Notification']) {
-          try { removeCommandHookSync('web-status', ev); } catch { /* */ }
+          bestEffort(`remove Claude hook web-status/${ev}`, () => removeCommandHookSync('web-status', ev));
         }
       }
-      try { removeCommandHookSync('web-checkpoint', 'Stop'); } catch { /* */ }
-      try { removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'); } catch { /* */ }
+      bestEffort(`remove Claude hook web-checkpoint/Stop`, () => removeCommandHookSync('web-checkpoint', 'Stop'));
+      bestEffort(`remove Claude hook web-checkpoint/UserPromptSubmit`, () => removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'));
       handle.stop();
       process.exit(0);
     };

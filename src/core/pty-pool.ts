@@ -8,6 +8,7 @@ import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from './config.js';
 import { getAiTool } from './ai-launcher.js';
 import { ensureHost, findHost, PtyHostClient } from './pty-host-client.js';
+import { swallow } from './best-effort.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -184,9 +185,9 @@ export async function stopSessionPty(target: string, branch: string): Promise<vo
     } catch {
       return; // version-mismatched host: can't talk to it; leave it alone
     }
-    if (info) await new PtyHostClient(info).kill(id).catch(() => {});
-    else await forgetPersistedSession(id).catch(() => {});
-  }).catch(() => { /* lock contention: best-effort */ });
+    if (info) await new PtyHostClient(info).kill(id).catch(swallow(`stop session ${id} in the PTY host`));
+    else await forgetPersistedSession(id).catch(swallow(`forget saved session ${id}`));
+  }).catch(swallow(`stop session ${id}: host start lock`));
 }
 
 /** `work web` shutdown. Deliberately does NOT kill anything: the PTYs belong

@@ -3,6 +3,7 @@ import { PtySession } from '../tui/session.js';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
 import { hasClaudeConversation } from './claude-activity.js';
 import { ptySessionsPath, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
+import { logSwallowed, swallow } from './best-effort.js';
 
 const REPLAY_MAX = 256 * 1024;
 
@@ -257,8 +258,9 @@ export class PtyRegistry {
       try {
         this.spawn(id, entry, true);
         restored.push(id);
-      } catch {
+      } catch (err) {
         // One bad entry (tool missing, cwd unreadable) mustn't block the rest.
+        logSwallowed(`restore session ${id} in ${entry.cwd}`, err);
       }
     }
     await this.persist();
@@ -319,7 +321,7 @@ export class PtyRegistry {
           atomicWriteFile(this.sessionsPath, content);
         });
       })
-      .catch(() => { /* best-effort — next change retries */ });
+      .catch(swallow('persist pty-sessions.json (next change retries)'));
     return this.writeChain;
   }
 }
