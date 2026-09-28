@@ -55,6 +55,7 @@ export function DiffView({ session }: Props) {
     loading,
     checking,
     pending,
+    stale,
     applyPending,
     reload,
     checkForUpdates,
@@ -198,7 +199,9 @@ export function DiffView({ session }: Props) {
               <span className="wd-web-branch"> · {session.branch}</span>
             </h1>
             <p>
-              {isEmpty ? (
+              {stale ? (
+                <span className="wd-web-muted">loading…</span>
+              ) : isEmpty ? (
                 <span className="wd-web-muted">no changes</span>
               ) : (
                 <>
@@ -261,13 +264,21 @@ export function DiffView({ session }: Props) {
                 onReload={reloadFromTop}
               />
             )}
-            {(loading || (checking && !pending)) && (
-              <DiffBusyChip label={loading ? 'loading…' : 'checking…'} />
+            {(stale || loading || (checking && !pending)) && (
+              <DiffBusyChip
+                label={stale || loading ? 'loading…' : 'checking…'}
+              />
             )}
           </header>
           {!isEmpty && activeRepo && (
             <>
-              <div ref={treeScrollRef} className="wd-sidebar-split-top">
+              <div
+                ref={treeScrollRef}
+                className={
+                  'wd-sidebar-split-top' + (stale ? ' wd-diff-stale' : '')
+                }
+                inert={stale}
+              >
                 <FileTree
                   files={activeRepo.files}
                   startIndex={activeStart}
@@ -294,8 +305,12 @@ export function DiffView({ session }: Props) {
         />
         <main
           ref={mainRef}
-          className="wd-web-review-main"
-          aria-busy={loading}
+          // `stale` = still showing the previously selected session's (or
+          // base's) diff while this one loads: dim + blur it so it can't be
+          // mistaken for the selected session's changes.
+          className={'wd-web-review-main' + (stale ? ' wd-diff-stale' : '')}
+          aria-busy={loading || stale}
+          inert={stale}
           // Always set --tabs-offset (0px when no tabs) so the value is
           // present in every render. With keep-mounted-hidden dashboard
           // nav, an incoming pane that flips from hidden to visible would

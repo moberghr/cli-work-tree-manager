@@ -18,6 +18,11 @@ export interface DeferredLoad<T> {
   /** A background-fetched payload that differs from `data`, held back until
    *  the user asks for it. Null when the view is up to date. */
   pending: T | null;
+  /** True when `data` was fetched for different `deps` than the current ones
+   *  — e.g. the dashboard switched sessions and the previous session's diff
+   *  is still on screen. Unlike `loading` it is NOT deferred: the view must
+   *  never present another scope's diff as this one's, even briefly. */
+  stale: boolean;
   /** Swap `pending` into `data`. No-op when nothing is staged. */
   applyPending: () => void;
   /** Foreground refetch: goes back to the server and applies the result the
@@ -79,6 +84,12 @@ export function useDeferredDiffLoad<T>(
   const [checking, setChecking] = useState(false);
   const [pending, setPending] = useState<T | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Deps key the applied `data` was fetched for; compared against the
+  // current deps key to derive `stale`.
+  const [appliedKey, setAppliedKey] = useState<string | null>(null);
+  const depsKey = JSON.stringify(deps);
+  const depsKeyRef = useRef(depsKey);
+  depsKeyRef.current = depsKey;
   const reqIdRef = useRef(0);
   const fetcherRef = useRef(fetcher);
   // Latest applied payload, readable from a background callback without
@@ -98,9 +109,10 @@ export function useDeferredDiffLoad<T>(
   // Always call the freshest closure without making it an effect trigger.
   fetcherRef.current = fetcher;
 
-  const apply = useCallback((d: T) => {
+  const apply = useCallback((d: T, key: string) => {
     dataRef.current = d;
     setData(d);
+    setAppliedKey(key);
   }, []);
 
   const stage = useCallback((p: T | null) => {
@@ -111,6 +123,7 @@ export function useDeferredDiffLoad<T>(
   useEffect(() => {
     const myReq = ++reqIdRef.current;
     const myGen = ++genRef.current;
+    const myKey = depsKeyRef.current;
     setError(null);
     // The staged payload belonged to the previous view (or is about to be
     // superseded by this fetch), so it can't survive this run.
@@ -125,7 +138,7 @@ export function useDeferredDiffLoad<T>(
         // and strands `loading` true with no effect run left to reset it.
         clearTimeout(showTimer);
         if (myReq !== reqIdRef.current || myGen !== genRef.current) return;
-        apply(d);
+        apply(d, myKey);
         setLoading(false);
       },
       (err: Error) => {
@@ -147,6 +160,7 @@ export function useDeferredDiffLoad<T>(
 
   const checkForUpdates = useCallback(() => {
     const myGen = genRef.current;
+    const myKey = depsKeyRef.current;
     const myReq = ++bgIdRef.current;
     // Same deal as the foreground show-timer: cleared the moment the check
     // settles, so a fast check never flashes (or strands) the chip.
@@ -163,7 +177,7 @@ export function useDeferredDiffLoad<T>(
         // there's no reading position to protect, so land it directly.
         if (dataRef.current === null) {
           setError(null);
-          apply(d);
+          apply(d, myKey);
           return;
         }
         stage(samePayload(d, dataRef.current) ? null : d);
@@ -182,7 +196,9 @@ export function useDeferredDiffLoad<T>(
     const p = pendingRef.current;
     if (p === null) return;
     stage(null);
-    apply(p);
+    // Staged payloads are dropped on every deps change, so a pending one
+    // always belongs to the current deps.
+    apply(p, depsKeyRef.current);
   }, [apply, stage]);
 
   return {
@@ -191,6 +207,7 @@ export function useDeferredDiffLoad<T>(
     loading,
     checking,
     pending,
+    stale: data !== null && appliedKey !== depsKey,
     applyPending,
     reload,
     checkForUpdates,

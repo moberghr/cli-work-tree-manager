@@ -238,6 +238,16 @@
   height: 100vh;
 }
 
+/* Previous session's / base's diff still on screen while the selected one
+   loads. The transition delay keeps a fast (<100ms) load from flickering;
+   anything slower visibly dims + blurs so the old diff can't be mistaken
+   for the selected session's. `inert` on the element blocks interaction. */
+.wd-diff-stale {
+  opacity: 0.35;
+  filter: blur(2px);
+  transition: opacity 120ms ease 100ms, filter 120ms ease 100ms;
+}
+
 /* Sticky "Files changed" toolbar over the diff (GitHub-style). Pinned to the
    top of the scroll so the range picker + comparison summary stay visible
    while scrolling a long diff. Single row, fixed height (--topbar-h) so the
