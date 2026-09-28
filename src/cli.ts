@@ -19,6 +19,8 @@ import { webCommand } from './commands/web.js';
 import { hookCommand } from './commands/hook.js';
 import { runCommand } from './commands/run.js';
 import { broadcastCommand } from './commands/broadcast.js';
+import { attachCommand } from './commands/attach.js';
+import { ptyHostCommand } from './commands/pty-host.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -54,6 +56,7 @@ function showHelp() {
   console.log('  work run <cmd...>                                  - Run a command in every worktree');
   console.log('  work run <cmd...> --target <alias> --parallel      - Filter + run concurrently');
   console.log('  work broadcast <prompt>                            - Queue a prompt to every live session');
+  console.log('  work attach [target] [branch]                      - Attach this terminal to a session (Ctrl+] detaches)');
   console.log('  work todo                                          - List tasks');
   console.log('  work todo add <text>                               - Add a task');
   console.log('  work todo done <id>                                - Mark task complete');
@@ -112,6 +115,8 @@ export function run(argv: string[]) {
     .command(hookCommand)
     .command(runCommand)
     .command(broadcastCommand)
+    .command(attachCommand)
+    .command(ptyHostCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

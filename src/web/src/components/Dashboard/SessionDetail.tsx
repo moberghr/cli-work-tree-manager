@@ -6,6 +6,7 @@ import { PtyView } from '../Terminal/PtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { relativeTime } from '../../utils/time.js';
 import { TrashIcon } from './tabs/SessionsTab.js';
+import { openInTerminal } from '../../api/panes.js';
 
 interface Props {
   session: SessionSummary;
@@ -58,6 +59,7 @@ export function SessionDetail({
         <span className="wd-tab-header-muted">
           {relativeTime(session.lastAccessedAt)}
         </span>
+        <OpenTerminalButton sessionId={session.id} />
         <button
           type="button"
           className="wd-session-detail-delete"
@@ -91,6 +93,39 @@ export function SessionDetail({
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
       </div>
     </div>
+  );
+}
+
+/** Opens the session in a real Windows Terminal tab (`work attach`), sharing
+ *  the same Claude as the Terminal sub-tab — both are views on the PTY
+ *  host's session. */
+function OpenTerminalButton({ sessionId }: { sessionId: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const onClick = () => {
+    setState('busy');
+    openInTerminal(sessionId).then(
+      () => setState('idle'),
+      (err: Error) => {
+        setState('error');
+        setError(err.message);
+      },
+    );
+  };
+  return (
+    <button
+      type="button"
+      className="wd-session-detail-action"
+      onClick={onClick}
+      disabled={state === 'busy'}
+      title={
+        state === 'error' && error
+          ? error
+          : 'Open this session in a Windows Terminal tab (work attach). Same Claude as the Terminal tab.'
+      }
+    >
+      {state === 'busy' ? 'Opening…' : state === 'error' ? 'Open in terminal ⚠' : 'Open in terminal ↗'}
+    </button>
   );
 }
 

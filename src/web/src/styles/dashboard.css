@@ -695,6 +695,24 @@
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-weight: 500;
 }
+.wd-session-detail-action {
+  appearance: none;
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-session-detail-action:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+/* The action button takes the auto margin; Delete sits right after it. */
+.wd-session-detail-action + .wd-session-detail-delete { margin-left: 0; }
 .wd-session-detail-delete {
   appearance: none;
   margin-left: auto;

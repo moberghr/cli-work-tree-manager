@@ -24,7 +24,7 @@ import { mountTerminalRoutes } from './terminal-routes.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { disposeAllPtys } from './pty-pool.js';
+import { detachPtyPool, initPtyPool } from './pty-pool.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -254,6 +254,9 @@ export async function startWebServer(
 
   const handle = await launch(app);
   const wsBridge = attachTerminalWs(handle.httpServer, handle.port);
+  // Pick up PTYs that survived a previous `work web` in the PTY host so
+  // their badges show immediately. Never spawns a host.
+  void initPtyPool();
   process.stderr.write(chalk.gray(`[web] dashboard at ${handle.url}\n`));
 
   return {
@@ -278,7 +281,8 @@ export async function startWebServer(
         }
       }
       disposeAllScopes();
-      disposeAllPtys();
+      // PTYs live in the PTY host and outlive the dashboard — detach only.
+      detachPtyPool();
       wsBridge.close();
       await handle.stop();
     },

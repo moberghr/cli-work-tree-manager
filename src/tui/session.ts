@@ -1,9 +1,11 @@
 import pty, { type IPty } from 'node-pty';
 import xtermHeadless from '@xterm/headless';
+import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../core/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
 
 const { Terminal } = xtermHeadless;
+const { SerializeAddon } = xtermSerialize;
 
 /**
  * Session display status. 'idle' = finished its turn (Stop hook);
@@ -28,6 +30,7 @@ export interface PtyAiOptions {
 export class PtySession {
   readonly pty: IPty;
   terminal: InstanceType<typeof Terminal>;
+  private serializer = new SerializeAddon();
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
@@ -51,6 +54,7 @@ export class PtySession {
       scrollback: 200,
       allowProposedApi: true,
     });
+    this.terminal.loadAddon(this.serializer);
 
     const isWindows = process.platform === 'win32';
 
@@ -188,12 +192,28 @@ export class PtySession {
       scrollback: 200,
       allowProposedApi: true,
     });
+    this.serializer = new SerializeAddon();
+    this.terminal.loadAddon(this.serializer);
 
     // Replay viewport content (skip trailing empty lines)
     let lastNonEmpty = viewportLines.length - 1;
     while (lastNonEmpty >= 0 && viewportLines[lastNonEmpty].trim() === '') lastNonEmpty--;
     for (let i = 0; i <= lastNonEmpty; i++) {
       this.terminal.write(viewportLines[i] + (i < lastNonEmpty ? '\r\n' : ''));
+    }
+  }
+
+  /**
+   * The current screen + scrollback as escape sequences that redraw it
+   * exactly (colors, cursor, modes, alt screen). What a late attacher is
+   * sent instead of raw output history — raw bytes can start mid-sequence
+   * and were drawn for another client's grid (VS Code does the same).
+   */
+  serialize(): string {
+    try {
+      return this.serializer.serialize();
+    } catch {
+      return '';
     }
   }
 

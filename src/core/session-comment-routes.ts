@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from './comment-file-store.js';
 import { findSession } from './web-state.js';
-import { peekPty, getOrCreatePty } from './pty-pool.js';
+import { peekPty, writeToPty } from './pty-pool.js';
 import {
   formatPendingForPrompt,
   markDelivered,
@@ -55,7 +55,7 @@ export function mountSessionCommentRoutes(
         // comments to stdin. The Stop / UserPromptSubmit hooks already
         // cover the cases where Claude is mid-turn or the user types; this
         // closes the "idle in our PTY, user not typing" case.
-        deliverViaOwnedPty(id, comment.author);
+        void deliverViaOwnedPty(id, comment.author);
         return c.json({ comment, comments: store.snapshot() });
       } catch (err) {
         return c.json({ error: (err as Error).message }, 400);
@@ -125,38 +125,28 @@ export function mountSessionCommentRoutes(
  *
  * We only push for user-authored comments — Claude-authored ones are
  * replies we already routed via the API. We deliberately don't spawn a
- * PTY here (use `peekPty`, not `getOrCreatePty`) — pushing to a freshly
+ * PTY here (`peekPty` / `writeToPty` never spawn) — pushing to a freshly
  * spawned Claude is weird, and the user expects to control when Claude
  * starts.
  */
-function deliverViaOwnedPty(sessionId: string, author: string): void {
+async function deliverViaOwnedPty(sessionId: string, author: string): Promise<void> {
   if (author !== 'user') return;
   if (!peekPty(sessionId)) return;
 
   const pending = readPendingForSession(sessionId);
   if (pending.length === 0) return;
 
-  // peekPty returned true so this won't spawn — it'll return the existing
-  // entry. We use getOrCreatePty because it's the only public way to get
-  // the entry handle. (Could refactor to expose a pure peek that returns
-  // the PooledPty, but not yet worth it.)
-  const pty = getOrCreatePty(sessionId);
-  if (!pty) return;
-
   const text = formatPendingForPrompt(pending);
   if (!text) return;
 
-  // Mark delivered ONLY after a successful stdin write. If pty.write
-  // throws (PTY exited mid-call, encoding error, anything) we leave the
+  // Mark delivered ONLY after a successful stdin write. If the write fails
+  // (PTY exited mid-call, PTY host unreachable, anything) we leave the
   // comment as pending so the UserPromptSubmit / Stop hook can still
   // pick it up on the next Claude turn — better duplicate delivery than
   // silent loss. Writing the system reminder + newline so Claude treats
   // it as a submitted user prompt.
-  try {
-    pty.write(text + '\n');
-  } catch {
-    return;
-  }
+  const ok = await writeToPty(sessionId, text + '\n').catch(() => false);
+  if (!ok) return;
   markDelivered(
     sessionId,
     pending.map((c) => c.id),

@@ -144,7 +144,10 @@ wd --static                                        # Write a self-contained HTML
 wd --stop                                          # De-register this scope from work web. (Use `work web --stop` to terminate the server itself.)
 wd -c                                              # Interactive review. Same single-server flow: registers a scope, opens /review/<hash>, polls /api/scopes/<hash>/comments, proxies marker stream to stdout. Falls back to a foreground standalone comment-server only if work web autostart fails entirely.
 
-work web                                           # Browser dashboard: every session in one tab, with PTY terminal. SINGLETON — one process per user; `work web --stop` to terminate, second `work web` re-uses the running one.
+work web                                           # Browser dashboard: every session in one tab, with PTY terminal. SINGLETON — one process per user; `work web --stop` to terminate, second `work web` re-uses the running one. Stopping it does NOT kill Claudes (they live in the PTY host).
+work web --autostart on|off                        # Windows: start work web at login (Startup-folder .vbs) so sessions restore after a reboot
+work attach|a [target] [branch]                    # Attach THIS terminal to a session's Claude in the PTY host (default: session for cwd). Ctrl+] detaches; Claude keeps running. Same PTY as the web Terminal tab.
+work pty-host [--status|--stop|--restart]          # Internal/hidden — the long-lived process that owns every Claude PTY. --restart after upgrading (sessions come back via --continue).
 work hook <event>                                  # Internal — invoked by Claude Code via ~/.claude/settings.json (hidden)
 ```
 
@@ -204,9 +207,14 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/worktree-routes.ts       ← Hono sub-app: POST /api/worktrees + sync/rebase/open-editor
                                   ├── core/scope-manager.ts         ← in-memory scope registry (lazy chokidar + path allowlist)
                                   ├── core/scope-routes.ts          ← Hono sub-app: /api/scopes/* (`wd` + `wd -c` register here)
-                                  ├── core/pty-pool.ts              ← per-session Claude PTY pool (reuses tui/session.ts)
+                                  ├── core/pty-pool.ts              ← work web's CLIENT view of the PTY host: ensurePty/peekPty/writeToPty, spawnSpecFor (group → group root), resume-after-reboot
+                                  ├── core/pty-host.ts              ← PTY host server (localhost, token auth, HTTP control + WS attach). Run by hidden `work pty-host`, detached
+                                  ├── core/pty-registry.ts          ← host-side PTY set + replay buffers; mirrors ~/.work/pty-sessions.json for restore (--continue gated on hasClaudeConversation)
+                                  ├── core/pty-host-client.ts       ← findHost/ensureHost (spawns detached host) + PtyHostClient; protocol-version check
+                                  ├── core/pty-host-protocol.ts     ← shared wire types, PROTOCOL_VERSION, ~/.work/pty-host.json discovery
+                                  ├── core/autostart.ts             ← Windows Startup-folder script for `work web --autostart`
                                   ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health
-                                  └── core/terminal-ws.ts           ← WebSocket bridge for the Terminal tab
+                                  └── core/terminal-ws.ts           ← browser WS ↔ PTY-host WS relay for the Terminal tab (binary = output, text = control JSON)
                                   │
                                   Review-comment delivery to live Claude (hook bridge)
                                   ├── core/hook-server.ts           ← http-type Claude hooks (idle tracking; used by `work dash`)
@@ -267,6 +275,13 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 - **Resume.** `launchTool()` in `commands/tree.ts` passes `resume: true` so the tool gets its resume flag (`--continue` for Claude Code). Gated on `hasClaudeConversation(dir)` (`core/claude-activity.ts`, a transcript-exists check over `~/.claude/projects/<encoded-cwd>/*.jsonl`) because `--continue` hard-errors with "No conversation found to continue" in a directory Claude has never run in — the same gate `work resume` and the TUI use. `--fresh` opts out.
 
 § WHEN adding another launch path, resolve the resume flag through `hasClaudeConversation` rather than passing `--continue` unconditionally.
+
+### PTY host (sessions that survive restarts)
+
+Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached localhost process — not by `work web`. `work web` (via `core/pty-pool.ts`) and `work attach` are clients: restarting/rebuilding `work web` or closing a terminal only drops a view. Discovery: `~/.work/pty-host.json` (pid, port, random token; every request carries the token, plus a Host-header check). Live sessions are mirrored to `~/.work/pty-sessions.json`; on host start they are respawned with `--continue` (the "restored" flag), so a crash, `--restart` or reboot picks up where you were. A PTY that exits on its own is forgotten after 5 s (not immediately — at Windows logoff the children die just before the host); an explicit kill (worktree delete) forgets it at once. Several clients may attach to one PTY; the last resize wins.
+
+§ WHEN changing the host wire format, bump `PROTOCOL_VERSION` — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
+§ WHEN adding a path that spawns Claude for a session, go through `spawnSpecFor` + the host, not `new PtySession` — otherwise that session won't survive restarts or be attachable.
 
 ### Session Tracking
 

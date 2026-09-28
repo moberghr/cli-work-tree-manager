@@ -1,0 +1,150 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { PtyRegistry, type PtyLike, type PtySpawner } from '../../src/core/pty-registry.js';
+import type { AiToolSpec } from '../../src/core/ai-launcher.js';
+
+const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' } as unknown as AiToolSpec;
+
+class FakePty implements PtyLike {
+  static nextPid = 100;
+  readonly pty = { pid: FakePty.nextPid++ };
+  exited = false;
+  disposed = false;
+  onExit?: (code: number) => void;
+  output?: (data: string) => void;
+  written: string[] = [];
+  size: [number, number] = [0, 0];
+  setOutputHandler(h?: (data: string) => void) { this.output = h; }
+  write(d: string) { this.written.push(d); }
+  resize(c: number, r: number) { this.size = [c, r]; }
+  dispose() { this.disposed = true; }
+  emit(d: string) { this.output?.(d); }
+  exit(code: number) { this.exited = true; this.onExit?.(code); }
+}
+
+let dir: string;
+let sessionsPath: string;
+let spawned: Array<{ spec: Parameters<PtySpawner>[0]; pty: FakePty }>;
+const spawner: PtySpawner = (spec) => {
+  const pty = new FakePty();
+  spawned.push({ spec, pty });
+  return pty;
+};
+
+function makeRegistry(hasConversation: (cwd: string) => boolean = () => false) {
+  return new PtyRegistry({ spawner, hasConversation, sessionsPath, cwdExists: () => true });
+}
+const readSaved = () => JSON.parse(fs.readFileSync(sessionsPath, 'utf-8'));
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-registry-'));
+  sessionsPath = path.join(dir, 'pty-sessions.json');
+  spawned = [];
+});
+afterEach(() => {
+  vi.useRealTimers();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('PtyRegistry', () => {
+  it('passes --continue only when the directory has a prior conversation', () => {
+    const reg = makeRegistry((cwd) => cwd === '/has');
+    reg.spawn('a', { cwd: '/has', tool });
+    reg.spawn('b', { cwd: '/never', tool });
+    expect(spawned.map((s) => s.spec.resume)).toEqual([true, false]);
+  });
+
+  it('is idempotent for a live PTY and respawns an exited one', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(spawned).toHaveLength(1);
+    spawned[0].pty.exit(0);
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(spawned).toHaveLength(2);
+  });
+
+  it('replays earlier output to a late attacher and streams new output', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    spawned[0].pty.emit('hello ');
+    const got: string[] = [];
+    const att = reg.attach('a', (d) => got.push(d), () => {});
+    expect(att?.replay.data).toBe('hello ');
+    spawned[0].pty.emit('world');
+    expect(got).toEqual(['world']);
+    att?.detach();
+    spawned[0].pty.emit('!');
+    expect(got).toEqual(['world']);
+  });
+
+  it('persists live sessions and restores them on the next start', async () => {
+    const first = makeRegistry();
+    first.spawn('a', { cwd: '/x', tool, port: 4000 });
+    await first.flush();
+    expect(readSaved().a).toMatchObject({ cwd: '/x', port: 4000 });
+
+    // Host dies (crash / reboot): shutdown keeps the persisted list.
+    first.disposeAllKeepingState();
+    await first.flush();
+
+    const second = makeRegistry(() => true);
+    const restored = await second.restore();
+    expect(restored).toEqual(['a']);
+    expect(second.get('a')?.restored).toBe(true);
+    expect(spawned[1].spec).toMatchObject({ cwd: '/x', port: 4000, resume: true });
+  });
+
+  it('does not restore sessions whose worktree is gone', async () => {
+    fs.writeFileSync(sessionsPath, JSON.stringify({ a: { cwd: '/gone', tool, startedAt: '' } }));
+    const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => false });
+    expect(await reg.restore()).toEqual([]);
+    expect(readSaved()).toEqual({});
+  });
+
+  it('forgets an explicitly killed session', async () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    reg.kill('a');
+    await reg.flush();
+    expect(spawned[0].pty.disposed).toBe(true);
+    expect(readSaved()).toEqual({});
+  });
+
+  it('keeps a self-exited session persisted briefly (shutdown race), then forgets it', async () => {
+    vi.useFakeTimers();
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    spawned[0].pty.exit(0);
+    await reg.flush();
+    expect(readSaved().a).toBeDefined();
+    vi.advanceTimersByTime(6000);
+    vi.useRealTimers();
+    await reg.flush();
+    expect(readSaved()).toEqual({});
+  });
+
+  it('ignores no-op resizes', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, cols: 80, rows: 24 });
+    reg.resize('a', 80, 24);
+    expect(spawned[0].pty.size).toEqual([0, 0]);
+    reg.resize('a', 100, 30);
+    expect(spawned[0].pty.size).toEqual([100, 30]);
+  });
+});
+
+describe('PtyRegistry replay', () => {
+  it('prefers the serialized screen over raw history when the PTY supports it', () => {
+    const serializing: PtySpawner = () => {
+      const p = new FakePty() as FakePty & { serialize: () => string };
+      p.serialize = () => '<screen>';
+      return p;
+    };
+    const reg = new PtyRegistry({ spawner: serializing, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool, cols: 90, rows: 20 });
+    expect(reg.attach('a', () => {}, () => {})?.replay).toEqual({ data: '<screen>', cols: 90, rows: 20 });
+  });
+});

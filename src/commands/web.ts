@@ -9,6 +9,9 @@ import {
   removeCommandHookSync,
 } from '../core/command-hook-installer.js';
 import { openUrl } from '../utils/platform.js';
+import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
+import { resolveWorkBinPath } from './diff.js';
+import { setAutostart } from '../core/autostart.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -104,6 +107,12 @@ export const webCommand: CommandModule = {
         default: false,
         describe: 'Stop a running work web instance and exit.',
       })
+      .option('autostart', {
+        type: 'string',
+        choices: ['on', 'off'],
+        describe:
+          'Start work web at login (Windows), so sessions come back after a reboot.',
+      })
       .option('lean', {
         type: 'boolean',
         default: false,
@@ -115,6 +124,17 @@ export const webCommand: CommandModule = {
     if (argv.stop) {
       stopExisting();
       process.exit(0);
+    }
+    if (argv.autostart) {
+      try {
+        const on = argv.autostart === 'on';
+        const file = setAutostart(on, resolveWorkBinPath(process.argv[1]));
+        info(chalk.gray(on ? `work web will start at login (${file}).` : 'Login autostart removed.'));
+        process.exit(0);
+      } catch (err) {
+        info(chalk.red((err as Error).message));
+        process.exit(1);
+      }
     }
 
     // Singleton enforcement. Two work web servers running at once is
@@ -146,6 +166,8 @@ export const webCommand: CommandModule = {
     try { fs.unlinkSync(pidFilePath()); } catch { /* */ }
     try { fs.unlinkSync(urlFilePath()); } catch { /* */ }
 
+    // The PTY host is spawned from the `work` binary, not the `wd` shim.
+    configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
     const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
     const handle = await startWebServer({ lean });
     try {
@@ -161,6 +183,16 @@ export const webCommand: CommandModule = {
     );
     info(chalk.gray('Press Ctrl+C to stop. Or: `work web --stop` from another shell.'));
     if (argv.open) openUrl(handle.url);
+
+    // Reboot / crash recovery: bring back the Claude sessions that were live
+    // last time. Dashboard mode only — a lean `wd` server shouldn't spin up
+    // ten Claudes as a side effect of opening a diff.
+    if (!lean) {
+      resumePersistedSessions().then(
+        (n) => { if (n > 0) info(chalk.gray(`Restoring ${n} session(s) from last time (--continue).`)); },
+        (err: Error) => info(chalk.yellow(`Could not restore sessions: ${err.message}`)),
+      );
+    }
 
     // Install Claude hooks so any live Claude in a worktree we know
     // about picks up pending review comments without the user having

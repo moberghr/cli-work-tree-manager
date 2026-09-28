@@ -36,10 +36,26 @@ const TAB_LABEL: Record<DashboardTab, string> = {
  * This is the `work web` direct-load view. `wd`'s `/diff/<hash>` opens
  * `ReviewApp` instead (the bare reviewer) — different shell entirely.
  */
+const LAST_ROUTE_KEY = 'work-web:last-route';
+
 export function DashboardApp() {
-  const [route, setRoute] = useState<DashboardRoute>(() =>
-    parseHash(window.location.hash),
-  );
+  // A bare URL (`work web` reopened the browser, or a PC restart) resumes
+  // on the last route this browser was on; an explicit hash always wins.
+  const [route, setRoute] = useState<DashboardRoute>(() => {
+    let hash = window.location.hash;
+    if (!hash || hash === '#') {
+      try {
+        hash = window.localStorage.getItem(LAST_ROUTE_KEY) ?? '';
+      } catch { /* storage blocked — start at the default */ }
+      if (hash) window.history.replaceState(null, '', hash);
+    }
+    return parseHash(hash);
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LAST_ROUTE_KEY, toHash(route));
+    } catch { /* storage blocked — resume is a convenience */ }
+  }, [route]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);

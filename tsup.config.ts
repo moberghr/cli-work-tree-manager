@@ -26,6 +26,7 @@ export default defineConfig({
     'yargs/helpers',
     'node-pty',
     '@xterm/headless',
+    '@xterm/addon-serialize',
     'ink',
     'react',
     'react/jsx-runtime',

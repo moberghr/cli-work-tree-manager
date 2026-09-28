@@ -177,6 +177,13 @@ export function rebaseWorktree(
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/rebase`, {});
 }
 
+export function openInTerminal(sessionId: string): Promise<{ ok: true }> {
+  return postJson(
+    `/api/sessions/${encodeURIComponent(sessionId)}/open-terminal`,
+    {},
+  );
+}
+
 export function openInEditor(
   sessionId: string,
 ): Promise<{ ok: true; opened: string }> {

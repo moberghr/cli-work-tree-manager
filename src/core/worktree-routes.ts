@@ -12,7 +12,7 @@ import {
   findSession,
   sessionIdFor,
 } from './web-state.js';
-import { disposePty } from './pty-pool.js';
+import { disposePty, getWorkBin, spawnSpecFor } from './pty-pool.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
 
@@ -29,6 +29,8 @@ export interface WorktreeMutOptions {
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
  *   POST   /api/sessions/:id/open-editor — spawn `code <path>`
+ *   POST   /api/sessions/:id/open-terminal — Windows Terminal tab running
+ *                                           `work attach` for the session
  *
  * All mutations broadcast `sessions-changed` so the SPA refetches and
  * the sidebar updates without a manual refresh.
@@ -111,7 +113,7 @@ export function mountWorktreeRoutes(
         // Release our own handles on the tree first — a live Claude PTY
         // (cwd inside the worktree) or an open directory watch blocks the
         // delete on Windows.
-        disposePty(id);
+        await disposePty(id);
         await disposeSessionWatcher(id);
 
         const onDisk = session.paths.some((p) => fs.existsSync(p));
@@ -211,6 +213,44 @@ export function mountWorktreeRoutes(
       });
       child.unref();
       return c.json({ ok: true, opened: target });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500);
+    }
+  });
+
+  // -- Open in a real terminal -------------------------------------------
+  // A new Windows Terminal tab (in the most recent window) running
+  // `work attach` from the session's launch dir — attach resolves the
+  // session from its cwd, so no branch name ever reaches wt's parser.
+  // argv array, no shell (§1.1). wt splits its OWN command line on `;`,
+  // so a path or title containing one is refused/stripped rather than
+  // escaped.
+  app.post('/api/sessions/:id/open-terminal', (c) => {
+    const id = c.req.param('id');
+    const session = findSession(id);
+    const spec = session ? spawnSpecFor(session) : null;
+    if (!session || !spec) return c.json({ error: 'unknown session' }, 404);
+    if (process.platform !== 'win32') {
+      return c.json(
+        { error: 'Only Windows Terminal is supported so far — run `work attach` in the worktree.' },
+        501,
+      );
+    }
+    if (spec.cwd.includes(';')) {
+      return c.json({ error: 'worktree path contains ";", which wt.exe cannot take' }, 400);
+    }
+    const title = `${session.target} · ${session.branch || '(base)'}`.replace(/;/g, ' ');
+    try {
+      const child = spawn(
+        'wt.exe',
+        ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'],
+        { detached: true, stdio: 'ignore', shell: false },
+      );
+      // A missing wt.exe fails asynchronously, after we've answered —
+      // swallow it so it can't crash the server.
+      child.on('error', () => {});
+      child.unref();
+      return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 500);
     }
