@@ -68,3 +68,32 @@ export function toHash(route: DashboardRoute): string {
   }
   return `#/${route.tab}`;
 }
+
+export const LAST_ROUTE_KEY = 'work-web:last-route';
+
+/** Minimal Storage surface, so tests can pass a fake (or a throwing one). */
+export type RouteStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+/**
+ * The hash the dashboard should open on. An explicit hash always wins; a
+ * bare URL (work web reopened the browser, a PC restart) resumes the last
+ * route this browser saved, if it still parses to something. Storage that
+ * throws (private window, blocked site data) just means "no resume".
+ */
+export function initialHash(currentHash: string, storage: RouteStorage | null): string {
+  if (currentHash && currentHash !== '#' && currentHash !== '#/') return currentHash;
+  let saved: string | null = null;
+  try {
+    saved = storage?.getItem(LAST_ROUTE_KEY) ?? null;
+  } catch {
+    return currentHash;
+  }
+  if (!saved || parseHash(saved) === DEFAULT_ROUTE) return currentHash;
+  return saved;
+}
+
+export function saveLastRoute(route: DashboardRoute, storage: RouteStorage | null): void {
+  try {
+    storage?.setItem(LAST_ROUTE_KEY, toHash(route));
+  } catch { /* storage blocked — resume is a convenience */ }
+}

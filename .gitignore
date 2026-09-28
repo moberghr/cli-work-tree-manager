@@ -10,3 +10,5 @@ tasks/todo.md
 .claude/settings.local.json
 .claude/.mtk-cache/
 .claude/references.index
+playwright-report/
+test-results/

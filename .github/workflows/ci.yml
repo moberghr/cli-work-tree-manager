@@ -14,5 +14,27 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # Build before testing: the functional `work attach` test drives the
+      # built dist/bin.js (it skips itself when there is no build).
       - run: npm run build
+      - run: npm test
+  e2e:
+    # Real `work web` + PTY host + browser, each test in an isolated HOME
+    # (see e2e/fixtures.ts); Claude is replaced by e2e/fake-ai.cjs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
