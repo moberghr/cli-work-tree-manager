@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { SessionSummary } from '../../api/client.js';
+import { compareAttention, needsAttention } from '../../../../core/attention.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -13,8 +14,13 @@ interface Props {
   maxVisible?: number;
 }
 
-/** Map activity to a CSS modifier — the dot color comes from CSS. */
+/** Map attention (when known) or activity to a CSS modifier — the dot
+ *  color comes from CSS. Attention wins: "blocked on you" and "done, not
+ *  looked at" matter more than how recently Claude wrote a file. */
 function dotClass(s: SessionSummary): string {
+  if (s.attention?.state === 'needs_input') return 'wd-rail-dot wd-rail-dot-needs';
+  if (s.attention?.state === 'idle' && !s.attention.seen) return 'wd-rail-dot wd-rail-dot-done';
+  if (s.attention?.state === 'working') return 'wd-rail-dot wd-rail-dot-active';
   switch (s.activityState) {
     case 'active':
       return 'wd-rail-dot wd-rail-dot-active';
@@ -56,7 +62,13 @@ export function SessionRail({
       const last = Date.parse(s.lastAccessedAt) || 0;
       return band + last;
     };
-    return [...sessions].sort((a, b) => score(b) - score(a));
+    // Who needs you first (the inbox order), then the activity score.
+    return [...sessions].sort(
+      (a, b) =>
+        (needsAttention(a.attention) || needsAttention(b.attention)
+          ? compareAttention(a.attention, b.attention)
+          : 0) || score(b) - score(a),
+    );
   }, [sessions]);
 
   const visible = sorted.slice(0, maxVisible);
@@ -95,10 +107,15 @@ export function SessionRail({
                   type="button"
                   className={
                     'wd-dash-rail-item' +
-                    (isActive ? ' wd-dash-rail-item-active' : '')
+                    (isActive ? ' wd-dash-rail-item-active' : '') +
+                    (needsAttention(s.attention) ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
-                  title={`${s.target} · ${s.branch}`}
+                  title={
+                    `${s.target} · ${s.branch}` +
+                    (s.attention?.summary ? `
+${s.attention.summary}` : '')
+                  }
                 >
                   <span className={dotClass(s)} aria-hidden />
                   <span className="wd-dash-rail-name">{label}</span>

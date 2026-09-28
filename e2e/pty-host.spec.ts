@@ -121,3 +121,43 @@ test('switching sessions marks the previous diff stale until the new one loads',
   await expect(main).not.toHaveClass(/wd-diff-stale/);
   await expect(page.locator('.wd-web-review-sidebar-header')).toContainText('feat/b');
 });
+
+test('attention inbox: blocked and finished sessions surface in order and clear when handled', async ({ page, work }) => {
+  work.setup(['feat/a', 'feat/b', 'feat/c']);
+  await work.startWeb();
+  const cwd = (b: string) => work.worktreePath(b);
+
+  // feat/a: working. feat/b: blocked on a permission. feat/c: finished a turn.
+  work.hook('status-prompt', { cwd: cwd('feat/a'), prompt: 'Refactor the ledger' });
+  work.hook('status-prompt', { cwd: cwd('feat/b'), prompt: 'Run the migration' });
+  work.hook('status-notify', { cwd: cwd('feat/b'), message: 'Claude needs your permission to use Bash' });
+  work.hook('status-prompt', { cwd: cwd('feat/c'), prompt: 'Write tests' });
+  work.hook('status-stop', { cwd: cwd('feat/c') });
+
+  await page.goto(`${work.url}#/inbox`);
+  const sections = page.locator('.wd-inbox-section h2');
+  await expect(sections).toHaveText([/Needs your input \(1\)/, /Done — not looked at yet \(1\)/, /Working \(1\)/]);
+  await expect(page.locator('.wd-inbox-rank-0 .wd-inbox-row')).toContainText('Claude needs your permission to use Bash');
+  await expect(page.locator('.wd-inbox-rank-2 .wd-inbox-row')).toContainText('Refactor the ledger');
+  // Badge + browser tab title count the two that want you.
+  await expect(page.locator('.wd-dash-tab-badge')).toHaveText('2');
+  await expect(page).toHaveTitle('(2) work');
+  // The rail puts them first.
+  await expect(page.locator('.wd-dash-rail-name').first()).toHaveText('feat/b');
+
+  // `n` jumps to the most urgent one, on its terminal.
+  await page.keyboard.press('n');
+  await expect(page).toHaveURL(new RegExp(`#/s/${work.sessionId('app', 'feat/b')}/term$`));
+
+  // Opening the finished one (from the inbox) marks it seen.
+  await page.goto(`${work.url}#/inbox`);
+  await page.locator('.wd-inbox-rank-1 .wd-inbox-row').click();
+  await expect(page).toHaveURL(new RegExp(`#/s/${work.sessionId('app', 'feat/c')}/diff$`));
+  await expect(page).toHaveTitle('(1) work');
+
+  // Answering the blocked one (a new prompt) clears it; a new hook event
+  // reaches the open page live via SSE — no reload.
+  work.hook('status-prompt', { cwd: cwd('feat/b'), prompt: 'yes, go ahead' });
+  await expect(page).toHaveTitle('work');
+  await expect(page.locator('.wd-dash-tab-badge')).toHaveCount(0);
+});

@@ -11,6 +11,11 @@ import {
   sessionIdFor,
 } from '../core/pending-delivery.js';
 import { isInternalClaude } from '../core/internal-claude.js';
+import {
+  lastAssistantText,
+  recordStatusEvent,
+  type StatusEvent,
+} from '../core/session-status.js';
 
 /**
  * `work hook prompt-submit` / `work hook stop` — invoked by Claude Code's
@@ -29,7 +34,12 @@ export type HookEvent =
   | 'prompt-submit'
   | 'stop'
   | 'checkpoint'
-  | 'checkpoint-seal';
+  | 'checkpoint-seal'
+  | 'status-prompt'
+  | 'status-stop'
+  | 'status-notify';
+
+const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
 /**
  * Fire-and-forget POST to the running `work web`. Shared by the two
@@ -118,6 +128,26 @@ interface HookPayload {
   cwd?: string;
   session_id?: string;
   hook_event_name?: string;
+  /** UserPromptSubmit */
+  prompt?: string;
+  /** Notification */
+  message?: string;
+  /** Stop (and others): the conversation's JSONL transcript. */
+  transcript_path?: string;
+}
+
+/** Map a status hook + its payload to a status event. Exported for tests. */
+export function statusEventFor(event: HookEvent, payload: HookPayload): StatusEvent | null {
+  switch (event) {
+    case 'status-prompt':
+      return { kind: 'prompt', prompt: payload.prompt };
+    case 'status-stop':
+      return { kind: 'stop', lastMessage: lastAssistantText(payload.transcript_path) ?? undefined };
+    case 'status-notify':
+      return { kind: 'notification', message: payload.message };
+    default:
+      return null;
+  }
 }
 
 async function readStdinJson(): Promise<HookPayload> {
@@ -150,7 +180,15 @@ export const hookCommand: CommandModule = {
   builder: (y) =>
     y.positional('event', {
       type: 'string',
-      choices: ['prompt-submit', 'stop', 'checkpoint', 'checkpoint-seal'] as const,
+      choices: [
+        'prompt-submit',
+        'stop',
+        'checkpoint',
+        'checkpoint-seal',
+        'status-prompt',
+        'status-stop',
+        'status-notify',
+      ] as const,
       describe: 'Hook event name',
     }),
   handler: async (argv) => {
@@ -171,6 +209,21 @@ export const hookCommand: CommandModule = {
     }
     if (event === 'checkpoint-seal') {
       await postToWeb('api/checkpoint/seal', cwd);
+      return;
+    }
+    // Attention inbox: record the session's state, then nudge work web so
+    // the dashboard (and desktop notification) updates immediately. Emits
+    // nothing to Claude. Outside a work session it's a no-op.
+    if (STATUS_EVENTS.has(event)) {
+      const session = findSessionForCwd(cwd);
+      const statusEvent = statusEventFor(event, payload);
+      if (!session || !statusEvent) return;
+      try {
+        await recordStatusEvent(sessionIdFor(session), statusEvent);
+      } catch {
+        return; // best-effort — never block Claude's turn on bookkeeping
+      }
+      await postToWeb('api/status-changed', cwd);
       return;
     }
     const result = computeHookOutput({ event, cwd });

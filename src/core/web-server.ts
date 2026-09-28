@@ -21,6 +21,7 @@ import { mountPanesRoutes } from './panes-routes.js';
 import { mountWorktreeRoutes } from './worktree-routes.js';
 import { mountScopeRoutes } from './scope-routes.js';
 import { mountTerminalRoutes } from './terminal-routes.js';
+import { mountStatusRoutes } from './status-routes.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -52,6 +53,7 @@ function sessionToWire(s: WorktreeSession) {
     lastActivity: meta.lastActivity,
     activityState: meta.activityState,
     pendingForClaudeCount: meta.pendingForClaudeCount,
+    attention: meta.attention,
   };
 }
 
@@ -216,6 +218,9 @@ export async function startWebServer(
   // PTY upgrade endpoint. Returns a noop response — the upgrade is handled
   // by the server's `upgrade` event below.
   mountTerminalRoutes(app);
+
+  // Attention inbox: hook nudges + mark-seen.
+  mountStatusRoutes(app, { broadcast });
 
   app.get('/events', (c) => {
     const wantedSession = c.req.query('session');

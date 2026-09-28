@@ -4,6 +4,7 @@ import type {
   CommentStatus,
   CommentSide,
 } from '../../../core/comment-types.js';
+import type { AttentionLike } from '../../../core/attention.js';
 export type { Comment, CommentAuthor, CommentStatus, CommentSide };
 
 export type PtyStatus = 'running' | 'idle';
@@ -34,6 +35,18 @@ export interface SessionSummary {
   /** Published user comments not yet surfaced to Claude. Drops to zero
    *  once the UserPromptSubmit hook fires inside a live Claude here. */
   pendingForClaudeCount?: number;
+  /** Hook-driven agent status (attention inbox); null/absent until the
+   *  session's Claude fires a hook under a full `work web`. */
+  attention?: SessionAttention | null;
+}
+
+export interface SessionAttention extends AttentionLike {
+  /** One line: prompt while working, last message when done, the
+   *  permission request when blocked. */
+  summary?: string;
+  updatedAt: string;
+  /** A "working" that went quiet for 15 min, shown as idle. */
+  stale: boolean;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -373,4 +386,9 @@ export function fetchSessionDiff(
   return getJson<SessionDiff>(
     `/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
   );
+}
+
+/** The user opened a session that wanted attention — clear its unseen flag. */
+export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});
 }

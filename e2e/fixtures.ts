@@ -149,6 +149,23 @@ export class WorkEnv {
     return r.stdout + r.stderr;
   }
 
+  /** Where `work tree app <branch>` put the worktree. */
+  worktreePath(branch: string): string {
+    return path.join(this.home, 'worktrees', path.basename(this.repo), branch.replace(/\//g, '-'));
+  }
+
+  /** Fire a Claude hook the way Claude Code does: `work hook <event>` with
+   *  the hook payload as JSON on stdin (cwd inside the worktree). */
+  hook(event: string, payload: Record<string, unknown>): void {
+    const r = spawnSync(process.execPath, [BIN, 'hook', event], {
+      env: this.env,
+      input: JSON.stringify(payload),
+      encoding: 'utf-8',
+      timeout: 30_000,
+    });
+    if (r.status !== 0) throw new Error(`work hook ${event} exited ${r.status}: ${r.stderr}`);
+  }
+
   sessionId(target: string, branch: string): string {
     return crypto.createHash('sha1').update(`${target}:${branch}`).digest('hex').slice(0, 12);
   }

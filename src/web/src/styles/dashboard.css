@@ -820,3 +820,70 @@
   font-size: 13px;
   white-space: pre-wrap;
 }
+
+/* ---- Attention inbox ---------------------------------------------------
+   State colors, shared by the inbox rows, the rail dots and the tab badge:
+   needs input = red (blocked on you), done-unseen = accent blue (review
+   me), working = green. */
+.wd-dash-tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--del-fg, #d1242f);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.wd-inbox-section { padding: 8px 24px 16px; }
+.wd-inbox-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.wd-inbox-rank-0 .wd-inbox-section-title { color: var(--del-fg, #d1242f); }
+.wd-inbox-list { list-style: none; margin: 0; padding: 0; }
+.wd-inbox-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 10px minmax(120px, 220px) 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-inbox-row:hover { background: var(--hover); border-color: var(--accent, #0969da); }
+.wd-inbox-row:focus-visible { outline: 2px solid var(--accent, #0969da); outline-offset: 1px; }
+.wd-inbox-dot { width: 10px; height: 10px; border-radius: 50%; }
+.wd-inbox-dot-needs_input { background: var(--del-fg, #d1242f); }
+.wd-inbox-dot-idle { background: var(--accent, #0969da); }
+.wd-inbox-dot-working { background: #2ea043; animation: wd-inbox-pulse 1.4s ease-in-out infinite; }
+@keyframes wd-inbox-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .wd-inbox-dot-working { animation: none; } }
+.wd-inbox-name { display: flex; flex-direction: column; min-width: 0; }
+.wd-inbox-target { font-size: 11px; color: var(--muted); }
+.wd-inbox-branch { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-inbox-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wd-inbox-since { font-size: 12px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) {
+  .wd-inbox-row { grid-template-columns: 10px 1fr auto; }
+  .wd-inbox-summary { grid-column: 2 / -1; }
+}
+/* Rail: attention overrides the activity dot. */
+.wd-rail-dot-needs { background: var(--del-fg, #d1242f); box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg, #d1242f) 30%, transparent); }
+.wd-rail-dot-done  { background: var(--accent, #0969da); }
+.wd-dash-rail-item-unseen .wd-dash-rail-name { font-weight: 600; }

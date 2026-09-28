@@ -11,6 +11,8 @@ interface Props {
   /** Click handler for the brand / "work" home link. Resets the route
    *  to the Sessions tab. */
   onHome: () => void;
+  /** Sessions that want you now (needs input + finished, unseen). */
+  inboxCount?: number;
 }
 
 interface TabDef {
@@ -22,6 +24,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
+  { key: 'inbox', label: 'Inbox', hotkey: 'i' },
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
   { key: 'prs', label: 'PRs', hotkey: 'p' },
   { key: 'jira', label: 'Jira', hotkey: 'j' },
@@ -36,7 +39,7 @@ const TABS: TabDef[] = [
  * outside this nav and breadcrumbs back to whichever tab the user
  * came from.
  */
-export function TopNav({ active, onSelect, currentScopeLabel, onHome }: Props) {
+export function TopNav({ active, onSelect, currentScopeLabel, onHome, inboxCount = 0 }: Props) {
   return (
     <nav className="wd-dash-topnav" role="navigation" aria-label="Dashboard">
       <button
@@ -65,6 +68,11 @@ export function TopNav({ active, onSelect, currentScopeLabel, onHome }: Props) {
               onClick={() => onSelect(t.key)}
             >
               {t.label}
+              {t.key === 'inbox' && inboxCount > 0 && (
+                <span className="wd-dash-tab-badge" aria-label={`${inboxCount} need you`}>
+                  {inboxCount}
+                </span>
+              )}
             </button>
           </li>
         ))}

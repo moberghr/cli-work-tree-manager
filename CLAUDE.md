@@ -213,6 +213,9 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/pty-host-client.ts       ← findHost/ensureHost (spawns detached host) + PtyHostClient; protocol-version check
                                   ├── core/pty-host-protocol.ts     ← shared wire types, PROTOCOL_VERSION, ~/.work/pty-host.json discovery
                                   ├── core/autostart.ts             ← Windows Startup-folder script for `work web --autostart`
+                                  ├── core/session-status.ts        ← attention inbox: hook-driven working/needs_input/idle per session in ~/.work/status/<id>.json (locked), summaries, stale/answered inference, notify-on-transition
+                                  ├── core/attention.ts             ← PURE inbox ordering (rank/compare/needsAttention) shared by server + SPA — must stay import-free (architecture test)
+                                  ├── core/status-routes.ts         ← Hono sub-app: POST /api/status-changed (hook nudge → SSE + desktop notify + statusHooks), POST /api/sessions/:id/seen
                                   ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health
                                   └── core/terminal-ws.ts           ← browser WS ↔ PTY-host WS relay for the Terminal tab (binary = output, text = control JSON)
                                   │
@@ -283,6 +286,12 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 § WHEN changing the host wire format, bump `PROTOCOL_VERSION` — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
 § WHEN spawning into a PTY, let `resolvePtyCommand` (`tui/session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
 § WHEN adding a path that spawns Claude for a session, go through `spawnSpecFor` + the host, not `new PtySession` — otherwise that session won't survive restarts or be attachable.
+
+### Attention inbox
+
+`work web` (full mode, owner `web-status`) installs `UserPromptSubmit`/`Stop`/`Notification` command hooks → `work hook status-prompt|status-stop|status-notify`, which map the cwd to a session (`findSessionForCwd`, group-root aware), apply the event (`applyStatusEvent`: prompt → working+seen; stop → idle+unseen with the transcript's last assistant line; a Notification matching `permission|approval` → needs_input) to `~/.work/status/<id>.json`, then nudge `POST /api/status-changed`. The server notifies only on a real transition (`notifyKindForTransition`) and broadcasts `sessions-changed`. Read-side `effectiveStatus` decays a 15-min-quiet "working" to idle and treats transcript activity after a permission prompt as answered (no hook fires on approve). Opening a finished session marks it seen. Inbox order (`core/attention.ts`): needs input (oldest first) → done-unseen (oldest first) → working (newest first) → quiet.
+
+§ WHEN adding an attention state or signal, extend `applyStatusEvent`/`effectiveStatus` and `core/attention.ts` — the SPA imports the latter directly, so keep it free of imports.
 
 ### Session Tracking
 

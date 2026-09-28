@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchSessions, type SessionSummary } from '../api/client.js';
+import { fetchSessions, markSessionSeen, type SessionSummary } from '../api/client.js';
+import { compareAttention, needsAttention } from '../../../core/attention.js';
+import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
@@ -24,6 +26,7 @@ import {
 } from '../state/dashboard-route.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
+  inbox: 'Inbox',
   sessions: 'Sessions',
   prs: 'PRs',
   jira: 'Jira',
@@ -120,12 +123,12 @@ export function DashboardApp() {
     [navigate],
   );
   const openSession = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, sub: SessionSubTab = 'diff') => {
       // Preserve the current tab as the breadcrumb target.
       navigate({
         tab: route.tab,
         sessionId,
-        sessionSubTab: 'diff',
+        sessionSubTab: sub,
       });
     },
     [navigate, route.tab],
@@ -189,6 +192,7 @@ export function DashboardApp() {
         pendingG = false;
         if (pendingGTimer) clearTimeout(pendingGTimer);
         const map: Record<string, DashboardTab> = {
+          i: 'inbox',
           s: 'sessions',
           p: 'prs',
           j: 'jira',
@@ -203,6 +207,19 @@ export function DashboardApp() {
       if (e.key === 'g') {
         pendingG = true;
         pendingGTimer = setTimeout(() => { pendingG = false; }, 750);
+        return;
+      }
+      // n — jump to the next session that wants you, in inbox order,
+      // cycling past the one you're on. Opens it where you'd act on it.
+      if (e.key === 'n') {
+        const queue = sessions
+          .filter((s) => needsAttention(s.attention))
+          .sort((a, b) => compareAttention(a.attention, b.attention));
+        const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
+        if (next) {
+          e.preventDefault();
+          openSession(next.id, next.attention?.state === 'needs_input' ? 'term' : 'diff');
+        }
         return;
       }
       // j / k — move down/up through the sorted sessions list.
@@ -246,6 +263,26 @@ export function DashboardApp() {
     ? sessions.find((s) => s.id === route.sessionId) ?? null
     : null;
 
+  // Opening a session that wanted you counts as having seen it — once per
+  // unseen episode (keyed by when it entered that state).
+  const seenKey =
+    activeSession && needsAttention(activeSession.attention) && activeSession.attention!.state === 'idle'
+      ? `${activeSession.id}@${activeSession.attention!.since}`
+      : null;
+  useEffect(() => {
+    if (!seenKey) return;
+    void markSessionSeen(seenKey.slice(0, seenKey.indexOf('@'))).catch(() => {});
+  }, [seenKey]);
+
+  // Unread count in the browser tab, so a pinned tab shows it at a glance.
+  const inboxCount = useMemo(
+    () => sessions.filter((s) => needsAttention(s.attention)).length,
+    [sessions],
+  );
+  useEffect(() => {
+    document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
+  }, [inboxCount]);
+
   const currentScopeLabel = activeSession
     ? `${activeSession.target}/${activeSession.branch}`
     : undefined;
@@ -283,6 +320,9 @@ export function DashboardApp() {
     );
   } else {
     switch (route.tab) {
+      case 'inbox':
+        body = <InboxTab sessions={sessions} onOpenSession={openSession} />;
+        break;
       case 'sessions':
         body = (
           <SessionsTab
@@ -335,6 +375,7 @@ export function DashboardApp() {
         onSelectSession={openSession}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
+        inboxCount={inboxCount}
       >
         {body}
       </DashboardLayout>

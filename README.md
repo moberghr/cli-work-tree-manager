@@ -213,6 +213,16 @@ work web --stop         # shut the dashboard down
 
 ---
 
+### Attention inbox
+
+With ten agents running, the question is which one needs you next. The **Inbox** tab (`g i`) answers it, using Claude Code's own hooks — `work web` installs them, so it covers every Claude in any terminal:
+
+- **Needs your input** — blocked on a permission prompt, longest-waiting first. Opens on the terminal so you can answer.
+- **Done — not looked at yet** — finished a turn since you last opened it. Opens on the diff to review.
+- **Working** — mid-turn, with the prompt it's working on.
+
+Each row carries one line of context (the permission request, Claude's last message, or your prompt). The sidebar sorts the same way, the Inbox tab shows a count, and so does the browser tab title (`(3) work`). Press **`n`** anywhere to jump to the next session that wants you. With `notifications: true`, you also get a desktop notification when a session blocks or finishes — and your `statusHooks` run — just as in `work dash`.
+
 ## Fleet Commands (`run` / `broadcast`)
 
 Once you have several worktrees open, you often want to do *one thing* to *all of them*. Two commands fan out across the fleet.
@@ -388,7 +398,7 @@ Edit via `work config edit`, or manage repos/groups via the `work config …` su
 
 ### Notifications & status hooks
 
-When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know:
+When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know — from `work dash`, and from `work web` (via its Claude hooks, for any Claude on the machine):
 
 - **`notifications: true`** — fires a native desktop notification (macOS `osascript`, Linux `notify-send`, Windows BurntToast/balloon best-effort). Repeated alerts within one idle period are de-duplicated; submitting a new prompt re-arms it.
 - **`statusHooks`** — the general form. Each entry is `{ "on": "idle" | "needs_input", "command": "..." }`. The command runs (with the session directory as cwd) on that transition, with `WORK_SESSION` and `WORK_STATUS` in its environment — use it for sounds, Slack pings, or anything scriptable.

@@ -86,7 +86,7 @@ describe('architecture boundaries', () => {
   });
 
   it('the browser SPA reaches into src/core only for the shared comment types', () => {
-    const allowed = new Set(['src/core/comment-types.js']);
+    const allowed = new Set(['src/core/comment-types.js', 'src/core/attention.js']);
     expect(
       violations(
         (f, s) =>
@@ -96,6 +96,16 @@ describe('architecture boundaries', () => {
           !allowed.has(resolveRel(f.rel, s)),
       ),
     ).toEqual([]);
+  });
+
+  it('core modules the SPA may import are pure (no imports at all)', () => {
+    // Anything in the SPA allowlist above gets bundled for the browser, so
+    // it must not reach Node — keep them dependency-free.
+    for (const rel of ['src/core/comment-types.ts', 'src/core/attention.ts']) {
+      const f = files.find((x) => x.rel === rel);
+      expect(f, rel).toBeDefined();
+      expect(f!.imports.filter((s) => !s.startsWith('.')), rel).toEqual([]);
+    }
   });
 
   it('the browser SPA never imports Node-only modules', () => {

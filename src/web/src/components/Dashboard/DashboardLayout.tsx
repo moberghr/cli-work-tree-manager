@@ -17,6 +17,8 @@ interface Props {
   onSelectSession: (id: string) => void;
   onHome: () => void;
   onNewWorktree: () => void;
+  /** Badge on the Inbox tab. */
+  inboxCount?: number;
   children: ReactNode;
 }
 
@@ -42,6 +44,7 @@ export function DashboardLayout({
   onSelectSession,
   onHome,
   onNewWorktree,
+  inboxCount,
   children,
 }: Props) {
   const { size: railWidth, setSize: setRailWidth } =
@@ -55,6 +58,7 @@ export function DashboardLayout({
         onSelect={onSelectTab}
         currentScopeLabel={currentScopeLabel}
         onHome={onHome}
+        inboxCount={inboxCount}
       />
       <div
         ref={bodyRef}

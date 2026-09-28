@@ -213,6 +213,18 @@ export const webCommand: CommandModule = {
           command: 'work hook stop',
           timeoutSec: 5,
         }),
+        // Attention inbox: every Claude reports working / done / needs
+        // input, whichever terminal it runs in. Separate owner so the set
+        // is managed independently of comment delivery.
+        ...(
+          [
+            ['UserPromptSubmit', 'work hook status-prompt'],
+            ['Stop', 'work hook status-stop'],
+            ['Notification', 'work hook status-notify'],
+          ] as const
+        ).map(([event, command]) =>
+          installCommandHook({ owner: 'web-status', event, command, timeoutSec: 5 }),
+        ),
       ]).catch(() => { /* best-effort */ });
     }
 
@@ -246,6 +258,9 @@ export const webCommand: CommandModule = {
       if (!lean) {
         try { removeCommandHookSync('web', 'UserPromptSubmit'); } catch { /* */ }
         try { removeCommandHookSync('web', 'Stop'); } catch { /* */ }
+        for (const ev of ['UserPromptSubmit', 'Stop', 'Notification']) {
+          try { removeCommandHookSync('web-status', ev); } catch { /* */ }
+        }
       }
       try { removeCommandHookSync('web-checkpoint', 'Stop'); } catch { /* */ }
       try { removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'); } catch { /* */ }

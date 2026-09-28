@@ -6,6 +6,7 @@ import {
 import { getCommentFileStore } from './comment-file-store.js';
 import { readPendingForSession } from './pending-delivery.js';
 import type { WorktreeSession } from './history.js';
+import { effectiveStatus, readStatus, type EffectiveStatus } from './session-status.js';
 
 export type PtyStatus = 'running' | 'idle';
 
@@ -24,6 +25,9 @@ export interface SessionMeta {
   /** Published user comments not yet surfaced to Claude via the
    *  UserPromptSubmit hook. Drops to zero after Claude takes its next turn. */
   pendingForClaudeCount: number;
+  /** Hook-driven agent status for the attention inbox; null until the
+   *  session's Claude has fired a hook under a full `work web`. */
+  attention: EffectiveStatus | null;
 }
 
 /**
@@ -47,6 +51,7 @@ export function readSessionMeta(
   }
   const activity = readSessionActivity(session);
   const pending = readPendingForSession(sessionId).length;
+  const status = readStatus(sessionId);
   return {
     draftCount: drafts,
     commentCount: comments.length,
@@ -55,5 +60,6 @@ export function readSessionMeta(
     lastActivity: activity.lastActivity,
     activityState: activity.state,
     pendingForClaudeCount: pending,
+    attention: status ? effectiveStatus(status, activity.lastActivity ?? 0) : null,
   };
 }
