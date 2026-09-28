@@ -158,12 +158,3 @@ export async function fetchAllPullRequests(repos: Record<string, string>): Promi
   return map;
 }
 
-/** Check if `gh` CLI is available and authenticated (async). */
-export async function isGhAvailable(): Promise<boolean> {
-  try {
-    await execAsync('gh', ['auth', 'status'], process.cwd(), 5000);
-    return true;
-  } catch {
-    return false;
-  }
-}

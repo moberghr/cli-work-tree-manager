@@ -1,9 +1,8 @@
 /**
  * Installs a `command`-type entry in `~/.claude/settings.json` so Claude
  * Code spawns our hook subcommand and injects its stdout into the
- * conversation. Distinct from `HookServer` (which uses `http`-type hooks
- * for fire-and-forget notifications) — command hooks let us return text
- * that becomes part of Claude's context.
+ * conversation — command hooks let us return text that becomes part of
+ * Claude's context (and record status for the attention inbox).
  *
  * Each install is tagged via the shared `settings-editor` (owner + PID)
  * so stale entries from a crashed previous run get pruned automatically

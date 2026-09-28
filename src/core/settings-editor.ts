@@ -2,17 +2,17 @@
  * Atomic read/edit/write helpers for `~/.claude/settings.json` — the user's
  * global Claude Code settings.
  *
- * Both `HookServer` (http-type hooks) and `installCommandHook` (command-type
- * hooks) mutate this file at startup/shutdown. They previously each had
- * their own copy of `readSettings` / `writeSettings`, and the write was a
- * plain `fs.writeFileSync`. If two `work` processes started concurrently —
+ * `installCommandHook` mutates this file at `work web` startup/shutdown.
+ * (The retired `work dash` also installed http-type hooks here; any it left
+ * behind are tagged with a dead PID and pruned as stale on the next
+ * install.) Writes used to be a plain `fs.writeFileSync`. If two `work` processes started concurrently —
  * or one was killed mid-write — the user's global hooks would be silently
  * truncated. That breaks hooks for every project, not just `work`.
  *
  * Everything here writes through `editSettings`, which does a single
  * tmp-file + rename atomic write under a process-level mutex (best-effort —
  * no cross-process locking, but the rename is OS-atomic and the in-process
- * mutex is enough to serialize the dash + web case). The rename follows
+ * mutex serializes one process's installs). The rename follows
  * symlinks (`atomicWriteFile`) so a settings.json symlinked into a dotfiles
  * repo keeps being a symlink after we edit it.
  */
@@ -71,8 +71,8 @@ function writeAtomic(s: SettingsFile): void {
 }
 
 /**
- * Serialise in-process edits to the settings file. Two HookServer / hook
- * installer calls from the same `work` process can't race each other.
+ * Serialise in-process edits to the settings file. Two hook installer
+ * calls from the same `work` process can't race each other.
  * (Cross-process races still exist but are bounded by the OS-atomic rename
  * — the worst case is one process's edit clobbering another's, never a
  * truncated half-written file.)

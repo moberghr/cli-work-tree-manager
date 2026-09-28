@@ -23,22 +23,22 @@ mtk-version: 7.10.0
 - [EXTRACTED] `work-tree` is a cross-platform Git worktree manager CLI distributed as an npm package with two binaries, `work` and `wd`. Evidence: `package.json` `"bin": { "work": "./dist/bin.js", "wd": "./dist/wd-bin.js" }`.
 - [EXTRACTED] Stack: TypeScript 5 (`typescript: ^5.7.3`), Node ≥18 (`engines.node: ">=18"`), ESM (`"type": "module"`). Evidence: `package.json`.
 - [EXTRACTED] Build via tsup to ESM targeting node18; runtime deps are externalized, not bundled. Evidence: `tsup.config.ts` (`format: ['esm']`, `target: 'node18'`, `external: [...]`).
-- [EXTRACTED] Key dependencies: `yargs` (command parsing), `ink` + `react` (terminal UI renderer), `node-pty` + `@xterm/headless` (PTY terminal sessions), `proper-lockfile` (cross-process file locking), `chalk`/`inquirer` (CLI I/O), `chokidar` (file watching), `cross-spawn` (subprocess), `glob` (file matching). Evidence: `package.json` dependencies.
+- [EXTRACTED] Key dependencies: `yargs` (command parsing), `react` (browser SPA, bundled by Vite), `node-pty` + `@xterm/headless` (PTY terminal sessions), `proper-lockfile` (cross-process file locking), `chalk`/`inquirer` (CLI I/O), `chokidar` (file watching), `cross-spawn` (subprocess), `glob` (file matching). Evidence: `package.json` dependencies.
 
 ## 2. Layer Architecture
 - [EXTRACTED] Three-layer split: `src/commands/` (yargs command definitions, 14 files), `src/core/` (business logic, 22 files), `src/utils/` (helpers). Evidence: `ls src/commands/*.ts | wc -l` → 14; `ls src/core/*.ts | wc -l` → 22.
 - [EXTRACTED] Commands depend on core, not the reverse. Command handlers import from `../core/*`. Evidence: `src/commands/list.ts:5-7` imports `../core/config.js`, `../core/git.js`, `../core/resolve.js`.
 - [EXTRACTED] Two entry points: `src/bin.ts` (the `work` CLI) wires global error handling then calls `run()` from `src/cli.ts`; `src/wd-bin.ts` is the `wd` diff binary. Evidence: `src/bin.ts:4` `import { run } from './cli.js'`, `package.json` bin map.
-- [EXTRACTED] TUI is isolated under `src/tui-ink/` (Ink/React renderer) and `src/tui/` (PTY session + hooks). Evidence: `find src/tui-ink src/tui -type f`.
+- [EXTRACTED] `src/tui/session.ts` is the PTY wrapper (node-pty + headless xterm), used only by the PTY host. The Ink terminal dashboard (`work dash`, `src/tui-ink/`) was removed in 2.0.
 
 ## 3. Design Patterns in Use
 ### 3.1 yargs CommandModule per command
 - [EXTRACTED] Each command is exported as a yargs `CommandModule` object (`command`, `describe`, `builder`, `handler`). Evidence: 14 of 14 command files reference `CommandModule` (`grep -rl CommandModule src/commands | wc -l` → 14); see `src/commands/list.ts:9`.
 - [EXTRACTED] `src/cli.ts` registers every command module and renders a hand-written help screen. Evidence: `src/cli.ts:3-17` imports each `*Command`.
 
-### 3.2 React as Ink terminal renderer only
-- [EXTRACTED] `react` is used solely as the Ink terminal-UI renderer — there is no web/DOM target. React/Ink imports appear only under `src/tui-ink/*.tsx` (5 files). Evidence: `grep -rln "from 'react'|from 'ink'" src` → only `src/tui-ink/*`.
-- [EXTRACTED] `tsconfig.json` sets `"jsx": "react-jsx"`; tests for the renderer assert plain layout output, not DOM. Evidence: `tsconfig.json`; `tests/tui/renderer.test.ts`, `tests/tui/layout.test.ts`.
+### 3.2 React only in the browser SPA
+- [EXTRACTED] `react` is used only by the browser SPA under `src/web/` (built by Vite); no Node-side code imports it and nothing imports Ink. Enforced by `tests/architecture/boundaries.test.ts`.
+- [EXTRACTED] `tsconfig.json` sets `"jsx": "react-jsx"` for the SPA's `.tsx`; UI tests run the SPA under jsdom (`tests/web/`).
 
 ### 3.3 PTY terminal sessions
 - [EXTRACTED] Interactive terminal sessions are driven by `node-pty`, imported in exactly one place and wrapped by the session layer. Evidence: `grep -rln "from 'node-pty'" src` → only `src/tui/session.ts`; `src/tui/session.ts:1` `import pty, { type IPty } from 'node-pty'`.

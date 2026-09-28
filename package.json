@@ -1,6 +1,6 @@
 {
   "name": "@moberg_hr/work-tree",
-  "version": "1.17.0",
+  "version": "2.0.0",
   "description": "Cross-platform Git worktree manager for multiple repositories",
   "type": "module",
   "bin": {
@@ -66,7 +66,6 @@
     "highlight.js": "^11.11.1",
     "highlightjs-cshtml-razor": "^2.2.0",
     "hono": "^4.12.23",
-    "ink": "^6.8.0",
     "inquirer": "^12.3.2",
     "marked": "^18.0.4",
     "node-pty": "^1.1.0",

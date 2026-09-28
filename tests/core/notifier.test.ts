@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildNotifyCommand,
   notifyDesktop,
-  notifyKindForEvent,
 } from '../../src/core/notifier.js';
 
 describe('buildNotifyCommand', () => {
@@ -82,54 +81,6 @@ describe('buildNotifyCommand', () => {
   });
 });
 
-describe('notifyKindForEvent', () => {
-  it('fires on the first stop even when no prompt_submit preceded it', () => {
-    const notified = new Set<string>();
-    expect(notifyKindForEvent('stop', 'k', notified)).toBe('idle');
-  });
-
-  it('maps a notification event to needs_input', () => {
-    expect(notifyKindForEvent('notification', 'k', new Set())).toBe('needs_input');
-  });
-
-  it('de-dupes repeated stops within one idle period', () => {
-    const notified = new Set<string>();
-    expect(notifyKindForEvent('stop', 'k', notified)).toBe('idle');
-    expect(notifyKindForEvent('stop', 'k', notified)).toBeNull();
-    expect(notifyKindForEvent('notification', 'k', notified)).toBeNull();
-  });
-
-  it('re-arms after prompt_submit (new turn)', () => {
-    const notified = new Set<string>();
-    notifyKindForEvent('stop', 'k', notified);
-    expect(notifyKindForEvent('prompt_submit', 'k', notified)).toBeNull();
-    expect(notifyKindForEvent('stop', 'k', notified)).toBe('idle');
-  });
-
-  it('tracks sessions independently', () => {
-    const notified = new Set<string>();
-    expect(notifyKindForEvent('stop', 'a', notified)).toBe('idle');
-    expect(notifyKindForEvent('stop', 'b', notified)).toBe('idle');
-    expect(notifyKindForEvent('stop', 'a', notified)).toBeNull();
-  });
-
-  it('re-arms for needs_input after prompt_submit', () => {
-    const notified = new Set<string>();
-    notifyKindForEvent('notification', 'k', notified);
-    notifyKindForEvent('prompt_submit', 'k', notified);
-    expect(notifyKindForEvent('notification', 'k', notified)).toBe('needs_input');
-  });
-
-  it('suppresses a stop after a notification already alerted the same period', () => {
-    const notified = new Set<string>();
-    expect(notifyKindForEvent('notification', 'k', notified)).toBe('needs_input');
-    expect(notifyKindForEvent('stop', 'k', notified)).toBeNull();
-  });
-
-  it('prompt_submit on a never-alerted session is a safe no-op', () => {
-    expect(notifyKindForEvent('prompt_submit', 'k', new Set())).toBeNull();
-  });
-});
 
 describe('notifyDesktop', () => {
   it('is a no-op when not enabled (spawnFn never called)', () => {

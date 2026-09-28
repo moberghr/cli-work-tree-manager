@@ -30,11 +30,6 @@ export default defineConfig({
     'node-pty',
     '@xterm/headless',
     '@xterm/addon-serialize',
-    'ink',
-    'react',
-    'react/jsx-runtime',
-    'react-dom',
-    'react-dom/client',
   ],
   banner: {
     js: '#!/usr/bin/env node',

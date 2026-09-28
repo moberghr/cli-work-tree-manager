@@ -10,7 +10,6 @@ import { recentCommand } from './commands/recent.js';
 import { resumeCommand } from './commands/resume.js';
 import { pruneCommand } from './commands/prune.js';
 import { syncCommand } from './commands/sync.js';
-import { dashCommand } from './commands/dash.js';
 import { completionCommand } from './commands/completion.js';
 import { todoCommand } from './commands/todo.js';
 import { hydrateCommand } from './commands/hydrate.js';
@@ -43,7 +42,6 @@ function showHelp() {
   console.log('  work status --prune                                - Remove stale entries');
   console.log('  work recent [count]                                - List recent sessions');
   console.log('  work resume                                        - Resume a recent session');
-  console.log('  work dash                                          - Interactive session dashboard');
   console.log('  work web                                           - Browser dashboard (one tab, every session)');
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
@@ -107,7 +105,6 @@ export function run(argv: string[]) {
     .command(resumeCommand)
     .command(pruneCommand)
     .command(syncCommand)
-    .command(dashCommand)
     .command(todoCommand)
     .command(hydrateCommand)
     .command(diffCommand)

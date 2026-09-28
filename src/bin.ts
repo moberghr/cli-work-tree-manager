@@ -20,7 +20,7 @@ function handleFatalError(err: unknown): void {
     console.log('\nCancelled.');
     process.exit(0);
   }
-  // node-pty can throw async errors for already-exited PTYs — non-fatal in dash mode
+  // node-pty can throw async errors for already-exited PTYs (the PTY host) — non-fatal
   if (err instanceof Error && err.message?.includes('pty that has already exited')) {
     try {
       fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),

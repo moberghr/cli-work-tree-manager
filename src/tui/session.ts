@@ -8,16 +8,6 @@ import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
 
-/**
- * Session display status. 'idle' = finished its turn (Stop hook);
- * 'attention' = explicitly waiting on user input (Notification hook);
- * 'running' = actively working; 'stopped' = no live PTY.
- */
-export type SessionStatus = 'stopped' | 'running' | 'idle' | 'attention';
-
-/** Live (non-stopped) status of a PTY-backed session. */
-export type PtyStatus = 'running' | 'idle' | 'attention';
-
 export interface PtyAiOptions {
   /** Resolved AI tool spec (from `getAiTool(config)`). */
   tool: AiToolSpec;
@@ -67,16 +57,14 @@ export function resolvePtyCommand(
 
 export class PtySession {
   readonly pty: IPty;
-  terminal: InstanceType<typeof Terminal>;
-  private serializer = new SerializeAddon();
+  readonly terminal: InstanceType<typeof Terminal>;
+  private readonly serializer = new SerializeAddon();
   readonly cwd: string;
   private outputHandler?: (data: string) => void;
   private _exited = false;
-  private _status: PtyStatus = 'idle';
   private _outputBuffer = '';
   private _loggedOutput = false;
   onExit?: (code: number) => void;
-  onStatusChange?: () => void;
 
   constructor(
     cwd: string,
@@ -162,23 +150,6 @@ export class PtySession {
     return this._exited;
   }
 
-  /** True when the session is not actively working (idle or needs input). */
-  get idle() {
-    return this._status !== 'running';
-  }
-
-  /** Live status: 'running', 'idle' (turn finished) or 'attention' (needs input). */
-  get status(): PtyStatus {
-    return this._status;
-  }
-
-  /** Called by the dashboard when a hook event indicates a state change. */
-  setStatus(status: PtyStatus) {
-    if (this._exited || this._status === status) return;
-    this._status = status;
-    this.onStatusChange?.();
-  }
-
   write(data: string) {
     if (!this._exited) {
       try { this.pty.write(data); } catch { /* PTY already exited */ }
@@ -193,51 +164,6 @@ export class PtySession {
         // PTY already exited natively before our flag was set — ignore
       }
       this.terminal.resize(cols, rows);
-    }
-  }
-
-  /** Clear scrollback buffer to free memory. */
-  clearScrollback() {
-    if (!this._exited) {
-      this.terminal.clear();
-    }
-  }
-
-  /**
-   * Dispose the xterm Terminal and create a fresh one to fully release
-   * internal parser/buffer memory.  The visible viewport content is
-   * captured first and replayed into the new terminal so nothing looks
-   * different when the user switches back.
-   */
-  resetTerminal() {
-    if (this._exited) return;
-
-    const { cols, rows } = this.terminal;
-    const buf = this.terminal.buffer.active;
-
-    // Capture visible viewport lines as plain text
-    const viewportLines: string[] = [];
-    for (let y = 0; y < rows; y++) {
-      const line = buf.getLine(buf.baseY + y);
-      viewportLines.push(line ? line.translateToString(true) : '');
-    }
-
-    this.terminal.dispose();
-
-    this.terminal = new Terminal({
-      cols,
-      rows,
-      scrollback: 200,
-      allowProposedApi: true,
-    });
-    this.serializer = new SerializeAddon();
-    this.terminal.loadAddon(this.serializer);
-
-    // Replay viewport content (skip trailing empty lines)
-    let lastNonEmpty = viewportLines.length - 1;
-    while (lastNonEmpty >= 0 && viewportLines[lastNonEmpty].trim() === '') lastNonEmpty--;
-    for (let i = 0; i <= lastNonEmpty; i++) {
-      this.terminal.write(viewportLines[i] + (i < lastNonEmpty ? '\r\n' : ''));
     }
   }
 

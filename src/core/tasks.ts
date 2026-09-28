@@ -118,6 +118,3 @@ export async function editTask(id: number, text: string): Promise<Task | null> {
   });
 }
 
-export function getTasksPath_(): string {
-  return getTasksPath();
-}

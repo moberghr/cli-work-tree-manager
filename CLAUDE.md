@@ -40,7 +40,7 @@ The highest-impact rules. Full standards in `.claude/rules/`.
 
 - **§0.1** YOU MUST suffix relative imports with `.js` even though sources are `.ts`. Extensionless relative imports break at runtime under Node ESM (136 `.js` imports, 0 extensionless). See `.claude/rules/architecture.md` §2.5.
 - **§0.2** WHEN doing a read-modify-write on shared `~/.work/` JSON state, route it through `withFileLock` + `atomicWriteFile` (`src/core/fs-safe.ts`) — concurrent `work` processes corrupt unlocked writes. See `.claude/rules/data-layer.md` §5.2.
-- **§0.3** React/Ink is the terminal renderer ONLY — NEVER use DOM/web/browser APIs. Ink imports belong under `src/tui-ink/`. See `.claude/rules/architecture.md` §2.3.
+- **§0.3** React belongs to the browser SPA (`src/web/`) only; nothing imports Ink (the terminal dashboard was retired in 2.0). See `.claude/rules/architecture.md` §2.3.
 - **§0.4** WHEN building git/shell commands, use `cross-spawn` with an argv array — DO NOT interpolate branch names or paths into a shell string (command-injection risk). See `.claude/rules/security.md` §1.1.
 
 ---
@@ -112,7 +112,6 @@ work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status
 work recent [count]                                # List recent sessions
 work resume [--unsafe]                             # Resume a recent session
-work dash [--unsafe]                               # Interactive session dashboard (TUI)
 work prune [--force]                               # Remove merged worktrees (interactive)
 work sync [--dry-run] [--force] [--include-squash] # Fetch all repos in parallel + prune merged worktrees (non-interactive; skips dirty/unpushed unless --force, skips repos whose fetch failed)
 work completion [--install]                        # Shell completions
@@ -156,7 +155,7 @@ work hook <event>                                  # Internal — invoked by Cla
 ### Module Flow
 
 ```
-bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,sync,dash,web,config,init,todo,run,broadcast,diff,hook}.ts
+bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,sync,web,attach,pty-host,config,init,todo,run,broadcast,diff,hook}.ts
 wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                        ↓
                                   core/worktree.ts (atomic + high-level operations)
@@ -223,7 +222,6 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   └── core/terminal-ws.ts           ← browser WS ↔ PTY-host WS relay for the Terminal tab (binary = output, text = control JSON)
                                   │
                                   Review-comment delivery to live Claude (hook bridge)
-                                  ├── core/hook-server.ts           ← http-type Claude hooks (idle tracking; used by `work dash`)
                                   ├── core/command-hook-installer.ts ← command-type Claude hooks (text injection; used by `work web`)
                                   ├── core/settings-editor.ts       ← atomic edits to ~/.claude/settings.json (shared)
                                   ├── core/pending-delivery.ts      ← find session for cwd; format pending; mark delivered
@@ -238,47 +236,27 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── hooks/use-{viewed-files,scrollspy}.ts
                                   └── state/{ReviewProvider,ExpandProvider,viewed,viewed-files}.ts
                                   │
-                                  tui-ink/ (Ink/React TUI for `work dash`)
-                                  ├── App.tsx                    ← main layout, keyboard handling, session management
-                                  ├── Sidebar.tsx                ← session list, PR pane, bordered pane components
-                                  ├── TerminalPane.tsx           ← renders xterm content to terminal
-                                  ├── StatusBar.tsx              ← keybinding hints
-                                  ├── renderer-lines.ts          ← line-based terminal rendering
-                                  └── index.tsx                  ← Ink entry point
-                                  │
-                                  tui/ (PTY infrastructure shared by dash and web)
+                                  tui/ (PTY wrapper, used only by the PTY host)
                                   └── session.ts                 ← PtySession (node-pty + @xterm/headless)
 ```
 
 ### Key Design
 
-- **Shared core operations:** `setupWorktree()` and `teardownWorktree()` in `core/worktree.ts` are the high-level entry points used by both the CLI commands and the TUI. They resolve targets, create/remove worktrees, handle group CLAUDE.md, and manage sessions. Low-level building blocks are `createSingleWorktree()` and `removeSingleWorktree()` which handle one repo with rollback on failure.
+- **Shared core operations:** `setupWorktree()` and `teardownWorktree()` in `core/worktree.ts` are the high-level entry points used by both the CLI commands and `work web`. They resolve targets, create/remove worktrees, handle group CLAUDE.md, and manage sessions. Low-level building blocks are `createSingleWorktree()` and `removeSingleWorktree()` which handle one repo with rollback on failure.
 - **Resolver pattern:** `resolveProjectTarget()` in `core/resolve.ts` dispatches a name to either a group or single repo, returning `{ isGroup, name, repoAliases }`. Commands use this to branch into group vs single-repo handlers.
 - **Branch resolution order:** local exists → remote exists (creates tracking branch) → neither (creates new branch).
 - **Path convention:** Branch directories replace `/` with `-` (e.g., `feature/login` → `feature-login`). Single-repo worktrees at `<worktreesRoot>/<repoFolderName>/<branch-dir>/`, groups at `<worktreesRoot>/<groupName>/<branch-dir>/<repoFolderName>/`.
 
-### TUI Dashboard (`work dash`)
+### `work dash` (removed in 2.0)
 
-An interactive terminal UI built with Ink (React for CLI). Features a sidebar listing all worktree sessions and an embedded terminal pane showing the selected session's Claude Code instance.
-
-- **Embedded PTY sessions:** `tui/session.ts` wraps `node-pty` + `@xterm/headless` to spawn and manage Claude Code processes per worktree.
-- **Hook server:** `tui/hooks.ts` runs a local HTTP server that receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) to track session idle/active status. Hooks are injected into `~/.claude/settings.json` on startup and cleaned up on exit.
-- **Ink components:** `tui-ink/App.tsx` orchestrates layout and keyboard input. `Sidebar.tsx` shows sessions with status indicators (● running, ◆ needs input, ◇ done, ○ stopped) and a separate PR pane. `TerminalPane.tsx` renders the xterm buffer. `StatusBar.tsx` shows available keybindings. `HelpOverlay.tsx` (toggled with `?`) lists the full keymap. `line-editor.ts` provides pure stdin tokenizing + line editing (cursor movement, paste sanitizing) for the branch/task/filter inputs.
-- **5-pane layout:** The left column is split into sessions (top), PRs, Jira, and Tasks (bottom). The right side is an embedded terminal. Each pane has a title and independent focus/cursor. Tab cycles focus in visual order: sessions → PRs → Jira → Tasks → terminal. All panes support scrolling when content overflows.
-- **GitHub PR integration:** `core/pr.ts` fetches open PRs via `gh pr list` for all configured repos. Shows check status (✓/✗/●), merge conflict detection, personal review state (✔/✎), draft status (dimmed), and ownership (★). Selecting a PR in the PR pane creates/resumes a worktree for that branch.
-- **Jira integration:** `core/jira.ts` fetches issues assigned to the current user via `acli` (Atlassian CLI). Issues are grouped by status. Selecting a Jira issue prompts project selection, generates a branch slug (via Claude haiku), creates a worktree via `work tree` in a PTY, and sends a structured planning prompt to Claude Code via `--prompt-file`.
-- **New worktree creation:** Users can create new worktrees directly from the dashboard via a project/branch picker flow, from a PR, from a Jira issue, or from a task (`w` key creates a `todo/<slug>` branch).
-- **Tasks pane:** Shows local tasks from `~/.work/tasks.json`. Supports add (`a`), edit (`e`), toggle done (`enter`/`x`), remove (`d`), and create worktree (`w`). File-watched for reactive updates from external changes.
-- **Reactive session detection:** Uses `fs.watch` on `history.json` to detect new sessions created externally (e.g., `work tree` in another terminal).
-- **Auto-sync:** On startup, all repo remotes are fetched in parallel and PR/Jira data is loaded.
-- **Context-sensitive status bar:** Shows different keybinding hints depending on which pane is focused.
+`work dash` (the Ink TUI with its own PTYs and http-type hook server) was retired: use `work web` (browser dashboard) + `work attach` (a real terminal on the same PTY-host session). Its leftover http hook entries in `~/.claude/settings.json` are PID-tagged and pruned as stale by the next `work web` hook install.
 
 ### Re-entering a worktree (pull + resume)
 
 `work tree` is both "create" and "switch back", and switching back is the common case. Whenever the target checkout already exists — an existing worktree, or the base repo when the branch positional is omitted — two things happen before the AI tool launches:
 
 - **Pull.** `pullLatestForBranch()` (`core/worktree.ts`) runs fetch + pull in that directory. Best-effort by design: a branch with no upstream returns early (a bare `git pull` there prints a "no tracking information" error that reads as a failure), and a pull blocked by a dirty tree or conflicts only warns. It must never block getting into the worktree. Threaded through `setupWorktree(..., { pull })` → `createSingleWorktree(..., pull)`; `--no-pull` sets it false. A freshly created worktree skips this — it is already at the branch tip.
-- **Resume.** `launchTool()` in `commands/tree.ts` passes `resume: true` so the tool gets its resume flag (`--continue` for Claude Code). Gated on `hasClaudeConversation(dir)` (`core/claude-activity.ts`, a transcript-exists check over `~/.claude/projects/<encoded-cwd>/*.jsonl`) because `--continue` hard-errors with "No conversation found to continue" in a directory Claude has never run in — the same gate `work resume` and the TUI use. `--fresh` opts out.
+- **Resume.** `launchTool()` in `commands/tree.ts` passes `resume: true` so the tool gets its resume flag (`--continue` for Claude Code). Gated on `hasClaudeConversation(dir)` (`core/claude-activity.ts`, a transcript-exists check over `~/.claude/projects/<encoded-cwd>/*.jsonl`) because `--continue` hard-errors with "No conversation found to continue" in a directory Claude has never run in — the same gate `work resume` and the PTY host use. `--fresh` opts out.
 
 § WHEN adding another launch path, resolve the resume flag through `hasClaudeConversation` rather than passing `--continue` unconditionally.
 

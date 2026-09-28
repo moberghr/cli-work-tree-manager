@@ -27,18 +27,6 @@ function execAsync(cmd: string, args: string[], timeout: number): Promise<string
   });
 }
 
-/** Check if `acli` is available and authenticated. Kept for the TUI's
- *  pre-flight; the web pane uses fetchMyJiraIssues directly which short-
- *  circuits on auth failure too. */
-export async function isAcliAvailable(): Promise<boolean> {
-  try {
-    await execAsync('acli', ['jira', 'auth', 'status'], 5000);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Run `acli jira auth status` once and parse it for both availability
  *  AND the site URL. Replaces the previous two-call pattern where
  *  `isAcliAvailable` and `getJiraSiteUrl` each shelled out independently. */
@@ -89,19 +77,6 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
   } catch {
     return [];
   }
-}
-
-/**
- * Fetch Jira issues assigned to the current user.
- *
- * Backwards-compatible signature for the TUI — returns an empty array
- * when acli is unavailable or errors. Web callers that need to
- * distinguish unavailable from empty should use `fetchJiraPane()`.
- */
-export async function fetchMyJiraIssues(): Promise<JiraIssue[]> {
-  const probe = await probeAcli();
-  if (!probe.available) return [];
-  return searchMyIssues(probe.siteUrl);
 }
 
 /**

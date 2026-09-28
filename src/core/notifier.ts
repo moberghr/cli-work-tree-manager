@@ -102,31 +102,6 @@ export function buildNotifyCommand(
   return null;
 }
 
-/**
- * Decide whether a hook event should fire a notification, tracking which
- * sessions have already been alerted for the current idle period in `notified`
- * (mutated in place). Returns the kind to fire, or null to stay silent.
- *
- * Decoupled from `PtySession.idle` so it does not depend on that field's
- * initial value: a session's first `stop`/`notification` still alerts, while
- * repeated `stop` events within one idle period are de-duplicated. A
- * `prompt_submit` (the user replied / a new turn started) clears the session
- * so the next idle alerts again.
- */
-export function notifyKindForEvent(
-  event: 'stop' | 'notification' | 'prompt_submit',
-  sessionKey: string,
-  notified: Set<string>,
-): NotifyKind | null {
-  if (event === 'prompt_submit') {
-    notified.delete(sessionKey);
-    return null;
-  }
-  if (notified.has(sessionKey)) return null;
-  notified.add(sessionKey);
-  return event === 'notification' ? 'needs_input' : 'idle';
-}
-
 export interface NotifyOptions {
   /** Notifications only fire when this is explicitly true. */
   enabled?: boolean;

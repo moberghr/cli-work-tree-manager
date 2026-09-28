@@ -44,7 +44,6 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
       );
       if (kind) {
         const config = loadConfig();
-        // Named like the dash names it: the launch dir's basename.
         const launchDir = session.isGroup && session.paths[0]
           ? path.dirname(session.paths[0])
           : session.paths[0] ?? body.cwd;

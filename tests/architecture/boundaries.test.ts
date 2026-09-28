@@ -60,9 +60,10 @@ describe('architecture boundaries', () => {
     ).toEqual([]);
   });
 
-  it('§2.3 Ink/React-for-terminal lives only under src/tui-ink', () => {
+  it('§2.3 nothing imports Ink (the terminal dashboard was retired), and React stays in the SPA', () => {
+    expect(violations((_f, s) => s === 'ink' || s.startsWith('ink-'))).toEqual([]);
     expect(
-      violations((f, s) => (s === 'ink' || s.startsWith('ink-')) && !f.rel.startsWith('src/tui-ink/')),
+      violations((f, s) => (s === 'react' || s.startsWith('react/') || s.startsWith('react-dom')) && !f.rel.startsWith('src/web/')),
     ).toEqual([]);
   });
 
@@ -114,10 +115,10 @@ describe('architecture boundaries', () => {
     expect(violations((f, s) => f.rel.startsWith('src/web/') && nodeOnly.test(s))).toEqual([]);
   });
 
-  it('Claude PTYs for sessions are spawned only by the PTY host (plus the legacy dash TUI)', () => {
+  it('Claude PTYs for sessions are spawned only by the PTY host', () => {
     // A session PTY created anywhere else would not survive restarts, would
     // not be restorable after a reboot and could not be attached to.
-    const allowed = new Set(['src/core/pty-registry.ts', 'src/tui-ink/App.tsx', 'src/tui/session.ts']);
+    const allowed = new Set(['src/core/pty-registry.ts', 'src/tui/session.ts']);
     const offenders = files
       .filter((f) => /new PtySession\s*\(/.test(f.text) && !allowed.has(f.rel))
       .map((f) => f.rel);
