@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { refuseReason } from './local-origin.js';
 import { Hono, type Context } from 'hono';
 import { serve, type ServerType } from '@hono/node-server';
 import { streamSSE } from 'hono/streaming';
@@ -204,11 +205,10 @@ export async function startDiffServer(
  *  raw Node server is exposed via `httpServer` so callers can attach
  *  WebSocket upgrade handlers (the terminal bridge).
  *
- *  Installs a Host-header guard so DNS-rebinding attacks can't trick a
- *  browser into POSTing to our local server from an attacker-controlled
- *  origin: only `127.0.0.1:<port>` and `localhost:<port>` are accepted.
- *  The SPA is served same-origin so legitimate requests always carry one
- *  of those Host headers.
+ *  Installs a guard (core/local-origin.ts): Host must be ours (DNS
+ *  rebinding), and mutating requests must not come from another origin
+ *  (cross-site request forgery from any page open in the browser). The SPA
+ *  is served same-origin, and Node callers send no Origin, so both pass.
  */
 export function launch(app: Hono): Promise<DiffServerHandle & { httpServer: ServerType }> {
   return new Promise((resolve) => {
@@ -218,13 +218,18 @@ export function launch(app: Hono): Promise<DiffServerHandle & { httpServer: Serv
     let listenPort = 0;
     const guard = new Hono();
     guard.use('*', async (c, next) => {
-      const host = c.req.header('host');
-      if (
-        host !== `127.0.0.1:${listenPort}` &&
-        host !== `localhost:${listenPort}`
-      ) {
-        return c.text('Forbidden', 403);
-      }
+      // Host (DNS rebinding) + Origin / Sec-Fetch-Site (cross-site request
+      // forgery from any page open in the browser) — see local-origin.ts.
+      const reason = refuseReason(
+        {
+          method: c.req.method,
+          host: c.req.header('host'),
+          origin: c.req.header('origin'),
+          secFetchSite: c.req.header('sec-fetch-site'),
+        },
+        listenPort,
+      );
+      if (reason) return c.text(`Forbidden (${reason})`, 403);
       await next();
     });
     guard.route('/', app);

@@ -3,6 +3,7 @@ import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ensurePty } from './pty-pool.js';
+import { refuseReason } from './local-origin.js';
 
 const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal$/;
 
@@ -22,23 +23,31 @@ type UpgradableServer = EventEmitter;
  * Server → browser: binary frames are PTY output; text frames are control
  * JSON ({ type: 'exit', code } | { type: 'error', message }).
  *
- * `port` is the listening port — used for the Host-header DNS-rebinding
- * guard, mirroring the one applied to Hono routes in `diff-server.launch`.
- * The WS upgrade bypasses Hono entirely so it needs its own check.
+ * `port` is the listening port — used for the same Host + Origin guard the
+ * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
+ * upgrade bypasses Hono entirely so it needs its own check.
  */
 export function attachTerminalWs(
   httpServer: UpgradableServer,
   port: number,
 ): { close: () => void } {
   const wss = new WebSocketServer({ noServer: true });
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-  ]);
 
   httpServer.on('upgrade', (req: IncomingMessage, socket: Socket, head) => {
-    const host = req.headers.host;
-    if (!host || !allowedHosts.has(host)) {
+    // WebSockets aren't covered by CORS: without this, any page open in
+    // the browser could connect and type into Claude. Browsers always send
+    // Origin on a WebSocket, so a foreign page is refused here.
+    const reason = refuseReason(
+      {
+        method: 'GET',
+        upgrade: true,
+        host: req.headers.host,
+        origin: req.headers.origin,
+        secFetchSite: req.headers['sec-fetch-site'] as string | undefined,
+      },
+      port,
+    );
+    if (reason) {
       socket.destroy();
       return;
     }
