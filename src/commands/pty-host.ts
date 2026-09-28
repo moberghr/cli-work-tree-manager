@@ -1,16 +1,14 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty-host.js';
 import { ensureHost, findHost, probeHostDetailed, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
-import { getConfigDir } from '../core/config.js';
 import { ensureFile, withFileLock } from '../core/fs-safe.js';
+import { killTree } from '../core/process.js';
 import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty-host-protocol.js';
 import { loadHistory } from '../core/history.js';
 import { sessionIdFor } from '../core/web-state.js';
-import { resolveWorkBinPath } from './diff.js';
+import { resolveWorkBinPath } from '../utils/work-bin.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -55,20 +53,6 @@ export async function stopHost(
   return ok ? 'stopped' : 'failed';
 }
 
-function killTree(pid: number): boolean {
-  if (process.platform === 'win32') {
-    // TerminateProcess on the host alone can orphan its ConPTY children —
-    // Claudes that keep running unseen, and that a restore would then
-    // duplicate on the same conversation. Kill the whole tree.
-    return spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' }).status === 0;
-  }
-  try {
-    process.kill(pid);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 
 async function printStatus(): Promise<void> {

@@ -1,7 +1,7 @@
+import { resolveWorkBinPath } from '../utils/work-bin.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn as childSpawn } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { computeDiff } from '../core/diff-pipeline.js';
@@ -21,6 +21,7 @@ import {
 import { diffReviewSnapshot } from '../core/review-poll.js';
 import { renderStatic } from '../core/static-renderer.js';
 import { openUrl } from '../utils/platform.js';
+import { spawnDetachedWork } from '../core/process.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
  *  be piped or captured by callers (notably `wd -c` review mode, where
@@ -92,32 +93,7 @@ function webUrlFilePath(): string {
   return path.join(os.homedir(), '.work', 'web.url');
 }
 
-/**
- * Resolve the path to the `work` binary given the path of whichever
- * binary `wd`/`work` is currently running as. The `web` subcommand
- * only lives on the `work` binary (`dist/bin.js`); when we're running
- * as the `wd` shim (`dist/wd-bin.js`) we swap to the sibling. Tsup
- * ships both into the same dir so the sibling-swap is always valid.
- *
- * Exported for testing — the autostart spawn relies on this to avoid
- * passing `web --lean` to a binary that only knows `diff`.
- */
-export function resolveWorkBinPath(selfArgv1: string): string {
-  // argv[1] may be a bin symlink, not the real file: a global npm install
-  // exposes `wd` as e.g. ~/.../bin/wd -> ../lib/.../dist/wd-bin.js. Resolve
-  // it so the wd-bin.js -> bin.js sibling-swap fires for global installs too;
-  // otherwise we'd spawn the `wd` shim with `web` args and it'd fail.
-  let real = selfArgv1;
-  try {
-    real = fs.realpathSync(selfArgv1);
-  } catch {
-    /* synthetic/non-existent path (e.g. unit tests) — use as given */
-  }
-  if (real.endsWith('wd-bin.js')) {
-    return path.join(path.dirname(real), 'bin.js');
-  }
-  return real;
-}
+export { resolveWorkBinPath } from '../utils/work-bin.js';
 
 function readWebUrl(): string | null {
   try {
@@ -187,23 +163,7 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // lives on the `work` binary; `resolveWorkBinPath` does the sibling
   // swap when we're the shim.
   const workBin = resolveWorkBinPath(process.argv[1]);
-  const out = fs.openSync(
-    path.join(os.homedir(), '.work', 'web-autostart.log'),
-    'a',
-  );
-  const child = childSpawn(
-    process.execPath,
-    [workBin, 'web', '--lean', '--no-open'],
-    {
-      detached: true,
-      stdio: ['ignore', out, out],
-      windowsHide: true,
-      // Inherit cwd doesn't matter for work web — its file-watches use
-      // ~/.work paths exclusively.
-    },
-  );
-  child.unref();
-  fs.closeSync(out);
+  spawnDetachedWork(workBin, ['web', '--lean', '--no-open'], path.join(os.homedir(), '.work', 'web-autostart.log'));
 
   // Poll the url file. Generous-ish timeout because cold startup
   // includes resolving the SPA dist + binding a port + writing the

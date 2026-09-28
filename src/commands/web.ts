@@ -10,8 +10,9 @@ import {
 } from '../core/command-hook-installer.js';
 import { openUrl } from '../utils/platform.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
-import { resolveWorkBinPath } from './diff.js';
+import { resolveWorkBinPath } from '../utils/work-bin.js';
 import { setAutostart } from '../core/autostart.js';
+import { isPidAlive } from '../core/process.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -24,14 +25,6 @@ function pidFilePath(): string {
   return path.join(os.homedir(), '.work', 'web.pid');
 }
 
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function readPid(): number | null {
   try {

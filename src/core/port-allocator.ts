@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import type { WorkConfig } from './config.js';
-import type { WorktreeSession } from './history.js';
+import type { WorktreeSession } from './session-types.js';
 
 /** Default dev-server port range when none is configured. */
 export const DEFAULT_PORT_RANGE = { start: 3000, end: 3099 };

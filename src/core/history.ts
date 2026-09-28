@@ -6,29 +6,8 @@ import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
 import { allocateFreePort } from './port-allocator.js';
 
-export interface WorktreeSession {
-  target: string;
-  isGroup: boolean;
-  branch: string;
-  paths: string[];
-  createdAt: string;
-  lastAccessedAt: string;
-  jiraKey?: string;
-  /** Branch this worktree was forked from. Recorded when known at creation time.
-   *  For groups with a single shared base this is that base; with per-repo bases
-   *  it's the representative/default (see `baseBranches` for the per-repo map). */
-  baseBranch?: string;
-  /** Per-repo fork point, keyed by worktree path (same strings as `paths`).
-   *  Set when `work tree --base alias=branch` gives repos different bases.
-   *  Diff routes prefer this over `baseBranch` for a given repo. */
-  baseBranches?: Record<string, string>;
-  /** Stable dev-server port allocated to this worktree, exposed as $PORT. */
-  port?: number;
-  /** Set when archived (work web "Archive", or after "Ship → Merge"): the
-   *  worktree, branch and conversation are kept, it's just out of the way.
-   *  Re-entering it with `work tree` clears it. */
-  archivedAt?: string;
-}
+export type { WorktreeSession } from './session-types.js';
+import type { WorktreeSession } from './session-types.js';
 
 export function getHistoryPath(): string {
   return path.join(getConfigDir(), 'history.json');

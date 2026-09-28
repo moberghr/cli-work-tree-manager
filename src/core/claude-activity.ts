@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { WorktreeSession } from './history.js';
+import type { WorktreeSession } from './session-types.js';
 
 /**
  * Claude Code writes each session as JSONL under
@@ -154,8 +154,8 @@ export interface SessionActivity {
 
 /**
  * Derive an activity state for a session by looking at Claude's transcript
- * mtime. Works whether the user launched Claude via `work tree`, `work dash`,
- * a manual terminal, or `work web`'s own PTY — they all write to the same
+ * mtime. Works whether the user launched Claude via `work tree`, `work attach`,
+ * a manual terminal, or `work web`'s PTY host session — they all write to the same
  * `~/.claude/projects/<encoded-cwd>/` directory.
  *
  * If Claude's on-disk layout ever changes, the function falls back to

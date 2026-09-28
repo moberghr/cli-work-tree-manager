@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn as childSpawn } from 'node:child_process';
+import { spawnDetachedWork } from './process.js';
 import { getConfigDir } from './config.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import {
@@ -123,14 +123,7 @@ async function ensureHostLocked(workBin: string, timeoutMs: number): Promise<Hos
 }
 
 function spawnHost(workBin: string): void {
-  const log = fs.openSync(path.join(getConfigDir(), 'pty-host.log'), 'a');
-  const child = childSpawn(process.execPath, [workBin, 'pty-host'], {
-    detached: true,
-    stdio: ['ignore', log, log],
-    windowsHide: true,
-  });
-  child.unref();
-  fs.closeSync(log);
+  spawnDetachedWork(workBin, ['pty-host'], path.join(getConfigDir(), 'pty-host.log'));
 }
 
 async function waitForHost(timeoutMs: number): Promise<HostInfo> {
