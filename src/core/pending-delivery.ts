@@ -60,23 +60,21 @@ function normalize(p: string): string {
 /** Map a Claude cwd back to a session. Tries direct-match against any
  *  session's path first, then ancestor match (so cwd inside a subdir of a
  *  worktree still resolves to the worktree's session). */
-export function findSessionForCwd(cwd: string): WorktreeSession | null {
-  const norm = normalize(cwd);
-  const sessions = loadHistory();
-  // Direct match: cwd == one of the session's paths.
-  for (const s of sessions) {
-    for (const p of s.paths) {
-      if (normalize(p) === norm) return s;
-    }
-  }
-  // Ancestor match: cwd starts with one of the session's paths + sep.
-  // Pick the longest matching prefix so nested worktrees disambiguate.
+export function findSessionForCwd(
+  cwd: string,
+  sessions: WorktreeSession[] = loadHistory(),
+): WorktreeSession | null {
+  const here = normalize(cwd);
+  // Deepest root containing cwd wins, so nested worktrees disambiguate. A
+  // group's roots include the group root (the sub-repos' parent) — that's
+  // where `work tree` launches Claude for a group, so hooks fire from there.
   let best: { session: WorktreeSession; len: number } | null = null;
   for (const s of sessions) {
-    for (const p of s.paths) {
-      const np = normalize(p);
-      if (norm.startsWith(np + '/') && (!best || np.length > best.len)) {
-        best = { session: s, len: np.length };
+    const roots = s.isGroup && s.paths[0] ? [...s.paths, path.dirname(s.paths[0])] : s.paths;
+    for (const root of roots) {
+      const r = normalize(root);
+      if ((here === r || here.startsWith(r + '/')) && (!best || r.length > best.len)) {
+        best = { session: s, len: r.length };
       }
     }
   }

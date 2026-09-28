@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import type { CommandModule } from 'yargs';
 import { findSession, loadHistory, type WorktreeSession } from '../core/history.js';
 import { sessionIdFor } from '../core/web-state.js';
+import { findSessionForCwd } from '../core/pending-delivery.js';
 import { spawnSpecFor } from '../core/pty-pool.js';
 import { ensureHost, PtyHostClient } from '../core/pty-host-client.js';
 import { resolveWorkBinPath } from './diff.js';
@@ -11,32 +12,6 @@ import { resolveWorkBinPath } from './diff.js';
 /** Ctrl+] — detaches, leaving Claude running in the PTY host. Same key
  *  telnet uses; Claude Code doesn't bind it. */
 const DETACH = '\x1d';
-
-function norm(p: string): string {
-  const r = path.resolve(p);
-  return process.platform === 'win32' ? r.toLowerCase() : r;
-}
-
-/** The session whose worktree contains `cwd` (deepest match wins). */
-export function sessionForCwd(
-  sessions: WorktreeSession[],
-  cwd: string,
-): WorktreeSession | null {
-  const here = norm(cwd);
-  let best: { s: WorktreeSession; len: number } | null = null;
-  for (const s of sessions) {
-    for (const p of s.paths) {
-      const roots = s.isGroup ? [p, path.dirname(p)] : [p];
-      for (const root of roots) {
-        const r = norm(root);
-        if ((here === r || here.startsWith(r + path.sep)) && (!best || r.length > best.len)) {
-          best = { s, len: r.length };
-        }
-      }
-    }
-  }
-  return best?.s ?? null;
-}
 
 export const attachCommand: CommandModule = {
   command: 'attach [target] [branch]',
@@ -53,7 +28,7 @@ export const attachCommand: CommandModule = {
     const branch = (argv.branch as string | undefined) ?? '';
     const session = target
       ? (findSession(sessions, target, branch) ?? null)
-      : sessionForCwd(sessions, process.cwd());
+      : findSessionForCwd(process.cwd(), sessions);
     if (!session) {
       console.error(
         chalk.red(
