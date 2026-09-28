@@ -216,6 +216,9 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/session-status.ts        ← attention inbox: hook-driven working/needs_input/idle per session in ~/.work/status/<id>.json (locked), summaries, stale/answered inference, notify-on-transition
                                   ├── core/attention.ts             ← PURE inbox ordering (rank/compare/needsAttention) shared by server + SPA — must stay import-free (architecture test)
                                   ├── core/status-routes.ts         ← Hono sub-app: POST /api/status-changed (hook nudge → SSE + desktop notify + statusHooks), POST /api/sessions/:id/seen
+                                  ├── core/ship.ts                  ← ship per repo: preflight (dirty/upstream/PR/checks/merge blockers) + push / create-pr / merge (--match-head-commit; group merge all-or-nothing). Injectable CommandRunner (cross-spawn, argv only)
+                                  ├── core/ship-routes.ts           ← Hono sub-app: GET/POST /api/sessions/:id/ship (merge success → archive), POST /api/sessions/:id/archive
+                                  ├── core/diff-stat.ts             ← +N −M per session (numstat + untracked); DiffStatCache: non-blocking, TTL, bounded concurrency, broadcast on change
                                   ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health
                                   └── core/terminal-ws.ts           ← browser WS ↔ PTY-host WS relay for the Terminal tab (binary = output, text = control JSON)
                                   │
@@ -292,6 +295,12 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 `work web` (full mode, owner `web-status`) installs `UserPromptSubmit`/`Stop`/`Notification` command hooks → `work hook status-prompt|status-stop|status-notify`, which map the cwd to a session (`findSessionForCwd`, group-root aware), apply the event (`applyStatusEvent`: prompt → working+seen; stop → idle+unseen with the transcript's last assistant line; a Notification matching `permission|approval` → needs_input) to `~/.work/status/<id>.json`, then nudge `POST /api/status-changed`. The server notifies only on a real transition (`notifyKindForTransition`) and broadcasts `sessions-changed`. Read-side `effectiveStatus` decays a 15-min-quiet "working" to idle and treats transcript activity after a permission prompt as answered (no hook fires on approve). Opening a finished session marks it seen. Inbox order (`core/attention.ts`): needs input (oldest first) → done-unseen (oldest first) → working (newest first) → quiet.
 
 § WHEN adding an attention state or signal, extend `applyStatusEvent`/`effectiveStatus` and `core/attention.ts` — the SPA imports the latter directly, so keep it free of imports.
+
+### Ship & archive
+
+`Ship` in a session runs `core/ship.ts` per repo: push (publish with `-u` if no upstream), create PR (`gh pr create --fill --head`, pushing first), merge (`gh pr merge N --<method> --match-head-commit <sha>` — GitHub refuses if the branch moved). Merge re-runs the preflight server-side and refuses on any blocker (dirty tree, unpushed commits, draft, conflicts, behind, branch protection, failing/pending checks); for a group it's all-or-nothing, and untouched sub-repos (0 commits vs `origin/HEAD`, no PR) are skipped. A fully successful merge archives the session. **Archive** (`archivedAt` in history) stops the PTY and hides the session; worktree, branch and conversation stay; `work tree` into it again un-archives.
+
+§ WHEN adding a ship action, route git/gh through `CommandRunner` (argv, no shell) and re-check preconditions server-side — the client's preflight may be stale.
 
 ### Session Tracking
 

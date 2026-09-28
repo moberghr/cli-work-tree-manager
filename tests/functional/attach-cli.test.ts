@@ -82,7 +82,10 @@ afterAll(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 });
 
-describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', () => {
+// Each test spawns real detached processes (PTY host, tool via a .cmd shim);
+// under the full parallel suite on Windows a cold host start alone can take
+// most of the default 20 s.
+describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeout: 60_000 }, () => {
   it('attaches from the worktree dir, round-trips input, and detaches with Ctrl+]', async () => {
     const child: ChildProcess = spawn(process.execPath, [BIN, 'attach'], {
       cwd: path.join(worktree), // session resolved from cwd
@@ -95,7 +98,7 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', () => {
     child.stderr!.on('data', (d) => { err += d.toString(); });
     const exited = new Promise<number>((r) => child.on('exit', (c) => r(c ?? -1)));
 
-    await waitFor(() => out.includes('fake-ai ready'), 20_000, `banner (stderr: ${err})`);
+    await waitFor(() => out.includes('fake-ai ready'), 45_000, `banner (stderr: ${err})`);
     expect(out).toContain('\x1b]0;api · feat/x\x07'); // tab title = session
     child.stdin!.write('hello\r');
     await waitFor(() => out.includes('echo:hello'), 15_000, 'echo');

@@ -9,6 +9,8 @@ import { runStatusHooks } from './status-hooks.js';
 
 export interface StatusRoutesOptions {
   broadcast: (event: string, data: unknown) => void;
+  /** A session's Claude changed state (usually: a turn ended, files moved). */
+  onStatusChanged?: (sessionId: string) => void;
 }
 
 /**
@@ -32,6 +34,7 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
     const session = findSessionForCwd(body.cwd);
     if (!session) return c.json({ ok: true, matched: false });
     const id = sessionIdFor(session);
+    opts.onStatusChanged?.(id);
     const status = readStatus(id);
     if (status && lastNotified.get(id) !== status.updatedAt) {
       lastNotified.set(id, status.updatedAt);

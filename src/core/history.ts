@@ -24,6 +24,10 @@ export interface WorktreeSession {
   baseBranches?: Record<string, string>;
   /** Stable dev-server port allocated to this worktree, exposed as $PORT. */
   port?: number;
+  /** Set when archived (work web "Archive", or after "Ship → Merge"): the
+   *  worktree, branch and conversation are kept, it's just out of the way.
+   *  Re-entering it with `work tree` clears it. */
+  archivedAt?: string;
 }
 
 export function getHistoryPath(): string {
@@ -126,6 +130,7 @@ export async function upsertSession(
     if (existing) {
       existing.paths = paths;
       existing.lastAccessedAt = now;
+      delete existing.archivedAt; // coming back to it un-archives it
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (port !== undefined) existing.port = port;
@@ -196,6 +201,7 @@ export async function upsertSessionWithPort(
     if (existing) {
       existing.paths = paths;
       existing.lastAccessedAt = now;
+      delete existing.archivedAt; // coming back to it un-archives it
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
@@ -218,6 +224,23 @@ export async function upsertSessionWithPort(
 
     saveHistory(sessions);
     return { port };
+  });
+}
+
+/** Archive / un-archive a session. Returns false when it doesn't exist. */
+export async function setSessionArchived(
+  target: string,
+  branch: string,
+  archived: boolean,
+): Promise<boolean> {
+  return withHistoryLock(() => {
+    const sessions = loadHistory();
+    const s = findSession(sessions, target, branch);
+    if (!s) return false;
+    if (archived) s.archivedAt = new Date().toISOString();
+    else delete s.archivedAt;
+    saveHistory(sessions);
+    return true;
   });
 }
 

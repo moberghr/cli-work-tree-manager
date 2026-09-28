@@ -22,6 +22,8 @@ import { mountWorktreeRoutes } from './worktree-routes.js';
 import { mountScopeRoutes } from './scope-routes.js';
 import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
+import { mountShipRoutes } from './ship-routes.js';
+import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -33,7 +35,7 @@ import type { ParsedFile } from './diff-parse.js';
 
 export type WebServerHandle = DiffServerHandle;
 
-function sessionToWire(s: WorktreeSession) {
+function sessionToWire(s: WorktreeSession, diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null) {
   const id = sessionIdFor(s);
   const meta = readSessionMeta(id, s);
   return {
@@ -54,6 +56,8 @@ function sessionToWire(s: WorktreeSession) {
     activityState: meta.activityState,
     pendingForClaudeCount: meta.pendingForClaudeCount,
     attention: meta.attention,
+    diffStat: diffStatFor ? diffStatFor(id, s, meta.attention !== null) : null,
+    archivedAt: s.archivedAt ?? null,
   };
 }
 
@@ -180,8 +184,23 @@ export async function startWebServer(
 
   app.get('/api/context', (c) => c.json({ mode: 'dashboard' }));
 
+  // `+N −M` per row, computed in the background (never inline) and
+  // broadcast once when values change — see diff-stat.ts.
+  let diffStatBroadcast: NodeJS.Timeout | null = null;
+  const diffStats = new DiffStatCache({
+    onChange: () => {
+      if (diffStatBroadcast) return;
+      diffStatBroadcast = setTimeout(() => {
+        diffStatBroadcast = null;
+        broadcast('sessions-changed', { ts: Date.now() });
+      }, 500);
+    },
+  });
+  const diffStatFor = (id: string, s: WorktreeSession, hasStatus: boolean) =>
+    wantsDiffStat(s, hasStatus) ? diffStats.get(id, s.paths) : null;
+
   app.get('/api/sessions', (c) =>
-    c.json({ sessions: loadHistory().map(sessionToWire) }),
+    c.json({ sessions: loadHistory().map((s) => sessionToWire(s, diffStatFor)) }),
   );
 
   app.get('/api/sessions/:id/diff', (c) => {
@@ -219,8 +238,12 @@ export async function startWebServer(
   // by the server's `upgrade` event below.
   mountTerminalRoutes(app);
 
-  // Attention inbox: hook nudges + mark-seen.
-  mountStatusRoutes(app, { broadcast });
+  // Attention inbox: hook nudges + mark-seen. A status change usually means
+  // a turn touched files, so the row's +N −M refreshes too.
+  mountStatusRoutes(app, { broadcast, onStatusChanged: (id) => diffStats.invalidate(id) });
+
+  // Ship (push / PR / merge) + archive.
+  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id) });
 
   app.get('/events', (c) => {
     const wantedSession = c.req.query('session');
