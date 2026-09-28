@@ -1,9 +1,10 @@
 import chalk from 'chalk';
+import { stopSessionPty } from '../core/pty-pool.js';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
-import { teardownWorktree } from '../core/worktree.js';
-import { removeSession } from '../core/history.js';
+import { teardownWorktree, wouldRefuseRemoval } from '../core/worktree.js';
+import { findSession, loadHistory, removeSession } from '../core/history.js';
 
 export const removeCommand: CommandModule = {
   command: 'remove <target> <branch>',
@@ -45,6 +46,13 @@ export const removeCommand: CommandModule = {
     console.log(chalk.cyan(`Removing worktree: ${targetName}/${branchName}`));
     console.log('');
 
+    // A Claude still running in the worktree (PTY host session) holds it
+    // open — Windows refuses the delete — so stop it first. Only when the
+    // removal will go through: a refused one must leave the agent running.
+    const paths = findSession(loadHistory(), targetName, branchName)?.paths ?? [];
+    if (paths.every((p) => !wouldRefuseRemoval(p, force))) {
+      await stopSessionPty(targetName, branchName);
+    }
     const allRemoved = teardownWorktree(targetName, target.isGroup, branchName, config, force);
 
     if (allRemoved === true) {

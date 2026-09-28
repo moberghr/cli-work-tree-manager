@@ -1,9 +1,12 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty-host.js';
-import { ensureHost, findHost, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
+import { ensureHost, findHost, probeHost, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
+import { getConfigDir } from '../core/config.js';
+import { ensureFile, withFileLock } from '../core/fs-safe.js';
 import { hostInfoPath, readHostInfo } from '../core/pty-host-protocol.js';
 import { loadHistory } from '../core/history.js';
 import { sessionIdFor } from '../core/web-state.js';
@@ -13,29 +16,53 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-/** Kill the running host and its PTYs. The persisted session list stays,
- *  so the next host start restores them with --continue. */
-function stopHost(): boolean {
+export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'failed';
+
+/**
+ * Kill the running host and its PTYs. The persisted session list stays, so
+ * the next host start restores them with --continue.
+ *
+ * Only a PID that proves it's our host gets killed: it must answer /health
+ * with the discovery file's token and report that same PID. The file
+ * survives crashes and reboots (TerminateProcess skips cleanup), and
+ * Windows reuses PIDs — force-killing the recorded PID and its tree blind
+ * could take down an unrelated process. A stale file is just removed.
+ */
+export async function stopHost(
+  kill: (pid: number) => boolean = killTree,
+): Promise<StopOutcome> {
   const hostInfo = readHostInfo();
-  if (!hostInfo) return false;
-  let stopped = false;
+  if (!hostInfo) return 'not-running';
+  const probe = await probeHost(hostInfo);
+  if (!probe || probe.pid !== hostInfo.pid) {
+    try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
+    return 'stale-file';
+  }
+  const ok = kill(hostInfo.pid);
+  // TerminateProcess means the host never runs its own cleanup.
+  try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
+  return ok ? 'stopped' : 'failed';
+}
+
+function killTree(pid: number): boolean {
   if (process.platform === 'win32') {
     // TerminateProcess on the host alone can orphan its ConPTY children —
     // Claudes that keep running unseen, and that a restore would then
     // duplicate on the same conversation. Kill the whole tree.
-    const r = spawnSync('taskkill', ['/PID', String(hostInfo.pid), '/T', '/F'], { stdio: 'ignore' });
-    stopped = r.status === 0;
-  } else {
-    try {
-      process.kill(hostInfo.pid);
-      stopped = true;
-    } catch { /* already gone */ }
+    return spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' }).status === 0;
   }
-  // On Windows process.kill is TerminateProcess — the host never runs its
-  // own cleanup — so remove the discovery file here. Harmless either way
-  // (clients health-check it) but it shouldn't linger.
-  try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
-  return stopped;
+  try {
+    process.kill(pid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Held by a starting host from "is one running?" until its discovery file
+ *  is written, so two `work pty-host` processes can't both start. */
+function hostStartLockPath(): string {
+  return path.join(getConfigDir(), 'pty-host.start.lock');
 }
 
 async function printStatus(): Promise<void> {
@@ -77,8 +104,18 @@ export const ptyHostCommand: CommandModule = {
       return;
     }
     if (argv.stop || argv.restart) {
-      const stopped = stopHost();
-      info(chalk.gray(stopped ? 'Stopped the PTY host.' : 'No PTY host running.'));
+      const outcome = await stopHost();
+      info(
+        chalk.gray(
+          {
+            stopped: 'Stopped the PTY host.',
+            'not-running': 'No PTY host running.',
+            'stale-file': 'No PTY host running (removed a stale discovery file; nothing was killed).',
+            failed: 'Could not stop the PTY host.',
+          }[outcome],
+        ),
+      );
+      if (outcome === 'failed') process.exitCode = 1;
       if (argv.stop) return;
       await new Promise((r) => setTimeout(r, 500));
       const host = await ensureHost(resolveWorkBinPath(process.argv[1]));
@@ -86,17 +123,25 @@ export const ptyHostCommand: CommandModule = {
       return;
     }
 
-    // Singleton: a second host would fight over pty-sessions.json and the
-    // discovery file. A version-mismatched one still counts as running.
-    const running = await findHost().catch((err) =>
-      err instanceof PtyHostVersionError ? true : null,
-    );
-    if (running) {
+    // Singleton: a second host would restore every saved session a second
+    // time (two Claudes per conversation). Check-and-start under a lock; a
+    // version-mismatched host still counts as running.
+    const lock = hostStartLockPath();
+    ensureFile(lock, '');
+    const handle = await withFileLock(lock, async () => {
+      const running = await findHost().catch((err) =>
+        err instanceof PtyHostVersionError ? true : null,
+      );
+      if (running) return null;
+      // Restore AFTER the lock is released (below): it can take a while and
+      // the discovery file is already written, so no one else will start.
+      return startPtyHost({ restore: false });
+    });
+    if (!handle) {
       info(chalk.gray('PTY host already running.'));
       return;
     }
-
-    const handle = await startPtyHost();
+    await handle.registry.restore();
     info(chalk.gray(`PTY host listening on 127.0.0.1:${handle.info.port} (PID ${process.pid})`));
     const shutdown = () => {
       void handle.stop().finally(() => process.exit(0));

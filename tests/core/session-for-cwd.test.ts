@@ -42,3 +42,17 @@ describe('findSessionForCwd — group root (where Claude runs for a group)', () 
     expect(findSessionForCwd(path.resolve('/wt/api'), [one])).toBeNull();
   });
 });
+
+describe('work attach <target> with no branch = the base checkout (reviewed bug)', () => {
+  it('finds the base-repo session by path, whatever branch it was stored under', async () => {
+    const { baseCheckoutSession } = await import('../../src/commands/attach.js');
+    const repo = path.resolve('/repos/api');
+    const base = { target: 'api', branch: 'main', isGroup: false, paths: [repo], lastAccessedAt: '2026-01-02' } as unknown as WorktreeSession;
+    const older = { ...base, branch: 'develop', lastAccessedAt: '2026-01-01' } as WorktreeSession;
+    const feature = { target: 'api', branch: 'feat/x', isGroup: false, paths: [path.resolve('/wt/api/feat-x')], lastAccessedAt: '2026-01-03' } as unknown as WorktreeSession;
+    const cfg = { repos: { api: repo } };
+    expect(baseCheckoutSession([feature, older, base], 'api', cfg)).toBe(base);
+    expect(baseCheckoutSession([feature], 'api', cfg)).toBeNull();
+    expect(baseCheckoutSession([base], 'nope', cfg)).toBeNull();
+  });
+});

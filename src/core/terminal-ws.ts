@@ -68,6 +68,19 @@ export function attachTerminalWs(
  * through verbatim.
  */
 async function bridgeToHost(ws: WebSocket, sessionId: string): Promise<void> {
+  // The browser may leave while ensurePty() is still starting the host (up
+  // to several seconds): track that from the start, or the upstream opened
+  // afterwards would never be closed — a leaked host connection with a live
+  // subscriber.
+  let browserGone = false;
+  let upstream: WebSocket | null = null;
+  const drop = () => {
+    browserGone = true;
+    try { upstream?.close(); } catch { /* */ }
+  };
+  ws.on('close', drop);
+  ws.on('error', drop);
+
   let hostUrl: string | null;
   try {
     hostUrl = await ensurePty(sessionId);
@@ -83,34 +96,31 @@ async function bridgeToHost(ws: WebSocket, sessionId: string): Promise<void> {
     return;
   }
 
-  const upstream = new WebSocket(hostUrl);
+  if (browserGone) return;
+  upstream = new WebSocket(hostUrl);
+  const up = upstream;
   const queued: string[] = [];
-  upstream.on('open', () => {
-    for (const q of queued) upstream.send(q);
+  up.on('open', () => {
+    for (const q of queued) up.send(q);
     queued.length = 0;
   });
   // Binary = PTY output, text = control JSON (exit/error) — same framing
   // on both hops, so frames pass through untouched.
-  upstream.on('message', (data, isBinary) => {
+  up.on('message', (data, isBinary) => {
     try {
       ws.send(data as Buffer, { binary: isBinary });
     } catch { /* browser gone */ }
   });
-  upstream.on('close', () => {
+  up.on('close', () => {
     try { ws.close(); } catch { /* */ }
   });
-  upstream.on('error', () => {
+  up.on('error', () => {
     try { ws.close(1011); } catch { /* */ }
   });
 
   ws.on('message', (raw) => {
     const text = raw.toString('utf-8');
-    if (upstream.readyState === WebSocket.OPEN) upstream.send(text);
-    else if (upstream.readyState === WebSocket.CONNECTING) queued.push(text);
+    if (up.readyState === WebSocket.OPEN) up.send(text);
+    else if (up.readyState === WebSocket.CONNECTING) queued.push(text);
   });
-  const drop = () => {
-    try { upstream.close(); } catch { /* */ }
-  };
-  ws.on('close', drop);
-  ws.on('error', drop);
 }

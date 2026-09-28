@@ -168,6 +168,13 @@ export async function startPtyHost(
       try {
         ws.send(JSON.stringify({ type: 'replay', ...attached.replay }));
       } catch { /* */ }
+      if (attached.exitedWith !== null) {
+        try {
+          ws.send(JSON.stringify({ type: 'exit', code: attached.exitedWith }));
+          ws.close(1000);
+        } catch { /* */ }
+        return;
+      }
       ws.on('message', (raw, isBinary) => {
         if (isBinary) return;
         let msg: ClientFrame;

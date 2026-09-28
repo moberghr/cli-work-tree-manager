@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn as childSpawn } from 'node:child_process';
 import { getConfigDir } from './config.js';
+import { ensureFile, withFileLock } from './fs-safe.js';
 import {
   PROTOCOL_VERSION,
   readHostInfo,
@@ -19,15 +20,25 @@ export class PtyHostVersionError extends Error {
   }
 }
 
-async function health(info: HostInfo, timeoutMs = 800): Promise<number | null> {
+/**
+ * Ask whoever listens on the discovery file's port whether it's our host:
+ * it must answer /health with our token. Returns what it reports (its
+ * protocol version and pid), or null if nothing answers / the token is
+ * wrong — i.e. the discovery file is stale.
+ */
+export async function probeHost(
+  info: HostInfo,
+  timeoutMs = 800,
+): Promise<{ version: number; pid: number } | null> {
   try {
     const res = await fetch(`http://127.0.0.1:${info.port}/health`, {
       headers: { 'x-work-token': info.token },
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
-    const body = (await res.json()) as { version?: number };
-    return typeof body.version === 'number' ? body.version : null;
+    const body = (await res.json()) as { version?: number; pid?: number };
+    if (typeof body.version !== 'number' || typeof body.pid !== 'number') return null;
+    return { version: body.version, pid: body.pid };
   } catch {
     return null;
   }
@@ -37,23 +48,61 @@ async function health(info: HostInfo, timeoutMs = 800): Promise<number | null> {
 export async function findHost(): Promise<HostInfo | null> {
   const info = readHostInfo();
   if (!info) return null;
-  const version = await health(info);
-  if (version === null) return null;
-  if (version !== PROTOCOL_VERSION) throw new PtyHostVersionError(version);
+  const probe = await probeHost(info);
+  if (!probe || probe.pid !== info.pid) return null;
+  if (probe.version !== PROTOCOL_VERSION) throw new PtyHostVersionError(probe.version);
   return info;
 }
+
+/** Serializes host spawning across `work` processes (see ensureHost). */
+export function hostSpawnLockPath(): string {
+  return path.join(getConfigDir(), 'pty-host.spawn.lock');
+}
+
+let inFlight: Promise<HostInfo> | null = null;
 
 /**
  * Return the running host, spawning a detached one if none is. `workBin` is
  * the path to the `work` binary (dist/bin.js) — passed in rather than
  * derived because core can't reach the commands layer's resolver (§2.1).
- * Concurrent callers may both spawn; the loser's `work pty-host` sees the
- * winner via the discovery file and exits.
+ *
+ * Exactly one host may start: two hosts would each restore every saved
+ * session — two Claudes on one conversation. So spawning is single-flight
+ * within this process (concurrent callers share one attempt) and serialized
+ * across processes by a file lock held from "is one running?" until the new
+ * host answers; a caller that waited on the lock re-checks and finds it.
  */
-export async function ensureHost(workBin: string, timeoutMs = 8000): Promise<HostInfo> {
+export function ensureHost(workBin: string, timeoutMs = 8000): Promise<HostInfo> {
+  if (!inFlight) {
+    inFlight = ensureHostLocked(workBin, timeoutMs).finally(() => {
+      inFlight = null;
+    });
+  }
+  return inFlight;
+}
+
+async function ensureHostLocked(workBin: string, timeoutMs: number): Promise<HostInfo> {
   const existing = await findHost();
   if (existing) return existing;
+  const lock = hostSpawnLockPath();
+  ensureFile(lock, '');
+  try {
+    return await withFileLock(lock, async () => {
+      // Another process may have started it while we waited for the lock.
+      const started = await findHost();
+      if (started) return started;
+      spawnHost(workBin);
+      return waitForHost(timeoutMs);
+    });
+  } catch (err) {
+    // Couldn't get the lock in time (another process is mid-spawn and slow):
+    // don't spawn a second one — wait for theirs.
+    if ((err as { code?: string }).code === 'ELOCKED') return waitForHost(timeoutMs);
+    throw err;
+  }
+}
 
+function spawnHost(workBin: string): void {
   const log = fs.openSync(path.join(getConfigDir(), 'pty-host.log'), 'a');
   const child = childSpawn(process.execPath, [workBin, 'pty-host'], {
     detached: true,
@@ -62,12 +111,14 @@ export async function ensureHost(workBin: string, timeoutMs = 8000): Promise<Hos
   });
   child.unref();
   fs.closeSync(log);
+}
 
+async function waitForHost(timeoutMs: number): Promise<HostInfo> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
     const found = await findHost().catch(() => null);
     if (found) return found;
+    await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error('PTY host did not start (see ~/.work/pty-host.log)');
 }

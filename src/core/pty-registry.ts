@@ -63,6 +63,8 @@ interface Entry {
   replay: string;
   subscribers: Set<(data: string) => void>;
   exitSubscribers: Set<(code: number) => void>;
+  /** Set once the process exited (the entry lingers FORGET_EXITED_MS). */
+  exitCode: number | null;
 }
 
 export interface RegistryDeps {
@@ -132,6 +134,7 @@ export class PtyRegistry {
       replay: '',
       subscribers: new Set(),
       exitSubscribers: new Set(),
+      exitCode: null,
     };
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
@@ -148,6 +151,7 @@ export class PtyRegistry {
       }
     });
     pty.onExit = (code) => {
+      entry.exitCode = code;
       for (const cb of entry.exitSubscribers) {
         try { cb(code); } catch { /* */ }
       }
@@ -188,12 +192,19 @@ export class PtyRegistry {
     id: string,
     onData: (data: string) => void,
     onExit: (code: number) => void,
-  ): { replay: ReplaySnapshot; detach: () => void } | null {
+  ): { replay: ReplaySnapshot; detach: () => void; exitedWith: number | null } | null {
     const e = this.entries.get(id);
     if (!e) return null;
-    e.subscribers.add(onData);
-    e.exitSubscribers.add(onExit);
+    // Attaching to one that already exited (inside the linger window): its
+    // exit subscribers have fired, so tell this client now — otherwise it
+    // would sit on a dead screen, its input silently dropped.
+    const exitedWith = e.pty.exited ? (e.exitCode ?? 0) : null;
+    if (exitedWith === null) {
+      e.subscribers.add(onData);
+      e.exitSubscribers.add(onExit);
+    }
     return {
+      exitedWith,
       replay: {
         data: e.pty.serialize?.() || e.replay,
         cols: e.cols,

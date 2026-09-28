@@ -270,6 +270,17 @@ export function createSingleWorktree(
  * Remove a single git worktree.
  * Returns true on success, false if blocked (uncommitted/unpushed changes).
  */
+/**
+ * Would `removeSingleWorktree(…, force)` refuse this worktree? Same checks,
+ * no side effects — lets callers stop the session's Claude only when the
+ * worktree is really going away (a refused non-forced removal must leave
+ * the running agent alone).
+ */
+export function wouldRefuseRemoval(worktreePath: string, force: boolean): boolean {
+  if (force || !fs.existsSync(worktreePath) || !isGitRepo(worktreePath)) return false;
+  return !!getStatus(worktreePath) || !!getUnpushedCommits(worktreePath);
+}
+
 export function removeSingleWorktree(
   repoPath: string,
   worktreePath: string,

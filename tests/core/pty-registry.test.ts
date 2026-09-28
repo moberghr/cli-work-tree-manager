@@ -183,3 +183,29 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[1].spec.env).toBeUndefined();
   });
 });
+
+describe('attaching to a PTY that already exited (reviewed bug)', () => {
+  it('reports the exit right away instead of a silent dead screen', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    spawned[0].pty.emit('bye');
+    spawned[0].pty.exit(3);
+    const onExit = vi.fn();
+    const att = reg.attach('a', () => {}, onExit);
+    expect(att?.exitedWith).toBe(3);
+    expect(att?.replay.data).toBe('bye');
+    // Not subscribed: nothing further will ever be delivered.
+    spawned[0].pty.emit('late');
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('a live PTY reports exitedWith null and gets the exit later', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    const onExit = vi.fn();
+    const att = reg.attach('a', () => {}, onExit);
+    expect(att?.exitedWith).toBeNull();
+    spawned[0].pty.exit(0);
+    expect(onExit).toHaveBeenCalledWith(0);
+  });
+});

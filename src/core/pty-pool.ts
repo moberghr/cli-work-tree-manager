@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { findSession } from './web-state.js';
+import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
 import { ptySessionsPath, type SpawnSpec } from './pty-host-protocol.js';
 import { loadConfig } from './config.js';
@@ -157,6 +157,26 @@ export async function disposePty(sessionId: string): Promise<void> {
   live.delete(sessionId);
   const c = await getClient(false).catch(() => null);
   if (c) await c.kill(sessionId).catch(() => {});
+}
+
+/**
+ * Stop a session's Claude in the PTY host before its worktree is deleted —
+ * from any caller, including the CLI (`work remove` / prune / sync), which
+ * doesn't run a pool. Never starts a host; waits for the process to exit
+ * (the host's kill does) so Windows can then delete the directory.
+ * Best-effort: no host, or a host that can't be reached, is a no-op.
+ */
+export async function stopSessionPty(target: string, branch: string): Promise<void> {
+  const id = sessionIdFor({ target, branch } as WorktreeSession);
+  live.delete(id);
+  let info;
+  try {
+    info = await findHost();
+  } catch {
+    return; // version-mismatched host: leave it alone
+  }
+  if (!info) return;
+  await new PtyHostClient(info).kill(id).catch(() => {});
 }
 
 /** `work web` shutdown. Deliberately does NOT kill anything: the PTYs belong

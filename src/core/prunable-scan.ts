@@ -10,7 +10,8 @@ import {
   fetchRemote,
   type MergeConfidence,
 } from './git.js';
-import { removeSingleWorktree } from './worktree.js';
+import { removeSingleWorktree, wouldRefuseRemoval } from './worktree.js';
+import { stopSessionPty } from './pty-pool.js';
 import { removeSession } from './history.js';
 
 export interface PrunableEntry {
@@ -294,6 +295,8 @@ export async function removeSingleEntry(
 ): Promise<boolean> {
   const { repoPath, worktreePath } = entry.repos[0];
   console.log(chalk.cyan(`Removing ${entry.target}: ${entry.branch}`));
+  // Stop its Claude only if the worktree will actually be removed.
+  if (!wouldRefuseRemoval(worktreePath, force)) await stopSessionPty(entry.target, entry.branch);
 
   const removed = removeSingleWorktree(repoPath, worktreePath, entry.branch, force);
   if (removed) {
@@ -322,6 +325,11 @@ export async function removeGroupEntry(
   console.log(
     chalk.cyan(`Removing group ${entry.target}: ${entry.branch}`),
   );
+  // A group's Claude runs in the group root: stop it only if EVERY
+  // sub-repo will be removed (i.e. the session goes away).
+  if (entry.repos.every((r) => !wouldRefuseRemoval(r.worktreePath, force))) {
+    await stopSessionPty(entry.target, entry.branch);
+  }
 
   let allRemoved = true;
 
