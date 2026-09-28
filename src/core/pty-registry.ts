@@ -5,6 +5,7 @@ import { hasClaudeConversation } from './claude-activity.js';
 import { ptySessionsPath, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 
 const REPLAY_MAX = 256 * 1024;
+
 /** How long an exited PTY lingers before it's dropped from the persisted
  *  list. During a Windows shutdown/logoff the child Claudes are often killed
  *  a moment BEFORE the host; dropping them immediately would erase exactly

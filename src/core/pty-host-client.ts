@@ -30,17 +30,35 @@ export async function probeHost(
   info: HostInfo,
   timeoutMs = 800,
 ): Promise<{ version: number; pid: number } | null> {
+  const r = await probeHostDetailed(info, timeoutMs);
+  return r.kind === 'host' ? { version: r.version, pid: r.pid } : null;
+}
+
+export type ProbeResult =
+  | { kind: 'host'; version: number; pid: number }
+  /** Nothing listens on the port (connection refused): definitely gone. */
+  | { kind: 'refused' }
+  /** Something answered, but not as our host (wrong token, bad body). */
+  | { kind: 'not-ours' }
+  /** No answer in time — could be a BUSY host (e.g. restoring many
+   *  sessions). Never treat this as proof the host is gone. */
+  | { kind: 'timeout' };
+
+export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promise<ProbeResult> {
   try {
     const res = await fetch(`http://127.0.0.1:${info.port}/health`, {
       headers: { 'x-work-token': info.token },
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { kind: 'not-ours' };
     const body = (await res.json()) as { version?: number; pid?: number };
-    if (typeof body.version !== 'number' || typeof body.pid !== 'number') return null;
-    return { version: body.version, pid: body.pid };
-  } catch {
-    return null;
+    if (typeof body.version !== 'number' || typeof body.pid !== 'number') return { kind: 'not-ours' };
+    return { kind: 'host', version: body.version, pid: body.pid };
+  } catch (err) {
+    const e = err as { name?: string; cause?: { code?: string } };
+    if (e.cause?.code === 'ECONNREFUSED') return { kind: 'refused' };
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') return { kind: 'timeout' };
+    return { kind: 'refused' };
   }
 }
 
@@ -72,7 +90,9 @@ let inFlight: Promise<HostInfo> | null = null;
  * across processes by a file lock held from "is one running?" until the new
  * host answers; a caller that waited on the lock re-checks and finds it.
  */
-export function ensureHost(workBin: string, timeoutMs = 8000): Promise<HostInfo> {
+// A cold host start loads the whole `work` bundle; on a busy machine (right
+// after login with autostart, or a loaded test run) that can pass 8 s.
+export function ensureHost(workBin: string, timeoutMs = 20_000): Promise<HostInfo> {
   if (!inFlight) {
     inFlight = ensureHostLocked(workBin, timeoutMs).finally(() => {
       inFlight = null;

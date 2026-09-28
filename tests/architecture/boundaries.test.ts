@@ -147,6 +147,17 @@ describe('architecture boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('only the PTY host imports the registry — node-pty never loads into work web or the CLI', () => {
+    expect(
+      violations(
+        (f, s) =>
+          s.startsWith('.') &&
+          resolveRel(f.rel, s) === 'src/core/pty-registry.js' &&
+          f.rel !== 'src/core/pty-host.ts',
+      ),
+    ).toEqual([]);
+  });
+
   it('local servers bind to 127.0.0.1, never 0.0.0.0 (§1.3)', () => {
     const offenders = files.filter((f) => /['"]0\.0\.0\.0['"]/.test(f.text)).map((f) => f.rel);
     expect(offenders).toEqual([]);

@@ -70,3 +70,18 @@ describe('work pty-host --stop only kills a verified host (reviewed bug)', () =>
     expect(await stopHost(vi.fn())).toBe('not-running');
   });
 });
+
+describe('a busy host is not mistaken for a stale file (reviewed bug)', () => {
+  it('no answer in time → unresponsive: the file is KEPT and nothing is killed', async () => {
+    const kill = vi.fn(() => true);
+    // Accepts the connection but never answers (a host busy restoring).
+    const hung: http.ServerResponse[] = [];
+    server = http.createServer((_req, res) => { hung.push(res); });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
+    writeInfo(4242, (server.address() as { port: number }).port);
+    expect(await stopHost(kill, 300)).toBe('unresponsive');
+    expect(kill).not.toHaveBeenCalled();
+    expect(fs.existsSync(infoFile())).toBe(true);
+    for (const res of hung) res.destroy();
+  });
+});

@@ -4,10 +4,10 @@ import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty-host.js';
-import { ensureHost, findHost, probeHost, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
+import { ensureHost, findHost, probeHostDetailed, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
 import { getConfigDir } from '../core/config.js';
 import { ensureFile, withFileLock } from '../core/fs-safe.js';
-import { hostInfoPath, readHostInfo } from '../core/pty-host-protocol.js';
+import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty-host-protocol.js';
 import { loadHistory } from '../core/history.js';
 import { sessionIdFor } from '../core/web-state.js';
 import { resolveWorkBinPath } from './diff.js';
@@ -16,7 +16,7 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'failed';
+export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'unresponsive' | 'failed';
 
 /**
  * Kill the running host and its PTYs. The persisted session list stays, so
@@ -30,11 +30,22 @@ export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'failed';
  */
 export async function stopHost(
   kill: (pid: number) => boolean = killTree,
+  probeTimeoutMs = 5000,
 ): Promise<StopOutcome> {
   const hostInfo = readHostInfo();
   if (!hostInfo) return 'not-running';
-  const probe = await probeHost(hostInfo);
-  if (!probe || probe.pid !== hostInfo.pid) {
+  // A busy host (restoring many sessions) can miss a short probe; give it
+  // longer before concluding anything.
+  const probe = await probeHostDetailed(hostInfo, probeTimeoutMs);
+  if (probe.kind === 'timeout') {
+    // Alive-but-slow must NOT be treated as stale: deleting the file would
+    // orphan a live host, and --restart would then start a second one that
+    // restores every session again. Keep the file, kill nothing.
+    return 'unresponsive';
+  }
+  if (probe.kind !== 'host' || probe.pid !== hostInfo.pid) {
+    // Nothing listening, or someone else on that port: the file is stale
+    // (reboot, crash, PID/port reused). Remove it; kill nothing.
     try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
     return 'stale-file';
   }
@@ -59,11 +70,6 @@ function killTree(pid: number): boolean {
   }
 }
 
-/** Held by a starting host from "is one running?" until its discovery file
- *  is written, so two `work pty-host` processes can't both start. */
-function hostStartLockPath(): string {
-  return path.join(getConfigDir(), 'pty-host.start.lock');
-}
 
 async function printStatus(): Promise<void> {
   let host;
@@ -111,11 +117,15 @@ export const ptyHostCommand: CommandModule = {
             stopped: 'Stopped the PTY host.',
             'not-running': 'No PTY host running.',
             'stale-file': 'No PTY host running (removed a stale discovery file; nothing was killed).',
+            unresponsive: 'The PTY host is not responding (busy?). Nothing was stopped — try again in a moment.',
             failed: 'Could not stop the PTY host.',
           }[outcome],
         ),
       );
-      if (outcome === 'failed') process.exitCode = 1;
+      if (outcome === 'failed' || outcome === 'unresponsive') {
+        process.exitCode = 1;
+        return; // never --restart on top of a host we couldn't stop
+      }
       if (argv.stop) return;
       await new Promise((r) => setTimeout(r, 500));
       const host = await ensureHost(resolveWorkBinPath(process.argv[1]));
@@ -133,15 +143,17 @@ export const ptyHostCommand: CommandModule = {
         err instanceof PtyHostVersionError ? true : null,
       );
       if (running) return null;
-      // Restore AFTER the lock is released (below): it can take a while and
-      // the discovery file is already written, so no one else will start.
-      return startPtyHost({ restore: false });
+      // Restore INSIDE the lock, as part of starting: startPtyHost writes
+      // the discovery file and reads the saved list in the same tick,
+      // before any request is served — so a client spawning a session
+      // can't overwrite the list first (which lost every other saved
+      // session), and a racing `work remove` waits for the restore.
+      return startPtyHost();
     });
     if (!handle) {
       info(chalk.gray('PTY host already running.'));
       return;
     }
-    await handle.registry.restore();
     info(chalk.gray(`PTY host listening on 127.0.0.1:${handle.info.port} (PID ${process.pid})`));
     const shutdown = () => {
       void handle.stop().finally(() => process.exit(0));

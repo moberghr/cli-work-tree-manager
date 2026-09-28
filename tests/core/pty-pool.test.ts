@@ -21,7 +21,10 @@ let hostRunning = false;
 const ensureHost = vi.fn(async () => { hostRunning = true; return { pid: 1, port: 9, token: 't', version: 1 }; });
 const findHost = vi.fn(async () => (hostRunning ? { pid: 1, port: 9, token: 't', version: 1 } : null));
 
-vi.mock('../../src/core/web-state.js', () => ({ findSession: (id: string) => sessions[id] ?? null }));
+vi.mock('../../src/core/web-state.js', () => ({
+  findSession: (id: string) => sessions[id] ?? null,
+  sessionIdFor: (x: { target: string; branch: string }) => `${x.target}:${x.branch}`,
+}));
 vi.mock('../../src/core/config.js', () => ({ loadConfig: () => ({}), getConfigDir: () => os.tmpdir() }));
 vi.mock('../../src/core/ai-launcher.js', () => ({ getAiTool: () => ({ cmd: 'claude', baseArgs: [] }) }));
 vi.mock('../../src/core/pty-host-client.js', () => ({
@@ -42,7 +45,10 @@ vi.mock('../../src/core/pty-host-client.js', () => ({
 }));
 
 let sessionsFile: string;
-vi.mock('../../src/core/pty-host-protocol.js', () => ({ ptySessionsPath: () => sessionsFile }));
+vi.mock('../../src/core/pty-host-protocol.js', () => ({
+  ptySessionsPath: () => sessionsFile,
+  hostStartLockPath: () => sessionsFile + '.start.lock',
+}));
 
 async function freshPool() {
   vi.resetModules();
@@ -140,5 +146,23 @@ describe('resumePersistedSessions', () => {
     const pool = await freshPool();
     expect(await pool.resumePersistedSessions()).toBe(0);
     expect(ensureHost).not.toHaveBeenCalled();
+  });
+});
+
+describe('stopSessionPty (CLI removal)', () => {
+  it('with a host running: kills the session there', async () => {
+    hostRunning = true;
+    const pool = await freshPool();
+    await pool.stopSessionPty('api', 'feat/x');
+    expect(host.killed).toHaveLength(1);
+  });
+
+  it('with no host: drops it from the saved list so a later host start does not restore it (reviewed race)', async () => {
+    const pool = await freshPool();
+    const id = 'api:feat/x'; // the mocked sessionIdFor
+    fs.writeFileSync(sessionsFile, JSON.stringify({ [id]: { cwd: '/x' }, other: { cwd: '/y' } }));
+    await pool.stopSessionPty('api', 'feat/x');
+    expect(JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'))).toEqual({ other: { cwd: '/y' } });
+    expect(ensureHost).not.toHaveBeenCalled(); // never starts a host
   });
 });

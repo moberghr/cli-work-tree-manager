@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
-import { ptySessionsPath, type SpawnSpec } from './pty-host-protocol.js';
+import { hostStartLockPath, ptySessionsPath, type SpawnSpec } from './pty-host-protocol.js';
+import { ensureFile, withFileLock } from './fs-safe.js';
+import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from './config.js';
 import { getAiTool } from './ai-launcher.js';
 import { ensureHost, findHost, PtyHostClient } from './pty-host-client.js';
@@ -169,14 +171,22 @@ export async function disposePty(sessionId: string): Promise<void> {
 export async function stopSessionPty(target: string, branch: string): Promise<void> {
   const id = sessionIdFor({ target, branch } as WorktreeSession);
   live.delete(id);
-  let info;
-  try {
-    info = await findHost();
-  } catch {
-    return; // version-mismatched host: leave it alone
-  }
-  if (!info) return;
-  await new PtyHostClient(info).kill(id).catch(() => {});
+  // Under the host START lock: a host that's starting holds it until it has
+  // restored, so we either see it running (and kill the session) or know
+  // none is — and then drop the session from the saved list so a later
+  // start doesn't restore Claude into a worktree that's being deleted.
+  const lock = hostStartLockPath();
+  ensureFile(lock, '');
+  await withFileLock(lock, async () => {
+    let info;
+    try {
+      info = await findHost();
+    } catch {
+      return; // version-mismatched host: can't talk to it; leave it alone
+    }
+    if (info) await new PtyHostClient(info).kill(id).catch(() => {});
+    else await forgetPersistedSession(id).catch(() => {});
+  }).catch(() => { /* lock contention: best-effort */ });
 }
 
 /** `work web` shutdown. Deliberately does NOT kill anything: the PTYs belong

@@ -75,6 +75,14 @@ export function hostInfoPath(): string {
   return path.join(getConfigDir(), 'pty-host.json');
 }
 
+/** Held by a starting host from "is one running?" through writing its
+ *  discovery file AND restoring the saved sessions — so two hosts can't
+ *  both start, and a `work remove` racing a start waits for the restore
+ *  instead of slipping between it (see stopSessionPty). */
+export function hostStartLockPath(): string {
+  return path.join(getConfigDir(), 'pty-host.start.lock');
+}
+
 /** Persisted list of live PTYs, replayed by the host on startup. */
 export function ptySessionsPath(): string {
   return path.join(getConfigDir(), 'pty-sessions.json');
