@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchSessions, markSessionSeen, type SessionSummary } from '../api/client.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
+import { fetchPrs, type PrInfo } from '../api/panes.js';
+import { isArchived, prsForSession, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
@@ -41,6 +43,9 @@ const TAB_LABEL: Record<DashboardTab, string> = {
  * This is the `work web` direct-load view. `wd`'s `/diff/<hash>` opens
  * `ReviewApp` instead (the bare reviewer) — different shell entirely.
  */
+const PR_REFRESH_MS = 120_000;
+const PR_MIN_GAP_MS = 60_000;
+
 /** `window.localStorage` itself can throw on access (blocked site data). */
 function safeLocalStorage(): Storage | null {
   try {
@@ -114,6 +119,35 @@ export function DashboardApp() {
       'comments-changed': () => setRefreshKey((n) => n + 1),
     },
   });
+
+  // Open PRs for the rail/table/header badges. Background only — nothing
+  // waits on it: every 120 s, plus on session changes at most once a minute
+  // (a ship / new branch should show its PR without a reload).
+  const [prs, setPrs] = useState<PrInfo[]>([]);
+  const [prsFetchedAt, setPrsFetchedAt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      setPrsFetchedAt(Date.now());
+      fetchPrs().then(
+        (r) => { if (!cancelled) setPrs(r.prs ?? []); },
+        () => { /* gh missing / offline — badges just stay empty */ },
+      );
+    };
+    load();
+    const timer = setInterval(load, PR_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+  useEffect(() => {
+    if (refreshKey === 0 || Date.now() - prsFetchedAt < PR_MIN_GAP_MS) return;
+    setPrsFetchedAt(Date.now());
+    fetchPrs().then((r) => setPrs(r.prs ?? []), () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+  const prsFor: PrLookup = useCallback((s) => prsForSession(s, prs), [prs]);
 
   // -- Navigation handlers --------------------------------------------------
   const goTab = useCallback(
@@ -213,7 +247,7 @@ export function DashboardApp() {
       // cycling past the one you're on. Opens it where you'd act on it.
       if (e.key === 'n') {
         const queue = sessions
-          .filter((s) => needsAttention(s.attention))
+          .filter((s) => !isArchived(s) && needsAttention(s.attention))
           .sort((a, b) => compareAttention(a.attention, b.attention));
         const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
         if (next) {
@@ -276,7 +310,7 @@ export function DashboardApp() {
 
   // Unread count in the browser tab, so a pinned tab shows it at a glance.
   const inboxCount = useMemo(
-    () => sessions.filter((s) => needsAttention(s.attention)).length,
+    () => sessions.filter((s) => !isArchived(s) && needsAttention(s.attention)).length,
     [sessions],
   );
   useEffect(() => {
@@ -300,6 +334,8 @@ export function DashboardApp() {
         onBack={backFromSession}
         backLabel={TAB_LABEL[route.tab]}
         onDelete={() => setDeleting(activeSession)}
+        prs={prsFor(activeSession)}
+        onShipped={backFromSession}
       />
     );
   } else if (route.sessionId) {
@@ -321,7 +357,7 @@ export function DashboardApp() {
   } else {
     switch (route.tab) {
       case 'inbox':
-        body = <InboxTab sessions={sessions} onOpenSession={openSession} />;
+        body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} />;
         break;
       case 'sessions':
         body = (
@@ -330,6 +366,7 @@ export function DashboardApp() {
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
             onDeleteSession={setDeleting}
+            prsFor={prsFor}
           />
         );
         break;
@@ -376,6 +413,7 @@ export function DashboardApp() {
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
+        prsFor={prsFor}
       >
         {body}
       </DashboardLayout>

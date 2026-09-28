@@ -68,10 +68,12 @@ function deferred<T>() {
 }
 
 describe('Open in terminal button', () => {
-  it('sits in the session header next to Delete', () => {
+  it('sits in the session header, ahead of Ship, Archive and Delete', () => {
     const button = render();
     expect(button().textContent).toBe('Open in terminal ↗');
-    expect(button().nextElementSibling?.classList.contains('wd-session-detail-delete')).toBe(true);
+    const header = button().closest('.wd-session-detail-header')!;
+    const order = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    expect(order.slice(-4)).toEqual(['Open in terminal ↗', 'Ship ▾', 'Archive', 'Delete']);
   });
 
   it('opens the session, showing a busy state until the request settles', async () => {

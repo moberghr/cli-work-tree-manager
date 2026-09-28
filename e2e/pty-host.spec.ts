@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { test, expect, type WorkEnv } from './fixtures.js';
 import type { Page } from '@playwright/test';
 
@@ -142,8 +144,9 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   // Badge + browser tab title count the two that want you.
   await expect(page.locator('.wd-dash-tab-badge')).toHaveText('2');
   await expect(page).toHaveTitle('(2) work');
-  // The rail puts them first.
-  await expect(page.locator('.wd-dash-rail-name').first()).toHaveText('feat/b');
+  // The rail keeps a STABLE order (urgency ordering is the Inbox's and
+  // `n`'s job) but marks the blocked session.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/b' }).locator('.wd-rail-dot-needs_input')).toHaveCount(1);
 
   // `n` jumps to the most urgent one, on its terminal.
   await page.keyboard.press('n');
@@ -160,4 +163,36 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   work.hook('status-prompt', { cwd: cwd('feat/b'), prompt: 'yes, go ahead' });
   await expect(page).toHaveTitle('work');
   await expect(page.locator('.wd-dash-tab-badge')).toHaveCount(0);
+});
+
+test('ship: create a PR, merge it after confirming, and the session archives itself', async ({ page, work }) => {
+  work.setup(['feat/ship']);
+  work.commitIn('feat/ship', 'feature.ts', 'export const shipped = true;\n');
+  await work.startWeb();
+  const id = work.sessionId('app', 'feat/ship');
+
+  await page.goto(`${work.url}#/s/${id}/diff`);
+  await page.getByRole('button', { name: /^Ship/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Ship session' });
+  await expect(panel).toBeVisible();
+  // Unpublished branch with a commit, no PR yet: Create PR is offered, Merge isn't.
+  await expect(panel.getByRole('button', { name: 'Create PR' })).toBeEnabled();
+  await expect(panel.getByRole('button', { name: 'Merge…' })).toBeDisabled();
+
+  await panel.getByRole('button', { name: 'Create PR' }).click();
+  await expect(panel).toContainText('PR opened');
+  expect(work.ghCalls().some((a) => a[1] === 'create')).toBe(true);
+
+  // Preflight refreshed: an open, green PR → Merge needs an explicit confirm.
+  await expect(panel.getByRole('button', { name: 'Merge…' })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Merge…' }).click();
+  await panel.getByRole('alertdialog', { name: 'Confirm merge' }).getByRole('button', { name: 'Confirm merge' }).click();
+
+  // Merged with the SHA guard, archived, and gone from the rail.
+  await expect(page).not.toHaveURL(new RegExp(`#/s/${id}`));
+  const merge = work.ghCalls().find((a) => a[1] === 'merge')!;
+  expect(merge.slice(0, 5)).toEqual(['pr', 'merge', '42', '--squash', '--match-head-commit']);
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/ship' })).toHaveCount(0);
+  const history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
+  expect(history.find((s: { branch: string }) => s.branch === 'feat/ship').archivedAt).toBeTruthy();
 });

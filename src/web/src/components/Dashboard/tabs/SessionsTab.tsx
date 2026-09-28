@@ -1,66 +1,100 @@
 import { useMemo, useState } from 'react';
-import type { SessionSummary } from '../../../api/client.js';
+import { setArchived, type SessionSummary } from '../../../api/client.js';
+import { openInTerminal } from '../../../api/panes.js';
+import type { SessionSubTab } from '../../../state/dashboard-route.js';
+import {
+  DISPLAY_LABEL,
+  defaultSubTab,
+  displayStatus,
+  isArchived,
+  statusBucket,
+  type PrLookup,
+  type StatusBucket,
+} from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import {
   groupRepoNames,
   groupSessionsByTarget,
 } from '../../../utils/session-groups.js';
+import { DiffStatChip, PrChips } from '../SessionBits.js';
 
 interface Props {
   sessions: SessionSummary[];
-  onOpenSession: (id: string) => void;
+  onOpenSession: (id: string, sub?: SessionSubTab) => void;
   onNewWorktree: () => void;
   onDeleteSession: (session: SessionSummary) => void;
+  /** Open PRs for a session; rows skip the PR cell without it. */
+  prsFor?: PrLookup;
 }
 
 type Sort = 'recent' | 'name';
-type Filter = 'all' | 'active' | 'idle' | 'stale';
+type Filter = 'all' | StatusBucket;
 type Grouping = 'none' | 'project';
 
 const GROUPING_KEY = 'work-web:sessions-grouping';
+const ARCHIVED_KEY = 'work-web:sessions-show-archived';
 
-function readGrouping(): Grouping {
+function readPref(key: string, on: string): boolean {
   try {
-    return localStorage.getItem(GROUPING_KEY) === 'project' ? 'project' : 'none';
+    return localStorage.getItem(key) === on;
   } catch {
-    return 'none';
+    return false;
   }
 }
+function writePref(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* */ }
+}
 
-/** Compact, scannable card grid replacing the old left-rail SessionList.
- *  Optionally grouped into one section per project (work target — a repo
- *  alias or a multi-repo group); the choice persists in localStorage. */
+const FILTER_LABEL: Record<Filter, string> = {
+  all: 'all',
+  needs: 'needs you',
+  working: 'working',
+  idle: 'idle',
+  stale: 'stale',
+};
+
+/**
+ * Every session as a dense, scannable table — status, what it's doing,
+ * how much it changed, its PR — so you rarely need to open one to know
+ * where it stands. Optionally grouped into one section per project; the
+ * grouping and "show archived" choices persist in localStorage.
+ */
 export function SessionsTab({
   sessions,
   onOpenSession,
   onNewWorktree,
   onDeleteSession,
+  prsFor,
 }: Props) {
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
-  const [grouping, setGroupingState] = useState<Grouping>(readGrouping);
+  const [grouping, setGroupingState] = useState<Grouping>(() =>
+    readPref(GROUPING_KEY, 'project') ? 'project' : 'none',
+  );
+  const [showArchived, setShowArchivedState] = useState(() => readPref(ARCHIVED_KEY, '1'));
   const setGrouping = (g: Grouping) => {
     setGroupingState(g);
-    try { localStorage.setItem(GROUPING_KEY, g); } catch { /* */ }
+    writePref(GROUPING_KEY, g);
+  };
+  const setShowArchived = (v: boolean) => {
+    setShowArchivedState(v);
+    writePref(ARCHIVED_KEY, v ? '1' : '0');
   };
 
+  const live = useMemo(() => sessions.filter((s) => !isArchived(s)), [sessions]);
+  const archivedCount = sessions.length - live.length;
+
   const counts = useMemo(() => {
-    const c = { all: sessions.length, active: 0, idle: 0, stale: 0 };
-    for (const s of sessions) {
-      if (s.activityState === 'active') c.active++;
-      else if (s.activityState === 'open') c.idle++;
-      else c.stale++;
-    }
+    const c: Record<StatusBucket, number> = { needs: 0, working: 0, idle: 0, stale: 0 };
+    for (const s of live) c[statusBucket(displayStatus(s))]++;
     return c;
-  }, [sessions]);
+  }, [live]);
 
   const filtered = useMemo(() => {
-    const matched = sessions.filter((s) => {
-      if (filter === 'all') return true;
-      if (filter === 'active') return s.activityState === 'active';
-      if (filter === 'idle') return s.activityState === 'open';
-      return s.activityState !== 'active' && s.activityState !== 'open';
-    });
+    const pool = showArchived ? sessions : live;
+    const matched = pool.filter(
+      (s) => filter === 'all' || statusBucket(displayStatus(s)) === filter,
+    );
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
         const an = (a.branch || a.target).toLowerCase();
@@ -69,7 +103,7 @@ export function SessionsTab({
       }
       return b.lastAccessedAt.localeCompare(a.lastAccessedAt);
     });
-  }, [sessions, sort, filter]);
+  }, [sessions, live, showArchived, sort, filter]);
 
   const groups = useMemo(
     () =>
@@ -79,17 +113,31 @@ export function SessionsTab({
     [filtered, grouping, sort],
   );
 
-  const renderGrid = (list: SessionSummary[]) => (
-    <div className="wd-session-grid">
-      {list.map((s) => (
-        <SessionCard
-          key={s.id}
-          session={s}
-          onOpen={() => onOpenSession(s.id)}
-          onDelete={() => onDeleteSession(s)}
-        />
-      ))}
-    </div>
+  const renderTable = (list: SessionSummary[]) => (
+    <table className="wd-session-table">
+      <thead>
+        <tr>
+          <th className="wd-st-col-status">Status</th>
+          <th>Session</th>
+          <th className="wd-st-col-summary">Summary</th>
+          <th className="wd-st-col-changes">Changes</th>
+          <th className="wd-st-col-pr">PR</th>
+          <th className="wd-st-col-when">Last active</th>
+          <th className="wd-st-col-actions"><span className="wd-visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {list.map((s) => (
+          <SessionRow
+            key={s.id}
+            session={s}
+            prs={prsFor?.(s) ?? []}
+            onOpen={() => onOpenSession(s.id, defaultSubTab(s))}
+            onDelete={() => onDeleteSession(s)}
+          />
+        ))}
+      </tbody>
+    </table>
   );
 
   return (
@@ -98,7 +146,7 @@ export function SessionsTab({
         <h1>
           Sessions{' '}
           <span className="wd-tab-header-muted">
-            ({counts.active} active · {counts.idle} idle · {counts.stale} stale)
+            ({counts.needs} need you · {counts.working} working · {counts.idle} idle · {counts.stale} stale)
           </span>
         </h1>
         <div className="wd-tab-controls">
@@ -108,10 +156,9 @@ export function SessionsTab({
               value={filter}
               onChange={(e) => setFilter(e.target.value as Filter)}
             >
-              <option value="all">all</option>
-              <option value="active">active</option>
-              <option value="idle">idle</option>
-              <option value="stale">stale</option>
+              {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
+                <option key={f} value={f}>{FILTER_LABEL[f]}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -133,6 +180,14 @@ export function SessionsTab({
               <option value="recent">recent</option>
               <option value="name">name</option>
             </select>
+          </label>
+          <label className="wd-tab-check">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />{' '}
+            Show archived{archivedCount > 0 ? ` (${archivedCount})` : ''}
           </label>
           <button
             type="button"
@@ -175,45 +230,54 @@ export function SessionsTab({
               )}
               <span className="wd-tab-header-muted">({g.sessions.length})</span>
             </h2>
-            {renderGrid(g.sessions)}
+            {renderTable(g.sessions)}
           </section>
         ))}
         </div>
       ) : (
-        renderGrid(filtered)
+        <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
       )}
     </div>
   );
 }
 
-interface CardProps {
+interface RowProps {
   session: SessionSummary;
+  prs: ReturnType<PrLookup>;
   onOpen: () => void;
   onDelete: () => void;
 }
 
-function SessionCard({ session: s, onOpen, onDelete }: CardProps) {
+function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
+  const kind = displayStatus(s);
+  const archived = isArchived(s);
   const repos = groupRepoNames(s);
-  // Grouped view lists the repos in the section header; on the card they
-  // live in the badge tooltip.
-  const kindTitle =
-    repos.length > 0
-      ? `Multi-repo group: ${repos.join(', ')}`
-      : 'Multi-repo group';
-  const dotClass =
-    s.activityState === 'active'
-      ? 'wd-card-dot wd-card-dot-active'
-      : s.activityState === 'open'
-        ? 'wd-card-dot wd-card-dot-open'
-        : 'wd-card-dot wd-card-dot-stale';
+  const [busy, setBusy] = useState<null | 'term' | 'archive'>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = (what: 'term' | 'archive', fn: () => Promise<unknown>) => {
+    setBusy(what);
+    setError(null);
+    fn().then(
+      () => setBusy(null),
+      (err: Error) => {
+        setBusy(null);
+        setError(err.message);
+      },
+    );
+  };
+
   return (
-    <article
-      className="wd-session-card"
+    <tr
+      className={
+        'wd-session-row' +
+        (archived ? ' wd-session-row-archived' : '') +
+        (kind === 'needs_input' || kind === 'done' ? ' wd-session-row-unseen' : '')
+      }
       onClick={onOpen}
-      role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        // Ignore keys bubbling up from the nested delete button.
+        // Ignore keys bubbling up from the row's buttons.
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -221,55 +285,75 @@ function SessionCard({ session: s, onOpen, onDelete }: CardProps) {
         }
       }}
     >
-      <header className="wd-session-card-header">
-        <span className={dotClass} aria-hidden />
-        <span className="wd-session-card-target" title={s.target}>
-          {s.target}
+      <td className="wd-st-col-status">
+        <span className="wd-st-status">
+          <span className={`wd-rail-dot wd-rail-dot-${kind}`} aria-hidden />
+          <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
-        {s.isGroup && (
-          <span
-            className="wd-session-group-kind wd-session-group-kind-hint"
-            title={kindTitle}
-            aria-label={kindTitle}
-          >
-            group
-          </span>
+      </td>
+      <td className="wd-st-session">
+        <span className="wd-st-branch" title={s.branch}>{s.branch || '(base)'}</span>
+        <span className="wd-st-target">
+          {s.target}
+          {s.isGroup && (
+            <span
+              className="wd-session-group-kind wd-session-group-kind-hint"
+              title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
+            >
+              group
+            </span>
+          )}
+          {archived && <span className="wd-archived-pill">archived</span>}
+        </span>
+      </td>
+      <td className="wd-st-col-summary">
+        <span className="wd-st-summary" title={s.attention?.summary}>
+          {s.attention?.summary ?? ''}
+        </span>
+      </td>
+      <td className="wd-st-col-changes">
+        <DiffStatChip session={s} />
+        {!!s.diffStat?.files && (
+          <span className="wd-st-files"> · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}</span>
         )}
+      </td>
+      <td className="wd-st-col-pr">
+        <PrChips prs={prs} link />
+      </td>
+      <td className="wd-st-col-when">
+        {relativeTime(s.attention?.updatedAt ?? s.lastAccessedAt)}
+      </td>
+      <td className="wd-st-col-actions" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          className="wd-session-card-delete"
+          className="wd-row-action"
+          disabled={busy !== null}
+          title={error ?? 'Open in a Windows Terminal tab (work attach)'}
+          onClick={() => run('term', () => openInTerminal(s.id))}
+        >
+          {busy === 'term' ? 'Opening…' : 'Terminal ↗'}
+        </button>
+        <button
+          type="button"
+          className="wd-row-action"
+          disabled={busy !== null}
+          title={archived ? 'Bring it back to the rail and inbox' : 'Stop its Claude, keep worktree, branch and conversation'}
+          onClick={() => run('archive', () => setArchived(s.id, !archived))}
+        >
+          {busy === 'archive' ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Unarchive' : 'Archive'}
+        </button>
+        <button
+          type="button"
+          className="wd-row-action wd-row-action-danger"
           title="Delete session…"
           aria-label={`Delete session ${s.target}/${s.branch}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
+          onClick={onDelete}
         >
           <TrashIcon />
         </button>
-      </header>
-      <div className="wd-session-card-branch" title={s.branch}>
-        {s.branch}
-      </div>
-      <div className="wd-session-card-meta">
-        <span>{relativeTime(s.lastAccessedAt)}</span>
-        {!!s.commentCount && s.commentCount > 0 && (
-          <span title={`${s.commentCount} comments`}>
-            💬 {s.commentCount}
-          </span>
-        )}
-        {!!s.draftCount && s.draftCount > 0 && (
-          <span title={`${s.draftCount} draft comments`}>
-            ✎ {s.draftCount}
-          </span>
-        )}
-        {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
-          <span title={`${s.pendingForClaudeCount} pending for Claude`}>
-            →{s.pendingForClaudeCount}
-          </span>
-        )}
-      </div>
-    </article>
+        {error && <span className="wd-row-error" role="alert">{error}</span>}
+      </td>
+    </tr>
   );
 }
 

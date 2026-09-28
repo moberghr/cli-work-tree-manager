@@ -13,6 +13,10 @@ interface Props {
   onHome: () => void;
   /** Sessions that want you now (needs input + finished, unseen). */
   inboxCount?: number;
+  /** Narrow layouts: toggles the session drawer (the button only shows
+   *  below the breakpoint, via CSS). */
+  onToggleRail?: () => void;
+  railOpen?: boolean;
 }
 
 interface TabDef {
@@ -39,9 +43,28 @@ const TABS: TabDef[] = [
  * outside this nav and breadcrumbs back to whichever tab the user
  * came from.
  */
-export function TopNav({ active, onSelect, currentScopeLabel, onHome, inboxCount = 0 }: Props) {
+export function TopNav({
+  active,
+  onSelect,
+  currentScopeLabel,
+  onHome,
+  inboxCount = 0,
+  onToggleRail,
+  railOpen = false,
+}: Props) {
   return (
     <nav className="wd-dash-topnav" role="navigation" aria-label="Dashboard">
+      {onToggleRail && (
+        <button
+          type="button"
+          className="wd-dash-rail-toggle"
+          onClick={onToggleRail}
+          aria-label={railOpen ? 'Close session list' : 'Open session list'}
+          aria-expanded={railOpen}
+        >
+          ☰
+        </button>
+      )}
       <button
         type="button"
         className="wd-dash-brand"

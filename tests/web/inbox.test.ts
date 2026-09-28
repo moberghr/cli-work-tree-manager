@@ -81,20 +81,22 @@ describe('InboxTab', () => {
 });
 
 describe('SessionRail with attention', () => {
-  it('puts sessions that want you first and marks them', () => {
+  it('keeps a STABLE order (project, then most recent) and marks what wants you; urgency order is the inbox job', () => {
     act(() =>
       root.render(
         createElement(SessionRail, { sessions: SESSIONS, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} }),
       ),
     );
     const names = [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
-    expect(names.slice(0, 3)).toEqual(['blocked-old', 'blocked-new', 'done']);
-    const first = container.querySelector('.wd-dash-rail-item')!;
-    expect(first.className).toContain('wd-dash-rail-item-unseen');
-    expect(first.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-needs');
-    expect(first.getAttribute('title')).toContain('Claude needs your permission to use Edit');
-    const done = [...container.querySelectorAll('.wd-dash-rail-item')][2];
-    expect(done.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
+    // All target 'repo'; lastAccessedAt all 100m ago except 'untracked' (1m) — recency order, not attention.
+    expect(names[0]).toBe('untracked');
+    const byName = (n: string) =>
+      [...container.querySelectorAll('.wd-dash-rail-item')].find((i) => i.querySelector('.wd-dash-rail-name')?.textContent === n)!;
+    const blocked = byName('blocked-old');
+    expect(blocked.className).toContain('wd-dash-rail-item-unseen');
+    expect(blocked.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-needs_input');
+    expect(blocked.getAttribute('title')).toContain('Claude needs your permission to use Edit');
+    expect(byName('done').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
   });
 });
 

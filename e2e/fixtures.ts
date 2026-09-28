@@ -22,6 +22,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..');
 const BIN = path.join(REPO_ROOT, 'dist', 'bin.js');
 const FAKE_AI = path.join(HERE, 'fake-ai.cjs');
+// Shared with the functional tests: a stand-in `gh` (pr view/create/merge).
+const FAKE_GH = path.join(REPO_ROOT, 'tests', 'functional', 'fixtures', 'fake-gh.cjs');
 
 export interface PtyInfo {
   id: string;
@@ -89,13 +91,45 @@ export class WorkEnv {
   constructor() {
     this.home = fs.mkdtempSync(path.join(os.tmpdir(), 'work-e2e-'));
     this.repo = path.join(this.home, 'repos', 'app');
+    // A fake `gh` first on PATH, so Ship never talks to GitHub.
+    const bin = path.join(this.home, 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    if (process.platform === 'win32') {
+      fs.writeFileSync(path.join(bin, 'gh.cmd'), `@node "${FAKE_GH}" %*\r\n`);
+    } else {
+      fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec node "${FAKE_GH}" "$@"\n`, { mode: 0o755 });
+    }
     this.env = {
       ...process.env,
       HOME: this.home,
       USERPROFILE: this.home,
       NO_COLOR: '1',
       GIT_TERMINAL_PROMPT: '0',
+      PATH: bin + path.delimiter + (process.env.PATH ?? ''),
+      FAKE_GH_LOG: path.join(this.home, 'gh.log'),
+      FAKE_GH_STATE: path.join(this.home, 'gh-state.json'),
     };
+  }
+
+  /** Every `gh` invocation the fake recorded (argv arrays). */
+  ghCalls(): string[][] {
+    const log = path.join(this.home, 'gh.log');
+    if (!fs.existsSync(log)) return [];
+    return fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  }
+
+  /** Commit a file in a worktree (so there's something to ship). */
+  commitIn(branch: string, file: string, content: string): void {
+    const cwd = this.worktreePath(branch);
+    fs.writeFileSync(path.join(cwd, file), content);
+    for (const args of [['add', '.'], ['commit', '-q', '-m', `edit ${file}`]]) {
+      const r = spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], {
+        cwd,
+        env: this.env,
+        encoding: 'utf-8',
+      });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+    }
   }
 
   get workDir(): string {
@@ -118,6 +152,13 @@ export class WorkEnv {
     fs.writeFileSync(path.join(this.repo, 'README.md'), '# app\n');
     git('add', '.');
     git('commit', '-m', 'init');
+    // A bare "origin" so Ship can push and origin/HEAD resolves.
+    const origin = path.join(this.home, 'origin.git');
+    const bare = spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { env: this.env, encoding: 'utf-8' });
+    if (bare.status !== 0) throw new Error(`git init --bare: ${bare.stderr}`);
+    git('remote', 'add', 'origin', origin);
+    git('push', '-q', 'origin', 'main');
+    git('remote', 'set-head', 'origin', 'main');
 
     fs.mkdirSync(this.workDir, { recursive: true });
     fs.writeFileSync(

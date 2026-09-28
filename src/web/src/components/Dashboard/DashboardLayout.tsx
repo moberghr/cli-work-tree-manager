@@ -1,6 +1,7 @@
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
+import type { PrLookup } from '../../state/session-display.js';
 import { TopNav } from './TopNav.js';
 import { SessionRail } from './SessionRail.js';
 import {
@@ -19,6 +20,8 @@ interface Props {
   onNewWorktree: () => void;
   /** Badge on the Inbox tab. */
   inboxCount?: number;
+  /** Open PRs per session, for the rail badges. */
+  prsFor?: PrLookup;
   children: ReactNode;
 }
 
@@ -45,8 +48,25 @@ export function DashboardLayout({
   onHome,
   onNewWorktree,
   inboxCount,
+  prsFor,
   children,
 }: Props) {
+  // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
+  // off-canvas drawer; on wide ones this flag is inert.
+  const [railOpen, setRailOpen] = useState(false);
+  // Any navigation — the Inbox, `n`, a link, back/forward — closes it, not
+  // just a click inside the drawer.
+  useEffect(() => {
+    setRailOpen(false);
+  }, [route.tab, route.sessionId, route.sessionSubTab]);
+  useEffect(() => {
+    if (!railOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRailOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [railOpen]);
   const { size: railWidth, setSize: setRailWidth } =
     useResizableSize(RAIL_SPEC);
   // Owns `--rail-width`; ResizeDivider writes it here during a drag.
@@ -59,17 +79,33 @@ export function DashboardLayout({
         currentScopeLabel={currentScopeLabel}
         onHome={onHome}
         inboxCount={inboxCount}
+        onToggleRail={() => setRailOpen((o) => !o)}
+        railOpen={railOpen}
       />
       <div
         ref={bodyRef}
-        className="wd-dash-body"
+        className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '')}
         style={{ [RAIL_SPEC.cssVar as string]: `${railWidth}px` }}
       >
+        {railOpen && (
+          <div
+            className="wd-dash-rail-backdrop"
+            onClick={() => setRailOpen(false)}
+            aria-hidden
+          />
+        )}
         <SessionRail
           sessions={sessions}
           activeSessionId={route.sessionId}
-          onSelect={onSelectSession}
-          onNewWorktree={onNewWorktree}
+          onSelect={(id) => {
+            setRailOpen(false);
+            onSelectSession(id);
+          }}
+          onNewWorktree={() => {
+            setRailOpen(false);
+            onNewWorktree();
+          }}
+          prsFor={prsFor}
         />
         <ResizeDivider
           layoutRef={bodyRef}

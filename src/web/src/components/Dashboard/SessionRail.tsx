@@ -1,6 +1,16 @@
 import { useMemo } from 'react';
 import type { SessionSummary } from '../../api/client.js';
-import { compareAttention, needsAttention } from '../../../../core/attention.js';
+import { PrChips } from './SessionBits.js';
+import {
+  DISPLAY_LABEL,
+  displayStatus,
+  formatDiffStat,
+  isArchived,
+  stableSessionOrder,
+  type DisplayKind,
+  type PrLookup,
+} from '../../state/session-display.js';
+import { relativeTime } from '../../utils/time.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -9,67 +19,49 @@ interface Props {
   activeSessionId: string | null;
   onSelect: (id: string) => void;
   onNewWorktree: () => void;
+  /** Open PRs for a session (from the PRs pane data); optional — rows just
+   *  skip the badge without it. */
+  prsFor?: PrLookup;
   /** Optional cap on rail rows before a "+N more" expander appears.
    *  Defaults to a sensible value if omitted. */
   maxVisible?: number;
 }
 
-/** Map attention (when known) or activity to a CSS modifier — the dot
- *  color comes from CSS. Attention wins: "blocked on you" and "done, not
- *  looked at" matter more than how recently Claude wrote a file. */
-function dotClass(s: SessionSummary): string {
-  if (s.attention?.state === 'needs_input') return 'wd-rail-dot wd-rail-dot-needs';
-  if (s.attention?.state === 'idle' && !s.attention.seen) return 'wd-rail-dot wd-rail-dot-done';
-  if (s.attention?.state === 'working') return 'wd-rail-dot wd-rail-dot-active';
-  switch (s.activityState) {
-    case 'active':
-      return 'wd-rail-dot wd-rail-dot-active';
-    case 'open':
-      return 'wd-rail-dot wd-rail-dot-open';
-    default:
-      return 'wd-rail-dot wd-rail-dot-stale';
-  }
+/** Status → CSS modifier; the colors live in CSS. */
+export function dotClass(kind: DisplayKind): string {
+  return `wd-rail-dot wd-rail-dot-${kind}`;
+}
+
+/** Right-hand status slot: the one thing worth saying about this row. */
+function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
+  const since = s.attention?.since ?? s.lastAccessedAt;
+  if (kind === 'needs_input') return { text: `◆ ${relativeTime(since)}`, cls: 'wd-rail-slot-needs' };
+  if (kind === 'done') return { text: `● ${relativeTime(since)}`, cls: 'wd-rail-slot-done' };
+  if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
+  return { text: relativeTime(s.attention?.updatedAt ?? s.lastAccessedAt), cls: '' };
 }
 
 /**
- * Left navigation rail — a 160px column listing every worktree session
- * with its activity dot, name, and (subtly) target. Always visible across
- * dashboard tabs so the user can context-switch to any worktree in one
- * click without losing the lens they're on.
+ * Left navigation rail — every non-archived session as a compact two-line
+ * row (Emdash-style): branch + status slot, then `target · summary` with the
+ * diff size and PR badge. Always visible across dashboard tabs so the user
+ * can context-switch in one click without losing the lens they're on.
  *
- * Clicking a row drills into the session detail view; a small `+` at the
- * bottom opens the new-worktree modal.
+ * Order is STABLE (project, then most recently entered) — see
+ * stableSessionOrder; urgency ordering lives in the Inbox and on `n`.
  */
 export function SessionRail({
   sessions,
   activeSessionId,
   onSelect,
   onNewWorktree,
-  maxVisible = 30,
+  prsFor,
+  maxVisible = 40,
 }: Props) {
-  // Most-recently-active first. Stable order so the rail doesn't shuffle
-  // on every SSE tick — sorted by lastAccessedAt + activity state.
-  const sorted = useMemo(() => {
-    const score = (s: SessionSummary): number => {
-      // Active = highest, open = medium, stale = lowest. Within each
-      // band, lastAccessedAt (later = higher).
-      const band =
-        s.activityState === 'active'
-          ? 2_000_000_000_000
-          : s.activityState === 'open'
-            ? 1_000_000_000_000
-            : 0;
-      const last = Date.parse(s.lastAccessedAt) || 0;
-      return band + last;
-    };
-    // Who needs you first (the inbox order), then the activity score.
-    return [...sessions].sort(
-      (a, b) =>
-        (needsAttention(a.attention) || needsAttention(b.attention)
-          ? compareAttention(a.attention, b.attention)
-          : 0) || score(b) - score(a),
-    );
-  }, [sessions]);
+  const sorted = useMemo(
+    () => stableSessionOrder(sessions.filter((s) => !isArchived(s))),
+    [sessions],
+  );
 
   const visible = sorted.slice(0, maxVisible);
   const overflow = sorted.length - visible.length;
@@ -92,15 +84,20 @@ export function SessionRail({
           +
         </button>
       </header>
-      {sessions.length === 0 ? (
+      {sorted.length === 0 ? (
         <p className="wd-dash-rail-empty">
           No worktrees yet. Click + to create one.
         </p>
       ) : (
         <ul className="wd-dash-rail-list">
           {visible.map((s) => {
+            const kind = displayStatus(s);
             const isActive = s.id === activeSessionId;
             const label = s.branch || s.target;
+            const slot = statusSlot(s, kind);
+            const stat = formatDiffStat(s);
+            const prs = prsFor?.(s) ?? [];
+            const summary = s.attention?.summary;
             return (
               <li key={s.id}>
                 <button
@@ -108,33 +105,41 @@ export function SessionRail({
                   className={
                     'wd-dash-rail-item' +
                     (isActive ? ' wd-dash-rail-item-active' : '') +
-                    (needsAttention(s.attention) ? ' wd-dash-rail-item-unseen' : '')
+                    (kind === 'needs_input' || kind === 'done' ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
                   title={
-                    `${s.target} · ${s.branch}` +
-                    (s.attention?.summary ? `
-${s.attention.summary}` : '')
+                    `${s.target} · ${s.branch}\n${DISPLAY_LABEL[kind]}` +
+                    (summary ? ` — ${summary}` : '')
                   }
                 >
-                  <span className={dotClass(s)} aria-hidden />
-                  <span className="wd-dash-rail-name">{label}</span>
-                  {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
-                    <span
-                      className="wd-dash-rail-pending"
-                      title={`${s.pendingForClaudeCount} pending for Claude`}
-                    >
-                      →{s.pendingForClaudeCount}
+                  <span className={dotClass(kind)} aria-label={DISPLAY_LABEL[kind]} role="img" />
+                  <span className="wd-dash-rail-lines">
+                    <span className="wd-dash-rail-line">
+                      <span className="wd-dash-rail-name">{label}</span>
+                      <span className={'wd-dash-rail-slot ' + slot.cls}>{slot.text}</span>
                     </span>
-                  )}
-                  {!!s.draftCount && s.draftCount > 0 && (
-                    <span
-                      className="wd-dash-rail-drafts"
-                      title={`${s.draftCount} draft comment${s.draftCount === 1 ? '' : 's'}`}
-                    >
-                      {s.draftCount}
+                    <span className="wd-dash-rail-line wd-dash-rail-sub">
+                      <span className="wd-dash-rail-summary">
+                        {s.target}
+                        {summary ? ` · ${summary}` : ''}
+                      </span>
+                      {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
+                        <span
+                          className="wd-dash-rail-pending"
+                          title={`${s.pendingForClaudeCount} pending for Claude`}
+                        >
+                          →{s.pendingForClaudeCount}
+                        </span>
+                      )}
+                      {stat && (
+                        <span className="wd-dash-rail-stat" title={`${s.diffStat!.files} file(s) changed`}>
+                          {stat}
+                        </span>
+                      )}
+                      <PrChips prs={prs} />
                     </span>
-                  )}
+                  </span>
                 </button>
               </li>
             );

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SessionSummary } from '../../api/client.js';
+import { setArchived, type SessionSummary } from '../../api/client.js';
+import type { PrInfo } from '../../api/panes.js';
+import { isArchived } from '../../state/session-display.js';
+import { DiffStatChip, PrChips, StatusLine } from './SessionBits.js';
+import { ShipPanel } from './ShipPanel.js';
 import { useSse } from '../../api/events.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
@@ -18,6 +22,10 @@ interface Props {
   backLabel: string;
   /** Opens the delete-session confirmation. */
   onDelete: () => void;
+  /** Open PRs for this session (PRs pane data). */
+  prs?: PrInfo[];
+  /** A merge from the Ship panel went through (session now archived). */
+  onShipped?: () => void;
 }
 
 /**
@@ -39,7 +47,11 @@ export function SessionDetail({
   onBack,
   backLabel,
   onDelete,
+  prs = [],
+  onShipped,
 }: Props) {
+  const [shipOpen, setShipOpen] = useState(false);
+  const archived = isArchived(session);
   return (
     <div className="wd-session-detail">
       <header className="wd-session-detail-header">
@@ -56,10 +68,17 @@ export function SessionDetail({
           <span className="wd-session-detail-sep">·</span>
           <span className="wd-session-detail-branch">{session.branch}</span>
         </h1>
-        <span className="wd-tab-header-muted">
-          {relativeTime(session.lastAccessedAt)}
-        </span>
+        {archived && <span className="wd-archived-pill">archived</span>}
         <OpenTerminalButton sessionId={session.id} />
+        <button
+          type="button"
+          className="wd-session-detail-btn wd-session-detail-ship"
+          onClick={() => setShipOpen(true)}
+          title="Push, open a PR, or merge"
+        >
+          Ship ▾
+        </button>
+        <ArchiveButton sessionId={session.id} archived={archived} />
         <button
           type="button"
           className="wd-session-detail-delete"
@@ -69,6 +88,24 @@ export function SessionDetail({
           <TrashIcon /> Delete
         </button>
       </header>
+      <div className="wd-session-strip">
+        <StatusLine session={session} />
+        <DiffStatChip session={session} />
+        <PrChips prs={prs} link />
+        {!session.attention && (
+          <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>
+        )}
+      </div>
+      {shipOpen && (
+        <ShipPanel
+          session={session}
+          onClose={() => setShipOpen(false)}
+          onMerged={() => {
+            setShipOpen(false);
+            onShipped?.();
+          }}
+        />
+      )}
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton
           label="Diff"
@@ -125,6 +162,40 @@ function OpenTerminalButton({ sessionId }: { sessionId: string }) {
       }
     >
       {state === 'busy' ? 'Opening…' : state === 'error' ? 'Open in terminal ⚠' : 'Open in terminal ↗'}
+    </button>
+  );
+}
+
+/** Archive stops the session's Claude but keeps worktree, branch and
+ *  conversation; it drops off the rail and inbox until unarchived. */
+function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const onClick = () => {
+    setBusy(true);
+    setError(null);
+    setArchived(sessionId, !archived).then(
+      () => setBusy(false),
+      (err: Error) => {
+        setBusy(false);
+        setError(err.message);
+      },
+    );
+  };
+  return (
+    <button
+      type="button"
+      className="wd-session-detail-btn"
+      onClick={onClick}
+      disabled={busy}
+      title={
+        error ??
+        (archived
+          ? 'Bring it back to the rail and inbox'
+          : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
+      }
+    >
+      {busy ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Unarchive' : error ? 'Archive ⚠' : 'Archive'}
     </button>
   );
 }

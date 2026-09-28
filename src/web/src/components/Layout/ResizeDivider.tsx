@@ -40,8 +40,10 @@ export const SIDEBAR_SPEC: ResizeSpec = {
 export const RAIL_SPEC: ResizeSpec = {
   storageKey: 'work-web:rail-width',
   cssVar: '--rail-width',
-  defaultPx: 160,
-  min: 120,
+  // Rows are two lines with diff size, PR and status — 160 px truncated
+  // every branch name.
+  defaultPx: 248,
+  min: 160,
   max: 480,
   axis: 'x',
   label: 'Resize session list',

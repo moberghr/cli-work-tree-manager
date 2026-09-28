@@ -38,6 +38,85 @@ export interface SessionSummary {
   /** Hook-driven agent status (attention inbox); null/absent until the
    *  session's Claude fires a hook under a full `work web`. */
   attention?: SessionAttention | null;
+  /** Working-tree change vs HEAD across the session's repos (tracked
+   *  numstat + untracked files). Null until computed — the server fills it
+   *  in the background and caches it briefly, so it may lag a few seconds. */
+  diffStat?: DiffStat | null;
+  /** Set when the session was archived: PTY stopped, worktree + branch +
+   *  conversation kept, hidden from the rail/inbox by default. */
+  archivedAt?: string | null;
+}
+
+export interface DiffStat {
+  added: number;
+  deleted: number;
+  /** Changed tracked files + untracked files. */
+  files: number;
+}
+
+// ---- Ship / archive ---------------------------------------------------
+
+export type ChecksState = 'pass' | 'fail' | 'pending' | 'none';
+
+export interface ShipPr {
+  number: number;
+  url: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  isDraft: boolean;
+  /** GitHub mergeStateStatus: CLEAN | DIRTY | BLOCKED | BEHIND | UNSTABLE | HAS_HOOKS | DRAFT | UNKNOWN */
+  mergeStateStatus: string;
+  checks: ChecksState;
+  headSha: string;
+}
+
+export interface RepoShipState {
+  /** Repo alias (group sub-repo name, or the target for a single repo). */
+  name: string;
+  path: string;
+  branch: string;
+  /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
+  dirtyFiles: number;
+  hasUpstream: boolean;
+  /** Commits not on the upstream (null without one). */
+  ahead: number | null;
+  behind: number | null;
+  pr: ShipPr | null;
+  /** Why "merge" is unavailable right now, human-readable ([] = can merge). */
+  mergeBlockers: string[];
+  /** gh missing / not authenticated / no GitHub remote. */
+  ghError?: string;
+}
+
+export interface ShipPreflight {
+  repos: RepoShipState[];
+}
+
+export type ShipAction = 'push' | 'create-pr' | 'merge';
+export type MergeMethod = 'squash' | 'merge' | 'rebase';
+
+export interface ShipResult {
+  repo: string;
+  ok: boolean;
+  message: string;
+  url?: string;
+}
+
+export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`);
+}
+
+/** push: publish the branch. create-pr: push if needed, then open a PR
+ *  (draft optional). merge: merge the open PR at the head SHA the preflight
+ *  saw (refused if it moved), then archive the session. */
+export function ship(
+  sessionId: string,
+  body: { action: ShipAction; method?: MergeMethod; draft?: boolean },
+): Promise<{ results: ShipResult[]; archived?: boolean }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`, body);
+}
+
+export function setArchived(sessionId: string, archived: boolean): Promise<{ ok: true }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { archived });
 }
 
 export interface SessionAttention extends AttentionLike {

@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
-import type { SessionSummary } from '../../../api/client.js';
+import { useMemo, useState } from 'react';
+import { markSessionSeen, type SessionSummary } from '../../../api/client.js';
+import { isArchived, type PrLookup } from '../../../state/session-display.js';
+import { DiffStatChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { attentionRank, compareAttention } from '../../../../../core/attention.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -9,6 +11,11 @@ interface Props {
   /** Open a session on the sub-tab that fits why it's here: the terminal to
    *  answer a question, the diff to review finished work. */
   onOpenSession: (id: string, sub: SessionSubTab) => void;
+  /** Open PRs for a session; rows skip the badge without it. */
+  prsFor?: PrLookup;
+  /** Clear a finished session's unseen flag without opening it. Defaults
+   *  to the API call; injectable for tests. */
+  onMarkSeen?: (id: string) => Promise<unknown>;
 }
 
 interface Section {
@@ -32,9 +39,25 @@ const SECTIONS: Section[] = [
  * finished-but-unseen, then what's still running. Quiet sessions are only
  * counted. Driven by Claude's own hooks (see core/session-status.ts).
  */
-export function InboxTab({ sessions, onOpenSession }: Props) {
+export function InboxTab({
+  sessions,
+  onOpenSession,
+  prsFor,
+  onMarkSeen = markSessionSeen,
+}: Props) {
+  const [marking, setMarking] = useState<Set<string>>(new Set());
+  const markSeen = (id: string) => {
+    setMarking((m) => new Set(m).add(id));
+    onMarkSeen(id).finally(() =>
+      setMarking((m) => {
+        const next = new Set(m);
+        next.delete(id);
+        return next;
+      }),
+    );
+  };
   const { bySection, quiet, tracked } = useMemo(() => {
-    const sorted = [...sessions].sort((a, b) => compareAttention(a.attention, b.attention));
+    const sorted = sessions.filter((s) => !isArchived(s)).sort((a, b) => compareAttention(a.attention, b.attention));
     const bySection = new Map<number, SessionSummary[]>();
     let quiet = 0;
     let tracked = 0;
@@ -84,7 +107,7 @@ export function InboxTab({ sessions, onOpenSession }: Props) {
             </h2>
             <ul className="wd-inbox-list">
               {bySection.get(sec.rank)!.map((s) => (
-                <li key={s.id}>
+                <li key={s.id} className="wd-inbox-item">
                   <button
                     type="button"
                     className="wd-inbox-row"
@@ -99,10 +122,33 @@ export function InboxTab({ sessions, onOpenSession }: Props) {
                     <span className="wd-inbox-summary">
                       {s.attention!.summary ?? <span className="wd-tab-header-muted">—</span>}
                     </span>
-                    <span className="wd-inbox-since">
-                      {sec.since} {relativeTime(s.attention!.since)}
+                    <span className="wd-inbox-meta">
+                      <DiffStatChip session={s} />
+                      <PrChips prs={prsFor?.(s) ?? []} />
+                      <span className="wd-inbox-since">
+                        {sec.since} {relativeTime(s.attention!.since)}
+                      </span>
                     </span>
                   </button>
+                  <span className="wd-inbox-actions">
+                    <button type="button" className="wd-row-action" onClick={() => onOpenSession(s.id, 'diff')}>
+                      Diff
+                    </button>
+                    <button type="button" className="wd-row-action" onClick={() => onOpenSession(s.id, 'term')}>
+                      Terminal
+                    </button>
+                    {sec.rank === 1 && (
+                      <button
+                        type="button"
+                        className="wd-row-action"
+                        disabled={marking.has(s.id)}
+                        onClick={() => markSeen(s.id)}
+                        title="Clear it from the inbox without opening it"
+                      >
+                        {marking.has(s.id) ? 'Marking…' : 'Mark seen'}
+                      </button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

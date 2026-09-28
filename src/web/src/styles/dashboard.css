@@ -192,7 +192,7 @@
   font-size: 12px;
   text-align: left;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   padding: 6px 8px;
@@ -207,23 +207,95 @@
   font-weight: 500;
 }
 
+.wd-dash-rail-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wd-dash-rail-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
 .wd-dash-rail-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
 }
+.wd-dash-rail-item-unseen .wd-dash-rail-name { font-weight: 600; }
+.wd-dash-rail-slot {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-rail-slot-needs { color: var(--del-fg); font-weight: 600; }
+.wd-rail-slot-done { color: var(--accent); }
+.wd-rail-slot-working { color: var(--add-fg); }
+.wd-dash-rail-sub { font-size: 11px; color: var(--muted); }
+.wd-dash-rail-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-stat,
+.wd-diffstat {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wd-dash-rail-stat { color: var(--muted); }
+.wd-diffstat-add { color: var(--add-fg); }
+.wd-diffstat-del { color: var(--del-fg); }
 
+/* One dot vocabulary for every view (see state/session-display.ts). */
 .wd-rail-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 4px;
+  background: #6e7681;
 }
-.wd-rail-dot-active { background: #2ea043; }   /* green */
-.wd-rail-dot-open   { background: #d29922; }   /* amber */
-.wd-rail-dot-stale  { background: #6e7681; }   /* grey */
+.wd-rail-dot-needs_input {
+  background: var(--del-fg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg) 30%, transparent);
+}
+.wd-rail-dot-done    { background: var(--accent); }
+.wd-rail-dot-working { background: var(--add-fg); animation: wd-inbox-pulse 1.4s ease-in-out infinite; }
+.wd-rail-dot-active  { background: var(--add-fg); }
+.wd-rail-dot-open    { background: #d29922; }   /* amber */
+.wd-rail-dot-quiet,
+.wd-rail-dot-stale   { background: #6e7681; }   /* grey */
+@media (prefers-reduced-motion: reduce) { .wd-rail-dot-working { animation: none; } }
+
+/* PR badge: #123 + checks glyph, colored by checks state. */
+.wd-pr-chip {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
+.wd-pr-chip-success { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
+.wd-pr-chip-failure { color: var(--del-fg); border-color: color-mix(in srgb, var(--del-fg) 45%, transparent); }
+.wd-pr-chip-pending { color: #b08800; border-color: color-mix(in srgb, #d29922 45%, transparent); }
+.wd-pr-chip-draft { border-style: dashed; }
 
 .wd-dash-rail-pending {
   font-size: 10px;
@@ -313,49 +385,14 @@
   font-size: 13px;
 }
 
-/* ---- Sessions tab: card grid ---------------------------------------------*/
+/* ---- Sessions tab: dense table -------------------------------------------*/
 
-.wd-session-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  padding: 16px 24px;
-  overflow-y: auto;
-}
-.wd-session-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: border-color 80ms ease, transform 80ms ease;
-}
-.wd-session-card:hover {
-  border-color: var(--accent, #0969da);
-}
-.wd-session-card:focus-visible {
-  outline: 2px solid var(--accent, #0969da);
-  outline-offset: 1px;
-}
-.wd-session-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-}
 /* Grouped Sessions view: one scroller holding a section per project. */
 .wd-session-groups {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 16px;
-}
-.wd-session-groups .wd-session-grid {
-  overflow: visible;
-  padding-top: 8px;
-  padding-bottom: 8px;
 }
 .wd-session-group-header {
   display: flex;
@@ -400,71 +437,8 @@
   border-radius: 10px;
   padding: 0 8px;
 }
-/* On cards the badge carries the repo list as a tooltip. */
+/* In table rows the badge carries the repo list as a tooltip. */
 .wd-session-group-kind-hint { cursor: help; }
-
-/* Delete button — hidden until the card is hovered / focused. */
-.wd-session-card-delete {
-  appearance: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--muted);
-  cursor: pointer;
-  opacity: 0;
-  flex-shrink: 0;
-}
-.wd-session-card:hover .wd-session-card-delete,
-.wd-session-card:focus-within .wd-session-card-delete,
-.wd-session-card-delete:focus-visible {
-  opacity: 1;
-}
-.wd-session-card-delete:hover {
-  color: var(--del-fg);
-  border-color: var(--border);
-  background: var(--hover);
-}
-
-/* Card = project/group name (row 1) · branch (row 2) · meta (row 3). */
-.wd-session-card-target {
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-session-card-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-right: 2px;
-}
-.wd-card-dot-active { background: #2ea043; }
-.wd-card-dot-open   { background: #d29922; }
-.wd-card-dot-stale  { background: #6e7681; }
-.wd-session-card-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--muted);
-}
 
 /* ---- PRs tab: table ------------------------------------------------------*/
 
@@ -692,8 +666,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-weight: 500;
+  min-width: 0;
 }
 .wd-session-detail-action {
   appearance: none;
@@ -883,7 +857,328 @@
   .wd-inbox-row { grid-template-columns: 10px 1fr auto; }
   .wd-inbox-summary { grid-column: 2 / -1; }
 }
-/* Rail: attention overrides the activity dot. */
-.wd-rail-dot-needs { background: var(--del-fg, #d1242f); box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg, #d1242f) 30%, transparent); }
-.wd-rail-dot-done  { background: var(--accent, #0969da); }
-.wd-dash-rail-item-unseen .wd-dash-rail-name { font-weight: 600; }
+
+/* Inbox rows: the row opens the default target; actions sit beside it. */
+.wd-inbox-item {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.wd-inbox-item .wd-inbox-row { margin-bottom: 0; flex: 1; min-width: 0; }
+.wd-inbox-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.wd-inbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* Same width whether or not a row has "Mark seen", so rows line up —
+     fixed (not min-) width, sized for all three buttons. */
+  flex: 0 0 196px;
+  justify-content: flex-end;
+}
+
+/* Small secondary buttons used on table rows and inbox items. */
+.wd-row-action {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-row-action:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+.wd-row-action:disabled { opacity: 0.6; cursor: default; }
+.wd-row-action-danger:hover:not(:disabled) { color: var(--del-fg); border-color: var(--del-fg); }
+.wd-row-error { color: var(--del-fg); font-size: 11px; margin-left: 6px; }
+
+.wd-archived-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-left: 6px;
+}
+
+.wd-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- Sessions table ----------------------------------------------------- */
+.wd-session-table-wrap { flex: 1; min-height: 0; overflow-y: auto; }
+.wd-session-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wd-session-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--header-bg);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-session-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.wd-session-row { cursor: pointer; }
+.wd-session-row:hover { background: var(--hover); }
+.wd-session-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wd-session-row-archived { opacity: 0.65; }
+.wd-st-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.wd-st-status .wd-rail-dot { margin-top: 0; }
+.wd-session-row-unseen .wd-st-status,
+.wd-session-row-unseen .wd-st-branch { font-weight: 600; }
+.wd-st-session { max-width: 260px; }
+.wd-st-branch,
+.wd-st-target {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-st-branch { font-weight: 500; }
+.wd-st-target { font-size: 11px; color: var(--muted); }
+.wd-st-col-summary { width: 40%; max-width: 0; }
+.wd-st-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.wd-st-files { font-size: 11px; color: var(--muted); }
+.wd-st-col-changes,
+.wd-st-col-when { white-space: nowrap; color: var(--muted); font-size: 12px; }
+.wd-st-col-pr { white-space: nowrap; }
+.wd-st-col-pr .wd-pr-chip + .wd-pr-chip { margin-left: 4px; }
+.wd-st-col-actions { white-space: nowrap; text-align: right; cursor: default; }
+.wd-st-col-actions .wd-row-action + .wd-row-action { margin-left: 4px; }
+.wd-session-group .wd-session-table { margin-bottom: 8px; }
+.wd-tab-check { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+/* ---- Session header strip ---------------------------------------------- */
+.wd-session-detail-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-session-detail-btn:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+.wd-session-detail-btn:disabled { opacity: 0.6; cursor: default; }
+.wd-session-detail-ship { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.wd-session-detail-btn + .wd-session-detail-delete { margin-left: 0; }
+.wd-session-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.wd-status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.wd-status-line .wd-rail-dot { margin-top: 0; }
+.wd-status-label { font-weight: 600; white-space: nowrap; }
+.wd-status-line-needs_input .wd-status-label { color: var(--del-fg); }
+.wd-status-line-done .wd-status-label { color: var(--accent); }
+.wd-status-line-working .wd-status-label { color: var(--add-fg); }
+.wd-status-since { color: var(--muted); white-space: nowrap; }
+.wd-status-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ---- Ship panel --------------------------------------------------------- */
+.wd-ship-panel { min-width: min(560px, calc(100vw - 32px)); max-width: min(680px, calc(100vw - 32px)); }
+.wd-ship-dim { opacity: 0.6; transition: opacity 120ms ease; }
+.wd-ship-progress { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; }
+.wd-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: wd-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes wd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wd-spinner { animation-duration: 2s; } }
+.wd-ship-repo {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.wd-ship-facts { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); }
+.wd-ship-bad { color: var(--del-fg); }
+.wd-ship-blockers { margin: 6px 0 0; padding-left: 18px; color: var(--del-fg); }
+.wd-ship-results { list-style: none; margin: 0; padding: 0; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.wd-ship-ok { color: var(--add-fg); }
+.wd-ship-fail { color: var(--del-fg); }
+.wd-ship-confirm {
+  border: 1px solid var(--del-fg);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: color-mix(in srgb, var(--del-fg) 6%, transparent);
+}
+.wd-ship-confirm p { margin: 0 0 8px; }
+.wd-ship-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.wd-ship-footer { flex-wrap: wrap; align-items: center; }
+.wd-ship-group { display: inline-flex; align-items: center; gap: 6px; }
+.wd-ship-inline { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.wd-ship-group select {
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+
+/* ---- Narrow / phone layout (<= 720px) ---------------------------------- */
+.wd-dash-rail-toggle {
+  display: none;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 1;
+  width: 32px;
+  height: 30px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wd-dash-rail-backdrop { display: none; }
+@media (max-width: 720px) {
+  .wd-dash-topnav { gap: 8px; padding: 0 8px; }
+  .wd-dash-rail-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .wd-dash-version,
+  .wd-dash-current-scope { display: none; }
+  /* Tabs: one horizontally scrollable strip instead of clipping. */
+  .wd-dash-tabs {
+    flex: 1;
+    min-width: 0;
+    margin-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .wd-dash-tabs::-webkit-scrollbar { display: none; }
+  .wd-dash-tab { padding: 0 12px; white-space: nowrap; }
+  .wd-dash-topnav-spacer { display: none; }
+
+  /* Rail: off-canvas drawer. */
+  .wd-dash-body { position: relative; }
+  .wd-dash-body > .wd-resize-divider { display: none; }
+  .wd-dash-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(300px, 85vw);
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+  }
+  .wd-dash-rail-open .wd-dash-rail { transform: none; }
+  .wd-dash-rail-open .wd-dash-rail-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    background: rgba(15, 20, 25, 0.35);
+  }
+
+  .wd-tab-header { padding: 12px 16px; }
+  .wd-tab-controls { flex-wrap: wrap; gap: 8px 12px; }
+  .wd-inbox-actions { flex: 0 0 auto; justify-content: flex-start; }
+  .wd-inbox-section { padding: 4px 12px 12px; }
+  .wd-inbox-item { flex-direction: column; gap: 4px; }
+  .wd-inbox-actions { padding-left: 22px; }
+
+  /* Table -> stacked rows: status + session + summary stay, the rest wraps. */
+  .wd-session-table thead { display: none; }
+  .wd-session-table,
+  .wd-session-table tbody { display: block; }
+  .wd-session-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 2px 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-session-table td { padding: 0; border: 0; }
+  .wd-st-col-status { grid-column: 1; grid-row: 1; }
+  .wd-st-session { grid-column: 2; grid-row: 1; max-width: none; min-width: 0; }
+  .wd-st-col-when { grid-column: 3; grid-row: 1; }
+  .wd-st-col-summary { grid-column: 1 / -1; width: auto; max-width: none; }
+  .wd-st-col-changes { grid-column: 1 / 3; }
+  .wd-st-col-pr { grid-column: 3; text-align: right; }
+  .wd-st-col-actions { grid-column: 1 / -1; text-align: left; }
+  .wd-st-label { display: none; }
+
+  .wd-session-detail-header { flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
+  .wd-session-strip { padding: 6px 12px; }
+  .wd-session-subtabs { padding: 0 12px; overflow-x: auto; }
+  .wd-modal { min-width: 0; width: calc(100vw - 24px); }
+  .wd-inbox-actions { justify-content: flex-start; }
+
+  /* Session diff: stack the file tree above the diff instead of a
+     side-by-side split that leaves the diff a sliver. */
+  .wd-session-subtab-body > .wd-web-review-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .wd-session-subtab-body > .wd-web-review-layout > .wd-resize-divider { display: none; }
+  .wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-sidebar {
+    max-height: 38vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
