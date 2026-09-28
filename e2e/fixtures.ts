@@ -139,35 +139,71 @@ export class WorkEnv {
   /** Temp git repo with one commit, config pointing at it, and one
    *  `work tree --setup-only` worktree session per branch. */
   setup(branches: string[]): void {
-    fs.mkdirSync(this.repo, { recursive: true });
+    this.initRepo(this.repo);
+    this.writeConfig({ app: this.repo }, {});
+    for (const b of branches) this.work(['tree', 'app', b, '--setup-only', '--no-pull']);
+  }
+
+  /** A two-repo group `shop` (backend + frontend) with one group worktree
+   *  for `branch` — the multi-repo case ship has to be careful with. */
+  setupGroup(branch: string): void {
+    const repos = { backend: path.join(this.home, 'repos', 'backend'), frontend: path.join(this.home, 'repos', 'frontend') };
+    for (const p of Object.values(repos)) this.initRepo(p);
+    this.writeConfig(repos, { shop: ['backend', 'frontend'] });
+    this.work(['tree', 'shop', branch, '--setup-only', '--no-pull']);
+  }
+
+  /** Where `work tree shop <branch>` put a sub-repo. */
+  groupWorktreePath(branch: string, repo: string): string {
+    return path.join(this.home, 'worktrees', 'shop', branch.replace(/\//g, '-'), repo);
+  }
+
+  /** Commit a file in any checkout. */
+  commitAt(cwd: string, file: string, content: string): void {
+    fs.writeFileSync(path.join(cwd, file), content);
+    for (const args of [['add', '.'], ['commit', '-q', '-m', `edit ${file}`]]) {
+      const r = spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], {
+        cwd,
+        env: this.env,
+        encoding: 'utf-8',
+      });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+    }
+  }
+
+  /** A git repo with one commit and a bare "origin" (so Ship can push and
+   *  origin/HEAD resolves). */
+  private initRepo(repo: string): void {
+    fs.mkdirSync(repo, { recursive: true });
     const git = (...args: string[]) => {
       const r = spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], {
-        cwd: this.repo,
+        cwd: repo,
         env: this.env,
         encoding: 'utf-8',
       });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
     };
     git('init', '-b', 'main');
-    fs.writeFileSync(path.join(this.repo, 'README.md'), '# app\n');
+    fs.writeFileSync(path.join(repo, 'README.md'), `# ${path.basename(repo)}\n`);
     git('add', '.');
     git('commit', '-m', 'init');
-    // A bare "origin" so Ship can push and origin/HEAD resolves.
-    const origin = path.join(this.home, 'origin.git');
+    const origin = path.join(this.home, 'origins', `${path.basename(repo)}.git`);
     const bare = spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { env: this.env, encoding: 'utf-8' });
     if (bare.status !== 0) throw new Error(`git init --bare: ${bare.stderr}`);
     git('remote', 'add', 'origin', origin);
     git('push', '-q', 'origin', 'main');
     git('remote', 'set-head', 'origin', 'main');
+  }
 
+  private writeConfig(repos: Record<string, string>, groups: Record<string, string[]>): void {
     fs.mkdirSync(this.workDir, { recursive: true });
     fs.writeFileSync(
       path.join(this.workDir, 'config.json'),
       JSON.stringify(
         {
           worktreesRoot: path.join(this.home, 'worktrees'),
-          repos: { app: this.repo },
-          groups: {},
+          repos,
+          groups,
           copyFiles: [],
           aiCommand: `node ${FAKE_AI.replace(/\\/g, '/')}`,
         },
@@ -175,7 +211,6 @@ export class WorkEnv {
         2,
       ),
     );
-    for (const b of branches) this.work(['tree', 'app', b, '--setup-only', '--no-pull']);
   }
 
   work(args: string[]): string {

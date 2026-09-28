@@ -298,7 +298,12 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 ### Ship & archive
 
-`Ship` in a session runs `core/ship.ts` per repo: push (publish with `-u` if no upstream), create PR (`gh pr create --fill --head`, pushing first), merge (`gh pr merge N --<method> --match-head-commit <sha>` — GitHub refuses if the branch moved). Merge re-runs the preflight server-side and refuses on any blocker (dirty tree, unpushed commits, draft, conflicts, behind, branch protection, failing/pending checks); for a group it's all-or-nothing, and untouched sub-repos (0 commits vs `origin/HEAD`, no PR) are skipped. A fully successful merge archives the session. **Archive** (`archivedAt` in history) stops the PTY and hides the session; worktree, branch and conversation stay; `work tree` into it again un-archives.
+`Ship` runs `core/ship.ts` per repo. **Groups ship in parts**: backend may be merged while frontend is in review.
+- A repo is **done** when its PR is MERGED or it was never touched (0 commits vs `origin/HEAD`, clean, no PR). Done repos are never blockers and never selectable.
+- "Published" means `origin/<branch>` exists — not `@{u}` (`work tree` leaves new branches tracking `origin/main`); ahead/behind are measured against `origin/<branch>`, and push uses `-u origin <branch>` unless tracking already points there.
+- **Merge = `mergeSelected`**: the client sends `repos: [{name, headSha}]` — the repos the user ticked and the PR heads it SHOWED. The server re-runs the preflight and refuses the whole call if any selected repo is unknown, done, blocked, or its PR head moved; only then merges each with `gh pr merge N --<method> --match-head-commit <that sha>`, stopping at the first gh failure. Unselected repos are never touched.
+- Blockers include: dirty tree, not pushed, unpushed commits, origin ahead of you, PR head ≠ local HEAD, draft, closed, conflicts, behind base, branch protection, failing/pending checks.
+- The session is **archived only when the merge merged something AND every repo is done** afterwards. Archive (`archivedAt`) stops the PTY and hides the session; worktree, branch and conversation stay; `work tree` into it un-archives.
 
 § WHEN adding a ship action, route git/gh through `CommandRunner` (argv, no shell) and re-check preconditions server-side — the client's preflight may be stale.
 

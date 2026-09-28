@@ -3,222 +3,278 @@ import { describe, it, expect } from 'vitest';
 import {
   checksFromRollup,
   mergeBlockers,
+  mergeSelected,
   runShipAction,
   shipPreflight,
   type CommandRunner,
-  type RepoShipState,
 } from '../../src/core/ship.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 /**
- * A scripted git/gh: per repo dir, what each command returns. Records every
- * call so tests can assert exactly what would have been run.
+ * A scripted git/gh per repo dir. Records every call so tests can assert
+ * exactly what would have run — above all, which `gh pr merge` calls.
  */
 interface RepoScript {
   branch?: string;
+  head?: string; // local HEAD sha
   porcelain?: string;
-  upstream?: string | null;
-  counts?: string; // "behind ahead"
-  baseRef?: string | null;
-  vsBase?: number;
-  pr?: object | null; // gh pr view JSON; null → "no pull requests found"
+  remote?: boolean; // origin/<branch> exists
+  tracking?: string | null; // what @{u} resolves to
+  counts?: string; // "behind ahead" vs origin/<branch>
+  vsBase?: number; // commits vs origin/HEAD
+  pr?: Record<string, unknown> | null;
   ghMissing?: boolean;
   fail?: Partial<Record<'push' | 'pr create' | 'pr merge', string>>;
 }
 
+const SHA = 'a1b2c3d4e5f6';
 function fakeRunner(scripts: Record<string, RepoScript>) {
   const calls: Array<{ cmd: string; args: string[]; cwd: string }> = [];
   const run: CommandRunner = async (cmd, args, cwd) => {
     calls.push({ cmd, args, cwd });
     const s = scripts[cwd] ?? {};
+    const branch = s.branch ?? 'feat/x';
     const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' });
     const err = (stderr: string, code = 1) => ({ code, stdout: '', stderr });
     if (cmd === 'git') {
       const a = args.join(' ');
-      if (a === 'rev-parse --abbrev-ref HEAD') return ok((s.branch ?? 'feat/x') + '\n');
+      if (a === 'rev-parse --abbrev-ref HEAD') return ok(branch + '\n');
+      if (a === 'rev-parse HEAD') return ok((s.head ?? SHA) + '\n');
       if (a === 'status --porcelain') return ok(s.porcelain ?? '');
+      if (a.startsWith('rev-parse --verify --quiet refs/remotes/origin/')) return s.remote ? ok('x\n') : err('', 1);
       if (a.startsWith('rev-parse --abbrev-ref --symbolic-full-name')) {
-        return s.upstream ? ok(s.upstream + '\n') : err('no upstream', 128);
+        return s.tracking ? ok(s.tracking + '\n') : err('no upstream', 128);
       }
       if (a.startsWith('rev-list --left-right')) return ok((s.counts ?? '0 0') + '\n');
-      if (a === 'rev-parse --abbrev-ref origin/HEAD') return s.baseRef === null ? err('x', 128) : ok((s.baseRef ?? 'origin/main') + '\n');
+      if (a === 'rev-parse --abbrev-ref origin/HEAD') return ok('origin/main\n');
       if (a.startsWith('rev-list --count')) return ok(String(s.vsBase ?? 1) + '\n');
       if (args[0] === 'push') return s.fail?.push ? err(s.fail.push) : ok();
       return ok();
     }
     if (cmd === 'gh') {
       if (s.ghMissing) return err('spawn gh ENOENT', 127);
-      if (args[0] === 'pr' && args[1] === 'view') {
-        return s.pr ? ok(JSON.stringify(s.pr)) : err('no pull requests found for branch "feat/x"');
-      }
-      if (args[0] === 'pr' && args[1] === 'create') {
-        return s.fail?.['pr create'] ? err(s.fail['pr create']) : ok('https://github.com/o/r/pull/7\n');
-      }
-      if (args[0] === 'pr' && args[1] === 'merge') {
-        return s.fail?.['pr merge'] ? err(s.fail['pr merge']) : ok();
-      }
+      if (args[1] === 'view') return s.pr ? ok(JSON.stringify(s.pr)) : err(`no pull requests found for branch "${branch}"`);
+      if (args[1] === 'create') return s.fail?.['pr create'] ? err(s.fail['pr create']) : ok('https://github.com/o/r/pull/7\n');
+      if (args[1] === 'merge') return s.fail?.['pr merge'] ? err(s.fail['pr merge']) : ok();
     }
     return err('unexpected ' + cmd + ' ' + args.join(' '));
   };
-  return { run, calls };
+  return { run, calls, merges: () => calls.filter((c) => c.cmd === 'gh' && c.args[1] === 'merge') };
 }
 
 const P = (name: string) => path.resolve('/wt', name);
-const single = (p = P('api')): WorktreeSession => ({
-  target: 'api', branch: 'feat/x', isGroup: false, paths: [p], createdAt: '', lastAccessedAt: '',
+const single = (): WorktreeSession => ({
+  target: 'api', branch: 'feat/x', isGroup: false, paths: [P('api')], createdAt: '', lastAccessedAt: '',
 });
 const group = (...names: string[]): WorktreeSession => ({
   target: 'shop', branch: 'feat/x', isGroup: true, paths: names.map(P), createdAt: '', lastAccessedAt: '',
 });
-const openPr = (over: object = {}) => ({
+const pr = (over: Record<string, unknown> = {}) => ({
   number: 12, url: 'https://github.com/o/r/pull/12', state: 'OPEN', isDraft: false,
-  mergeStateStatus: 'CLEAN', headRefOid: 'abc123', statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+  mergeStateStatus: 'CLEAN', headRefOid: SHA, statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
   ...over,
+});
+/** Pushed, tracking itself, clean, with an open green PR at local HEAD. */
+const ready = (over: Partial<RepoScript> = {}): RepoScript => ({
+  remote: true, tracking: 'origin/feat/x', pr: pr(), ...over,
 });
 
 describe('checksFromRollup', () => {
   it('fail beats pending beats pass; empty is none', () => {
     expect(checksFromRollup([])).toBe('none');
-    expect(checksFromRollup(undefined)).toBe('none');
     expect(checksFromRollup([{ status: 'COMPLETED', conclusion: 'SUCCESS' }])).toBe('pass');
-    expect(checksFromRollup([{ status: 'IN_PROGRESS', conclusion: null }, { conclusion: 'SUCCESS', status: 'COMPLETED' }])).toBe('pending');
+    expect(checksFromRollup([{ status: 'IN_PROGRESS', conclusion: null }])).toBe('pending');
     expect(checksFromRollup([{ status: 'IN_PROGRESS' }, { conclusion: 'FAILURE', status: 'COMPLETED' }])).toBe('fail');
-    expect(checksFromRollup([{ state: 'PENDING' }])).toBe('pending'); // commit-status style
+    expect(checksFromRollup([{ state: 'PENDING' }])).toBe('pending');
   });
 });
 
-describe('mergeBlockers', () => {
-  const base: Omit<RepoShipState, 'mergeBlockers'> = {
-    name: 'api', path: '/x', branch: 'feat/x', dirtyFiles: 0, hasUpstream: true, ahead: 0, behind: 0,
-    pr: { number: 1, url: '', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a' },
-  };
-  it('is empty for a clean, pushed, green, open PR', () => {
-    expect(mergeBlockers(base)).toEqual([]);
+describe('preflight', () => {
+  it('a clean, pushed, green PR at local HEAD has no blockers', async () => {
+    const { run } = fakeRunner({ [P('api')]: ready() });
+    const [r] = (await shipPreflight(single(), run)).repos;
+    expect(r).toMatchObject({ hasUpstream: true, tracksRemote: true, ahead: 0, done: false, mergeBlockers: [] });
   });
-  it('lists every reason, in words', () => {
-    const b = mergeBlockers({
-      ...base, dirtyFiles: 2, ahead: 1,
-      pr: { ...base.pr!, isDraft: true, mergeStateStatus: 'DIRTY', checks: 'fail' },
-    });
-    expect(b).toEqual([
+
+  it('measures ahead vs origin/<branch> even when tracking points at the base (work tree default)', async () => {
+    // The reviewed bug: tracking origin/main made the branch look
+    // unpublished, hid 2 unpushed commits, and merge landed the old head.
+    const { run } = fakeRunner({ [P('api')]: ready({ tracking: 'origin/main', counts: '0 2', head: 'ffff000' }) });
+    const [r] = (await shipPreflight(single(), run)).repos;
+    expect(r).toMatchObject({ hasUpstream: true, tracksRemote: false, ahead: 2 });
+    expect(r.mergeBlockers).toContain('2 unpushed commits');
+  });
+
+  it("blocks when the PR's head is not the local HEAD, or origin has commits you don't", async () => {
+    const moved = fakeRunner({ [P('api')]: ready({ head: 'ffff000' }) });
+    expect((await shipPreflight(single(), moved.run)).repos[0].mergeBlockers)
+      .toContain("the PR's head isn't your local HEAD — push or pull first");
+    const behind = fakeRunner({ [P('api')]: ready({ counts: '3 0' }) });
+    expect((await shipPreflight(single(), behind.run)).repos[0].mergeBlockers)
+      .toContain("origin has 3 commits you don't have locally — pull first");
+  });
+
+  it('lists every other blocker in words', () => {
+    const base = {
+      name: 'api', path: '/x', branch: 'feat/x', localSha: SHA, dirtyFiles: 2, hasUpstream: true, tracksRemote: true,
+      ahead: 1, behind: 0, commitsVsBase: 3,
+      pr: { number: 1, url: '', state: 'OPEN' as const, isDraft: true, mergeStateStatus: 'DIRTY', checks: 'fail' as const, headSha: SHA },
+    };
+    expect(mergeBlockers(base)).toEqual([
       '2 uncommitted files — commit or stash first',
       '1 unpushed commit',
       'pull request is a draft',
       'merge conflicts with the base branch',
       'checks failing',
     ]);
-    expect(mergeBlockers({ ...base, pr: null })).toEqual(['no pull request']);
-    expect(mergeBlockers({ ...base, pr: { ...base.pr!, mergeStateStatus: 'BLOCKED', checks: 'pending' } }))
-      .toEqual(['blocked by branch protection (reviews or required checks)', 'checks still running']);
+    expect(mergeBlockers({ ...base, dirtyFiles: 0, ahead: 0, pr: null })).toEqual(['no pull request']);
+    expect(mergeBlockers({ ...base, dirtyFiles: 0, ahead: 0, hasUpstream: false, pr: null })).toEqual(['branch not pushed yet', 'no pull request']);
   });
-});
 
-describe('shipPreflight', () => {
-  it('reads dirty files, upstream counts and the PR', async () => {
-    const { run } = fakeRunner({ [P('api')]: { porcelain: ' M a.ts\n?? b.ts\n', upstream: 'origin/feat/x', counts: '1 3', pr: openPr() } });
-    const { repos } = await shipPreflight(single(), run);
-    expect(repos[0]).toMatchObject({
-      name: 'api', dirtyFiles: 2, hasUpstream: true, ahead: 3, behind: 1,
-      pr: { number: 12, checks: 'pass', headSha: 'abc123' },
+  it('a merged PR or an untouched repo is DONE, never a blocker', async () => {
+    const { run } = fakeRunner({
+      [P('backend')]: ready({ pr: pr({ state: 'MERGED' }) }),
+      [P('docs')]: { vsBase: 0 },
     });
-    expect(repos[0].mergeBlockers).toContain('2 uncommitted files — commit or stash first');
+    const repos = (await shipPreflight(group('backend', 'docs'), run)).repos;
+    expect(repos.map((r) => [r.name, r.done, r.doneReason, r.mergeBlockers])).toEqual([
+      ['backend', true, 'merged', []],
+      ['docs', true, 'untouched', []],
+    ]);
   });
 
   it('reports a missing gh clearly', async () => {
     const { run } = fakeRunner({ [P('api')]: { ghMissing: true } });
-    const { repos } = await shipPreflight(single(), run);
-    expect(repos[0].ghError).toMatch(/gh\) not found/);
-    expect(repos[0].pr).toBeNull();
-  });
-
-  it('names group repos by folder', async () => {
-    const { run } = fakeRunner({});
-    const { repos } = await shipPreflight(group('backend', 'frontend'), run);
-    expect(repos.map((r) => r.name)).toEqual(['backend', 'frontend']);
+    expect((await shipPreflight(single(), run)).repos[0].ghError).toMatch(/gh\) not found/);
   });
 });
 
-describe('runShipAction', () => {
-  it('push publishes a branch without upstream with -u, and skips when up to date', async () => {
-    const { run, calls } = fakeRunner({ [P('api')]: { upstream: null } });
-    const [r] = await runShipAction(single(), 'push', {}, run);
-    expect(r).toMatchObject({ ok: true, message: 'published feat/x' });
-    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat/x']);
+describe('push / create-pr', () => {
+  it('push sets tracking with -u unless it already tracks origin/<branch>', async () => {
+    const base = fakeRunner({ [P('api')]: { remote: true, tracking: 'origin/main', counts: '0 1' } });
+    await runShipAction(single(), 'push', {}, base.run);
+    expect(base.calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat/x']);
 
-    const up = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', counts: '0 0' } });
-    expect((await runShipAction(single(), 'push', {}, up.run))[0].message).toBe('nothing to push');
-    expect(up.calls.some((c) => c.args[0] === 'push')).toBe(false);
+    const tracked = fakeRunner({ [P('api')]: { remote: true, tracking: 'origin/feat/x', counts: '0 1' } });
+    await runShipAction(single(), 'push', {}, tracked.run);
+    expect(tracked.calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push']);
+
+    const upToDate = fakeRunner({ [P('api')]: { remote: true, tracking: 'origin/feat/x' } });
+    expect((await runShipAction(single(), 'push', {}, upToDate.run))[0].message).toBe('nothing to push');
   });
 
-  it('an upstream with another name (the base, origin/main) is not the branch\'s upstream', async () => {
-    const { run, calls } = fakeRunner({ [P('api')]: { upstream: 'origin/main', counts: '0 1' } });
-    const [pre] = (await shipPreflight(single(), run)).repos;
-    expect(pre).toMatchObject({ hasUpstream: false, ahead: null });
-    await runShipAction(single(), 'push', {}, run);
-    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat/x']);
-  });
-
-  it('create-pr pushes first, then opens the PR (draft on request)', async () => {
-    const { run, calls } = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', counts: '0 2' } });
+  it('create-pr pushes first, then opens the PR; stops on a failed push', async () => {
+    const { run, calls } = fakeRunner({ [P('api')]: {} });
     const [r] = await runShipAction(single(), 'create-pr', { draft: true }, run);
-    expect(r).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/7', message: 'draft PR opened' });
-    const order = calls.filter((c) => c.args[0] === 'push' || (c.cmd === 'gh' && c.args[1] === 'create'));
-    expect(order.map((c) => c.cmd)).toEqual(['git', 'gh']);
-    expect(order[1].args).toEqual(['pr', 'create', '--fill', '--head', 'feat/x', '--draft']);
+    expect(r).toMatchObject({ ok: true, url: 'https://github.com/o/r/pull/7' });
+    const order = calls.filter((c) => c.args[0] === 'push' || c.args[1] === 'create').map((c) => c.cmd);
+    expect(order).toEqual(['git', 'gh']);
+
+    const bad = fakeRunner({ [P('api')]: { fail: { push: 'rejected' } } });
+    expect((await runShipAction(single(), 'create-pr', {}, bad.run))[0]).toMatchObject({ ok: false, message: 'rejected' });
+    expect(bad.calls.some((c) => c.args[1] === 'create')).toBe(false);
   });
 
-  it('create-pr leaves an already-open PR alone and stops on a failed push', async () => {
-    const open = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', pr: openPr() } });
-    expect((await runShipAction(single(), 'create-pr', {}, open.run))[0].message).toBe('PR #12 already open');
-    const bad = fakeRunner({ [P('api')]: { upstream: null, fail: { push: 'rejected: non-fast-forward' } } });
-    const [r] = await runShipAction(single(), 'create-pr', {}, bad.run);
-    expect(r).toMatchObject({ ok: false, message: 'rejected: non-fast-forward' });
-    expect(bad.calls.some((c) => c.cmd === 'gh' && c.args[1] === 'create')).toBe(false);
+  it('skips done repos in a group (merged backend, untouched docs) and ships the rest', async () => {
+    const { run, calls } = fakeRunner({
+      [P('backend')]: ready({ pr: pr({ state: 'MERGED' }) }),
+      [P('frontend')]: {},
+      [P('docs')]: { vsBase: 0 },
+    });
+    const res = await runShipAction(group('backend', 'frontend', 'docs'), 'create-pr', {}, run);
+    expect(res.map((r) => [r.repo, r.message])).toEqual([
+      ['backend', 'already merged'],
+      ['frontend', 'PR opened'],
+      ['docs', 'untouched — skipped'],
+    ]);
+    expect(calls.filter((c) => c.args[1] === 'create').map((c) => c.cwd)).toEqual([P('frontend')]);
+  });
+});
+
+describe('mergeSelected', () => {
+  it('merges at the SHA the user saw — never a fresher one', async () => {
+    const f = fakeRunner({ [P('api')]: ready() });
+    const out = await mergeSelected(single(), [{ name: 'api', headSha: SHA }], 'rebase', f.run);
+    expect(out).toMatchObject({ mergedAny: true, allDone: true });
+    expect(f.merges()[0].args).toEqual(['pr', 'merge', '12', '--rebase', '--match-head-commit', SHA]);
   });
 
-  it('merge passes the method and the head SHA guard', async () => {
-    const { run, calls } = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', pr: openPr() } });
-    const [r] = await runShipAction(single(), 'merge', { method: 'rebase' }, run);
-    expect(r).toMatchObject({ ok: true, message: 'PR #12 merged (rebase)' });
-    expect(calls.find((c) => c.args[1] === 'merge')?.args).toEqual(['pr', 'merge', '12', '--rebase', '--match-head-commit', 'abc123']);
+  it('refuses when the PR moved after the user looked (someone pushed)', async () => {
+    // Reviewed bug: the server used the fresh head, merging unseen commits.
+    const f = fakeRunner({ [P('api')]: ready({ head: 'b0b0b0b0', pr: pr({ headRefOid: 'b0b0b0b0' }) }) });
+    const out = await mergeSelected(single(), [{ name: 'api', headSha: SHA }], 'squash', f.run);
+    expect(out).toMatchObject({ mergedAny: false, allDone: false });
+    expect(out.results[0].message).toMatch(/changed since you looked/);
+    expect(f.merges()).toHaveLength(0);
   });
 
-  it('merge refuses with the blockers instead of trusting the client', async () => {
-    const { run, calls } = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', pr: openPr({ statusCheckRollup: [{ conclusion: 'FAILURE', status: 'COMPLETED' }] }) } });
-    const [r] = await runShipAction(single(), 'merge', {}, run);
-    expect(r).toMatchObject({ ok: false, message: 'not merged: checks failing' });
-    expect(calls.some((c) => c.args[1] === 'merge')).toBe(false);
+  it('a group can be shipped in parts: merge only the selected repo; the session is not all done', async () => {
+    const f = fakeRunner({
+      [P('backend')]: ready(),
+      [P('frontend')]: ready({ pr: pr({ number: 13, isDraft: true }) }),
+    });
+    const out = await mergeSelected(group('backend', 'frontend'), [{ name: 'backend', headSha: SHA }], 'squash', f.run);
+    expect(out).toMatchObject({ mergedAny: true, allDone: false });
+    expect(f.merges().map((c) => c.cwd)).toEqual([P('backend')]);
   });
 
-  it('group merge is all-or-nothing and skips untouched sub-repos', async () => {
-    const scripts = {
-      [P('backend')]: { upstream: 'origin/feat/x', pr: openPr() },
-      [P('frontend')]: { upstream: 'origin/feat/x', pr: openPr({ number: 13, isDraft: true }) },
-      [P('docs')]: { upstream: null, vsBase: 0 },
-    };
-    const blocked = fakeRunner(scripts);
-    const res = await runShipAction(group('backend', 'frontend', 'docs'), 'merge', {}, blocked.run);
-    expect(blocked.calls.some((c) => c.args[1] === 'merge')).toBe(false);
-    expect(res.find((r) => r.repo === 'backend')).toMatchObject({ ok: false, message: 'not merged: another repo in this group is blocked' });
-    expect(res.find((r) => r.repo === 'frontend')?.message).toContain('draft');
-    expect(res.find((r) => r.repo === 'docs')).toMatchObject({ ok: true, message: 'nothing to merge' });
-
-    const ready = fakeRunner({ ...scripts, [P('frontend')]: { upstream: 'origin/feat/x', pr: openPr({ number: 13 }) } });
-    const ok = await runShipAction(group('backend', 'frontend', 'docs'), 'merge', {}, ready.run);
-    expect(ok.every((r) => r.ok)).toBe(true);
-    expect(ready.calls.filter((c) => c.args[1] === 'merge').map((c) => c.args[2])).toEqual(['12', '13']);
+  it('finishing a partly merged group: backend merged earlier, frontend now → all done', async () => {
+    const f = fakeRunner({
+      [P('backend')]: ready({ pr: pr({ state: 'MERGED' }) }),
+      [P('frontend')]: ready({ pr: pr({ number: 13 }) }),
+      [P('docs')]: { vsBase: 0 },
+    });
+    const out = await mergeSelected(group('backend', 'frontend', 'docs'), [{ name: 'frontend', headSha: SHA }], 'squash', f.run);
+    expect(out).toMatchObject({ mergedAny: true, allDone: true });
+    expect(f.merges().map((c) => c.args[2])).toEqual(['13']);
   });
 
-  it('a pushed branch with commits but no PR blocks the merge (not silently skipped)', async () => {
-    const { run } = fakeRunner({ [P('api')]: { upstream: 'origin/feat/x', vsBase: 3 } });
-    const [r] = await runShipAction(single(), 'merge', {}, run);
-    expect(r).toMatchObject({ ok: false, message: 'not merged: no pull request' });
+  it('validates every selected repo before merging any', async () => {
+    const f = fakeRunner({
+      [P('backend')]: ready(),
+      [P('frontend')]: ready({ pr: pr({ number: 13, statusCheckRollup: [{ conclusion: 'FAILURE', status: 'COMPLETED' }] }) }),
+    });
+    const out = await mergeSelected(
+      group('backend', 'frontend'),
+      [{ name: 'backend', headSha: SHA }, { name: 'frontend', headSha: SHA }],
+      'squash',
+      f.run,
+    );
+    expect(f.merges()).toHaveLength(0);
+    expect(out.mergedAny).toBe(false);
+    expect(out.results.find((r) => r.repo === 'frontend')?.message).toContain('checks failing');
+    expect(out.results.find((r) => r.repo === 'backend')?.message).toBe('not merged: another selected repo is blocked');
   });
 
-  it('push / create-pr skip a sub-repo with no commits vs the base', async () => {
-    const { run, calls } = fakeRunner({ [P('docs')]: { upstream: null, vsBase: 0 } });
-    const [r] = await runShipAction(group('docs'), 'create-pr', {}, run);
-    expect(r.message).toMatch(/no commits vs the base branch/);
-    expect(calls.some((c) => c.args[0] === 'push' || c.args[1] === 'create')).toBe(false);
+  it('refuses a selection naming a done repo or one not in the session', async () => {
+    const f = fakeRunner({ [P('backend')]: ready({ pr: pr({ state: 'MERGED' }) }) });
+    const done = await mergeSelected(group('backend'), [{ name: 'backend', headSha: SHA }], 'squash', f.run);
+    expect(done.results[0].message).toBe('already merged');
+    const unknown = await mergeSelected(group('backend'), [{ name: 'nope', headSha: SHA }], 'squash', f.run);
+    expect(unknown.results[0].message).toBe('not a repository of this session');
+    expect(f.merges()).toHaveLength(0);
+  });
+
+  it('stops at the first gh failure and reports exactly what was merged', async () => {
+    const f = fakeRunner({
+      [P('a')]: ready(),
+      [P('b')]: ready({ pr: pr({ number: 13 }), fail: { 'pr merge': 'Head branch was modified' } }),
+      [P('c')]: ready({ pr: pr({ number: 14 }) }),
+    });
+    const sel = ['a', 'b', 'c'].map((name) => ({ name, headSha: SHA }));
+    const out = await mergeSelected(group('a', 'b', 'c'), sel, 'squash', f.run);
+    expect(out.results.map((r) => [r.repo, r.ok, r.merged ?? false])).toEqual([
+      ['a', true, true],
+      ['b', false, false],
+      ['c', false, false],
+    ]);
+    expect(out).toMatchObject({ mergedAny: true, allDone: false });
+    expect(f.merges().map((c) => c.args[2])).toEqual(['12', '13']);
+  });
+
+  it('an empty selection merges nothing', async () => {
+    const f = fakeRunner({ [P('api')]: ready() });
+    expect((await mergeSelected(single(), [], 'squash', f.run)).mergedAny).toBe(false);
+    expect(f.merges()).toHaveLength(0);
   });
 });

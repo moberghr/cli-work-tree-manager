@@ -74,9 +74,19 @@ export interface RepoShipState {
   name: string;
   path: string;
   branch: string;
+  /** Local HEAD commit. */
+  localSha: string;
   /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
   dirtyFiles: number;
+  /** The branch exists on origin. */
   hasUpstream: boolean;
+  /** Local tracking is set to origin/<branch>. */
+  tracksRemote: boolean;
+  /** Nothing left to do in this repo: its PR is merged, or it was never
+   *  touched (group sub-repo with no commits). Never blocks the others. */
+  done: boolean;
+  doneReason?: 'merged' | 'untouched';
+  commitsVsBase?: number | null;
   /** Commits not on the upstream (null without one). */
   ahead: number | null;
   behind: number | null;
@@ -99,6 +109,7 @@ export interface ShipResult {
   ok: boolean;
   message: string;
   url?: string;
+  merged?: boolean;
 }
 
 export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
@@ -106,12 +117,15 @@ export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
 }
 
 /** push: publish the branch. create-pr: push if needed, then open a PR
- *  (draft optional). merge: merge the open PR at the head SHA the preflight
- *  saw (refused if it moved), then archive the session. */
+ *  (draft optional). merge: merge exactly `repos`, each at the PR head the
+ *  user was shown (refused if it moved; all validated before any merges);
+ *  the session is archived only when every repo is done afterwards. */
 export function ship(
   sessionId: string,
-  body: { action: ShipAction; method?: MergeMethod; draft?: boolean },
-): Promise<{ results: ShipResult[]; archived?: boolean }> {
+  body:
+    | { action: 'push' | 'create-pr'; draft?: boolean }
+    | { action: 'merge'; method?: MergeMethod; repos: Array<{ name: string; headSha: string }> },
+): Promise<{ results: ShipResult[]; archived?: boolean; allDone?: boolean }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`, body);
 }
 

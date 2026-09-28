@@ -43,8 +43,8 @@ const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   createdAt: minsAgo(100), lastAccessedAt: minsAgo(10), ...over,
 });
 const repo = (over: Partial<RepoShipState> = {}): RepoShipState => ({
-  name: 'api', path: '/wt/api/feat-x', branch: 'feat/x', dirtyFiles: 0,
-  hasUpstream: true, ahead: 0, behind: 0, pr: null, mergeBlockers: [], ...over,
+  name: 'api', path: '/wt/api/feat-x', branch: 'feat/x', localSha: 'abc', dirtyFiles: 0,
+  hasUpstream: true, tracksRemote: true, ahead: 0, behind: 0, pr: null, done: false, mergeBlockers: [], ...over,
 });
 const openPr = { number: 12, url: 'https://gh/pr/12', state: 'OPEN' as const, isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass' as const, headSha: 'abc' };
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -62,14 +62,18 @@ async function openPanel(pre: ShipPreflight, onMerged = vi.fn()) {
 describe('shipAvailability', () => {
   it('a dirty tree blocks every action', () => {
     const a = shipAvailability({ repos: [repo({ dirtyFiles: 2, hasUpstream: false, ahead: null })] });
-    expect(a).toMatchObject({ canPush: false, canCreatePr: false, canMerge: false });
+    expect(a).toMatchObject({ canPush: false, canCreatePr: false });
+    expect(a.mergeable).toHaveLength(0);
     expect(a.dirty.map((r) => r.name)).toEqual(['api']);
   });
   it('unpushed → push + create PR; open clean PR → merge; blockers/draft block merge', () => {
-    expect(shipAvailability({ repos: [repo({ hasUpstream: false, ahead: null })] })).toMatchObject({ canPush: true, canCreatePr: true, canMerge: false });
-    expect(shipAvailability({ repos: [repo({ pr: openPr })] })).toMatchObject({ canPush: false, canCreatePr: false, canMerge: true });
-    expect(shipAvailability({ repos: [repo({ pr: openPr, mergeBlockers: ['Checks failing'] })] }).canMerge).toBe(false);
-    expect(shipAvailability({ repos: [repo({ pr: { ...openPr, isDraft: true } })] }).canMerge).toBe(false);
+    const unpushed = shipAvailability({ repos: [repo({ hasUpstream: false, tracksRemote: false, ahead: null })] });
+    expect(unpushed).toMatchObject({ canPush: true, canCreatePr: true });
+    expect(unpushed.mergeable).toHaveLength(0);
+    const open = shipAvailability({ repos: [repo({ pr: openPr })] });
+    expect(open).toMatchObject({ canPush: false, canCreatePr: false });
+    expect(open.mergeable.map((r) => r.name)).toEqual(['api']);
+    expect(shipAvailability({ repos: [repo({ pr: openPr, mergeBlockers: ['Checks failing'] })] }).mergeable).toHaveLength(0);
     expect(shipAvailability({ repos: [repo({ ghError: 'gh not authenticated' })] }).canCreatePr).toBe(false);
   });
 });
@@ -117,10 +121,13 @@ describe('ShipPanel', () => {
     });
     act(() => button('Merge…').click());
     expect(h.ship).not.toHaveBeenCalled();
-    expect(text(container.querySelector('[role="alertdialog"]'))).toContain('Merge api #12 with rebase?');
+    const confirm = text(container.querySelector('[role="alertdialog"]'));
+    expect(confirm).toContain('Merge api #12 (abc) with rebase?');
+    expect(confirm).toContain('the session is archived');
     h.ship.mockResolvedValue({ results: [{ repo: 'api', ok: true, message: 'merged' }], archived: true });
     await act(async () => button('Confirm merge').click());
-    expect(h.ship).toHaveBeenCalledWith('sess-1', { action: 'merge', method: 'rebase' });
+    // The SHA the panel showed goes to the server — it refuses if the PR moved.
+    expect(h.ship).toHaveBeenCalledWith('sess-1', { action: 'merge', method: 'rebase', repos: [{ name: 'api', headSha: 'abc' }] });
     expect(onMerged).toHaveBeenCalled();
   });
 
@@ -184,5 +191,61 @@ describe('Session header strip', () => {
     await act(async () => button('Ship ▾').click());
     expect(container.querySelector('[role="dialog"][aria-label="Ship session"]')).not.toBeNull();
     expect(h.fetchShipPreflight).toHaveBeenCalledWith('sess-1');
+  });
+
+  describe('groups — shipped in parts, carefully', () => {
+    const be = (over: Partial<RepoShipState> = {}) => repo({ name: 'backend', path: '/wt/shop/backend', pr: { ...openPr, headSha: 'b1' }, ...over });
+    const fe = (over: Partial<RepoShipState> = {}) => repo({ name: 'frontend', path: '/wt/shop/frontend', pr: { ...openPr, number: 13, headSha: 'f1' }, ...over });
+    const docs = repo({ name: 'docs', path: '/wt/shop/docs', done: true, doneReason: 'untouched', commitsVsBase: 0 });
+    const checkbox = (name: string) => container.querySelector<HTMLInputElement>(`input[aria-label="Merge ${name}"]`);
+
+    it('a merged or untouched repo shows as done, never as blocked, and has no checkbox', async () => {
+      await openPanel({ repos: [be({ done: true, doneReason: 'merged', pr: { ...openPr, state: 'MERGED' } }), fe(), docs] });
+      expect(text(container)).toContain('backend feat/x ✓ merged');
+      expect(text(container)).toContain('untouched, nothing to ship');
+      expect(checkbox('backend')).toBeNull();
+      expect(checkbox('docs')).toBeNull();
+      expect(checkbox('frontend')?.checked).toBe(true);
+      // Finishing the group: frontend is the only open repo → archives after.
+      act(() => button('Merge').click());
+      expect(text(container.querySelector('[role="alertdialog"]'))).toContain('the session is archived');
+    });
+
+    it('deselecting a repo merges only the rest, says the session stays open, and sends only their SHAs', async () => {
+      await openPanel({ repos: [be(), fe(), docs] });
+      expect(button('Merge').textContent).toContain('Merge 2');
+      act(() => checkbox('frontend')!.click());
+      expect(button('Merge').textContent).toContain('Merge 1');
+      act(() => button('Merge').click());
+      const confirm = text(container.querySelector('[role="alertdialog"]'));
+      expect(confirm).toContain('Merge backend #12 (b1)');
+      expect(confirm).toContain('1 other repository stays open — the session stays until everything is done');
+      h.ship.mockResolvedValue({ results: [{ repo: 'backend', ok: true, merged: true, message: 'merged' }], archived: false, allDone: false });
+      h.fetchShipPreflight.mockResolvedValue({ repos: [be({ done: true, doneReason: 'merged' }), fe(), docs] });
+      await act(async () => button('Confirm merge').click());
+      expect(h.ship).toHaveBeenCalledWith('sess-1', { action: 'merge', method: 'squash', repos: [{ name: 'backend', headSha: 'b1' }] });
+      await flush();
+      // Not archived → the panel stays, refreshed: backend now done.
+      expect(text(container)).toContain('backend feat/x ✓ merged');
+    });
+
+    it('a blocked repo cannot be selected; the ready one still can', async () => {
+      await openPanel({ repos: [be(), fe({ mergeBlockers: ['checks failing'] }), docs] });
+      expect(checkbox('frontend')).toBeNull();
+      expect(checkbox('backend')?.checked).toBe(true);
+      expect(text(container)).toContain('checks failing');
+    });
+
+    it('nothing selected → Merge is disabled', async () => {
+      await openPanel({ repos: [be(), fe()] });
+      act(() => checkbox('backend')!.click());
+      act(() => checkbox('frontend')!.click());
+      expect(button('Merge').disabled).toBe(true);
+    });
+
+    it('every repo done → says so', async () => {
+      await openPanel({ repos: [be({ done: true, doneReason: 'merged' }), docs] });
+      expect(text(container)).toContain('nothing left to ship');
+    });
   });
 });

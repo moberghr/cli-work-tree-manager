@@ -196,3 +196,51 @@ test('ship: create a PR, merge it after confirming, and the session archives its
   const history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
   expect(history.find((s: { branch: string }) => s.branch === 'feat/ship').archivedAt).toBeTruthy();
 });
+
+test('ship a group in parts: merge backend now, frontend later; archived only when both are done', async ({ page, work }) => {
+  work.setupGroup('feat/g');
+  const be = work.groupWorktreePath('feat/g', 'backend');
+  const fe = work.groupWorktreePath('feat/g', 'frontend');
+  work.commitAt(be, 'api.ts', 'export const api = 1;\n');
+  work.commitAt(fe, 'ui.tsx', 'export const ui = 1;\n');
+  await work.startWeb();
+  const id = work.sessionId('shop', 'feat/g');
+  const prState = (cwd: string) =>
+    JSON.parse(fs.readFileSync(path.join(work.home, 'gh-state.json'), 'utf-8'))[cwd.toLowerCase()]?.state;
+
+  await page.goto(`${work.url}#/s/${id}/diff`);
+  await page.getByRole('button', { name: /^Ship/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Ship session' });
+  await panel.getByRole('button', { name: 'Create PR' }).click();
+  await expect(panel.locator('.wd-ship-results')).toContainText('frontend');
+  await expect(panel.getByLabel('Merge backend')).toBeChecked();
+  await expect(panel.getByLabel('Merge frontend')).toBeChecked();
+
+  // Step 1: frontend isn't ready — untick it, merge backend only.
+  await panel.getByLabel('Merge frontend').uncheck();
+  await panel.getByRole('button', { name: 'Merge 1…' }).click();
+  const confirm = panel.getByRole('alertdialog', { name: 'Confirm merge' });
+  await expect(confirm).toContainText('1 other repository stays open');
+  await confirm.getByRole('button', { name: 'Confirm merge' }).click();
+
+  // Backend merged; the session stays (not archived); backend now shows done.
+  await expect(panel).toContainText('✓ merged');
+  expect(prState(be)).toBe('MERGED');
+  expect(prState(fe)).toBe('OPEN');
+  await expect(page).toHaveURL(new RegExp(`#/s/${id}`));
+  let history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
+  expect(history.find((s: { target: string }) => s.target === 'shop').archivedAt).toBeUndefined();
+  await expect(panel.getByLabel('Merge backend')).toHaveCount(0); // done: not selectable
+
+  // Step 2: finish the group — frontend only; now it archives.
+  await expect(panel.getByLabel('Merge frontend')).toBeChecked();
+  await panel.getByRole('button', { name: 'Merge 1…' }).click();
+  await expect(confirm).toContainText('the session is archived');
+  await confirm.getByRole('button', { name: 'Confirm merge' }).click();
+  await expect(page).not.toHaveURL(new RegExp(`#/s/${id}`));
+  expect(prState(fe)).toBe('MERGED');
+  history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
+  expect(history.find((s: { target: string }) => s.target === 'shop').archivedAt).toBeTruthy();
+  // Each merge carried the SHA the panel showed.
+  expect(work.ghCalls().filter((a) => a[1] === 'merge').every((a) => a.includes('--match-head-commit'))).toBe(true);
+});

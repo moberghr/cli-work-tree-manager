@@ -3,14 +3,22 @@ import crossSpawn from 'cross-spawn';
 import type { WorktreeSession } from './history.js';
 
 /**
- * Ship a session's work: push, open a PR, merge it. Per repo, so a group
- * ships each sub-repo that has something to ship.
+ * Ship a session's work: push, open a PR, merge it — per repo, because a
+ * group's repos ship independently: backend can be merged and done while
+ * frontend still waits for review.
+ *
+ * Group rules (the careful part):
+ *   - A repo whose PR is MERGED, or that was never touched (no commits vs
+ *     the base, clean, no PR), is `done` — never a blocker for the others.
+ *   - Merge takes an explicit list of repos, each with the PR head SHA the
+ *     user was shown. The server re-checks every one of them and merges
+ *     NONE if any is blocked or its PR moved; repos not listed are left
+ *     alone. So a group can be shipped in parts, deliberately.
+ *   - The session is archived only when a merge actually merged something
+ *     AND every repo is done afterwards.
  *
  * Every git/gh call goes through a `CommandRunner` with an argv array — no
- * shell (§1.1) — injectable so the decision logic is unit-testable without
- * GitHub. Merge passes `--match-head-commit <sha>` so GitHub refuses it if
- * the branch moved after the user looked (the optimistic-concurrency guard
- * Emdash uses via the API).
+ * shell (§1.1) — injectable so the decision logic is unit-testable.
  */
 
 export interface RunResult {
@@ -66,16 +74,26 @@ export interface RepoShipState {
   name: string;
   path: string;
   branch: string;
+  /** Local HEAD commit. */
+  localSha: string;
   dirtyFiles: number;
+  /** The branch exists on origin (`origin/<branch>`), whatever the local
+   *  tracking config says — `work tree` often leaves it tracking the base. */
   hasUpstream: boolean;
+  /** Local tracking is set to `origin/<branch>` (a plain `git push` works). */
+  tracksRemote: boolean;
+  /** vs `origin/<branch>`; null when the branch isn't on origin. */
   ahead: number | null;
   behind: number | null;
   pr: ShipPr | null;
+  /** Nothing left to do here: PR merged, or the repo was never touched. */
+  done: boolean;
+  doneReason?: 'merged' | 'untouched';
+  /** Why "merge" isn't available for this repo right now ([] = go). Always
+   *  empty for a `done` repo. */
   mergeBlockers: string[];
   ghError?: string;
-  /** Commits on this branch that the remote's default branch doesn't have
-   *  (null when that can't be determined). 0 = nothing to ship from here —
-   *  typically an untouched sub-repo of a group. */
+  /** Commits the remote's default branch doesn't have (null = unknown). */
   commitsVsBase?: number | null;
 }
 
@@ -86,11 +104,19 @@ export interface ShipPreflight {
 export type ShipAction = 'push' | 'create-pr' | 'merge';
 export type MergeMethod = 'squash' | 'merge' | 'rebase';
 
+/** A repo the user chose to merge, with the PR head they were shown. */
+export interface MergeSelection {
+  name: string;
+  headSha: string;
+}
+
 export interface ShipResult {
   repo: string;
   ok: boolean;
   message: string;
   url?: string;
+  /** For merge: whether this repo's PR was merged by this call. */
+  merged?: boolean;
 }
 
 /** The repos a session ships: each worktree path, named by its folder. */
@@ -122,18 +148,35 @@ export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): 
   return pending ? 'pending' : 'pass';
 }
 
+type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason'>;
+
+/** Done = nothing left to ship from this repo. */
+export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'untouched' } {
+  if (r.pr?.state === 'MERGED') return { done: true, reason: 'merged' };
+  if (!r.pr && r.dirtyFiles === 0 && r.commitsVsBase === 0) return { done: true, reason: 'untouched' };
+  return { done: false };
+}
+
 /** Why "merge" isn't available for this repo right now ([] = go). */
-export function mergeBlockers(r: Omit<RepoShipState, 'mergeBlockers'>): string[] {
+export function mergeBlockers(r: RepoFacts): string[] {
+  if (repoDone(r).done) return [];
   const out: string[] = [];
   if (r.ghError) out.push(r.ghError);
   if (r.dirtyFiles > 0) out.push(`${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'} — commit or stash first`);
+  if (!r.hasUpstream) out.push('branch not pushed yet');
   if (r.ahead && r.ahead > 0) out.push(`${r.ahead} unpushed commit${r.ahead === 1 ? '' : 's'}`);
+  if (r.behind && r.behind > 0) out.push(`origin has ${r.behind} commit${r.behind === 1 ? '' : 's'} you don't have locally — pull first`);
   if (!r.pr) {
     if (!r.ghError) out.push('no pull request');
     return out;
   }
-  if (r.pr.state !== 'OPEN') out.push(`pull request is ${r.pr.state.toLowerCase()}`);
+  if (r.pr.state === 'CLOSED') out.push('pull request is closed');
   if (r.pr.isDraft) out.push('pull request is a draft');
+  // The PR must be exactly what you have locally: otherwise merging lands
+  // commits you haven't seen (or leaves out ones you have).
+  if (r.localSha && r.pr.headSha && r.pr.headSha !== r.localSha && !(r.ahead || r.behind)) {
+    out.push("the PR's head isn't your local HEAD — push or pull first");
+  }
   switch (r.pr.mergeStateStatus) {
     case 'DIRTY': out.push('merge conflicts with the base branch'); break;
     case 'BEHIND': out.push('branch is behind the base branch'); break;
@@ -145,26 +188,33 @@ export function mergeBlockers(r: Omit<RepoShipState, 'mergeBlockers'>): string[]
   return out;
 }
 
+function oneLineErr(s: string): string {
+  return s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
+}
+
 async function inspectRepo(
   repo: { name: string; path: string },
   run: CommandRunner,
 ): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
   const branch = (await git('rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim();
+  const localSha = (await git('rev-parse', 'HEAD')).stdout.trim();
   const status = await git('status', '--porcelain');
   const dirtyFiles = status.stdout.split('\n').filter((l) => l.trim()).length;
+
+  // "Published" = origin/<branch> exists — NOT whatever @{u} points at.
+  // `work tree` forks branches tracking origin/main, so @{u} is often the
+  // base: measuring against it hides unpushed commits, and a plain push
+  // fails ("upstream branch ... does not match the name of your current
+  // branch").
+  const remoteRef = `refs/remotes/origin/${branch}`;
+  const hasUpstream = (await git('rev-parse', '--verify', '--quiet', remoteRef)).code === 0;
   const upstream = await git('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}');
-  const upstreamRef = upstream.code === 0 ? upstream.stdout.trim() : '';
-  // Only an upstream with the branch's own name counts. `work tree` forks new
-  // branches from origin/main with tracking set to it, so @{u} is often the
-  // BASE: a plain `git push` then fails ("upstream branch ... does not match
-  // the name of your current branch") and ahead/behind would be measured
-  // against main. Treat that as unpublished and push with -u instead.
-  const hasUpstream = upstreamRef.length > 0 && upstreamRef.endsWith('/' + branch);
+  const tracksRemote = upstream.code === 0 && upstream.stdout.trim() === `origin/${branch}`;
   let ahead: number | null = null;
   let behind: number | null = null;
   if (hasUpstream) {
-    const counts = await git('rev-list', '--left-right', '--count', '@{u}...HEAD');
+    const counts = await git('rev-list', '--left-right', '--count', `${remoteRef}...HEAD`);
     const [b, a] = counts.stdout.trim().split(/\s+/).map(Number);
     if (Number.isFinite(a) && Number.isFinite(b)) {
       ahead = a;
@@ -210,12 +260,12 @@ async function inspectRepo(
     ghError = oneLineErr(view.stderr) || 'gh pr view failed';
   }
 
-  const base = { name: repo.name, path: repo.path, branch, dirtyFiles, hasUpstream, ahead, behind, pr, ghError, commitsVsBase };
-  return { ...base, mergeBlockers: mergeBlockers(base) };
-}
-
-function oneLineErr(s: string): string {
-  return s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
+  const facts: RepoFacts = {
+    name: repo.name, path: repo.path, branch, localSha, dirtyFiles,
+    hasUpstream, tracksRemote, ahead, behind, pr, ghError, commitsVsBase,
+  };
+  const { done, reason } = repoDone(facts);
+  return { ...facts, done, doneReason: reason, mergeBlockers: mergeBlockers(facts) };
 }
 
 export async function shipPreflight(
@@ -227,7 +277,9 @@ export async function shipPreflight(
 }
 
 async function push(r: RepoShipState, run: CommandRunner): Promise<ShipResult> {
-  const args = r.hasUpstream ? ['push'] : ['push', '-u', 'origin', r.branch];
+  // Set tracking to origin/<branch> unless it already is; a plain push
+  // with tracking on the base branch is refused by git.
+  const args = r.tracksRemote ? ['push'] : ['push', '-u', 'origin', r.branch];
   const res = await run('git', args, r.path);
   return res.code === 0
     ? { repo: r.name, ok: true, message: r.hasUpstream ? 'pushed' : `published ${r.branch}` }
@@ -235,111 +287,142 @@ async function push(r: RepoShipState, run: CommandRunner): Promise<ShipResult> {
 }
 
 /**
- * Run one ship action across the session's repos. Repos where the action
- * doesn't apply (nothing to push, PR already open) are reported as skipped,
- * not failed. `merge` re-checks the blockers first and refuses rather than
- * trusting the client.
+ * push / create-pr across the session's repos. Done repos and repos with
+ * no commits vs the base are skipped (reported ok), never failed.
  */
 export async function runShipAction(
   session: WorktreeSession,
-  action: ShipAction,
-  opts: { method?: MergeMethod; draft?: boolean } = {},
+  action: 'push' | 'create-pr',
+  opts: { draft?: boolean } = {},
   run: CommandRunner = defaultRunner,
 ): Promise<ShipResult[]> {
   const { repos } = await shipPreflight(session, run);
   const results: ShipResult[] = [];
-  if (action === 'merge') return mergeAll(repos, opts.method ?? 'squash', run);
   for (const r of repos) {
-    if (r.commitsVsBase === 0 && !r.pr && r.dirtyFiles === 0) {
+    if (r.done) {
+      results.push({ repo: r.name, ok: true, message: r.doneReason === 'merged' ? 'already merged' : 'untouched — skipped' });
+      continue;
+    }
+    if (r.commitsVsBase === 0 && !r.pr) {
       results.push({ repo: r.name, ok: true, message: 'no commits vs the base branch — skipped' });
       continue;
     }
     if (action === 'push') {
-      if (r.hasUpstream && !r.ahead) {
+      if (r.hasUpstream && !r.ahead && r.tracksRemote) {
         results.push({ repo: r.name, ok: true, message: 'nothing to push' });
         continue;
       }
       results.push(await push(r, run));
       continue;
     }
-    if (action === 'create-pr') {
-      if (r.pr && r.pr.state === 'OPEN') {
-        results.push({ repo: r.name, ok: true, message: `PR #${r.pr.number} already open`, url: r.pr.url });
-        continue;
-      }
-      if (r.ghError) {
-        results.push({ repo: r.name, ok: false, message: r.ghError });
-        continue;
-      }
-      if (!r.hasUpstream || (r.ahead ?? 0) > 0) {
-        const pushed = await push(r, run);
-        if (!pushed.ok) {
-          results.push(pushed);
-          continue;
-        }
-      }
-      const args = ['pr', 'create', '--fill', '--head', r.branch];
-      if (opts.draft) args.push('--draft');
-      const res = await run('gh', args, r.path);
-      if (res.code === 0) {
-        const url = res.stdout.trim().split(/\s+/).find((t) => t.startsWith('http'));
-        results.push({ repo: r.name, ok: true, message: opts.draft ? 'draft PR opened' : 'PR opened', url });
-      } else {
-        results.push({ repo: r.name, ok: false, message: oneLineErr(res.stderr) || 'gh pr create failed' });
-      }
+    // create-pr
+    if (r.pr && r.pr.state === 'OPEN') {
+      results.push({ repo: r.name, ok: true, message: `PR #${r.pr.number} already open`, url: r.pr.url });
       continue;
+    }
+    if (r.ghError) {
+      results.push({ repo: r.name, ok: false, message: r.ghError });
+      continue;
+    }
+    if (!r.hasUpstream || (r.ahead ?? 0) > 0 || !r.tracksRemote) {
+      const pushed = await push(r, run);
+      if (!pushed.ok) {
+        results.push(pushed);
+        continue;
+      }
+    }
+    const args = ['pr', 'create', '--fill', '--head', r.branch];
+    if (opts.draft) args.push('--draft');
+    const res = await run('gh', args, r.path);
+    if (res.code === 0) {
+      const url = res.stdout.trim().split(/\s+/).find((t) => t.startsWith('http'));
+      results.push({ repo: r.name, ok: true, message: opts.draft ? 'draft PR opened' : 'PR opened', url });
+    } else {
+      results.push({ repo: r.name, ok: false, message: oneLineErr(res.stderr) || 'gh pr create failed' });
     }
   }
   return results;
 }
 
+export interface MergeOutcome {
+  results: ShipResult[];
+  /** Something was merged by this call. */
+  mergedAny: boolean;
+  /** After this call, every repo in the session is done. */
+  allDone: boolean;
+}
+
 /**
- * Merge every repo that has something shipped — all or nothing. A group's
- * sub-repos are one feature; merging the ready ones while another is
- * blocked would leave main half-shipped, so any blocker stops them all.
+ * Merge exactly the selected repos, at exactly the PR heads the user saw.
+ *
+ * Validation happens for ALL selected repos before ANY merge: an unknown
+ * repo, a PR that moved (someone pushed after the user looked), or any
+ * blocker refuses the whole call — no half-applied selection. Repos not
+ * selected are never touched, so shipping a group in parts is a deliberate
+ * choice, not an accident.
  */
-async function mergeAll(
-  repos: RepoShipState[],
+export async function mergeSelected(
+  session: WorktreeSession,
+  selection: MergeSelection[],
   method: MergeMethod,
-  run: CommandRunner,
-): Promise<ShipResult[]> {
-  // Untouched sub-repos (no commits vs the base, no PR, clean) aren't part
-  // of the ship. When that can't be determined, the repo is treated as
-  // shipping — and its "no pull request" blocker stops the merge — rather
-  // than silently skipped.
-  const idle = (r: RepoShipState) => !r.pr && r.dirtyFiles === 0 && r.commitsVsBase === 0;
-  const toMerge = repos.filter((r) => !idle(r));
-  const skipped: ShipResult[] = repos
-    .filter(idle)
-    .map((r) => ({ repo: r.name, ok: true, message: 'nothing to merge' }));
-  if (toMerge.length === 0) {
-    return skipped.length ? skipped : [{ repo: '-', ok: false, message: 'nothing to merge' }];
+  run: CommandRunner = defaultRunner,
+): Promise<MergeOutcome> {
+  const { repos } = await shipPreflight(session, run);
+  const byName = new Map(repos.map((r) => [r.name, r]));
+  if (selection.length === 0) {
+    return { results: [{ repo: '-', ok: false, message: 'no repositories selected' }], mergedAny: false, allDone: repos.every((r) => r.done) };
   }
-  const blocked = toMerge.filter((r) => r.mergeBlockers.length > 0);
-  if (blocked.length > 0) {
-    return [
-      ...toMerge.map((r) => ({
+
+  const problems: ShipResult[] = [];
+  for (const sel of selection) {
+    const r = byName.get(sel.name);
+    if (!r) {
+      problems.push({ repo: sel.name, ok: false, message: 'not a repository of this session' });
+    } else if (r.done) {
+      problems.push({ repo: r.name, ok: false, message: r.doneReason === 'merged' ? 'already merged' : 'nothing to merge' });
+    } else if (!r.pr || r.pr.headSha !== sel.headSha) {
+      problems.push({
         repo: r.name,
         ok: false,
-        message: r.mergeBlockers.length
-          ? `not merged: ${r.mergeBlockers.join('; ')}`
-          : 'not merged: another repo in this group is blocked',
-      })),
-      ...skipped,
-    ];
+        message: 'the pull request changed since you looked — review it again before merging',
+      });
+    } else if (r.mergeBlockers.length > 0) {
+      problems.push({ repo: r.name, ok: false, message: `not merged: ${r.mergeBlockers.join('; ')}` });
+    }
   }
+  if (problems.length > 0) {
+    const failed = new Set(problems.map((p) => p.repo));
+    const held = selection
+      .filter((s) => !failed.has(s.name))
+      .map((s) => ({ repo: s.name, ok: false, message: 'not merged: another selected repo is blocked' }));
+    return { results: [...problems, ...held], mergedAny: false, allDone: repos.every((r) => r.done) };
+  }
+
   const results: ShipResult[] = [];
-  for (const r of toMerge) {
+  const mergedNow = new Set<string>();
+  for (const sel of selection) {
+    const r = byName.get(sel.name)!;
     const res = await run(
       'gh',
-      ['pr', 'merge', String(r.pr!.number), `--${method}`, '--match-head-commit', r.pr!.headSha],
+      ['pr', 'merge', String(r.pr!.number), `--${method}`, '--match-head-commit', sel.headSha],
       r.path,
     );
-    results.push(
-      res.code === 0
-        ? { repo: r.name, ok: true, message: `PR #${r.pr!.number} merged (${method})`, url: r.pr!.url }
-        : { repo: r.name, ok: false, message: oneLineErr(res.stderr) || 'gh pr merge failed' },
-    );
+    if (res.code === 0) {
+      mergedNow.add(r.name);
+      results.push({ repo: r.name, ok: true, merged: true, message: `PR #${r.pr!.number} merged (${method})`, url: r.pr!.url });
+    } else {
+      // Stop at the first failure rather than keep merging a partially
+      // failing selection; what's merged is reported as merged.
+      results.push({ repo: r.name, ok: false, message: oneLineErr(res.stderr) || 'gh pr merge failed' });
+      break;
+    }
   }
-  return [...results, ...skipped];
+  const attempted = new Set(results.map((x) => x.repo));
+  for (const sel of selection) {
+    if (!attempted.has(sel.name)) {
+      results.push({ repo: sel.name, ok: false, message: 'not merged: stopped after an earlier failure' });
+    }
+  }
+  const allDone = repos.every((r) => r.done || mergedNow.has(r.name));
+  return { results, mergedAny: mergedNow.size > 0, allDone };
 }

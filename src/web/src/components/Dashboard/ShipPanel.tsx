@@ -35,32 +35,43 @@ const BUSY_LABEL: Record<ShipAction, string> = {
   merge: 'Merging…',
 };
 
-/** What the preflight allows, across every repo of the session. */
+/** A repo that can be merged right now: open PR, nothing blocking. */
+export function isMergeable(r: RepoShipState): boolean {
+  return !r.done && r.pr?.state === 'OPEN' && r.mergeBlockers.length === 0;
+}
+
+/**
+ * What the preflight allows. Done repos (merged, or never touched) are out
+ * of the picture entirely — in a group, backend can be merged and done
+ * while frontend is still in review, and that must not block anything.
+ */
 export function shipAvailability(pre: ShipPreflight) {
-  const repos = pre.repos;
-  const dirty = repos.filter((r) => r.dirtyFiles > 0);
-  const needsPush = repos.filter((r) => !r.hasUpstream || (r.ahead ?? 0) > 0);
-  const noPr = repos.filter((r) => !r.pr || r.pr.state === 'CLOSED');
-  const openPrs = repos.filter((r) => r.pr?.state === 'OPEN');
-  const blocked = openPrs.filter((r) => r.mergeBlockers.length > 0 || r.pr!.isDraft);
+  const active = pre.repos.filter((r) => !r.done);
+  const dirty = active.filter((r) => r.dirtyFiles > 0);
+  const shipping = active.filter((r) => r.commitsVsBase !== 0 || r.pr);
+  const needsPush = shipping.filter((r) => !r.hasUpstream || (r.ahead ?? 0) > 0 || !r.tracksRemote);
+  const noPr = shipping.filter((r) => !r.pr || r.pr.state === 'CLOSED');
+  const mergeable = active.filter(isMergeable);
   const clean = dirty.length === 0;
   return {
     dirty,
+    active,
+    mergeable,
     canPush: clean && needsPush.length > 0,
-    canCreatePr: clean && noPr.length > 0 && repos.every((r) => !r.ghError),
-    // Repos without an open PR (a group sub-repo with no changes) are
-    // simply not merged; every OPEN one must be mergeable.
-    canMerge: clean && openPrs.length > 0 && blocked.length === 0,
-    openPrs,
+    canCreatePr: clean && noPr.length > 0 && shipping.every((r) => !r.ghError),
+    allDone: pre.repos.length > 0 && active.length === 0,
   };
 }
 
 /**
- * Ship a session: push → open a PR → merge, per repo (groups ship every
- * repo). Starts with a preflight so it only offers what's valid right now;
- * a dirty tree blocks everything ("commit or stash first"). Merging is
- * outward-facing and irreversible, so it needs an explicit confirm, and the
- * server merges at the head SHA the preflight saw (refused if it moved).
+ * Ship a session: push → open a PR → merge, per repo. Starts with a
+ * preflight so it only offers what's valid right now.
+ *
+ * Merging is outward-facing and irreversible, so: you pick the repos (all
+ * mergeable ones are pre-selected; a group can be shipped in parts), an
+ * explicit confirm says exactly what will merge and whether the session
+ * will be archived, and the request carries the PR head SHAs shown here —
+ * the server refuses the whole merge if any of them moved.
  */
 export function ShipPanel({ session, onClose, onMerged }: Props) {
   const [pre, setPre] = useState<ShipPreflight | null>(null);
@@ -72,6 +83,7 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
   const [draft, setDraft] = useState(false);
   const [method, setMethod] = useState<MergeMethod>('squash');
   const [confirming, setConfirming] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
@@ -80,6 +92,9 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
     fetchShipPreflight(session.id).then(
       (p) => {
         setPre(p);
+        // Fresh preflight → fresh selection: every mergeable repo.
+        setSelected(new Set(p.repos.filter(isMergeable).map((r) => r.name)));
+        setConfirming(false);
         setLoading(false);
       },
       (err) => {
@@ -99,15 +114,20 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
   }, [busy, onClose]);
   useEffect(() => cancelRef.current?.focus(), []);
 
+  const avail = pre ? shipAvailability(pre) : null;
+  const toMerge = avail ? avail.mergeable.filter((r) => selected.has(r.name)) : [];
+  // Archived afterwards only if this merge leaves nothing undone.
+  const archivesAfter = !!avail && toMerge.length > 0 && toMerge.length === avail.active.length;
+
   const run = (action: ShipAction) => {
     setBusy(action);
     setActionError(null);
     setResults(null);
-    ship(session.id, {
-      action,
-      ...(action === 'merge' ? { method } : {}),
-      ...(action === 'create-pr' ? { draft } : {}),
-    }).then(
+    const body =
+      action === 'merge'
+        ? { action, method, repos: toMerge.map((r) => ({ name: r.name, headSha: r.pr!.headSha })) }
+        : { action, ...(action === 'create-pr' ? { draft } : {}) };
+    ship(session.id, body).then(
       (res) => {
         setBusy(null);
         setConfirming(false);
@@ -126,8 +146,18 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
     );
   };
 
-  const avail = pre ? shipAvailability(pre) : null;
+  const toggle = (name: string) => {
+    setConfirming(false);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   const disabled = busy !== null || loading;
+  const multi = (pre?.repos.length ?? 0) > 1;
 
   return (
     <div
@@ -152,7 +182,19 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
             </p>
           )}
           {loadError && <p className="wd-modal-error" role="alert">{loadError}</p>}
-          {pre?.repos.map((r) => <RepoState key={r.path} repo={r} />)}
+          {pre?.repos.map((r) => (
+            <RepoState
+              key={r.path}
+              repo={r}
+              selectable={multi && isMergeable(r)}
+              selected={selected.has(r.name)}
+              onToggle={() => toggle(r.name)}
+              disabled={disabled}
+            />
+          ))}
+          {avail?.allDone && (
+            <p className="wd-ship-ok" role="status">Every repository is merged or untouched — nothing left to ship.</p>
+          )}
           {busy && (
             <p className="wd-ship-progress" role="status">
               <span className="wd-spinner" aria-hidden /> {BUSY_LABEL[busy]}
@@ -179,11 +221,14 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
               Uncommitted changes in {avail.dirty.map((r) => r.name).join(', ')} — commit or stash first.
             </p>
           ) : null}
-          {confirming && avail && (
+          {confirming && toMerge.length > 0 && (
             <div className="wd-ship-confirm" role="alertdialog" aria-label="Confirm merge">
               <p>
-                Merge {avail.openPrs.map((r) => `${r.name} #${r.pr!.number}`).join(', ')} with{' '}
-                <strong>{method}</strong>? This can’t be undone from here. The session is archived afterwards.
+                Merge {toMerge.map((r) => `${r.name} #${r.pr!.number} (${r.pr!.headSha.slice(0, 7)})`).join(', ')} with{' '}
+                <strong>{method}</strong>? This can’t be undone from here.{' '}
+                {archivesAfter
+                  ? 'Every repository is then done, so the session is archived.'
+                  : `${avail!.active.length - toMerge.length} other repositor${avail!.active.length - toMerge.length === 1 ? 'y stays' : 'ies stay'} open — the session stays until everything is done.`}
               </p>
               <div className="wd-ship-confirm-actions">
                 <button type="button" className="wd-btn-secondary" onClick={() => setConfirming(false)} disabled={disabled}>
@@ -229,7 +274,7 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
               aria-label="Merge method"
               value={method}
               onChange={(e) => setMethod(e.target.value as MergeMethod)}
-              disabled={disabled || !avail?.canMerge}
+              disabled={disabled || toMerge.length === 0}
             >
               <option value="squash">squash</option>
               <option value="merge">merge commit</option>
@@ -238,11 +283,15 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
             <button
               type="button"
               className="wd-btn-primary"
-              disabled={disabled || !avail?.canMerge || confirming}
+              disabled={disabled || toMerge.length === 0 || confirming}
               onClick={() => setConfirming(true)}
-              title="Merge the open PR — asks for confirmation"
+              title={
+                multi
+                  ? 'Merge the selected repositories — asks for confirmation'
+                  : 'Merge the open PR — asks for confirmation'
+              }
             >
-              Merge…
+              {multi && toMerge.length > 0 ? `Merge ${toMerge.length}…` : 'Merge…'}
             </button>
           </span>
         </div>
@@ -251,35 +300,64 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
   );
 }
 
-function RepoState({ repo: r }: { repo: RepoShipState }) {
+function RepoState({
+  repo: r,
+  selectable,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  repo: RepoShipState;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+}) {
   const upstream = !r.hasUpstream
     ? 'not pushed'
     : r.ahead || r.behind
       ? [r.ahead ? `${r.ahead} ahead` : '', r.behind ? `${r.behind} behind` : ''].filter(Boolean).join(', ')
       : 'up to date';
   return (
-    <section className="wd-ship-repo">
+    <section className={'wd-ship-repo' + (r.done ? ' wd-ship-repo-done' : '')}>
       <header>
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            disabled={disabled}
+            aria-label={`Merge ${r.name}`}
+          />
+        )}{' '}
         <strong>{r.name}</strong> <span className="wd-tab-header-muted">{r.branch}</span>
+        {r.done && (
+          <span className="wd-ship-done">
+            {' '}
+            {r.doneReason === 'merged' ? '✓ merged' : '— untouched, nothing to ship'}
+          </span>
+        )}
       </header>
-      <ul className="wd-ship-facts">
-        <li className={r.dirtyFiles > 0 ? 'wd-ship-bad' : ''}>
-          {r.dirtyFiles > 0 ? `${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'}` : 'working tree clean'}
-        </li>
-        <li>{upstream}</li>
-        <li>
-          {r.pr ? (
-            <>
-              <a href={r.pr.url} target="_blank" rel="noreferrer">#{r.pr.number}</a>{' '}
-              {r.pr.state.toLowerCase()}
-              {r.pr.isDraft ? ' · draft' : ''} · checks {r.pr.checks} · {r.pr.mergeStateStatus.toLowerCase()}
-            </>
-          ) : (
-            'no PR yet'
-          )}
-        </li>
-        {r.ghError && <li className="wd-ship-bad">{r.ghError}</li>}
-      </ul>
+      {!r.done && (
+        <ul className="wd-ship-facts">
+          <li className={r.dirtyFiles > 0 ? 'wd-ship-bad' : ''}>
+            {r.dirtyFiles > 0 ? `${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'}` : 'working tree clean'}
+          </li>
+          <li>{upstream}</li>
+          <li>
+            {r.pr ? (
+              <>
+                <a href={r.pr.url} target="_blank" rel="noreferrer">#{r.pr.number}</a>{' '}
+                {r.pr.state.toLowerCase()}
+                {r.pr.isDraft ? ' · draft' : ''} · checks {r.pr.checks} · {r.pr.mergeStateStatus.toLowerCase()}
+              </>
+            ) : (
+              'no PR yet'
+            )}
+          </li>
+          {r.ghError && <li className="wd-ship-bad">{r.ghError}</li>}
+        </ul>
+      )}
       {r.mergeBlockers.length > 0 && (
         <ul className="wd-ship-blockers" aria-label={`Why ${r.name} can't merge`}>
           {r.mergeBlockers.map((b) => (
