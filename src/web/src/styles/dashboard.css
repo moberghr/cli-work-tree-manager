@@ -318,6 +318,16 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
   color: var(--muted);
   padding: 6px 12px;
 }
+.wd-dash-rail-older {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #0969da);
+  cursor: pointer;
+}
+.wd-dash-rail-older:hover { text-decoration: underline; }
 
 .wd-dash-main {
   flex: 1;

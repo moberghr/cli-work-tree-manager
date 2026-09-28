@@ -1,12 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import { PrChips } from './SessionBits.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
   formatDiffStat,
-  isArchived,
-  stableSessionOrder,
+  railSessions,
   type DisplayKind,
   type PrLookup,
 } from '../../state/session-display.js';
@@ -58,13 +57,13 @@ export function SessionRail({
   prsFor,
   maxVisible = 40,
 }: Props) {
-  const sorted = useMemo(
-    () => stableSessionOrder(sessions.filter((s) => !isArchived(s))),
-    [sessions],
-  );
-
-  const visible = sorted.slice(0, maxVisible);
-  const overflow = sorted.length - visible.length;
+  const [showOlder, setShowOlder] = useState(false);
+  const { current, older } = useMemo(() => railSessions(sessions), [sessions]);
+  // Older sessions only on request; the selected one always stays visible.
+  const pinned = !showOlder && activeSessionId ? older.filter((s) => s.id === activeSessionId) : [];
+  const shown = showOlder ? [...current, ...older] : [...current, ...pinned];
+  const visible = shown.slice(0, showOlder ? shown.length : Math.max(maxVisible, current.length));
+  const overflow = showOlder ? 0 : older.length - pinned.length;
 
   return (
     <aside
@@ -84,7 +83,7 @@ export function SessionRail({
           +
         </button>
       </header>
-      {sorted.length === 0 ? (
+      {current.length + older.length === 0 ? (
         <p className="wd-dash-rail-empty">
           No worktrees yet. Click + to create one.
         </p>
@@ -146,7 +145,21 @@ export function SessionRail({
           })}
           {overflow > 0 && (
             <li className="wd-dash-rail-overflow">
-              +{overflow} more
+              <button
+                type="button"
+                className="wd-dash-rail-older"
+                onClick={() => setShowOlder(true)}
+                title="Sessions not entered in the last 14 days and not running"
+              >
+                +{overflow} older
+              </button>
+            </li>
+          )}
+          {showOlder && older.length > 0 && (
+            <li className="wd-dash-rail-overflow">
+              <button type="button" className="wd-dash-rail-older" onClick={() => setShowOlder(false)}>
+                Hide older
+              </button>
             </li>
           )}
         </ul>

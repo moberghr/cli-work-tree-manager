@@ -133,7 +133,15 @@ export async function startWebServer(
   }
 
   const sseListeners = new Set<(e: SseEvent) => void>();
+  // /api/sessions is rebuilt from disk for EVERY session in history (365
+  // on a real machine: ~60–150 ms of fs work), and every hook, diff-stat
+  // change and decay tick triggers a refetch from each open tab. Cache the
+  // built list; any broadcast means something changed, so it drops the
+  // cache, and a short TTL covers time-based changes (activity decay).
+  let sessionsCache: { at: number; body: unknown } | null = null;
+  const SESSIONS_TTL_MS = 5_000;
   const broadcast = (event: string, data: unknown) => {
+    sessionsCache = null;
     for (const cb of sseListeners) cb({ event, data });
   };
 
@@ -199,9 +207,15 @@ export async function startWebServer(
   const diffStatFor = (id: string, s: WorktreeSession, hasStatus: boolean) =>
     wantsDiffStat(s, hasStatus) ? diffStats.get(id, s.paths) : null;
 
-  app.get('/api/sessions', (c) =>
-    c.json({ sessions: loadHistory().map((s) => sessionToWire(s, diffStatFor)) }),
-  );
+  app.get('/api/sessions', (c) => {
+    if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
+      sessionsCache = {
+        at: Date.now(),
+        body: { sessions: loadHistory().map((s) => sessionToWire(s, diffStatFor)) },
+      };
+    }
+    return c.json(sessionsCache.body);
+  });
 
   app.get('/api/sessions/:id/diff', (c) => {
     const id = c.req.param('id');

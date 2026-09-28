@@ -144,3 +144,27 @@ describe('SessionRail rows', () => {
     expect(container.querySelector('.wd-rail-dot')?.className).toContain('wd-rail-dot-quiet');
   });
 });
+
+describe('railSessions — hundreds of sessions (reviewed: active ones were hidden)', () => {
+  const day = 24 * 60 * 60_000;
+  const now = Date.parse('2026-09-29T12:00:00Z');
+  const mk = (id: string, target: string, daysAgo: number, extra: Record<string, unknown> = {}) =>
+    ({ id, target, branch: id, isGroup: false, paths: [], createdAt: '', lastAccessedAt: new Date(now - daysAgo * day).toISOString(), ...extra }) as never;
+
+  it('keeps current sessions (recent, reporting a status, or live) and parks the rest as older', async () => {
+    const { railSessions } = await import('../../src/web/src/state/session-display.js');
+    const sessions = [
+      // 50 old sessions of an alphabetically-first project…
+      ...Array.from({ length: 50 }, (_, i) => mk(`old-${i}`, 'app-templates', 200 + i)),
+      // …must not push the active work off the rail.
+      mk('active', 'straumur', 0),
+      mk('old-but-blocked', 'straumur', 90, { attention: { state: 'needs_input', seen: false, since: '', updatedAt: '', stale: false } }),
+      mk('old-but-live', 'warp', 90, { ptyStatus: 'running' }),
+      mk('archived', 'straumur', 0, { archivedAt: '2026-09-01' }),
+    ];
+    const { current, older } = railSessions(sessions, now);
+    expect(current.map((s: { id: string }) => s.id)).toEqual(['active', 'old-but-blocked', 'old-but-live']);
+    expect(older).toHaveLength(50);
+    expect([...current, ...older].some((s: { id: string }) => s.id === 'archived')).toBe(false);
+  });
+});

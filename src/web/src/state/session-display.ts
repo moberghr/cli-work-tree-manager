@@ -89,6 +89,32 @@ export function stableSessionOrder(sessions: SessionSummary[]): SessionSummary[]
   );
 }
 
+/** How long a session stays "current" in the rail after you last entered it. */
+export const RAIL_RECENT_MS = 14 * 24 * 60 * 60_000;
+
+/**
+ * Split the rail into what matters now and the rest. People accumulate
+ * hundreds of sessions (365 on one real machine); a stable order over ALL
+ * of them with a cap showed whichever projects sort first alphabetically
+ * and hid the active ones. "Current" = entered in the last 14 days, OR
+ * reporting a status, OR with a live terminal — each group in the stable
+ * order. Archived sessions are in neither.
+ */
+export function railSessions(
+  sessions: SessionSummary[],
+  now: number = Date.now(),
+): { current: SessionSummary[]; older: SessionSummary[] } {
+  const current: SessionSummary[] = [];
+  const older: SessionSummary[] = [];
+  for (const s of sessions) {
+    if (isArchived(s)) continue;
+    const recent = now - (Date.parse(s.lastAccessedAt) || 0) < RAIL_RECENT_MS;
+    const live = !!s.attention || s.ptyStatus === 'running' || s.activityState === 'active' || s.activityState === 'open';
+    (recent || live ? current : older).push(s);
+  }
+  return { current: stableSessionOrder(current), older: stableSessionOrder(older) };
+}
+
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
  *  to a sub-repo alias reliably, so any same-branch PR counts for them. */
 export function prsForSession(s: SessionSummary, prs: PrInfo[]): PrInfo[] {
