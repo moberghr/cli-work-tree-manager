@@ -1,6 +1,27 @@
 import path from 'node:path';
 import crossSpawn from 'cross-spawn';
 import type { WorktreeSession } from './history.js';
+import type {
+  ChecksState,
+  MergeMethod,
+  MergeSelection,
+  RepoShipState,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipResult,
+} from './api-types.js';
+
+export type {
+  ChecksState,
+  MergeMethod,
+  MergeSelection,
+  RepoShipState,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipResult,
+} from './api-types.js';
 
 /**
  * Ship a session's work: push, open a PR, merge it — per repo, because a
@@ -57,67 +78,6 @@ export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
     });
     child.on('close', (code) => done({ code: code ?? 1, stdout, stderr }));
   });
-
-export type ChecksState = 'pass' | 'fail' | 'pending' | 'none';
-
-export interface ShipPr {
-  number: number;
-  url: string;
-  state: 'OPEN' | 'MERGED' | 'CLOSED';
-  isDraft: boolean;
-  mergeStateStatus: string;
-  checks: ChecksState;
-  headSha: string;
-}
-
-export interface RepoShipState {
-  name: string;
-  path: string;
-  branch: string;
-  /** Local HEAD commit. */
-  localSha: string;
-  dirtyFiles: number;
-  /** The branch exists on origin (`origin/<branch>`), whatever the local
-   *  tracking config says — `work tree` often leaves it tracking the base. */
-  hasUpstream: boolean;
-  /** Local tracking is set to `origin/<branch>` (a plain `git push` works). */
-  tracksRemote: boolean;
-  /** vs `origin/<branch>`; null when the branch isn't on origin. */
-  ahead: number | null;
-  behind: number | null;
-  pr: ShipPr | null;
-  /** Nothing left to do here: PR merged, or the repo was never touched. */
-  done: boolean;
-  doneReason?: 'merged' | 'untouched';
-  /** Why "merge" isn't available for this repo right now ([] = go). Always
-   *  empty for a `done` repo. */
-  mergeBlockers: string[];
-  ghError?: string;
-  /** Commits the remote's default branch doesn't have (null = unknown). */
-  commitsVsBase?: number | null;
-}
-
-export interface ShipPreflight {
-  repos: RepoShipState[];
-}
-
-export type ShipAction = 'push' | 'create-pr' | 'merge';
-export type MergeMethod = 'squash' | 'merge' | 'rebase';
-
-/** A repo the user chose to merge, with the PR head they were shown. */
-export interface MergeSelection {
-  name: string;
-  headSha: string;
-}
-
-export interface ShipResult {
-  repo: string;
-  ok: boolean;
-  message: string;
-  url?: string;
-  /** For merge: whether this repo's PR was merged by this call. */
-  merged?: boolean;
-}
 
 /** The repos a session ships: each worktree path, named by its folder. */
 export function shipRepos(session: WorktreeSession): Array<{ name: string; path: string }> {

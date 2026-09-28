@@ -137,7 +137,8 @@ export function resolveResumeLaunch(session: WorktreeSession): {
   return { launchPath, hasConversation: bestMs > 0 };
 }
 
-export type ActivityState = 'active' | 'open' | 'stale';
+export type { ActivityState } from './api-types.js';
+import type { ActivityState } from './api-types.js';
 
 /** Active: Claude wrote a turn in the last 30 s — currently thinking. */
 const ACTIVE_MS = 30_000;

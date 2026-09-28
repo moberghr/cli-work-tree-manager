@@ -4,11 +4,44 @@ import type {
   CommentStatus,
   CommentSide,
 } from '../../../core/comment-types.js';
-import type { AttentionLike } from '../../../core/attention.js';
+import type {
+  ActivityState,
+  ChecksState,
+  DiffStat,
+  MergeMethod,
+  PtyStatus,
+  RepoShipState,
+  SessionAttention,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipRequest,
+  ShipResponse,
+  ShipResult,
+} from '../../../core/api-types.js';
+import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile } from '../../../core/diff-parse.js';
+
+// Wire types have ONE definition, in core (shared with the server) — see
+// core/api-types.ts and core/diff-parse.ts. Re-exported here so SPA code
+// keeps importing from api/client.
+export type {
+  ActivityState,
+  ChecksState,
+  DiffStat,
+  MergeMethod,
+  PtyStatus,
+  RepoShipState,
+  SessionAttention,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipRequest,
+  ShipResponse,
+  ShipResult,
+};
+export type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile };
 export type { Comment, CommentAuthor, CommentStatus, CommentSide };
 
-export type PtyStatus = 'running' | 'idle';
-export type ActivityState = 'active' | 'open' | 'stale';
 export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
@@ -47,70 +80,7 @@ export interface SessionSummary {
   archivedAt?: string | null;
 }
 
-export interface DiffStat {
-  added: number;
-  deleted: number;
-  /** Changed tracked files + untracked files. */
-  files: number;
-}
-
 // ---- Ship / archive ---------------------------------------------------
-
-export type ChecksState = 'pass' | 'fail' | 'pending' | 'none';
-
-export interface ShipPr {
-  number: number;
-  url: string;
-  state: 'OPEN' | 'MERGED' | 'CLOSED';
-  isDraft: boolean;
-  /** GitHub mergeStateStatus: CLEAN | DIRTY | BLOCKED | BEHIND | UNSTABLE | HAS_HOOKS | DRAFT | UNKNOWN */
-  mergeStateStatus: string;
-  checks: ChecksState;
-  headSha: string;
-}
-
-export interface RepoShipState {
-  /** Repo alias (group sub-repo name, or the target for a single repo). */
-  name: string;
-  path: string;
-  branch: string;
-  /** Local HEAD commit. */
-  localSha: string;
-  /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
-  dirtyFiles: number;
-  /** The branch exists on origin. */
-  hasUpstream: boolean;
-  /** Local tracking is set to origin/<branch>. */
-  tracksRemote: boolean;
-  /** Nothing left to do in this repo: its PR is merged, or it was never
-   *  touched (group sub-repo with no commits). Never blocks the others. */
-  done: boolean;
-  doneReason?: 'merged' | 'untouched';
-  commitsVsBase?: number | null;
-  /** Commits not on the upstream (null without one). */
-  ahead: number | null;
-  behind: number | null;
-  pr: ShipPr | null;
-  /** Why "merge" is unavailable right now, human-readable ([] = can merge). */
-  mergeBlockers: string[];
-  /** gh missing / not authenticated / no GitHub remote. */
-  ghError?: string;
-}
-
-export interface ShipPreflight {
-  repos: RepoShipState[];
-}
-
-export type ShipAction = 'push' | 'create-pr' | 'merge';
-export type MergeMethod = 'squash' | 'merge' | 'rebase';
-
-export interface ShipResult {
-  repo: string;
-  ok: boolean;
-  message: string;
-  url?: string;
-  merged?: boolean;
-}
 
 export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
   return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`);
@@ -120,26 +90,12 @@ export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
  *  (draft optional). merge: merge exactly `repos`, each at the PR head the
  *  user was shown (refused if it moved; all validated before any merges);
  *  the session is archived only when every repo is done afterwards. */
-export function ship(
-  sessionId: string,
-  body:
-    | { action: 'push' | 'create-pr'; draft?: boolean }
-    | { action: 'merge'; method?: MergeMethod; repos: Array<{ name: string; headSha: string }> },
-): Promise<{ results: ShipResult[]; archived?: boolean; allDone?: boolean }> {
+export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`, body);
 }
 
 export function setArchived(sessionId: string, archived: boolean): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { archived });
-}
-
-export interface SessionAttention extends AttentionLike {
-  /** One line: prompt while working, last message when done, the
-   *  permission request when blocked. */
-  summary?: string;
-  updatedAt: string;
-  /** A "working" that went quiet for 15 min, shown as idle. */
-  stale: boolean;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -396,56 +352,6 @@ export function discardReview(): Promise<{ comments: Comment[]; discarded: numbe
 
 export function postDone(): Promise<{ ok: boolean; count: number }> {
   return postJson<{ ok: boolean; count: number }>('/api/done', {});
-}
-
-export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'binary';
-export type LineKind = 'context' | 'add' | 'delete' | 'no-newline';
-
-export interface HunkLine {
-  kind: LineKind;
-  content: string;
-  oldNum: number | null;
-  newNum: number | null;
-}
-
-export interface Hunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  context: string;
-  lines: HunkLine[];
-}
-
-export interface ParsedFile {
-  path: string;
-  oldPath: string;
-  newPath: string;
-  status: FileStatus;
-  isBinary: boolean;
-  added: number;
-  deleted: number;
-  hunks: Hunk[];
-  /** Line-coverage percent (from lcov); undefined when no lcov data. */
-  coverage?: number;
-  /** Epoch-ms mtime of the lcov.info `coverage` came from; undefined when no
-   *  lcov data. Surfaced in the badge tooltip so coverage age is visible. */
-  coverageMtimeMs?: number;
-  /** True when the file's source is newer than the lcov.info — coverage is
-   *  stale and the badge is suppressed / de-emphasized. */
-  coverageStale?: boolean;
-  /** Full file contents for `.md` / `.markdown` / `.mdx` files — populated
-   *  server-side so the SPA can render a Preview/Split view next to the
-   *  diff. Absent for non-markdown files. */
-  mdContent?: MarkdownContent;
-}
-
-export interface MarkdownContent {
-  before?: string;
-  after?: string;
-  /** Server-side flag: either side exceeded the size cap, so the SPA
-   *  must hide Preview/Split (rendering would blow the browser heap). */
-  tooLarge?: boolean;
 }
 
 export interface RepoData {

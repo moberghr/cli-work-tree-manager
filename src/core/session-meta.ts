@@ -8,7 +8,8 @@ import { readPendingForSession } from './pending-delivery.js';
 import type { WorktreeSession } from './history.js';
 import { effectiveStatus, readStatus, type EffectiveStatus } from './session-status.js';
 
-export type PtyStatus = 'running' | 'idle';
+export type { PtyStatus } from './api-types.js';
+import type { PtyStatus } from './api-types.js';
 
 export interface SessionMeta {
   draftCount: number;

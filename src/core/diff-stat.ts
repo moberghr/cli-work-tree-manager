@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { WorktreeSession } from './history.js';
+import type { DiffStat } from './api-types.js';
+
+export type { DiffStat } from './api-types.js';
 
 /**
  * `+N −M` per session for the dashboard rows: tracked changes vs HEAD
@@ -13,12 +16,6 @@ import type { WorktreeSession } from './history.js';
  * background refresh (bounded concurrency), and the caller is told when a
  * value actually changed so it can broadcast once.
  */
-
-export interface DiffStat {
-  added: number;
-  deleted: number;
-  files: number;
-}
 
 export function parseNumstat(out: string): { added: number; deleted: number; files: number } {
   let added = 0;
