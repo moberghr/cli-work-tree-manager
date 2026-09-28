@@ -50,7 +50,8 @@ export function shipAvailability(pre: ShipPreflight) {
   const dirty = active.filter((r) => r.dirtyFiles > 0);
   const shipping = active.filter((r) => r.commitsVsBase !== 0 || r.pr);
   const needsPush = shipping.filter((r) => !r.hasUpstream || (r.ahead ?? 0) > 0 || !r.tracksRemote);
-  const noPr = shipping.filter((r) => !r.pr || r.pr.state === 'CLOSED');
+  // No open PR: none yet, closed, or merged with new work since.
+  const noPr = shipping.filter((r) => !r.pr || r.pr.state !== 'OPEN');
   const mergeable = active.filter(isMergeable);
   const clean = dirty.length === 0;
   return {

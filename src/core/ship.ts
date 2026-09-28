@@ -152,7 +152,13 @@ type RepoFacts = Omit<RepoShipState, 'mergeBlockers' | 'done' | 'doneReason'>;
 
 /** Done = nothing left to ship from this repo. */
 export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'untouched' } {
-  if (r.pr?.state === 'MERGED') return { done: true, reason: 'merged' };
+  // Merged AND nothing since: a follow-up commit (pushed or not) or an
+  // edit after the merge is new work — it must stay visible, get pushed,
+  // and block archiving until it's shipped too.
+  if (r.pr?.state === 'MERGED') {
+    const nothingSince = r.dirtyFiles === 0 && !r.ahead && (!r.localSha || r.localSha === r.pr.headSha);
+    return nothingSince ? { done: true, reason: 'merged' } : { done: false };
+  }
   if (!r.pr && r.dirtyFiles === 0 && r.commitsVsBase === 0) return { done: true, reason: 'untouched' };
   return { done: false };
 }
@@ -171,6 +177,11 @@ export function mergeBlockers(r: RepoFacts): string[] {
     return out;
   }
   if (r.pr.state === 'CLOSED') out.push('pull request is closed');
+  if (r.pr.state === 'MERGED') {
+    // Not done (repoDone), so there's work after the merge.
+    out.push(`PR #${r.pr.number} is already merged — the new work needs a new PR`);
+    return out;
+  }
   if (r.pr.isDraft) out.push('pull request is a draft');
   // The PR must be exactly what you have locally: otherwise merging lands
   // commits you haven't seen (or leaves out ones you have).
@@ -315,7 +326,7 @@ export async function runShipAction(
       results.push(await push(r, run));
       continue;
     }
-    // create-pr
+    // create-pr (a MERGED PR that isn't done means new work → new PR)
     if (r.pr && r.pr.state === 'OPEN') {
       results.push({ repo: r.name, ok: true, message: `PR #${r.pr.number} already open`, url: r.pr.url });
       continue;

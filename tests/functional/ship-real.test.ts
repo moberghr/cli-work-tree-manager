@@ -10,7 +10,9 @@ import type { WorktreeSession } from '../../src/core/history.js';
 /**
  * Ship against real git: a bare repo per "origin", a clone per worktree,
  * and a fake `gh` (fixtures/fake-gh.cjs) first on PATH — resolved through
- * the real cross-spawn runner, as a .cmd shim on Windows.
+ * the real cross-spawn runner, as a .cmd shim on Windows. Each test spawns
+ * dozens of git/gh processes, so they get a larger budget than the 20 s
+ * default (the full parallel suite on Windows is slow to spawn).
  */
 
 const FAKE_GH = path.resolve(__dirname, 'fixtures/fake-gh.cjs');
@@ -78,7 +80,7 @@ const single = (wt: string): WorktreeSession => ({
   target: 'app', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '',
 });
 
-describe('ship on real git with a fake gh — single repo', () => {
+describe('ship on real git with a fake gh — single repo', { timeout: 60_000 }, () => {
   it('create-pr publishes the branch (fixing base tracking), then merge lands it at the reviewed SHA', async () => {
     const wt = makeRepo('app');
     commit(wt, 'a.ts');
@@ -135,7 +137,38 @@ describe('ship on real git with a fake gh — single repo', () => {
   });
 });
 
-describe('ship on real git — a group shipped in parts', () => {
+describe('ship on real git — work after a merge is not "done"', { timeout: 60_000 }, () => {
+  it('a follow-up commit on a merged backend keeps the group open when frontend merges', async () => {
+    const backend = makeRepo('backend');
+    const frontend = makeRepo('frontend');
+    commit(backend, 'api.ts');
+    commit(frontend, 'ui.tsx');
+    const s: WorktreeSession = {
+      target: 'shop', branch: 'feat/x', isGroup: true, paths: [backend, frontend], createdAt: '', lastAccessedAt: '',
+    };
+    await runShipAction(s, 'create-pr');
+    let repos = (await shipPreflight(s)).repos;
+    const b = repos.find((r) => r.name === 'backend')!;
+    await mergeSelected(s, [{ name: 'backend', headSha: b.pr!.headSha }], 'squash');
+
+    commit(backend, 'fixup.ts'); // follow-up after the merge, not pushed
+    repos = (await shipPreflight(s)).repos;
+    const be = repos.find((r) => r.name === 'backend')!;
+    expect(be).toMatchObject({ done: false, ahead: 1 });
+    expect(be.mergeBlockers).toContain('1 unpushed commit');
+
+    const f = repos.find((r) => r.name === 'frontend')!;
+    const out = await mergeSelected(s, [{ name: 'frontend', headSha: f.pr!.headSha }], 'squash');
+    // Frontend merges, but the group is NOT all done → the route won't archive.
+    expect(out).toMatchObject({ mergedAny: true, allDone: false });
+
+    // And push ships the follow-up instead of skipping it as "already merged".
+    const pushed = await runShipAction(s, 'push');
+    expect(pushed.find((r) => r.repo === 'backend')).toMatchObject({ ok: true, message: 'pushed' });
+  });
+});
+
+describe('ship on real git — a group shipped in parts', { timeout: 60_000 }, () => {
   it('merge backend now, frontend later; an untouched docs repo never gets in the way', async () => {
     const backend = makeRepo('backend');
     const frontend = makeRepo('frontend');

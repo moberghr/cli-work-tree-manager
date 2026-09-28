@@ -143,6 +143,32 @@ describe('preflight', () => {
     ]);
   });
 
+  it('a merged PR with work after it (follow-up commit, pushed or not, or an edit) is NOT done', async () => {
+    // Reviewed bug: "✓ merged" hid the follow-up, push skipped it, and the
+    // session could be archived with unpushed work in it.
+    const merged = pr({ state: 'MERGED' });
+    const cases: Array<[string, Partial<RepoScript>]> = [
+      ['unpushed follow-up', { counts: '0 1' }],
+      ['pushed follow-up', { head: 'f011' + '0'.repeat(8) }],
+      ['uncommitted edit', { porcelain: ' M api.ts\n' }],
+    ];
+    for (const [label, over] of cases) {
+      const { run } = fakeRunner({ [P('api')]: ready({ pr: merged, ...over }) });
+      const [r] = (await shipPreflight(single(), run)).repos;
+      expect([label, r.done]).toEqual([label, false]);
+      expect(r.mergeBlockers.join(' ')).toMatch(/already merged — the new work needs a new PR|uncommitted/);
+    }
+  });
+
+  it('push and create-pr ship a follow-up after a merge instead of skipping it', async () => {
+    const f = fakeRunner({ [P('api')]: ready({ pr: pr({ state: 'MERGED' }), counts: '0 1' }) });
+    await runShipAction(single(), 'push', {}, f.run);
+    expect(f.calls.some((c) => c.args[0] === 'push')).toBe(true);
+    const g = fakeRunner({ [P('api')]: ready({ pr: pr({ state: 'MERGED' }), head: 'f0110000aaaa' }) });
+    const [r] = await runShipAction(single(), 'create-pr', {}, g.run);
+    expect(r.message).toBe('PR opened');
+  });
+
   it('reports a missing gh clearly', async () => {
     const { run } = fakeRunner({ [P('api')]: { ghMissing: true } });
     expect((await shipPreflight(single(), run)).repos[0].ghError).toMatch(/gh\) not found/);
