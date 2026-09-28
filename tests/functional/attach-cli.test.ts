@@ -17,11 +17,18 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 const BIN = path.resolve(__dirname, '../../dist/bin.js');
 const ECHO_AI = path.resolve(__dirname, 'fixtures/echo-ai.cjs');
+// On Windows run the tool through a .cmd shim, like npm's claude.cmd —
+// the path where cmd.exe escaping matters.
+const AI_COMMAND = process.platform === 'win32'
+  ? path.resolve(__dirname, 'fixtures/echo-ai.cmd')
+  : `node ${ECHO_AI}`;
 const hasBuild = fs.existsSync(BIN);
 
 let home: string;
 let worktree: string;
 let env: NodeJS.ProcessEnv;
+let baseRepo: string;
+let configPath: string;
 
 function work(args: string[]) {
   return spawnSync(process.execPath, [BIN, ...args], { env, encoding: 'utf-8', timeout: 20_000 });
@@ -40,16 +47,23 @@ beforeAll(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'attach-home-'));
   worktree = path.join(home, 'wt', 'api', 'feat-x');
   fs.mkdirSync(worktree, { recursive: true });
+  // A real git repo for `work tree base` (base checkout, no branch).
+  baseRepo = path.join(home, 'repos', 'base');
+  fs.mkdirSync(baseRepo, { recursive: true });
+  const git = (...a: string[]) => spawnSync('git', a, { cwd: baseRepo, encoding: 'utf-8' });
+  git('init', '-q', '-b', 'main');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   const dotWork = path.join(home, '.work');
   fs.mkdirSync(dotWork);
+  configPath = path.join(dotWork, 'config.json');
   fs.writeFileSync(
-    path.join(dotWork, 'config.json'),
+    configPath,
     JSON.stringify({
       worktreesRoot: path.join(home, 'wt'),
-      repos: { api: worktree },
+      repos: { api: worktree, base: baseRepo },
       groups: {},
       copyFiles: [],
-      aiCommand: `node ${ECHO_AI}`,
+      aiCommand: AI_COMMAND,
     }),
   );
   const now = new Date().toISOString();
@@ -127,6 +141,63 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', () => {
     expect(fs.existsSync(path.join(home, '.work', 'pty-host.json'))).toBe(false);
     const saved = JSON.parse(fs.readFileSync(path.join(home, '.work', 'pty-sessions.json'), 'utf-8'));
     expect(Object.keys(saved)).toHaveLength(1);
+  });
+
+  /** Run a `work` command that attaches, wait for `until`, then Ctrl+]. */
+  async function runAttached(args: string[], until: (out: string) => boolean, extraEnv = {}) {
+    const child = spawn(process.execPath, [BIN, ...args], {
+      cwd: home,
+      env: { ...env, ...extraEnv },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let err = '';
+    child.stdout!.on('data', (d) => { out += d.toString(); });
+    child.stderr!.on('data', (d) => { err += d.toString(); });
+    const exited = new Promise<number>((r) => child.on('exit', (c) => r(c ?? -1)));
+    await waitFor(() => until(out), 25_000, `output (stdout: ${out.slice(-300)} stderr: ${err.slice(-300)})`);
+    child.stdin!.write('\x1d');
+    const code = await exited;
+    return { out, err, code };
+  }
+  const plain = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+
+  it("work tree --host launches in the host with the prompt and this shell's env", async () => {
+    const r = await runAttached(
+      ['tree', 'base', '--host', '--no-pull', '--prompt', 'hi & echo INJECTED | more'],
+      (o) => o.includes('fake-ai ready'),
+      { WORK_TEST_MARK: 'tree-shell' },
+    );
+    expect(r.code, r.err).toBe(0);
+    const text = plain(r.out);
+    // The prompt arrives as one literal argument — cmd.exe didn't run `&`.
+    expect(text).toContain('args=[hi & echo INJECTED | more]');
+    expect(text).not.toMatch(/^\s*INJECTED\s*$/m);
+    expect(text).toContain('mark=[tree-shell]');
+    expect(r.out).toContain('\x1b]0;base · main\x07');
+    expect(work(['pty-host', '--status']).stderr).toMatch(/live\s+base · main/);
+  });
+
+  it('work tree --host on a running session attaches and says the prompt was not applied', async () => {
+    const r = await runAttached(
+      ['tree', 'base', '--host', '--no-pull', '--prompt', 'second'],
+      (o) => plain(o).includes('fake-ai ready'), // from the replayed screen
+    );
+    expect(r.code, r.err).toBe(0);
+    expect(r.err).toContain('already running');
+    expect(plain(r.out)).not.toContain('second');
+  });
+
+  it('config launchViaHost makes plain `work tree` go through the host', async () => {
+    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, launchViaHost: true }));
+    try {
+      const r = await runAttached(['tree', 'base', '--no-pull'], (o) => plain(o).includes('fake-ai ready'));
+      expect(r.code, r.err).toBe(0);
+      expect(r.err).toContain('Detached'); // it was an attach, not a direct launch
+    } finally {
+      fs.writeFileSync(configPath, JSON.stringify(cfg));
+    }
   });
 
   it('fails clearly outside any session', () => {

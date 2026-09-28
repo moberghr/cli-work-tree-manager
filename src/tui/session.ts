@@ -1,4 +1,5 @@
 import pty, { type IPty } from 'node-pty';
+import crossSpawn from 'cross-spawn';
 import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../core/logger.js';
@@ -23,8 +24,45 @@ export interface PtyAiOptions {
   unsafe?: boolean;
   resume?: boolean;
   promptFile?: string;
+  /** Initial prompt passed on the command line (escaped — see
+   *  resolvePtyCommand). */
+  initialPrompt?: string;
   /** Dev-server port exposed to the launched process as $PORT. */
   port?: number;
+  /** Environment for the process instead of this process's own — the PTY
+   *  host passes the launching shell's env so PATH, AWS_PROFILE, venvs,
+   *  WT_SESSION etc. match where the user ran `work tree`. */
+  env?: Record<string, string>;
+}
+
+type CrossSpawnParse = (
+  command: string,
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv; cwd?: string },
+) => { command: string; args: string[]; file?: string; options: { windowsVerbatimArguments?: boolean } };
+
+/**
+ * Turn `cmd args` into what node-pty should spawn, safely.
+ *
+ * Windows: resolved the way cross-spawn (used by `work tree`'s direct
+ * launch) resolves it — a real .exe is spawned directly with normal argv
+ * quoting; a .cmd/.bat shim goes through `cmd.exe /d /s /c "…"` with
+ * cmd-metacharacters caret-escaped, handed to node-pty as a verbatim
+ * command line. Never a bare `cmd.exe /c cmd args`: that lets `&`, `|`, `%`
+ * in an argument (a prompt, a path) run as commands (§1.1).
+ */
+export function resolvePtyCommand(
+  cmd: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
+): { file: string; args: string[] | string } {
+  if (process.platform !== 'win32') return { file: cmd, args };
+  const parse = (crossSpawn as unknown as { _parse: CrossSpawnParse })._parse;
+  const parsed = parse(cmd, args, opts);
+  if (parsed.options.windowsVerbatimArguments) {
+    return { file: parsed.command, args: parsed.args.join(' ') };
+  }
+  return { file: parsed.file ?? parsed.command, args: parsed.args };
 }
 
 export class PtySession {
@@ -56,34 +94,34 @@ export class PtySession {
     });
     this.terminal.loadAddon(this.serializer);
 
-    const isWindows = process.platform === 'win32';
-
-    let spawnCmd: string;
-    let spawnArgs: string[];
+    let rawCmd: string;
+    let rawArgs: string[];
 
     if (command) {
       // Custom command (e.g. work tree)
-      spawnCmd = isWindows ? 'cmd.exe' : command.cmd;
-      spawnArgs = isWindows ? ['/c', command.cmd, ...command.args] : command.args;
+      rawCmd = command.cmd;
+      rawArgs = command.args;
     } else if (aiOptions) {
       // Launch configured AI tool (default: claude)
-      const { cmd, args } = buildAiLaunchArgs(aiOptions.tool, {
+      ({ cmd: rawCmd, args: rawArgs } = buildAiLaunchArgs(aiOptions.tool, {
         unsafe: aiOptions.unsafe,
         resume: aiOptions.resume,
         promptFile: aiOptions.promptFile,
-      });
-      spawnCmd = isWindows ? 'cmd.exe' : cmd;
-      spawnArgs = isWindows ? ['/c', cmd, ...args] : args;
+        initialPrompt: aiOptions.initialPrompt,
+      }));
     } else {
       throw new Error('PtySession requires either a custom command or aiOptions');
     }
 
     const env: Record<string, string> = Object.fromEntries(
-      Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
+      Object.entries(aiOptions?.env ?? process.env).filter(
+        (e): e is [string, string] => e[1] != null,
+      ),
     );
     if (aiOptions?.port !== undefined) {
       env.PORT = String(aiOptions.port);
     }
+    const { file: spawnCmd, args: spawnArgs } = resolvePtyCommand(rawCmd, rawArgs, { env, cwd });
 
     debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
     this.pty = pty.spawn(spawnCmd, spawnArgs, {

@@ -42,6 +42,9 @@ export const defaultSpawner: PtySpawner = (spec) =>
     tool: spec.tool,
     resume: spec.resume,
     port: spec.port,
+    unsafe: spec.unsafe,
+    initialPrompt: spec.initialPrompt,
+    env: spec.env,
   });
 
 interface PersistedEntry extends SpawnSpec {
@@ -112,12 +115,15 @@ export class PtyRegistry {
       ...spec,
       cols,
       rows,
-      // `--continue` hard-errors in a directory Claude never ran in.
-      resume: this.hasConversation(spec.cwd),
+      // `--continue` hard-errors in a directory Claude never ran in;
+      // `--fresh` opts out even when one exists.
+      resume: !spec.fresh && this.hasConversation(spec.cwd),
     });
     const entry: Entry = {
       id,
-      spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port },
+      // Only what a restore may reuse: env/prompt/fresh are one-shot (and
+      // env can hold secrets), so they never reach pty-sessions.json.
+      spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port, unsafe: spec.unsafe },
       pty,
       cols,
       rows,

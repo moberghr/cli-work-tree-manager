@@ -106,7 +106,7 @@ After building, `work` is available globally (via `npm link`). Rebuild after sou
 
 ```
 work init                                          # Interactive first-time setup
-work tree|t <target> [branch] [--base <branch>|--base <alias>=<branch> ...] [--here] [--open] [--unsafe] [--no-pull] [--fresh] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only]  # Create/switch to worktree (--here infers target+branch from cwd; omit branch to work on the base repo). --base is repeatable: a bare branch forks every repo, alias=branch sets per-repo bases for a group (e.g. --base backend=dev --base frontend=feat/x). Switching into an existing checkout pulls + resumes the prior AI conversation; --no-pull / --fresh opt out
+work tree|t <target> [branch] [--base <branch>|--base <alias>=<branch> ...] [--here] [--open] [--unsafe] [--no-pull] [--fresh] [--prompt "..."] [--prompt-file <path>] [--jira-key <KEY>] [--setup-only] [--host|--no-host]  # Create/switch to worktree (--here infers target+branch from cwd; omit branch to work on the base repo). --base is repeatable: a bare branch forks every repo, alias=branch sets per-repo bases for a group (e.g. --base backend=dev --base frontend=feat/x). Switching into an existing checkout pulls + resumes the prior AI conversation; --no-pull / --fresh opt out. --host (or config `launchViaHost: true`) runs the AI session in the PTY host and attaches this terminal (like `work attach`), forwarding this shell's env and --unsafe/--fresh/--prompt; --no-host forces a direct launch
 work remove <target> <branch> [--force]            # Remove worktree
 work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status
@@ -281,6 +281,7 @@ An interactive terminal UI built with Ink (React for CLI). Features a sidebar li
 Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached localhost process — not by `work web`. `work web` (via `core/pty-pool.ts`) and `work attach` are clients: restarting/rebuilding `work web` or closing a terminal only drops a view. Discovery: `~/.work/pty-host.json` (pid, port, random token; every request carries the token, plus a Host-header check). Live sessions are mirrored to `~/.work/pty-sessions.json`; on host start they are respawned with `--continue` (the "restored" flag), so a crash, `--restart` or reboot picks up where you were. A PTY that exits on its own is forgotten after 5 s (not immediately — at Windows logoff the children die just before the host); an explicit kill (worktree delete) forgets it at once. Several clients may attach to one PTY; the last resize wins.
 
 § WHEN changing the host wire format, bump `PROTOCOL_VERSION` — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
+§ WHEN spawning into a PTY, let `resolvePtyCommand` (`tui/session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
 § WHEN adding a path that spawns Claude for a session, go through `spawnSpecFor` + the host, not `new PtySession` — otherwise that session won't survive restarts or be attachable.
 
 ### Session Tracking

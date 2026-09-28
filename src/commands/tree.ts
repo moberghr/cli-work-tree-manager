@@ -7,7 +7,8 @@ import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
 import { hasClaudeConversation } from '../core/claude-activity.js';
-import { upsertSession } from '../core/history.js';
+import { findSession, loadHistory, upsertSession } from '../core/history.js';
+import { attachSession } from './attach.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
 
@@ -45,6 +46,11 @@ export const treeCommand: CommandModule = {
           'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
         type: 'boolean',
         default: true,
+      })
+      .option('host', {
+        describe:
+          'Run the AI session in the PTY host and attach this terminal to it: it survives closing the tab, shows in `work web`, and restores after a reboot. Default from config `launchViaHost`; --no-host forces a direct launch.',
+        type: 'boolean',
       })
       .option('fresh', {
         describe:
@@ -111,6 +117,7 @@ export const treeCommand: CommandModule = {
     }
 
     const config = ensureConfig();
+    const viaHost = (argv.host as boolean | undefined) ?? config.launchViaHost ?? false;
 
     /**
      * Launch the AI tool, continuing the previous conversation for this
@@ -118,7 +125,26 @@ export const treeCommand: CommandModule = {
      * found to continue") in a directory the tool has never run in, so the flag
      * is gated on an existing transcript.
      */
-    const launchTool = (dir: string, port?: number): void => {
+    const launchTool = async (
+      dir: string,
+      port: number | undefined,
+      sessionKey: { target: string; branch: string },
+    ): Promise<void> => {
+      if (viaHost) {
+        const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
+        if (session) {
+          // The host decides --continue itself (same hasClaudeConversation
+          // gate); `fresh` and the prompt ride along on the first spawn.
+          process.exitCode = await attachSession(session, {
+            unsafe,
+            fresh,
+            initialPrompt,
+            forwardEnv: true,
+          });
+          return;
+        }
+        console.log(chalk.yellow('Session not found in history — launching directly instead of via the PTY host.'));
+      }
       const tool = getAiTool(config);
       const resume = !fresh && hasClaudeConversation(dir);
       if (resume) {
@@ -217,7 +243,7 @@ export const treeCommand: CommandModule = {
       await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
 
       if (open) openVSCode(repoPath);
-      if (!setupOnly) launchTool(repoPath);
+      if (!setupOnly) await launchTool(repoPath, undefined, { target: targetName, branch: currentBranch });
       return;
     }
 
@@ -235,6 +261,8 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
-    if (!setupOnly) launchTool(result.launchDir, result.port);
+    if (!setupOnly) {
+      await launchTool(result.launchDir, result.port, { target: targetName, branch: branchName });
+    }
   },
 };

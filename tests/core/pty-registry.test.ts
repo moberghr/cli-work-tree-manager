@@ -150,3 +150,36 @@ describe('PtyRegistry replay', () => {
     expect(reg.attach('a', () => {}, () => {})?.replay).toEqual({ data: '<screen>', cols: 90, rows: 20 });
   });
 });
+
+describe('PtyRegistry launch options', () => {
+  it('--fresh skips --continue even when a conversation exists', () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('a', { cwd: '/x', tool, fresh: true });
+    expect(spawned[0].spec.resume).toBe(false);
+  });
+
+  it('passes unsafe, the prompt and the forwarded env to the first spawn', () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool, unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
+    expect(spawned[0].spec).toMatchObject({ unsafe: true, initialPrompt: 'do it', env: { A: '1' } });
+  });
+
+  it('never persists env, prompt or fresh; a restore keeps unsafe and continues', async () => {
+    const first = makeRegistry();
+    first.spawn('a', { cwd: '/x', tool, unsafe: true, fresh: true, initialPrompt: 'p', env: { SECRET: 's' } });
+    await first.flush();
+    const saved = readSaved().a;
+    expect(saved).toMatchObject({ cwd: '/x', unsafe: true });
+    expect(saved).not.toHaveProperty('env');
+    expect(saved).not.toHaveProperty('initialPrompt');
+    expect(saved).not.toHaveProperty('fresh');
+    expect(fs.readFileSync(sessionsPath, 'utf-8')).not.toContain('SECRET');
+
+    first.disposeAllKeepingState();
+    const second = makeRegistry(() => true);
+    await second.restore();
+    expect(spawned[1].spec).toMatchObject({ unsafe: true, resume: true });
+    expect(spawned[1].spec.initialPrompt).toBeUndefined();
+    expect(spawned[1].spec.env).toBeUndefined();
+  });
+});

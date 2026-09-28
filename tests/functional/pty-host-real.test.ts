@@ -129,6 +129,37 @@ describe('PTY registry on a real ConPTY / pty', () => {
   });
 });
 
+describe('launch options on a real PTY', () => {
+  const SHIM = path.resolve(__dirname, 'fixtures/echo-ai.cmd');
+  const shimTool = { ...tool, cmd: SHIM, baseArgs: [] } as AiToolSpec;
+
+  it.runIf(process.platform === 'win32')(
+    'a prompt with cmd metacharacters reaches a .cmd-shim tool as literal text',
+    async () => {
+      const reg = registry();
+      reg.spawn('s', { cwd, tool: shimTool, initialPrompt: 'fix it & echo INJECTED | more' });
+      const { out } = collect(reg, 's');
+      await waitFor(() => out.text.includes('fake-ai ready'), 15_000, 'banner');
+      await new Promise((r) => setTimeout(r, 300));
+      const plain = out.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+      expect(plain).toContain('args=[fix it & echo INJECTED | more]');
+      // Had cmd.exe executed the `&`, "INJECTED" would appear on its own line.
+      expect(plain).not.toMatch(/^\s*INJECTED\s*$/m);
+    },
+  );
+
+  it("the forwarded shell environment replaces the host's", async () => {
+    const reg = registry();
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
+    );
+    reg.spawn('s', { cwd, tool, env: { ...env, WORK_TEST_MARK: 'from-shell' } });
+    const { out } = collect(reg, 's');
+    await waitFor(() => out.text.includes('fake-ai ready'), 15_000, 'banner');
+    expect(out.text).toContain('mark=[from-shell]');
+  });
+});
+
 describe('PTY host server over real sockets', () => {
   let host: PtyHostHandle;
   let client: PtyHostClient;

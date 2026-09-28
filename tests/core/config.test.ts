@@ -53,7 +53,20 @@ describe('loadConfig', () => {
 
     const loaded = loadConfig();
     // notifications is coerced to a real boolean (opt-in, default off).
-    expect(loaded).toEqual({ ...data, notifications: false });
+    expect(loaded).toEqual({ ...data, notifications: false, launchViaHost: false });
+  });
+
+  it('loads the opt-in launchViaHost flag; only a real true enables it', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (v: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', launchViaHost: v }));
+    write(true);
+    expect(loadConfig()?.launchViaHost).toBe(true);
+    write('yes');
+    expect(loadConfig()?.launchViaHost).toBe(false);
+    write(undefined);
+    expect(loadConfig()?.launchViaHost).toBe(false);
   });
 
   it('loads the opt-in notifications flag', () => {
@@ -122,6 +135,7 @@ describe('loadConfig', () => {
       copyFiles: [],
       // notifications is coerced to a real boolean (opt-in, default off).
       notifications: false,
+      launchViaHost: false,
       statusHooks: [],
     });
   });

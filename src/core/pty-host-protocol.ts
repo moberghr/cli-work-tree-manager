@@ -30,6 +30,18 @@ export interface SpawnSpec {
   port?: number;
   cols?: number;
   rows?: number;
+  /** `--unsafe`: the tool's skip-permissions flag. Persisted, so a restore
+   *  comes back with the same permission mode. */
+  unsafe?: boolean;
+  /** `--fresh`: start a new conversation even if one exists. First spawn
+   *  only — a restore always continues. */
+  fresh?: boolean;
+  /** `--prompt` / `--prompt-file` contents. First spawn only. */
+  initialPrompt?: string;
+  /** The launching shell's environment. First spawn only and never
+   *  persisted — it can hold secrets; a restore after reboot uses the
+   *  host's own environment. */
+  env?: Record<string, string>;
 }
 
 export interface PtyInfo {

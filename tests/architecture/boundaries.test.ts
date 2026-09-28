@@ -127,6 +127,16 @@ describe('architecture boundaries', () => {
     ).toEqual([]);
   });
 
+  it('source and test files contain no raw control characters', () => {
+    // A literal ESC/GS byte works at runtime but is invisible in review and
+    // breaks exact-match edits — write \x1b-style escapes instead.
+    const all = [...walk(SRC), ...walk(path.resolve(SRC, '../tests'))];
+    const offenders = all
+      .filter((abs) => /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(fs.readFileSync(abs, 'utf-8')))
+      .map((abs) => path.relative(path.resolve(SRC, '..'), abs));
+    expect(offenders).toEqual([]);
+  });
+
   it('local servers bind to 127.0.0.1, never 0.0.0.0 (§1.3)', () => {
     const offenders = files.filter((f) => /['"]0\.0\.0\.0['"]/.test(f.text)).map((f) => f.rel);
     expect(offenders).toEqual([]);
