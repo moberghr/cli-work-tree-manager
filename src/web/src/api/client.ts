@@ -7,6 +7,7 @@ import type {
 import type {
   ActivityState,
   ChecksState,
+  DevServerState,
   DiffStat,
   MergeMethod,
   NotifyEvent,
@@ -31,6 +32,7 @@ import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile 
 export type {
   ActivityState,
   ChecksState,
+  DevServerState,
   DiffStat,
   MergeMethod,
   NotifyEvent,
@@ -441,4 +443,17 @@ export async function revertChange(sessionId: string, req: RevertRequest): Promi
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
   return body as RevertResponse;
+}
+
+/** The worktree's port + dev server. */
+export function fetchDevState(sessionId: string): Promise<DevServerState> {
+  return getJson<DevServerState>(`/api/sessions/${encodeURIComponent(sessionId)}/dev`);
+}
+/** Start / stop the configured dev command. Throws with the server's reason. */
+export async function devAction(sessionId: string, action: 'start' | 'stop'): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/dev/${action}`, { method: 'POST' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  }
 }

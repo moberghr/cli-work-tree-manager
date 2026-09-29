@@ -1196,3 +1196,15 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-ship-repo-done { opacity: 0.7; }
 .wd-ship-repo-done .wd-ship-done { color: var(--add-fg, #1a7f37); font-size: 12px; }
 .wd-ship-repo header input[type='checkbox'] { margin-right: 4px; vertical-align: -2px; }
+
+/* Dev server / preview chip in the session header strip. */
+.wd-dev-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.wd-dev-port { font-family: var(--mono, ui-monospace, monospace); color: var(--muted, #656d76); }
+.wd-dev-live .wd-dev-port, .wd-dev-live .wd-dev-dot { color: var(--add-fg, #1a7f37); }
+.wd-dev-preview, .wd-dev-log { font-size: 12px; }
+.wd-dev-btn {
+  font: inherit; font-size: 12px; padding: 1px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent; color: inherit; cursor: pointer;
+}
+.wd-dev-btn:disabled { cursor: progress; opacity: 0.6; }
+.wd-dev-error { color: var(--del-fg); }

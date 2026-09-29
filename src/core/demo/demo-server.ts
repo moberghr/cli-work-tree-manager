@@ -54,6 +54,26 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return d ? c.json(d) : notFound(c);
   });
 
+  app.get('/api/sessions/:id/dev', (c) => {
+    const d = scenario.devState(c.req.param('id'));
+    return d ? c.json(d) : notFound(c);
+  });
+  app.post('/api/sessions/:id/dev/start', (c) => {
+    const id = c.req.param('id');
+    if (!scenario.devState(id)) return notFound(c);
+    return scenario.devStart(id) ? c.json({ ok: true, pid: scenario.devState(id)!.running!.pid }) : c.json({ error: 'already running' }, 409);
+  });
+  app.post('/api/sessions/:id/dev/stop', (c) => {
+    const id = c.req.param('id');
+    if (!scenario.devState(id)) return notFound(c);
+    return c.json({ ok: true, stopped: scenario.devStop(id) });
+  });
+  app.get('/api/sessions/:id/dev/log', (c) => {
+    const d = scenario.devState(c.req.param('id'));
+    if (!d) return notFound(c);
+    return c.text(d.running ? `$ npm run dev   (PORT=${d.port})\n\n  VITE ready — Local: ${d.url}\n` : '(no output yet)');
+  });
+
   app.post('/api/presence', async (c) => {
     const body = await json(c);
     if (typeof body.clientId !== 'string' || !body.clientId) return c.json({ error: 'clientId required' }, 400);

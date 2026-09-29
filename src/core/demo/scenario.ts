@@ -3,6 +3,7 @@ import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { createPresence, type Presence } from '../presence.js';
 import type {
   ChecksState,
+  DevServerState,
   MergeMethod,
   NotifyEvent,
   MergeSelection,
@@ -43,6 +44,9 @@ interface DemoRepo {
 
 interface DemoSession {
   id: string;
+  /** Its $PORT, and whether a (simulated) dev server serves on it. */
+  port: number;
+  dev: 'stopped' | 'starting' | 'running';
   target: string;
   branch: string;
   isGroup: boolean;
@@ -275,6 +279,8 @@ export class DemoScenario {
       archivedAt: null,
       comments: createCommentStore(),
       transcript,
+      port: 3000 + this.sessions.size * 7,
+      dev: 'stopped',
     };
     this.sessions.set(s.id, s);
     return s;
@@ -467,6 +473,7 @@ export class DemoScenario {
       attention: s.attention,
       diffStat: stat.files ? stat : null,
       archivedAt: s.archivedAt,
+      port: s.port,
     };
   }
 
@@ -586,6 +593,42 @@ export class DemoScenario {
 
   comments(id: string): CommentStore | null {
     return this.sessions.get(id)?.comments ?? null;
+  }
+
+  // -- dev server (simulated: a start comes up a moment later) --------------
+
+  devState(id: string): DevServerState | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return {
+      port: s.port,
+      listening: s.dev === 'running',
+      url: `http://localhost:${s.port}/`,
+      command: 'npm run dev',
+      repo: s.repos[s.repos.length - 1].name,
+      running: s.dev === 'stopped' ? null : { pid: 40_000 + s.port, startedAt: new Date(this.now()).toISOString() },
+    };
+  }
+
+  devStart(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s || s.dev !== 'stopped') return false;
+    s.dev = 'starting';
+    this.after(1_500, () => {
+      if (s.dev !== 'starting') return;
+      s.dev = 'running';
+      this.emit('dev-changed', { sessionId: id });
+    });
+    this.emit('dev-changed', { sessionId: id });
+    return true;
+  }
+
+  devStop(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s || s.dev === 'stopped') return false;
+    s.dev = 'stopped';
+    this.emit('dev-changed', { sessionId: id });
+    return true;
   }
 
   /** A user comment gets a simulated reply from Claude a few seconds later. */

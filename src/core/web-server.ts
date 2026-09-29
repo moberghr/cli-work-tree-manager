@@ -28,6 +28,7 @@ import type { SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
+import { mountDevRoutes } from './dev-routes.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -65,6 +66,7 @@ function sessionToWire(
     attention: meta.attention,
     diffStat: diffStatFor ? diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
+    port: s.port ?? null,
   };
 }
 
@@ -281,6 +283,9 @@ export async function startWebServer(
   // Revert an uncommitted file/hunk and tell Claude (posts via the comment
   // route above, so it's delivered like any review note).
   mountRevertRoutes(app, { uncommitted: (s) => computeSessionDiff(s, 'uncommitted').repos });
+
+  // Per-worktree dev server + preview on its $PORT.
+  mountDevRoutes(app, { broadcast });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });

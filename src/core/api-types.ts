@@ -56,6 +56,8 @@ export interface SessionWire {
   attention: SessionAttention | null;
   diffStat: DiffStat | null;
   archivedAt: string | null;
+  /** This worktree's dev-server port ($PORT), when it has one. */
+  port: number | null;
 }
 
 // ---- ship -----------------------------------------------------------------
@@ -170,4 +172,17 @@ export interface NotifyEvent {
   kind: 'idle' | 'needs_input';
   title: string;
   body?: string;
+}
+
+/** GET /api/sessions/:id/dev — the worktree's port and dev server. */
+export interface DevServerState {
+  port: number | null;
+  /** Something is serving on the port (whoever started it). */
+  listening: boolean;
+  url: string | null;
+  /** The configured dev command for this session, if any. */
+  command: string | null;
+  repo: string | null;
+  /** Started from the dashboard and still alive. */
+  running: { pid: number; startedAt: string } | null;
 }

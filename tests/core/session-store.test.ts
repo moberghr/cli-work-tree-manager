@@ -39,9 +39,9 @@ describe('session-store purge', () => {
   it('removeSession deletes status, comments, delivery markers and the saved PTY entry', async () => {
     await upsertSession('api', false, 'feat/x', [path.join(home, 'wt')]);
     const id = seedState('api', 'feat/x');
-    expect(exists(id)).toEqual([true, true, true]);
+    expect(exists(id)).toEqual([true, true, true, true]);
     await removeSession('api', 'feat/x');
-    expect(exists(id)).toEqual([false, false, false]);
+    expect(exists(id)).toEqual([false, false, false, false]);
     expect(JSON.parse(fs.readFileSync(path.join(home, '.work', 'pty-sessions.json'), 'utf-8'))).toEqual({
       keep: { cwd: '/y' },
     });
@@ -52,13 +52,13 @@ describe('session-store purge', () => {
     const id = seedState('api', 'feat/x');
     await removeSession('api', 'feat/x');
     await upsertSession('api', false, 'feat/x', [path.join(home, 'wt')]);
-    expect(exists(id)).toEqual([false, false, false]);
+    expect(exists(id)).toEqual([false, false, false, false]);
   });
 
   it('removing a session that is not in history touches nothing', async () => {
     const id = seedState('api', 'feat/x');
     await removeSession('api', 'feat/x');
-    expect(exists(id)).toEqual([true, true, true]);
+    expect(exists(id)).toEqual([true, true, true, true]);
   });
 
   it('`work status --prune` purges the state of the entries it drops', async () => {
@@ -67,7 +67,7 @@ describe('session-store purge', () => {
     const id = seedState('api', 'feat/x');
     expect((await prunePersistedStaleEntries()).pruned).toBe(1);
     expect(loadHistory()).toEqual([]);
-    expect(exists(id)).toEqual([false, false, false]);
+    expect(exists(id)).toEqual([false, false, false, false]);
   });
 });
 

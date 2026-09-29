@@ -4,6 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
 import { DiffStatChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
+import { DevChip } from './DevChip.js';
 import { useSse } from '../../api/events.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
@@ -92,6 +93,7 @@ export function SessionDetail({
         <StatusLine session={session} />
         <DiffStatChip session={session} />
         <PrChips prs={prs} link />
+        <DevChip sessionId={session.id} />
         {!session.attention && (
           <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>
         )}

@@ -68,6 +68,19 @@ describe('demo server', () => {
     expect(b.repos.map((r: { name: string }) => r.name)).toEqual(['backend', 'frontend']);
   });
 
+  it('simulates a dev server on each worktree port', async () => {
+    const login = await byBranch('fix/login-redirect');
+    expect(login.port).toBeGreaterThan(0);
+    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ port: login.port, listening: false, command: 'npm run dev', running: null });
+    expect((await send('POST', `/api/sessions/${login.id}/dev/start`)).status).toBe(200);
+    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ listening: false, running: expect.any(Object) });
+    advance(2_000);
+    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ listening: true, url: `http://localhost:${login.port}/` });
+    expect(await (await fetch(server.url + `api/sessions/${login.id}/dev/log`)).text()).toContain('VITE ready');
+    expect((await send('POST', `/api/sessions/${login.id}/dev/stop`)).status).toBe(200);
+    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ listening: false, running: null });
+  });
+
   it('notifies only when nobody is looking at the session', async () => {
     const notes: unknown[] = [];
     scenario.subscribe((e) => e.event === 'notify' && notes.push(e.data));

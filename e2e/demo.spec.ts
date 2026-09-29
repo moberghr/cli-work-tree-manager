@@ -147,3 +147,14 @@ test('a finished session notifies only when you are not looking, and the click j
   await page.evaluate(() => (window as unknown as { __notes: Array<{ title: string; click: () => void }> }).__notes.find((n) => n.title.startsWith('Finished'))!.click());
   await expect(page.locator('.wd-dash-rail-item[aria-current], .wd-dash-rail-item-active').first()).toContainText('feat/invoice-export');
 });
+
+test('start a worktree dev server and get a preview link on its port', async ({ page }) => {
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  const chip = page.locator('.wd-dev-chip');
+  await expect(chip).toContainText(/:\d+/);
+  await chip.getByRole('button', { name: /Start dev/ }).click();
+  await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveAttribute('href', /^http:\/\/localhost:\d+\/$/, { timeout: 10_000 });
+  await chip.getByRole('button', { name: /Stop/ }).click();
+  await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveCount(0);
+});

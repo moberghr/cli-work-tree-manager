@@ -339,6 +339,10 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 
 `POST /api/sessions/:id/revert` (`core/revert-routes.ts` → `core/revert.ts`) undoes an **uncommitted** file or hunk. The server re-computes the session's Uncommitted diff to find the change and its repo root (never trusts a root/patch from the browser). Hunk revert asks git for the raw, byte-exact diff of that file (the pipeline's `-w` diff can't be reverse-applied, and the parser drops CRs) and `git apply -R`s the raw hunks overlapping the picked new-side lines after a `--check`. Then it posts a published general comment ("I reverted … don't reintroduce it"), so delivery reuses the comment path. The SPA only offers Revert in the Uncommitted scope (`RevertContext`). `submit-review` pushes the whole review to an owned PTY as one message, like a single POSTed comment does.
 
+### Dev server + preview
+
+Each worktree's stable `$PORT` (`port-allocator.ts`, on `SessionWire.port`) is shown in the session header by `DevChip`, which polls `GET /api/sessions/:id/dev` every 5 s (TCP probe on 127.0.0.1/::1, so it also sees a server Claude started). `core/dev-server.ts` runs `devCommands[alias]` with `shell: true` (user config, like statusHooks), `PORT` in env, output → `~/.work/dev/<id>.log`, pid → `~/.work/dev/<id>.json`. § Detached on POSIX only (process-group kill). On Windows a detached cmd.exe gives its children their own VISIBLE console and loses their output, so it stays attached with `windowsHide`, and `taskkill /T` stops the tree.
+
 ### Configuration
 
 Stored at `~/.work/config.json`. Schema in `core/config.ts`:

@@ -53,6 +53,11 @@ export interface WorkConfig {
    */
   portRange?: { start: number; end: number };
   /**
+   * Dev-server command per repo alias, run from the dashboard with this
+   * worktree's $PORT (e.g. `{ "web": "npm run dev -- --port $PORT" }`).
+   */
+  devCommands?: Record<string, string>;
+  /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
    * notification when a session goes idle or needs input. Default: off.
    */
@@ -100,6 +105,13 @@ export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.json');
 }
 
+function validateDevCommands(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [alias, cmd] of Object.entries(raw)) if (typeof cmd === 'string' && cmd.trim()) out[alias] = cmd;
+  return out;
+}
+
 export function loadConfig(): WorkConfig | null {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -121,6 +133,7 @@ export function loadConfig(): WorkConfig | null {
       notifications: parsed.notifications === true,
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
       launchViaHost: parsed.launchViaHost === true,
+      devCommands: validateDevCommands(parsed.devCommands),
     };
   } catch {
     return null;

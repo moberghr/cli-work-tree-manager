@@ -325,6 +325,7 @@ Stored at `~/.work/config.json`:
   "aiCommand": "claude",
   "editor": "code",
   "portRange": { "start": 3000, "end": 3099 },
+  "devCommands": { "web": "npm run dev -- --port $PORT" },
   "notifications": false,
   "statusHooks": [
     { "on": "needs_input", "command": "afplay /System/Library/Sounds/Glass.aiff" }
@@ -341,6 +342,7 @@ Stored at `~/.work/config.json`:
 | `aiCommand` | The AI CLI to auto-launch (default `claude`). Set it to any other tool; per-tool flag names live under `aiCommandFlags`. |
 | `editor` | Editor command for `--open` / "open in editor" (default `code`). |
 | `portRange` | Port window `work web` allocates from (default `3000`–`3099`). |
+| `devCommands` | Dev-server command per repo alias, e.g. `{ "web": "npm run dev -- --port $PORT" }`. The session header shows the worktree's `$PORT`, whether anything serves on it (with a **Preview ↗** link), and **▶ Start dev** / **■ Stop** / **Log** for this command. In a group, the first repo with a command gets the port. |
 | `notifications` | Opt-in desktop notification when a session goes idle or needs input. |
 | `statusHooks` | Run your own shell command on a session status change — see below. |
 | `launchViaHost` | Opt-in: `work tree` runs the AI session in the background PTY host and attaches your terminal to it, so it survives closing the tab, shows in `work web`, and comes back after a reboot. Per call: `--host` / `--no-host`. Detach with Ctrl+]; `work attach` reconnects. |
