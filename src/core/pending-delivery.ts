@@ -26,7 +26,7 @@ import {
   getCommentFileStore,
 } from './comment-file-store.js';
 import { scopeHashFor } from './repo-spec.js';
-import { atomicWriteFile } from './fs-safe.js';
+import { atomicWriteFile, ensureFile, withFileLockSync } from './fs-safe.js';
 import type { Comment } from './comment-types.js';
 
 function pathFor(sessionId: string): {
@@ -149,12 +149,46 @@ export function readPendingForWorktree(session: WorktreeSession): Comment[] {
 
 /** Persist a delivery batch. Adds these ids to the delivered set so they
  *  never get re-surfaced. */
+/** Read-modify-write the delivered list under a cross-process lock: the
+ *  `work hook` process and work web's PTY push both write it, and an
+ *  unlocked update from one could drop the other's ids. */
+function updateDelivered(sessionId: string, fn: (delivered: Set<string>) => void): void {
+  const file = pathFor(sessionId).delivered;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  ensureFile(file, '[]');
+  withFileLockSync(file, () => {
+    const delivered = new Set(readJson<string[]>(file, []));
+    fn(delivered);
+    writeAtomic(file, JSON.stringify(Array.from(delivered), null, 2));
+  });
+}
+
 export function markDelivered(sessionId: string, ids: string[]): void {
   if (ids.length === 0) return;
-  const paths = pathFor(sessionId);
-  const delivered = new Set(readJson<string[]>(paths.delivered, []));
-  for (const id of ids) delivered.add(id);
-  writeAtomic(paths.delivered, JSON.stringify(Array.from(delivered), null, 2));
+  updateDelivered(sessionId, (d) => ids.forEach((id) => d.add(id)));
+}
+
+/**
+ * Claim comments for delivery: of `ids`, return the ones nobody has
+ * delivered yet, and mark them delivered — atomically. Two deliverers
+ * racing (a Stop hook and the PTY push for the same comment) then can't
+ * both send it: only the one that claimed it does. A deliverer whose send
+ * fails gives the ids back with `releaseClaim`.
+ */
+export function claimForDelivery(sessionId: string, ids: string[]): string[] {
+  if (ids.length === 0) return [];
+  let claimed: string[] = [];
+  updateDelivered(sessionId, (d) => {
+    claimed = ids.filter((id) => !d.has(id));
+    claimed.forEach((id) => d.add(id));
+  });
+  return claimed;
+}
+
+/** Undo a claim whose delivery failed, so the next hook picks them up. */
+export function releaseClaim(sessionId: string, ids: string[]): void {
+  if (ids.length === 0) return;
+  updateDelivered(sessionId, (d) => ids.forEach((id) => d.delete(id)));
 }
 
 /** Cap the size of one comment body we surface to Claude. A pathologically

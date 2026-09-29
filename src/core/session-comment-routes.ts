@@ -5,7 +5,8 @@ import { findSession } from './web-state.js';
 import { peekPty, writeToPty } from './pty-pool.js';
 import {
   formatPendingForPrompt,
-  markDelivered,
+  claimForDelivery,
+  releaseClaim,
   readPendingForSession,
 } from './pending-delivery.js';
 import {
@@ -139,19 +140,20 @@ async function deliverViaOwnedPty(sessionId: string, author: string): Promise<vo
   const pending = readPendingForSession(sessionId);
   if (pending.length === 0) return;
 
-  const text = formatPendingForPrompt(pending);
-  if (!text) return;
-
-  // Mark delivered ONLY after a successful stdin write. If the write fails
-  // (PTY exited mid-call, PTY host unreachable, anything) we leave the
-  // comment as pending so the UserPromptSubmit / Stop hook can still
-  // pick it up on the next Claude turn — better duplicate delivery than
-  // silent loss. Writing the system reminder + newline so Claude treats
-  // it as a submitted user prompt.
+  // Claim before writing, so a Stop / UserPromptSubmit hook racing us
+  // can't deliver the same comments too; only what we claimed is sent. If
+  // the write fails (PTY exited mid-call, PTY host unreachable, anything)
+  // the claim is released, so the next hook still picks them up — no
+  // silent loss. The reminder + newline makes Claude treat it as a
+  // submitted user prompt.
+  const claimed = new Set(claimForDelivery(sessionId, pending.map((c) => c.id)));
+  const mine = pending.filter((c) => claimed.has(c.id));
+  if (mine.length === 0) return;
+  const text = formatPendingForPrompt(mine);
+  if (!text) {
+    releaseClaim(sessionId, [...claimed]);
+    return;
+  }
   const ok = await writeToPty(sessionId, text + '\n').catch(() => false);
-  if (!ok) return;
-  markDelivered(
-    sessionId,
-    pending.map((c) => c.id),
-  );
+  if (!ok) releaseClaim(sessionId, [...claimed]);
 }

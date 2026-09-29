@@ -3,7 +3,7 @@ import { readSessionActivity } from '../core/claude-activity.js';
 import {
   findSessionForCwd,
   formatPendingForPrompt,
-  markDelivered,
+  claimForDelivery,
   readPendingForWorktree,
   sessionIdFor,
 } from '../core/pending-delivery.js';
@@ -88,7 +88,13 @@ export interface HookOutput {
  * Claude Code expects plus the ids to mark delivered. Returns null when
  * there's nothing to surface. No I/O on stdin/stdout — the caller wraps.
  */
-export function computeHookOutput(input: HookInput): HookOutput | null {
+export function computeHookOutput(
+  input: HookInput,
+  /** Which of these ids this caller may deliver. The real hook claims them
+   *  atomically (claimForDelivery) so a racing PTY push can't send them too;
+   *  the default keeps this function pure for tests. */
+  claim: (sessionId: string, ids: string[]) => string[] = (_s, ids) => ids,
+): HookOutput | null {
   const session = findSessionForCwd(input.cwd);
   if (!session) return null;
 
@@ -96,7 +102,10 @@ export function computeHookOutput(input: HookInput): HookOutput | null {
   if (activity.state === 'stale') return null;
 
   const sessionId = sessionIdFor(session);
-  const pending = readPendingForWorktree(session);
+  const unclaimed = readPendingForWorktree(session);
+  if (unclaimed.length === 0) return null;
+  const mine = new Set(claim(sessionId, unclaimed.map((c) => c.id)));
+  const pending = unclaimed.filter((c) => mine.has(c.id));
   if (pending.length === 0) return null;
 
   const text = formatPendingForPrompt(pending);
@@ -220,9 +229,11 @@ export const hookCommand: CommandModule = {
       await postToWeb('api/status-changed', cwd);
       return;
     }
-    const result = computeHookOutput({ event, cwd });
+    // Claimed (= marked delivered) before printing: the process ends right
+    // after this write, and a claim is what stops a PTY push racing us from
+    // sending the same comments.
+    const result = computeHookOutput({ event, cwd }, claimForDelivery);
     if (!result || !result.sessionId) return;
     process.stdout.write(result.stdout);
-    markDelivered(result.sessionId, result.deliveredIds);
   },
 };

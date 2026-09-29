@@ -2,11 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import {
   findSessionForCwd,
   formatPendingForPrompt,
+  claimForDelivery,
   markDelivered,
   readPendingForSession,
+  releaseClaim,
   readPendingForWorktree,
 } from '../../src/core/pending-delivery.js';
 import {
@@ -241,4 +245,45 @@ describe('formatPendingForPrompt', () => {
     expect(out).toContain('xxxxx');
     expect(out).toContain('…');
   });
+});
+
+describe('claimForDelivery', () => {
+  it('hands each id out once, and a released claim can be taken again', () => {
+    expect(claimForDelivery('sid', ['a', 'b'])).toEqual(['a', 'b']);
+    expect(claimForDelivery('sid', ['a', 'b', 'c'])).toEqual(['c']);
+    releaseClaim('sid', ['b']);
+    expect(claimForDelivery('sid', ['a', 'b'])).toEqual(['b']);
+    expect(claimForDelivery('sid', [])).toEqual([]);
+  });
+
+  it('claimed comments are no longer pending', () => {
+    const store = getCommentFileStore('sid');
+    const c = store.post({ body: 'one' });
+    claimForDelivery('sid', [c.id]);
+    expect(readPendingForSession('sid')).toEqual([]);
+  });
+
+  it('racing processes never deliver the same comment twice', async () => {
+    // The real race: the `work hook` process and work web's PTY push both
+    // claim for one session at the same moment.
+    const mod = pathToFileURL(path.resolve(__dirname, '../../src/core/pending-delivery.ts')).href;
+    const script = path.join(tmpDir, 'claim.mts');
+    fs.writeFileSync(
+      script,
+      `const { claimForDelivery } = await import(${JSON.stringify(mod)});\n` +
+        `const ids = Array.from({ length: 20 }, (_, i) => 'c' + i);\n` +
+        `process.stdout.write(JSON.stringify(claimForDelivery('sid', ids)));\n`,
+    );
+    const env = { ...process.env, HOME: tmpDir, USERPROFILE: tmpDir };
+    const run = () =>
+      new Promise<string[]>((resolve, reject) =>
+        execFile(process.execPath, ['--import', 'tsx', script], { env, timeout: 60_000 }, (err, out) =>
+          err ? reject(err) : resolve(JSON.parse(out) as string[]),
+        ),
+      );
+    const results = await Promise.all(Array.from({ length: 4 }, run));
+    const all = results.flat();
+    expect(all.sort()).toEqual(Array.from({ length: 20 }, (_, i) => 'c' + i).sort());
+    expect(new Set(all).size).toBe(all.length);
+  }, 90_000);
 });
