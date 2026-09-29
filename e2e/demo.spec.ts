@@ -298,3 +298,19 @@ test('a split-view diff lays its columns out at full width', async ({ page }) =>
   expect(cellBox!.width).toBeGreaterThan(tableBox!.width * 0.35); // ~half the table, minus line numbers
   await expect(cell).toHaveCSS('display', 'table-cell');
 });
+
+test('Today and Inbox scroll when their content is taller than the window', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 360 });
+  for (const tab of ['today', 'inbox']) {
+    await page.goto(`${url}#/${tab}`);
+    const pane = page.locator(`.wd-tab-${tab}`);
+    await expect(pane.locator(tab === 'today' ? '.wd-today-card' : '.wd-inbox-item').first()).toBeVisible();
+    expect(await pane.evaluate((el) => el.scrollHeight > el.clientHeight), `${tab} is taller than the window`).toBe(true);
+    // A real wheel, not scrollTop: script can scroll an overflow:hidden box.
+    const box = (await pane.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 40);
+    await page.mouse.wheel(0, 600);
+    await expect.poll(() => pane.evaluate((el) => el.scrollTop), { message: `${tab} scrolls` }).toBeGreaterThan(0);
+    await expect(pane.locator('.wd-tab-header')).toBeInViewport(); // header stays
+  }
+});

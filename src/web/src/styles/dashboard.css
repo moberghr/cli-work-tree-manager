@@ -1371,3 +1371,12 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-today-more { color: var(--muted); font-size: 12px; }
 .wd-today-last { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 @media (max-width: 640px) { .wd-today-list { padding: 10px 12px 20px; } }
+
+/* Today and Inbox lay their content straight into the pane (overflow:
+   hidden, for the tabs that own a scroll region like the Sessions table),
+   so they scroll the pane itself; the header stays put. */
+.wd-tab-today,
+.wd-tab-inbox { overflow-y: auto; }
+.wd-tab-today > .wd-tab-header,
+.wd-tab-inbox > .wd-tab-header { position: sticky; top: 0; z-index: 2; background: var(--bg); }
+.wd-today-list { flex-shrink: 0; }
