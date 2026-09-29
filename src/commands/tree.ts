@@ -7,7 +7,7 @@ import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
 import { hasClaudeConversation } from '../core/claude-activity.js';
-import { findSession, loadHistory, recordLaunch, upsertSession } from '../core/history.js';
+import { findSession, forgetOtherBaseCheckoutEntries, loadHistory, recordLaunch, upsertSession } from '../core/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
@@ -244,6 +244,9 @@ export const treeCommand: CommandModule = {
         pullLatestForBranch(repoPath, currentBranch);
       }
       await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
+      // One entry per checkout: drop the ones recorded when it was on another branch.
+      const dropped = await forgetOtherBaseCheckoutEntries(targetName, currentBranch, repoPath);
+      if (dropped.length) console.log(chalk.gray(`Replaced older entries for this checkout: ${dropped.join(', ')}`));
 
       if (open) openVSCode(repoPath);
       if (!setupOnly) await launchTool(repoPath, undefined, { target: targetName, branch: currentBranch });

@@ -110,3 +110,13 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
   }
 }
 
+
+/** Why a session shows Active / Open / Idle(recent) / Stale instead of a
+ *  real status: its Claude isn't reporting through work web's hooks. */
+export const NO_HOOKS_HINT =
+  "Its Claude isn't reporting its status (it was started before work web's hooks were installed, or it isn't Claude), so this is from its transcript activity: Active = wrote in the last 30 s, Open = last 5 min. Restart it with `work tree <target> <branch>` (the conversation continues) to get Working / Needs your input / Done.";
+
+/** The hint for a status that comes from activity only; undefined otherwise. */
+export function statusHint(kind: DisplayKind): string | undefined {
+  return kind === 'active' || kind === 'open' || kind === 'recent' || kind === 'stale' ? NO_HOOKS_HINT : undefined;
+}

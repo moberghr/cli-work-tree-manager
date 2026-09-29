@@ -419,3 +419,17 @@ describe('upsertSessionWithPort (atomic allocate + persist)', () => {
     expect(findSession(loadHistory(), 'api', 'two')).toBeDefined();
   });
 });
+
+describe('forgetOtherBaseCheckoutEntries', () => {
+  it('keeps one entry per base checkout: the one just recorded', async () => {
+    const { forgetOtherBaseCheckoutEntries, upsertSession, loadHistory } = await import('../../src/core/history.js');
+    const repo = path.join(os.tmpdir(), 'dedupe-repo');
+    await upsertSession('api', false, 'feat/old', [repo]);
+    await upsertSession('api', false, 'feat/older', [repo]);
+    await upsertSession('api', false, 'feat/worktree', [path.join(os.tmpdir(), 'wt', 'feat-worktree')]);
+    await upsertSession('web', false, 'feat/old', [repo]); // another target: not ours
+    await upsertSession('api', false, 'main', [repo]);
+    expect((await forgetOtherBaseCheckoutEntries('api', 'main', repo)).sort()).toEqual(['feat/old', 'feat/older']);
+    expect(loadHistory().map((s) => `${s.target}:${s.branch}`).sort()).toEqual(['api:feat/worktree', 'api:main', 'web:feat/old']);
+  });
+});

@@ -8,6 +8,7 @@ import {
   CLEANUP_ARCHIVE_AFTER_MS,
   cleanupVerdict,
   createCleanupJob,
+  duplicateBaseEntries,
   repoFacts,
   type CleanupSession,
 } from '../../src/core/cleanup.js';
@@ -149,4 +150,25 @@ describe('cleanup on real repositories', () => {
     expect(job.state().candidates.map((c) => c.sessionId)).not.toContain('squashed');
     fs.rmSync(path.join(wt.merged, 'late.txt'));
   }, 120_000);
+});
+
+describe('duplicate base-checkout entries', () => {
+  const s = (id: string, branch: string, lastActiveMs: number, paths = ['/repos/api']): CleanupSession => ({
+    id, target: 'api', branch, isGroup: false, paths, archivedAt: null, lastActiveMs, aliases: ['api'],
+  });
+
+  it('keeps the most recently used entry for a checkout and marks the others', () => {
+    const dupes = duplicateBaseEntries(
+      [s('a', 'main', 300), s('b', 'feat/old', 100), s('c', 'feat/older', 50), s('wt', 'feat/x', 10, ['/wt/api/feat-x'])],
+      ['/repos/api'],
+    );
+    expect([...dupes]).toEqual([['b', { branch: 'main' }], ['c', { branch: 'main' }]]);
+    expect(duplicateBaseEntries([s('a', 'main', 1)], ['/repos/api']).size).toBe(0);
+  });
+
+  it('a duplicate is "gone": forget it, touching no files — even while the checkout is busy', () => {
+    const v = cleanupVerdict({ repos: [], lastActiveMs: NOW, archived: false, duplicateOf: { branch: 'main' } }, NOW);
+    expect(v).toMatchObject({ verdict: 'gone', suggested: 'forget' });
+    expect(v.reason).toContain('kept as main');
+  });
 });

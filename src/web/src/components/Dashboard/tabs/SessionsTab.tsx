@@ -12,7 +12,7 @@ import {
   type StatusBucket,
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
-import { AGE_LABEL, ageBucket, lastActiveAt, type AgeBucket } from '../../../state/session-display.js';
+import { AGE_LABEL, ageBucket, lastActiveAt, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import {
   groupRepoNames,
   groupSessionsByTarget,
@@ -334,7 +334,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
       }}
     >
       <td className="wd-st-col-status">
-        <span className="wd-st-status">
+        <span className="wd-st-status" title={statusHint(kind)}>
           <span className={`wd-rail-dot wd-rail-dot-${kind}`} aria-hidden />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>

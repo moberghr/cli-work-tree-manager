@@ -7,7 +7,7 @@ import {
   formatDiffStat,
 } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
-import { lastActiveAt } from '../../state/session-display.js';
+import { lastActiveAt, statusHint } from '../../state/session-display.js';
 
 /**
  * Small shared pieces of a session's at-a-glance state, used by the rail,
@@ -144,7 +144,7 @@ export function StatusLine({ session }: { session: SessionSummary }) {
   const a = session.attention;
   const since = a ? relativeTime(a.since) : relativeTime(lastActiveAt(session));
   return (
-    <span className={`wd-status-line wd-status-line-${kind}`}>
+    <span className={`wd-status-line wd-status-line-${kind}`} title={statusHint(kind)}>
       <span className={`wd-rail-dot wd-rail-dot-${kind}`} aria-hidden />
       <span className="wd-status-label">{DISPLAY_LABEL[kind]}</span>
       {since && <span className="wd-status-since"> · {since}</span>}

@@ -192,3 +192,11 @@ describe('railSessions — hundreds of sessions (reviewed: active ones were hidd
     expect([...current, ...older].some((s: { id: string }) => s.id === 'archived')).toBe(false);
   });
 });
+
+describe('statusHint', () => {
+  it('explains activity-only statuses, and nothing for real ones', async () => {
+    const { statusHint } = await import('../../src/web/src/state/session-display.js');
+    for (const k of ['active', 'open', 'recent', 'stale'] as const) expect(statusHint(k)).toMatch(/hooks/);
+    for (const k of ['needs_input', 'done', 'working', 'quiet'] as const) expect(statusHint(k)).toBeUndefined();
+  });
+});

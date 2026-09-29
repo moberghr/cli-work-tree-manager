@@ -345,3 +345,24 @@ export async function mergeHydratedSessions(
     return { added, updated };
   });
 }
+
+const samePath = (a: string, b: string) => {
+  const n = (p: string) => path.resolve(p).split(path.sep).join('/').toLowerCase();
+  return n(a) === n(b);
+};
+
+/**
+ * A base checkout (`work tree <target>` with no branch) is recorded under the
+ * branch it had checked out at the time. Run it again after switching that
+ * checkout to another branch and a second entry appeared for the SAME folder
+ * — then a third… — each showing the folder's activity as its own (three
+ * "Active" rows for one busy checkout). Keep one: the entry just recorded.
+ * Returns the branches of the entries removed.
+ */
+export async function forgetOtherBaseCheckoutEntries(target: string, keepBranch: string, repoPath: string): Promise<string[]> {
+  const others = loadHistory().filter(
+    (s) => s.target === target && !s.isGroup && s.branch !== keepBranch && s.paths.length === 1 && samePath(s.paths[0], repoPath),
+  );
+  for (const s of others) await removeSession(s.target, s.branch);
+  return others.map((s) => s.branch);
+}

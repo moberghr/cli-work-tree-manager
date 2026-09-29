@@ -124,15 +124,38 @@ function repoNames(s: CleanupSession): string[] {
   return s.isGroup ? s.paths.map((p) => path.basename(p)) : s.paths.map(() => s.target);
 }
 
+/**
+ * Base-checkout entries that are duplicates: several sessions for one
+ * configured repo's own folder (each recorded when that checkout was on a
+ * different branch). The most recently used is the entry; the rest map to it.
+ */
+export function duplicateBaseEntries(sessions: CleanupSession[], baseCheckouts: string[]): Map<string, { branch: string }> {
+  const bases = new Set(baseCheckouts.map(normPath));
+  const byPath = new Map<string, CleanupSession[]>();
+  for (const s of sessions) {
+    if (s.untracked || s.isGroup || s.paths.length !== 1 || !bases.has(normPath(s.paths[0]))) continue;
+    const key = `${s.target}|${normPath(s.paths[0])}`;
+    byPath.set(key, [...(byPath.get(key) ?? []), s]);
+  }
+  const dupes = new Map<string, { branch: string }>();
+  for (const group of byPath.values()) {
+    if (group.length < 2) continue;
+    const [kept, ...rest] = [...group].sort((a, b) => b.lastActiveMs - a.lastActiveMs);
+    for (const s of rest) dupes.set(s.id, { branch: kept.branch });
+  }
+  return dupes;
+}
+
 /** One worktree, examined now. */
 export async function examineWorktree(
   s: CleanupSession,
   deps: Pick<CleanupDeps, 'baseCheckouts' | 'run' | 'now'>,
+  duplicateOf?: { branch: string },
 ): Promise<CleanupCandidate> {
   const checkouts = new Set(deps.baseCheckouts().map(normPath));
   const names = repoNames(s);
   const repos = await Promise.all(s.paths.map((p, i) => repoFacts(names[i], p, checkouts, deps.run)));
-  const v = cleanupVerdict({ repos, lastActiveMs: s.lastActiveMs, archived: !!s.archivedAt }, (deps.now ?? Date.now)());
+  const v = cleanupVerdict({ repos, lastActiveMs: s.lastActiveMs, archived: !!s.archivedAt, duplicateOf }, (deps.now ?? Date.now)());
   // Nothing to archive for a worktree work doesn't track.
   const suggested = s.untracked && v.suggested === 'archive' ? null : v.suggested;
   return {
@@ -173,13 +196,15 @@ export async function scanCleanup(deps: CleanupDeps, opts: ScanOptions = {}): Pr
     });
   }
   const failed = new Set(fetchFailed.map((f) => f.alias));
+  const dupes = duplicateBaseEntries(sessions, deps.baseCheckouts());
   opts.onPhase?.('scanning', sessions.length);
   const found: CleanupCandidate[] = [];
   let done = 0;
   await pool(sessions, deps.concurrency ?? 6, async (s) => {
-    const recent = now() - s.lastActiveMs < CLEANUP_MIN_IDLE_MS && s.paths.some((p) => fs.existsSync(p));
+    // A duplicate shares its checkout's activity: "recent" says nothing about it.
+    const recent = !dupes.has(s.id) && now() - s.lastActiveMs < CLEANUP_MIN_IDLE_MS && s.paths.some((p) => fs.existsSync(p));
     if (!recent && !s.aliases.some((a) => failed.has(a))) {
-      const c = await examineWorktree(s, deps);
+      const c = await examineWorktree(s, deps, dupes.get(s.id));
       if (c.verdict !== 'keep') found.push(c);
     }
     opts.onProgress?.(++done);
@@ -203,7 +228,9 @@ export async function applyCleanup(
   items: Array<{ sessionId: string; action: CleanupAction }>,
   opts: ApplyOptions = {},
 ): Promise<CleanupResult[]> {
-  const byId = new Map((await deps.sessions()).map((s) => [s.id, s]));
+  const sessions = await deps.sessions();
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const dupes = duplicateBaseEntries(sessions, deps.baseCheckouts());
   const results: CleanupResult[] = [];
   for (const it of items) {
     const s = byId.get(it.sessionId);
@@ -212,7 +239,7 @@ export async function applyCleanup(
     try {
       if (!s) throw new Error('The worktree is gone already.');
       // The scan may be minutes old: decide again on what is there now.
-      const fresh = await examineWorktree(s, deps);
+      const fresh = await examineWorktree(s, deps, dupes.get(s.id));
       if (it.action === 'delete') {
         const mergedButDirty = fresh.verdict === 'dirty' && fresh.repos.every((r) => !r.exists || r.merged !== null);
         if (fresh.verdict !== 'merged' && !(opts.force && mergedButDirty)) throw new Error(`Not removed: ${fresh.reason}.`);

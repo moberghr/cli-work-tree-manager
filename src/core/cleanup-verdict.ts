@@ -14,11 +14,21 @@ export interface VerdictInput {
   repos: CleanupRepo[];
   lastActiveMs: number;
   archived: boolean;
+  /** Another session is the current entry for this same base checkout
+   *  (this one was recorded when the checkout was on another branch). */
+  duplicateOf?: { branch: string };
 }
 
 /** What to do with a session, and the one line that says why. */
 export function cleanupVerdict(i: VerdictInput, now: number = Date.now()): { verdict: CleanupVerdict; suggested: CleanupAction | null; reason: string } {
   const idle = now - i.lastActiveMs;
+  if (i.duplicateOf) {
+    return {
+      verdict: 'gone',
+      suggested: 'forget',
+      reason: `An older entry for the repo's own checkout (it is kept as ${i.duplicateOf.branch}); forgetting it touches no files`,
+    };
+  }
   if (i.repos.length === 0 || i.repos.every((r) => !r.exists)) {
     return { verdict: 'gone', suggested: 'forget', reason: 'Its folder is gone: only the session entry is left' };
   }
