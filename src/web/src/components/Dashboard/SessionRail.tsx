@@ -10,6 +10,7 @@ import {
   type PrLookup,
 } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
+import { lastActiveAt } from '../../state/session-display.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -34,7 +35,7 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
   if (kind === 'needs_input') return { text: `◆ ${relativeTime(since)}`, cls: 'wd-rail-slot-needs' };
   if (kind === 'done') return { text: `● ${relativeTime(since)}`, cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
-  return { text: relativeTime(s.attention?.updatedAt ?? s.lastAccessedAt), cls: '' };
+  return { text: relativeTime(lastActiveAt(s)), cls: '' };
 }
 
 /**

@@ -2,14 +2,70 @@ import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ensurePty } from './pty-pool.js';
+import { ensurePty, peekPty } from './pty-pool.js';
 import { refuseReason } from './local-origin.js';
+import { findSession } from './web-state.js';
+import { readSessionActivity } from './claude-activity.js';
+import { effectiveStatus, readStatus } from './session-status.js';
+import type { TerminalElsewhere } from './api-types.js';
 
-const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal$/;
+const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal(?:\?(.*))?$/;
 
 /** Minimal contract over the Node `http.Server` we need — broad enough to
  *  accept both HTTP/1 and HTTP/2 servers from `@hono/node-server`. */
 type UpgradableServer = EventEmitter;
+
+/** Transcript written this recently → a Claude is running there. */
+export const ELSEWHERE_ACTIVE_MS = 5 * 60_000;
+/** A Stop this recent → its Claude is most likely still open at its prompt. */
+export const ELSEWHERE_IDLE_MS = 30 * 60_000;
+
+export interface ElsewhereInput {
+  /** The PTY host already runs this session's Claude. */
+  hasPty: boolean;
+  /** Claude's last transcript write (ms since epoch), or null. */
+  lastActivityMs: number | null;
+  /** The session's effective hook status, or null. */
+  status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string } | null;
+}
+
+/**
+ * Is this session's Claude running OUTSIDE the PTY host — in a plain
+ * terminal, started without `--host`? Spawning one in the host then would
+ * put a second Claude on the same conversation (`--continue`), which broke
+ * the user's real terminal. The host has no view of foreign processes, so
+ * this is inferred: a fresh transcript write, a status that says it is
+ * working or blocked on a prompt (a blocked one sits silent for hours), or
+ * a Stop within the last half hour. Quiet longer than that: unknown, and
+ * spawning (which resumes the conversation) is what the tab is for.
+ */
+export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalElsewhere | null {
+  if (i.hasPty) return null;
+  const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS;
+  const s = i.status;
+  const blockedOrWorking = !!s && (s.state === 'needs_input' || s.state === 'working');
+  const justFinished = !!s && s.state === 'idle' && now - (Date.parse(s.updatedAt) || 0) < ELSEWHERE_IDLE_MS;
+  if (!active && !blockedOrWorking && !justFinished) return null;
+  return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: s?.state ?? null };
+}
+
+function defaultElsewhere(sessionId: string): TerminalElsewhere | null {
+  const session = findSession(sessionId);
+  if (!session) return null;
+  const activity = readSessionActivity(session);
+  const raw = readStatus(sessionId);
+  const status = raw ? effectiveStatus(raw, activity.lastActivity ?? 0) : null;
+  return claudeElsewhere({
+    hasPty: peekPty(sessionId),
+    lastActivityMs: activity.lastActivity,
+    status: status ? { state: status.state, updatedAt: status.updatedAt } : null,
+  });
+}
+
+export interface TerminalWsOptions {
+  /** Whether the session's Claude runs outside the host (tests inject). */
+  elsewhere?: (sessionId: string) => TerminalElsewhere | null;
+}
 
 /**
  * Attach a WebSocket handler to the same Node http server Hono is running
@@ -21,7 +77,9 @@ type UpgradableServer = EventEmitter;
  *   { type: 'resize', cols, rows }    PTY resize
  *
  * Server → browser: binary frames are PTY output; text frames are control
- * JSON ({ type: 'exit', code } | { type: 'error', message }).
+ * JSON ({ type: 'exit', code } | { type: 'error', message } |
+ * { type: 'elsewhere', … } — the session's Claude runs in another terminal,
+ * nothing was spawned; `?force=1` spawns anyway).
  *
  * `port` is the listening port — used for the same Host + Origin guard the
  * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
@@ -30,8 +88,10 @@ type UpgradableServer = EventEmitter;
 export function attachTerminalWs(
   httpServer: UpgradableServer,
   port: number,
+  opts: TerminalWsOptions = {},
 ): { close: () => void } {
   const wss = new WebSocketServer({ noServer: true });
+  const elsewhere = opts.elsewhere ?? defaultElsewhere;
 
   httpServer.on('upgrade', (req: IncomingMessage, socket: Socket, head) => {
     // WebSockets aren't covered by CORS: without this, any page open in
@@ -60,8 +120,9 @@ export function attachTerminalWs(
       return;
     }
     const sessionId = decodeURIComponent(match[1]);
+    const force = new URLSearchParams(match[2] ?? '').get('force') === '1';
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void bridgeToHost(ws, sessionId);
+      void bridgeToHost(ws, sessionId, force ? null : elsewhere(sessionId));
     });
   });
 
@@ -78,7 +139,15 @@ export function attachTerminalWs(
  * Browser frames are already the host's ClientFrame JSON, so they pass
  * through verbatim.
  */
-async function bridgeToHost(ws: WebSocket, sessionId: string): Promise<void> {
+async function bridgeToHost(ws: WebSocket, sessionId: string, elsewhere: TerminalElsewhere | null): Promise<void> {
+  if (elsewhere) {
+    // Nothing spawned: the tab explains and offers to force it.
+    try {
+      ws.send(JSON.stringify(elsewhere));
+      ws.close(1000);
+    } catch { /* */ }
+    return;
+  }
   // The browser may leave while ensurePty() is still starting the host (up
   // to several seconds): track that from the start, or the upstream opened
   // afterwards would never be closed — a leaked host connection with a live

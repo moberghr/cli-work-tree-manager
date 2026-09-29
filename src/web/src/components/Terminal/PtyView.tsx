@@ -8,7 +8,22 @@ import '@xterm/xterm/css/xterm.css';
 
 interface Props {
   sessionId: string;
+  /** For the `work tree … --host` hint when its Claude runs elsewhere. */
+  target?: string;
+  branch?: string;
 }
+
+/** The server said the session's Claude runs in another terminal. */
+interface Elsewhere {
+  lastActivity: number | null;
+  state: string | null;
+}
+
+const ago = (ms: number | null) => {
+  if (ms === null) return null;
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+};
 
 /**
  * xterm.js client for a session's Claude PTY. Opens a WebSocket to
@@ -17,10 +32,18 @@ interface Props {
  * Lifecycle: mounts xterm + FitAddon, opens WS, attaches keyboard input.
  * On unmount: closes WS and disposes xterm. The server-side PTY survives.
  */
-export function PtyView({ sessionId }: Props) {
+export function PtyView({ sessionId, target, branch }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Bumped to tear down and re-run the connect effect (restart after exit).
   const [generation, setGeneration] = useState(0);
+  // Its Claude runs in a plain terminal: nothing spawned, explain instead.
+  const [elsewhere, setElsewhere] = useState<Elsewhere | null>(null);
+  // "Start a second Claude here anyway": reconnect with ?force=1 once.
+  const force = useRef(false);
+  useEffect(() => {
+    setElsewhere(null);
+    force.current = false;
+  }, [sessionId]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -86,7 +109,7 @@ export function PtyView({ sessionId }: Props) {
 
     const wsUrl = (() => {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${proto}//${window.location.host}/ws/sessions/${encodeURIComponent(sessionId)}/terminal`;
+      return `${proto}//${window.location.host}/ws/sessions/${encodeURIComponent(sessionId)}/terminal${force.current ? '?force=1' : ''}`;
     })();
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -127,6 +150,8 @@ export function PtyView({ sessionId }: Props) {
         data?: string;
         cols?: number;
         rows?: number;
+        lastActivity?: number | null;
+        state?: string | null;
       };
       try {
         msg = JSON.parse(e.data);
@@ -145,6 +170,9 @@ export function PtyView({ sessionId }: Props) {
         );
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
+      } else if (msg.type === 'elsewhere') {
+        exited = true; // the server closes; no reconnect prompt
+        setElsewhere({ lastActivity: typeof msg.lastActivity === 'number' ? msg.lastActivity : null, state: typeof msg.state === 'string' ? msg.state : null });
       }
     });
 
@@ -210,5 +238,34 @@ export function PtyView({ sessionId }: Props) {
     };
   }, [sessionId, generation]);
 
-  return <div ref={hostRef} className="wd-pty-host" />;
+  const startAnyway = () => {
+    force.current = true;
+    setElsewhere(null);
+    setGeneration((g) => g + 1);
+  };
+  const hostHint = target ? `work tree ${target}${branch ? ` ${branch}` : ''} --host` : 'work tree <target> <branch> --host';
+  return (
+    <>
+      {elsewhere && (
+        <div className="wd-pty-elsewhere" role="status">
+          <p className="wd-pty-elsewhere-title">
+            This session&apos;s Claude is running in another terminal
+            {elsewhere.lastActivity !== null && <> (last wrote {ago(elsewhere.lastActivity)})</>}
+            {elsewhere.state === 'needs_input' && <>, waiting for your answer there</>}.
+          </p>
+          <p>
+            It was started without <code>--host</code>, so the dashboard can&apos;t show it. Use it in its terminal, or
+            restart it with <code>{hostHint}</code> to have it here (Ctrl+] detaches, Claude keeps running).
+          </p>
+          <p className="wd-pty-elsewhere-actions">
+            <button type="button" className="wd-btn-secondary" onClick={startAnyway}>
+              Start a second Claude here anyway
+            </button>
+            <span className="wd-pty-elsewhere-warn">Both would work on the same conversation.</span>
+          </p>
+        </div>
+      )}
+      <div ref={hostRef} className="wd-pty-host" style={elsewhere ? { display: 'none' } : undefined} />
+    </>
+  );
 }

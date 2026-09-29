@@ -279,6 +279,9 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 § WHEN changing the host wire format, bump `PROTOCOL_VERSION` (now 2: the restore list moved into state.db; a v2 host adopts a `pty-sessions.json` written by a v1 host that outlived the upgrade — `adoptLegacyRestoreList`) — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
 § WHEN spawning into a PTY, let `resolvePtyCommand` (`tui/session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
 § WHEN adding a path that spawns Claude for a session, go through `spawnSpecFor` + the host, not `new PtySession` — otherwise that session won't survive restarts or be attachable.
+§ A Claude started in a plain terminal (no `--host`) is invisible to the host, and the Terminal tab must not put a second one on its conversation: `claudeElsewhere` (`core/terminal-ws.ts`) infers one from a transcript write in the last 5 min, a working/blocked status, or a Stop in the last 30 min, and the tab then explains (with the `--host` hint) instead of spawning; `?force=1` spawns anyway. Quiet longer than that is unknown, and spawning — which resumes the conversation — is what the tab is for.
+
+**Status without hooks.** A session whose Claude has not taken a turn since the dashboard's hooks went in shows transcript activity only (`displayStatus`, `state/session-display.ts`): Active ≤ 30 s, Open ≤ 5 min, Idle within a day (`recent`), Stale after that. "Last active" everywhere is `lastActiveAt`: the newest of the hook update, Claude's last write and the `work tree` entry.
 
 ### Attention inbox
 

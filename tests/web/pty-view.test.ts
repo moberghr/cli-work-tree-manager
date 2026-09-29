@@ -249,6 +249,22 @@ describe('PtyView', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it("when its Claude runs in another terminal: explains, spawns nothing, and 'start anyway' reconnects with force", () => {
+    const { ws, term } = mount();
+    act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'working' }));
+    const panel = document.querySelector('.wd-pty-elsewhere')!;
+    expect(panel.textContent).toContain('running in another terminal');
+    expect(panel.textContent).toContain('--host');
+    expect(term.writes.join('')).not.toMatch(/reconnect/); // the server's close is expected, not an outage
+    act(() => ws.serverClose());
+    expect(term.writes.join('')).not.toMatch(/connection closed/);
+
+    act(() => (panel.querySelector('button') as HTMLButtonElement).click());
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[1].url).toMatch(/\/terminal\?force=1$/);
+    expect(document.querySelector('.wd-pty-elsewhere')).toBeNull();
+  });
+
   it('prints an error control frame', () => {
     const { ws, term } = mount();
     act(() => ws.control({ type: 'error', message: 'unknown session' }));

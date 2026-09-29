@@ -274,6 +274,7 @@
 .wd-rail-dot-active  { background: var(--add-fg); }
 .wd-rail-dot-open    { background: #d29922; }   /* amber */
 .wd-rail-dot-quiet,
+.wd-rail-dot-recent,
 .wd-rail-dot-stale   { background: #6e7681; }   /* grey */
 @media (prefers-reduced-motion: reduce) { .wd-rail-dot-working { animation: none; } }
 
@@ -1214,6 +1215,14 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-ci-fail { background: color-mix(in srgb, var(--del-fg) 8%, transparent); }
 .wd-ci-fail .wd-ci-item > [aria-hidden] { color: var(--del-fg); }
 .wd-ci-fix { font-size: 12px; padding: 2px 10px; }
+
+/* Terminal tab: the session's Claude runs in a plain terminal (nothing spawned). */
+.wd-pty-elsewhere { padding: 18px 22px; max-width: 720px; font-size: 13px; line-height: 1.5; }
+.wd-pty-elsewhere p { margin: 0 0 10px; }
+.wd-pty-elsewhere-title { font-weight: 600; font-size: 14px; }
+.wd-pty-elsewhere code { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+.wd-pty-elsewhere-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.wd-pty-elsewhere-warn { color: var(--muted); font-size: 12px; }
 
 /* Inbox: what a permission prompt wants to run, answerable in place. */
 .wd-inbox-request { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; }

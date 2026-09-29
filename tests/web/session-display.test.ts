@@ -8,6 +8,7 @@ import {
   defaultSubTab,
   displayStatus,
   formatDiffStat,
+  lastActiveAt,
   prsForSession,
   stableSessionOrder,
   statusBucket,
@@ -43,7 +44,19 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(displayStatus(s({ id: 'a', attention: att('working', true), activityState: 'stale' }))).toBe('working');
     expect(displayStatus(s({ id: 'a', activityState: 'active' }))).toBe('active');
     expect(displayStatus(s({ id: 'a', activityState: 'open' }))).toBe('open');
-    expect(displayStatus(s({ id: 'a' }))).toBe('stale');
+    // No hook status and quiet for 5 min: used today is Idle, older is Stale.
+    expect(displayStatus(s({ id: 'a' }))).toBe('recent'); // entered 100 min ago
+    expect(displayStatus(s({ id: 'a', lastAccessedAt: minsAgo(3 * 24 * 60) }))).toBe('stale');
+    expect(displayStatus(s({ id: 'a', lastAccessedAt: minsAgo(3 * 24 * 60), lastActivity: Date.now() - 2 * 3_600_000 }))).toBe('recent');
+  });
+
+  it("'last active' is the newest of the hook update, Claude's last write and the entry", () => {
+    const entry = minsAgo(24 * 60);
+    expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry }))).toBe(entry);
+    const wrote = Date.now() - 60_000;
+    expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote }))).toBe(new Date(wrote).toISOString());
+    const hooked = new Date(Date.now() - 1000).toISOString(); // newer than the write
+    expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote, attention: { ...att('idle', true), updatedAt: hooked } }))).toBe(hooked);
   });
 
   it('buckets for the Sessions header and filter', () => {
@@ -53,6 +66,7 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(statusBucket('active')).toBe('working');
     expect(statusBucket('quiet')).toBe('idle');
     expect(statusBucket('open')).toBe('idle');
+    expect(statusBucket('recent')).toBe('idle');
     expect(statusBucket('stale')).toBe('stale');
   });
 

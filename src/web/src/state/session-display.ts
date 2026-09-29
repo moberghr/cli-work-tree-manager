@@ -12,7 +12,10 @@ import type { SessionSubTab } from './dashboard-route.js';
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
  *   quiet       — finished, and you've seen it
- *   active/open/stale — no hook status yet; transcript activity only
+ *   active/open/recent/stale — no hook status yet (its Claude has not
+ *     taken a turn since the dashboard's hooks went in, or runs a tool
+ *     without them): transcript activity only. Active ≤ 30 s, Open ≤ 5 min,
+ *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
   | 'needs_input'
@@ -21,9 +24,21 @@ export type DisplayKind =
   | 'quiet'
   | 'active'
   | 'open'
+  | 'recent'
   | 'stale';
 
-export function displayStatus(s: SessionSummary): DisplayKind {
+/** Used today = not stale, whatever the hooks know. */
+export const RECENT_MS = 24 * 3_600_000;
+
+/** When the session last did anything: the newest of its hook update,
+ *  Claude's last transcript write and the `work tree` entry. (Reading only
+ *  the entry time called a session Active and "1d" at once.) */
+export function lastActiveAt(s: SessionSummary): string {
+  const candidates = [Date.parse(s.lastAccessedAt) || 0, s.lastActivity ?? 0, s.attention ? Date.parse(s.attention.updatedAt) || 0 : 0];
+  return new Date(Math.max(...candidates)).toISOString();
+}
+
+export function displayStatus(s: SessionSummary, now: number = Date.now()): DisplayKind {
   const a = s.attention;
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
@@ -32,7 +47,7 @@ export function displayStatus(s: SessionSummary): DisplayKind {
   }
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
-  return 'stale';
+  return now - Date.parse(lastActiveAt(s)) < RECENT_MS ? 'recent' : 'stale';
 }
 
 export const DISPLAY_LABEL: Record<DisplayKind, string> = {
@@ -42,6 +57,7 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
+  recent: 'Idle',
   stale: 'Stale',
 };
 
@@ -58,6 +74,7 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
       return 'working';
     case 'quiet':
     case 'open':
+    case 'recent':
       return 'idle';
     default:
       return 'stale';

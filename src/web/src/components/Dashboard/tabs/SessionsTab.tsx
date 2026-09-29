@@ -12,6 +12,7 @@ import {
   type StatusBucket,
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
+import { lastActiveAt } from '../../../state/session-display.js';
 import {
   groupRepoNames,
   groupSessionsByTarget,
@@ -101,7 +102,7 @@ export function SessionsTab({
         const bn = (b.branch || b.target).toLowerCase();
         return an.localeCompare(bn);
       }
-      return b.lastAccessedAt.localeCompare(a.lastAccessedAt);
+      return lastActiveAt(b).localeCompare(lastActiveAt(a));
     });
   }, [sessions, live, showArchived, sort, filter]);
 
@@ -326,7 +327,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
         <PrChips prs={prs} link />
       </td>
       <td className="wd-st-col-when">
-        {relativeTime(s.attention?.updatedAt ?? s.lastAccessedAt)}
+        {relativeTime(lastActiveAt(s))}
         {s.context && (
           <div className="wd-st-context">
             <ContextChip session={s} />

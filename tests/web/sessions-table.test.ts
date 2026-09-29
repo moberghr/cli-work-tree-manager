@@ -48,7 +48,7 @@ const SESSIONS = [
   s({ id: 'blocked', lastAccessedAt: minsAgo(9), attention: att('needs_input', false, 'Needs Bash'), diffStat: { added: 4, deleted: 2, files: 1 } }),
   s({ id: 'done', attention: att('idle', false, 'Added tests') }),
   s({ id: 'working', attention: att('working', true, 'Refactoring') }),
-  s({ id: 'old' }),
+  s({ id: 'old', lastAccessedAt: minsAgo(3 * 24 * 60) }), // days quiet: the Stale example
   s({ id: 'archived', archivedAt: minsAgo(60) }),
 ];
 

@@ -146,7 +146,7 @@ export function SessionDetail({
       </nav>
       <div className="wd-session-subtab-body">
         {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
-        {subTab === 'term' && <PtyView sessionId={session.id} />}
+        {subTab === 'term' && <PtyView sessionId={session.id} target={session.target} branch={session.branch} />}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
       </div>
     </div>

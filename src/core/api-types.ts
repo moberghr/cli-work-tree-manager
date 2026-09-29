@@ -51,6 +51,17 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** Terminal WebSocket control frame: the session's Claude is running in
+ *  a plain terminal (not the PTY host), so nothing was spawned — a second
+ *  Claude would share its conversation. Reconnect with `?force=1` to
+ *  spawn anyway. */
+export interface TerminalElsewhere {
+  type: 'elsewhere';
+  /** Claude's last transcript write (ms since epoch), or null. */
+  lastActivity: number | null;
+  state: 'working' | 'needs_input' | 'idle' | null;
+}
+
 /** GET /api/digest — what each session did since a point in time. */
 export interface DigestResponse {
   since: string;
