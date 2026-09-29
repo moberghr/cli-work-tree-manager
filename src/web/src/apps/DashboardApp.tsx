@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchSessions, markSessionSeen, type SessionSummary } from '../api/client.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fetchSessions, markSessionSeen, type NotifyEvent, type SessionSummary } from '../api/client.js';
+import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
@@ -113,10 +114,18 @@ export function DashboardApp() {
     };
   }, [refreshKey]);
 
+  // Notification discipline: tell the server what this tab shows, and turn
+  // its `notify` events into click-to-jump browser notifications.
+  usePresence(route.sessionId);
+  const notifyTarget = useRef({ sessionId: route.sessionId, open: (_id: string, _sub: SessionSubTab) => {} });
   useSse('/events', {
     events: {
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
+      notify: (data) =>
+        showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id, kind) =>
+          notifyTarget.current.open(id, kind === 'needs_input' ? 'term' : 'diff'),
+        ),
     },
   });
 
@@ -167,6 +176,7 @@ export function DashboardApp() {
     },
     [navigate, route.tab],
   );
+  notifyTarget.current = { sessionId: route.sessionId, open: openSession };
   const setSubTab = useCallback(
     (sub: SessionSubTab) => {
       if (!route.sessionId) return;

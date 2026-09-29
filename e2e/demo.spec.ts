@@ -114,3 +114,36 @@ test('revert a file from the diff, and Claude is told', async ({ page }) => {
   await page.getByRole('tab', { name: 'Since branch' }).click();
   await expect(page.getByRole('button', { name: /^Revert/ })).toHaveCount(0);
 });
+
+test('a finished session notifies only when you are not looking, and the click jumps to it', async ({ page }) => {
+  // Record notifications instead of showing real ones.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __notes: Array<{ title: string; click: () => void }> };
+    w.__notes = [];
+    class N {
+      static permission = 'granted';
+      static requestPermission = async () => 'granted';
+      onclick: (() => void) | null = null;
+      constructor(public title: string) {
+        w.__notes.push({ title, click: () => this.onclick?.() });
+      }
+      close() {}
+    }
+    (window as unknown as { Notification: unknown }).Notification = N;
+  });
+  await page.goto(`${url}#/inbox`);
+  await expect(page.getByText('Notifications on')).toBeVisible();
+
+  // Answer the blocked agent, then look elsewhere while it works.
+  await page.locator('.wd-inbox-rank-0 .wd-inbox-row', { hasText: 'feat/invoice-export' }).click();
+  await page.locator('.wd-pty-host .xterm').click();
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __notes: Array<{ title: string }> }).__notes.map((n) => n.title)), { timeout: 20_000 })
+    .toContain('Finished — api · feat/invoice-export');
+  await page.evaluate(() => (window as unknown as { __notes: Array<{ title: string; click: () => void }> }).__notes.find((n) => n.title.startsWith('Finished'))!.click());
+  await expect(page.locator('.wd-dash-rail-item[aria-current], .wd-dash-rail-item-active').first()).toContainText('feat/invoice-export');
+});

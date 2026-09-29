@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import { markSessionSeen, type SessionSummary } from '../../../api/client.js';
 import { isArchived, type PrLookup } from '../../../state/session-display.js';
 import { DiffStatChip, PrChips } from '../SessionBits.js';
@@ -39,6 +40,33 @@ const SECTIONS: Section[] = [
  * finished-but-unseen, then what's still running. Quiet sessions are only
  * counted. Driven by Claude's own hooks (see core/session-status.ts).
  */
+/** Browser notifications need a click to ask for permission. Once granted,
+ *  sessions that want you notify here (click to jump) — only when you're
+ *  not already looking at them — instead of as a desktop toast. */
+function NotificationToggle() {
+  const { state, request } = useNotificationPermission();
+  if (state === 'unsupported') return null;
+  if (state === 'granted') {
+    return (
+      <span className="wd-tab-header-muted wd-notify-state" title="Sessions notify here only when you're not looking at them">
+        🔔 Notifications on
+      </span>
+    );
+  }
+  if (state === 'denied') {
+    return (
+      <span className="wd-tab-header-muted wd-notify-state" title="Allow notifications for this site in the browser to turn them on">
+        🔕 Notifications blocked
+      </span>
+    );
+  }
+  return (
+    <button type="button" className="wd-btn-secondary wd-notify-enable" onClick={request}>
+      Enable notifications
+    </button>
+  );
+}
+
 export function InboxTab({
   sessions,
   onOpenSession,
@@ -88,6 +116,7 @@ export function InboxTab({
         <span className="wd-tab-header-muted">
           Press <kbd>n</kbd> to jump to the next one
         </span>
+        <NotificationToggle />
       </header>
       {tracked === 0 ? (
         <div className="wd-tab-empty">

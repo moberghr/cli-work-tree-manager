@@ -32,6 +32,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/diff-parse.ts', // pure unified-diff parser
       'src/core/api-types.ts',
       'src/core/attention.ts',
+      'src/core/presence.ts', // pure who's-watching registry
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

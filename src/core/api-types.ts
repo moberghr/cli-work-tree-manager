@@ -149,3 +149,25 @@ export interface RevertResponse {
   ok: true;
   description: string;
 }
+
+/** POST /api/presence — one dashboard tab says what it is showing. Sent on
+ *  every change and as a heartbeat; `gone` when the tab closes. */
+export interface PresenceReport {
+  /** Random per tab. */
+  clientId: string;
+  /** The session the tab shows, or null (Inbox, Sessions table, …). */
+  sessionId: string | null;
+  visible: boolean;
+  focused: boolean;
+  /** The tab may show browser notifications (permission granted). */
+  canNotify: boolean;
+  gone?: boolean;
+}
+
+/** SSE `notify` — a session wants the user and nobody is looking at it. */
+export interface NotifyEvent {
+  sessionId: string;
+  kind: 'idle' | 'needs_input';
+  title: string;
+  body?: string;
+}

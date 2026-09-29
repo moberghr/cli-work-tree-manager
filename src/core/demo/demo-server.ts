@@ -54,6 +54,21 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return d ? c.json(d) : notFound(c);
   });
 
+  app.post('/api/presence', async (c) => {
+    const body = await json(c);
+    if (typeof body.clientId !== 'string' || !body.clientId) return c.json({ error: 'clientId required' }, 400);
+    if (body.gone) scenario.presence.drop(body.clientId);
+    else
+      scenario.presence.report({
+        clientId: body.clientId,
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+        visible: body.visible === true,
+        focused: body.focused === true,
+        canNotify: body.canNotify === true,
+      });
+    return c.json({ ok: true });
+  });
+
   app.post('/api/sessions/:id/revert', async (c) => {
     const body = await json(c);
     if (typeof body.repo !== 'string' || typeof body.path !== 'string') return c.json({ error: 'repo and path are required' }, 400);

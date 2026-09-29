@@ -68,6 +68,25 @@ describe('demo server', () => {
     expect(b.repos.map((r: { name: string }) => r.name)).toEqual(['backend', 'frontend']);
   });
 
+  it('notifies only when nobody is looking at the session', async () => {
+    const notes: unknown[] = [];
+    scenario.subscribe((e) => e.event === 'notify' && notes.push(e.data));
+    const search = await byBranch('feat/search-filters');
+    // Looking right at it: the scripted permission prompt stays silent.
+    await send('POST', '/api/presence', { clientId: 't', sessionId: search.id, visible: true, focused: true, canNotify: true });
+    advance(21_000);
+    expect(notes).toEqual([]);
+    expect((await byBranch('feat/search-filters')).attention).toMatchObject({ state: 'needs_input' });
+
+    // Looking elsewhere: a turn that finishes does notify.
+    await send('POST', '/api/presence', { clientId: 't', sessionId: null, visible: true, focused: true, canNotify: true });
+    const inv = await byBranch('feat/invoice-export');
+    scenario.input(inv.id, '1');
+    for (let i = 0; i < 20 && !notes.length; i++) advance(1_000);
+    expect(notes).toEqual([expect.objectContaining({ sessionId: inv.id, kind: 'idle', title: expect.stringMatching(/^Finished — /) })]);
+    expect((await send('POST', '/api/presence', {})).status).toBe(400);
+  });
+
   it('fakes per-turn checkpoints, and a turn diffs to part of the change', async () => {
     const login = await byBranch('fix/login-redirect');
     const { entries } = await get(`/api/sessions/${login.id}/checkpoints`);

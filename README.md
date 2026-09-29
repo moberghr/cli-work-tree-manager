@@ -351,6 +351,7 @@ Edit via `work config edit`, or manage repos/groups via the `work config …` su
 
 When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know — `work web` does it via its Claude hooks, for any Claude on the machine:
 
+- **Only when you're not looking.** Nothing fires for a session a focused dashboard tab is showing. Click **Enable notifications** on the Inbox tab and the dashboard raises browser notifications instead — clicking one jumps to that session (the terminal if it's asking you something, the diff if it finished). The desktop toast below is the fallback for when no dashboard tab can notify.
 - **`notifications: true`** — fires a native desktop notification (macOS `osascript`, Linux `notify-send`, Windows BurntToast/balloon best-effort). Repeated alerts within one idle period are de-duplicated; submitting a new prompt re-arms it.
 - **`statusHooks`** — the general form. Each entry is `{ "on": "idle" | "needs_input", "command": "..." }`. The command runs (with the session directory as cwd) on that transition, with `WORK_SESSION` and `WORK_STATUS` in its environment — use it for sounds, Slack pings, or anything scriptable.
 

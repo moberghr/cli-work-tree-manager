@@ -1,8 +1,10 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
+import { createPresence, type Presence } from '../presence.js';
 import type {
   ChecksState,
   MergeMethod,
+  NotifyEvent,
   MergeSelection,
   RepoShipState,
   SessionAttention,
@@ -194,6 +196,8 @@ export interface ScenarioOptions {
 }
 
 export class DemoScenario {
+  /** Which demo tabs are looking at what (POST /api/presence). */
+  readonly presence: Presence;
   readonly sessions = new Map<string, DemoSession>();
   private readonly listeners = new Set<(e: DemoEvent) => void>();
   private readonly now: () => number;
@@ -207,6 +211,7 @@ export class DemoScenario {
 
   constructor(opts: ScenarioOptions = {}) {
     this.now = opts.now ?? Date.now;
+    this.presence = createPresence(this.now);
     this.speed = opts.speed ?? 1;
     this.started = this.now();
     this.seed();
@@ -369,6 +374,7 @@ export class DemoScenario {
     if (!s || s.archivedAt) return;
     const ts = new Date(this.now()).toISOString();
     const seen = state === 'working' ? true : false;
+    const prev = s.attention?.state;
     s.attention = {
       state,
       seen,
@@ -379,6 +385,17 @@ export class DemoScenario {
     };
     if (state === 'needs_input' && summary) {
       s.transcript.push('', `  ${summary.replace('Claude needs your permission to use ', '')} — do you want to proceed?`, '  ❯ 1. Yes', '    2. No, tell Claude what to do differently');
+    }
+    // Same discipline as the real server: notify only if nobody is looking.
+    const kind = state === 'needs_input' && prev !== 'needs_input' ? 'needs_input' : state === 'idle' && prev === 'working' ? 'idle' : null;
+    if (kind && this.presence.route(id) !== 'none') {
+      const event: NotifyEvent = {
+        sessionId: id,
+        kind,
+        title: `${kind === 'needs_input' ? 'Needs your input' : 'Finished'} — ${s.target} · ${s.branch}`,
+        body: s.attention.summary,
+      };
+      this.emit('notify', event);
     }
     this.changed();
   }
