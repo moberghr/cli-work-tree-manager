@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import { answerPermission, markSessionSeen, type AnswerRequest, type SessionSummary } from '../../../api/client.js';
 import { isArchived, type PrLookup } from '../../../state/session-display.js';
-import { DiffStatChip, PrChips } from '../SessionBits.js';
+import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { attentionRank, compareAttention } from '../../../../../core/attention.js';
 import { relativeTime } from '../../../utils/time.js';
@@ -190,6 +190,7 @@ export function InboxTab({
                     </span>
                     <span className="wd-inbox-meta">
                       <DiffStatChip session={s} />
+                      <OverlapChip session={s} />
                       <PrChips prs={prsFor?.(s) ?? []} />
                       <span className="wd-inbox-since">
                         {sec.since} {relativeTime(s.attention!.since)}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { DiffStatChip, PrChips, StatusLine } from './SessionBits.js';
+import { DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { DevChip } from './DevChip.js';
 import { CiStrip } from './CiStrip.js';
@@ -30,6 +30,8 @@ interface Props {
   onShipped?: () => void;
   /** Open the diff on "Last turn" (review queue / a finished session). */
   startOnLastTurn?: boolean;
+  /** Open another session (the overlap warning links to it). */
+  onOpenSession?: (id: string) => void;
 }
 
 /**
@@ -54,6 +56,7 @@ export function SessionDetail({
   prs = [],
   onShipped,
   startOnLastTurn = false,
+  onOpenSession,
 }: Props) {
   // Which session the Ship panel was opened FOR: it closes itself when the
   // detail switches to another session (j/k, a notification click), so a
@@ -101,6 +104,7 @@ export function SessionDetail({
       <div className="wd-session-strip">
         <StatusLine session={session} />
         <DiffStatChip session={session} />
+        <OverlapChip session={session} onOpen={onOpenSession} />
         <PrChips prs={prs} link />
         <DevChip sessionId={session.id} />
         {!session.attention && (

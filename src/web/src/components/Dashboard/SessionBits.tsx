@@ -56,6 +56,47 @@ export function DiffStatChip({ session }: { session: SessionSummary }) {
   );
 }
 
+/** Hover text: which files, shared with which session. */
+export function overlapTitle(session: SessionSummary): string {
+  return (session.overlaps ?? [])
+    .map((o) => {
+      const more = o.count > o.files.length ? `, and ${o.count - o.files.length} more` : '';
+      return `Also changed by ${o.target} · ${o.branch}:\n  ${o.files.map((f) => `${f.repo}/${f.path}`).join('\n  ')}${more}`;
+    })
+    .join('\n\n') + '\n\nThese will conflict when both merge.';
+}
+
+/**
+ * "⚠ Same files as chore/deps-update": another live session changes some
+ * of the same files, so the second of the two to merge will conflict.
+ * With `onOpen` (the session header) each name opens that session; in
+ * rows (which are buttons themselves) it's plain text with the list on hover.
+ */
+export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOpen?: (id: string) => void }) {
+  const list = session.overlaps ?? [];
+  if (list.length === 0) return null;
+  const files = list.reduce((n, o) => n + o.count, 0);
+  return (
+    <span className="wd-overlap" title={overlapTitle(session)}>
+      <span aria-hidden>⚠</span> Same files as{' '}
+      {list.slice(0, 2).map((o, i) => (
+        <span key={o.sessionId}>
+          {i > 0 && ', '}
+          {onOpen ? (
+            <button type="button" className="wd-overlap-link" onClick={() => onOpen(o.sessionId)}>
+              {o.branch}
+            </button>
+          ) : (
+            <span className="wd-overlap-name">{o.branch}</span>
+          )}
+        </span>
+      ))}
+      {list.length > 2 && ` +${list.length - 2}`}
+      <span className="wd-overlap-count"> ({files} file{files === 1 ? '' : 's'})</span>
+    </span>
+  );
+}
+
 /** "Needs your input · 4m — Claude needs your permission to use Bash". */
 export function StatusLine({ session }: { session: SessionSummary }) {
   const kind = displayStatus(session);

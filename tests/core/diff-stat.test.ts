@@ -59,7 +59,7 @@ describe('DiffStatCache', () => {
     let release!: () => void;
     let result = '1\t0\ta.ts\n';
     const slow: CommandRunner = async (_cmd, args) => {
-      if (args[0] === 'diff') {
+      if (args[0] === 'diff' && args.includes('--numstat')) {
         const out = result; // what the files looked like when git ran
         await new Promise<void>((r) => (release = r));
         return { code: 0, stdout: out, stderr: '' };

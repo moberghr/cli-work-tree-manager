@@ -1248,3 +1248,26 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-review-queue-actions { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
 .wd-review-queue-next kbd { font-size: 10px; margin-left: 4px; opacity: 0.8; }
 @media (max-width: 640px) { .wd-review-queue-hint { display: none; } }
+
+/* Two live sessions change the same files: they'll conflict on merge. */
+.wd-overlap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--warn-fg, #9a6700);
+  white-space: nowrap;
+}
+.wd-overlap-name, .wd-overlap-link { font-weight: 600; }
+.wd-overlap-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.wd-overlap-count { color: var(--muted); font-weight: 400; }

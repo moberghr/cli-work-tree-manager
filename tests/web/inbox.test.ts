@@ -6,6 +6,7 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { TopNav } from '../../src/web/src/components/Dashboard/TopNav.js';
+import { OverlapChip } from '../../src/web/src/components/Dashboard/SessionBits.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -128,6 +129,31 @@ describe('InboxTab: review queue', () => {
     expect(onReviewAll).toHaveBeenCalledOnce();
     act(() => done.querySelector<HTMLButtonElement>('.wd-inbox-row')!.click());
     expect(onOpenSession).toHaveBeenCalledWith('done', 'diff', { lastTurn: true });
+  });
+});
+
+describe('OverlapChip', () => {
+  const withOverlaps = (overlaps: SessionSummary['overlaps']): SessionSummary => ({ ...session('me', null), overlaps });
+  const o = (branch: string, count: number) => ({
+    sessionId: branch, target: 'api', branch, count, files: [{ repo: 'api', path: 'package.json' }],
+  });
+
+  it('names the sessions that change the same files, lists them on hover, and links in the header', () => {
+    const onOpen = vi.fn();
+    act(() => root.render(createElement(OverlapChip, { session: withOverlaps([o('chore/deps', 3)]), onOpen })));
+    const chip = container.querySelector('.wd-overlap')!;
+    expect(text(chip)).toBe('⚠ Same files as chore/deps (3 files)');
+    expect(chip.getAttribute('title')).toContain('Also changed by api · chore/deps:\n  api/package.json, and 2 more');
+    act(() => chip.querySelector('button')!.click());
+    expect(onOpen).toHaveBeenCalledWith('chore/deps');
+  });
+
+  it('is plain text in rows, summarizes past two, and renders nothing without overlaps', () => {
+    act(() => root.render(createElement(OverlapChip, { session: withOverlaps([o('a', 1), o('b', 1), o('c', 1)]) })));
+    expect(container.querySelector('.wd-overlap button')).toBeNull();
+    expect(text(container)).toBe('⚠ Same files as a, b +1 (3 files)');
+    act(() => root.render(createElement(OverlapChip, { session: withOverlaps(undefined) })));
+    expect(container.innerHTML).toBe('');
   });
 });
 

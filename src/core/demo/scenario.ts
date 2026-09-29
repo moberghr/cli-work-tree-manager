@@ -1,5 +1,6 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
+import { findOverlaps } from '../overlap.js';
 import { createPresence, type Presence } from '../presence.js';
 import { ciFixMessage } from '../pr-watch.js';
 import type {
@@ -145,6 +146,13 @@ const CSV_EXPORT = diffNew('src/invoices/export.ts', [
   ["router.get('/invoices', list);"],
   ["router.get('/invoices', list);", "router.get('/invoices.csv', exportCsv);"],
   ["router.get('/invoices/:id', show);"],
+) + diffEdit(
+  // The same file chore/deps-update bumps: the dashboard warns about it.
+  'package.json',
+  14,
+  [],
+  ['    "csv-stringify": "^6.5.0",'],
+  ['  "dependencies": {'],
 );
 
 const SEARCH_FILTERS = diffEdit(
@@ -484,7 +492,28 @@ export class DemoScenario {
   // -- reads (wire shapes) --------------------------------------------------
 
   list(): SessionWire[] {
-    return [...this.sessions.values()].map((s) => this.wire(s));
+    const all = [...this.sessions.values()];
+    const wires = all.map((s) => this.wire(s));
+    // Same rule as work web: live sessions changing the same file of a repo.
+    const overlaps = findOverlaps(
+      all
+        .filter((s) => !s.archivedAt)
+        .map((s) => ({
+          id: s.id,
+          target: s.target,
+          branch: s.branch,
+          touched: s.repos.map((r) => ({
+            repoKey: r.name,
+            name: r.name,
+            files: [...new Set([...parseGitDiff(r.sinceBranch), ...parseGitDiff(r.uncommitted)].map((f) => f.path))],
+          })),
+        })),
+    );
+    for (const w of wires) {
+      const o = overlaps.get(w.id);
+      if (o) w.overlaps = o;
+    }
+    return wires;
   }
 
   wire(s: DemoSession): SessionWire {

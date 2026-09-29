@@ -23,6 +23,7 @@ import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
+import { findOverlaps } from './overlap.js';
 import type { SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -235,15 +236,26 @@ export async function startWebServer(
       }, 500);
     },
   });
+  const repoNames = (s: WorktreeSession) => (s.isGroup ? s.paths.map((p) => path.basename(p)) : [s.target]);
   const diffStatFor = (id: string, s: WorktreeSession, hasStatus: boolean) =>
-    wantsDiffStat(s, hasStatus) ? diffStats.get(id, s.paths) : null;
+    wantsDiffStat(s, hasStatus) ? diffStats.get(id, s.paths, repoNames(s)) : null;
 
   app.get('/api/sessions', (c) => {
     if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
-      sessionsCache = {
-        at: Date.now(),
-        body: { sessions: loadHistory().map((s) => sessionToWire(s, diffStatFor)) },
-      };
+      const history = loadHistory();
+      const sessions = history.map((s) => sessionToWire(s, diffStatFor));
+      // Sessions changing the same files — from the same background cache
+      // as the stats, so this costs no git of its own.
+      const overlaps = findOverlaps(
+        sessions
+          .filter((w) => w.diffStat !== null && !w.archivedAt)
+          .map((w) => ({ id: w.id, target: w.target, branch: w.branch, touched: diffStats.touched(w.id) })),
+      );
+      for (const w of sessions) {
+        const o = overlaps.get(w.id);
+        if (o) w.overlaps = o;
+      }
+      sessionsCache = { at: Date.now(), body: { sessions } };
     }
     return c.json(sessionsCache.body);
   });

@@ -20,6 +20,7 @@ import type {
   RevertResponse,
   SessionAttention,
   SessionCi,
+  SessionOverlap,
   ShipAction,
   ShipPr,
   ShipPreflight,
@@ -48,6 +49,7 @@ export type {
   RevertResponse,
   SessionAttention,
   SessionCi,
+  SessionOverlap,
   ShipAction,
   ShipPr,
   ShipPreflight,
@@ -94,6 +96,9 @@ export interface SessionSummary {
   /** Set when the session was archived: PTY stopped, worktree + branch +
    *  conversation kept, hidden from the rail/inbox by default. */
   archivedAt?: string | null;
+  /** Other live sessions changing some of the same files (merge conflict
+   *  ahead); absent when none. */
+  overlaps?: SessionOverlap[];
 }
 
 // ---- Ship / archive ---------------------------------------------------

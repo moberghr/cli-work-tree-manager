@@ -241,3 +241,13 @@ test('"Review all" walks the finished sessions, each on its last turn, and n mov
   await expect(page).toHaveURL(/#\/inbox$/);
   await expect(page.locator('.wd-inbox-rank-1')).toHaveCount(0);
 });
+
+test('two sessions changing the same file are flagged, and the warning links to the other one', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  await page.locator('.wd-dash-rail-item', { hasText: 'feat/invoice-export' }).click();
+  const chip = page.locator('.wd-session-strip .wd-overlap');
+  await expect(chip).toContainText('Same files as chore/deps-update (1 file)');
+  await expect(chip).toHaveAttribute('title', /api\/package\.json/);
+  await chip.getByRole('button', { name: 'chore/deps-update' }).click();
+  await expect(page.locator('.wd-session-strip .wd-overlap')).toContainText('Same files as feat/invoice-export');
+});

@@ -51,6 +51,18 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** Another live session that changes some of the same files (same repo,
+ *  same path): the two will conflict when both merge. */
+export interface SessionOverlap {
+  sessionId: string;
+  target: string;
+  branch: string;
+  /** How many files both change. */
+  count: number;
+  /** The first of them (capped), repo alias + root-relative path. */
+  files: Array<{ repo: string; path: string }>;
+}
+
 /** One row of GET /api/sessions — what every dashboard server (the real
  *  work web and the demo) sends. */
 export interface SessionWire {
@@ -75,6 +87,8 @@ export interface SessionWire {
   archivedAt: string | null;
   /** This worktree's dev-server port ($PORT), when it has one. */
   port: number | null;
+  /** Other sessions changing the same files; absent when there are none. */
+  overlaps?: SessionOverlap[];
 }
 
 // ---- ship -----------------------------------------------------------------

@@ -403,6 +403,7 @@ export function DashboardApp() {
       )}
       <SessionDetail
         startOnLastTurn={lastTurnFor === activeSession.id}
+        onOpenSession={(id) => openSession(id)}
         session={activeSession}
         subTab={route.sessionSubTab}
         onSelectSubTab={setSubTab}

@@ -16,7 +16,7 @@ import {
   groupRepoNames,
   groupSessionsByTarget,
 } from '../../../utils/session-groups.js';
-import { DiffStatChip, PrChips } from '../SessionBits.js';
+import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -313,6 +313,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
       </td>
       <td className="wd-st-col-changes">
         <DiffStatChip session={s} />
+        <OverlapChip session={s} />
         {!!s.diffStat?.files && (
           <span className="wd-st-files"> · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}</span>
         )}
