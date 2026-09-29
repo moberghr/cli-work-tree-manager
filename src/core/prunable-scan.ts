@@ -6,7 +6,7 @@ import {
   parseWorktreeList,
   isBranchMerged,
   getCurrentBranch,
-  getStatus,
+  getStatusChecked,
   fetchRemote,
   type MergeConfidence,
 } from './git.js';
@@ -154,15 +154,16 @@ export function collectPrunable(
         if (!branch) branch = currentBranch;
 
         const { merged, into, confidence } = isBranchMerged(currentBranch, repoPath);
-        const changes = getStatus(subWorktreePath);
-        if (changes) groupHasChanges = true;
+        // null = git couldn't tell: count it as changed, never as clean.
+        const changes = getStatusChecked(subWorktreePath);
+        if (changes !== '') groupHasChanges = true;
 
         scanResults.push({
           target: groupName,
           branch,
           merged,
           into,
-          hasChanges: !!changes,
+          hasChanges: changes !== '',
           confidence,
           subLabel: alias,
         });
@@ -214,14 +215,14 @@ export function collectPrunable(
       if (groupCoveredKeys.has(`${alias}:${wt.branch}`)) continue;
 
       const { merged, into, confidence } = isBranchMerged(wt.branch, repoPath);
-      const changes = getStatus(wt.path);
+      const changes = getStatusChecked(wt.path); // null = couldn't tell → changed
 
       scanResults.push({
         target: alias,
         branch: wt.branch,
         merged,
         into,
-        hasChanges: !!changes,
+        hasChanges: changes !== '',
         confidence,
       });
 
@@ -232,7 +233,7 @@ export function collectPrunable(
           target: alias,
           branch: wt.branch,
           repos: [{ alias, repoPath, worktreePath: wt.path }],
-          hasChanges: !!changes,
+          hasChanges: changes !== '',
           confidence,
         });
       }

@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
-import { loadHistory, getRecentSessions, upsertSession } from '../core/history.js';
+import { loadHistory, getRecentSessions, recordLaunch, upsertSession } from '../core/history.js';
 import { effectiveLastAccessedAt, resolveResumeLaunch } from '../core/claude-activity.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { launchAi } from '../utils/platform.js';
@@ -78,6 +78,7 @@ export const resumeCommand: CommandModule = {
       );
     }
     console.log(`Starting ${tool.cmd}...`);
+    recordLaunch(choice.target, choice.branch, { unsafe: !!unsafe });
     launchAi(launchPath, tool, { unsafe, resume: hasConversation }, choice.port);
   },
 };

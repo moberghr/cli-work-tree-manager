@@ -70,6 +70,30 @@ export async function probeWeb(url: string, timeoutMs = 1500): Promise<WebProbe>
 }
 
 /**
+ * What to do with the recorded work web before starting one:
+ *   - 'reuse'  it answered as work web — or it is BUSY (timed out, possibly
+ *              more than once): a slow server is still the running one, and
+ *              replacing it orphans it (the new one sees the live pid and
+ *              exits; the old one keeps the port and hooks but can no longer
+ *              be found once web.url is gone).
+ *   - 'start'  nothing is there any more (the url file is stale).
+ * Busy servers get `patienceMs` of re-probing before being reused anyway.
+ */
+export async function existingWebDecision(
+  url: string,
+  opts: { patienceMs?: number; probe?: typeof probeWeb } = {},
+): Promise<'reuse' | 'start'> {
+  const probe = opts.probe ?? probeWeb;
+  const until = Date.now() + (opts.patienceMs ?? 6000);
+  for (let first = true; ; first = false) {
+    const r = await probe(url, first ? 1500 : 3000);
+    if (r.kind === 'ours') return 'reuse';
+    if (r.kind === 'gone') return 'start';
+    if (Date.now() >= until) return 'reuse';
+  }
+}
+
+/**
  * Liveness only: is a server serving the recorded URL (any 2xx at
  * api/context)? Enough for "reuse it / autostart one". Identity — is it
  * work web, with the recorded pid — is probeWeb's job, and only matters

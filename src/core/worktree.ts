@@ -13,7 +13,8 @@ import {
   remoteBranchExists,
   isGitRepo,
   getCurrentBranch,
-  getStatus,
+  getStatusChecked,
+  repoState,
   getUnpushedCommits,
 } from './git.js';
 import { copyConfigFiles } from './copy-files.js';
@@ -277,8 +278,13 @@ export function createSingleWorktree(
  * the running agent alone).
  */
 export function wouldRefuseRemoval(worktreePath: string, force: boolean): boolean {
-  if (force || !fs.existsSync(worktreePath) || !isGitRepo(worktreePath)) return false;
-  return !!getStatus(worktreePath) || !!getUnpushedCommits(worktreePath);
+  if (force || !fs.existsSync(worktreePath)) return false;
+  const state = repoState(worktreePath);
+  if (state === 'not-a-repo') return false;
+  if (state === 'unknown') return true; // git can't read it: can't prove it's safe
+  const status = getStatusChecked(worktreePath);
+  if (status === null) return true;
+  return !!status || !!getUnpushedCommits(worktreePath);
 }
 
 export function removeSingleWorktree(
@@ -294,17 +300,30 @@ export function removeSingleWorktree(
     return true; // Nothing to remove is success
   }
 
-  // Check if it's a valid git worktree
-  if (!isGitRepo(worktreePath)) {
+  // A folder that is definitely not a git checkout (a leftover) is just
+  // deleted. One git merely failed to read is NOT: without --force it's
+  // refused, because every check below would read as "clean".
+  const state = repoState(worktreePath);
+  if (state === 'not-a-repo') {
     fs.rmSync(worktreePath, { recursive: true, force: true });
     git(['worktree', 'prune'], repoPath);
     console.log(`  Removed invalid worktree directory: ${worktreePath}`);
     return true;
   }
+  if (state === 'unknown' && !force) {
+    console.log(
+      chalk.yellow(`  git can't read ${worktreePath} (ownership, a moved main repo, git not on PATH?) — not removing it. Check it, or use --force.`),
+    );
+    return false;
+  }
 
   if (!force) {
     // Check for uncommitted changes
-    const status = getStatus(worktreePath);
+    const status = getStatusChecked(worktreePath);
+    if (status === null) {
+      console.log(chalk.yellow(`  Could not check ${worktreePath} for uncommitted changes — not removing it.`));
+      return false;
+    }
     if (status) {
       console.log(
         chalk.yellow(`  Uncommitted changes in: ${worktreePath}`),
@@ -332,6 +351,13 @@ export function removeSingleWorktree(
 
   if (result.exitCode === 0) {
     console.log(chalk.green(`  Removed worktree: ${worktreePath}`));
+    return true;
+  } else if (force && state === 'unknown') {
+    // git can't handle it (its main repo moved, say) and the user forced
+    // it: delete the folder, then let git forget the registration.
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+    git(['worktree', 'prune'], repoPath);
+    console.log(chalk.green(`  Removed worktree folder git could not read: ${worktreePath}`));
     return true;
   } else {
     console.log(chalk.red(`  Failed to remove worktree: ${worktreePath}`));

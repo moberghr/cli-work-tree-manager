@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import crossSpawn from 'cross-spawn';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -181,7 +182,7 @@ export function mountWorktreeRoutes(
   });
 
   // -- Open in editor ----------------------------------------------------
-  app.post('/api/sessions/:id/open-editor', (c) => {
+  app.post('/api/sessions/:id/open-editor', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
@@ -191,23 +192,33 @@ export function mountWorktreeRoutes(
     const target = session.isGroup
       ? path.dirname(session.paths[0])
       : session.paths[0];
-    try {
-      // Resolve `code` vs `code.cmd` by platform instead of using
-      // shell:true. shell:true routes through cmd.exe / sh -c, which
-      // means any shell metacharacters in `target` (an `&`, a backtick,
-      // an unescaped quote) would execute — a TOCTOU risk if anything
-      // ever writes a malformed path into history.json.
-      const cmd = process.platform === 'win32' ? 'code.cmd' : 'code';
-      const child = spawn(cmd, [target], {
-        detached: true,
-        stdio: 'ignore',
-        shell: false,
-      });
-      child.unref();
-      return c.json({ ok: true, opened: target });
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 500);
-    }
+    // cross-spawn, not node's spawn: the editor is usually a `.cmd` shim on
+    // Windows (code.cmd), which node refuses to run without a shell since
+    // the BatBadBut fix (EINVAL) — and a shell would interpret `&` etc. in
+    // the path. cross-spawn escapes the argument for cmd.exe instead.
+    const editor = loadConfig()?.editor?.trim() || 'code';
+    const failed = await new Promise<string | null>((resolve) => {
+      try {
+        const child = crossSpawn(editor, [target], { detached: true, stdio: 'ignore', windowsHide: true });
+        // A missing editor surfaces as 'error' — on Windows only when the
+        // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
+        // so wait for an error, an exit, or a moment of it running.
+        const settle = setTimeout(() => resolve(null), 1500);
+        child.once('error', (err) => {
+          clearTimeout(settle);
+          resolve(err.message);
+        });
+        child.once('exit', () => {
+          clearTimeout(settle);
+          resolve(null); // `code` hands off to the running editor and exits
+        });
+        child.unref();
+      } catch (err) {
+        resolve((err as Error).message);
+      }
+    });
+    if (failed) return c.json({ error: `could not start ${editor}: ${failed}` }, 500);
+    return c.json({ ok: true, opened: target });
   });
 
   // -- Open in a real terminal -------------------------------------------

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git, parseWorktreeList, getCurrentBranch, localBranchExists } from '../../src/core/git.js';
-import { createSingleWorktree, removeSingleWorktree } from '../../src/core/worktree.js';
+import { git, parseWorktreeList, getCurrentBranch, localBranchExists, repoState } from '../../src/core/git.js';
+import { createSingleWorktree, removeSingleWorktree, wouldRefuseRemoval } from '../../src/core/worktree.js';
 import type { WorkConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
@@ -210,6 +210,45 @@ describe('removeSingleWorktree', () => {
     const result = removeSingleWorktree(repoDir, wtPath, 'feature/dirty', false);
     expect(result).toBe(false);
     expect(fs.existsSync(wtPath)).toBe(true);
+  });
+
+  describe('a worktree git cannot read (its main repo was moved)', () => {
+    // The worktree's `.git` file points at the old location, so every git
+    // command in it fails — status and "is this a repo" included. That used
+    // to read as "not a repo" and the folder was deleted with rm -rf.
+    const brokenWorktree = () => {
+      const wtPath = path.join(wtDir, 'feature-orphan');
+      createSingleWorktree(repoDir, wtPath, 'feature/orphan', config);
+      fs.writeFileSync(path.join(wtPath, 'precious.txt'), 'uncommitted work');
+      const moved = path.join(tmpDir, 'repo-moved');
+      fs.renameSync(repoDir, moved);
+      return { wtPath, moved };
+    };
+
+    it('is refused without --force, and its work stays', () => {
+      const { wtPath, moved } = brokenWorktree();
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(removeSingleWorktree(moved, wtPath, 'feature/orphan', false)).toBe(false);
+      expect(fs.readFileSync(path.join(wtPath, 'precious.txt'), 'utf-8')).toBe('uncommitted work');
+      expect(wouldRefuseRemoval(wtPath, false)).toBe(true);
+    });
+
+    it('is removed with --force', () => {
+      const { wtPath, moved } = brokenWorktree();
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(removeSingleWorktree(moved, wtPath, 'feature/orphan', true)).toBe(true);
+      expect(fs.existsSync(wtPath)).toBe(false);
+    });
+
+    it('a plain leftover folder (no .git at all) is still just deleted', () => {
+      const leftover = path.join(tmpDir, 'leftover');
+      fs.mkdirSync(leftover);
+      fs.writeFileSync(path.join(leftover, 'x.txt'), 'x');
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      expect(repoState(leftover)).toBe('not-a-repo');
+      expect(removeSingleWorktree(repoDir, leftover, 'x', false)).toBe(true);
+      expect(fs.existsSync(leftover)).toBe(false);
+    });
   });
 
   it('force removes even with uncommitted changes', () => {

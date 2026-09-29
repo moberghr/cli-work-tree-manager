@@ -7,7 +7,7 @@ import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
 import { hasClaudeConversation } from '../core/claude-activity.js';
-import { findSession, loadHistory, upsertSession } from '../core/history.js';
+import { findSession, loadHistory, recordLaunch, upsertSession } from '../core/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
@@ -130,6 +130,7 @@ export const treeCommand: CommandModule = {
       port: number | undefined,
       sessionKey: { target: string; branch: string },
     ): Promise<void> => {
+      recordLaunch(sessionKey.target, sessionKey.branch, { unsafe: !!unsafe });
       if (viaHost) {
         const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
         if (session) {

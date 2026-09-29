@@ -1,0 +1,65 @@
+import http from 'node:http';
+import { describe, it, expect, afterEach } from 'vitest';
+import { existingWebDecision, probeWeb } from '../../src/core/web-discovery.js';
+
+/**
+ * Deciding whether the recorded work web is still there, against real HTTP
+ * servers. Getting this wrong orphaned a busy server: `wd` deleted
+ * web.url, the replacement exited on the live pid, and nothing could find
+ * the running one any more.
+ */
+
+const servers: http.Server[] = [];
+afterEach(async () => {
+  await Promise.all(
+    servers.splice(0).map(
+      (s) =>
+        new Promise<void>((r) => {
+          s.closeAllConnections();
+          s.close(() => r());
+        }),
+    ),
+  );
+});
+
+/** A work web that answers /api/context after `delayMs`. */
+async function server(delayMs: number, body: unknown = { mode: 'dashboard', pid: 1 }): Promise<string> {
+  const s = http.createServer((_req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    }, delayMs);
+  });
+  servers.push(s);
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
+  return `http://127.0.0.1:${(s.address() as { port: number }).port}/`;
+}
+
+describe('existingWebDecision', () => {
+  it('reuses a server that answers', async () => {
+    expect(await existingWebDecision(await server(0))).toBe('reuse');
+  });
+
+  it('reuses a BUSY server (slower than the first probe) instead of replacing it', async () => {
+    const url = await server(2000); // past the 1.5 s probe
+    expect((await probeWeb(url)).kind).toBe('timeout');
+    expect(await existingWebDecision(url, { patienceMs: 8000 })).toBe('reuse');
+  }, 20_000);
+
+  it('still reuses a server that stays busy past the patience window', async () => {
+    const hung = await server(60_000);
+    const probe: typeof probeWeb = (url) => probeWeb(url, 100);
+    expect(await existingWebDecision(hung, { patienceMs: 300, probe })).toBe('reuse');
+  });
+
+  it('starts a new one when nothing listens there any more', async () => {
+    const url = await server(0);
+    const s = servers.pop()!;
+    await new Promise<void>((r) => s.close(() => r()));
+    expect(await existingWebDecision(url)).toBe('start');
+  });
+
+  it('starts a new one when something that is not work web holds the port', async () => {
+    expect(await existingWebDecision(await server(0, { hello: 'world' }))).toBe('start');
+  });
+});

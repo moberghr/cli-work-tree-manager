@@ -17,7 +17,7 @@ import {
   probeWeb,
   readWebPid,
   readWebUrl,
-  webServerResponds,
+  existingWebDecision,
   writeWebDiscovery,
 } from '../core/web-discovery.js';
 import { bestEffort, swallow } from '../core/best-effort.js';
@@ -137,7 +137,7 @@ export const webCommand: CommandModule = {
     const existingPid = readWebPid();
     if (existingPid && isPidAlive(existingPid)) {
       const url = readWebUrl();
-      if (url && (await webServerResponds(url, 500))) {
+      if (url && (await existingWebDecision(url)) === 'reuse') {
         info(
           chalk.gray(
             `work web already running at ${url} (PID ${existingPid}). Opening browser.`,

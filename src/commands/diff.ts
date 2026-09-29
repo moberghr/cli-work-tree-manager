@@ -22,7 +22,7 @@ import { diffReviewSnapshot } from '../core/review-poll.js';
 import { renderStatic } from '../core/static-renderer.js';
 import { openUrl } from '../utils/platform.js';
 import { spawnDetachedWork } from '../core/process.js';
-import { readWebUrl, webServerResponds, webUrlPath } from '../core/web-discovery.js';
+import { existingWebDecision, readWebUrl, webUrlPath } from '../core/web-discovery.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
  *  be piped or captured by callers (notably `wd -c` review mode, where
@@ -117,7 +117,9 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // return it immediately, never waiting for the new server's URL, and the
   // subsequent scope POST would fail with connection-refused.
   if (existing) {
-    if (await webServerResponds(existing)) return existing;
+    // Busy counts as running: only a server that is really gone is replaced
+    // (see existingWebDecision — replacing a busy one orphaned it).
+    if ((await existingWebDecision(existing)) === 'reuse') return existing;
     try { fs.unlinkSync(webUrlPath()); } catch { /* already gone */ }
   }
 

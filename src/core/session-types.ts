@@ -25,4 +25,7 @@ export interface WorktreeSession {
    *  worktree, branch and conversation are kept, it's just out of the way.
    *  Re-entering it with `work tree` clears it. */
   archivedAt?: string;
+  /** The AI tool was last launched with `--unsafe` (skip-permissions).
+   *  Untrusted text (PR review comments) is never auto-delivered to it. */
+  launchedUnsafe?: boolean;
 }

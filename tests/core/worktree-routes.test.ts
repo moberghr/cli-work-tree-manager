@@ -16,7 +16,7 @@ vi.mock('../../src/core/pty-pool.js', () => ({ disposePty }));
 
 import { mountWorktreeRoutes } from '../../src/core/worktree-routes.js';
 import { git } from '../../src/core/git.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
+import { loadConfig, saveConfig, type WorkConfig } from '../../src/core/config.js';
 import { loadHistory, upsertSession } from '../../src/core/history.js';
 import { createSingleWorktree } from '../../src/core/worktree.js';
 import { sessionIdFor } from '../../src/core/web-state.js';
@@ -134,6 +134,34 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect(r.status).toBe(200);
     expect(r.json).toEqual({ ok: true, worktreeRemoved: false });
     expect(loadHistory()).toHaveLength(0);
+  });
+
+  it('opens the worktree in the configured editor — a .cmd shim on Windows — with the path as one argument', async () => {
+    // A fake editor that records what it was given. On Windows it is a .cmd
+    // shim like the real `code.cmd`, which node's spawn refuses (EINVAL).
+    const bin = path.join(tmpHome, 'bin');
+    fs.mkdirSync(bin);
+    const record = path.join(tmpHome, 'editor-args.txt');
+    const script = path.join(bin, 'record.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(record)}, process.argv.slice(2).join('|'))`);
+    const editor = process.platform === 'win32' ? path.join(bin, 'fake-editor.cmd') : path.join(bin, 'fake-editor');
+    fs.writeFileSync(
+      editor,
+      process.platform === 'win32' ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    saveConfig({ ...loadConfig()!, editor });
+
+    const res = await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe(wtPath);
+  });
+
+  it('reports an editor that is not installed instead of pretending it opened', async () => {
+    saveConfig({ ...loadConfig()!, editor: 'definitely-not-an-editor-xyz' });
+    const res = await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/could not start/);
   });
 
   it('404s for an unknown session', async () => {

@@ -1,5 +1,6 @@
 import spawn from 'cross-spawn';
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { debug } from './logger.js';
 
@@ -138,6 +139,32 @@ export function getCurrentBranch(cwd: string): string {
 export function getStatus(cwd: string): string {
   const result = git(['status', '--porcelain'], cwd);
   return result.stdout;
+}
+
+/**
+ * Porcelain status, or null when git could not tell (it errored). Anything
+ * deciding whether work may be deleted must use this and treat null as
+ * "maybe dirty": an empty string from a FAILED `git status` is not clean.
+ */
+export function getStatusChecked(cwd: string): string | null {
+  const result = git(['status', '--porcelain'], cwd);
+  return result.exitCode === 0 ? result.stdout : null;
+}
+
+export type RepoState = 'repo' | 'not-a-repo' | 'unknown';
+
+/**
+ * Whether a directory is a git checkout — with "can't tell" kept apart
+ * from "no". A failing git (dubious ownership on a network share, git
+ * missing from a detached process's PATH, a worktree whose main repo was
+ * moved) is NOT proof the folder is disposable: 'not-a-repo' needs git to
+ * say so AND no `.git` entry in the folder.
+ */
+export function repoState(cwd: string): RepoState {
+  const result = git(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (result.exitCode === 0 && result.stdout === 'true') return 'repo';
+  if (fs.existsSync(path.join(cwd, '.git'))) return 'unknown';
+  return /not a git repository/i.test(result.stderr) ? 'not-a-repo' : 'unknown';
 }
 
 /** Get the default branch from origin/HEAD (e.g. "main" or "master"). */

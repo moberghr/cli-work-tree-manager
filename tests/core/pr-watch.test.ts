@@ -32,6 +32,8 @@ function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: R
   } satisfies PrWatchDeps;
   return { deps, watch: createPrWatch(deps), set: (r: RepoShipState[]) => (pre = { repos: r }) };
 }
+/** A note's first words, before any "(…)" or ":" */
+const heading = (m: string) => m.split('\n')[0].split(/ \(|:/)[0];
 const failing = (sha = 'aaa') => pr({ checks: 'fail', headSha: sha, failing: [{ name: 'test' }, { name: 'lint' }] });
 
 describe('PR watch', () => {
@@ -132,7 +134,7 @@ describe('PR watch', () => {
   describe('review feedback', () => {
     const thread = (id: string, author: string, resolved = false) => ({
       id: `T${id}`, isResolved: resolved, isOutdated: false, path: 'src/a.ts', line: 3,
-      comments: [{ id, author, body: `fix ${id}`, url: `u${id}`, createdAt: '' }],
+      comments: [{ id, author, association: 'COLLABORATOR', body: `fix ${id}`, url: `u${id}`, createdAt: '' }],
     });
     const fb = (threads: ReviewFeedback['threads']): ReviewFeedback => ({ viewer: 'me', threads, reviews: [], comments: [] });
     const told = (h: ReturnType<typeof harness>) => (h.deps.tell.mock.calls as unknown as Array<[string, string]>).map((c) => c[1]);
@@ -151,6 +153,20 @@ describe('PR watch', () => {
       expect(told(h)).toHaveLength(1);
     });
 
+    it('never hands review text to a session running with permission checks off', async () => {
+      const h = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
+      h.deps.sessions = () => [{ id: 's1', session: { ...session(), launchedUnsafe: true } }];
+      await h.watch.tick();
+      expect(h.deps.tell).not.toHaveBeenCalled();
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1); // still counted for the strip
+
+      const host = harness([repo('api', pr())], ON, false, fb([thread('1', 'alice')]));
+      (host.deps as PrWatchDeps).runsUnsafe = () => true; // a PTY-host session spawned --unsafe
+      const w = createPrWatch(host.deps);
+      await w.tick();
+      expect(host.deps.tell).not.toHaveBeenCalled();
+    });
+
     it('only looks at open PRs, and not at all when turned off', async () => {
       const merged = harness([repo('api', pr({ state: 'MERGED' }), true)], ON, false, fb([thread('1', 'alice')]));
       await merged.watch.tick();
@@ -167,7 +183,7 @@ describe('PR watch', () => {
       await h.watch.tick(); // both notes fail
       expect(h.deps.tell).toHaveBeenCalledTimes(2);
       await h.watch.tick(); // both delivered now
-      expect(told(h).slice(2).map((m) => m.split('\n')[0])).toEqual(['New review feedback on GitHub:', 'CI is failing:']);
+      expect(told(h).slice(2).map(heading)).toEqual(['New review feedback on GitHub', 'CI is failing']);
       await h.watch.tick(); // and never again
       expect(h.deps.tell).toHaveBeenCalledTimes(4);
     });
@@ -175,7 +191,7 @@ describe('PR watch', () => {
     it('CI failures and review feedback arrive as separate notes', async () => {
       const h = harness([repo('api', failing())], ON, false, fb([thread('1', 'alice')]));
       await h.watch.tick();
-      expect(told(h).map((m) => m.split('\n')[0])).toEqual(['New review feedback on GitHub:', 'CI is failing:']);
+      expect(told(h).map(heading)).toEqual(['New review feedback on GitHub', 'CI is failing']);
     });
   });
 });

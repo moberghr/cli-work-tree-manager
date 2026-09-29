@@ -204,6 +204,17 @@ export async function upsertSessionWithPort(
   return tx((d) => ({ port: write(d, undefined) }));
 }
 
+/** Record how the AI tool was just launched for this session. */
+export function recordLaunch(target: string, branch: string, opts: { unsafe: boolean }): void {
+  tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return;
+    if (opts.unsafe) s.launchedUnsafe = true;
+    else delete s.launchedUnsafe;
+    putRow(d, s);
+  });
+}
+
 /** Archive / un-archive a session. Returns false when it doesn't exist. */
 export async function setSessionArchived(
   target: string,

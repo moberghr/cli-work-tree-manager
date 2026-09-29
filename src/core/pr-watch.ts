@@ -33,6 +33,8 @@ export interface PrWatchDeps {
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
   options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean };
+  /** The session's Claude runs in the PTY host with permission checks off. */
+  runsUnsafe?: (sessionId: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Per session: what was already acted on — CI head commits reported,
@@ -138,13 +140,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
+    // Review text is other people's writing; a session running with
+    // permission checks off would act on it unreviewed. Count threads for the
+    // strip, but don't hand it over.
+    const deliverReviews = !session.launchedUnsafe && !deps.runsUnsafe?.(id);
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN') continue;
         const fb = await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
         if (!fb) continue;
         threads.set(r.name, openThreadCount(fb));
-        if (act) {
+        if (act && deliverReviews) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen);
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
         }
