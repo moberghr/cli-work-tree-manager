@@ -1,8 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import type { Hono } from 'hono';
-import { getConfigDir, loadConfig } from './config.js';
-import { atomicWriteFile } from './fs-safe.js';
+import { loadConfig } from './config.js';
+import { createSeenStores } from './pr-watch-store.js';
 import { loadHistory } from './history.js';
 import { sessionIdFor } from './session-id.js';
 import { findSession } from './web-state.js';
@@ -21,31 +20,6 @@ import { createPrWatch, type PrWatch } from './pr-watch.js';
 /** Sessions touched this recently are watched; older ones are left alone. */
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
-const MAX_TOLD = 5000;
-
-function toldStore() {
-  const file = path.join(getConfigDir(), 'pr-watch.json');
-  let keys: string[] = [];
-  try {
-    keys = JSON.parse(fs.readFileSync(file, 'utf-8')).told ?? [];
-  } catch {
-    keys = [];
-  }
-  const set = new Set(keys);
-  return {
-    has: (k: string) => set.has(k),
-    add: (k: string) => {
-      if (set.has(k)) return;
-      set.add(k);
-      const all = [...set].slice(-MAX_TOLD);
-      try {
-        atomicWriteFile(file, JSON.stringify({ told: all }));
-      } catch {
-        /* best-effort: worst case a failure is reported twice */
-      }
-    },
-  };
-}
 
 export function mountCiRoutes(
   app: Hono,
@@ -76,7 +50,7 @@ export function mountCiRoutes(
       const w = loadConfig()?.prWatch;
       return { autoArchive: w?.autoArchive !== false, fixCi: w?.fixCi !== false, reviewComments: w?.reviewComments !== false };
     },
-    told: toldStore(),
+    told: createSeenStores(),
   });
 
   app.get('/api/sessions/:id/ci', async (c) => {

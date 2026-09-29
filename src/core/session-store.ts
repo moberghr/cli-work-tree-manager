@@ -6,6 +6,7 @@ import { commentsDir, commentsFileFor } from './comment-file-store.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
 import { logSwallowed } from './best-effort.js';
 import { devLogFile, stopDev } from './dev-server.js';
+import { prWatchFileFor } from './pr-watch-store.js';
 
 /**
  * Owner of a session's state beyond its history.json entry. Everything
@@ -16,6 +17,7 @@ import { devLogFile, stopDev } from './dev-server.js';
  *   ~/.work/comments/<id>.delivered.json   which comments reached Claude
  *   ~/.work/pty-sessions.json [<id>]       restore-after-reboot entry
  *   ~/.work/dev/<id>.json|.log             dev server pid + output (stopped first)
+ *   ~/.work/pr-watch/<id>.json             PR watch: comments / CI failures acted on
  *
  * (Diff scopes and their checkpoint refs are keyed by scope hash, not by
  * session, and are swept by work web.)
@@ -27,7 +29,7 @@ import { devLogFile, stopDev } from './dev-server.js';
  */
 
 export function sessionStatePaths(id: string): string[] {
-  return [statusFileFor(id), commentsFileFor(id), path.join(commentsDir(), `${id}.delivered.json`), devLogFile(id)];
+  return [statusFileFor(id), commentsFileFor(id), path.join(commentsDir(), `${id}.delivered.json`), devLogFile(id), prWatchFileFor(id)];
 }
 
 /** Remove every per-session file for a session that no longer exists.

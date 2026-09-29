@@ -24,7 +24,7 @@ function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: R
     tell: vi.fn(async () => {}),
     broadcast: vi.fn(),
     options: () => opts,
-    told: { has: (k: string) => told.has(k), add: (k: string) => void told.add(k) },
+    told: () => ({ has: (k: string) => told.has(k), add: (k: string) => void told.add(k) }),
     reviewFeedback: vi.fn(async () => feedback),
   } satisfies PrWatchDeps;
   return { deps, watch: createPrWatch(deps), set: (r: RepoShipState[]) => (pre = { repos: r }) };

@@ -1,7 +1,7 @@
 import type { WorktreeSession } from './session-types.js';
 import type { SessionCi, ShipPreflight } from './api-types.js';
 import { DECISION_MARKER } from './attention.js';
-import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback } from './pr-review.js';
+import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore } from './pr-review.js';
 
 /**
  * Background PR watch for `work web` (full mode): what GitHub knows about
@@ -35,8 +35,9 @@ export interface PrWatchDeps {
   options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean };
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
-  /** Head commits we already reported a failure for (persisted). */
-  told: { has: (key: string) => boolean; add: (key: string) => void };
+  /** Per session: what was already acted on — CI head commits reported,
+   *  review comments handed over (persisted, see pr-watch-store.ts). */
+  told: (sessionId: string) => SeenStore;
   now?: () => number;
 }
 
@@ -96,7 +97,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         if (!fb) continue;
         threads.set(r.name, openThreadCount(fb));
         if (act) {
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, deps.told);
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, deps.told(id));
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
         }
       }
@@ -117,9 +118,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     if (!act) return ci;
     if (feedback.length) await deps.tell(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER)).catch(() => {});
     if (opts.fixCi) {
-      const fresh = failingOf(ci).filter((f) => !deps.told.has(`${id}:${f.repo}:${f.headSha}`));
+      const fresh = failingOf(ci).filter((f) => !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
       if (fresh.length) {
-        for (const f of fresh) deps.told.add(`${id}:${f.repo}:${f.headSha}`);
+        for (const f of fresh) deps.told(id).add(`${id}:${f.repo}:${f.headSha}`);
         await deps.tell(id, ciFixMessage(fresh, session.isGroup)).catch(() => {});
       }
     }
@@ -155,7 +156,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       if (!s || !ci) return false;
       const failing = failingOf(ci);
       if (!failing.length) return false;
-      for (const f of failing) deps.told.add(`${id}:${f.repo}:${f.headSha}`);
+      for (const f of failing) deps.told(id).add(`${id}:${f.repo}:${f.headSha}`);
       await deps.tell(id, ciFixMessage(failing, s.session.isGroup));
       return true;
     },
