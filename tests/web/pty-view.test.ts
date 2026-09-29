@@ -254,7 +254,7 @@ describe('PtyView', () => {
     act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'working' }));
     const panel = document.querySelector('.wd-pty-elsewhere')!;
     expect(panel.textContent).toContain('running in another terminal');
-    expect(panel.textContent).toContain('--host');
+    expect(panel.textContent).toContain('work tree');
     expect(term.writes.join('')).not.toMatch(/reconnect/); // the server's close is expected, not an outage
     act(() => ws.serverClose());
     expect(term.writes.join('')).not.toMatch(/connection closed/);

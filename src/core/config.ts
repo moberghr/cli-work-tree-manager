@@ -28,7 +28,8 @@ export interface WorkConfig {
   /**
    * Launch `work tree`'s AI session inside the PTY host and attach this
    * terminal to it (like `work attach`), so it survives closing the tab and
-   * shows in `work web`. Per call: `--host` / `--no-host`. Default off.
+   * the dashboard shows the same screen. Default on; `false` launches
+   * directly in the terminal. Per call: `--host` / `--no-host`.
    */
   launchViaHost?: boolean;
   /**
@@ -146,7 +147,7 @@ export function loadConfig(): WorkConfig | null {
       portRange: validatePortRange(parsed.portRange),
       notifications: parsed.notifications === true,
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
-      launchViaHost: parsed.launchViaHost === true,
+      launchViaHost: typeof parsed.launchViaHost === 'boolean' ? parsed.launchViaHost : undefined,
       devCommands: validateDevCommands(parsed.devCommands),
       prompts: validatePrompts(parsed.prompts),
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'

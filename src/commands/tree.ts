@@ -49,7 +49,7 @@ export const treeCommand: CommandModule = {
       })
       .option('host', {
         describe:
-          'Run the AI session in the PTY host and attach this terminal to it: it survives closing the tab, shows in `work web`, and restores after a reboot. Default from config `launchViaHost`; --no-host forces a direct launch.',
+          'Run the AI session in the PTY host and attach this terminal to it (the default): it survives closing the tab, shows in `work web` — the same screen there and here — and restores after a reboot. Ctrl+] detaches. --no-host (or config `launchViaHost: false`) launches directly in this terminal instead.',
         type: 'boolean',
       })
       .option('fresh', {
@@ -117,7 +117,9 @@ export const treeCommand: CommandModule = {
     }
 
     const config = ensureConfig();
-    const viaHost = (argv.host as boolean | undefined) ?? config.launchViaHost ?? false;
+    // Via the host unless told otherwise: one Claude that the terminal and
+    // the dashboard both show. A direct launch is invisible to work web.
+    const viaHost = (argv.host as boolean | undefined) ?? config.launchViaHost ?? true;
 
     /**
      * Launch the AI tool, continuing the previous conversation for this

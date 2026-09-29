@@ -346,7 +346,7 @@ Stored at `~/.work/config.json`:
 | `devCommands` | Dev-server command per repo alias, e.g. `{ "web": "npm run dev -- --port $PORT" }`. The session header shows the worktree's `$PORT`, whether anything serves on it (with a **Preview ↗** link), and **▶ Start dev** / **■ Stop** / **Log** for this command. In a group, the first repo with a command gets the port. |
 | `notifications` | Opt-in desktop notification when a session goes idle or needs input. |
 | `statusHooks` | Run your own shell command on a session status change — see below. |
-| `launchViaHost` | Opt-in: `work tree` runs the AI session in the background PTY host and attaches your terminal to it, so it survives closing the tab, shows in `work web`, and comes back after a reboot. Per call: `--host` / `--no-host`. Detach with Ctrl+]; `work attach` reconnects. |
+| `launchViaHost` | Default `true`: `work tree` runs the AI session in the background PTY host and attaches your terminal to it, so it survives closing the tab, `work web` shows the very same screen, and it comes back after a reboot. Detach with Ctrl+]; `work attach` reconnects. Set `false` to launch directly in the terminal (invisible to the dashboard); per call: `--host` / `--no-host`. |
 
 Edit via `work config edit`, or manage repos/groups via the `work config …` subcommands.
 

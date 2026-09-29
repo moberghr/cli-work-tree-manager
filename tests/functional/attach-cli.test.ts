@@ -217,13 +217,32 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
     expect(plain(r.out)).not.toContain('second');
   });
 
-  it('config launchViaHost makes plain `work tree` go through the host', async () => {
+  it('plain `work tree` goes through the host by default: the terminal and the dashboard show one Claude', async () => {
+    const r = await runAttached(['tree', 'base', '--no-pull'], (o) => plain(o).includes('fake-ai ready'));
+    expect(r.code, r.err).toBe(0);
+    expect(r.err).toContain('Detached'); // it was an attach, not a direct launch
+    expect(work(['pty-host', '--status']).stderr).toMatch(/live\s+base · main/);
+  });
+
+  it('--no-host, or config launchViaHost: false, launches directly in this terminal; --host overrides the config', async () => {
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, launchViaHost: true }));
+    // A tool that exits at once, so the direct launch (which waits for it) returns.
+    const direct = { ...cfg, aiCommand: `node ${path.resolve(__dirname, 'fixtures/exit-ai.cjs')}` };
     try {
-      const r = await runAttached(['tree', 'base', '--no-pull'], (o) => plain(o).includes('fake-ai ready'));
+      fs.writeFileSync(configPath, JSON.stringify(direct));
+      const flag = work(['tree', 'base', '--no-host', '--no-pull']);
+      expect(flag.status, flag.stderr).toBe(0);
+      expect(flag.stdout).toContain('direct-launch ok');
+      expect(flag.stderr).not.toContain('Detached');
+
+      fs.writeFileSync(configPath, JSON.stringify({ ...direct, launchViaHost: false }));
+      const viaConfig = work(['tree', 'base', '--no-pull']);
+      expect(viaConfig.status, viaConfig.stderr).toBe(0);
+      expect(viaConfig.stdout).toContain('direct-launch ok');
+
+      const r = await runAttached(['tree', 'base', '--host', '--no-pull'], (o) => plain(o).includes('fake-ai ready'));
       expect(r.code, r.err).toBe(0);
-      expect(r.err).toContain('Detached'); // it was an attach, not a direct launch
+      expect(r.err).toContain('Detached');
     } finally {
       fs.writeFileSync(configPath, JSON.stringify(cfg));
     }

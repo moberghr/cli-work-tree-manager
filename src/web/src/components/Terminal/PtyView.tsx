@@ -243,7 +243,7 @@ export function PtyView({ sessionId, target, branch }: Props) {
     setElsewhere(null);
     setGeneration((g) => g + 1);
   };
-  const hostHint = target ? `work tree ${target}${branch ? ` ${branch}` : ''} --host` : 'work tree <target> <branch> --host';
+  const hostHint = target ? `work tree ${target}${branch ? ` ${branch}` : ''}` : 'work tree <target> <branch>';
   return (
     <>
       {elsewhere && (
@@ -254,8 +254,10 @@ export function PtyView({ sessionId, target, branch }: Props) {
             {elsewhere.state === 'needs_input' && <>, waiting for your answer there</>}.
           </p>
           <p>
-            It was started without <code>--host</code>, so the dashboard can&apos;t show it. Use it in its terminal, or
-            restart it with <code>{hostHint}</code> to have it here (Ctrl+] detaches, Claude keeps running).
+            It was started directly in that terminal (<code>--no-host</code>, or before host launches were the default),
+            so the dashboard can&apos;t show it. Use it there, or restart it with <code>{hostHint}</code>: it resumes the
+            conversation in the host, where this tab and your terminal show the same screen (Ctrl+] detaches, Claude
+            keeps running).
           </p>
           <p className="wd-pty-elsewhere-actions">
             <button type="button" className="wd-btn-secondary" onClick={startAnyway}>

@@ -53,20 +53,24 @@ describe('loadConfig', () => {
 
     const loaded = loadConfig();
     // notifications is coerced to a real boolean (opt-in, default off).
-    expect(loaded).toEqual({ ...data, notifications: false, launchViaHost: false });
+    expect(loaded).toEqual({ ...data, notifications: false });
   });
 
-  it('loads the opt-in launchViaHost flag; only a real true enables it', () => {
+  it('loads launchViaHost only as a real boolean, so an absent key keeps the default (host)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
     const write = (v: unknown) =>
       fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', launchViaHost: v }));
     write(true);
     expect(loadConfig()?.launchViaHost).toBe(true);
+    write(false);
+    expect(loadConfig()?.launchViaHost).toBe(false);
+    // Not a boolean, or absent: undefined, and `work tree` applies its own
+    // default (the host). Coercing these to false used to switch it off.
     write('yes');
-    expect(loadConfig()?.launchViaHost).toBe(false);
+    expect(loadConfig()?.launchViaHost).toBeUndefined();
     write(undefined);
-    expect(loadConfig()?.launchViaHost).toBe(false);
+    expect(loadConfig()?.launchViaHost).toBeUndefined();
   });
 
   it('loads the opt-in notifications flag', () => {
@@ -135,7 +139,6 @@ describe('loadConfig', () => {
       copyFiles: [],
       // notifications is coerced to a real boolean (opt-in, default off).
       notifications: false,
-      launchViaHost: false,
       statusHooks: [],
     });
   });
