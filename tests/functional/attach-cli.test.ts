@@ -50,7 +50,7 @@ beforeAll(() => {
   // A real git repo for `work tree base` (base checkout, no branch).
   baseRepo = path.join(home, 'repos', 'base');
   fs.mkdirSync(baseRepo, { recursive: true });
-  const git = (...a: string[]) => spawnSync('git', a, { cwd: baseRepo, encoding: 'utf-8' });
+  const git = (...a: string[]) => spawnSync('git', a, { cwd: baseRepo, encoding: 'utf-8', timeout: 30_000 });
   git('init', '-q', '-b', 'main');
   git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
   const dotWork = path.join(home, '.work');

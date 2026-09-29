@@ -8,9 +8,18 @@ vi.mock('../../src/core/config.js', () => ({ getConfigDir: () => dir }));
 
 import { bestEffort, bestEffortAsync, swallow } from '../../src/core/best-effort.js';
 
-const log = async () => {
-  await new Promise((r) => setTimeout(r, 50)); // the log stream is async
-  return fs.existsSync(path.join(dir, 'debug.log')) ? fs.readFileSync(path.join(dir, 'debug.log'), 'utf-8') : '';
+/** The log stream writes asynchronously: poll until `expected` lands (a
+ *  fixed sleep was flaky under full-suite load). */
+const log = async (expected: string) => {
+  const file = path.join(dir, 'debug.log');
+  const deadline = Date.now() + 5000;
+  let text = '';
+  while (Date.now() < deadline) {
+    text = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
+    if (text.includes(expected)) break;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return text;
 };
 
 describe('best-effort helpers swallow AND record', () => {
@@ -19,7 +28,7 @@ describe('best-effort helpers swallow AND record', () => {
     expect(bestEffort('restore session s1', () => { throw Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }); }, 0)).toBe(0);
     expect(await bestEffortAsync('record status', async () => { throw new Error('EBUSY lock'); })).toBeUndefined();
     await Promise.reject(new Error('settings.json locked')).catch(swallow('install hooks'));
-    const text = await log();
+    const text = await log('install hooks: settings.json locked');
     expect(text).toContain('[WARN] [best-effort] restore session s1: ENOENT spawn claude ENOENT');
     expect(text).toContain('[best-effort] record status: EBUSY lock');
     expect(text).toContain('[best-effort] install hooks: settings.json locked');

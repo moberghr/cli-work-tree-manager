@@ -22,7 +22,10 @@ let ghState: string;
 const saved = { PATH: process.env.PATH, FAKE_GH_LOG: process.env.FAKE_GH_LOG, FAKE_GH_STATE: process.env.FAKE_GH_STATE };
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf-8' });
+  // Synchronous git blocks the worker's event loop — a hang can't be timed
+  // out by vitest — so bound it here and say which command stalled.
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf-8', timeout: 30_000 });
+  if (r.error) throw new Error(`git ${args.join(' ')} did not finish: ${r.error.message}`);
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 }

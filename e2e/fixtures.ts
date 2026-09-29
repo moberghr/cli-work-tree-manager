@@ -99,12 +99,21 @@ export class WorkEnv {
     } else {
       fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec node "${FAKE_GH}" "$@"\n`, { mode: 0o755 });
     }
+    fs.writeFileSync(path.join(this.home, 'empty.gitconfig'), '');
     this.env = {
       ...process.env,
       HOME: this.home,
       USERPROFILE: this.home,
       NO_COLOR: '1',
       GIT_TERMINAL_PROMPT: '0',
+      // An empty git config, never the developer's (commit signing through
+      // an agent can block a commit indefinitely) — see tests/setup/isolate-git.ts.
+      GIT_CONFIG_GLOBAL: path.join(this.home, 'empty.gitconfig'),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'e2e',
+      GIT_AUTHOR_EMAIL: 'e2e@example.invalid',
+      GIT_COMMITTER_NAME: 'e2e',
+      GIT_COMMITTER_EMAIL: 'e2e@example.invalid',
       PATH: bin + path.delimiter + (process.env.PATH ?? ''),
       FAKE_GH_LOG: path.join(this.home, 'gh.log'),
       FAKE_GH_STATE: path.join(this.home, 'gh-state.json'),

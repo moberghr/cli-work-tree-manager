@@ -18,7 +18,7 @@ const save = () => {
   all[key] = pr;
   fs.writeFileSync(statePath, JSON.stringify(all));
 };
-const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim();
+const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf-8', timeout: 30_000 }).trim();
 
 if (args[0] === 'pr' && args[1] === 'view') {
   if (!pr) {

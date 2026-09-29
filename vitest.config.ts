@@ -12,5 +12,8 @@ export default defineConfig({
     // push past the 5 s default when the suite runs in parallel.
     // Raise the floor to 20 s so flaky timeouts don't mask real bugs.
     testTimeout: 20_000,
+    // Tests run git against an empty config, never the developer's (commit
+    // signing, hooks…) — see tests/setup/isolate-git.ts.
+    setupFiles: ['tests/setup/isolate-git.ts'],
   },
 });
