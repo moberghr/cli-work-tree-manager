@@ -75,7 +75,7 @@ function readMarkdownContent(
   }
 
   const showAt = (ref: string, p: string): string | undefined => {
-    const r = spawn.sync('git', ['show', `${ref}:${p}`], {
+    const r = spawn.sync('git', ['show', '--end-of-options', `${ref}:${p}`], {
       cwd: root,
       encoding: 'utf-8',
       maxBuffer: 16 * 1024 * 1024,

@@ -96,10 +96,22 @@ function readWorkingTree(root: string, relPath: string): string | null {
   }
 }
 
+/**
+ * A ref we may hand to `git show`: a commit id, or a plain ref name. It
+ * comes from a query string, and `git show` takes options — a ref of
+ * `--output=/some/file` would make it WRITE a file. So nothing that starts
+ * with `-`, and only characters refs actually use.
+ */
+export function isSafeRef(ref: string): boolean {
+  return /^[A-Za-z0-9_][A-Za-z0-9._/~^@{}+-]{0,199}$/.test(ref) && !ref.includes('..');
+}
+
 /** `git show <ref>:<relPath>`. Uses cross-spawn directly (not the trimming
- *  `git()` helper) so trailing newlines survive. Returns null on failure. */
+ *  `git()` helper) so trailing newlines survive. Returns null on failure
+ *  (including a ref that isn't safe to pass — see isSafeRef). */
 function readAtRef(root: string, ref: string, relPath: string): string | null {
-  const r = spawn.sync('git', ['show', `${ref}:${relPath}`], {
+  if (!isSafeRef(ref)) return null;
+  const r = spawn.sync('git', ['show', '--end-of-options', `${ref}:${relPath}`], {
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,

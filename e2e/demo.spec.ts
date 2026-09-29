@@ -171,3 +171,29 @@ test('failing CI shows under the header, and Claude fixes it on request', async 
   // Open review threads stay visible until they're resolved on GitHub.
   await expect(strip).toContainText('2 open review threads on #212');
 });
+
+test('j/k never navigate while the Ship dialog is open, and a session switch closes it', async ({ page }) => {
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'feat/checkout-v2' }).click();
+  await expect(page).toHaveURL(/#\/s\//);
+  const before = page.url();
+  await page.getByRole('button', { name: /^Ship/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Ship session' });
+  await expect(panel).toBeVisible();
+
+  // Out of habit, j while the confirm is up: nothing moves.
+  await page.keyboard.press('j');
+  await page.keyboard.press('k');
+  await expect(page).toHaveURL(before);
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText('feat/checkout-v2');
+  await expect(panel).toBeVisible();
+
+  // The backdrop blocks the rail; what CAN switch session under an open
+  // dialog is a notification click or the browser (back, a pasted link).
+  // That must close the dialog, not carry it over to the other session.
+  const sessions = (await (await page.request.get(`${url}api/sessions`)).json()).sessions as Array<{ id: string; branch: string }>;
+  const other = sessions.find((s) => s.branch === 'fix/login-redirect')!;
+  await page.evaluate((id) => (location.hash = `#/s/${id}`), other.id);
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText('fix/login-redirect');
+  await expect(page.getByRole('dialog', { name: 'Ship session' })).toHaveCount(0);
+});

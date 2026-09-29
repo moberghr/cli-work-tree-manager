@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { atomicWriteFile, resolveLinkTarget } from '../../src/core/fs-safe.js';
 import { editSettings, editSettingsSync } from '../../src/core/settings-editor.js';
 
@@ -130,4 +132,60 @@ describe('editSettings', () => {
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(fs.existsSync(real)).toBe(true);
   });
+});
+
+describe('never loses the user\'s settings', () => {
+  const file = () => path.join(claudeDir, 'settings.json');
+  const addHook = (owner: string) => (s: { hooks?: Record<string, unknown[] | undefined> }) => {
+    s.hooks!.Stop = [...(s.hooks!.Stop ?? []), { _workHookOwner: owner, hooks: [{ type: 'command', command: owner }] }];
+  };
+
+  it('leaves a settings.json that does not parse untouched (a hand edit with a trailing comma)', async () => {
+    const broken = '{\n  "permissions": { "allow": ["Bash(npm test)"] },\n  "model": "opus",\n}\n';
+    fs.writeFileSync(file(), broken);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await editSettings(addHook('web'));
+    editSettingsSync(addHook('web'));
+    expect(fs.readFileSync(file(), 'utf-8')).toBe(broken);
+  });
+
+  it('keeps everything that is not ours, and backs the file up before the first edit', async () => {
+    const mine = { permissions: { allow: ['Bash(npm test)'] }, model: 'opus', hooks: { Stop: [{ matcher: 'x', hooks: [] }] } };
+    fs.writeFileSync(file(), JSON.stringify(mine));
+    await editSettings(addHook('web'));
+    const after = JSON.parse(fs.readFileSync(file(), 'utf-8'));
+    expect(after.permissions).toEqual(mine.permissions);
+    expect(after.model).toBe('opus');
+    expect(after.hooks.Stop).toHaveLength(2);
+    expect(JSON.parse(fs.readFileSync(`${file()}.work-backup`, 'utf-8'))).toEqual(mine);
+  });
+
+  it('creates the file when there is none', async () => {
+    await editSettings(addHook('web'));
+    expect(JSON.parse(fs.readFileSync(file(), 'utf-8')).hooks.Stop).toHaveLength(1);
+  });
+
+  it('edits from several processes at once all land (cross-process lock)', async () => {
+    fs.writeFileSync(file(), JSON.stringify({ model: 'opus' }));
+    const mod = pathToFileURL(path.resolve(__dirname, '../../src/core/settings-editor.ts')).href;
+    const script = path.join(tmpDir, 'edit.mts');
+    fs.writeFileSync(
+      script,
+      `const { editSettings } = await import(${JSON.stringify(mod)});\n` +
+        `const owner = process.argv[2];\n` +
+        `for (let i = 0; i < 5; i++) await editSettings((s) => { s.hooks.Stop = [...(s.hooks.Stop ?? []), { _workHookOwner: owner + i, hooks: [] }]; });\n`,
+    );
+    const env = { ...process.env, HOME: tmpDir, USERPROFILE: tmpDir };
+    await Promise.all(
+      ['a', 'b', 'c', 'd'].map(
+        (o) =>
+          new Promise<void>((resolve, reject) =>
+            execFile(process.execPath, ['--import', 'tsx', script, o], { env, timeout: 60_000 }, (err) => (err ? reject(err) : resolve())),
+          ),
+      ),
+    );
+    const after = JSON.parse(fs.readFileSync(file(), 'utf-8'));
+    expect(after.model).toBe('opus');
+    expect(after.hooks.Stop).toHaveLength(20);
+  }, 90_000);
 });

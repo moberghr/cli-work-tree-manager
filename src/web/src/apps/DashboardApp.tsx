@@ -230,6 +230,10 @@ export function DashboardApp() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (inField()) return;
+      // Any dialog on screen (Ship, confirm-merge, new worktree, delete…)
+      // owns the keyboard: navigating out from under it swapped the Ship
+      // panel to another session mid-confirmation.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
       // A modal is up — don't navigate out from under it.
       if (modalOpen) return;
       if (pendingG) {

@@ -52,7 +52,12 @@ export function SessionDetail({
   prs = [],
   onShipped,
 }: Props) {
-  const [shipOpen, setShipOpen] = useState(false);
+  // Which session the Ship panel was opened FOR: it closes itself when the
+  // detail switches to another session (j/k, a notification click), so a
+  // merge confirmation can never end up acting on a different session.
+  const [shipFor, setShipFor] = useState<string | null>(null);
+  const shipOpen = shipFor === session.id;
+  const setShipOpen = (open: boolean) => setShipFor(open ? session.id : null);
   const archived = isArchived(session);
   return (
     <div className="wd-session-detail">
@@ -71,7 +76,7 @@ export function SessionDetail({
           <span className="wd-session-detail-branch">{session.branch}</span>
         </h1>
         {archived && <span className="wd-archived-pill">archived</span>}
-        <OpenTerminalButton sessionId={session.id} />
+        <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
         <button
           type="button"
           className="wd-session-detail-btn wd-session-detail-ship"
@@ -80,7 +85,7 @@ export function SessionDetail({
         >
           Ship ▾
         </button>
-        <ArchiveButton sessionId={session.id} archived={archived} />
+        <ArchiveButton key={`archive-${session.id}`} sessionId={session.id} archived={archived} />
         <button
           type="button"
           className="wd-session-detail-delete"
@@ -102,6 +107,7 @@ export function SessionDetail({
       <CiStrip sessionId={session.id} isGroup={session.isGroup} />
       {shipOpen && (
         <ShipPanel
+          key={session.id}
           session={session}
           onClose={() => setShipOpen(false)}
           onMerged={() => {

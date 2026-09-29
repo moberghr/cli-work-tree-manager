@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import { readContextLines } from '../../src/core/file-context.js';
+import { isSafeRef, readContextLines } from '../../src/core/file-context.js';
 
 let tmpDir: string;
 let repoDir: string;
@@ -100,5 +100,39 @@ describe('readContextLines (git ref)', () => {
         ref: 'deadbeef',
       }),
     ).toBeNull();
+  });
+});
+
+describe('the ref comes from a query string', () => {
+  it('cannot smuggle a git option in: --output=<file> writes nothing', () => {
+    write('f.txt', 'a\nb\n');
+    execSync('git add . && git commit -q -m init', { cwd: repoDir });
+    const target = path.join(tmpDir, 'pwned');
+    for (const ref of [`--output=${target}`, '-O/etc/passwd', '--help']) {
+      expect(readContextLines({ root: repoDir, relPath: 'f.txt', start: 1, end: 2, ref })).toBeNull();
+    }
+    expect(fs.existsSync(`${target}:f.txt`)).toBe(false);
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it('still reads real refs: HEAD, a sha, a branch, HEAD~0', () => {
+    write('f.txt', 'a\nb\n');
+    execSync('git add . && git commit -q -m init', { cwd: repoDir });
+    const sha = execSync('git rev-parse HEAD', { cwd: repoDir }).toString().trim();
+    const branch = execSync('git branch --show-current', { cwd: repoDir }).toString().trim();
+    for (const ref of ['HEAD', sha, sha.slice(0, 7), branch, 'HEAD~0']) {
+      expect(readContextLines({ root: repoDir, relPath: 'f.txt', start: 1, end: 2, ref })?.lines).toEqual(['a', 'b']);
+    }
+  });
+});
+
+describe('isSafeRef', () => {
+  it('accepts what refs look like and nothing that git would read as an option', () => {
+    for (const ok of ['HEAD', 'main', 'feat/x-1', 'abc1234', 'HEAD~2', 'HEAD^', 'origin/main', 'v1.2.3', 'main@{1}']) {
+      expect(isSafeRef(ok), ok).toBe(true);
+    }
+    for (const bad of ['--output=/tmp/x', '-O/etc/passwd', '-p', '', 'a..b', 'x y', 'x;rm', '$(id)', 'a\nb']) {
+      expect(isSafeRef(bad), bad).toBe(false);
+    }
   });
 });
