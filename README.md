@@ -156,6 +156,14 @@ work web --stop         # shut the dashboard down
 
 ---
 
+### Demo mode
+
+```bash
+work web --demo      # or: npm run demo
+```
+
+Opens the real dashboard against a simulated world — example repos, agents that finish and ask for permission while you watch, PRs, Jira and tasks — with nothing real behind it: no repos, agents or `~/.work` are touched, and it runs beside your real `work web`. Use it for screenshots, UI work and showing the tool to someone. Everything you do has a simulated effect: answer a blocked agent in its terminal, leave a review comment (Claude replies), ship a group in parts.
+
 ### Attention inbox
 
 With ten agents running, the question is which one needs you next. The **Inbox** tab (`g i`) answers it, using Claude Code's own hooks — `work web` installs them, so it covers every Claude in any terminal:

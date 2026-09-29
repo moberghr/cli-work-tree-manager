@@ -9,6 +9,8 @@ import { openUrl } from '../utils/platform.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
 import { setAutostart } from '../core/autostart.js';
+import { startDemoServer } from '../core/demo/demo-server.js';
+import { resolveWebRoot } from '../core/web-static.js';
 import { isPidAlive } from '../core/process.js';
 import {
   clearWebDiscovery,
@@ -76,6 +78,12 @@ export const webCommand: CommandModule = {
         default: false,
         describe: 'Stop a running work web instance and exit.',
       })
+      .option('demo', {
+        type: 'boolean',
+        default: false,
+        describe:
+          'Run the dashboard against a simulated, in-memory world (no repos, agents or ~/.work touched) — for screenshots, UI work and demos. Runs beside a real work web.',
+      })
       .option('autostart', {
         type: 'string',
         choices: ['on', 'off'],
@@ -104,6 +112,10 @@ export const webCommand: CommandModule = {
         ),
       );
       process.exit(outcome === 'failed' || outcome === 'unresponsive' ? 1 : 0);
+    }
+    if (argv.demo) {
+      await runDemo(argv.open as boolean);
+      return;
     }
     if (argv.autostart) {
       try {
@@ -251,3 +263,26 @@ export const webCommand: CommandModule = {
     await new Promise(() => {});
   },
 };
+
+/**
+ * `work web --demo`: the real SPA against the in-memory demo API. It is not
+ * the singleton — no web.url / web.pid, no Claude hooks, no PTY host — so it
+ * can run next to a real work web without either noticing the other.
+ */
+async function runDemo(open: boolean): Promise<void> {
+  const webRoot = resolveWebRoot();
+  if (!webRoot) {
+    info(chalk.red('Could not find dist/web/. Run `npm run build` first.'));
+    process.exit(1);
+  }
+  const handle = await startDemoServer({ webRoot });
+  info(chalk.cyan(`work web DEMO at ${handle.url}`));
+  info(chalk.gray('Simulated data only: nothing here touches your repos, agents or ~/.work. Ctrl+C to stop.'));
+  if (open) openUrl(handle.url);
+  const stop = () => {
+    void handle.stop().finally(() => process.exit(0));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  await new Promise(() => {});
+}

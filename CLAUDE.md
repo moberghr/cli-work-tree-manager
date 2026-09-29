@@ -145,6 +145,7 @@ wd -c                                              # Interactive review. Same si
 
 work web                                           # Browser dashboard: every session in one tab, with PTY terminal. SINGLETON — one process per user; `work web --stop` to terminate, second `work web` re-uses the running one. Stopping it does NOT kill Claudes (they live in the PTY host).
 work web --autostart on|off                        # Windows: start work web at login (Startup-folder .vbs) so sessions restore after a reboot
+work web --demo                                    # The real dashboard SPA against a simulated, in-memory API (core/demo/) — no repos, agents, PTY host or ~/.work. For screenshots, UI work and demos; runs beside a real work web. `npm run demo` builds + starts it.
 work attach|a [target] [branch]                    # Attach THIS terminal to a session's Claude in the PTY host (default: session for cwd). Ctrl+] detaches; Claude keeps running. Same PTY as the web Terminal tab.
 work pty-host [--status|--stop|--restart]          # Internal/hidden — the long-lived process that owns every Claude PTY. --restart after upgrading (sessions come back via --continue).
 work hook <event>                                  # Internal — invoked by Claude Code via ~/.claude/settings.json (hidden)
@@ -284,6 +285,12 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 - The session is **archived only when the merge merged something AND every repo is done** afterwards. Archive (`archivedAt`) stops the PTY and hides the session; worktree, branch and conversation stay; `work tree` into it un-archives.
 
 § WHEN adding a ship action, route git/gh through `CommandRunner` (argv, no shell) and re-check preconditions server-side — the client's preflight may be stale.
+
+### Demo mode (`work web --demo`)
+
+`core/demo/scenario.ts` is an in-memory world (sessions, diffs as unified-diff text through the real parser, PRs, Jira, tasks, comments via the real in-memory comment store, a scripted timeline, simulated effects for answer / comment / ship / archive). `core/demo/demo-server.ts` serves it on the same routes and wire types (`core/api-types.ts`) as work web, including SSE and the terminal WebSocket framing, behind the same `local-server` Origin guard. It is the UI/logic separation check: `tests/architecture/demo-separation.test.ts` forbids `src/core/demo/` from importing any real-I/O module at runtime, and requires every dashboard route of the real server to exist in the demo; `e2e/demo.spec.ts` runs the real binary under an empty HOME and asserts nothing was written.
+
+§ WHEN adding a dashboard API route, add it to `core/demo/demo-server.ts` too (the contract test fails otherwise), and put its wire type in `core/api-types.ts`.
 
 ### Session Tracking
 

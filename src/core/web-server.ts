@@ -24,6 +24,7 @@ import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
+import type { SessionWire } from './api-types.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -35,7 +36,10 @@ import type { ParsedFile } from './diff-parse.js';
 
 export type WebServerHandle = DiffServerHandle;
 
-function sessionToWire(s: WorktreeSession, diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null) {
+function sessionToWire(
+  s: WorktreeSession,
+  diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null,
+): SessionWire {
   const id = sessionIdFor(s);
   const meta = readSessionMeta(id, s);
   return {

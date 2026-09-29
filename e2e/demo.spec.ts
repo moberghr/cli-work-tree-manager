@@ -1,0 +1,80 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { test, expect } from '@playwright/test';
+
+/**
+ * `work web --demo` end to end: the built binary, the real SPA, the
+ * simulated API. Run under an EMPTY home and assert afterwards that it
+ * created no state there — the demo touches no repos, agents or ~/.work.
+ */
+
+const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'bin.js');
+let home: string;
+let child: ChildProcess;
+let url: string;
+
+test.beforeEach(async () => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'work-demo-'));
+  child = spawn(process.execPath, [BIN, 'web', '--demo', '--no-open'], {
+    env: { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  url = await new Promise<string>((resolve, reject) => {
+    let out = '';
+    const timer = setTimeout(() => reject(new Error(`demo did not start: ${out}`)), 20_000);
+    const onData = (d: Buffer) => {
+      out += d.toString();
+      const m = out.match(/DEMO at (http:\/\/127\.0\.0\.1:\d+\/)/);
+      if (m) {
+        clearTimeout(timer);
+        resolve(m[1]);
+      }
+    };
+    child.stderr!.on('data', onData);
+    child.stdout!.on('data', onData);
+  });
+});
+test.afterEach(async () => {
+  child.kill();
+  await new Promise((r) => setTimeout(r, 300));
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+});
+
+test('the real dashboard runs on simulated data, and nothing real is touched', async ({ page }) => {
+  await page.goto(`${url}#/inbox`);
+  await expect(page.locator('.wd-inbox-rank-0 .wd-inbox-row')).toContainText('feat/invoice-export');
+  await expect(page).toHaveTitle(/\(\d+\) work/);
+
+  // Answer the blocked agent in its (simulated) terminal.
+  await page.locator('.wd-inbox-rank-0 .wd-inbox-row', { hasText: 'feat/invoice-export' }).click();
+  await expect(page).toHaveURL(/\/term$/);
+  await page.locator('.wd-pty-host .xterm').click();
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.wd-session-status, .wd-session-detail')).toContainText(/Working/);
+
+  // Ship half of the group.
+  const shopRow = page.locator('.wd-dash-rail-item', { hasText: 'feat/checkout-v2' });
+  await shopRow.click();
+  await page.getByRole('button', { name: /^Ship/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Ship session' });
+  await panel.getByRole('button', { name: 'Create PR' }).click();
+  await expect(panel.locator('.wd-ship-results')).toContainText('PR opened');
+  await expect(panel).toContainText('checks still running');
+  // Simulated checks go green after a few seconds; reopen to re-check.
+  await page.waitForTimeout(7_000);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Ship/ }).click();
+  await panel.getByLabel('Merge frontend').uncheck();
+  await panel.getByRole('button', { name: 'Merge 1…' }).click();
+  await panel.getByRole('alertdialog', { name: 'Confirm merge' }).getByRole('button', { name: 'Confirm merge' }).click();
+  await expect(panel).toContainText('✓ merged');
+
+  // Nothing but the startup debug log was written into this HOME.
+  const created = fs.existsSync(path.join(home, '.work')) ? fs.readdirSync(path.join(home, '.work')) : [];
+  expect(created.filter((f) => !f.startsWith('debug.log'))).toEqual([]);
+  expect(fs.existsSync(path.join(home, '.claude'))).toBe(false);
+});

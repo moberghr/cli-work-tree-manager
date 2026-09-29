@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
+    "demo": "npm run build && node dist/bin.js web --demo",
     "prepublishOnly": "npm run build",
     "postinstall": "node scripts/postinstall.mjs"
   },

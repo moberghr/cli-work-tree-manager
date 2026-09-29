@@ -34,6 +34,30 @@ export interface SessionAttention extends AttentionLike {
   stale: boolean;
 }
 
+/** One row of GET /api/sessions — what every dashboard server (the real
+ *  work web and the demo) sends. */
+export interface SessionWire {
+  id: string;
+  target: string;
+  branch: string;
+  isGroup: boolean;
+  paths: string[];
+  baseBranch?: string;
+  jiraKey?: string;
+  createdAt: string;
+  lastAccessedAt: string;
+  draftCount: number;
+  commentCount: number;
+  claudeCount: number;
+  ptyStatus: PtyStatus;
+  lastActivity: number | null;
+  activityState: ActivityState;
+  pendingForClaudeCount: number;
+  attention: SessionAttention | null;
+  diffStat: DiffStat | null;
+  archivedAt: string | null;
+}
+
 // ---- ship -----------------------------------------------------------------
 
 export type ChecksState = 'pass' | 'fail' | 'pending' | 'none';
