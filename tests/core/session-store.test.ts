@@ -6,48 +6,64 @@ import { saveHistory, removeSession, prunePersistedStaleEntries, upsertSession, 
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { sessionStatePaths } from '../../src/core/session-store.js';
 import { saveConfig, loadConfig } from '../../src/core/config.js';
+import { withDb } from '../../src/core/db.js';
 
 /**
  * Removing a session removes ALL its state (reviewed: status and comment
  * files were left behind, and a re-created session with the same
- * target:branch inherited them).
+ * target:branch inherited them). Its state is one row per table in
+ * state.db plus the dev-server log file.
  */
 let home: string;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'session-store-'));
   vi.spyOn(os, 'homedir').mockReturnValue(home);
-  fs.mkdirSync(path.join(home, '.work', 'status'), { recursive: true });
-  fs.mkdirSync(path.join(home, '.work', 'comments'), { recursive: true });
 });
 afterEach(() => {
   vi.restoreAllMocks();
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-function seedState(target: string, branch: string) {
+const TABLES = ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs'] as const;
+
+function seedState(target: string, branch: string, other = 'keep-me') {
   const id = sessionIdFor({ target, branch });
+  withDb((d) => {
+    for (const sid of [id, other]) {
+      d.prepare('INSERT INTO session_status (session_id, data) VALUES (?, ?)').run(sid, '{}');
+      d.prepare('INSERT INTO comment_deliveries (session_id, comment_id) VALUES (?, ?)').run(sid, 'c1');
+      d.prepare('INSERT INTO pty_sessions (session_id, data) VALUES (?, ?)').run(sid, '{}');
+      d.prepare('INSERT INTO pr_watch_seen (session_id, key) VALUES (?, ?)').run(sid, 'k');
+      d.prepare('INSERT INTO dev_runs (session_id, data) VALUES (?, ?)').run(sid, '{"pid":0}');
+      d.prepare('INSERT INTO comments (store, id, data) VALUES (?, ?, ?)').run(sid, 'c1', '{}');
+    }
+  });
   for (const p of sessionStatePaths(id)) {
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, '{}');
+    fs.writeFileSync(p, 'log');
   }
-  fs.writeFileSync(
-    path.join(home, '.work', 'pty-sessions.json'),
-    JSON.stringify({ [id]: { cwd: '/x' }, keep: { cwd: '/y' } }),
-  );
   return id;
 }
-const exists = (id: string) => sessionStatePaths(id).map((p) => fs.existsSync(p));
+
+/** Which of its tables (and files) still hold anything for this session. */
+function leftovers(id: string): string[] {
+  return withDb((d) => {
+    const out: string[] = TABLES.filter((t) => d.prepare(`SELECT 1 FROM ${t} WHERE session_id = ?`).get(id));
+    if (d.prepare('SELECT 1 FROM comments WHERE store = ?').get(id)) out.push('comments');
+    for (const p of sessionStatePaths(id)) if (fs.existsSync(p)) out.push(path.basename(p));
+    return out;
+  });
+}
+const ALL = (id: string) => [...TABLES, 'comments', `${id}.log`];
 
 describe('session-store purge', () => {
-  it('removeSession deletes status, comments, delivery markers and the saved PTY entry', async () => {
+  it('removeSession deletes every row and file the session owns, and nobody else\'s', async () => {
     await upsertSession('api', false, 'feat/x', [path.join(home, 'wt')]);
     const id = seedState('api', 'feat/x');
-    expect(exists(id)).toEqual([true, true, true, true, true]);
+    expect(leftovers(id)).toEqual(ALL(id));
     await removeSession('api', 'feat/x');
-    expect(exists(id)).toEqual([false, false, false, false, false]);
-    expect(JSON.parse(fs.readFileSync(path.join(home, '.work', 'pty-sessions.json'), 'utf-8'))).toEqual({
-      keep: { cwd: '/y' },
-    });
+    expect(leftovers(id)).toEqual([]);
+    expect(leftovers('keep-me')).toEqual([...TABLES, 'comments']);
   });
 
   it('a session re-created with the same target:branch starts clean', async () => {
@@ -55,13 +71,13 @@ describe('session-store purge', () => {
     const id = seedState('api', 'feat/x');
     await removeSession('api', 'feat/x');
     await upsertSession('api', false, 'feat/x', [path.join(home, 'wt')]);
-    expect(exists(id)).toEqual([false, false, false, false, false]);
+    expect(leftovers(id)).toEqual([]);
   });
 
   it('removing a session that is not in history touches nothing', async () => {
     const id = seedState('api', 'feat/x');
     await removeSession('api', 'feat/x');
-    expect(exists(id)).toEqual([true, true, true, true, true]);
+    expect(leftovers(id)).toEqual(ALL(id));
   });
 
   it('`work status --prune` purges the state of the entries it drops', async () => {
@@ -70,7 +86,7 @@ describe('session-store purge', () => {
     const id = seedState('api', 'feat/x');
     expect((await prunePersistedStaleEntries()).pruned).toBe(1);
     expect(loadHistory()).toEqual([]);
-    expect(exists(id)).toEqual([false, false, false, false, false]);
+    expect(leftovers(id)).toEqual([]);
   });
 });
 

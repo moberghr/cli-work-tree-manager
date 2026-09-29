@@ -20,6 +20,7 @@ import { runCommand } from './commands/run.js';
 import { broadcastCommand } from './commands/broadcast.js';
 import { attachCommand } from './commands/attach.js';
 import { ptyHostCommand } from './commands/pty-host.js';
+import { stateCommand } from './commands/state.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -114,6 +115,7 @@ export function run(argv: string[]) {
     .command(broadcastCommand)
     .command(attachCommand)
     .command(ptyHostCommand)
+    .command(stateCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

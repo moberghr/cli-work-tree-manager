@@ -60,12 +60,8 @@ describe('broadcastPrompt', () => {
     await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'do the thing');
 
     const sessionId = sessionIdFor(target);
-    // It lands on disk as a comment file.
-    const file = path.join(tmpDir, '.work', 'comments', `${sessionId}.json`);
-    expect(fs.existsSync(file)).toBe(true);
-
-    // And the pending-delivery reader surfaces it (published + user).
-    clearCommentStoreCache();
+    // The pending-delivery reader surfaces it (published + user), even in
+    // a process whose cached store predates the broadcast.
     const pending = readPendingForSession(sessionId);
     expect(pending).toHaveLength(1);
     expect(pending[0].body).toBe('do the thing');

@@ -63,7 +63,7 @@ describe('loadHistory', () => {
     expect(loadHistory()).toEqual([]);
   });
 
-  it('backs up a corrupt history file instead of silently overwriting', () => {
+  it('a corrupt history.json imports as empty and is kept, not overwritten', () => {
     const historyDir = path.join(tmpDir, '.work');
     fs.mkdirSync(historyDir, { recursive: true });
     fs.writeFileSync(path.join(historyDir, 'history.json'), '{bad}');
@@ -71,13 +71,8 @@ describe('loadHistory', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(loadHistory()).toEqual([]);
 
-    const backups = fs
-      .readdirSync(historyDir)
-      .filter((f) => f.startsWith('history.json.bad-'));
-    expect(backups.length).toBe(1);
-    expect(fs.readFileSync(path.join(historyDir, backups[0]), 'utf-8')).toBe(
-      '{bad}',
-    );
+    expect(fs.existsSync(path.join(historyDir, 'history.json'))).toBe(false);
+    expect(fs.readFileSync(path.join(historyDir, 'history.json.migrated'), 'utf-8')).toBe('{bad}');
   });
 
   it('returns empty array for non-array JSON', () => {
@@ -94,26 +89,18 @@ describe('loadHistory', () => {
 });
 
 describe('saveHistory', () => {
-  it('writes history as formatted JSON', () => {
-    const sessions: WorktreeSession[] = [
-      {
-        target: 'api',
-        isGroup: false,
-        branch: 'main',
-        paths: ['/tmp/wt'],
-        createdAt: '2025-01-01T00:00:00.000Z',
-        lastAccessedAt: '2025-01-01T00:00:00.000Z',
-      },
-    ];
-
-    saveHistory(sessions);
-
-    const historyPath = path.join(tmpDir, '.work', 'history.json');
-    expect(fs.existsSync(historyPath)).toBe(true);
-
-    const raw = fs.readFileSync(historyPath, 'utf-8');
-    expect(JSON.parse(raw)).toEqual(sessions);
-    expect(raw).toContain('\n');
+  it('round-trips sessions, first entry winning for a duplicate target:branch', () => {
+    const one: WorktreeSession = {
+      target: 'api',
+      isGroup: false,
+      branch: 'main',
+      paths: ['/tmp/wt'],
+      createdAt: '2025-01-01T00:00:00.000Z',
+      lastAccessedAt: '2025-01-01T00:00:00.000Z',
+    };
+    saveHistory([one, { ...one, paths: ['/tmp/other'] }, { ...one, branch: 'dev' }]);
+    expect(loadHistory()).toEqual([one, { ...one, branch: 'dev' }]);
+    expect(fs.existsSync(path.join(tmpDir, '.work', 'state.db'))).toBe(true);
   });
 });
 

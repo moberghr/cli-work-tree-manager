@@ -142,7 +142,11 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
     // by the next restore.
     await waitFor(() => !alive(pty.pid), 10_000, 'session process to die');
     expect(fs.existsSync(path.join(home, '.work', 'pty-host.json'))).toBe(false);
-    const saved = JSON.parse(fs.readFileSync(path.join(home, '.work', 'pty-sessions.json'), 'utf-8'));
+    // The restore list (state.db) still has it — read back via the binary's
+    // own export, which writes the old pty-sessions.json shape.
+    const out = path.join(home, 'state-export');
+    expect(work(['state', '--export', out]).status).toBe(0);
+    const saved = JSON.parse(fs.readFileSync(path.join(out, 'pty-sessions.json'), 'utf-8'));
     expect(Object.keys(saved)).toHaveLength(1);
   });
 

@@ -360,13 +360,15 @@ When a background AI session finishes its turn (`idle`) or blocks waiting on you
 
 ### Session tracking
 
-Every `work tree` invocation upserts a row into `~/.work/history.json` keyed by `target + branch`. This powers:
+Every `work tree` invocation upserts a row into `~/.work/state.db` (SQLite) keyed by `target + branch`. This powers:
 
 - **`work status`** — joins history with live `git status` to show merge state, dirty trees, unpushed commits, and last-access timestamps.
 - **`work recent`** — sessions sorted by last touched.
 - **`work resume`** — interactive picker; one keystroke to re-enter the worktree and continue the prior AI conversation.
 - **`work prune` / `work sync`** — `prune` interactively removes worktrees whose branches landed on `main`/`master`; `work sync` does the same non-interactively after fetching every repo in parallel (`--dry-run` to preview, `--force` to include dirty/unpushed trees, `--include-squash` to also catch squash-merged branches).
-- **Dashboard reactivity** — `fs.watch` on `history.json` means a `work tree` in another terminal shows up in the running `work web` dashboard immediately.
+- **Dashboard reactivity** — every write bumps a change counter the running `work web` polls, so a `work tree` in another terminal shows up in the dashboard within a second.
+
+All session state (history, status, review comments, restore list, tasks) lives in that one database, so the CLI, Claude's hooks, `work web` and the PTY host can all write at once without losing updates. Upgrading from a version with JSON files imports them on first run and keeps the originals as `*.migrated`. `work state` shows what's stored; `work state --export <dir>` writes it back out as the old JSON files.
 
 ---
 

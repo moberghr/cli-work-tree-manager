@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
-import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
+import { json, tx, withDb, type Db } from './db.js';
+import { sessionIdFor } from './session-id.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
 import { allocateFreePort } from './port-allocator.js';
 import { purgeSessionState } from './session-store.js';
@@ -10,73 +11,64 @@ import { purgeSessionState } from './session-store.js';
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
 
+/**
+ * Worktree sessions, in the `sessions` table of ~/.work/state.db (db.ts):
+ * one row per target:branch, the record as JSON. Writes are transactions,
+ * so concurrent `work tree` / `remove` / work web can't clobber each other
+ * (the old history.json needed a file lock for that — and once lost 60+
+ * sessions without it).
+ */
+
+/** The pre-SQLite history file. Only the one-time import (db-import.ts)
+ *  reads it now. */
 export function getHistoryPath(): string {
   return path.join(getConfigDir(), 'history.json');
 }
 
-/**
- * Back up a corrupt history file so the user can recover manually
- * instead of having it silently overwritten.
- */
-function backupCorruptFile(historyPath: string, reason: string): void {
-  try {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupPath = `${historyPath}.bad-${stamp}`;
-    fs.copyFileSync(historyPath, backupPath);
-    console.error(
-      `[work] history.json was unreadable (${reason}). Corrupt copy saved to ${backupPath}`,
-    );
-  } catch {
-    // best-effort
-  }
+function valid(s: unknown): s is WorktreeSession {
+  const x = s as WorktreeSession | null;
+  return !!x && typeof x.target === 'string' && typeof x.branch === 'string' && Array.isArray(x.paths);
 }
 
+function rows(d: Db): WorktreeSession[] {
+  return (d.prepare('SELECT data FROM sessions ORDER BY rowid').all() as Array<{ data: string }>)
+    .map((r) => json.parse(r.data))
+    .filter(valid);
+}
+
+function getRow(d: Db, target: string, branch: string): WorktreeSession | undefined {
+  const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(sessionIdFor({ target, branch })) as
+    | { data: string }
+    | undefined;
+  const s = r ? json.parse(r.data) : null;
+  return valid(s) ? s : undefined;
+}
+
+function putRow(d: Db, s: WorktreeSession): void {
+  d.prepare(
+    'INSERT INTO sessions (id, target, branch, data) VALUES (?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET data = excluded.data',
+  ).run(sessionIdFor(s), s.target, s.branch, JSON.stringify(s));
+}
+
+/** Every session, in the order they were first recorded. */
 export function loadHistory(): WorktreeSession[] {
-  const historyPath = getHistoryPath();
-  if (!fs.existsSync(historyPath)) {
-    return [];
-  }
-
-  let raw: string;
-  try {
-    raw = fs.readFileSync(historyPath, 'utf-8');
-  } catch (err) {
-    backupCorruptFile(historyPath, `read error: ${(err as Error).message}`);
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      backupCorruptFile(historyPath, 'not an array');
-      return [];
-    }
-    return parsed.filter(
-      (s) =>
-        s &&
-        typeof s.target === 'string' &&
-        typeof s.branch === 'string' &&
-        Array.isArray(s.paths),
-    );
-  } catch (err) {
-    backupCorruptFile(historyPath, `parse error: ${(err as Error).message}`);
-    return [];
-  }
+  return withDb(rows);
 }
 
+/** Replace the whole history (bulk rewrites, tests). */
 export function saveHistory(sessions: WorktreeSession[]): void {
-  atomicWriteFile(getHistoryPath(), JSON.stringify(sessions, null, 2));
-}
-
-/**
- * Serialize a read-modify-write sequence against other work processes.
- * Concurrent `work tree`/`remove` calls would otherwise clobber each
- * other's writes (this is the bug that wiped 60+ sessions).
- */
-async function withHistoryLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  const historyPath = getHistoryPath();
-  ensureFile(historyPath, '[]');
-  return withFileLock(historyPath, fn);
+  tx((d) => {
+    d.prepare('DELETE FROM sessions').run();
+    const seen = new Set<string>();
+    for (const s of sessions) {
+      if (!valid(s)) continue;
+      const id = sessionIdFor(s);
+      if (seen.has(id)) continue; // first entry wins, as findSession does
+      seen.add(id);
+      putRow(d, s);
+    }
+  });
 }
 
 function sessionKey(target: string, branch: string): string {
@@ -102,9 +94,8 @@ export async function upsertSession(
   baseBranch?: string,
   port?: number,
 ): Promise<void> {
-  await withHistoryLock(() => {
-    const sessions = loadHistory();
-    const existing = findSession(sessions, target, branch);
+  tx((d) => {
+    const existing = getRow(d, target, branch);
     const now = new Date().toISOString();
 
     if (existing) {
@@ -114,6 +105,7 @@ export async function upsertSession(
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (port !== undefined) existing.port = port;
+      putRow(d, existing);
     } else {
       const session: WorktreeSession = {
         target,
@@ -126,20 +118,19 @@ export async function upsertSession(
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
       if (port !== undefined) session.port = port;
-      sessions.push(session);
+      putRow(d, session);
     }
-
-    saveHistory(sessions);
   });
 }
 
 /**
- * Atomically allocate a stable dev-server port AND persist the session in a
- * single locked critical section. Allocating over `loadHistory()` and then
- * writing in a separate `upsertSession` call is a TOCTOU race: two concurrent
- * `work tree` runs would both read the same history snapshot and pick the same
- * port. Doing load + allocate + save under one `withHistoryLock` serializes
- * concurrent allocations so each gets a distinct port.
+ * Allocate a stable dev-server port AND persist the session, without two
+ * concurrent `work tree` runs picking the same port.
+ *
+ * Allocation probes ports (async) and a transaction can't span an await,
+ * so it is optimistic: pick a port against a snapshot, then in one write
+ * transaction re-check that no other live session took it meanwhile — and
+ * if one did, pick again.
  *
  * Port allocation is best-effort: if it fails (range exhausted, etc.) the
  * session is still persisted, just without a port, and `port` comes back
@@ -159,25 +150,12 @@ export async function upsertSessionWithPort(
   baseBranch?: string,
   baseBranches?: Record<string, string>,
 ): Promise<{ port?: number }> {
-  return withHistoryLock(async () => {
-    const sessions = loadHistory();
-    const existing = findSession(sessions, target, branch);
+  const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
+  const id = sessionIdFor({ target, branch });
+
+  const write = (d: Db, port: number | undefined): number | undefined => {
+    const existing = getRow(d, target, branch);
     const now = new Date().toISOString();
-
-    const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
-
-    // Keep an already-assigned port; otherwise allocate against the current
-    // (locked) snapshot so concurrent callers can't pick the same one.
-    let port = existing?.port;
-    if (port === undefined) {
-      const seedKey = sessionKey(target, branch);
-      try {
-        port = await allocateFreePort(seedKey, config, sessions);
-      } catch {
-        port = undefined;
-      }
-    }
-
     if (existing) {
       existing.paths = paths;
       existing.lastAccessedAt = now;
@@ -185,26 +163,45 @@ export async function upsertSessionWithPort(
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
-      if (port !== undefined) existing.port = port;
-    } else {
-      const session: WorktreeSession = {
-        target,
-        isGroup,
-        branch,
-        paths,
-        createdAt: now,
-        lastAccessedAt: now,
-      };
-      if (jiraKey) session.jiraKey = jiraKey;
-      if (baseBranch) session.baseBranch = baseBranch;
-      if (hasPerRepo) session.baseBranches = baseBranches;
-      if (port !== undefined) session.port = port;
-      sessions.push(session);
+      if (existing.port === undefined && port !== undefined) existing.port = port;
+      putRow(d, existing);
+      return existing.port;
     }
+    const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now };
+    if (jiraKey) session.jiraKey = jiraKey;
+    if (baseBranch) session.baseBranch = baseBranch;
+    if (hasPerRepo) session.baseBranches = baseBranches;
+    if (port !== undefined) session.port = port;
+    putRow(d, session);
+    return port;
+  };
 
-    saveHistory(sessions);
-    return { port };
-  });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const sessions = loadHistory();
+    const existing = findSession(sessions, target, branch);
+    let port = existing?.port;
+    if (port === undefined) {
+      try {
+        port = await allocateFreePort(sessionKey(target, branch), config, sessions);
+      } catch {
+        port = undefined;
+      }
+    }
+    const done = tx((d) => {
+      // Another `work tree` may have taken this port since the snapshot:
+      // only a port no other live session holds may be kept.
+      if (port !== undefined && getRow(d, target, branch)?.port === undefined) {
+        const taken = rows(d).some(
+          (s) => sessionIdFor(s) !== id && s.port === port && s.paths.some((p) => fs.existsSync(p)),
+        );
+        if (taken) return null;
+      }
+      return { port: write(d, port) };
+    });
+    if (done) return done;
+  }
+  // Could not get an uncontested port: record the session without one.
+  return tx((d) => ({ port: write(d, undefined) }));
 }
 
 /** Archive / un-archive a session. Returns false when it doesn't exist. */
@@ -213,31 +210,21 @@ export async function setSessionArchived(
   branch: string,
   archived: boolean,
 ): Promise<boolean> {
-  return withHistoryLock(() => {
-    const sessions = loadHistory();
-    const s = findSession(sessions, target, branch);
+  return tx((d) => {
+    const s = getRow(d, target, branch);
     if (!s) return false;
     if (archived) s.archivedAt = new Date().toISOString();
     else delete s.archivedAt;
-    saveHistory(sessions);
+    putRow(d, s);
     return true;
   });
 }
 
 export async function removeSession(target: string, branch: string): Promise<void> {
-  const removed = await withHistoryLock(() => {
-    const sessions = loadHistory();
-    const filtered = sessions.filter(
-      (s) => !(s.target === target && s.branch === branch),
-    );
-
-    if (filtered.length !== sessions.length) {
-      saveHistory(filtered);
-      return true;
-    }
-    return false;
-  });
-  // The session's other state (status, comments, saved PTY entry) goes
+  const removed = tx(
+    (d) => d.prepare('DELETE FROM sessions WHERE id = ?').run(sessionIdFor({ target, branch })).changes > 0,
+  );
+  // The session's other state (status, comments, saved PTY entry, …) goes
   // with it — see session-store.ts.
   if (removed) await purgeSessionState(target, branch);
 }
@@ -281,17 +268,18 @@ export function pruneStaleEntries(sessions: WorktreeSession[]): {
   return { kept, pruned };
 }
 
-/** Locked variant of prune for `status --prune` callers. */
+/** Persisted prune for `status --prune` callers. */
 export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> {
-  return withHistoryLock(() => {
-    const sessions = loadHistory();
-    const { kept, pruned } = pruneStaleEntries(sessions);
-    if (pruned > 0) saveHistory(kept);
-    return { pruned, gone: sessions.filter((s) => !kept.includes(s)) };
-  }).then(async ({ pruned, gone }) => {
-    for (const s of gone) await purgeSessionState(s.target, s.branch);
-    return { pruned };
+  const gone = tx((d) => {
+    const all = rows(d);
+    const keep = new Set(pruneStaleEntries(all).kept.map((s) => sessionIdFor(s)));
+    const drop = all.filter((s) => !keep.has(sessionIdFor(s)));
+    const del = d.prepare('DELETE FROM sessions WHERE id = ?');
+    for (const s of drop) del.run(sessionIdFor(s));
+    return drop;
   });
+  for (const s of gone) await purgeSessionState(s.target, s.branch);
+  return { pruned: gone.length };
 }
 
 /**
@@ -302,13 +290,12 @@ export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> 
 export async function mergeHydratedSessions(
   incoming: WorktreeSession[],
 ): Promise<{ added: number; updated: number }> {
-  return withHistoryLock(() => {
-    const sessions = loadHistory();
+  return tx((d) => {
     let added = 0;
     let updated = 0;
 
     for (const inc of incoming) {
-      const existing = findSession(sessions, inc.target, inc.branch);
+      const existing = getRow(d, inc.target, inc.branch);
       if (existing) {
         const sortedA = [...existing.paths].sort();
         const sortedB = [...inc.paths].sort();
@@ -317,16 +304,13 @@ export async function mergeHydratedSessions(
           sortedA.every((p, i) => p === sortedB[i]);
         if (!same) {
           existing.paths = inc.paths;
+          putRow(d, existing);
           updated++;
         }
       } else {
-        sessions.push(inc);
+        putRow(d, inc);
         added++;
       }
-    }
-
-    if (added > 0 || updated > 0) {
-      saveHistory(sessions);
     }
     return { added, updated };
   });

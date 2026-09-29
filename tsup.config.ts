@@ -28,6 +28,7 @@ export default defineConfig({
     'yargs',
     'yargs/helpers',
     'node-pty',
+    'better-sqlite3',
     '@xterm/headless',
     '@xterm/addon-serialize',
   ],

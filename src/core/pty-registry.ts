@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import { PtySession } from '../tui/session.js';
-import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
+import { atomicWriteFile, ensureFile, withFileLockSync } from './fs-safe.js';
+import { dbPtySessions, type PtySessionsStore } from './pty-sessions-file.js';
 import { hasClaudeConversation } from './claude-activity.js';
-import { ptySessionsPath, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
+import { isPersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from './best-effort.js';
 
 const REPLAY_MAX = 256 * 1024;
@@ -49,10 +50,6 @@ export const defaultSpawner: PtySpawner = (spec) =>
     env: spec.env,
   });
 
-interface PersistedEntry extends SpawnSpec {
-  startedAt: string;
-}
-type PersistedFile = Record<string, PersistedEntry>;
 
 interface Entry {
   id: string;
@@ -72,22 +69,48 @@ interface Entry {
 export interface RegistryDeps {
   spawner?: PtySpawner;
   hasConversation?: (cwd: string) => boolean;
+  /** Where the restore list lives. Default: state.db. */
+  sessions?: PtySessionsStore;
+  /** Keep the restore list in this JSON file instead (tests, which must
+   *  never touch the user's state.db). */
   sessionsPath?: string;
   cwdExists?: (cwd: string) => boolean;
 }
 
+/** A restore list in a plain JSON file, written under the file lock. */
+export function fileSessionsStore(file: string): PtySessionsStore {
+  return {
+    read() {
+      const out: PersistedPtys = {};
+      try {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
+        if (raw && typeof raw === 'object') {
+          for (const [id, entry] of Object.entries(raw)) if (isPersistedPty(entry)) out[id] = entry;
+        }
+      } catch {
+        /* missing or unreadable: nothing to restore */
+      }
+      return out;
+    },
+    write(all) {
+      ensureFile(file, '{}');
+      withFileLockSync(file, () => atomicWriteFile(file, JSON.stringify(all, null, 2)));
+    },
+  };
+}
+
 /**
- * Owns every live PTY in the host process and mirrors the set to
- * `~/.work/pty-sessions.json` so a host restart (crash, `--restart`,
- * reboot) can respawn them with `--continue`. The file is the host's alone
- * in practice, but it's still written under the file lock (§5.2) — two
- * hosts racing at startup must not interleave writes.
+ * Owns every live PTY in the host process and mirrors the set to the
+ * restore list (state.db `pty_sessions`, see pty-sessions-file.ts) so a
+ * host restart (crash, `--restart`, reboot) can respawn them with
+ * `--continue`. Writes replace the list in one transaction, so two hosts
+ * racing at startup can't interleave.
  */
 export class PtyRegistry {
   private readonly entries = new Map<string, Entry>();
   private readonly spawner: PtySpawner;
   private readonly hasConversation: (cwd: string) => boolean;
-  private readonly sessionsPath: string;
+  private readonly store: PtySessionsStore;
   private readonly cwdExists: (cwd: string) => boolean;
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
@@ -95,7 +118,7 @@ export class PtyRegistry {
   constructor(deps: RegistryDeps = {}) {
     this.spawner = deps.spawner ?? defaultSpawner;
     this.hasConversation = deps.hasConversation ?? hasClaudeConversation;
-    this.sessionsPath = deps.sessionsPath ?? ptySessionsPath();
+    this.store = deps.sessions ?? (deps.sessionsPath ? fileSessionsStore(deps.sessionsPath) : dbPtySessions);
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
   }
 
@@ -297,31 +320,25 @@ export class PtyRegistry {
     };
   }
 
-  private readPersisted(): PersistedFile {
+  private readPersisted(): PersistedPtys {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.sessionsPath, 'utf-8'));
-      return raw && typeof raw === 'object' ? (raw as PersistedFile) : {};
-    } catch {
+      return this.store.read();
+    } catch (err) {
+      logSwallowed('read the PTY restore list', err);
       return {};
     }
   }
 
   private persist(): Promise<void> {
-    const snapshot: PersistedFile = {};
+    const snapshot: PersistedPtys = {};
     // Exited entries still lingering (see FORGET_EXITED_MS) are kept on
     // purpose — dropping them on an unrelated write would defeat the delay.
     for (const e of this.entries.values()) {
       snapshot[e.id] = { ...e.spec, startedAt: e.startedAt };
     }
-    const content = JSON.stringify(snapshot, null, 2);
     this.writeChain = this.writeChain
-      .then(async () => {
-        ensureFile(this.sessionsPath, '{}');
-        await withFileLock(this.sessionsPath, () => {
-          atomicWriteFile(this.sessionsPath, content);
-        });
-      })
-      .catch(swallow('persist pty-sessions.json (next change retries)'));
+      .then(() => this.store.write(snapshot))
+      .catch(swallow('persist the PTY restore list (next change retries)'));
     return this.writeChain;
   }
 }

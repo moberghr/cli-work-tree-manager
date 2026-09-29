@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigDir } from './config.js';
-import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
+import { json, tx, withDb, type Db } from './db.js';
 
 /**
  * Per-session agent status, driven by Claude Code's own hooks (installed by
@@ -9,9 +8,7 @@ import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
  * Notification with a permission/approval message → needs_input. Hooks are
  * the source of truth — no screen scraping — the approach Emdash uses.
  *
- * Stored one file per session under ~/.work/status/ so concurrent hooks for
- * different sessions never contend; same-session writes go through the file
- * lock (§5.2).
+ * Stored one row per session in state.db (see persistence below).
  */
 
 import type { AgentState } from './attention.js';
@@ -128,34 +125,35 @@ export function effectiveStatus(
 
 // ---- persistence ----------------------------------------------------------
 
-export function statusDir(): string {
-  return path.join(getConfigDir(), 'status');
+// One row per session in state.db's `session_status` (db.ts). Hooks for
+// different sessions touch different rows; same-session updates are
+// transactions, so two hooks racing can't lose an event.
+
+function isStatus(x: unknown): x is SessionStatus {
+  const s = x as SessionStatus | null;
+  return !!s && typeof s === 'object' && typeof s.state === 'string' && typeof s.updatedAt === 'string';
 }
 
-export function statusFileFor(sessionId: string): string {
-  return path.join(statusDir(), `${sessionId}.json`);
+function readRow(d: Db, sessionId: string): SessionStatus | null {
+  const r = d.prepare('SELECT data FROM session_status WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
+  const s = r ? json.parse(r.data) : null;
+  return isStatus(s) ? s : null;
 }
 
 export function readStatus(sessionId: string): SessionStatus | null {
-  try {
-    const raw = JSON.parse(fs.readFileSync(statusFileFor(sessionId), 'utf-8'));
-    return raw && typeof raw.state === 'string' ? (raw as SessionStatus) : null;
-  } catch {
-    return null;
-  }
+  return withDb((d) => readRow(d, sessionId));
 }
 
 async function updateStatus(
   sessionId: string,
   fn: (prev: SessionStatus | null) => SessionStatus | null,
 ): Promise<{ prev: SessionStatus | null; next: SessionStatus | null }> {
-  const file = statusFileFor(sessionId);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  ensureFile(file, '{}');
-  return withFileLock(file, () => {
-    const prev = readStatus(sessionId);
+  return tx((d) => {
+    const prev = readRow(d, sessionId);
     const next = fn(prev);
-    if (next) atomicWriteFile(file, JSON.stringify(next, null, 2));
+    if (next) {
+      d.prepare('INSERT OR REPLACE INTO session_status (session_id, data) VALUES (?, ?)').run(sessionId, JSON.stringify(next));
+    }
     return { prev, next };
   });
 }

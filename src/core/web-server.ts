@@ -31,6 +31,7 @@ import { mountRevertRoutes } from './revert-routes.js';
 import { mountDevRoutes } from './dev-routes.js';
 import { mountCiRoutes } from './ci-routes.js';
 import { sweepOldDiffArtifacts } from './diffs-sweep.js';
+import { revision } from './db.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -122,7 +123,7 @@ export interface WebServerOptions {
    *
    *  Lean mode keeps:
    *    - the SPA + diff/scope routes (the reason wd needs the server)
-   *    - history.json + tasks.json file-watches (cheap, polling)
+   *    - the state.db change poll (sessions + tasks, cheap)
    *    - the broadcast / SSE infra
    *  Lean mode skips:
    *    - chokidar watcher over `~/.claude/projects` (activity feed)
@@ -156,19 +157,18 @@ export async function startWebServer(
     for (const cb of sseListeners) cb({ event, data });
   };
 
-  // Watch ~/.work/history.json so the sidebar reflects worktrees created
-  // (or removed) by other terminals in real time.
-  const home = os.homedir();
-  const historyPath = path.join(home, '.work', 'history.json');
-  const onHistoryChange = () =>
-    broadcast('sessions-changed', { ts: Date.now() });
-  fs.watchFile(historyPath, { interval: 1000 }, onHistoryChange);
-
-  // Same idea for tasks — `work todo add` from a separate terminal
-  // should refresh the dashboard's Tasks pane without a manual reload.
-  const tasksPath = path.join(home, '.work', 'tasks.json');
-  const onTasksChange = () => broadcast('tasks-changed', { ts: Date.now() });
-  fs.watchFile(tasksPath, { interval: 1000 }, onTasksChange);
+  // Worktrees created or removed by other terminals, and `work todo` edits,
+  // show up live: every write bumps a change counter in state.db (db.ts
+  // triggers), and polling two counters once a second is cheaper than the
+  // file watches it replaces.
+  let seenRev = { sessions: revision('sessions'), tasks: revision('tasks') };
+  const revPoll = setInterval(() => {
+    const now = bestEffort('poll state.db revisions', () => ({ sessions: revision('sessions'), tasks: revision('tasks') }), seenRev) ?? seenRev;
+    if (now.sessions !== seenRev.sessions) broadcast('sessions-changed', { ts: Date.now() });
+    if (now.tasks !== seenRev.tasks) broadcast('tasks-changed', { ts: Date.now() });
+    seenRev = now;
+  }, 1000);
+  revPoll.unref?.();
 
   // Watch Claude's per-project transcripts so the dashboard sees external
   // terminals coming alive. Claude writes constantly while it's thinking;
@@ -389,8 +389,7 @@ export async function startWebServer(
     url: handle.url,
     port: handle.port,
     stop: async () => {
-      fs.unwatchFile(historyPath, onHistoryChange);
-      fs.unwatchFile(tasksPath, onTasksChange);
+      clearInterval(revPoll);
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
       clearTimeout(sweepTimer);

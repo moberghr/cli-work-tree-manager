@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { getConfigDir, type WorkConfig } from './config.js';
 import { isPidAlive, killTree } from './process.js';
+import { json, withDb } from './db.js';
 import type { WorktreeSession } from './session-types.js';
 import type { DevServerState } from './api-types.js';
 
@@ -20,7 +21,7 @@ import type { DevServerState } from './api-types.js';
  * The command comes from the user's own config and runs with `shell: true`
  * (like statusHooks); the worktree path is the spawn cwd, never part of
  * the command string. It runs in the background, its output in
- * ~/.work/dev/<session>.log, its pid in ~/.work/dev/<session>.json — so a
+ * ~/.work/dev/<session>.log, its pid in state.db (`dev_runs`) — so a
  * `work web` restart still knows it and can stop it.
  */
 
@@ -29,7 +30,6 @@ function devDir(): string {
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
-const pidFile = (id: string) => path.join(devDir(), `${id}.json`);
 export const devLogFile = (id: string) => path.join(devDir(), `${id}.log`);
 
 interface RunRecord {
@@ -39,15 +39,22 @@ interface RunRecord {
   startedAt: string;
 }
 
+function isRunRecord(x: unknown): x is RunRecord {
+  const r = x as RunRecord | null;
+  return !!r && typeof r === 'object' && typeof r.pid === 'number' && typeof r.command === 'string';
+}
+
 function readRun(id: string): RunRecord | null {
-  try {
-    const r = JSON.parse(fs.readFileSync(pidFile(id), 'utf-8')) as RunRecord;
-    if (typeof r.pid === 'number' && isPidAlive(r.pid)) return r;
-  } catch {
-    return null;
-  }
-  fs.rmSync(pidFile(id), { force: true });
+  const row = withDb((d) => d.prepare('SELECT data FROM dev_runs WHERE session_id = ?').get(id) as { data: string } | undefined);
+  if (!row) return null;
+  const r = json.parse(row.data);
+  if (isRunRecord(r) && isPidAlive(r.pid)) return r;
+  forgetRun(id); // it died on its own
   return null;
+}
+
+function forgetRun(id: string): void {
+  withDb((d) => d.prepare('DELETE FROM dev_runs WHERE session_id = ?').run(id));
 }
 
 /** The dev command for this session and where it runs, or null. */
@@ -136,7 +143,7 @@ export function startDev(
     if (child.pid === undefined) return { ok: false, status: 400, error: 'could not start the dev command' };
     child.unref();
     const rec: RunRecord = { pid: child.pid, command: cmd.command, cwd: cmd.cwd, startedAt: new Date().toISOString() };
-    fs.writeFileSync(pidFile(id), JSON.stringify(rec));
+    withDb((d) => d.prepare('INSERT OR REPLACE INTO dev_runs (session_id, data) VALUES (?, ?)').run(id, JSON.stringify(rec)));
     return { ok: true, pid: child.pid };
   } finally {
     fs.closeSync(log);
@@ -159,7 +166,7 @@ export function stopDev(id: string): boolean {
     }
   }
   if (!killed) killed = killTree(run.pid);
-  fs.rmSync(pidFile(id), { force: true });
+  forgetRun(id);
   return killed;
 }
 

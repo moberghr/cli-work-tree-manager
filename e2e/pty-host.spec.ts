@@ -193,8 +193,7 @@ test('ship: create a PR, merge it after confirming, and the session archives its
   const merge = work.ghCalls().find((a) => a[1] === 'merge')!;
   expect(merge.slice(0, 5)).toEqual(['pr', 'merge', '42', '--squash', '--match-head-commit']);
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/ship' })).toHaveCount(0);
-  const history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
-  expect(history.find((s: { branch: string }) => s.branch === 'feat/ship').archivedAt).toBeTruthy();
+  expect((await work.sessions()).find((s) => s.branch === 'feat/ship')?.archivedAt).toBeTruthy();
 });
 
 test('ship a group in parts: merge backend now, frontend later; archived only when both are done', async ({ page, work }) => {
@@ -228,8 +227,7 @@ test('ship a group in parts: merge backend now, frontend later; archived only wh
   expect(prState(be)).toBe('MERGED');
   expect(prState(fe)).toBe('OPEN');
   await expect(page).toHaveURL(new RegExp(`#/s/${id}`));
-  let history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
-  expect(history.find((s: { target: string }) => s.target === 'shop').archivedAt).toBeUndefined();
+  expect((await work.sessions()).find((s) => s.target === 'shop')?.archivedAt).toBeNull();
   await expect(panel.getByLabel('Merge backend')).toHaveCount(0); // done: not selectable
 
   // Step 2: finish the group — frontend only; now it archives.
@@ -239,8 +237,7 @@ test('ship a group in parts: merge backend now, frontend later; archived only wh
   await confirm.getByRole('button', { name: 'Confirm merge' }).click();
   await expect(page).not.toHaveURL(new RegExp(`#/s/${id}`));
   expect(prState(fe)).toBe('MERGED');
-  history = JSON.parse(fs.readFileSync(path.join(work.home, '.work', 'history.json'), 'utf-8'));
-  expect(history.find((s: { target: string }) => s.target === 'shop').archivedAt).toBeTruthy();
+  expect((await work.sessions()).find((s) => s.target === 'shop')?.archivedAt).toBeTruthy();
   // Each merge carried the SHA the panel showed.
   expect(work.ghCalls().filter((a) => a[1] === 'merge').every((a) => a.includes('--match-head-commit'))).toBe(true);
 });

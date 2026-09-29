@@ -1,28 +1,42 @@
-import fs from 'node:fs';
-import { atomicWriteFile, withFileLock } from './fs-safe.js';
-import { ptySessionsPath } from './pty-host-protocol.js';
+import { json, tx, withDb } from './db.js';
+import { isPersistedPty, type PersistedPtys } from './pty-host-protocol.js';
 
-// Edits to ~/.work/pty-sessions.json that don't need a running host — kept
-// apart from pty-registry.ts so callers (work web, the CLI) don't load
-// node-pty just to edit a JSON file.
 /**
- * Drop one session from the persisted list without a running host, so the
+ * The PTY host's restore list: which sessions were live, so a host restart
+ * (or reboot) brings them back. state.db's `pty_sessions` (session_id →
+ * spawn spec JSON). Kept apart from pty-registry.ts so callers (work web,
+ * the CLI) don't load node-pty just to read or edit it.
+ */
+
+/** Where the registry keeps its restore list (injectable for tests). */
+export interface PtySessionsStore {
+  read(): PersistedPtys;
+  /** Replace the whole list. */
+  write(all: PersistedPtys): void;
+}
+
+export const dbPtySessions: PtySessionsStore = {
+  read() {
+    const out: PersistedPtys = {};
+    for (const r of withDb((d) => d.prepare('SELECT session_id, data FROM pty_sessions').all() as Array<{ session_id: string; data: string }>)) {
+      const entry = json.parse(r.data);
+      if (isPersistedPty(entry)) out[r.session_id] = entry;
+    }
+    return out;
+  },
+  write(all) {
+    tx((d) => {
+      d.prepare('DELETE FROM pty_sessions').run();
+      const ins = d.prepare('INSERT INTO pty_sessions (session_id, data) VALUES (?, ?)');
+      for (const [id, spec] of Object.entries(all)) ins.run(id, JSON.stringify(spec));
+    });
+  },
+};
+
+/**
+ * Drop one session from the restore list without a running host, so the
  * next host start doesn't restore it (its worktree is being deleted).
  */
-export async function forgetPersistedSession(
-  id: string,
-  sessionsPath: string = ptySessionsPath(),
-): Promise<void> {
-  if (!fs.existsSync(sessionsPath)) return;
-  await withFileLock(sessionsPath, () => {
-    let saved: Record<string, unknown>;
-    try {
-      saved = JSON.parse(fs.readFileSync(sessionsPath, 'utf-8'));
-    } catch {
-      return;
-    }
-    if (!saved || !(id in saved)) return;
-    delete saved[id];
-    atomicWriteFile(sessionsPath, JSON.stringify(saved, null, 2));
-  });
+export async function forgetPersistedSession(id: string): Promise<void> {
+  withDb((d) => d.prepare('DELETE FROM pty_sessions WHERE session_id = ?').run(id));
 }

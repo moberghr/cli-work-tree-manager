@@ -13,6 +13,7 @@ import {
   releaseClaim,
   readPendingForWorktree,
 } from '../../src/core/pending-delivery.js';
+import { withDb } from '../../src/core/db.js';
 import {
   clearCommentStoreCache,
   getCommentFileStore,
@@ -128,14 +129,8 @@ describe('readPendingForSession + markDelivered', () => {
     markDelivered('sid', [c.id]);
     markDelivered('sid', [c.id]);
     markDelivered('sid', [c.id]);
-    const deliveredPath = path.join(
-      tmpDir,
-      '.work',
-      'comments',
-      'sid.delivered.json',
-    );
-    const arr = JSON.parse(fs.readFileSync(deliveredPath, 'utf-8'));
-    expect(arr).toEqual([c.id]);
+    const rows = withDb((d) => d.prepare('SELECT comment_id FROM comment_deliveries WHERE session_id = ?').all('sid'));
+    expect(rows).toEqual([{ comment_id: c.id }]);
   });
 });
 

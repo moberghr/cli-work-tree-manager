@@ -1,10 +1,9 @@
 /**
  * Bridge between `work web` review comments and any live Claude session
- * running in the same worktree. Storage layout:
+ * running in the same worktree. Storage (state.db, see db.ts):
  *
- *   ~/.work/comments/<sessionId>.json          — full comment store (existing)
- *   ~/.work/comments/<sessionId>.delivered.json — array of comment ids that
- *                                                  have been surfaced to Claude
+ *   comments            the comment stores (comment-file-store.ts)
+ *   comment_deliveries  (session, comment id) pairs surfaced to Claude
  *
  * "Pending" = published, user-authored, not in the delivered list. Replies
  * authored by Claude (author === 'claude') are excluded — Claude wrote
@@ -20,36 +19,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { sessionIdFor } from './web-state.js';
-import {
-  commentsDir,
-  commentsFileFor,
-  getCommentFileStore,
-} from './comment-file-store.js';
+import { readStoreComments } from './comment-file-store.js';
 import { scopeHashFor } from './repo-spec.js';
-import { atomicWriteFile, ensureFile, withFileLockSync } from './fs-safe.js';
+import { tx, withDb, type Db } from './db.js';
 import type { Comment } from './comment-types.js';
 
-function pathFor(sessionId: string): {
-  comments: string;
-  delivered: string;
-} {
-  return {
-    comments: commentsFileFor(sessionId),
-    delivered: path.join(commentsDir(), `${sessionId}.delivered.json`),
-  };
-}
-
-function readJson<T>(filePath: string, fallback: T): T {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeAtomic(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  atomicWriteFile(filePath, content);
+function deliveredIds(d: Db, sessionId: string): Set<string> {
+  return new Set(
+    (d.prepare('SELECT comment_id FROM comment_deliveries WHERE session_id = ?').all(sessionId) as Array<{ comment_id: string }>)
+      .map((r) => r.comment_id),
+  );
 }
 
 /** Norm-path comparison that mirrors what we do server-side. */
@@ -91,10 +70,8 @@ function isPendingFor(delivered: Set<string>) {
  *  (`session-meta.ts` and other readers couldn't, when they re-read the
  *  disk directly). */
 export function readPendingForSession(sessionId: string): Comment[] {
-  const paths = pathFor(sessionId);
-  const comments = getCommentFileStore(sessionId).snapshot();
-  const delivered = new Set(readJson<string[]>(paths.delivered, []));
-  return comments.filter(isPendingFor(delivered));
+  const delivered = withDb((d) => deliveredIds(d, sessionId));
+  return readStoreComments(sessionId).filter(isPendingFor(delivered));
 }
 
 /** Comment-store ids for every `wd` scope that could cover this worktree.
@@ -129,14 +106,12 @@ function scopeStoreIdsForPaths(paths: string[]): string[] {
  */
 export function readPendingForWorktree(session: WorktreeSession): Comment[] {
   const sessionId = sessionIdFor(session);
-  const delivered = new Set(
-    readJson<string[]>(pathFor(sessionId).delivered, []),
-  );
+  const delivered = withDb((d) => deliveredIds(d, sessionId));
   const pending = isPendingFor(delivered);
   const seen = new Set<string>();
   const out: Comment[] = [];
   const collect = (storeId: string) => {
-    for (const c of getCommentFileStore(storeId).snapshot()) {
+    for (const c of readStoreComments(storeId)) {
       if (seen.has(c.id) || !pending(c)) continue;
       seen.add(c.id);
       out.push(c);
@@ -147,25 +122,13 @@ export function readPendingForWorktree(session: WorktreeSession): Comment[] {
   return out;
 }
 
-/** Persist a delivery batch. Adds these ids to the delivered set so they
- *  never get re-surfaced. */
-/** Read-modify-write the delivered list under a cross-process lock: the
- *  `work hook` process and work web's PTY push both write it, and an
- *  unlocked update from one could drop the other's ids. */
-function updateDelivered(sessionId: string, fn: (delivered: Set<string>) => void): void {
-  const file = pathFor(sessionId).delivered;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  ensureFile(file, '[]');
-  withFileLockSync(file, () => {
-    const delivered = new Set(readJson<string[]>(file, []));
-    fn(delivered);
-    writeAtomic(file, JSON.stringify(Array.from(delivered), null, 2));
-  });
-}
-
+/** Persist a delivery batch, so these ids are never surfaced again. */
 export function markDelivered(sessionId: string, ids: string[]): void {
   if (ids.length === 0) return;
-  updateDelivered(sessionId, (d) => ids.forEach((id) => d.add(id)));
+  tx((d) => {
+    const ins = d.prepare('INSERT OR IGNORE INTO comment_deliveries (session_id, comment_id) VALUES (?, ?)');
+    for (const id of ids) ins.run(sessionId, id);
+  });
 }
 
 /**
@@ -177,18 +140,21 @@ export function markDelivered(sessionId: string, ids: string[]): void {
  */
 export function claimForDelivery(sessionId: string, ids: string[]): string[] {
   if (ids.length === 0) return [];
-  let claimed: string[] = [];
-  updateDelivered(sessionId, (d) => {
-    claimed = ids.filter((id) => !d.has(id));
-    claimed.forEach((id) => d.add(id));
+  // INSERT OR IGNORE in one write transaction: a row inserted here is our
+  // claim; one that already existed was someone else's.
+  return tx((d) => {
+    const ins = d.prepare('INSERT OR IGNORE INTO comment_deliveries (session_id, comment_id) VALUES (?, ?)');
+    return ids.filter((id) => ins.run(sessionId, id).changes > 0);
   });
-  return claimed;
 }
 
 /** Undo a claim whose delivery failed, so the next hook picks them up. */
 export function releaseClaim(sessionId: string, ids: string[]): void {
   if (ids.length === 0) return;
-  updateDelivered(sessionId, (d) => ids.forEach((id) => d.delete(id)));
+  tx((d) => {
+    const del = d.prepare('DELETE FROM comment_deliveries WHERE session_id = ? AND comment_id = ?');
+    for (const id of ids) del.run(sessionId, id);
+  });
 }
 
 /** Cap the size of one comment body we surface to Claude. A pathologically

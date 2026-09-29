@@ -25,7 +25,7 @@
 
 ## State & Persistence
 - Persistent state is JSON files under `~/.work/` (`src/core/config.ts:35`).
-- Read-modify-write of shared state goes through `withFileLock` (proper-lockfile) + `atomicWriteFile` (tmp-file + rename). See `src/core/fs-safe.ts`. `history.ts` and `tasks.ts` follow this; `config.ts` currently does not (see architecture-principles §10).
+- Session state is in `~/.work/state.db` (`src/core/db.ts`): read-modify-write inside `tx()`. The files that remain (config.json, settings.json edits) use `withFileLock` (proper-lockfile) + `atomicWriteFile` (tmp-file + rename), see `src/core/fs-safe.ts`.
 
 ## Test Conventions
 - Vitest (`npm test` → `vitest run`). Assertions: `expect(...).toBe(...)` inside `describe` blocks; mock with `vi.mock` / `vi.fn`.

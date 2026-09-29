@@ -127,6 +127,12 @@ export class WorkEnv {
     return fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   }
 
+  /** Every session as work web reports it (archived ones included). */
+  async sessions(): Promise<Array<{ target: string; branch: string; archivedAt: string | null }>> {
+    const res = await fetch(new URL('api/sessions', this.url));
+    return ((await res.json()) as { sessions: Array<{ target: string; branch: string; archivedAt: string | null }> }).sessions;
+  }
+
   /** Commit a file in a worktree (so there's something to ship). */
   commitIn(branch: string, file: string, content: string): void {
     const cwd = this.worktreePath(branch);

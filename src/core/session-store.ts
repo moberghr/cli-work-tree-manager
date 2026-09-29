@@ -1,45 +1,50 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { sessionIdFor } from './session-id.js';
-import { statusFileFor } from './session-status.js';
-import { commentsDir, commentsFileFor } from './comment-file-store.js';
-import { forgetPersistedSession } from './pty-sessions-file.js';
+import { purgeSessionRows, tx } from './db.js';
 import { logSwallowed } from './best-effort.js';
 import { devLogFile, stopDev } from './dev-server.js';
-import { prWatchFileFor } from './pr-watch-store.js';
 
 /**
- * Owner of a session's state beyond its history.json entry. Everything
- * per-session is keyed by sessionIdFor(target, branch):
+ * Owner of a session's state beyond its `sessions` row. Everything
+ * per-session is keyed by sessionIdFor(target, branch) and lives in
+ * state.db (db.ts):
  *
- *   ~/.work/status/<id>.json               attention status (hooks)
- *   ~/.work/comments/<id>.json             review comments
- *   ~/.work/comments/<id>.delivered.json   which comments reached Claude
- *   ~/.work/pty-sessions.json [<id>]       restore-after-reboot entry
- *   ~/.work/dev/<id>.json|.log             dev server pid + output (stopped first)
- *   ~/.work/pr-watch/<id>.json             PR watch: comments / CI failures acted on
+ *   session_status       attention status (hooks)
+ *   comments [store=id]  review comments
+ *   comment_deliveries   which comments reached Claude
+ *   pty_sessions         restore-after-reboot entry
+ *   pr_watch_seen        PR watch: comments / CI failures acted on
+ *   dev_runs             dev server pid (the server is stopped first)
+ *
+ * plus one file, ~/.work/dev/<id>.log (the dev server's output).
  *
  * (Diff scopes and their checkpoint refs are keyed by scope hash, not by
  * session, and are swept by work web.)
  *
- * § WHEN adding per-session state, add its path here, so removing a session
- * removes it — before this module, deleted sessions left their status and
- * comment files behind, and a re-created session with the same
- * target:branch inherited them.
+ * § WHEN adding per-session state, add its table to `purgeSessionRows`
+ * (db.ts), or its file here — so removing a session removes it. Before
+ * this, deleted sessions left their state behind and a re-created session
+ * with the same target:branch inherited it.
  */
 
+/** Per-session files that live outside the database. */
 export function sessionStatePaths(id: string): string[] {
-  return [statusFileFor(id), commentsFileFor(id), path.join(commentsDir(), `${id}.delivered.json`), devLogFile(id), prWatchFileFor(id)];
+  return [devLogFile(id)];
 }
 
-/** Remove every per-session file for a session that no longer exists.
- *  Best-effort per file (logged), never throws. */
+/** Remove every piece of per-session state for a session that no longer
+ *  exists. Best-effort per step (logged), never throws. */
 export async function purgeSessionState(target: string, branch: string): Promise<void> {
   const id = sessionIdFor({ target, branch });
   try {
-    stopDev(id); // also removes its pid file
+    stopDev(id); // needs its dev_runs row, so before the purge
   } catch (err) {
     logSwallowed(`stop dev server ${id}`, err);
+  }
+  try {
+    tx((d) => purgeSessionRows(d, id));
+  } catch (err) {
+    logSwallowed(`purge state rows ${id}`, err);
   }
   for (const p of sessionStatePaths(id)) {
     try {
@@ -48,5 +53,4 @@ export async function purgeSessionState(target: string, branch: string): Promise
       logSwallowed(`purge ${p}`, err);
     }
   }
-  await forgetPersistedSession(id).catch((err) => logSwallowed(`forget saved PTY session ${id}`, err));
 }

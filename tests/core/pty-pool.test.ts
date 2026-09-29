@@ -46,8 +46,16 @@ vi.mock('../../src/core/pty-host-client.js', () => ({
 
 let sessionsFile: string;
 vi.mock('../../src/core/pty-host-protocol.js', () => ({
-  ptySessionsPath: () => sessionsFile,
   hostStartLockPath: () => sessionsFile + '.start.lock',
+}));
+// The host's restore list (state.db in real life), in memory here.
+const restore = vi.hoisted(() => ({ list: {} as Record<string, unknown> }));
+vi.mock('../../src/core/pty-sessions-file.js', () => ({
+  dbPtySessions: {
+    read: () => restore.list,
+    write: (all: Record<string, unknown>) => void (restore.list = all),
+  },
+  forgetPersistedSession: async (id: string) => void delete restore.list[id],
 }));
 
 async function freshPool() {
@@ -60,6 +68,7 @@ beforeEach(() => {
   hostRunning = false;
   ensureHost.mockClear(); findHost.mockClear();
   sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pty-pool-')), 'pty-sessions.json');
+  restore.list = {};
 });
 afterEach(async () => {
   (await import('../../src/core/pty-pool.js')).detachPtyPool();
@@ -128,20 +137,18 @@ describe('resumePersistedSessions', () => {
   it('does nothing without a saved session list', async () => {
     const pool = await freshPool();
     expect(await pool.resumePersistedSessions()).toBe(0);
-    fs.writeFileSync(sessionsFile, '{}');
-    expect(await pool.resumePersistedSessions()).toBe(0);
     expect(ensureHost).not.toHaveBeenCalled();
   });
 
   it('starts the host (which restores) when sessions were live last time', async () => {
-    fs.writeFileSync(sessionsFile, JSON.stringify({ a: {}, b: {} }));
+    restore.list = { a: {}, b: {} };
     const pool = await freshPool();
     expect(await pool.resumePersistedSessions()).toBe(2);
     expect(ensureHost).toHaveBeenCalledTimes(1);
   });
 
   it('leaves an already-running host alone', async () => {
-    fs.writeFileSync(sessionsFile, JSON.stringify({ a: {} }));
+    restore.list = { a: {} };
     hostRunning = true;
     const pool = await freshPool();
     expect(await pool.resumePersistedSessions()).toBe(0);
@@ -160,9 +167,9 @@ describe('stopSessionPty (CLI removal)', () => {
   it('with no host: drops it from the saved list so a later host start does not restore it (reviewed race)', async () => {
     const pool = await freshPool();
     const id = 'api:feat/x'; // the mocked sessionIdFor
-    fs.writeFileSync(sessionsFile, JSON.stringify({ [id]: { cwd: '/x' }, other: { cwd: '/y' } }));
+    restore.list = { [id]: { cwd: '/x' }, other: { cwd: '/y' } };
     await pool.stopSessionPty('api', 'feat/x');
-    expect(JSON.parse(fs.readFileSync(sessionsFile, 'utf-8'))).toEqual({ other: { cwd: '/y' } });
+    expect(restore.list).toEqual({ other: { cwd: '/y' } });
     expect(ensureHost).not.toHaveBeenCalled(); // never starts a host
   });
 });

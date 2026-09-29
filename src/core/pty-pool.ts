@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
-import { hostStartLockPath, ptySessionsPath, type SpawnSpec } from './pty-host-protocol.js';
+import { hostStartLockPath, type SpawnSpec } from './pty-host-protocol.js';
+import { dbPtySessions } from './pty-sessions-file.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from './config.js';
@@ -88,13 +89,12 @@ export async function initPtyPool(): Promise<void> {
  * sessions the host will bring back (0 = nothing to do).
  */
 export async function resumePersistedSessions(): Promise<number> {
-  let saved: Record<string, unknown>;
+  let count: number;
   try {
-    saved = JSON.parse(fs.readFileSync(ptySessionsPath(), 'utf-8'));
+    count = Object.keys(dbPtySessions.read()).length;
   } catch {
     return 0;
   }
-  const count = Object.keys(saved ?? {}).length;
   if (count === 0) return 0;
   if (await findHost().catch(() => true)) return 0; // already running
   await getClient(true);

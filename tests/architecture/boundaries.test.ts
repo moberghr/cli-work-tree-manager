@@ -71,6 +71,22 @@ describe('architecture boundaries', () => {
     expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/tui/session.ts')).toEqual([]);
   });
 
+  it('the SQLite engine is loaded only by src/core/db.ts (db-import.ts borrows its types)', () => {
+    // One file owns the engine, so swapping it (e.g. to node:sqlite) is one
+    // change and every other module goes through db.ts's transactions.
+    const allowed = new Set(['src/core/db.ts', 'src/core/db-import.ts']);
+    expect(violations((f, s) => s === 'better-sqlite3' && !allowed.has(f.rel))).toEqual([]);
+    const importer = files.find((x) => x.rel === 'src/core/db-import.ts');
+    expect(fs.readFileSync(path.resolve(SRC, '..', importer!.rel), 'utf-8')).toMatch(/import type Database from 'better-sqlite3'/);
+  });
+
+  it('the browser SPA and the demo never touch state.db', () => {
+    const db = /(^|\/)db(-import)?\.js$/;
+    expect(
+      violations((f, s) => (f.rel.startsWith('src/web/') || f.rel.startsWith('src/core/demo/')) && db.test(s)),
+    ).toEqual([]);
+  });
+
   it('§2.5 relative imports carry an explicit extension (.js for sources)', () => {
     expect(
       violations((f, s) => s.startsWith('.') && !/\.(js|css|json|svg|png)$/.test(s)),
@@ -111,7 +127,7 @@ describe('architecture boundaries', () => {
   });
 
   it('the browser SPA never imports Node-only modules', () => {
-    const nodeOnly = /^(node:|node-pty$|ws$|chokidar$|hono|@hono\/|cross-spawn$|proper-lockfile$|@xterm\/headless$|yargs)/;
+    const nodeOnly = /^(node:|node-pty$|better-sqlite3$|ws$|chokidar$|hono|@hono\/|cross-spawn$|proper-lockfile$|@xterm\/headless$|yargs)/;
     expect(violations((f, s) => f.rel.startsWith('src/web/') && nodeOnly.test(s))).toEqual([]);
   });
 

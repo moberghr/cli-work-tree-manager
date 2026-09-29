@@ -149,14 +149,13 @@ describe('persistence', () => {
     expect(readStatus('s1')).toMatchObject({ state: 'idle', seen: false, prevState: 'working' });
     await markSeen('s1');
     expect(readStatus('s1')?.seen).toBe(true);
-    expect(fs.existsSync(path.join(configDir, 'status', 's1.json'))).toBe(true);
   });
 
   it('markSeen on an unknown session is a no-op', async () => {
     expect(await markSeen('nope')).toBeNull();
   });
 
-  it('concurrent events for one session all land (locked read-modify-write)', async () => {
+  it('concurrent events for one session leave one valid status (transactional read-modify-write)', async () => {
     await Promise.all([
       recordStatusEvent('s2', { kind: 'prompt', prompt: 'a' }, T0),
       recordStatusEvent('s2', { kind: 'notification', message: 'needs your permission' }, at(1)),
@@ -165,7 +164,7 @@ describe('persistence', () => {
     const s = readStatus('s2');
     expect(s).not.toBeNull();
     expect(['working', 'needs_input', 'idle']).toContain(s!.state);
-    expect(() => JSON.parse(fs.readFileSync(path.join(configDir, 'status', 's2.json'), 'utf-8'))).not.toThrow();
+    expect(s!.prevState).not.toBeUndefined();
   });
 });
 

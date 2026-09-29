@@ -44,6 +44,19 @@ export interface SpawnSpec {
   env?: Record<string, string>;
 }
 
+/** One entry of the host's restore list: how to respawn a session. The
+ *  spec as launched, minus `env` (never persisted: it can hold secrets). */
+export interface PersistedPty extends SpawnSpec {
+  startedAt: string;
+}
+export type PersistedPtys = Record<string, PersistedPty>;
+
+/** Shape check for a restore-list entry read back from storage. */
+export function isPersistedPty(x: unknown): x is PersistedPty {
+  const e = x as PersistedPty | null;
+  return !!e && typeof e === 'object' && typeof e.cwd === 'string' && !!e.tool && typeof e.tool === 'object';
+}
+
 export interface PtyInfo {
   id: string;
   cwd: string;
@@ -83,7 +96,7 @@ export function hostStartLockPath(): string {
   return path.join(getConfigDir(), 'pty-host.start.lock');
 }
 
-/** Persisted list of live PTYs, replayed by the host on startup. */
+/** The pre-SQLite restore list. Only the one-time import reads it now. */
 export function ptySessionsPath(): string {
   return path.join(getConfigDir(), 'pty-sessions.json');
 }

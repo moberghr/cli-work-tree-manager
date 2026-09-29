@@ -1,6 +1,14 @@
 # Plan: Session state in SQLite
 
-For a separate PR after `feat/pty-host` merges. Not started.
+**Status: done, on `feat/pty-host`** (the user asked for it in the same PR). What shipped differs from the plan below in these ways:
+
+- **Rows hold records as JSON** beside the key columns (`sessions(id, target, branch, data)`, `comments(store, id, data)`, …) instead of one column per field. The code already worked with whole records (a session, a status, a comment), so this kept every public API and all existing tests unchanged, while still giving transactions, per-row writes and one place to delete a session. Columns can be split out later where a query needs them.
+- **No foreign keys.** Tests and some paths record deliveries, status or PTY entries for ids with no `sessions` row, which foreign keys would reject. `purgeSessionRows` (db.ts) deletes a session's rows from every table in one transaction instead.
+- **Deliveries are a table** (`comment_deliveries(session_id, comment_id)`), not a `delivered_at` column: delivery is tracked per session while comments can come from a `wd` scope store, same as the old `<id>.delivered.json`. The claim is `INSERT OR IGNORE` in one transaction.
+- **`work state [--export <dir>]`** instead of `work debug state`.
+- **`open()` retries on SQLITE_BUSY**: switching a brand-new file to WAL while other processes do the same fails at once without honouring the busy timeout (caught by the four-process first-start test).
+- **Tests use `WORK_DB_EPHEMERAL=1`** (open/close per call) so temp HOMEs can be deleted on Windows.
+- **CI `package` job**: tarball installed globally on Windows/macOS/Linux × Node 22/24, then `work todo` against a fresh HOME.
 
 ## Why
 

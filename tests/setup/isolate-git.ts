@@ -28,3 +28,7 @@ process.env.GIT_COMMITTER_NAME ??= 'work-tests';
 process.env.GIT_COMMITTER_EMAIL ??= 'work-tests@example.invalid';
 // Never wait for a credential/username prompt.
 process.env.GIT_TERMINAL_PROMPT = '0';
+
+// state.db: open and close per operation in tests (db.ts), so a test's temp
+// HOME — with its state.db inside — can be deleted right after, on Windows.
+process.env.WORK_DB_EPHEMERAL = '1';
