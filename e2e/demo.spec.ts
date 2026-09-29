@@ -273,3 +273,15 @@ test('a saved prompt is sent to a session from its header, and shows in its comm
   await page.getByRole('tab', { name: /Comments/ }).click();
   await expect(page.locator('.wd-session-detail')).toContainText('Add tests for what changed on this branch');
 });
+
+test('Today lists what each session did, and g d gets there', async ({ page }) => {
+  await page.goto(`${url}#/inbox`);
+  await page.locator('body').press('g');
+  await page.locator('body').press('d');
+  await expect(page).toHaveURL(/#\/today$/);
+  const card = page.locator('.wd-today-card', { hasText: 'feat/invoice-export' });
+  await expect(card).toContainText('Add CSV export to the invoices endpoint');
+  await expect(card).toContainText('needs your input');
+  await card.locator('.wd-today-title').click();
+  await expect(page).toHaveURL(/#\/s\/demo-api-feat-invoice-export\/diff$/);
+});

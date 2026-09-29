@@ -1333,3 +1333,30 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-prompts-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .wd-prompts-state-sent { color: var(--add-fg, #1a7f37); }
 .wd-prompts-state-error { color: var(--del-fg); }
+
+/* Today: what each session did (digest). */
+.wd-today-list { display: flex; flex-direction: column; gap: 10px; padding: 12px 20px 24px; }
+.wd-today-list-loading { opacity: 0.6; transition: opacity 0.15s; }
+.wd-today-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: var(--bg); }
+.wd-today-card-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.wd-today-title {
+  appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--fg);
+  font-size: 14px; cursor: pointer; text-align: left;
+}
+.wd-today-title:hover .wd-today-branch { text-decoration: underline; }
+.wd-today-target { color: var(--muted); }
+.wd-today-branch { font-weight: 600; }
+.wd-today-facts { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 12px; color: var(--muted); }
+.wd-today-state-needs_input { color: var(--del-fg); font-weight: 600; }
+.wd-today-state-working { color: var(--add-fg, #1a7f37); }
+.wd-today-pr { color: var(--accent, #0969da); text-decoration: none; }
+.wd-today-pr:hover { text-decoration: underline; }
+.wd-today-pr-merged { color: #8250df; }
+.wd-today-section { margin-top: 8px; }
+.wd-today-section h3 { margin: 0 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.wd-today-prompts, .wd-today-done { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.wd-today-prompts { list-style: none; padding-left: 0; }
+.wd-today-prompts time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; margin-right: 6px; }
+.wd-today-more { color: var(--muted); font-size: 12px; }
+.wd-today-last { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) { .wd-today-list { padding: 10px 12px 20px; } }

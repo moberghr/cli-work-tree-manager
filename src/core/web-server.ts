@@ -24,8 +24,13 @@ import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
-import { readContextUsage } from './context-usage.js';
-import type { SessionWire } from './api-types.js';
+import { listTranscripts, readContextUsage } from './context-usage.js';
+import { buildDigest } from './digest.js';
+import { readTranscriptTail } from './transcript.js';
+
+/** A day of prompts fits comfortably in the last 2 MB of a transcript. */
+const DIGEST_TAIL_BYTES = 2 * 1024 * 1024;
+import type { DigestResponse, SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
@@ -339,6 +344,42 @@ export async function startWebServer(
     },
   });
   const stopPrWatch = lean ? null : prWatch.start(180_000);
+
+  // "What did each session do today?" — read from what's on disk (see
+  // digest.ts); PR state from the watch's cache, no gh call here.
+  app.get('/api/digest', (c) => {
+    const now = Date.now();
+    const asked = Date.parse(c.req.query('since') ?? '');
+    // Default: the last 24 hours; never more than two weeks back.
+    const sinceMs = Math.max(Number.isFinite(asked) ? asked : now - 24 * 3_600_000, now - 14 * 24 * 3_600_000);
+    const inputs = loadHistory()
+      .filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs)
+      .map((s) => {
+        // The cached stat only: a digest is a read and starts no git.
+        const w = sessionToWire(s, (id) => diffStats.peek(id));
+        return {
+          sessionId: w.id,
+          target: s.target,
+          branch: s.branch,
+          isGroup: s.isGroup,
+          lastAccessedAt: s.lastAccessedAt,
+          archivedAt: s.archivedAt ?? null,
+          status: w.attention ? { state: w.attention.state, summary: w.attention.summary, updatedAt: w.attention.updatedAt } : null,
+          transcripts: listTranscripts(s)
+            .filter((t) => t.mtimeMs >= sinceMs)
+            .map((t) => readTranscriptTail(t.file, DIGEST_TAIL_BYTES)),
+          checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
+          diffStat: w.diffStat,
+          ci: prWatch.state(w.id),
+        };
+      });
+    const body: DigestResponse = {
+      since: new Date(sinceMs).toISOString(),
+      generatedAt: new Date(now).toISOString(),
+      sessions: buildDigest(inputs, sinceMs),
+    };
+    return c.json(body);
+  });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });

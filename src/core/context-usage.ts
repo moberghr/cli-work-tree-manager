@@ -41,10 +41,23 @@ export function contextUsageFrom(entries: TranscriptEntry[]): ContextUsage | nul
   return null;
 }
 
+export interface TranscriptFile {
+  file: string;
+  mtimeMs: number;
+  size: number;
+}
+
 /** The newest transcript Claude wrote for this session (group: its root). */
-export function latestTranscript(session: WorktreeSession): { file: string; mtimeMs: number; size: number } | null {
+export function latestTranscript(session: WorktreeSession): TranscriptFile | null {
+  let best: TranscriptFile | null = null;
+  for (const t of listTranscripts(session)) if (!best || t.mtimeMs > best.mtimeMs) best = t;
+  return best;
+}
+
+/** Every transcript of this session's conversations (group: its root). */
+export function listTranscripts(session: WorktreeSession): TranscriptFile[] {
   const dirs = session.isGroup ? [...new Set(session.paths.map((p) => path.dirname(p)))] : session.paths;
-  let best: { file: string; mtimeMs: number; size: number } | null = null;
+  const out: TranscriptFile[] = [];
   for (const d of dirs) {
     const projectDir = path.join(claudeProjectsRoot(), encodeProjectDir(d));
     let names: string[];
@@ -58,13 +71,13 @@ export function latestTranscript(session: WorktreeSession): { file: string; mtim
       try {
         const file = path.join(projectDir, name);
         const st = fs.statSync(file);
-        if (!best || st.mtimeMs > best.mtimeMs) best = { file, mtimeMs: st.mtimeMs, size: st.size };
+        out.push({ file, mtimeMs: st.mtimeMs, size: st.size });
       } catch {
         /* vanished */
       }
     }
   }
-  return best;
+  return out;
 }
 
 /** Only the tail is read — a usage line is always near the end. */

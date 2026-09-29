@@ -4,6 +4,7 @@ import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
+import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
 import { isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
@@ -34,6 +35,7 @@ import {
 
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
+  today: 'Today',
   sessions: 'Sessions',
   prs: 'PRs',
   jira: 'Jira',
@@ -285,6 +287,7 @@ export function DashboardApp() {
         if (pendingGTimer) clearTimeout(pendingGTimer);
         const map: Record<string, DashboardTab> = {
           i: 'inbox',
+          d: 'today',
           s: 'sessions',
           p: 'prs',
           j: 'jira',
@@ -437,6 +440,9 @@ export function DashboardApp() {
     switch (route.tab) {
       case 'inbox':
         body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} onReviewAll={startReview} />;
+        break;
+      case 'today':
+        body = <TodayTab onOpenSession={openSession} />;
         break;
       case 'sessions':
         body = (

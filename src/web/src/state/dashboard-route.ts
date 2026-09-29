@@ -4,6 +4,7 @@
  * Routes:
  *   `#/sessions` (or empty hash)     → Sessions tab (landing)
  *   `#/inbox`                         → Inbox: sessions that need you, in order
+ *   `#/today`                         → Today: what each session did (digest)
  *   `#/prs`                           → PRs tab
  *   `#/jira`                          → Jira tab
  *   `#/tasks`                         → Tasks tab
@@ -18,7 +19,7 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'sessions' | 'prs' | 'jira' | 'tasks';
+export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'prs' | 'jira' | 'tasks';
 export type SessionSubTab = 'diff' | 'term' | 'comments';
 
 export interface DashboardRoute {
@@ -36,7 +37,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'diff',
 };
 
-const TAB_RE = /^#\/(inbox|sessions|prs|jira|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|prs|jira|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(diff|term|comments))?\/?$/;
 
 export function parseHash(hash: string): DashboardRoute {

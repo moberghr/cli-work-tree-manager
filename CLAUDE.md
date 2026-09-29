@@ -224,6 +224,8 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/transcript.ts            ← Claude transcript tail reader (JSONL entries, content blocks)
                                   ├── core/context-usage.ts         ← how full a session's conversation is (last usage in its newest transcript)
                                   ├── core/overlap.ts               ← PURE: sessions changing the same files of a repo (from diff-stat's touched files)
+                                  ├── core/digest.ts                ← PURE: the Today digest (prompts, turns, PRs per session) from given inputs
+                                  ├── core/saved-prompts.ts         ← PURE: default one-click prompts + config validation (SPA + demo import it)
                                   ├── core/ship.ts                  ← ship per repo: preflight (dirty/upstream/PR/checks/merge blockers) + push / create-pr / merge (--match-head-commit; group merge all-or-nothing). Injectable CommandRunner (cross-spawn, argv only)
                                   ├── core/ship-routes.ts           ← Hono sub-app: GET/POST /api/sessions/:id/ship (merge success → archive), POST /api/sessions/:id/archive
                                   ├── core/diff-stat.ts             ← +N −M per session (numstat + untracked); DiffStatCache: non-blocking, TTL, bounded concurrency, broadcast on change
@@ -361,6 +363,10 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 ### Start from a ticket or PR
 
 The New worktree dialog has a "Start Claude with" prompt, which Jira and PR picks pre-fill (`state/start-prompts.ts`: the issue key, summary and link; for a PR, failing checks or requested changes). With a prompt, `POST /api/worktrees` starts the session's Claude in the PTY host with it as the first message (`ensurePty(id, {initialPrompt})`) and the dashboard opens its terminal. § If the session's Claude is already running (the worktree existed), the prompt is queued as a published comment for its next turn, never typed into the terminal. A start that fails still returns the created worktree, with `startError`.
+
+### Today (digest)
+
+The **Today** tab (`#/today`, `g d`) shows what each session did since local midnight, since yesterday, or in the last 7 days: the prompts you gave it, the turns it finished (checkpoints in the window, with names that were already generated), where it stands, uncommitted changes, and its PRs. "Copy as Markdown" gives a standup note. `GET /api/digest?since=` (default 24 h, clamped to 14 days) gathers it from disk: transcripts touched in the window (2 MB tails), checkpoint manifests, status rows, and the PR watch's cache. The assembly is pure (`core/digest.ts`, shared with the demo). § It never runs Claude or gh: a digest is a read. Prompts are the user entries you typed; tool results, slash-command echoes, meta and subagent entries are skipped.
 
 ### Saved prompts
 

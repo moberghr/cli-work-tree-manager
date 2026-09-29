@@ -51,6 +51,35 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** GET /api/digest — what each session did since a point in time. */
+export interface DigestResponse {
+  since: string;
+  generatedAt: string;
+  sessions: DigestSession[];
+}
+
+export interface DigestSession {
+  sessionId: string;
+  target: string;
+  branch: string;
+  isGroup: boolean;
+  /** Where it stands now. */
+  state: 'working' | 'needs_input' | 'idle' | null;
+  summary?: string;
+  /** What you asked it in the window, oldest first (capped). */
+  prompts: Array<{ ts: string; text: string }>;
+  /** More prompts than listed. */
+  morePrompts: number;
+  /** Finished turns (checkpoints) in the window, and the names already given to them. */
+  turns: number;
+  turnLabels: string[];
+  diffStat: DiffStat | null;
+  prs: Array<{ repo: string; number: number; url: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; mergedAt?: string }>;
+  archivedAt: string | null;
+  /** Newest activity in the window (ISO). */
+  lastActivity: string;
+}
+
 /** A one-click instruction for a session (config `prompts`, or defaults). */
 export interface SavedPrompt {
   label: string;

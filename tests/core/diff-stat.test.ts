@@ -82,6 +82,20 @@ describe('DiffStatCache', () => {
     expect(cache.get('s', [dir])).toEqual({ added: 9, deleted: 0, files: 1 });
   });
 
+  it('peek reads the cache without starting a refresh', async () => {
+    let n = 0;
+    const counting: CommandRunner = async (...a) => { n++; return run(...a); };
+    const cache = new DiffStatCache({ run: counting });
+    expect(cache.peek('p')).toBeNull();
+    await cache.idle();
+    expect(n).toBe(0);
+    cache.get('p', [dir]);
+    await cache.idle();
+    const calls = n;
+    expect(cache.peek('p')).toEqual(cache.get('p', [dir]));
+    expect(n).toBe(calls); // fresh: no new git
+  });
+
   it('is null for worktrees that no longer exist', async () => {
     const cache = new DiffStatCache({ run });
     cache.get('gone', [path.join(dir, 'nope')]);

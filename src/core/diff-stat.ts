@@ -137,6 +137,12 @@ export class DiffStatCache {
     return e?.stat ?? null;
   }
 
+  /** Last known value, without scheduling a refresh (reads that must not
+   *  start work, like the digest). */
+  peek(id: string): DiffStat | null {
+    return this.entries.get(id)?.stat ?? null;
+  }
+
   /** Last known files per repo (for overlaps); [] until computed. Call
    *  after get(), which keeps it fresh. */
   touched(id: string): TouchedRepo[] {

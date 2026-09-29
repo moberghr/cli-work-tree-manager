@@ -226,6 +226,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
   app.get('/api/prompts', (c) => c.json({ prompts: DEFAULT_PROMPTS, configured: false }));
+  app.get('/api/digest', (c) => {
+    const asked = Date.parse(c.req.query('since') ?? '');
+    return c.json(scenario.digest(Number.isFinite(asked) ? asked : Date.now() - 24 * 3_600_000));
+  });
   app.get('/api/prs', (c) => c.json({ prs: scenario.prs() }));
   app.get('/api/jira', (c) => c.json({ available: true, issues: scenario.jira() }));
   app.get('/api/tasks', (c) => c.json({ tasks: scenario.taskList() }));

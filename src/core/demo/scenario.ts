@@ -1,6 +1,7 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { findOverlaps } from '../overlap.js';
+import { buildDigest } from '../digest.js';
 import { createPresence, type Presence } from '../presence.js';
 import { ciFixMessage } from '../pr-watch.js';
 import type {
@@ -17,6 +18,7 @@ import type {
   ShipPreflight,
   ShipResult,
   PermissionRequest,
+  DigestResponse,
 } from '../api-types.js';
 import type { AgentState } from '../attention.js';
 import type { PullRequestInfo } from '../pr.js';
@@ -670,6 +672,38 @@ export class DemoScenario {
   }
 
   // -- CI (the PR watch, simulated) ------------------------------------------
+
+  /** The Today digest, through the same builder as work web: the demo's
+   *  prompts are the `> …` lines of its simulated terminals. */
+  digest(sinceMs: number): DigestResponse {
+    const inputs = [...this.sessions.values()].map((s) => ({
+      sessionId: s.id,
+      target: s.target,
+      branch: s.branch,
+      isGroup: s.isGroup,
+      lastAccessedAt: s.lastAccessedAt,
+      archivedAt: s.archivedAt,
+      status: s.attention ? { state: s.attention.state, summary: s.attention.summary, updatedAt: s.attention.updatedAt } : null,
+      transcripts: [
+        s.transcript
+          .filter((l) => l.startsWith('> ') && l.length > 2)
+          .map((l, i) => ({
+            type: 'user',
+            // The first prompt started the session; later ones came as you went.
+            timestamp: i === 0 ? s.createdAt : s.attention?.since ?? s.lastAccessedAt,
+            message: { content: l.slice(2) },
+          })),
+      ],
+      checkpoints: this.checkpoints(s.id) ?? [],
+      diffStat: this.diffStat(s).files ? this.diffStat(s) : null,
+      ci: this.ci(s.id),
+    }));
+    return {
+      since: new Date(sinceMs).toISOString(),
+      generatedAt: new Date(this.now()).toISOString(),
+      sessions: buildDigest(inputs, sinceMs),
+    };
+  }
 
   ci(id: string): SessionCi | null {
     const s = this.sessions.get(id);

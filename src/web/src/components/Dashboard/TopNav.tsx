@@ -29,6 +29,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { key: 'inbox', label: 'Inbox', hotkey: 'i' },
+  { key: 'today', label: 'Today', hotkey: 'd' },
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
   { key: 'prs', label: 'PRs', hotkey: 'p' },
   { key: 'jira', label: 'Jira', hotkey: 'j' },
