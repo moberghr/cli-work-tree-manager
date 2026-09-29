@@ -319,7 +319,7 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 § WHEN adding per-session state, add its table to `purgeSessionRows` (`core/db.ts`), or its file to `sessionStatePaths` (`core/session-store.ts`).
 
-**Finding work web.** `core/web-discovery.ts` owns `web.url` / `web.pid`. The files outlive the process and PIDs get reused, so `work web --stop` kills only after `/api/context` answers with the recorded pid (`probeWeb`); `webServerResponds` is liveness only. The PTY host has the same rule (`/health` + token + pid).
+**Finding work web.** `core/web-discovery.ts` owns `web.url` / `web.pid`. The files outlive the process and PIDs get reused, so `work web --stop` kills only after `/api/context` answers with the recorded pid (`probeWeb`); `webServerResponds` is liveness only. The PTY host has the same rule (`/health` + token + pid). `/api/context` also carries `build` (`core/build-stamp.ts`: the entry file's mtime): a full `work web` replaces a running server whose build differs from its own, or that predates stamps, since a server that outlived a rebuild reads state and serves routes as they were then (a September dashboard showed no sessions after the SQLite move and 404'd on new routes). `wd` and `--lean` never replace.
 
 ### Diff Review (`wd`)
 

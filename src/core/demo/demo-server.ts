@@ -8,6 +8,7 @@ import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
 import type { AnswerRequest } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
+import { buildStamp } from '../build-stamp.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -36,7 +37,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   const json = async (c: { req: { json: () => Promise<unknown> } }) =>
     ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>;
 
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false }));
+  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false, build: buildStamp() }));
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
   app.get('/api/sessions', (c) => c.json({ sessions: scenario.list() }));

@@ -55,15 +55,15 @@ async function until<T>(get: () => T | Promise<T>, ok: (v: T) => boolean, what: 
     await new Promise((r) => setTimeout(r, 150));
   }
 }
-function startWeb(args: string[]): ChildProcess {
-  const c = spawn(process.execPath, [BIN, 'web', '--no-open', ...args], { env, stdio: 'ignore' });
+function startWeb(args: string[], extraEnv: NodeJS.ProcessEnv = {}): ChildProcess {
+  const c = spawn(process.execPath, [BIN, 'web', '--no-open', ...args], { env: { ...env, ...extraEnv }, stdio: 'ignore' });
   children.push(c);
   return c;
 }
 const context = async () => {
   const url = read('web.url');
   if (!url) return null;
-  return fetch(`${url}api/context`).then((r) => r.json() as Promise<{ pid: number; lean: boolean }>).catch(() => null);
+  return fetch(`${url}api/context`).then((r) => r.json() as Promise<{ pid: number; lean: boolean; build?: string }>).catch(() => null);
 };
 const workHooks = () => {
   try {
@@ -90,5 +90,21 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     // Its own shutdown ran (not just a kill): the hooks are gone again.
     expect(workHooks()).toBe(0);
     expect(read('web.url')).toBeNull();
+  }, 90_000);
+
+  it('replaces a server from an older build (or one too old to say) with this one', async () => {
+    // The stale dashboard: started at login weeks ago, before a rebuild.
+    startWeb([], { WORK_BUILD_STAMP: 'september' });
+    const old = await until(context, (c) => c?.build === 'september', 'the old-build server');
+
+    const fresh = startWeb([]);
+    const ctx = await until(context, (c) => !!c && c.pid === fresh.pid, 'the new server');
+    expect(ctx.build).not.toBe('september');
+    await until(() => { try { process.kill(old.pid, 0); return false; } catch { return true; } }, (gone) => gone, 'the old server to exit');
+
+    // Same build again: reused, not replaced (the singleton rule still holds).
+    const again = spawnSync(process.execPath, [BIN, 'web', '--no-open'], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(again.stderr + again.stdout).toMatch(/already running/);
+    expect((await context())?.pid).toBe(fresh.pid);
   }, 90_000);
 });

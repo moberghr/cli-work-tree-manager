@@ -35,6 +35,16 @@ async function server(delayMs: number, body: unknown = { mode: 'dashboard', pid:
   return `http://127.0.0.1:${(s.address() as { port: number }).port}/`;
 }
 
+describe('probeWeb', () => {
+  it('reports the build the server runs, or null for a build before stamps', async () => {
+    expect(await probeWeb(await server(0, { mode: 'dashboard', pid: 7, lean: false, build: '1727600000000' }))).toEqual({
+      kind: 'ours', pid: 7, lean: false, build: '1727600000000',
+    });
+    // What a work web from before September's build stamps answers.
+    expect(await probeWeb(await server(0, { mode: 'dashboard' }))).toEqual({ kind: 'ours', pid: null, lean: false, build: null });
+  });
+});
+
 describe('existingWebDecision', () => {
   it('reuses a server that answers', async () => {
     expect(await existingWebDecision(await server(0))).toBe('reuse');

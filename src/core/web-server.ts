@@ -28,6 +28,7 @@ import { listTranscripts, readContextUsage } from './context-usage.js';
 import { buildDigest } from './digest.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
 import { effectiveStatus, readStatus } from './session-status.js';
+import { buildStamp } from './build-stamp.js';
 import { readSessionActivity } from './claude-activity.js';
 import type { DigestResponse, SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
@@ -218,7 +219,7 @@ export async function startWebServer(
 
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean }));
+  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp() }));
 
   // Graceful stop, for `work web --stop`: on Windows killing the process is
   // TerminateProcess, which skips the shutdown path (Claude hooks stay in

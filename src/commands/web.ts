@@ -26,6 +26,8 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
+import { buildStamp } from '../core/build-stamp.js';
+
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 
 /**
@@ -152,11 +154,19 @@ export const webCommand: CommandModule = {
     if (existingPid && isPidAlive(existingPid) && !lean) {
       // A lean instance (autostarted by `wd`) has no Claude hooks, inbox,
       // PR watch or session restore — reusing it for `work web` left all of
-      // that silently off. Replace it with the full server.
+      // that silently off. Replace it with the full server. Likewise one
+      // from an older build: it outlived a rebuild or upgrade, and reads
+      // state and serves routes as they were then (build-stamp.ts).
       const url = readWebUrl();
       const probe = url ? await probeWeb(url, 3000) : null;
-      if (probe?.kind === 'ours' && probe.lean) {
-        info(chalk.gray('Replacing the lean work web that `wd` started with the full dashboard…'));
+      if (probe?.kind === 'ours' && (probe.lean || probe.build !== buildStamp())) {
+        info(
+          chalk.gray(
+            probe.lean
+              ? 'Replacing the lean work web that `wd` started with the full dashboard…'
+              : 'Replacing the running work web: it is from an older build than this one.',
+          ),
+        );
         await stopExisting();
       }
     }
