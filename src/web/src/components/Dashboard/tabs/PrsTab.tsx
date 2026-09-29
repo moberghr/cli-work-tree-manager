@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchPrs, type PrInfo } from '../../../api/panes.js';
-import { useSse } from '../../../api/events.js';
 
 interface Props {
   onPick: (pr: PrInfo) => void;
@@ -11,8 +10,9 @@ type Scope = 'all' | 'mine' | 'needs-review';
 /**
  * PRs as a sortable, filterable table — full-width version of the old
  * cramped sidebar accordion. Same data source (`/api/prs` → `gh pr list`
- * per configured repo), refreshed on open + every 60 s, plus an SSE
- * piggyback off `sessions-changed` (branch state often coincides).
+ * per configured repo), refreshed on open + every 60 s. (Not on
+ * `sessions-changed`: that fires every 250 ms while any Claude is writing,
+ * which ran `gh pr list` for every repo back to back.)
  */
 export function PrsTab({ onPick }: Props) {
   const [prs, setPrs] = useState<PrInfo[] | null>(null);
@@ -37,10 +37,6 @@ export function PrsTab({ onPick }: Props) {
     const t = setInterval(refresh, 60_000);
     return () => clearInterval(t);
   }, []);
-
-  useSse('/events', {
-    events: { 'sessions-changed': () => refresh() },
-  });
 
   const filtered = useMemo(() => {
     if (!prs) return [];

@@ -58,6 +58,11 @@ export function PtyView({ sessionId }: Props) {
       term.loadAddon(webgl);
     } catch { /* DOM renderer fallback */ }
     fit.fit();
+    // Take the keyboard: you land here to answer Claude (Inbox "needs your
+    // input", `n`, a notification click). Without focus your answer went to
+    // the dashboard, whose j/k/n navigated away. Typing before the replay
+    // arrives is queued below, so this is safe immediately.
+    term.focus();
 
     // Keys a real terminal handles that xterm-in-a-browser doesn't:
     //  - Shift+Enter → newline in Claude's prompt (ESC CR, what Claude
@@ -94,6 +99,9 @@ export function PtyView({ sessionId }: Props) {
     // after the snapshot is on screen, so Claude redraws for our grid.
     const finishReplay = () => {
       fit.fit();
+      // After a reconnect the terminal is rebuilt: take focus back unless
+      // the user has put it somewhere else meanwhile.
+      if (!document.activeElement || document.activeElement === document.body) term.focus();
       ready = true;
       sentCols = term.cols;
       sentRows = term.rows;

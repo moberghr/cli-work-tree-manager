@@ -32,6 +32,10 @@ const h = vi.hoisted(() => {
       a.activate?.(this);
     }
     open() {}
+    focused = 0;
+    focus() {
+      this.focused++;
+    }
     resize(c: number, r: number) {
       this.cols = c;
       this.rows = r;
@@ -168,6 +172,11 @@ describe('PtyView', () => {
     const { ws } = mount('abc');
     expect(ws.url).toMatch(/\/ws\/sessions\/abc\/terminal$/);
     expect(ws.binaryType).toBe('arraybuffer');
+  });
+
+  it('takes keyboard focus at once, so an answer to Claude goes to Claude (not to j/k/n)', () => {
+    const { term } = mount();
+    expect(term.focused).toBeGreaterThan(0);
   });
 
   it('sends nothing before the replay frame, queueing typed input', () => {

@@ -197,3 +197,19 @@ test('j/k never navigate while the Ship dialog is open, and a session switch clo
   await expect(page.locator('.wd-session-detail-branch')).toHaveText('fix/login-redirect');
   await expect(page.getByRole('dialog', { name: 'Ship session' })).toHaveCount(0);
 });
+
+test('j/k walk the rail in the order it shows', async ({ page }) => {
+  await page.goto(url);
+  const rail = page.locator('.wd-dash-rail-item .wd-dash-rail-name');
+  await expect(rail.first()).toBeVisible();
+  const order = await rail.allTextContents();
+  await page.locator('.wd-dash-rail-item').first().click();
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText(order[0]);
+  await page.locator('body').click({ position: { x: 5, y: 5 } }); // keys go to the page, not a field
+  for (const expected of order.slice(1, 4)) {
+    await page.keyboard.press('j');
+    await expect(page.locator('.wd-session-detail-branch')).toHaveText(expected);
+  }
+  await page.keyboard.press('k');
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText(order[2]);
+});

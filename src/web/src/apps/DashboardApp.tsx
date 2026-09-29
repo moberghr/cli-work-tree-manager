@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchSessions, markSessionSeen, type NotifyEvent, type SessionSummary } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
+import { coalesce } from '../utils/coalesce.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
-import { isArchived, prsForSession, type PrLookup } from '../state/session-display.js';
+import { isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
@@ -98,21 +99,35 @@ export function DashboardApp() {
     setRoute(next);
   }, []);
 
-  // Fetch + auto-refresh sessions. SSE bumps `refreshKey` on activity.
+  // Fetch + auto-refresh sessions. SSE bumps `refreshKey` on activity; the
+  // refetch is coalesced (see utils/coalesce.ts) so a burst of events — one
+  // every 250 ms while any Claude writes — costs one fetch, not one each.
+  const refetch = useMemo(
+    () =>
+      coalesce(
+        () =>
+          fetchSessions().then(
+            (data) => {
+              setSessions(data);
+              setError(null); // a later success clears an earlier failure
+            },
+            (err: Error) => setError(err.message),
+          ),
+        400,
+      ),
+    [],
+  );
+  useEffect(() => () => refetch.cancel(), [refetch]);
+  const firstLoad = useRef(true);
   useEffect(() => {
-    let cancelled = false;
-    fetchSessions().then(
-      (data) => {
-        if (!cancelled) setSessions(data);
-      },
-      (err: Error) => {
-        if (!cancelled) setError(err.message);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey]);
+    if (firstLoad.current) {
+      // The first load is immediate.
+      firstLoad.current = false;
+      fetchSessions().then(setSessions, (err: Error) => setError(err.message));
+      return;
+    }
+    refetch.trigger();
+  }, [refreshKey, refetch]);
 
   // Notification discipline: tell the server what this tab shows, and turn
   // its `notify` events into click-to-jump browser notifications.
@@ -270,12 +285,14 @@ export function DashboardApp() {
         }
         return;
       }
-      // j / k — move down/up through the sorted sessions list.
+      // j / k — move down/up through the rail, in the order it shows them:
+      // the current sessions (stable order), plus the selected older one it
+      // keeps pinned. (Walking all sessions by recency jumped to rows the
+      // rail doesn't show, archived ones included.)
       if (e.key === 'j' || e.key === 'k') {
-        if (sessions.length === 0) return;
-        const sorted = [...sessions].sort((a, b) =>
-          b.lastAccessedAt.localeCompare(a.lastAccessedAt),
-        );
+        const { current, older } = railSessions(sessions);
+        const sorted = [...current, ...older.filter((s) => s.id === route.sessionId)];
+        if (sorted.length === 0) return;
         const currentIdx = route.sessionId
           ? sorted.findIndex((s) => s.id === route.sessionId)
           : -1;
