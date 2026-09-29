@@ -2,6 +2,7 @@ import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { findOverlaps } from '../overlap.js';
 import { buildDigest } from '../digest.js';
+import { cleanupVerdict } from '../cleanup-verdict.js';
 import { createPresence, type Presence } from '../presence.js';
 import { ciFixMessage } from '../pr-watch.js';
 import type {
@@ -19,6 +20,9 @@ import type {
   ShipResult,
   PermissionRequest,
   DigestResponse,
+  CleanupAction,
+  CleanupCandidate,
+  CleanupState,
 } from '../api-types.js';
 import type { AgentState } from '../attention.js';
 import type { PullRequestInfo } from '../pr.js';
@@ -817,6 +821,59 @@ export class DemoScenario {
     const ok = this.sessions.delete(id);
     if (ok) this.changed();
     return ok;
+  }
+
+  // -- cleanup (simulated: an instant scan over the demo's own sessions) ----
+
+  private cleanupState: CleanupState = { phase: 'idle', done: 0, total: 0, candidates: [], results: [] };
+
+  cleanup(): CleanupState {
+    return this.cleanupState;
+  }
+
+  /** Sessions quiet for a day or more: merged if a PR merged or it never
+   *  changed anything, else work of its own (archived after a week). */
+  cleanupScan(): CleanupState {
+    const now = this.now();
+    const candidates: CleanupCandidate[] = [];
+    for (const s of this.sessions.values()) {
+      const lastActiveMs = Math.max(Date.parse(s.lastAccessedAt), s.attention ? Date.parse(s.attention.updatedAt) : 0);
+      const repos = s.repos.map((r) => {
+        const own = parseGitDiff(r.sinceBranch).length > 0 && r.pr?.state !== 'MERGED';
+        return {
+          name: r.name, path: `~/worktrees/${s.target}/${s.branch.replace(/\//g, '-')}`, exists: true, readable: true,
+          dirty: r.uncommitted && r.uncommitted !== r.sinceBranch ? parseGitDiff(r.uncommitted).length : 0,
+          ahead: own ? 1 : 0, merged: own ? null : ('contained' as const), base: 'origin/HEAD', baseCheckout: false,
+        };
+      });
+      const v = cleanupVerdict({ repos, lastActiveMs, archived: !!s.archivedAt }, now);
+      if (v.verdict === 'keep') continue;
+      candidates.push({
+        sessionId: s.id, target: s.target, branch: s.branch, isGroup: s.isGroup,
+        lastActive: new Date(lastActiveMs).toISOString(), archivedAt: s.archivedAt, ...v, repos,
+      });
+    }
+    this.cleanupState = { phase: 'idle', done: this.sessions.size, total: this.sessions.size, candidates, results: [], finishedAt: new Date(now).toISOString() };
+    return this.cleanupState;
+  }
+
+  cleanupApply(items: Array<{ sessionId: string; action: CleanupAction }>): CleanupState {
+    const results: CleanupState['results'] = [];
+    for (const it of items) {
+      const c = this.cleanupState.candidates.find((x) => x.sessionId === it.sessionId);
+      const s = this.sessions.get(it.sessionId);
+      if (!c || !s || (it.action === 'delete' && c.verdict !== 'merged')) {
+        results.push({ ...it, ok: false, message: c ? `Not removed: ${c.reason}.` : 'The session is gone already.' });
+        continue;
+      }
+      if (it.action === 'archive') s.archivedAt = new Date(this.now()).toISOString();
+      else this.sessions.delete(it.sessionId);
+      results.push({ ...it, ok: true, message: it.action === 'delete' ? 'Worktree removed' : it.action === 'archive' ? 'Archived' : 'Forgotten' });
+    }
+    const ok = new Set(results.filter((r) => r.ok).map((r) => r.sessionId));
+    this.cleanupState = { ...this.cleanupState, results, candidates: this.cleanupState.candidates.filter((c) => !ok.has(c.sessionId)) };
+    this.changed();
+    return this.cleanupState;
   }
 
   create(target: string, branch: string, prompt?: string): SessionWire {

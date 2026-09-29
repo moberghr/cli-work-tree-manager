@@ -6,7 +6,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest } from '../api-types.js';
+import type { AnswerRequest, CleanupApplyRequest } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 
@@ -227,6 +227,13 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
   app.get('/api/prompts', (c) => c.json({ prompts: DEFAULT_PROMPTS, configured: false }));
+  app.get('/api/cleanup', (c) => c.json(scenario.cleanup()));
+  app.post('/api/cleanup/scan', (c) => c.json(scenario.cleanupScan()));
+  app.post('/api/cleanup/apply', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Partial<CleanupApplyRequest> | null;
+    if (!Array.isArray(body?.items) || body.items.length === 0) return c.json({ error: 'items required' }, 400);
+    return c.json(scenario.cleanupApply(body.items));
+  });
   app.get('/api/digest', (c) => {
     const asked = Date.parse(c.req.query('since') ?? '');
     return c.json(scenario.digest(Number.isFinite(asked) ? asked : Date.now() - 24 * 3_600_000));

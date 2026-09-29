@@ -7,6 +7,7 @@ import type { PrInfo } from '../../src/web/src/api/panes.js';
 import {
   defaultSubTab,
   displayStatus,
+  ageBucket,
   formatDiffStat,
   lastActiveAt,
   prsForSession,
@@ -57,6 +58,15 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote }))).toBe(new Date(wrote).toISOString());
     const hooked = new Date(Date.now() - 1000).toISOString(); // newer than the write
     expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote, attention: { ...att('idle', true), updatedAt: hooked } }))).toBe(hooked);
+  });
+
+  it('age sections: Now (wants you, working, or used today), This week, Older', () => {
+    expect(ageBucket(s({ id: 'a', lastAccessedAt: minsAgo(60 * 24 * 30), attention: att('needs_input', false) }))).toBe('now');
+    expect(ageBucket(s({ id: 'a', lastAccessedAt: minsAgo(60 * 5) }))).toBe('now');
+    expect(ageBucket(s({ id: 'a', lastAccessedAt: minsAgo(60 * 24 * 3) }))).toBe('week');
+    expect(ageBucket(s({ id: 'a', lastAccessedAt: minsAgo(60 * 24 * 10) }))).toBe('older');
+    // Claude writing today makes an old entry "now" (it's the newest sign of life).
+    expect(ageBucket(s({ id: 'a', lastAccessedAt: minsAgo(60 * 24 * 10), lastActivity: Date.now() - 3_600_000 }))).toBe('now');
   });
 
   it('buckets for the Sessions header and filter', () => {

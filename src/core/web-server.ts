@@ -29,6 +29,7 @@ import { buildDigest } from './digest.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
 import { effectiveStatus, readStatus } from './session-status.js';
 import { buildStamp } from './build-stamp.js';
+import { mountCleanupRoutes } from './cleanup-routes.js';
 import { readSessionActivity } from './claude-activity.js';
 import type { DigestResponse, SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
@@ -401,6 +402,9 @@ export async function startWebServer(
     };
     return c.json(body);
   });
+
+  // Clean up view: which worktrees can go (scan), and removing them.
+  mountCleanupRoutes(app, { broadcast });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });

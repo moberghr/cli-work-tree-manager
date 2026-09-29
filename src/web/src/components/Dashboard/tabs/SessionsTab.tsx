@@ -12,7 +12,7 @@ import {
   type StatusBucket,
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
-import { lastActiveAt } from '../../../state/session-display.js';
+import { AGE_LABEL, ageBucket, lastActiveAt, type AgeBucket } from '../../../state/session-display.js';
 import {
   groupRepoNames,
   groupSessionsByTarget,
@@ -26,11 +26,13 @@ interface Props {
   onDeleteSession: (session: SessionSummary) => void;
   /** Open PRs for a session; rows skip the PR cell without it. */
   prsFor?: PrLookup;
+  /** Open the Clean up view. */
+  onCleanUp?: () => void;
 }
 
 type Sort = 'recent' | 'name';
 type Filter = 'all' | StatusBucket;
-type Grouping = 'none' | 'project';
+type Grouping = 'age' | 'project' | 'none';
 
 const GROUPING_KEY = 'work-web:sessions-grouping';
 const ARCHIVED_KEY = 'work-web:sessions-show-archived';
@@ -66,12 +68,20 @@ export function SessionsTab({
   onNewWorktree,
   onDeleteSession,
   prsFor,
+  onCleanUp,
 }: Props) {
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
-  const [grouping, setGroupingState] = useState<Grouping>(() =>
-    readPref(GROUPING_KEY, 'project') ? 'project' : 'none',
-  );
+  const [grouping, setGroupingState] = useState<Grouping>(() => {
+    try {
+      const v = localStorage.getItem(GROUPING_KEY);
+      return v === 'project' || v === 'none' ? v : 'age';
+    } catch {
+      return 'age';
+    }
+  });
+  // "Older" starts folded: with hundreds of worktrees it is most of the list.
+  const [showOlder, setShowOlder] = useState(false);
   const [showArchived, setShowArchivedState] = useState(() => readPref(ARCHIVED_KEY, '1'));
   const setGrouping = (g: Grouping) => {
     setGroupingState(g);
@@ -113,6 +123,12 @@ export function SessionsTab({
         : null,
     [filtered, grouping, sort],
   );
+  const ages = useMemo(() => {
+    if (grouping !== 'age') return null;
+    const by: Record<AgeBucket, SessionSummary[]> = { now: [], week: [], older: [] };
+    for (const s of filtered) by[ageBucket(s)].push(s);
+    return (Object.keys(by) as AgeBucket[]).map((k) => ({ key: k, sessions: by[k] })).filter((g) => g.sessions.length > 0);
+  }, [filtered, grouping]);
 
   const renderTable = (list: SessionSummary[]) => (
     <table className="wd-session-table">
@@ -168,8 +184,9 @@ export function SessionsTab({
               value={grouping}
               onChange={(e) => setGrouping(e.target.value as Grouping)}
             >
-              <option value="none">none</option>
+              <option value="age">age</option>
               <option value="project">project</option>
+              <option value="none">none</option>
             </select>
           </label>
           <label>
@@ -190,6 +207,11 @@ export function SessionsTab({
             />{' '}
             Show archived{archivedCount > 0 ? ` (${archivedCount})` : ''}
           </label>
+          {onCleanUp && (
+            <button type="button" className="wd-btn-secondary" onClick={onCleanUp} title="Find worktrees that are safe to remove">
+              Clean up…
+            </button>
+          )}
           <button
             type="button"
             className="wd-btn-primary"
@@ -204,6 +226,31 @@ export function SessionsTab({
           {sessions.length === 0
             ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
             : 'No sessions match the current filter.'}
+        </div>
+      ) : ages ? (
+        <div className="wd-session-groups">
+          {ages.map((g) => {
+            const folded = g.key === 'older' && !showOlder;
+            return (
+              <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
+                <h2 className="wd-session-group-header">
+                  <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
+                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                  {g.key === 'older' && (
+                    <button type="button" className="wd-row-action wd-session-age-toggle" onClick={() => setShowOlder((v) => !v)}>
+                      {folded ? 'Show' : 'Hide'}
+                    </button>
+                  )}
+                  {g.key !== 'now' && onCleanUp && (
+                    <button type="button" className="wd-row-action" onClick={onCleanUp} title="Find worktrees that are safe to remove">
+                      Clean up…
+                    </button>
+                  )}
+                </h2>
+                {!folded && renderTable(g.sessions)}
+              </section>
+            );
+          })}
         </div>
       ) : groups ? (
         <div className="wd-session-groups">

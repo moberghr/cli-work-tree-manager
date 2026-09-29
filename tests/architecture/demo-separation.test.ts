@@ -45,6 +45,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/saved-prompts.ts', // pure: the default one-click prompts
       'src/core/digest.ts', // pure: the Today digest from given inputs
       'src/core/build-stamp.ts', // one stat of the entry file
+      'src/core/cleanup-verdict.ts', // pure: what to do with a worktree, given its git facts
       'src/core/transcript-entry.ts', // pure: transcript line shapes
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);

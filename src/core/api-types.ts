@@ -51,6 +51,63 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+// ---- cleanup --------------------------------------------------------------
+
+/** What cleanup found: `merged` — safe to delete; `work`/`dirty` — has
+ *  something of its own (offered for archiving once a week quiet); `gone` —
+ *  folder missing; `keep` — not a candidate. */
+export type CleanupVerdict = 'merged' | 'work' | 'dirty' | 'gone' | 'keep';
+export type CleanupAction = 'delete' | 'archive' | 'forget';
+
+export interface CleanupRepo {
+  name: string;
+  path: string;
+  exists: boolean;
+  /** git could read it. */
+  readable: boolean;
+  /** Uncommitted + untracked files. */
+  dirty: number | null;
+  /** Commits not in `base`. */
+  ahead: number | null;
+  /** 'contained' — nothing of its own; 'squash' — squash-merged; null — has work. */
+  merged: 'contained' | 'squash' | null;
+  /** The ref compared with (origin/HEAD, origin/main…). */
+  base: string | null;
+  /** The configured repo itself, not a worktree: never removed. */
+  baseCheckout: boolean;
+}
+
+export interface CleanupCandidate {
+  sessionId: string;
+  target: string;
+  branch: string;
+  isGroup: boolean;
+  lastActive: string;
+  archivedAt: string | null;
+  verdict: CleanupVerdict;
+  /** What the view pre-selects; null — shown for information only. */
+  suggested: CleanupAction | null;
+  reason: string;
+  repos: CleanupRepo[];
+}
+
+/** GET /api/cleanup — the scan / apply job, polled by the Clean up view. */
+export interface CleanupState {
+  phase: 'idle' | 'fetching' | 'scanning' | 'applying';
+  done: number;
+  total: number;
+  candidates: CleanupCandidate[];
+  results: Array<{ sessionId: string; action: CleanupAction; ok: boolean; message: string }>;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+}
+
+/** POST /api/cleanup/apply */
+export interface CleanupApplyRequest {
+  items: Array<{ sessionId: string; action: CleanupAction }>;
+}
+
 /** Terminal WebSocket control frame: the session's Claude is running in
  *  a plain terminal (not the PTY host), so nothing was spawned — a second
  *  Claude would share its conversation. Reconnect with `?force=1` to

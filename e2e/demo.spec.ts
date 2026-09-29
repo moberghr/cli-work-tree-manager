@@ -314,3 +314,16 @@ test('Today and Inbox scroll when their content is taller than the window', asyn
     await expect(pane.locator('.wd-tab-header')).toBeInViewport(); // header stays
   }
 });
+
+test('Clean up finds the old merged worktree and removes it after a confirm', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  await page.getByRole('button', { name: 'Clean up…' }).first().click();
+  await expect(page).toHaveURL(/#\/cleanup$/);
+  const item = page.locator('.wd-cleanup-safe .wd-cleanup-item', { hasText: 'spike/dark-mode' });
+  await expect(item).toContainText("Nothing here that isn't in origin/HEAD");
+  await expect(item.getByRole('checkbox')).toBeChecked();
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await page.getByRole('button', { name: /^Confirm: remove 1/ }).click();
+  await expect(page.locator('.wd-cleanup-results')).toContainText('1 done.');
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'spike/dark-mode' })).toHaveCount(0);
+});

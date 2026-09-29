@@ -5,6 +5,7 @@ import { coalesce } from '../utils/coalesce.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
+import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
 import { isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
@@ -36,6 +37,7 @@ import {
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
   today: 'Today',
+  cleanup: 'Clean up',
   sessions: 'Sessions',
   prs: 'PRs',
   jira: 'Jira',
@@ -444,6 +446,9 @@ export function DashboardApp() {
       case 'today':
         body = <TodayTab onOpenSession={openSession} />;
         break;
+      case 'cleanup':
+        body = <CleanupTab onOpenSession={(id) => openSession(id)} />;
+        break;
       case 'sessions':
         body = (
           <SessionsTab
@@ -451,6 +456,7 @@ export function DashboardApp() {
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
             onDeleteSession={setDeleting}
+            onCleanUp={() => goTab('cleanup')}
             prsFor={prsFor}
           />
         );

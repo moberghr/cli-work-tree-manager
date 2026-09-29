@@ -61,6 +61,27 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   stale: 'Stale',
 };
 
+/** How long ago a session was used, for the Sessions table's sections. */
+export type AgeBucket = 'now' | 'week' | 'older';
+
+export const AGE_LABEL: Record<AgeBucket, string> = {
+  now: 'Now',
+  week: 'This week',
+  older: 'Older',
+};
+
+export const WEEK_MS = 7 * 24 * 3_600_000;
+
+/** Now: wants you, is working, or was used in the last day. This week:
+ *  used within 7 days. Older: everything else — cleanup material. */
+export function ageBucket(s: SessionSummary, now: number = Date.now()): AgeBucket {
+  const kind = displayStatus(s, now);
+  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'active' || kind === 'open') return 'now';
+  const age = now - Date.parse(lastActiveAt(s));
+  if (age < RECENT_MS) return 'now';
+  return age < WEEK_MS ? 'week' : 'older';
+}
+
 /** Coarse buckets the Sessions header counts and filters by. */
 export type StatusBucket = 'needs' | 'working' | 'idle' | 'stale';
 

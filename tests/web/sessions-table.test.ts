@@ -71,6 +71,7 @@ const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g
 
 describe('Sessions table', () => {
   it('has the status/session/summary/changes/PR/last-active columns and one status vocabulary', () => {
+    try { localStorage.setItem('work-web:sessions-grouping', 'none'); } catch { /* */ } // one table
     render();
     expect([...container.querySelectorAll('thead th')].map((th) => text(th))).toEqual([
       'Status', 'Session', 'Summary', 'Changes', 'PR', 'Last active', 'Actions',
@@ -121,6 +122,21 @@ describe('Sessions table', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it('groups by age by default: Now, This week, and Older folded until asked', () => {
+    const old = { id: 'ancient', target: 'api', branch: 'ancient', isGroup: false, paths: ['/wt/ancient'], createdAt: minsAgo(99_999), lastAccessedAt: minsAgo(60 * 24 * 30), activityState: 'stale' as const };
+    act(() =>
+      root.render(
+        createElement(SessionsTab, { sessions: [...SESSIONS, old], onOpenSession: vi.fn(), onNewWorktree: () => {}, onDeleteSession: vi.fn(), onCleanUp: vi.fn() }),
+      ),
+    );
+    const headers = [...container.querySelectorAll('.wd-session-age h2 .wd-session-group-name')].map((h) => h.textContent);
+    expect(headers).toEqual(['Now', 'This week', 'Older']);
+    const older = container.querySelector('.wd-session-age-older')!;
+    expect(older.querySelector('table')).toBeNull();
+    act(() => [...older.querySelectorAll('button')].find((b) => b.textContent === 'Show')!.click());
+    expect(container.querySelector('.wd-session-age-older table')?.textContent).toContain('ancient');
+  });
+
   it('filters by bucket', () => {
     render();
     const select = container.querySelector<HTMLSelectElement>('.wd-tab-controls select')!;
@@ -128,6 +144,7 @@ describe('Sessions table', () => {
       select.value = 'needs';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(rows().map((r) => text(r.querySelector('.wd-st-branch')))).toEqual(['blocked', 'done']);
+    // Which rows, not their order (both fixtures' updates tie to the millisecond).
+    expect(rows().map((r) => text(r.querySelector('.wd-st-branch'))).sort()).toEqual(['blocked', 'done']);
   });
 });
