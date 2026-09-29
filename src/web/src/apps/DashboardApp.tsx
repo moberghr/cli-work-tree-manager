@@ -16,6 +16,7 @@ import {
   taskSlug,
 } from '../components/Dashboard/tabs/TasksTab.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
+import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
 import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
@@ -80,6 +81,7 @@ export function DashboardApp() {
     branch?: string;
     base?: string;
     jiraKey?: string;
+    prompt?: string;
   } | null>(null);
 
   // Session pending delete confirmation (card trash button / detail header).
@@ -451,7 +453,7 @@ export function DashboardApp() {
         body = (
           <PrsTab
             onPick={(pr) =>
-              openNew({ target: pr.repoAlias, branch: pr.branch })
+              openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })
             }
           />
         );
@@ -463,6 +465,7 @@ export function DashboardApp() {
               openNew({
                 branch: `feat/${issue.key}`,
                 jiraKey: issue.key,
+                prompt: jiraPrompt(issue),
               })
             }
             sessionJiraKeys={sessionJiraKeys}
@@ -497,10 +500,11 @@ export function DashboardApp() {
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
-          onCreated={(id) => {
+          onCreated={(id, result) => {
             setNewOpen(false);
             setNewInitial(null);
-            openSession(id);
+            // Started with a prompt: watch it begin in its terminal.
+            openSession(id, result?.started === 'started' ? 'term' : 'diff');
           }}
           onClose={() => {
             setNewOpen(false);

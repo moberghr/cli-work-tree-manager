@@ -251,3 +251,15 @@ test('two sessions changing the same file are flagged, and the warning links to 
   await chip.getByRole('button', { name: 'chore/deps-update' }).click();
   await expect(page.locator('.wd-session-strip .wd-overlap')).toContainText('Same files as feat/invoice-export');
 });
+
+test('a Jira issue starts a session with a first prompt, opened on its terminal', async ({ page }) => {
+  await page.goto(`${url}#/jira`);
+  await page.locator('.wd-jira-card').first().click();
+  const dialog = page.getByRole('dialog');
+  const prompt = dialog.locator('textarea');
+  await expect(prompt).toHaveValue(/^Work on [A-Z]+-\d+: /);
+  await prompt.fill('Work on it: add the export button');
+  await dialog.getByRole('button', { name: 'Create & start' }).click();
+  await expect(page).toHaveURL(/\/term$/);
+  await expect(page.locator('.wd-session-strip')).toContainText('Work on it: add the export button');
+});

@@ -13,18 +13,41 @@ import {
   findSession,
   sessionIdFor,
 } from './web-state.js';
-import { disposePty, getWorkBin, spawnSpecFor } from './pty-pool.js';
+import { disposePty, ensurePty, getWorkBin, peekPty, spawnSpecFor } from './pty-pool.js';
+import { getCommentFileStore } from './comment-file-store.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
+  /** Start the new session's Claude with a first prompt (tests inject). */
+  startSession?: (sessionId: string, prompt: string) => Promise<StartOutcome>;
+}
+
+/** What happened to the first prompt of a created worktree. */
+export type StartOutcome =
+  | 'started' // Claude spawned in the PTY host with it
+  | 'queued'; // the session was already running: delivered on its next turn
+
+/**
+ * Default `startSession`: spawn the session's Claude in the PTY host with
+ * the prompt as its first message — or, when the worktree already existed
+ * and its Claude is running, queue it like a review comment instead of
+ * typing into a terminal that may be mid-turn or showing a prompt.
+ */
+async function startSessionWithPrompt(sessionId: string, prompt: string): Promise<StartOutcome> {
+  if (peekPty(sessionId)) {
+    getCommentFileStore(sessionId).post({ side: 'general', status: 'published', author: 'user', body: prompt });
+    return 'queued';
+  }
+  if (!(await ensurePty(sessionId, { initialPrompt: prompt }))) throw new Error('could not start the session');
+  return 'started';
 }
 
 /**
  * Hono sub-app exposing the dashboard's worktree mutation surface:
  *
- *   POST   /api/worktrees             — create (target + branch [+ base])
+ *   POST   /api/worktrees             — create (target + branch [+ base] [+ first prompt])
  *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
@@ -45,12 +68,15 @@ export function mountWorktreeRoutes(
     branch: z.string().min(1),
     base: z.string().optional(),
     jiraKey: z.string().optional(),
+    /** Start Claude with this as its first message. */
+    prompt: z.string().max(20_000).optional(),
   });
+  const startSession = opts.startSession ?? startSessionWithPrompt;
   app.post(
     '/api/worktrees',
     zValidator('json', createSchema),
     async (c) => {
-      const { target, branch, base, jiraKey } = c.req.valid('json');
+      const { target, branch, base, jiraKey, prompt } = c.req.valid('json');
       const config = loadConfig();
       if (!config) return c.json({ error: 'no config' }, 400);
 
@@ -69,10 +95,24 @@ export function mountWorktreeRoutes(
         // Re-derive the new session id so the client can route to it
         // immediately (it's just sha1(target:branch)).
         const id = sessionIdFor({ target, branch });
+        // The worktree exists either way; a failed start is reported, not
+        // fatal (the Terminal tab can still start it by hand).
+        let started: StartOutcome | undefined;
+        let startError: string | undefined;
+        if (prompt?.trim()) {
+          try {
+            started = await startSession(id, prompt.trim());
+          } catch (err) {
+            startError = (err as Error).message;
+          }
+          opts.broadcast('sessions-changed', { ts: Date.now() });
+        }
         return c.json({
           sessionId: id,
           launchDir: result.launchDir,
           paths: result.paths,
+          ...(started ? { started } : {}),
+          ...(startError ? { startError } : {}),
         });
       } catch (err) {
         return c.json({ error: (err as Error).message }, 500);

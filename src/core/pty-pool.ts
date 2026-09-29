@@ -118,10 +118,16 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
  * needed) and return the host WebSocket URL to attach to. Null for an
  * unknown session.
  */
-export async function ensurePty(sessionId: string): Promise<string | null> {
+export async function ensurePty(
+  sessionId: string,
+  extra: { initialPrompt?: string } = {},
+): Promise<string | null> {
   const session = findSession(sessionId);
-  const spec = session ? spawnSpecFor(session) : null;
-  if (!spec) return null;
+  const base = session ? spawnSpecFor(session) : null;
+  if (!base) return null;
+  // The first prompt only applies to a fresh spawn (the host ignores the
+  // spec when the session's PTY is already running).
+  const spec = extra.initialPrompt ? { ...base, initialPrompt: extra.initialPrompt } : base;
 
   let c = await getClient(true);
   if (!c) return null;

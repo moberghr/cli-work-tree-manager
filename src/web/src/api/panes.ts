@@ -119,12 +119,19 @@ export interface CreateWorktreeRequest {
   branch: string;
   base?: string;
   jiraKey?: string;
+  /** Start Claude with this as its first message. */
+  prompt?: string;
 }
 
 export interface CreateWorktreeResponse {
   sessionId: string;
   launchDir: string;
   paths: string[];
+  /** With a prompt: Claude started with it, or (already running) it was
+   *  queued for its next turn. */
+  started?: 'started' | 'queued';
+  /** With a prompt: why Claude could not be started. */
+  startError?: string;
 }
 
 export function createWorktree(

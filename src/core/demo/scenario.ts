@@ -785,15 +785,16 @@ export class DemoScenario {
     return ok;
   }
 
-  create(target: string, branch: string): SessionWire {
+  create(target: string, branch: string, prompt?: string): SessionWire {
     const project = this.projects();
     const group = project.groups.find((g) => g.name === target);
+    const first = prompt?.split('\n')[0];
     const s = this.add(
       target,
       branch,
       (group?.members ?? [target]).map((name) => ({ name })),
-      { state: 'working', seen: true, summary: 'Getting started', minutesAgo: 0 },
-      claudeScreen('', ['✻ Reading the codebase…']),
+      { state: 'working', seen: true, summary: first ?? 'Getting started', minutesAgo: 0 },
+      claudeScreen(first ?? '', ['✻ Reading the codebase…']),
       0,
     );
     this.changed();

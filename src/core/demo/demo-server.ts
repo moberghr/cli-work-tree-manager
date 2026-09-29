@@ -203,8 +203,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (typeof body.target !== 'string' || typeof body.branch !== 'string' || !body.branch) {
       return c.json({ error: 'target and branch are required' }, 400);
     }
-    const s = scenario.create(body.target, body.branch);
-    return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths });
+    const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
+    const s = scenario.create(body.target, body.branch, prompt);
+    return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
   app.delete('/api/sessions/:id/worktree', (c) =>
     scenario.remove(c.req.param('id')) ? c.json({ ok: true, worktreeRemoved: true }) : notFound(c),

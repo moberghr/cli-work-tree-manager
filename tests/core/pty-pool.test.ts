@@ -104,6 +104,12 @@ describe('ensurePty', () => {
     expect(pool.peekPty('single')).toBe(true);
   });
 
+  it('passes a first prompt to the spawn (a session started from a ticket)', async () => {
+    const pool = await freshPool();
+    await pool.ensurePty('single', { initialPrompt: 'Work on ABC-1' });
+    expect(host.spawned[0].spec).toMatchObject({ cwd: sessions.single.paths[0], initialPrompt: 'Work on ABC-1' });
+  });
+
   it('retries once with a fresh host connection when the cached one is stale', async () => {
     const pool = await freshPool();
     await pool.ensurePty('single');

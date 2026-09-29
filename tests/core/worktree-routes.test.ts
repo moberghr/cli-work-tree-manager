@@ -11,8 +11,12 @@ import path from 'node:path';
 import { Hono } from 'hono';
 
 // The PTY pool pulls in node-pty; the route only needs its dispose hook.
-const { disposePty } = vi.hoisted(() => ({ disposePty: vi.fn() }));
-vi.mock('../../src/core/pty-pool.js', () => ({ disposePty }));
+const { disposePty, ensurePty, peekPty } = vi.hoisted(() => ({
+  disposePty: vi.fn(),
+  ensurePty: vi.fn(async () => 'ws://host/attach'),
+  peekPty: vi.fn(() => false),
+}));
+vi.mock('../../src/core/pty-pool.js', () => ({ disposePty, ensurePty, peekPty }));
 
 import { mountWorktreeRoutes } from '../../src/core/worktree-routes.js';
 import { git } from '../../src/core/git.js';
@@ -87,6 +91,49 @@ async function del(body: Record<string, unknown>) {
     json: (await res.json()) as Record<string, unknown>,
   };
 }
+
+describe('POST /api/worktrees with a first prompt', () => {
+  const create = (a: Hono, body: Record<string, unknown>) =>
+    a.request('/api/worktrees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const newId = () => sessionIdFor({ target: 'repo', isGroup: false, branch: 'feat/new', paths: [], createdAt: '', lastAccessedAt: '' });
+  beforeEach(() => {
+    ensurePty.mockClear();
+    peekPty.mockReset().mockReturnValue(false);
+  });
+
+  it('starts Claude in the PTY host with the prompt as its first message', async () => {
+    const res = await create(app, { target: 'repo', branch: 'feat/new', prompt: '  Work on ABC-1: export  ' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ sessionId: newId(), started: 'started' });
+    expect(ensurePty).toHaveBeenCalledWith(newId(), { initialPrompt: 'Work on ABC-1: export' });
+  });
+
+  it('without a prompt it only creates the worktree (as before)', async () => {
+    const res = await create(app, { target: 'repo', branch: 'feat/new' });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.started).toBeUndefined();
+    expect(ensurePty).not.toHaveBeenCalled();
+  });
+
+  it('an already-running session gets the prompt queued for its next turn, never typed in', async () => {
+    peekPty.mockReturnValue(true);
+    const res = await create(app, { target: 'repo', branch: 'feat/new', prompt: 'also do X' });
+    expect(await res.json()).toMatchObject({ started: 'queued' });
+    expect(ensurePty).not.toHaveBeenCalled();
+    const { getCommentFileStore } = await import('../../src/core/comment-file-store.js');
+    expect(getCommentFileStore(newId()).snapshot()).toMatchObject([{ side: 'general', status: 'published', author: 'user', body: 'also do X' }]);
+  });
+
+  it('a start that fails still reports the created worktree', async () => {
+    const failing = new Hono();
+    mountWorktreeRoutes(failing, { broadcast, startSession: async () => { throw new Error('claude not found'); } });
+    const res = await create(failing, { target: 'repo', branch: 'feat/new', prompt: 'go' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; startError: string; paths: string[] };
+    expect(body.startError).toBe('claude not found');
+    expect(fs.existsSync(body.paths[0])).toBe(true);
+  });
+});
 
 describe('DELETE /api/sessions/:id/worktree', () => {
   it('removes a clean worktree and forgets the session', async () => {

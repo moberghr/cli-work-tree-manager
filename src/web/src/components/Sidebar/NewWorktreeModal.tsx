@@ -12,11 +12,14 @@ interface Props {
     branch?: string;
     base?: string;
     jiraKey?: string;
+    /** First message for Claude (Jira / PR picks pre-fill one). */
+    prompt?: string;
   };
   /** Title shown in the header. Defaults to "New worktree". */
   title?: string;
-  /** Called with the new session id on successful create. */
-  onCreated: (sessionId: string) => void;
+  /** Called with the new session id on successful create; `started` when
+   *  Claude was started with the prompt (open its terminal). */
+  onCreated: (sessionId: string, result?: { started?: 'started' | 'queued' }) => void;
   onClose: () => void;
 }
 
@@ -42,6 +45,9 @@ export function NewWorktreeModal({
   const [target, setTarget] = useState(initial?.target ?? '');
   const [branch, setBranch] = useState(initial?.branch ?? '');
   const [base, setBase] = useState(initial?.base ?? '');
+  const [prompt, setPrompt] = useState(initial?.prompt ?? '');
+  // Created, but Claude didn't start: say so here, then let them go on.
+  const [createdNoStart, setCreatedNoStart] = useState<{ id: string; reason: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | null>(
@@ -89,8 +95,14 @@ export function NewWorktreeModal({
         branch: branch.trim(),
         base: base.trim() || undefined,
         jiraKey: initial?.jiraKey,
+        prompt: prompt.trim() || undefined,
       });
-      onCreated(res.sessionId);
+      if (res.startError) {
+        setCreatedNoStart({ id: res.sessionId, reason: res.startError });
+        setSubmitting(false);
+        return;
+      }
+      onCreated(res.sessionId, { started: res.started });
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);
@@ -182,7 +194,23 @@ export function NewWorktreeModal({
               disabled={submitting}
             />
           </label>
+          <label className="wd-modal-row">
+            <span>Start Claude with (optional)</span>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Leave empty to create the worktree only"
+              rows={prompt ? 6 : 2}
+              disabled={submitting}
+            />
+          </label>
           {error && <p className="wd-modal-error">{error}</p>}
+          {createdNoStart && (
+            <p className="wd-modal-error" role="alert">
+              The worktree was created, but Claude didn&apos;t start: {createdNoStart.reason}. Open the session and
+              start it from its Terminal tab.
+            </p>
+          )}
         </div>
         <footer className="wd-modal-footer">
           <button
@@ -193,13 +221,19 @@ export function NewWorktreeModal({
           >
             Cancel
           </button>
-          <button
-            type="submit"
-            className="wd-btn-primary"
-            disabled={submitting || !target || !branch}
-          >
-            {submitting ? 'Creating…' : 'Create'}
-          </button>
+          {createdNoStart ? (
+            <button type="button" className="wd-btn-primary" onClick={() => onCreated(createdNoStart.id)}>
+              Open session
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="wd-btn-primary"
+              disabled={submitting || !target || !branch}
+            >
+              {submitting ? 'Creating…' : prompt.trim() ? 'Create & start' : 'Create'}
+            </button>
+          )}
         </footer>
       </form>
     </div>

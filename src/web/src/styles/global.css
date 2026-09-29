@@ -665,7 +665,8 @@ code, pre {
 }
 .wd-modal-row > span { color: var(--muted); }
 .wd-modal-row input,
-.wd-modal-row select {
+.wd-modal-row select,
+.wd-modal-row textarea {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -674,6 +675,7 @@ code, pre {
   background: var(--bg);
   color: var(--fg);
 }
+.wd-modal-row textarea { resize: vertical; min-height: 44px; line-height: 1.4; }
 .wd-modal-error {
   color: var(--del-fg);
   font-size: 12px;
