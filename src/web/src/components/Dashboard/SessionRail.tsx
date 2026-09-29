@@ -21,9 +21,6 @@ interface Props {
   /** Open PRs for a session (from the PRs pane data); optional — rows just
    *  skip the badge without it. */
   prsFor?: PrLookup;
-  /** Optional cap on rail rows before a "+N more" expander appears.
-   *  Defaults to a sensible value if omitted. */
-  maxVisible?: number;
 }
 
 /** Status → CSS modifier; the colors live in CSS. */
@@ -55,14 +52,15 @@ export function SessionRail({
   onSelect,
   onNewWorktree,
   prsFor,
-  maxVisible = 40,
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
   const { current, older } = useMemo(() => railSessions(sessions), [sessions]);
-  // Older sessions only on request; the selected one always stays visible.
+  // Every current session, plus older ones only on request — and the
+  // selected one always stays visible. (A length cap here used to cut the
+  // pinned selection off once there were 40+ current sessions, and took it
+  // out of the "+N older" count too, so it vanished.)
   const pinned = !showOlder && activeSessionId ? older.filter((s) => s.id === activeSessionId) : [];
-  const shown = showOlder ? [...current, ...older] : [...current, ...pinned];
-  const visible = shown.slice(0, showOlder ? shown.length : Math.max(maxVisible, current.length));
+  const visible = showOlder ? [...current, ...older] : [...current, ...pinned];
   const overflow = showOlder ? 0 : older.length - pinned.length;
 
   return (

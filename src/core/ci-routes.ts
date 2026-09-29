@@ -39,11 +39,13 @@ export function mountCiRoutes(
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     archive: opts.archive,
     tell: async (id, body) => {
-      await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
+      const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ side: 'general', status: 'published', body }),
       });
+      // A failed post must surface, so the watch doesn't record it as told.
+      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
     },
     broadcast: opts.broadcast,
     options: () => {

@@ -11,7 +11,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { mountScopeRoutes } from '../../src/core/scope-routes.js';
-import { disposeAllScopes } from '../../src/core/scope-manager.js';
+import { disposeAllScopes, getScope, markScopeEnded } from '../../src/core/scope-manager.js';
+import { getCommentFileStore } from '../../src/core/comment-file-store.js';
 import { git } from '../../src/core/git.js';
 import { takeCheckpoint, loadManifest } from '../../src/core/checkpoint.js';
 
@@ -58,6 +59,30 @@ async function register(label = 'test'): Promise<string> {
   expect(res.status).toBe(200);
   return ((await res.json()) as { hash: string }).hash;
 }
+
+describe('sessionScope (dashboard lookups)', () => {
+  it('never revives or clears a finished `wd -c` review on the same paths', async () => {
+    const api = mountScopeRoutes(new Hono(), { broadcast: () => {} });
+    const hash = await register('wd review');
+    const store = getCommentFileStore(`scope-${hash}`);
+    store.post({ body: 'please rename this', repo: 'repo', file: 'README.md', line: 1, side: 'right' });
+    markScopeEnded(hash); // the user clicked End Review
+
+    // Then Claude's next hook (or the dashboard) looks up the session's scope.
+    const scope = api.sessionScope([repoDir], 'repo · feat/x');
+    expect(scope.hash).toBe(hash);
+    expect(scope.ended).toBe(true);
+    expect(scope.label).toBe('wd review');
+    expect(getCommentFileStore(`scope-${hash}`).snapshot().map((c) => c.body)).toEqual(['please rename this']);
+  });
+
+  it('creates the scope when there is none', () => {
+    const api = mountScopeRoutes(new Hono(), { broadcast: () => {} });
+    const scope = api.sessionScope([repoDir], 'repo · feat/x');
+    expect(scope.label).toBe('repo · feat/x');
+    expect(getScope(scope.hash)).toBe(scope);
+  });
+});
 
 describe('GET /api/scopes/:hash/checkpoints', () => {
   it('returns empty entries before any snapshot is taken', async () => {

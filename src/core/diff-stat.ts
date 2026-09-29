@@ -56,6 +56,9 @@ interface Entry {
   stat: DiffStat | null;
   at: number;
   inFlight: boolean;
+  /** Bumped by invalidate(): a refresh that started before the bump
+   *  computed from files that have since changed. */
+  gen: number;
 }
 
 export interface DiffStatCacheOptions {
@@ -69,7 +72,7 @@ export interface DiffStatCacheOptions {
 
 export class DiffStatCache {
   private readonly entries = new Map<string, Entry>();
-  private readonly queue: Array<{ id: string; paths: string[] }> = [];
+  private readonly queue: Array<{ id: string; paths: string[]; gen: number }> = [];
   private running = 0;
   private readonly ttlMs: number;
   private readonly concurrency: number;
@@ -94,7 +97,10 @@ export class DiffStatCache {
   /** Force a refresh soon (a file changed in that worktree). */
   invalidate(id: string): void {
     const e = this.entries.get(id);
-    if (e) e.at = 0;
+    if (e) {
+      e.at = 0;
+      e.gen++;
+    }
   }
 
   /** Resolves when the queue is drained — for tests. */
@@ -105,11 +111,11 @@ export class DiffStatCache {
   }
 
   private schedule(id: string, paths: string[]): void {
-    const e = this.entries.get(id) ?? { stat: null, at: 0, inFlight: false };
+    const e = this.entries.get(id) ?? { stat: null, at: 0, inFlight: false, gen: 0 };
     if (e.inFlight) return;
     e.inFlight = true;
     this.entries.set(id, e);
-    this.queue.push({ id, paths });
+    this.queue.push({ id, paths, gen: e.gen });
     this.pump();
   }
 
@@ -126,7 +132,9 @@ export class DiffStatCache {
           const e = this.entries.get(job.id)!;
           const changed = JSON.stringify(e.stat) !== JSON.stringify(stat);
           e.stat = stat;
-          e.at = this.now();
+          // Invalidated while computing: show this value, but keep it stale
+          // so the next read recomputes (instead of trusting it for a TTL).
+          e.at = e.gen === job.gen ? this.now() : 0;
           e.inFlight = false;
           if (changed) this.opts.onChange?.();
         })

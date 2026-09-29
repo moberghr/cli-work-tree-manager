@@ -3,7 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { getConfigDir, type WorkConfig } from './config.js';
-import { isPidAlive, killTree } from './process.js';
+import { bootTime, isPidAlive, killTree, processName } from './process.js';
 import { json, withDb } from './db.js';
 import type { WorktreeSession } from './session-types.js';
 import type { DevServerState } from './api-types.js';
@@ -37,19 +37,32 @@ interface RunRecord {
   command: string;
   cwd: string;
   startedAt: string;
+  /** Boot the pid belongs to (bootTime()): after a reboot it's someone else's. */
+  boot: number;
+  /** Executable at that pid when we started it (the shell), if known. */
+  image: string | null;
 }
+
+/** Two boot-time readings of one boot differ by rounding; a reboot by minutes. */
+const SAME_BOOT_MS = 60_000;
 
 function isRunRecord(x: unknown): x is RunRecord {
   const r = x as RunRecord | null;
-  return !!r && typeof r === 'object' && typeof r.pid === 'number' && typeof r.command === 'string';
+  return !!r && typeof r === 'object' && typeof r.pid === 'number' && typeof r.command === 'string' && typeof r.boot === 'number';
 }
 
+/**
+ * The live run for a session, or null. A saved pid is only trusted while
+ * it's from this boot: after a reboot the row survives but the number may
+ * belong to an unrelated process (Windows reuses pids quickly) — which the
+ * header would show as "running" and Stop would kill.
+ */
 function readRun(id: string): RunRecord | null {
   const row = withDb((d) => d.prepare('SELECT data FROM dev_runs WHERE session_id = ?').get(id) as { data: string } | undefined);
   if (!row) return null;
   const r = json.parse(row.data);
-  if (isRunRecord(r) && isPidAlive(r.pid)) return r;
-  forgetRun(id); // it died on its own
+  if (isRunRecord(r) && Math.abs(r.boot - bootTime()) < SAME_BOOT_MS && isPidAlive(r.pid)) return r;
+  forgetRun(id); // it died on its own, or the machine rebooted
   return null;
 }
 
@@ -142,7 +155,14 @@ export function startDev(
     child.on('error', () => {});
     if (child.pid === undefined) return { ok: false, status: 400, error: 'could not start the dev command' };
     child.unref();
-    const rec: RunRecord = { pid: child.pid, command: cmd.command, cwd: cmd.cwd, startedAt: new Date().toISOString() };
+    const rec: RunRecord = {
+      pid: child.pid,
+      command: cmd.command,
+      cwd: cmd.cwd,
+      startedAt: new Date().toISOString(),
+      boot: bootTime(),
+      image: processName(child.pid),
+    };
     withDb((d) => d.prepare('INSERT OR REPLACE INTO dev_runs (session_id, data) VALUES (?, ?)').run(id, JSON.stringify(rec)));
     return { ok: true, pid: child.pid };
   } finally {
@@ -154,6 +174,14 @@ export function startDev(
 export function stopDev(id: string): boolean {
   const run = readRun(id);
   if (!run) return false;
+  // Last check before killing a whole tree: the pid must still be the shell
+  // we started. If it's anything else, the dev server is long gone and the
+  // number was reused — forget it, kill nothing.
+  const now = processName(run.pid);
+  if (run.image && (!now || now.toLowerCase() !== run.image.toLowerCase())) {
+    forgetRun(id);
+    return false;
+  }
   // Detached on POSIX = its own process group: signal the group, so the
   // shell's children (npm → vite) go too. Windows: taskkill /T.
   let killed = false;

@@ -156,6 +156,12 @@ export function reviveScope(hash: string): boolean {
   return true;
 }
 
+/** The registered scope for exactly these paths, or null — no side effects
+ *  (unlike registerScope, which relabels). */
+export function findScope(paths: string[]): Scope | null {
+  return getScope(hashFor(paths.map((p) => path.resolve(p))));
+}
+
 export function getScope(hash: string): Scope | null {
   return scopes.get(hash)?.scope ?? null;
 }

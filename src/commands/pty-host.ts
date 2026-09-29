@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty-host.js';
-import { ensureHost, findHost, probeHostDetailed, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
+import { ensureHost, findHost, probeHostDetailed, PtyHostBusyError, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
 import { ensureFile, withFileLock } from '../core/fs-safe.js';
 import { killTree } from '../core/process.js';
 import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty-host-protocol.js';
@@ -60,7 +60,7 @@ async function printStatus(): Promise<void> {
   try {
     host = await findHost();
   } catch (err) {
-    if (err instanceof PtyHostVersionError) {
+    if (err instanceof PtyHostVersionError || err instanceof PtyHostBusyError) {
       info(chalk.yellow(err.message));
       return;
     }
@@ -119,12 +119,13 @@ export const ptyHostCommand: CommandModule = {
 
     // Singleton: a second host would restore every saved session a second
     // time (two Claudes per conversation). Check-and-start under a lock; a
-    // version-mismatched host still counts as running.
+    // version-mismatched or busy (not answering in time) host still counts
+    // as running.
     const lock = hostStartLockPath();
     ensureFile(lock, '');
     const handle = await withFileLock(lock, async () => {
       const running = await findHost().catch((err) =>
-        err instanceof PtyHostVersionError ? true : null,
+        err instanceof PtyHostVersionError || err instanceof PtyHostBusyError ? true : null,
       );
       if (running) return null;
       // Restore INSIDE the lock, as part of starting: startPtyHost writes

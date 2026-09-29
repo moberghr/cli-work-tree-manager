@@ -4,9 +4,12 @@ import type { RepoShipState, ShipPr, ShipPreflight } from '../../src/core/api-ty
 import type { WorktreeSession } from '../../src/core/session-types.js';
 import type { ReviewFeedback } from '../../src/core/pr-review.js';
 
+/** Entered at 09:00; merges in these tests happen at 10:00 unless said otherwise. */
+const ENTERED = '2026-09-30T09:00:00Z';
 const session = (isGroup = false): WorktreeSession => ({
-  target: isGroup ? 'shop' : 'api', branch: 'feat/x', isGroup, paths: [], createdAt: '', lastAccessedAt: '',
+  target: isGroup ? 'shop' : 'api', branch: 'feat/x', isGroup, paths: [], createdAt: ENTERED, lastAccessedAt: ENTERED,
 });
+const merged = (mergedAt: string | undefined = '2026-09-30T10:00:00Z') => pr({ state: 'MERGED', mergedAt });
 const pr = (over: Partial<ShipPr> = {}): ShipPr => ({
   number: 7, url: 'u', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'aaa', ...over,
 });
@@ -53,13 +56,27 @@ describe('PR watch', () => {
   });
 
   it('archives once every repo is done and something merged', async () => {
-    const h = harness([repo('api', pr({ state: 'MERGED' }), true)]);
+    const h = harness([repo('api', merged(), true)]);
     await h.watch.tick();
     expect(h.deps.archive).toHaveBeenCalledWith('s1');
   });
 
+  it('never archives for a merge from before you entered the session', async () => {
+    // `work tree` on a branch name whose old PR merged last week (gh reports
+    // that PR), or re-entering an archived session on purpose.
+    const h = harness([repo('api', merged('2026-09-23T10:00:00Z'), true)]);
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
+  it('does not archive when gh gives no merge time', async () => {
+    const h = harness([repo('api', pr({ state: 'MERGED' }), true)]);
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
   it('a group merged only in part stays open', async () => {
-    const h = harness([repo('backend', pr({ state: 'MERGED' }), true), repo('frontend', pr(), false)], undefined, true);
+    const h = harness([repo('backend', merged(), true), repo('frontend', pr(), false)], undefined, true);
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
     // …and untouched repos count as done, but nothing merged means no archive.
@@ -69,7 +86,7 @@ describe('PR watch', () => {
   });
 
   it('respects autoArchive off', async () => {
-    const h = harness([repo('api', pr({ state: 'MERGED' }), true)], { ...ON, autoArchive: false });
+    const h = harness([repo('api', merged(), true)], { ...ON, autoArchive: false });
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
@@ -142,6 +159,17 @@ describe('PR watch', () => {
       await off.watch.tick();
       expect(off.deps.reviewFeedback).not.toHaveBeenCalled();
       expect(off.deps.tell).not.toHaveBeenCalled();
+    });
+
+    it('a note that fails to send is retried on the next sweep, then not repeated', async () => {
+      const h = harness([repo('api', failing())], ON, false, fb([thread('1', 'alice')]));
+      h.deps.tell.mockRejectedValueOnce(new Error('work web restarting')).mockRejectedValueOnce(new Error('again'));
+      await h.watch.tick(); // both notes fail
+      expect(h.deps.tell).toHaveBeenCalledTimes(2);
+      await h.watch.tick(); // both delivered now
+      expect(told(h).slice(2).map((m) => m.split('\n')[0])).toEqual(['New review feedback on GitHub:', 'CI is failing:']);
+      await h.watch.tick(); // and never again
+      expect(h.deps.tell).toHaveBeenCalledTimes(4);
     });
 
     it('CI failures and review feedback arrive as separate notes', async () => {

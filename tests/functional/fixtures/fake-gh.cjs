@@ -49,6 +49,7 @@ if (args[0] === 'pr' && args[1] === 'merge') {
     process.exit(1);
   }
   pr.state = 'MERGED';
+  pr.mergedAt = new Date().toISOString();
   save();
   process.exit(0);
 }

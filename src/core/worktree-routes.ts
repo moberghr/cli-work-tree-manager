@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { loadConfig } from './config.js';
-import { setupWorktree, teardownWorktree } from './worktree.js';
+import { setupWorktree, teardownWorktree, wouldRefuseRemoval } from './worktree.js';
 import { removeSession } from './history.js';
 import {
   disposeSessionWatcher,
@@ -85,6 +85,9 @@ export function mountWorktreeRoutes(
   // session's paths exist any more (removed by hand, `git worktree prune`,
   // ...) there's nothing to tear down, so we forget the session directly
   // instead of failing forever.
+  const REFUSED =
+    'Worktree not removed: uncommitted changes, unpushed commits, ' +
+    'or git refused. Retry with force, or forget the session only.';
   const removeSchema = z.object({
     force: z.boolean().optional(),
     sessionOnly: z.boolean().optional(),
@@ -101,13 +104,20 @@ export function mountWorktreeRoutes(
 
       const { force, sessionOnly } = c.req.valid('json');
       try {
+        const onDisk = session.paths.some((p) => fs.existsSync(p));
+        // A removal that will be refused (uncommitted or unpushed work,
+        // no force) must leave the agent working in there alone — decide
+        // BEFORE stopping anything, as `work remove` does.
+        if (!sessionOnly && onDisk && session.paths.some((p) => wouldRefuseRemoval(p, force ?? false))) {
+          return c.json({ error: REFUSED }, 409);
+        }
+
         // Release our own handles on the tree first — a live Claude PTY
         // (cwd inside the worktree) or an open directory watch blocks the
         // delete on Windows.
         await disposePty(id);
         await disposeSessionWatcher(id);
 
-        const onDisk = session.paths.some((p) => fs.existsSync(p));
         let worktreeRemoved = false;
         if (!sessionOnly && onDisk) {
           const ok = teardownWorktree(
@@ -117,16 +127,7 @@ export function mountWorktreeRoutes(
             config,
             force ?? false,
           );
-          if (!ok) {
-            return c.json(
-              {
-                error:
-                  'Worktree not removed: uncommitted changes, unpushed commits, ' +
-                  'or git refused. Retry with force, or forget the session only.',
-              },
-              409,
-            );
-          }
+          if (!ok) return c.json({ error: REFUSED }, 409);
           worktreeRemoved = true;
         }
         await removeSession(session.target, session.branch);

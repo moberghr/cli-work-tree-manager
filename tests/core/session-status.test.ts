@@ -140,6 +140,19 @@ describe('notifyKindForTransition', () => {
     expect(notifyKindForTransition(null, { state: 'idle' })).toBeNull();
     expect(notifyKindForTransition({ state: 'idle' }, { state: 'working' })).toBeNull();
   });
+
+  it('a turn that paused for a permission prompt still notifies when it finishes', () => {
+    // Approving the prompt fires no hook, so the stored state is still
+    // needs_input when the turn's Stop arrives.
+    expect(notifyKindForTransition({ state: 'needs_input' }, { state: 'idle' })).toBe('idle');
+  });
+
+  it('end to end: prompt → permission → (approved, no hook) → Stop notifies "Finished"', async () => {
+    await recordStatusEvent('p1', { kind: 'prompt', prompt: 'go' }, T0);
+    await recordStatusEvent('p1', { kind: 'notification', message: 'Claude needs your permission to use Bash' }, at(5));
+    const { prev, next } = await recordStatusEvent('p1', { kind: 'stop', lastMessage: 'done' }, at(30));
+    expect(notifyKindForTransition(prev, next)).toBe('idle');
+  });
 });
 
 describe('persistence', () => {

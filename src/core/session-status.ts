@@ -235,8 +235,12 @@ export function lastAssistantText(transcriptPath: string | undefined): string | 
 /**
  * Whether a status change deserves a desktop notification / status hook:
  * only on entering a state that wants the user — needs_input from anything
- * else, or idle straight out of working (a finished turn). Repeat events
- * (a second Stop, the 60 s idle nudge) stay silent.
+ * else, or idle out of a turn (a finished turn). Repeat events (a second
+ * Stop, the 60 s idle nudge) stay silent.
+ *
+ * "Out of a turn" includes needs_input: approving a permission prompt fires
+ * no hook, so a turn that paused for one is still stored as needs_input
+ * when its Stop arrives — and that finish must notify like any other.
  */
 export function notifyKindForTransition(
   prev: Pick<SessionStatus, 'state'> | null,
@@ -244,6 +248,6 @@ export function notifyKindForTransition(
 ): 'idle' | 'needs_input' | null {
   if (!next) return null;
   if (next.state === 'needs_input' && prev?.state !== 'needs_input') return 'needs_input';
-  if (next.state === 'idle' && prev?.state === 'working') return 'idle';
+  if (next.state === 'idle' && (prev?.state === 'working' || prev?.state === 'needs_input')) return 'idle';
   return null;
 }

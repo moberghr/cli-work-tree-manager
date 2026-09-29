@@ -102,12 +102,14 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     );
   });
 
-  it('refuses a dirty worktree without force, keeping the session', async () => {
+  it('refuses a dirty worktree without force, keeping the session AND its running Claude', async () => {
     fs.writeFileSync(path.join(wtPath, 'wip.txt'), 'dirty\n');
     const r = await del({});
     expect(r.status).toBe(409);
     expect(fs.existsSync(wtPath)).toBe(true);
     expect(loadHistory()).toHaveLength(1);
+    // A refused delete must not have stopped the agent working in there.
+    expect(disposePty).not.toHaveBeenCalled();
   });
 
   it('force removes a dirty worktree', async () => {

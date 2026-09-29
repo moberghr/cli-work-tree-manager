@@ -10,7 +10,12 @@
  *
  * Rules:
  *   - Host must be 127.0.0.1:<port> or localhost:<port> (DNS rebinding).
- *   - A browser marking the request `Sec-Fetch-Site: cross-site` is refused.
+ *   - A browser marking the request `Sec-Fetch-Site: cross-site` is refused,
+ *     except a top-level page load (GET/HEAD, `Sec-Fetch-Mode: navigate`,
+ *     `Sec-Fetch-Dest: document`): clicking a dashboard or diff link in
+ *     GitHub, Jira or Slack must open it. The opening site can't read the
+ *     response and a GET changes nothing; frames stay refused, so no other
+ *     page can embed the dashboard.
  *   - Mutating requests (anything but GET/HEAD/OPTIONS) and WebSocket
  *     upgrades: `Origin` must be absent (non-browser callers — the Claude
  *     hooks, `wd`, the CLI — send none) or exactly our own origin. Browsers
@@ -35,6 +40,8 @@ export interface RequestFacts {
   host?: string;
   origin?: string;
   secFetchSite?: string;
+  secFetchMode?: string;
+  secFetchDest?: string;
   /** A WebSocket upgrade — always checked like a mutating request. */
   upgrade?: boolean;
 }
@@ -42,8 +49,13 @@ export interface RequestFacts {
 /** Null when allowed, else a short reason (for the 403 body / logs). */
 export function refuseReason(req: RequestFacts, port: number): string | null {
   if (!allowedHost(req.host, port)) return 'bad host';
-  if (req.secFetchSite === 'cross-site') return 'cross-site request';
   const mutating = req.upgrade || !SAFE_METHODS.has(req.method.toUpperCase());
+  const pageLoad =
+    !req.upgrade &&
+    ['GET', 'HEAD'].includes(req.method.toUpperCase()) &&
+    req.secFetchMode === 'navigate' &&
+    req.secFetchDest === 'document';
+  if (req.secFetchSite === 'cross-site' && !pageLoad) return 'cross-site request';
   if (mutating && !allowedOrigin(req.origin, port)) return 'foreign origin';
   return null;
 }

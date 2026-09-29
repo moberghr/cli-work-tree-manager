@@ -58,25 +58,76 @@ export function revertFile(root: string, file: ParsedFile): RevertOutcome {
   return { ok: true, description: `reverted ${file.path}` };
 }
 
-/** Which raw hunks the new-side line range [start, end] touches. */
-export function splitHunks(raw: string): { header: string; hunks: Array<{ text: string; newStart: number; newEnd: number }> } {
+/**
+ * The new-side lines a hunk actually changes — its context left out. An
+ * added line counts at its own number; a deleted line at the position it
+ * was removed from (the next new-side line). Null for a hunk that changes
+ * nothing.
+ */
+export function changedSpan(newStart: number, kinds: Array<'+' | '-' | ' '>): { start: number; end: number } | null {
+  let cur = newStart;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const k of kinds) {
+    if (k === ' ') {
+      cur++;
+      continue;
+    }
+    lo = Math.min(lo, cur);
+    hi = Math.max(hi, cur);
+    if (k === '+') cur++;
+  }
+  return lo === Infinity ? null : { start: lo, end: hi };
+}
+
+/** A raw diff's header and hunks, each with the lines it changes. */
+export function splitHunks(raw: string): {
+  header: string;
+  hunks: Array<{ text: string; newStart: number; newEnd: number; changed: { start: number; end: number } | null }>;
+} {
   const at = raw.search(/^@@ /m);
   if (at < 0) return { header: raw, hunks: [] };
   const header = raw.slice(0, at);
-  const hunks: Array<{ text: string; newStart: number; newEnd: number }> = [];
+  const hunks: Array<{ text: string; newStart: number; newEnd: number; changed: { start: number; end: number } | null }> = [];
   const parts = raw.slice(at).split(/(?=^@@ )/m);
   for (const text of parts) {
     const m = text.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
     if (!m) continue;
     const newStart = Number(m[1]);
     const newLines = m[2] === undefined ? 1 : Number(m[2]);
-    // A pure deletion (0 new lines) sits between newStart and newStart+1.
-    hunks.push({ text, newStart, newEnd: newStart + Math.max(newLines, 1) - 1 });
+    const kinds = text
+      .split(/\r?\n/)
+      .slice(1)
+      .map((l) => l[0])
+      .filter((c): c is '+' | '-' | ' ' => c === '+' || c === '-' || c === ' ');
+    // With zero context (-U0) a pure deletion's header names the line BEFORE
+    // it; its first "next new-side line" is one further.
+    const origin = newLines === 0 ? newStart + 1 : newStart;
+    hunks.push({ text, newStart, newEnd: newStart + Math.max(newLines, 1) - 1, changed: changedSpan(origin, kinds) });
   }
   return { header, hunks };
 }
 
-/** Undo the uncommitted changes to lines [start, end] (new side) of `file`. */
+/** The changed lines of the displayed hunk the client asked about. */
+function displayedSpan(file: ParsedFile, start: number, end: number): { start: number; end: number } {
+  const h = file.hunks.find((x) => x.newStart === start && x.newStart + Math.max(x.newLines, 1) - 1 === end);
+  if (!h) return { start, end };
+  const kinds = h.lines
+    .map((l) => (l.kind === 'add' ? '+' : l.kind === 'delete' ? '-' : l.kind === 'context' ? ' ' : null))
+    .filter((k): k is '+' | '-' | ' ' => k !== null);
+  return changedSpan(h.newStart, kinds) ?? { start, end };
+}
+
+/**
+ * Undo the uncommitted changes to the hunk at new-side lines [start, end]
+ * of `file`.
+ *
+ * The displayed hunk comes from a whitespace-insensitive diff; git's raw
+ * diff is taken with zero context so every change is its own hunk, and only
+ * the raw hunks whose CHANGED lines touch the displayed hunk's changed
+ * lines are reverted. (Matching by context-inclusive ranges also reverted
+ * a hidden whitespace-only change a few lines away, without saying so.)
+ */
 export function revertLines(root: string, file: ParsedFile, start: number, end: number): RevertOutcome {
   if (file.isBinary) return { ok: false, status: 400, error: 'binary files can only be reverted whole' };
   if (file.status === 'renamed') return { ok: false, status: 400, error: 'a renamed file can only be reverted whole' };
@@ -84,7 +135,7 @@ export function revertLines(root: string, file: ParsedFile, start: number, end: 
   // An untracked or newly added file is one hunk: reverting it removes it.
   if (!inHead(root, file.path)) return revertFile(root, file);
 
-  const diff = spawn.sync('git', ['diff', '--no-color', '--no-ext-diff', 'HEAD', '--', file.path], {
+  const diff = spawn.sync('git', ['diff', '--no-color', '--no-ext-diff', '-U0', 'HEAD', '--', file.path], {
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 100 * 1024 * 1024,
@@ -92,12 +143,13 @@ export function revertLines(root: string, file: ParsedFile, start: number, end: 
   });
   if (diff.status !== 0) return { ok: false, status: 409, error: (diff.stderr ?? '').toString() || 'git diff failed' };
   const { header, hunks } = splitHunks((diff.stdout ?? '').toString());
-  const picked = hunks.filter((h) => h.newStart <= end && h.newEnd >= start);
+  const want = displayedSpan(file, start, end);
+  const picked = hunks.filter((h) => h.changed && h.changed.start <= want.end && h.changed.end >= want.start);
   if (picked.length === 0) return { ok: false, status: 409, error: 'that change is no longer in the file — reload the diff' };
   const patch = header + picked.map((h) => h.text).join('');
 
   const apply = (check: boolean) =>
-    spawn.sync('git', ['apply', '-R', '--whitespace=nowarn', ...(check ? ['--check'] : []), '-'], {
+    spawn.sync('git', ['apply', '-R', '--unidiff-zero', '--whitespace=nowarn', ...(check ? ['--check'] : []), '-'], {
       cwd: root,
       input: patch,
       encoding: 'utf-8',

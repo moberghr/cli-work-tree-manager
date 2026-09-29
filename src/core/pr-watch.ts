@@ -67,10 +67,57 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
   ].join('\n');
 }
 
+/**
+ * Archive once every repo is done and a PR was merged SINCE the user last
+ * entered the session. `gh pr view <branch>` returns the latest PR for a
+ * branch name even if it was merged long ago, so without the "since" a
+ * fresh `work tree` on a reused branch name — or deliberately re-entering
+ * an archived session — would be archived on the first sweep, its Claude
+ * stopped. A PR whose merge time gh doesn't report never auto-archives.
+ */
+export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>): boolean {
+  if (pre.repos.length === 0 || !pre.repos.every((r) => r.done)) return false;
+  const entered = Date.parse(session.lastAccessedAt);
+  return pre.repos.some((r) => {
+    if (r.pr?.state !== 'MERGED' || !r.pr.mergedAt) return false;
+    const merged = Date.parse(r.pr.mergedAt);
+    return Number.isFinite(merged) && (!Number.isFinite(entered) || merged > entered);
+  });
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>();
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
+
+  /**
+   * A seen-store whose additions wait until `commit()`. Keys for something
+   * we tell Claude are only recorded once the note was delivered: marking
+   * them first (and swallowing a failed send) lost that feedback for good.
+   */
+  function staged(id: string) {
+    const pending = new Set<string>();
+    return {
+      has: (k: string) => pending.has(k) || deps.told(id).has(k),
+      add: (k: string) => void pending.add(k),
+      commit: () => {
+        for (const k of pending) deps.told(id).add(k);
+        pending.clear();
+      },
+    };
+  }
+
+  /** Send a note; on success record its keys as told. A failure keeps them
+   *  un-told, so the next sweep tries again. */
+  async function tellThenRecord(id: string, body: string, seen: { commit: () => void }): Promise<boolean> {
+    try {
+      await deps.tell(id, body);
+    } catch {
+      return false;
+    }
+    seen.commit();
+    return true;
+  }
 
   function failingOf(ci: SessionCi) {
     return ci.repos
@@ -89,6 +136,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
+    const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
@@ -97,7 +145,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         if (!fb) continue;
         threads.set(r.name, openThreadCount(fb));
         if (act) {
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, deps.told(id));
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen);
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
         }
       }
@@ -116,15 +164,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     if (before !== JSON.stringify(ci.repos)) deps.broadcast('ci-changed', { sessionId: id });
 
     if (!act) return ci;
-    if (feedback.length) await deps.tell(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER)).catch(() => {});
+    if (feedback.length) await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen);
+    else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
       const fresh = failingOf(ci).filter((f) => !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
       if (fresh.length) {
-        for (const f of fresh) deps.told(id).add(`${id}:${f.repo}:${f.headSha}`);
-        await deps.tell(id, ciFixMessage(fresh, session.isGroup)).catch(() => {});
+        const ciSeen = staged(id);
+        for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
+        await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen);
       }
     }
-    if (opts.autoArchive && pre.repos.length > 0 && pre.repos.every((r) => r.done) && pre.repos.some((r) => r.pr?.state === 'MERGED')) {
+    if (opts.autoArchive && shouldAutoArchive(pre, session)) {
       await deps.archive(id).catch(() => {});
     }
     return ci;
@@ -156,8 +206,10 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       if (!s || !ci) return false;
       const failing = failingOf(ci);
       if (!failing.length) return false;
-      for (const f of failing) deps.told(id).add(`${id}:${f.repo}:${f.headSha}`);
-      await deps.tell(id, ciFixMessage(failing, s.session.isGroup));
+      const seen = staged(id);
+      for (const f of failing) seen.add(`${id}:${f.repo}:${f.headSha}`);
+      await deps.tell(id, ciFixMessage(failing, s.session.isGroup)); // the route reports a failure
+      seen.commit();
       return true;
     },
     start(intervalMs, firstDelayMs = 15_000) {

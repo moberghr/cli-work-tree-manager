@@ -141,6 +141,25 @@ describe('work state --export', () => {
   });
 });
 
+describe('an old PTY host that outlived the upgrade', () => {
+  it("its pty-sessions.json, written after the import, replaces the database's list at the next host start", async () => {
+    legacyTree();
+    expect(Object.keys(dbPtySessions.read())).toEqual([id]); // imported
+    // The v1 host keeps running: it re-creates the old file and records a
+    // session started after the upgrade, having forgotten the first one.
+    const tool = { cmd: 'claude', baseArgs: [] };
+    write('pty-sessions.json', { later: { cwd: '/wt/later', tool, startedAt: 't2' }, junk: 1 });
+
+    const { adoptLegacyRestoreList } = await import('../../src/core/pty-sessions-file.js');
+    expect(adoptLegacyRestoreList()).toBe(1);
+    expect(dbPtySessions.read()).toEqual({ later: { cwd: '/wt/later', tool, startedAt: 't2' } });
+    expect(fs.existsSync(path.join(work, 'pty-sessions.json'))).toBe(false);
+    expect(fs.readdirSync(work).some((f) => f.startsWith('pty-sessions.json.adopted-'))).toBe(true);
+    // Nothing to adopt the next time.
+    expect(adoptLegacyRestoreList()).toBeNull();
+  });
+});
+
 describe('change counters', () => {
   it('bump on every write to sessions and tasks, from any connection', async () => {
     const s0 = revision('sessions');

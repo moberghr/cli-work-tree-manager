@@ -2,8 +2,11 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { devCommandFor, devLogTail, devState, isListening, startDev, stopDev } from '../../src/core/dev-server.js';
+import { bootTime, processName } from '../../src/core/process.js';
+import { withDb } from '../../src/core/db.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 let home: string;
@@ -55,6 +58,58 @@ describe('isListening', () => {
     expect(await isListening(port)).toBe(true);
     await new Promise((r) => srv.close(r));
     expect(await isListening(port)).toBe(false);
+  });
+});
+
+describe('a saved dev-server pid is only trusted while it is still ours', () => {
+  // An unrelated long-running process standing in for "whatever got the pid".
+  let other: ChildProcess;
+  beforeEach(() => {
+    other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  });
+  afterEach(() => {
+    try {
+      other.kill();
+    } catch {
+      /* gone */
+    }
+  });
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const save = (rec: Record<string, unknown>) =>
+    withDb((d) => d.prepare('INSERT OR REPLACE INTO dev_runs (session_id, data) VALUES (?, ?)').run('s1', JSON.stringify(rec)));
+  const s = () => session({ port: 3999 });
+
+  it('after a reboot the old row is dropped: not shown as running, Stop kills nothing', async () => {
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't', boot: bootTime() - 3 * 60 * 60 * 1000, image: 'cmd.exe' });
+    expect((await devState('s1', s(), null)).running).toBeNull();
+    expect(stopDev('s1')).toBe(false);
+    expect(alive(other.pid!)).toBe(true);
+  });
+
+  it('same boot but the pid is now a different program: Stop forgets it instead of killing', () => {
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't', boot: bootTime(), image: 'definitely-not-this.exe' });
+    expect(stopDev('s1')).toBe(false);
+    expect(alive(other.pid!)).toBe(true);
+    expect(withDb((d) => d.prepare('SELECT 1 FROM dev_runs').get())).toBeUndefined();
+  });
+
+  it('a row from before this check (no boot recorded) is not trusted', async () => {
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't' });
+    expect((await devState('s1', s(), null)).running).toBeNull();
+    expect(stopDev('s1')).toBe(false);
+    expect(alive(other.pid!)).toBe(true);
+  });
+
+  it('processName reads a live process and returns null for a dead one', () => {
+    expect(processName(other.pid!)?.toLowerCase()).toMatch(/^node(\.exe)?$/);
+    expect(processName(2 ** 22 + 12345)).toBeNull();
   });
 });
 

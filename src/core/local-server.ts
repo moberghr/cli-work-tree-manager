@@ -39,6 +39,8 @@ export function launch(app: Hono): Promise<DiffServerHandle & { httpServer: Serv
           host: c.req.header('host'),
           origin: c.req.header('origin'),
           secFetchSite: c.req.header('sec-fetch-site'),
+          secFetchMode: c.req.header('sec-fetch-mode'),
+          secFetchDest: c.req.header('sec-fetch-dest'),
         },
         listenPort,
       );

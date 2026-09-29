@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PROTOCOL_VERSION } from '../../src/core/pty-host-protocol.js';
 
 /**
  * Exactly one PTY host may ever start (reviewed bug): two would each
@@ -24,12 +25,12 @@ vi.mock('node:child_process', async (orig) => ({
       const pid = 1000 + spawnCalls.length;
       const server = http.createServer((_req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ version: 1, pid }));
+        res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid }));
       });
       servers.push(server);
       await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
       const port = (server.address() as { port: number }).port;
-      fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid, port, token: 't', version: 1 }));
+      fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid, port, token: 't', version: PROTOCOL_VERSION }));
     }, 300);
     return { unref() {} };
   },
@@ -67,6 +68,42 @@ describe('ensureHost starts one host, never two', () => {
     const [a, b] = await Promise.all([one.ensureHost('bin.js'), two.ensureHost('bin.js')]);
     expect(spawnCalls).toHaveLength(1);
     expect(a.pid).toBe(b.pid);
+  });
+
+  it('a host that is busy (slow to answer) is waited for, never replaced', async () => {
+    // A running host whose event loop is blocked (a ConPTY spawn, a big
+    // restore) answers nothing for a while, then everything at once. The
+    // first probe times out; treating that as "no host" started a second
+    // one, which restored every session again.
+    const busyUntil = Date.now() + 2500; // longer than two short probes
+    const server = http.createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: 42 }));
+      }, Math.max(0, busyUntil - Date.now()));
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: 42, port, token: 't', version: PROTOCOL_VERSION }));
+
+    const c = await freshClient();
+    const host = await c.ensureHost('bin.js');
+    expect(host.pid).toBe(42);
+    expect(spawnCalls).toHaveLength(0);
+  }, 20_000);
+
+  it('findHost reports a host that never answers as busy, not gone', async () => {
+    const server = http.createServer(() => {
+      /* never answers */
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: 42, port, token: 't', version: PROTOCOL_VERSION }));
+    const c = await freshClient();
+    await expect(c.findHost([50, 100])).rejects.toBeInstanceOf(c.PtyHostBusyError);
+    server.closeAllConnections();
   });
 
   it('an already-running host is reused without spawning', async () => {

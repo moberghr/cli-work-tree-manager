@@ -62,14 +62,44 @@ export async function probeHostDetailed(info: HostInfo, timeoutMs = 800): Promis
   }
 }
 
-/** The running host, or null. Throws PtyHostVersionError on a mismatch. */
-export async function findHost(): Promise<HostInfo | null> {
+/** A host is there but didn't answer in time (event loop busy: a ConPTY
+ *  spawn, restoring many sessions). It is RUNNING — never start another. */
+export class PtyHostBusyError extends Error {
+  constructor() {
+    super('The PTY host is running but not answering (busy?). Try again in a moment.');
+    this.name = 'PtyHostBusyError';
+  }
+}
+
+/**
+ * The running host, or null when there is none. Throws PtyHostVersionError
+ * on a mismatch, and PtyHostBusyError when a host holds the port but
+ * doesn't answer even a patient second probe — treating that as "no host"
+ * would start a second one, which restores every session again (two
+ * Claudes per conversation).
+ */
+export async function findHost(timeoutsMs: number[] = [800, 5000]): Promise<HostInfo | null> {
   const info = readHostInfo();
   if (!info) return null;
-  const probe = await probeHost(info);
-  if (!probe || probe.pid !== info.pid) return null;
+  let probe: ProbeResult = { kind: 'timeout' };
+  for (const t of timeoutsMs) {
+    probe = await probeHostDetailed(info, t);
+    if (probe.kind !== 'timeout') break;
+  }
+  if (probe.kind === 'timeout') throw new PtyHostBusyError();
+  if (probe.kind !== 'host' || probe.pid !== info.pid) return null;
   if (probe.version !== PROTOCOL_VERSION) throw new PtyHostVersionError(probe.version);
   return info;
+}
+
+/** findHost for "should I start one?": a busy host counts as running. */
+async function findHostOrBusy(): Promise<HostInfo | 'busy' | null> {
+  try {
+    return await findHost();
+  } catch (err) {
+    if (err instanceof PtyHostBusyError) return 'busy';
+    throw err;
+  }
 }
 
 /** Serializes host spawning across `work` processes (see ensureHost). */
@@ -102,14 +132,16 @@ export function ensureHost(workBin: string, timeoutMs = 20_000): Promise<HostInf
 }
 
 async function ensureHostLocked(workBin: string, timeoutMs: number): Promise<HostInfo> {
-  const existing = await findHost();
+  const existing = await findHostOrBusy();
+  if (existing === 'busy') return waitForHost(timeoutMs); // it's there; wait for it to answer
   if (existing) return existing;
   const lock = hostSpawnLockPath();
   ensureFile(lock, '');
   try {
     return await withFileLock(lock, async () => {
       // Another process may have started it while we waited for the lock.
-      const started = await findHost();
+      const started = await findHostOrBusy();
+      if (started === 'busy') return waitForHost(timeoutMs);
       if (started) return started;
       spawnHost(workBin);
       return waitForHost(timeoutMs);

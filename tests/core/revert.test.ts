@@ -50,6 +50,29 @@ describe('revertLines', () => {
     expect(read('a.txt')).toContain('line 36');
   });
 
+  it('leaves a whitespace-only change a few lines away alone (the diff hides it)', () => {
+    const l = lines(40);
+    l[9] = 'CHANGED'; // line 10: what you see and revert
+    l[14] = '    line 15'; // line 15: indentation only, hidden by the -w diff (same raw hunk at 3 lines of context)
+    write('a.txt', l.join('\n') + '\n');
+    const f = fileInDiff('a.txt');
+    expect(f.hunks).toHaveLength(1); // only line 10 is displayed
+    const h = f.hunks[0];
+    expect(revertLines(root, f, h.newStart, h.newStart + h.newLines - 1)).toMatchObject({ ok: true });
+    expect(read('a.txt')).not.toContain('CHANGED');
+    expect(read('a.txt')).toContain('    line 15'); // still there
+  });
+
+  it('reverts a hunk that only deletes lines', () => {
+    const l = lines(40);
+    l.splice(19, 2); // delete lines 20-21
+    write('a.txt', l.join('\n') + '\n');
+    const f = fileInDiff('a.txt');
+    const h = f.hunks[0];
+    expect(revertLines(root, f, h.newStart, h.newStart + Math.max(h.newLines, 1) - 1)).toMatchObject({ ok: true });
+    expect(read('a.txt')).toBe(lines(40).join('\n') + '\n');
+  });
+
   it('keeps CRLF line endings byte-exact', () => {
     write('crlf.txt', ['line 1', 'EDIT', 'line 3', 'line 4', 'line 5'].join('\r\n') + '\r\n');
     const f = fileInDiff('crlf.txt');

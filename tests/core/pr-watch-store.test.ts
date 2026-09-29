@@ -35,4 +35,13 @@ describe('PR watch seen-stores', () => {
     await purgeSessionState('api', 'feat/x');
     expect(createSeenStores()(id).has(`rv:${id}:api:7:baseline`)).toBe(false);
   });
+
+  it('a running work web sees the removal too (a re-created session starts clean)', async () => {
+    const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
+    const stores = createSeenStores(); // the one work web holds for its lifetime
+    stores(id).add(`${id}:api:sha1`);
+    expect(stores(id).has(`${id}:api:sha1`)).toBe(true);
+    await purgeSessionState('api', 'feat/x'); // `work remove`, from any process
+    expect(stores(id).has(`${id}:api:sha1`)).toBe(false);
+  });
 });

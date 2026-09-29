@@ -44,6 +44,8 @@ export function attachTerminalWs(
         host: req.headers.host,
         origin: req.headers.origin,
         secFetchSite: req.headers['sec-fetch-site'] as string | undefined,
+        secFetchMode: req.headers['sec-fetch-mode'] as string | undefined,
+        secFetchDest: req.headers['sec-fetch-dest'] as string | undefined,
       },
       port,
     );

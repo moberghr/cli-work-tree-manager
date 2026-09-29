@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 
 /**
@@ -24,6 +25,31 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The executable name of a live process ("cmd.exe", "sh"), or null if it
+ * isn't running or can't be read. For checking a remembered pid is still
+ * the process we started before acting on it — pids get reused.
+ */
+export function processName(pid: number): string | null {
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
+      const m = /^"([^"]+)","(\d+)"/.exec((r.stdout ?? '').trim());
+      return m && Number(m[2]) === pid ? m[1] : null;
+    }
+    const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000 });
+    const name = (r.stdout ?? '').trim();
+    return r.status === 0 && name ? name.split('/').pop()! : null;
+  } catch {
+    return null;
+  }
+}
+
+/** When this machine last booted (ms since epoch, ±1 s). */
+export function bootTime(): number {
+  return Date.now() - os.uptime() * 1000;
 }
 
 /** Kill a process AND its children. True if the kill was delivered. */

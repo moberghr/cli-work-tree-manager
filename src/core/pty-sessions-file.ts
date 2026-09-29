@@ -1,5 +1,6 @@
 import { json, tx, withDb } from './db.js';
-import { isPersistedPty, type PersistedPtys } from './pty-host-protocol.js';
+import fs from 'node:fs';
+import { isPersistedPty, ptySessionsPath, type PersistedPtys } from './pty-host-protocol.js';
 
 /**
  * The PTY host's restore list: which sessions were live, so a host restart
@@ -32,6 +33,35 @@ export const dbPtySessions: PtySessionsStore = {
     });
   },
 };
+
+/**
+ * A pty-sessions.json present at host start was written by an OLDER host
+ * (protocol v1) that kept running across the upgrade to state.db: after the
+ * one-time import renamed the file, that host re-created it and went on
+ * recording sessions there. It is the newest list, so it replaces the
+ * database's — otherwise sessions started after the upgrade would not be
+ * restored, and ones it forgot would come back. Returns how many entries
+ * it adopted (null: no file).
+ */
+export function adoptLegacyRestoreList(file = ptySessionsPath()): number | null {
+  if (!fs.existsSync(file)) return null;
+  const adopted: PersistedPtys = {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
+    if (raw && typeof raw === 'object') {
+      for (const [id, entry] of Object.entries(raw)) if (isPersistedPty(entry)) adopted[id] = entry;
+    }
+  } catch {
+    return null; // unreadable: leave it, and the database's list, alone
+  }
+  dbPtySessions.write(adopted);
+  try {
+    fs.renameSync(file, `${file}.adopted-${Date.now()}`);
+  } catch {
+    /* adopted already; a leftover file is adopted again next start */
+  }
+  return Object.keys(adopted).length;
+}
 
 /**
  * Drop one session from the restore list without a running host, so the

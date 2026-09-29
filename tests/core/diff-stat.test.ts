@@ -54,6 +54,34 @@ describe('DiffStatCache', () => {
     expect(changes).toBe(2);
   });
 
+  it('a change during a refresh is not hidden behind that refresh\'s stale result', async () => {
+    // The git call is held until we release it, like a slow `git diff`.
+    let release!: () => void;
+    let result = '1\t0\ta.ts\n';
+    const slow: CommandRunner = async (_cmd, args) => {
+      if (args[0] === 'diff') {
+        const out = result; // what the files looked like when git ran
+        await new Promise<void>((r) => (release = r));
+        return { code: 0, stdout: out, stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const cache = new DiffStatCache({ run: slow, ttlMs: 60_000 });
+    cache.get('s', [dir]);
+    await new Promise((r) => setTimeout(r, 10));
+
+    result = '9\t0\ta.ts\n'; // a file changed while git was running…
+    cache.invalidate('s');
+    release();
+    await cache.idle();
+    expect(cache.get('s', [dir])).toEqual({ added: 1, deleted: 0, files: 1 }); // shown, but stale…
+
+    await new Promise((r) => setTimeout(r, 10)); // …so that read started a recompute
+    release();
+    await cache.idle();
+    expect(cache.get('s', [dir])).toEqual({ added: 9, deleted: 0, files: 1 });
+  });
+
   it('is null for worktrees that no longer exist', async () => {
     const cache = new DiffStatCache({ run });
     cache.get('gone', [path.join(dir, 'nope')]);

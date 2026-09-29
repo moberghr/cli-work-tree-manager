@@ -22,6 +22,7 @@ import { summarizeCheckpoint } from './checkpoint-summary.js';
 import { getClaudeActivityMs, claudeActiveWithin } from './claude-activity.js';
 import {
   commentStoreIdForScope,
+  findScope,
   getScope,
   listScopes,
   markScopeEnded,
@@ -67,7 +68,10 @@ export interface ScopeMountOptions {
  *   GET    /api/scopes/:hash/events          — SSE: diff-changed,
  *                                              comments-changed
  */
-export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): { ensureScope: (paths: string[], label?: string) => Scope } {
+export function mountScopeRoutes(
+  app: Hono,
+  opts: ScopeMountOptions,
+): { ensureScope: (paths: string[], label?: string) => Scope; sessionScope: (paths: string[], label?: string) => Scope } {
   // -- Lifecycle -----------------------------------------------------------
 
   // Scopes that already have an auto-snapshot subscriber wired. The
@@ -864,5 +868,19 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): { ensureSc
     });
   });
 
-  return { ensureScope };
+  /**
+   * The scope for a dashboard session's paths, for its turn checkpoints.
+   * An existing scope is returned untouched: `ensureScope` also does what a
+   * NEW `wd -c` run needs — revive an ended review, clear its comments,
+   * relabel — and a dashboard lookup (on every Claude hook) must never do
+   * that to a review someone ran in the same worktree. Only a scope that
+   * doesn't exist yet is created, through ensureScope, with its checkpoint
+   * baseline and watcher.
+   */
+  function sessionScope(paths: string[], label?: string): Scope {
+    const existing = findScope(paths);
+    return existing ?? ensureScope(paths, label);
+  }
+
+  return { ensureScope, sessionScope };
 }

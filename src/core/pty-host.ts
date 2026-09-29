@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import { WebSocketServer } from 'ws';
 import { atomicWriteFile } from './fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
+import { adoptLegacyRestoreList } from './pty-sessions-file.js';
+import { bestEffort } from './best-effort.js';
 import {
   PROTOCOL_VERSION,
   hostInfoPath,
@@ -209,7 +211,15 @@ export async function startPtyHost(
   if (opts.writeInfo !== false) {
     atomicWriteFile(hostInfoPath(), JSON.stringify(info));
   }
-  if (opts.restore !== false) await registry.restore();
+  if (opts.restore !== false) {
+    // An older host that outlived the upgrade kept its list in the old
+    // file: take it over before restoring (see adoptLegacyRestoreList).
+    if (!opts.registry) {
+      const adopted = bestEffort('adopt the old pty-sessions.json', () => adoptLegacyRestoreList(), null);
+      if (adopted !== null && adopted !== undefined) process.stderr.write(`[pty-host] adopted ${adopted} session(s) from an older host's pty-sessions.json\n`);
+    }
+    await registry.restore();
+  }
 
   return {
     info,

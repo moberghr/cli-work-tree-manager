@@ -73,6 +73,8 @@ export interface ShipPr {
   mergeStateStatus: string;
   checks: ChecksState;
   headSha: string;
+  /** When it was merged (ISO), for a MERGED PR. */
+  mergedAt?: string;
   /** Checks that failed (name + link), when `checks` is 'fail'. */
   failing?: FailingCheck[];
 }

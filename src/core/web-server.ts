@@ -246,7 +246,7 @@ export async function startWebServer(
   const sessionScope = (session: WorktreeSession) =>
     bestEffort(
       `checkpoint scope for ${session.target}:${session.branch}`,
-      () => scopeApi?.ensureScope(session.paths, `${session.target} · ${session.branch}`) ?? null,
+      () => scopeApi?.sessionScope(session.paths, `${session.target} · ${session.branch}`) ?? null,
       null,
     ) ?? null;
 

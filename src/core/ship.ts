@@ -222,14 +222,14 @@ async function inspectRepo(
   let ghError: string | undefined;
   const view = await run(
     'gh',
-    ['pr', 'view', branch, '--json', 'number,url,state,isDraft,mergeStateStatus,headRefOid,statusCheckRollup'],
+    ['pr', 'view', branch, '--json', 'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,statusCheckRollup'],
     repo.path,
   );
   if (view.code === 0) {
     try {
       const j = JSON.parse(view.stdout) as {
         number: number; url: string; state: ShipPr['state']; isDraft: boolean;
-        mergeStateStatus?: string; headRefOid: string; statusCheckRollup?: CheckRollupItem[];
+        mergeStateStatus?: string; headRefOid: string; mergedAt?: string | null; statusCheckRollup?: CheckRollupItem[];
       };
       pr = {
         number: j.number,
@@ -239,6 +239,7 @@ async function inspectRepo(
         mergeStateStatus: j.mergeStateStatus ?? 'UNKNOWN',
         checks: checksFromRollup(j.statusCheckRollup),
         headSha: j.headRefOid,
+        ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {

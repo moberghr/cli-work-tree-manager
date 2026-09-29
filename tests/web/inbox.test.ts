@@ -98,6 +98,21 @@ describe('SessionRail with attention', () => {
     expect(blocked.getAttribute('title')).toContain('Claude needs your permission to use Edit');
     expect(byName('done').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
   });
+
+  it('keeps an old selected session visible even with 40+ current ones', () => {
+    // 45 entered in the last few minutes (current) + 3 from a month ago (older).
+    const recent = Array.from({ length: 45 }, (_, i) => session(`cur-${i}`, null, 1 + i));
+    const old = ['old-a', 'old-b', 'old-c'].map((id) => session(id, null, 60 * 24 * 30));
+    act(() =>
+      root.render(
+        createElement(SessionRail, { sessions: [...recent, ...old], activeSessionId: 'old-b', onSelect: () => {}, onNewWorktree: () => {} }),
+      ),
+    );
+    const names = [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
+    expect(names).toHaveLength(46); // every current one + the selected old one
+    expect(names).toContain('old-b');
+    expect(text(container)).toContain('+2 older');
+  });
 });
 
 describe('TopNav inbox badge', () => {

@@ -25,6 +25,17 @@ describe('refuseReason', () => {
     expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'cross-site' }, P)).toBe('cross-site request');
     expect(refuseReason({ method: 'GET', host: 'evil.example' }, P)).toBe('bad host');
   });
+
+  it('opens a dashboard link clicked on another site (a top-level page load)', () => {
+    const nav = { host: H, secFetchSite: 'cross-site', secFetchMode: 'navigate', secFetchDest: 'document' };
+    expect(refuseReason({ method: 'GET', ...nav }, P)).toBeNull();
+    expect(refuseReason({ method: 'HEAD', ...nav }, P)).toBeNull();
+    // …but not a form POST navigation, a frame, or a script/fetch load.
+    expect(refuseReason({ method: 'POST', ...nav }, P)).toBe('cross-site request');
+    expect(refuseReason({ method: 'GET', ...nav, secFetchDest: 'iframe' }, P)).toBe('cross-site request');
+    expect(refuseReason({ method: 'GET', ...nav, secFetchMode: 'cors', secFetchDest: 'empty' }, P)).toBe('cross-site request');
+    expect(refuseReason({ method: 'GET', upgrade: true, ...nav, origin: 'https://evil.example' }, P)).toBe('cross-site request');
+  });
 });
 
 describe('the launch() guard on a real server', () => {
@@ -43,6 +54,29 @@ describe('the launch() guard on a real server', () => {
     expect((await post({ origin: `http://127.0.0.1:${h.port}` })).status).toBe(200);
     expect((await post({})).status).toBe(200); // Node caller, no Origin
     expect(hits).toBe(2);
+    await h.stop();
+  });
+
+  it('a link to the dashboard clicked on another site loads the page', async () => {
+    const app = new Hono();
+    app.get('/diff/abc', (c) => c.html('<p>diff</p>'));
+    const h = await launch(app);
+    // Raw http.request: Node's fetch forces its own Sec-Fetch-Mode, while a
+    // browser navigation sends exactly these.
+    const get = (headers: Record<string, string>) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port: h.port, path: '/diff/abc', headers }, (res) => {
+          let body = '';
+          res.on('data', (d) => (body += d));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+        });
+        req.on('error', reject);
+      });
+    const nav = await get({ 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' });
+    expect(nav.status).toBe(200);
+    expect(nav.body).toContain('diff');
+    // The same page pulled into a frame on that site is still refused.
+    expect((await get({ 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'iframe' })).status).toBe(403);
     await h.stop();
   });
 });

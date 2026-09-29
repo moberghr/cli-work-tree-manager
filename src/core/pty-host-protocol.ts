@@ -10,8 +10,12 @@ import type { AiToolSpec } from './ai-launcher.js';
  * client that finds an older host running tells the user to restart it
  * (`work pty-host --restart`) instead of silently misbehaving — the host
  * outlives rebuilds by design.
+ *
+ * 2: the restore list moved from pty-sessions.json into state.db. A v1 host
+ *    still writes the file, which a v2 host adopts on start
+ *    (adoptLegacyRestoreList).
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Discovery file: where the running host listens and its auth token. */
 export interface HostInfo {
