@@ -5,9 +5,9 @@ import { useSse } from '../../api/events.js';
 const POLL_MS = 60_000;
 
 /**
- * CI for the session's open PRs, under the header: failing checks by name
- * (linked) with "Ask Claude to fix", or a running marker. Nothing when
- * there's no open PR or everything is green. work web's PR watch already
+ * CI and review for the session's open PRs, under the header: open review
+ * threads, failing checks by name (linked) with "Ask Claude to fix", or a
+ * running marker. Nothing when there's no open PR or all is quiet. work web's PR watch already
  * tells Claude about a new failure by itself (config `prWatch.fixCi`);
  * the button is for asking again.
  */
@@ -38,11 +38,21 @@ export function CiStrip({ sessionId, isGroup }: { sessionId: string; isGroup: bo
   const open = (ci?.repos ?? []).filter((r) => r.pr?.state === 'OPEN');
   const failing = open.filter((r) => r.pr!.checks === 'fail');
   const running = open.filter((r) => r.pr!.checks === 'pending');
-  if (!failing.length && !running.length) return null;
+  const reviewed = open.filter((r) => (r.openThreads ?? 0) > 0);
+  if (!failing.length && !running.length && !reviewed.length) return null;
   const label = (r: (typeof open)[number]) => `#${r.pr!.number}${isGroup ? ` ${r.name}` : ''}`;
 
   return (
     <div className={'wd-ci-strip' + (failing.length ? ' wd-ci-fail' : ' wd-ci-running')} role="status">
+      {reviewed.map((r) => (
+        <span key={`rv-${r.name}`} className="wd-ci-item" title="Unresolved review threads waiting on you or Claude — new ones are handed to Claude automatically">
+          <span aria-hidden="true">💬</span>{' '}
+          <a href={`${r.pr!.url}/files`} target="_blank" rel="noopener noreferrer">
+            {r.openThreads} open review thread{r.openThreads === 1 ? '' : 's'}
+          </a>{' '}
+          on {label(r)}
+        </span>
+      ))}
       {failing.map((r) => (
         <span key={r.name} className="wd-ci-item">
           <span aria-hidden="true">✗</span> CI failing on{' '}

@@ -42,6 +42,8 @@ interface DemoRepo {
   sinceBranch: string;
   published: boolean;
   pr: ShipPr | null;
+  /** Unresolved review threads on the PR (simulated). */
+  openThreads?: number;
 }
 
 interface DemoSession {
@@ -356,6 +358,7 @@ export class DemoScenario {
         name: 'api', uncommitted: '', sinceBranch: DEPS, published: true,
         pr: { number: 212, url: 'https://github.com/example/api/pull/212', state: 'OPEN', isDraft: false, mergeStateStatus: 'UNSTABLE', checks: 'fail', headSha: 'c0ffee1234ab',
           failing: [{ name: 'test (node 22)', url: 'https://github.com/example/api/actions/runs/1' }, { name: 'typecheck' }] },
+        openThreads: 2,
       }],
       { state: 'idle', seen: true, summary: FINISH_MESSAGES['chore/deps-update'], minutesAgo: 50 },
       claudeScreen('Update dependencies', ['● Bash(npm outdated)', '● Update(package.json)', '● Bash(npm test)  ⎿  84 passed', '', '● ' + FINISH_MESSAGES['chore/deps-update']]),
@@ -605,7 +608,12 @@ export class DemoScenario {
     if (!s) return null;
     return {
       checkedAt: new Date(this.now()).toISOString(),
-      repos: s.repos.map((r) => ({ name: r.name, pr: r.pr, done: r.pr?.state === 'MERGED' })),
+      repos: s.repos.map((r) => ({
+        name: r.name,
+        pr: r.pr,
+        done: r.pr?.state === 'MERGED',
+        ...(r.pr?.state === 'OPEN' && r.openThreads ? { openThreads: r.openThreads } : {}),
+      })),
     };
   }
 

@@ -59,9 +59,10 @@ export interface WorkConfig {
   devCommands?: Record<string, string>;
   /**
    * Background PR watch in `work web` (both default on): archive a session
-   * once all its PRs merged, and tell its Claude when CI fails.
+   * once all its PRs merged, and tell its Claude when CI fails or reviewers
+   * leave feedback.
    */
-  prWatch?: { autoArchive?: boolean; fixCi?: boolean };
+  prWatch?: { autoArchive?: boolean; fixCi?: boolean; reviewComments?: boolean };
   /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
    * notification when a session goes idle or needs input. Default: off.
@@ -140,7 +141,7 @@ export function loadConfig(): WorkConfig | null {
       launchViaHost: parsed.launchViaHost === true,
       devCommands: validateDevCommands(parsed.devCommands),
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
-        ? { autoArchive: parsed.prWatch.autoArchive !== false, fixCi: parsed.prWatch.fixCi !== false }
+        ? { autoArchive: parsed.prWatch.autoArchive !== false, fixCi: parsed.prWatch.fixCi !== false, reviewComments: parsed.prWatch.reviewComments !== false }
         : undefined,
     };
   } catch {

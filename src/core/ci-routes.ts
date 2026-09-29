@@ -6,7 +6,8 @@ import { atomicWriteFile } from './fs-safe.js';
 import { loadHistory } from './history.js';
 import { sessionIdFor } from './session-id.js';
 import { findSession } from './web-state.js';
-import { shipPreflight } from './ship.js';
+import { defaultRunner, shipPreflight } from './ship.js';
+import { fetchReviewFeedback } from './pr-review.js';
 import { createPrWatch, type PrWatch } from './pr-watch.js';
 
 /**
@@ -20,7 +21,7 @@ import { createPrWatch, type PrWatch } from './pr-watch.js';
 /** Sessions touched this recently are watched; older ones are left alone. */
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
-const MAX_TOLD = 500;
+const MAX_TOLD = 5000;
 
 function toldStore() {
   const file = path.join(getConfigDir(), 'pr-watch.json');
@@ -61,6 +62,7 @@ export function mountCiRoutes(
         .map((session) => ({ id: sessionIdFor(session), session }));
     },
     preflight: (s) => shipPreflight(s),
+    reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     archive: opts.archive,
     tell: async (id, body) => {
       await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
@@ -72,7 +74,7 @@ export function mountCiRoutes(
     broadcast: opts.broadcast,
     options: () => {
       const w = loadConfig()?.prWatch;
-      return { autoArchive: w?.autoArchive !== false, fixCi: w?.fixCi !== false };
+      return { autoArchive: w?.autoArchive !== false, fixCi: w?.fixCi !== false, reviewComments: w?.reviewComments !== false };
     },
     told: toldStore(),
   });

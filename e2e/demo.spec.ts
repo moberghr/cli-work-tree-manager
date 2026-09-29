@@ -167,5 +167,7 @@ test('failing CI shows under the header, and Claude fixes it on request', async 
   await strip.getByRole('button', { name: 'Ask Claude to fix' }).click();
   await expect(strip).toContainText('Sent to Claude ✓');
   await expect(strip).toContainText('checks running', { timeout: 10_000 });
-  await expect(strip).toHaveCount(0, { timeout: 15_000 });
+  await expect(strip).not.toContainText(/CI failing|checks running/, { timeout: 15_000 });
+  // Open review threads stay visible until they're resolved on GitHub.
+  await expect(strip).toContainText('2 open review threads on #212');
 });

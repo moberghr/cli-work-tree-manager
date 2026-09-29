@@ -47,3 +47,8 @@ export function compareAttention(
 export function needsAttention(s: Pick<AttentionLike, 'state' | 'seen'> | null | undefined): boolean {
   return attentionRank(s) <= 1;
 }
+
+/** The line Claude starts when it stops to ask you something (the PR
+ *  watch's CI / review notes ask for it). A finished turn carrying it is
+ *  "needs input", not "done": top of the Inbox, and it notifies as such. */
+export const DECISION_MARKER = 'DECISION NEEDED:';

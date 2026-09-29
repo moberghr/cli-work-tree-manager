@@ -197,5 +197,11 @@ export interface DevServerState {
 /** GET /api/sessions/:id/ci — what GitHub says about the session's PRs. */
 export interface SessionCi {
   checkedAt: string;
-  repos: Array<{ name: string; pr: ShipPr | null; done: boolean }>;
+  repos: Array<{
+    name: string;
+    pr: ShipPr | null;
+    done: boolean;
+    /** Unresolved review threads waiting on the author (open PRs). */
+    openThreads?: number;
+  }>;
 }

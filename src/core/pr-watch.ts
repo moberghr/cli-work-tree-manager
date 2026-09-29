@@ -1,5 +1,7 @@
 import type { WorktreeSession } from './session-types.js';
 import type { SessionCi, ShipPreflight } from './api-types.js';
+import { DECISION_MARKER } from './attention.js';
+import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback } from './pr-review.js';
 
 /**
  * Background PR watch for `work web` (full mode): what GitHub knows about
@@ -9,6 +11,9 @@ import type { SessionCi, ShipPreflight } from './api-types.js';
  *   - CI newly failing on a PR → tell THAT session's Claude (it has the
  *     context) to fix it, asking you if it needs a decision. Once per PR
  *     head commit, so a push that fails again is reported again.
+ *   - New review feedback on an open PR (unresolved threads, reviews,
+ *     comments by others — see pr-review.ts) → hand it to that Claude to
+ *     address, or to ask you if it needs a decision.
  *   - Every repo done and something merged → archive the session (the
  *     same rule as Ship's merge; a follow-up commit keeps it open).
  *
@@ -27,7 +32,9 @@ export interface PrWatchDeps {
   /** Leave the session's Claude a (published) review note. */
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
-  options: () => { autoArchive: boolean; fixCi: boolean };
+  options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean };
+  /** Review threads/comments on a PR (null when gh can't say). */
+  reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Head commits we already reported a failure for (persisted). */
   told: { has: (key: string) => boolean; add: (key: string) => void };
   now?: () => number;
@@ -55,7 +62,7 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
     ...lines,
     '',
     'Look at the failures (`gh pr checks <n>`, `gh run view <run-id> --log-failed`), fix them, and push.',
-    'If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — stop and ask me instead of guessing.',
+    `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
   ].join('\n');
 }
 
@@ -77,16 +84,38 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     } catch {
       return states.get(id) ?? null;
     }
+    const opts = deps.options();
+    // Review feedback per open PR: counts for the strip, and (when acting)
+    // what's new for Claude.
+    const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
+    const threads = new Map<string, number>();
+    if (deps.reviewFeedback && opts.reviewComments) {
+      for (const r of pre.repos) {
+        if (r.pr?.state !== 'OPEN') continue;
+        const fb = await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
+        if (!fb) continue;
+        threads.set(r.name, openThreadCount(fb));
+        if (act) {
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, deps.told);
+          if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
+        }
+      }
+    }
     const ci: SessionCi = {
       checkedAt: new Date(now()).toISOString(),
-      repos: pre.repos.map((r) => ({ name: r.name, pr: r.pr, done: r.done })),
+      repos: pre.repos.map((r) => ({
+        name: r.name,
+        pr: r.pr,
+        done: r.done,
+        ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),
+      })),
     };
     const before = JSON.stringify(states.get(id)?.repos);
     states.set(id, ci);
     if (before !== JSON.stringify(ci.repos)) deps.broadcast('ci-changed', { sessionId: id });
 
     if (!act) return ci;
-    const opts = deps.options();
+    if (feedback.length) await deps.tell(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER)).catch(() => {});
     if (opts.fixCi) {
       const fresh = failingOf(ci).filter((f) => !deps.told.has(`${id}:${f.repo}:${f.headSha}`));
       if (fresh.length) {

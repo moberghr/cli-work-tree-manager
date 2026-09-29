@@ -41,6 +41,19 @@ describe('applyStatusEvent', () => {
     expect(done).toMatchObject({ state: 'idle', seen: false, summary: 'Done', since: at(60).toISOString() });
   });
 
+  it('a finished turn that asks for a decision → needs_input with the question', () => {
+    const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'x' }, T0);
+    const ask = applyStatusEvent(
+      working,
+      { kind: 'stop', lastMessage: 'Fixed two review comments.\n\n**DECISION NEEDED:** keep the v1 endpoint for old clients?\n\n> reviewer: drop v1' },
+      at(60),
+    );
+    expect(ask).toMatchObject({ state: 'needs_input', seen: false, summary: 'keep the v1 endpoint for old clients?' });
+    // Mentioning the words mid-sentence is not asking.
+    const done = applyStatusEvent(working, { kind: 'stop', lastMessage: 'No DECISION NEEDED here, all fixed.' }, at(60));
+    expect(done.state).toBe('idle');
+  });
+
   it('a permission notification → needs_input with the request as summary', () => {
     const s = applyStatusEvent(null, { kind: 'notification', message: 'Claude needs your permission to use Bash' }, T0);
     expect(s).toMatchObject({ state: 'needs_input', seen: false, summary: 'Claude needs your permission to use Bash' });

@@ -46,6 +46,9 @@ export type StatusEvent =
  *  it's blocked on you. (Same regex Emdash settled on.) */
 const NEEDS_INPUT_RE = /permission|approval|approve/i;
 
+/** A finished turn whose message has a DECISION_MARKER line (attention.ts). */
+const DECISION_RE = /^[\W_]*DECISION NEEDED\b[:\s-]*(.*)$/im;
+
 /** Squash a prompt / message to one readable line. */
 export function oneLine(text: string | undefined, max = 140): string | undefined {
   if (!text) return undefined;
@@ -75,8 +78,11 @@ export function applyStatusEvent(
     case 'prompt':
       // The user just typed into it — by definition they've seen it.
       return enter('working', oneLine(event.prompt), true);
-    case 'stop':
+    case 'stop': {
+      const ask = event.lastMessage?.match(DECISION_RE);
+      if (ask) return enter('needs_input', oneLine(ask[1]) ?? 'Claude needs a decision', false);
       return enter('idle', oneLine(event.lastMessage), false);
+    }
     case 'notification': {
       if (event.message && NEEDS_INPUT_RE.test(event.message)) {
         return enter('needs_input', oneLine(event.message), false);
