@@ -17,7 +17,7 @@
 
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from './history.js';
-import { sessionIdFor } from './web-state.js';
+import { sessionIdFor } from './session-id.js';
 import { readStoreComments } from './comment-file-store.js';
 import { scopeHashFor } from './repo-spec.js';
 import { tx, withDb, type Db } from './db.js';

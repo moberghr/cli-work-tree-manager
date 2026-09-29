@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
-import { run } from './cli.js';
 import { installConsoleLogger, debug } from './core/logger.js';
 import { getConfigDir } from './core/config.js';
 
@@ -40,4 +39,15 @@ function handleFatalError(err: unknown): void {
 process.on('uncaughtException', handleFatalError);
 process.on('unhandledRejection', handleFatalError);
 
-run(process.argv.slice(2));
+// Claude runs `work hook <event>` several times per turn, each with a 5 s
+// timeout. The full CLI statically loads every command — node-pty, the web
+// and PTY-host servers, SQLite — so a hook paid for all of it on every
+// event. Hooks load only their own module.
+const args = process.argv.slice(2);
+if (args[0] === 'hook') {
+  const { runHookEvent } = await import('./commands/hook.js');
+  await runHookEvent(args[1]);
+} else {
+  const { run } = await import('./cli.js');
+  run(args);
+}

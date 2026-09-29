@@ -156,9 +156,14 @@ async function readStdinJson(): Promise<HookPayload> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let resolved = false;
+    // No payload after 1 s (stdin never closed): carry on without one.
+    const fallback = setTimeout(() => done({}), 1000);
     const done = (val: HookPayload) => {
       if (resolved) return;
       resolved = true;
+      // The fallback timer kept every hook process alive a full second
+      // after its work was done — on each of several hooks per turn.
+      clearTimeout(fallback);
       resolve(val);
     };
     process.stdin.on('data', (c: Buffer) => chunks.push(c));
@@ -171,8 +176,25 @@ async function readStdinJson(): Promise<HookPayload> {
       }
     });
     process.stdin.on('error', () => done({}));
-    setTimeout(() => done({}), 1000);
+
   });
+}
+
+const HOOK_EVENTS = [
+  'prompt-submit',
+  'stop',
+  'checkpoint',
+  'checkpoint-seal',
+  'status-prompt',
+  'status-stop',
+  'status-notify',
+] as const;
+
+/** `work hook <event>` without the yargs router (bin.ts's fast path). An
+ *  unknown event is ignored: a hook must never fail Claude's turn. */
+export async function runHookEvent(event: string | undefined): Promise<void> {
+  if (!event || !(HOOK_EVENTS as readonly string[]).includes(event)) return;
+  await handleHook(event as HookEvent);
 }
 
 export const hookCommand: CommandModule = {
@@ -181,25 +203,20 @@ export const hookCommand: CommandModule = {
   builder: (y) =>
     y.positional('event', {
       type: 'string',
-      choices: [
-        'prompt-submit',
-        'stop',
-        'checkpoint',
-        'checkpoint-seal',
-        'status-prompt',
-        'status-stop',
-        'status-notify',
-      ] as const,
+      choices: HOOK_EVENTS,
       describe: 'Hook event name',
     }),
-  handler: async (argv) => {
+  handler: async (argv) => handleHook(argv.event as HookEvent),
+};
+
+async function handleHook(event: HookEvent): Promise<void> {
+  {
     // Bail when this hook fired from one of work's OWN internal `claude -p`
     // runs (checkpoint naming, Jira slug, CLAUDE.md gen). Those headless
     // Claudes inherit the WORK_INTERNAL_CLAUDE marker; without this guard the
     // checkpoint-naming run recursively seals + spawns checkpoints, fragmenting
     // one Claude round into many spurious steps. See internal-claude.ts.
     if (isInternalClaude()) return;
-    const event = argv.event as HookEvent;
     const payload = await readStdinJson();
     const cwd = payload.cwd ?? process.cwd();
     // Checkpoint bridges are independent of comment delivery: just nudge work
@@ -235,5 +252,5 @@ export const hookCommand: CommandModule = {
     const result = computeHookOutput({ event, cwd }, claimForDelivery);
     if (!result || !result.sessionId) return;
     process.stdout.write(result.stdout);
-  },
-};
+  }
+}

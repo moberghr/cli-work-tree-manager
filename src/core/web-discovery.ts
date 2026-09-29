@@ -50,7 +50,7 @@ export function clearWebDiscovery(): void {
 }
 
 export type WebProbe =
-  | { kind: 'ours'; pid: number | null }
+  | { kind: 'ours'; pid: number | null; lean: boolean }
   /** Nothing listens there (or something that isn't work web answered). */
   | { kind: 'gone' }
   /** No answer in time — possibly just busy; never proof it's gone. */
@@ -60,9 +60,9 @@ export async function probeWeb(url: string, timeoutMs = 1500): Promise<WebProbe>
   try {
     const res = await fetch(`${url}api/context`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { kind: 'gone' };
-    const body = (await res.json().catch(() => ({}))) as { mode?: unknown; pid?: unknown };
+    const body = (await res.json().catch(() => ({}))) as { mode?: unknown; pid?: unknown; lean?: unknown };
     if (typeof body.mode !== 'string') return { kind: 'gone' };
-    return { kind: 'ours', pid: typeof body.pid === 'number' ? body.pid : null };
+    return { kind: 'ours', pid: typeof body.pid === 'number' ? body.pid : null, lean: body.lean === true };
   } catch (err) {
     const name = (err as { name?: string }).name;
     return name === 'TimeoutError' || name === 'AbortError' ? { kind: 'timeout' } : { kind: 'gone' };

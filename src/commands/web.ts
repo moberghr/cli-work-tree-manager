@@ -36,6 +36,7 @@ export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive
  */
 export async function stopExisting(
   kill: (pid: number) => void = (pid) => process.kill(pid),
+  graceMs = 8000,
 ): Promise<WebStopOutcome> {
   const pid = readWebPid();
   const url = readWebUrl();
@@ -53,10 +54,22 @@ export async function stopExisting(
     clearWebDiscovery();
     return 'stale';
   }
-  try {
-    kill(pid);
-  } catch {
-    return 'failed';
+  // Ask it to run its own shutdown first (removes its Claude hooks, sweeps
+  // checkpoint refs); a hard kill skips all that on Windows. Kill only if
+  // it doesn't go.
+  const asked = await fetch(`${url}api/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+  if (asked) {
+    const until = Date.now() + graceMs;
+    while (Date.now() < until && isPidAlive(pid)) await new Promise((r) => setTimeout(r, 100));
+  }
+  if (isPidAlive(pid)) {
+    try {
+      kill(pid);
+    } catch {
+      return 'failed';
+    }
   }
   clearWebDiscovery();
   return 'stopped';
@@ -134,7 +147,19 @@ export const webCommand: CommandModule = {
     // each one holds a port, and only the most-recently-started is
     // discoverable via `web.url`. Detect a live previous instance and
     // either reuse it (open browser) or refuse to start.
+    const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
     const existingPid = readWebPid();
+    if (existingPid && isPidAlive(existingPid) && !lean) {
+      // A lean instance (autostarted by `wd`) has no Claude hooks, inbox,
+      // PR watch or session restore — reusing it for `work web` left all of
+      // that silently off. Replace it with the full server.
+      const url = readWebUrl();
+      const probe = url ? await probeWeb(url, 3000) : null;
+      if (probe?.kind === 'ours' && probe.lean) {
+        info(chalk.gray('Replacing the lean work web that `wd` started with the full dashboard…'));
+        await stopExisting();
+      }
+    }
     if (existingPid && isPidAlive(existingPid)) {
       const url = readWebUrl();
       if (url && (await existingWebDecision(url)) === 'reuse') {
@@ -159,8 +184,8 @@ export const webCommand: CommandModule = {
 
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
-    const lean = !!argv.lean || process.env.WORK_WEB_LEAN === '1';
-    const handle = await startWebServer({ lean });
+    let shutdown = () => {};
+    const handle = await startWebServer({ lean, onShutdownRequest: () => shutdown() });
     bestEffort('write work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
 
     info(
@@ -238,7 +263,7 @@ export const webCommand: CommandModule = {
       timeoutSec: 5,
     }).catch(swallow('install Claude checkpoint hook in ~/.claude/settings.json'));
 
-    const shutdown = () => {
+    shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       clearWebDiscovery();
       if (!lean) {
@@ -250,8 +275,7 @@ export const webCommand: CommandModule = {
       }
       bestEffort(`remove Claude hook web-checkpoint/Stop`, () => removeCommandHookSync('web-checkpoint', 'Stop'));
       bestEffort(`remove Claude hook web-checkpoint/UserPromptSubmit`, () => removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'));
-      handle.stop();
-      process.exit(0);
+      void handle.stop().finally(() => process.exit(0));
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);

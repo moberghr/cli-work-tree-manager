@@ -1,12 +1,14 @@
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
-import { loadHistory, type WorktreeSession } from './history.js';
+import { findSessionById, loadHistory, type WorktreeSession } from './history.js';
 import { sessionIdFor } from './session-id.js';
 
 export { sessionIdFor } from './session-id.js';
 
+/** A session by id — a primary-key lookup (every /api/sessions/:id/*
+ *  request does one; it used to load and hash every row). */
 export function findSession(sessionId: string): WorktreeSession | null {
-  return loadHistory().find((s) => sessionIdFor(s) === sessionId) ?? null;
+  return findSessionById(sessionId);
 }
 
 interface WatcherEntry {

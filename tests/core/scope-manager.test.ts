@@ -174,3 +174,25 @@ describe('reviveScope', () => {
     }
   });
 });
+
+describe('scopesToSweep (work web shutdown)', () => {
+  it("keeps every session's own scope — its turn history outlives restarts — and sweeps the rest", async () => {
+    const { registerScope, scopesToSweep, listScopes, disposeAllScopes } = await import('../../src/core/scope-manager.js');
+    const wt = path.join(tmpHome, 'worktrees');
+    const single = path.join(wt, 'myrepo', 'feat-a');
+    const groupBe = path.join(wt, 'shop', 'feat-b', 'backend');
+    const groupFe = path.join(wt, 'shop', 'feat-b', 'frontend');
+    const other = path.join(wt, 'myrepo', 'scratch');
+    for (const p of [single, groupBe, groupFe, other]) fs.mkdirSync(p, { recursive: true });
+
+    registerScope([single]); // session scope ("Last turn")
+    registerScope([groupBe, groupFe]); // a group session's scope
+    registerScope([groupBe]); // `wd -c` inside one sub-repo of that group
+    registerScope([other]); // `wd` somewhere no session owns
+
+    const sessions = [[single], [groupFe, groupBe]]; // order doesn't matter
+    const swept = scopesToSweep(listScopes(), sessions).map((s) => s.paths);
+    expect(swept).toEqual([[path.resolve(groupBe)], [path.resolve(other)]]);
+    disposeAllScopes();
+  });
+});

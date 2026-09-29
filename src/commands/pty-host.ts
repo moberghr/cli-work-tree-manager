@@ -7,7 +7,7 @@ import { ensureFile, withFileLock } from '../core/fs-safe.js';
 import { killTree } from '../core/process.js';
 import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty-host-protocol.js';
 import { loadHistory } from '../core/history.js';
-import { sessionIdFor } from '../core/web-state.js';
+import { sessionIdFor } from '../core/session-id.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
 
 function info(message: string): void {

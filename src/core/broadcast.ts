@@ -12,7 +12,7 @@
  */
 
 import { getCommentFileStore } from './comment-file-store.js';
-import { sessionIdFor } from './web-state.js';
+import { sessionIdFor } from './session-id.js';
 import { selectSessions, type FleetFilter } from './fleet.js';
 import type { WorktreeSession } from './history.js';
 

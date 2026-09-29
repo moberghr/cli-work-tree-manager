@@ -51,6 +51,15 @@ function putRow(d: Db, s: WorktreeSession): void {
   ).run(sessionIdFor(s), s.target, s.branch, JSON.stringify(s));
 }
 
+/** One session by its id (the `sessions` primary key). */
+export function findSessionById(id: string): WorktreeSession | null {
+  return withDb((d) => {
+    const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(id) as { data: string } | undefined;
+    const s = r ? json.parse(r.data) : null;
+    return valid(s) ? s : null;
+  });
+}
+
 /** Every session, in the order they were first recorded. */
 export function loadHistory(): WorktreeSession[] {
   return withDb(rows);

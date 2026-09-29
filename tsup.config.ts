@@ -13,7 +13,10 @@ export default defineConfig({
   format: ['esm'],
   target: 'node22',
   sourcemap: true,
-  splitting: false,
+  // Split into chunks so bin.ts's dynamic imports stay lazy: `work hook`
+  // (run several times per Claude turn) loads only the hook's code, not
+  // every command and its native modules.
+  splitting: true,
   define: {
     __WORK2_VERSION__: JSON.stringify(pkg.version),
   },

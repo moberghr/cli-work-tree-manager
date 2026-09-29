@@ -45,7 +45,7 @@ describe('work web --stop', () => {
   it('stops the server that answers with the recorded pid', async () => {
     const kill = vi.fn();
     record(await fakeWeb(context(process.pid)), process.pid);
-    expect(await stopExisting(kill)).toBe('stopped');
+    expect(await stopExisting(kill, 300)).toBe('stopped');
     expect(kill).toHaveBeenCalledWith(process.pid);
     expect(files()).toEqual([]);
   });

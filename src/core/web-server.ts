@@ -31,7 +31,7 @@ import { mountDevRoutes } from './dev-routes.js';
 import { mountCiRoutes } from './ci-routes.js';
 import { sweepOldDiffArtifacts } from './diffs-sweep.js';
 import { revision } from './db.js';
-import { disposeAllScopes, listScopes } from './scope-manager.js';
+import { disposeAllScopes, listScopes, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
 import { detachPtyPool, disposePty, initPtyPool } from './pty-pool.js';
@@ -114,6 +114,8 @@ function computeSessionDiff(s: WorktreeSession, base: DiffBase): SessionDiffResu
 }
 
 export interface WebServerOptions {
+  /** `POST /api/shutdown` calls this (the command's own shutdown). */
+  onShutdownRequest?: () => void;
   /** When true, skip features that are only useful for the full
    *  dashboard view (Claude transcript activity watcher, etc.). Used
    *  when `wd` auto-starts work web on demand: the user opened a diff,
@@ -209,7 +211,17 @@ export async function startWebServer(
 
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid }));
+  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean }));
+
+  // Graceful stop, for `work web --stop`: on Windows killing the process is
+  // TerminateProcess, which skips the shutdown path (Claude hooks stay in
+  // ~/.claude/settings.json, checkpoint refs aren't swept). Mutating, so the
+  // origin guard keeps web pages out; the CLI sends no Origin.
+  app.post('/api/shutdown', (c) => {
+    if (!opts.onShutdownRequest) return c.json({ error: 'shutdown not available' }, 501);
+    setTimeout(() => opts.onShutdownRequest?.(), 50); // answer first
+    return c.json({ ok: true, pid: process.pid });
+  });
 
   // `+N −M` per row, computed in the background (never inline) and
   // broadcast once when values change — see diff-stat.ts.
@@ -398,7 +410,8 @@ export async function startWebServer(
       // wiping the registry — otherwise `refs/wd/<hash>/*` refs leak
       // across `work web` restarts and accumulate without bound in
       // every repo the user has reviewed.
-      for (const scope of listScopes()) {
+      // Not the sessions' own scopes: their turn history outlives restarts.
+      for (const scope of scopesToSweep(listScopes(), loadHistory().map((s) => s.paths))) {
         try {
           clearCheckpoints(scope.hash, scope.paths);
         } catch {

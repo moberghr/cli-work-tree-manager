@@ -156,6 +156,18 @@ export function reviveScope(hash: string): boolean {
   return true;
 }
 
+/**
+ * Which scopes a work web shutdown may sweep (checkpoint refs + manifest):
+ * only ones no session owns. A session's scope holds its turn history
+ * ("Last turn"), which must survive a restart; sweeping it on every clean
+ * shutdown erased every session's turns. What's left are `wd` scopes for
+ * paths outside any session (or one sub-repo of a group).
+ */
+export function scopesToSweep(scopes: Scope[], sessionPaths: string[][]): Scope[] {
+  const owned = new Set(sessionPaths.map((paths) => hashFor(paths.map((p) => path.resolve(p)))));
+  return scopes.filter((s) => !owned.has(s.hash));
+}
+
 /** The registered scope for exactly these paths, or null — no side effects
  *  (unlike registerScope, which relabels). */
 export function findScope(paths: string[]): Scope | null {
