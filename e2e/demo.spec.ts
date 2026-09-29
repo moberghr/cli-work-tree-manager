@@ -158,3 +158,14 @@ test('start a worktree dev server and get a preview link on its port', async ({ 
   await chip.getByRole('button', { name: /Stop/ }).click();
   await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveCount(0);
 });
+
+test('failing CI shows under the header, and Claude fixes it on request', async ({ page }) => {
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'chore/deps-update' }).click();
+  const strip = page.locator('.wd-ci-strip');
+  await expect(strip).toContainText('CI failing on #212: test (node 22), typecheck');
+  await strip.getByRole('button', { name: 'Ask Claude to fix' }).click();
+  await expect(strip).toContainText('Sent to Claude ✓');
+  await expect(strip).toContainText('checks running', { timeout: 10_000 });
+  await expect(strip).toHaveCount(0, { timeout: 15_000 });
+});

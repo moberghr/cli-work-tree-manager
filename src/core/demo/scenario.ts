@@ -1,9 +1,11 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { createPresence, type Presence } from '../presence.js';
+import { ciFixMessage } from '../pr-watch.js';
 import type {
   ChecksState,
   DevServerState,
+  SessionCi,
   MergeMethod,
   NotifyEvent,
   MergeSelection,
@@ -352,7 +354,8 @@ export class DemoScenario {
       'api', 'chore/deps-update',
       [{
         name: 'api', uncommitted: '', sinceBranch: DEPS, published: true,
-        pr: { number: 212, url: 'https://github.com/example/api/pull/212', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'c0ffee1234ab' },
+        pr: { number: 212, url: 'https://github.com/example/api/pull/212', state: 'OPEN', isDraft: false, mergeStateStatus: 'UNSTABLE', checks: 'fail', headSha: 'c0ffee1234ab',
+          failing: [{ name: 'test (node 22)', url: 'https://github.com/example/api/actions/runs/1' }, { name: 'typecheck' }] },
       }],
       { state: 'idle', seen: true, summary: FINISH_MESSAGES['chore/deps-update'], minutesAgo: 50 },
       claudeScreen('Update dependencies', ['● Bash(npm outdated)', '● Update(package.json)', '● Bash(npm test)  ⎿  84 passed', '', '● ' + FINISH_MESSAGES['chore/deps-update']]),
@@ -593,6 +596,46 @@ export class DemoScenario {
 
   comments(id: string): CommentStore | null {
     return this.sessions.get(id)?.comments ?? null;
+  }
+
+  // -- CI (the PR watch, simulated) ------------------------------------------
+
+  ci(id: string): SessionCi | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return {
+      checkedAt: new Date(this.now()).toISOString(),
+      repos: s.repos.map((r) => ({ name: r.name, pr: r.pr, done: r.pr?.state === 'MERGED' })),
+    };
+  }
+
+  /** "Ask Claude to fix CI": the note goes in, Claude answers, pushes, and
+   *  the checks re-run green. */
+  fixCi(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    const failing = s.repos
+      .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
+      .map((r) => ({ repo: r.name, number: r.pr!.number, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
+    if (!failing.length) return false;
+    const note = s.comments.post({ side: 'general', status: 'published', body: ciFixMessage(failing, s.isGroup) });
+    this.emit('comments-changed', { sessionId: id });
+    this.setState(id, 'working', 'Fix the failing CI checks');
+    this.after(3_000, () => {
+      s.comments.post({ body: 'The node 22 run failed on a removed `Buffer.slice` overload — switched to `subarray`, fixed the type error, pushed.', parentId: note.id, author: 'claude', status: 'published' });
+      for (const r of s.repos) {
+        if (r.pr?.checks === 'fail') r.pr = { ...r.pr, checks: 'pending', mergeStateStatus: 'BLOCKED', headSha: 'f1x' + r.pr.headSha.slice(3), failing: undefined };
+      }
+      this.emit('comments-changed', { sessionId: id });
+      this.emit('ci-changed', { sessionId: id });
+      this.setState(id, 'idle', 'Fixed the CI failures and pushed.');
+    });
+    this.after(7_000, () => {
+      for (const r of s.repos) if (r.pr?.checks === 'pending') r.pr = { ...r.pr, checks: 'pass', mergeStateStatus: 'CLEAN' };
+      this.emit('ci-changed', { sessionId: id });
+      this.changed();
+    });
+    return true;
   }
 
   // -- dev server (simulated: a start comes up a moment later) --------------

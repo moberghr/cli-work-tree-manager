@@ -5,6 +5,7 @@ import { isArchived } from '../../state/session-display.js';
 import { DiffStatChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { DevChip } from './DevChip.js';
+import { CiStrip } from './CiStrip.js';
 import { useSse } from '../../api/events.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
@@ -98,6 +99,7 @@ export function SessionDetail({
           <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>
         )}
       </div>
+      <CiStrip sessionId={session.id} isGroup={session.isGroup} />
       {shipOpen && (
         <ShipPanel
           session={session}

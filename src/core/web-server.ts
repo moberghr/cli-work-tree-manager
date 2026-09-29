@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { computeDiff } from './diff-pipeline.js';
 import { resolveRepoDiff } from './diff-scope.js';
-import { loadHistory, type WorktreeSession } from './history.js';
+import { loadHistory, setSessionArchived, type WorktreeSession } from './history.js';
 import {
   disposeAllWatchers,
   findSession,
@@ -29,10 +29,11 @@ import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
 import { mountDevRoutes } from './dev-routes.js';
+import { mountCiRoutes } from './ci-routes.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, initPtyPool } from './pty-pool.js';
+import { detachPtyPool, disposePty, initPtyPool } from './pty-pool.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -287,6 +288,20 @@ export async function startWebServer(
   // Per-worktree dev server + preview on its $PORT.
   mountDevRoutes(app, { broadcast });
 
+  // PR watch: CI state for the header strip; auto-archive once merged and
+  // tell a session's Claude when its CI fails. Polls gh, so full mode only.
+  const prWatch = mountCiRoutes(app, {
+    broadcast,
+    archive: async (id) => {
+      const s = findSession(id);
+      if (!s || s.archivedAt) return;
+      await disposePty(id);
+      await setSessionArchived(s.target, s.branch, true);
+      broadcast('sessions-changed', { ts: Date.now() });
+    },
+  });
+  const stopPrWatch = lean ? null : prWatch.start(180_000);
+
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });
 
@@ -369,6 +384,7 @@ export async function startWebServer(
       fs.unwatchFile(historyPath, onHistoryChange);
       fs.unwatchFile(tasksPath, onTasksChange);
       if (decayTick) clearInterval(decayTick);
+      stopPrWatch?.();
       activityWatcher?.stop();
       disposeAllWatchers();
       // Sweep checkpoint refs + manifests for every active scope BEFORE

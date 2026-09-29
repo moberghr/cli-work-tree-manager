@@ -3,6 +3,7 @@ import crossSpawn from 'cross-spawn';
 import type { WorktreeSession } from './history.js';
 import type {
   ChecksState,
+  FailingCheck,
   MergeMethod,
   MergeSelection,
   RepoShipState,
@@ -91,6 +92,23 @@ interface CheckRollupItem {
   status?: string | null;
   conclusion?: string | null;
   state?: string | null;
+  /** Check runs carry name + detailsUrl; commit statuses context + targetUrl. */
+  name?: string | null;
+  context?: string | null;
+  detailsUrl?: string | null;
+  targetUrl?: string | null;
+}
+
+const FAILED = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
+
+/** The failed checks in a rollup, named, with their links. */
+export function failingFromRollup(rollup: CheckRollupItem[] | null | undefined): FailingCheck[] {
+  return (rollup ?? [])
+    .filter((c) => FAILED.includes((c.conclusion ?? c.state ?? '').toUpperCase()))
+    .map((c) => {
+      const url = c.detailsUrl ?? c.targetUrl ?? undefined;
+      return { name: c.name ?? c.context ?? 'check', ...(url ? { url } : {}) };
+    });
 }
 
 /** Collapse gh's statusCheckRollup (check runs + commit statuses). */
@@ -99,7 +117,7 @@ export function checksFromRollup(rollup: CheckRollupItem[] | null | undefined): 
   let pending = false;
   for (const c of rollup) {
     const v = (c.conclusion ?? c.state ?? '').toUpperCase();
-    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(v)) {
+    if (FAILED.includes(v)) {
       return 'fail';
     }
     const status = (c.status ?? '').toUpperCase();
@@ -221,6 +239,7 @@ async function inspectRepo(
         mergeStateStatus: j.mergeStateStatus ?? 'UNKNOWN',
         checks: checksFromRollup(j.statusCheckRollup),
         headSha: j.headRefOid,
+        ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {
       ghError = 'could not read `gh pr view` output';

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   checksFromRollup,
+  failingFromRollup,
   mergeBlockers,
   mergeSelected,
   runShipAction,
@@ -77,6 +78,20 @@ const pr = (over: Record<string, unknown> = {}) => ({
 /** Pushed, tracking itself, clean, with an open green PR at local HEAD. */
 const ready = (over: Partial<RepoScript> = {}): RepoScript => ({
   remote: true, tracking: 'origin/feat/x', pr: pr(), ...over,
+});
+
+describe('failingFromRollup', () => {
+  it('names failed check runs and commit statuses, with links', () => {
+    expect(
+      failingFromRollup([
+        { conclusion: 'SUCCESS', name: 'build' },
+        { conclusion: 'FAILURE', name: 'test', detailsUrl: 'https://ci/1' },
+        { state: 'ERROR', context: 'coverage', targetUrl: 'https://cov' },
+        { conclusion: 'TIMED_OUT' },
+      ]),
+    ).toEqual([{ name: 'test', url: 'https://ci/1' }, { name: 'coverage', url: 'https://cov' }, { name: 'check' }]);
+    expect(failingFromRollup(null)).toEqual([]);
+  });
 });
 
 describe('checksFromRollup', () => {

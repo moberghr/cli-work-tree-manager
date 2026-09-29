@@ -342,6 +342,7 @@ Stored at `~/.work/config.json`:
 | `aiCommand` | The AI CLI to auto-launch (default `claude`). Set it to any other tool; per-tool flag names live under `aiCommandFlags`. |
 | `editor` | Editor command for `--open` / "open in editor" (default `code`). |
 | `portRange` | Port window `work web` allocates from (default `3000`–`3099`). |
+| `prWatch` | `{ "autoArchive": true, "fixCi": true }` (both default on). `work web` checks recent sessions' PRs every 3 minutes: a session whose PRs have all merged (with nothing since) archives itself — in a group only once every repo is done — and when a PR's checks fail, that session's Claude is told which ones (once per pushed commit) and asked to fix them, or to ask you if it needs a decision. The session header shows failing checks with **Ask Claude to fix**. |
 | `devCommands` | Dev-server command per repo alias, e.g. `{ "web": "npm run dev -- --port $PORT" }`. The session header shows the worktree's `$PORT`, whether anything serves on it (with a **Preview ↗** link), and **▶ Start dev** / **■ Stop** / **Log** for this command. In a group, the first repo with a command gets the port. |
 | `notifications` | Opt-in desktop notification when a session goes idle or needs input. |
 | `statusHooks` | Run your own shell command on a session status change — see below. |

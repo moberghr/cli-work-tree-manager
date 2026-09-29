@@ -73,6 +73,13 @@ export interface ShipPr {
   mergeStateStatus: string;
   checks: ChecksState;
   headSha: string;
+  /** Checks that failed (name + link), when `checks` is 'fail'. */
+  failing?: FailingCheck[];
+}
+
+export interface FailingCheck {
+  name: string;
+  url?: string;
 }
 
 export interface RepoShipState {
@@ -185,4 +192,10 @@ export interface DevServerState {
   repo: string | null;
   /** Started from the dashboard and still alive. */
   running: { pid: number; startedAt: string } | null;
+}
+
+/** GET /api/sessions/:id/ci — what GitHub says about the session's PRs. */
+export interface SessionCi {
+  checkedAt: string;
+  repos: Array<{ name: string; pr: ShipPr | null; done: boolean }>;
 }

@@ -54,6 +54,16 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return d ? c.json(d) : notFound(c);
   });
 
+  app.get('/api/sessions/:id/ci', (c) => {
+    const d = scenario.ci(c.req.param('id'));
+    return d ? c.json(d) : notFound(c);
+  });
+  app.post('/api/sessions/:id/ci/fix', (c) => {
+    const id = c.req.param('id');
+    if (!scenario.ci(id)) return notFound(c);
+    return scenario.fixCi(id) ? c.json({ ok: true }) : c.json({ error: 'no failing checks right now' }, 409);
+  });
+
   app.get('/api/sessions/:id/dev', (c) => {
     const d = scenario.devState(c.req.param('id'));
     return d ? c.json(d) : notFound(c);

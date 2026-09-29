@@ -68,6 +68,19 @@ describe('demo server', () => {
     expect(b.repos.map((r: { name: string }) => r.name)).toEqual(['backend', 'frontend']);
   });
 
+  it('shows failing CI, and asking Claude to fix it turns the checks green', async () => {
+    const deps = await byBranch('chore/deps-update');
+    const ci = await get(`/api/sessions/${deps.id}/ci`);
+    expect(ci.repos[0].pr).toMatchObject({ number: 212, checks: 'fail', failing: [{ name: 'test (node 22)' }, { name: 'typecheck' }] });
+    expect((await send('POST', `/api/sessions/${deps.id}/ci/fix`)).status).toBe(200);
+    expect((await get(`/api/sessions/${deps.id}/comments`)).comments[0].body).toContain('CI is failing');
+    advance(3_500);
+    expect((await get(`/api/sessions/${deps.id}/ci`)).repos[0].pr.checks).toBe('pending');
+    advance(4_000);
+    expect((await get(`/api/sessions/${deps.id}/ci`)).repos[0].pr.checks).toBe('pass');
+    expect((await send('POST', `/api/sessions/${deps.id}/ci/fix`)).status).toBe(409);
+  });
+
   it('simulates a dev server on each worktree port', async () => {
     const login = await byBranch('fix/login-redirect');
     expect(login.port).toBeGreaterThan(0);

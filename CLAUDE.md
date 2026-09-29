@@ -343,6 +343,10 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 
 Each worktree's stable `$PORT` (`port-allocator.ts`, on `SessionWire.port`) is shown in the session header by `DevChip`, which polls `GET /api/sessions/:id/dev` every 5 s (TCP probe on 127.0.0.1/::1, so it also sees a server Claude started). `core/dev-server.ts` runs `devCommands[alias]` with `shell: true` (user config, like statusHooks), `PORT` in env, output → `~/.work/dev/<id>.log`, pid → `~/.work/dev/<id>.json`. § Detached on POSIX only (process-group kill). On Windows a detached cmd.exe gives its children their own VISIBLE console and loses their output, so it stays attached with `windowsHide`, and `taskkill /T` stops the tree.
 
+### PR watch (CI strip, fix-CI, auto-archive)
+
+`core/pr-watch.ts` is pure policy with injected I/O; `core/ci-routes.ts` wires it (sessions = not archived, touched in 14 days, path exists; `shipPreflight` for facts; `tell` = POST a published general comment, so delivery reuses the comment path; told-keys persisted in `~/.work/pr-watch.json`). `work web` full mode sweeps every 180 s, 3 at a time, single-flight. It tells Claude once per `session:repo:headSha` when checks fail, and archives when every repo is `done` and one is MERGED (same rule as Ship). `GET /api/sessions/:id/ci` (cached, refreshed after 60 s) and `POST …/ci/fix` feed `CiStrip`. § The upcoming PR-review-comment watch belongs in this same loop.
+
 ### Configuration
 
 Stored at `~/.work/config.json`. Schema in `core/config.ts`:

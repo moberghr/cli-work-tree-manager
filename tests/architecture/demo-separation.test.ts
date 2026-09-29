@@ -33,6 +33,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/api-types.ts',
       'src/core/attention.ts',
       'src/core/presence.ts', // pure who's-watching registry
+      'src/core/pr-watch.ts', // pure PR-watch policy (all I/O injected)
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

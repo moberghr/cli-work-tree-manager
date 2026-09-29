@@ -17,6 +17,7 @@ import type {
   RevertRequest,
   RevertResponse,
   SessionAttention,
+  SessionCi,
   ShipAction,
   ShipPr,
   ShipPreflight,
@@ -42,6 +43,7 @@ export type {
   RevertRequest,
   RevertResponse,
   SessionAttention,
+  SessionCi,
   ShipAction,
   ShipPr,
   ShipPreflight,
@@ -452,6 +454,19 @@ export function fetchDevState(sessionId: string): Promise<DevServerState> {
 /** Start / stop the configured dev command. Throws with the server's reason. */
 export async function devAction(sessionId: string, action: 'start' | 'stop'): Promise<void> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/dev/${action}`, { method: 'POST' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  }
+}
+
+/** What GitHub says about the session's PRs (from work web's PR watch). */
+export function fetchSessionCi(sessionId: string): Promise<SessionCi> {
+  return getJson<SessionCi>(`/api/sessions/${encodeURIComponent(sessionId)}/ci`);
+}
+/** Ask the session's Claude to fix its failing checks. */
+export async function askClaudeToFixCi(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, { method: 'POST' });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
