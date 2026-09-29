@@ -27,6 +27,7 @@ import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import type { SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
+import { mountRevertRoutes } from './revert-routes.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -276,6 +277,10 @@ export async function startWebServer(
 
   // Per-session comments (file-backed). Emits comments-changed via broadcast.
   mountSessionCommentRoutes(app, { broadcast });
+
+  // Revert an uncommitted file/hunk and tell Claude (posts via the comment
+  // route above, so it's delivered like any review note).
+  mountRevertRoutes(app, { uncommitted: (s) => computeSessionDiff(s, 'uncommitted').repos });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });

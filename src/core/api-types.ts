@@ -135,3 +135,17 @@ export interface ShipResponse {
   archived?: boolean;
   allDone?: boolean;
 }
+
+/** POST /api/sessions/:id/revert — undo an uncommitted file, or the lines
+ *  of one hunk (new-side range), back to HEAD. */
+export interface RevertRequest {
+  repo: string;
+  path: string;
+  lines?: { start: number; end: number };
+  /** Leave Claude a note about it (default true). */
+  tell?: boolean;
+}
+export interface RevertResponse {
+  ok: true;
+  description: string;
+}

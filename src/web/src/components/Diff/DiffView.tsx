@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchSessionCheckpoints,
   fetchSessionDiff,
+  revertChange,
   turnsFrom,
   type CheckpointEntry,
   type DiffBase,
@@ -13,6 +14,7 @@ import { sessionReviewApi } from '../../api/review-api.js';
 import { useSse } from '../../api/events.js';
 import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
 import { ReviewProvider } from '../../state/ReviewProvider.js';
+import { RevertContext, type RevertApi } from '../../state/RevertProvider.js';
 import { DiffRepo } from './DiffRepo.js';
 import { DiffBusyChip } from './DiffBusyChip.js';
 import { DiffUpdateChip } from './DiffUpdateChip.js';
@@ -22,6 +24,7 @@ import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
 import { PendingPill } from '../Review/PendingPill.js';
 import { useViewedFiles } from '../../hooks/use-viewed-files.js';
+import { useCommentJump } from '../../hooks/use-comment-jump.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import {
   COMMENTS_SPEC,
@@ -163,6 +166,7 @@ export function DiffView({ session }: Props) {
   // The dashboard diff scrolls inside <main> (not the document), so "back to
   // the top" on reload has to move that element.
   const mainRef = useRef<HTMLElement>(null);
+  useCommentJump(mainRef);
 
   // The "Reload" action: refetch from the server and return to the top —
   // a browser refresh's useful half, without tearing down the dashboard
@@ -179,6 +183,23 @@ export function DiffView({ session }: Props) {
   // The tree pane is always its own scroller, so the active row drifts
   // off-screen without this — always enabled here.
   useFollowActiveInSidebar(treeScrollRef, activeAnchor, true);
+
+  // Revert is for the Uncommitted scope only: that's the diff against the
+  // working tree it undoes. (A turn or the branch diff would mean undoing
+  // committed or partial history.)
+  const canRevert = !turn && diffBase === 'uncommitted';
+  const revertApi = useMemo<RevertApi | null>(
+    () =>
+      canRevert
+        ? {
+            revert: async (repo, path, lines) => {
+              await revertChange(session.id, { repo, path, lines });
+              reload();
+            },
+          }
+        : null,
+    [canRevert, session.id, reload],
+  );
 
   // ---- Hooks above this line, branches below ----------------------------
 
@@ -216,6 +237,7 @@ export function DiffView({ session }: Props) {
 
   return (
     <ReviewProvider api={api}>
+     <RevertContext.Provider value={revertApi}>
       <div
         ref={layoutRef}
         className="wd-web-review-layout"
@@ -448,6 +470,7 @@ export function DiffView({ session }: Props) {
         </main>
         {!isEmpty && <PendingPill />}
       </div>
+     </RevertContext.Provider>
     </ReviewProvider>
   );
 }

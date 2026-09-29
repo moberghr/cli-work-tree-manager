@@ -79,6 +79,23 @@ describe('demo server', () => {
     expect(all.repos[0].files).toHaveLength(2);
   });
 
+  it('reverts a hunk or a file in the simulated diff and tells Claude', async () => {
+    const login = await byBranch('fix/login-redirect');
+    const r = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.test.ts' });
+    expect(r.status).toBe(200);
+    const d = await get(`/api/sessions/${login.id}/diff?base=uncommitted`);
+    expect(d.repos[0].files.map((f: { path: string }) => f.path)).toEqual(['src/auth.ts']);
+    expect((await byBranch('fix/login-redirect')).diffStat).toMatchObject({ files: 1 });
+    const { comments } = await get(`/api/sessions/${login.id}/comments`);
+    expect(comments.at(-1).body).toContain('`src/auth.test.ts`');
+
+    const h = d.repos[0].files[0].hunks[0];
+    const hunk = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts', lines: { start: h.newStart, end: h.newStart } });
+    expect(hunk.status).toBe(200);
+    expect((await get(`/api/sessions/${login.id}/diff?base=uncommitted`)).repos[0].files).toEqual([]);
+    expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
+  });
+
   it('the scripted day moves on: an agent asks for permission, another finishes', async () => {
     expect((await byBranch('feat/search-filters')).attention?.state).toBe('working');
     advance(21_000);

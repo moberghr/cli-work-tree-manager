@@ -335,6 +335,10 @@ Checkpoints are **authoritatively taken per Claude turn**: `work web` installs a
 
 The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since branch. A session's turns are its diff scope's checkpoints (one per instruction, taken by the Stop hook): `GET /api/sessions/:id/checkpoints` creates the scope on demand (`ensureScope`, returned by `mountScopeRoutes` — the same scope `wd` registers for those paths) and `GET /api/sessions/:id/diff?from=&to=` serves a checkpoint range (delegates to `/api/scopes/:hash/diff`). Status hooks also ensure the scope, so turns are recorded for sessions nobody has opened yet. The demo fakes three checkpoints per session with changes.
 
+### Revert + batched review
+
+`POST /api/sessions/:id/revert` (`core/revert-routes.ts` → `core/revert.ts`) undoes an **uncommitted** file or hunk. The server re-computes the session's Uncommitted diff to find the change and its repo root (never trusts a root/patch from the browser). Hunk revert asks git for the raw, byte-exact diff of that file (the pipeline's `-w` diff can't be reverse-applied, and the parser drops CRs) and `git apply -R`s the raw hunks overlapping the picked new-side lines after a `--check`. Then it posts a published general comment ("I reverted … don't reintroduce it"), so delivery reuses the comment path. The SPA only offers Revert in the Uncommitted scope (`RevertContext`). `submit-review` pushes the whole review to an owned PTY as one message, like a single POSTed comment does.
+
 ### Configuration
 
 Stored at `~/.work/config.json`. Schema in `core/config.ts`:

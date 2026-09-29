@@ -54,6 +54,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return d ? c.json(d) : notFound(c);
   });
 
+  app.post('/api/sessions/:id/revert', async (c) => {
+    const body = await json(c);
+    if (typeof body.repo !== 'string' || typeof body.path !== 'string') return c.json({ error: 'repo and path are required' }, 400);
+    const lines = body.lines as { start?: unknown; end?: unknown } | undefined;
+    const out = scenario.revert(c.req.param('id'), {
+      repo: body.repo,
+      path: body.path,
+      lines: lines && typeof lines.start === 'number' && typeof lines.end === 'number' ? { start: lines.start, end: lines.end } : undefined,
+    });
+    return out.ok ? c.json(out) : c.json({ error: out.error }, out.status);
+  });
+
   // -- comments (the real in-memory comment model) ---------------------------
   app.get('/api/sessions/:id/comments', (c) => {
     const store = scenario.comments(c.req.param('id'));

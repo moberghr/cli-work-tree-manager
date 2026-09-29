@@ -56,6 +56,14 @@ interface DemoSession {
 
 export type DemoEvent = { event: string; data: unknown };
 
+/** A unified diff split into its per-file blocks (text kept verbatim). */
+function fileBlocks(diff: string): string[] {
+  return diff ? diff.split(/(?=^diff --git )/m).filter((b) => b.startsWith('diff --git ')) : [];
+}
+function blockPath(block: string): string {
+  return parseGitDiff(block)[0]?.path ?? '';
+}
+
 // ---- canned content -------------------------------------------------------
 
 function diffNew(file: string, lines: string[]): string {
@@ -519,6 +527,44 @@ export class DemoScenario {
         };
       }),
     };
+  }
+
+  /**
+   * Simulated revert: drop the file (or the hunks overlapping new-side
+   * lines [start, end]) from the uncommitted diff — and from the branch
+   * diff too while it's the same uncommitted work — then leave Claude the
+   * same note the real server does.
+   */
+  revert(id: string, req: { repo: string; path: string; lines?: { start: number; end: number } }): { ok: true; description: string } | { ok: false; status: 404 | 409; error: string } {
+    const s = this.sessions.get(id);
+    const r = s?.repos.find((x) => x.name === req.repo);
+    if (!s || !r) return { ok: false, status: 404, error: 'unknown session or repo' };
+    const block = fileBlocks(r.uncommitted).find((b) => blockPath(b) === req.path);
+    if (!block) return { ok: false, status: 409, error: 'that file has no uncommitted change any more — reload the diff' };
+    let next = '';
+    if (req.lines) {
+      const { start, end } = req.lines;
+      const at = block.search(/^@@ /m);
+      const hunks = block.slice(at).split(/(?=^@@ )/m);
+      const keep = hunks.filter((h) => {
+        const m = h.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+        if (!m) return true;
+        const from = Number(m[1]);
+        const to = from + Math.max(m[2] === undefined ? 1 : Number(m[2]), 1) - 1;
+        return !(from <= end && to >= start);
+      });
+      if (keep.length === hunks.length) return { ok: false, status: 409, error: 'that change is no longer in the file — reload the diff' };
+      next = keep.length ? block.slice(0, at) + keep.join('') : '';
+    }
+    if (r.sinceBranch.includes(block)) r.sinceBranch = r.sinceBranch.replace(block, next);
+    r.uncommitted = r.uncommitted.replace(block, next);
+    const where = s.isGroup ? `${r.name}/${req.path}` : req.path;
+    const what = req.lines ? `lines ${req.lines.start}–${req.lines.end} of \`${where}\`` : `\`${where}\``;
+    s.comments.post({ side: 'general', status: 'published', body: `I reverted your uncommitted change to ${what} (back to HEAD). Leave it that way — don't reintroduce it unless I ask.` });
+    this.emit('comments-changed', { sessionId: id });
+    this.emit('diff-changed', { sessionId: id });
+    this.changed();
+    return { ok: true, description: `reverted ${req.path}` };
   }
 
   comments(id: string): CommentStore | null {

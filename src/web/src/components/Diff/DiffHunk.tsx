@@ -12,6 +12,8 @@ import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentLineRow, InlineCommentRow } from '../Review/CommentLineRow.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { highlightBlock } from '../../utils/highlight.js';
+import { useRevertOptional } from '../../state/RevertProvider.js';
+import { RevertButton } from './RevertButton.js';
 
 /** Per-side maps from a line number to its pre-highlighted HTML for one hunk. */
 interface HunkLineHtml {
@@ -118,7 +120,8 @@ export function DiffHunk({
   const showHeadingText = showHeading;
   // Render the row when it carries something: the heading, or the review
   // checkbox (which has nowhere else to live).
-  const showHeaderRow = showHeadingText || showCheckbox;
+  const canRevert = !!useRevertOptional() && !!repo && !!file;
+  const showHeaderRow = showHeadingText || showCheckbox || canRevert;
   return (
     <>
       {showHeaderRow && (
@@ -138,6 +141,13 @@ export function DiffHunk({
               </label>
             )}
             {showHeadingText && hunkHeading(hunk)}
+            {canRevert && (
+              <RevertButton
+                repo={repo!}
+                path={file!}
+                lines={{ start: hunk.newStart, end: hunk.newStart + Math.max(hunk.newLines, 1) - 1 }}
+              />
+            )}
           </td>
         </tr>
       )}

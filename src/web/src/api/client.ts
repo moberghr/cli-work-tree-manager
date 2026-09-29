@@ -11,6 +11,8 @@ import type {
   MergeMethod,
   PtyStatus,
   RepoShipState,
+  RevertRequest,
+  RevertResponse,
   SessionAttention,
   ShipAction,
   ShipPr,
@@ -31,6 +33,8 @@ export type {
   MergeMethod,
   PtyStatus,
   RepoShipState,
+  RevertRequest,
+  RevertResponse,
   SessionAttention,
   ShipAction,
   ShipPr,
@@ -420,4 +424,17 @@ export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
 /** The user opened a session that wanted attention — clear its unseen flag. */
 export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});
+}
+
+/** Undo an uncommitted file or hunk and tell Claude. Throws with the
+ *  server's reason (e.g. "the file changed since — reload the diff"). */
+export async function revertChange(sessionId: string, req: RevertRequest): Promise<RevertResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/revert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body as RevertResponse;
 }

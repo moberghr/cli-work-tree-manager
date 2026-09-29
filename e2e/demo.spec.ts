@@ -97,3 +97,20 @@ test('"Last turn" narrows the diff to what the last instruction changed', async 
   await page.getByRole('tab', { name: 'Uncommitted' }).click();
   await expect(files).toHaveCount(2);
 });
+
+test('revert a file from the diff, and Claude is told', async ({ page }) => {
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  const files = page.locator('.wd-web-review-main article');
+  await expect(files).toHaveCount(2);
+
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Revert file: src/auth.test.ts' }).click();
+  await expect(files).toHaveCount(1);
+  await expect(files).not.toContainText('auth.test.ts');
+  await expect(page.locator('.wd-web-review-sidebar, .wd-comments-panel').first()).toContainText('I reverted your uncommitted change');
+
+  // Not offered where it would mean rewriting history.
+  await page.getByRole('tab', { name: 'Since branch' }).click();
+  await expect(page.getByRole('button', { name: /^Revert/ })).toHaveCount(0);
+});

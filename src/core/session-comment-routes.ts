@@ -101,6 +101,9 @@ export function mountSessionCommentRoutes(
         sessionId: id,
         submittedCount: result.drafts.length,
       });
+      // The whole review goes to Claude as one message: an idle Claude in
+      // our own PTY gets it now, not on its next turn.
+      if (result.drafts.length > 0) void deliverViaOwnedPty(id, 'user');
       return c.json({
         count: result.drafts.length,
         comments: store.snapshot(),

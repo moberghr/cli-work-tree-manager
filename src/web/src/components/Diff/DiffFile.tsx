@@ -22,6 +22,7 @@ import { useReviewOptional, useReview } from '../../state/ReviewProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentItem } from '../Review/CommentItem.js';
 import { Composer } from '../Review/Composer.js';
+import { RevertButton } from './RevertButton.js';
 
 type FileViewMode = 'diff' | 'preview' | 'split';
 
@@ -277,6 +278,7 @@ export function DiffFile({
             )}
           </div>
         )}
+        {repo && <RevertButton repo={repo} path={file.path} />}
         {openFileHref && (
           <a
             className="wd-file-openfile"
