@@ -1,15 +1,14 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
-import { hostStartLockPath, type SpawnSpec } from './pty-host-protocol.js';
+import { hostStartLockPath, type SpawnSpec, type HostInfo } from './pty-host-protocol.js';
 import { dbPtySessions } from './pty-sessions-file.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from './config.js';
 import { getAiTool } from './ai-launcher.js';
-import { ensureHost, findHost, PtyHostClient } from './pty-host-client.js';
-import { swallow } from './best-effort.js';
+import { ensureHost, findHost, PtyHostClient, findHostPatient, PtyHostVersionError } from './pty-host-client.js';
+import { logSwallowed, swallow } from './best-effort.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -158,8 +157,22 @@ export async function writeToPty(sessionId: string, data: string): Promise<boole
  *  a directory that is some process's working directory). */
 export async function disposePty(sessionId: string): Promise<void> {
   live.delete(sessionId);
-  const c = await getClient(false).catch(() => null);
-  if (c) await c.kill(sessionId).catch(() => {});
+  let c = client;
+  if (!c) {
+    // A busy host (mid-restore) is waited for, not skipped: skipping left
+    // Claude running inside the worktree about to be deleted. A host from
+    // another build can't be talked to — nothing to do but proceed.
+    let info: HostInfo | null;
+    try {
+      info = await findHostPatient();
+    } catch (err) {
+      if (err instanceof PtyHostVersionError) return;
+      throw err; // still busy after waiting: let the caller report it
+    }
+    if (!info) return;
+    c = new PtyHostClient(info);
+  }
+  await c.kill(sessionId).catch(swallow(`stop session ${sessionId} in the PTY host`));
 }
 
 /**
@@ -181,9 +194,13 @@ export async function stopSessionPty(target: string, branch: string): Promise<vo
   await withFileLock(lock, async () => {
     let info;
     try {
-      info = await findHost();
-    } catch {
-      return; // version-mismatched host: can't talk to it; leave it alone
+      info = await findHostPatient();
+    } catch (err) {
+      // A host from another build can't be talked to; one still busy after
+      // waiting is running and owns the session — leave both alone (and
+      // never drop the saved entry: the host is what it belongs to).
+      logSwallowed(`stop session ${id}: PTY host`, err);
+      return;
     }
     if (info) await new PtyHostClient(info).kill(id).catch(swallow(`stop session ${id} in the PTY host`));
     else await forgetPersistedSession(id).catch(swallow(`forget saved session ${id}`));

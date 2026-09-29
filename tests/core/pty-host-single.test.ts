@@ -79,17 +79,17 @@ describe('ensureHost starts one host, never two', () => {
     const server = http.createServer((_req, res) => {
       setTimeout(() => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: 42 }));
+        res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: process.pid }));
       }, Math.max(0, busyUntil - Date.now()));
     });
     servers.push(server);
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     const port = (server.address() as { port: number }).port;
-    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: 42, port, token: 't', version: PROTOCOL_VERSION }));
+    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }));
 
     const c = await freshClient();
     const host = await c.ensureHost('bin.js');
-    expect(host.pid).toBe(42);
+    expect(host.pid).toBe(process.pid);
     expect(spawnCalls).toHaveLength(0);
   }, 20_000);
 
@@ -100,9 +100,23 @@ describe('ensureHost starts one host, never two', () => {
     servers.push(server);
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     const port = (server.address() as { port: number }).port;
-    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: 42, port, token: 't', version: PROTOCOL_VERSION }));
+    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }));
     const c = await freshClient();
     await expect(c.findHost([50, 100])).rejects.toBeInstanceOf(c.PtyHostBusyError);
+    server.closeAllConnections();
+  });
+
+  it('a stale file whose host is dead — someone else on the port, not answering — is "no host", so one can start', async () => {
+    const server = http.createServer(() => {
+      /* never answers */
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    const deadPid = 2 ** 22 + 12345;
+    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: deadPid, port, token: 't', version: PROTOCOL_VERSION }));
+    const c = await freshClient();
+    expect(await c.findHost([50, 100])).toBeNull();
     server.closeAllConnections();
   });
 

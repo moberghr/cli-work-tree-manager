@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
-import { json, tx, withDb, type Db } from './db.js';
+import { json, purgeSessionRows, tx, withDb, type Db } from './db.js';
 import { sessionIdFor } from './session-id.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
 import { allocateFreePort } from './port-allocator.js';
-import { purgeSessionState } from './session-store.js';
+import { removeSessionFiles, stopSessionDevServer } from './session-store.js';
 
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
@@ -221,12 +221,18 @@ export async function setSessionArchived(
 }
 
 export async function removeSession(target: string, branch: string): Promise<void> {
-  const removed = tx(
-    (d) => d.prepare('DELETE FROM sessions WHERE id = ?').run(sessionIdFor({ target, branch })).changes > 0,
-  );
+  const id = sessionIdFor({ target, branch });
+  if (!withDb((d) => getRow(d, target, branch))) return; // nothing to remove: touch nothing
   // The session's other state (status, comments, saved PTY entry, …) goes
-  // with it — see session-store.ts.
-  if (removed) await purgeSessionState(target, branch);
+  // with it — in the SAME transaction, so a crash can't leave state behind
+  // for a re-created session to inherit (see session-store.ts).
+  stopSessionDevServer(id);
+  const removed = tx((d) => {
+    const gone = d.prepare('DELETE FROM sessions WHERE id = ?').run(id).changes > 0;
+    if (gone) purgeSessionRows(d, id);
+    return gone;
+  });
+  if (removed) removeSessionFiles(id);
 }
 
 export function getSessionsForTarget(
@@ -270,15 +276,19 @@ export function pruneStaleEntries(sessions: WorktreeSession[]): {
 
 /** Persisted prune for `status --prune` callers. */
 export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> {
+  const stale = pruneStaleEntries(loadHistory()).kept;
+  const keep = new Set(stale.map((s) => sessionIdFor(s)));
+  for (const s of loadHistory()) if (!keep.has(sessionIdFor(s))) stopSessionDevServer(sessionIdFor(s));
   const gone = tx((d) => {
-    const all = rows(d);
-    const keep = new Set(pruneStaleEntries(all).kept.map((s) => sessionIdFor(s)));
-    const drop = all.filter((s) => !keep.has(sessionIdFor(s)));
+    const drop = rows(d).filter((s) => !keep.has(sessionIdFor(s)));
     const del = d.prepare('DELETE FROM sessions WHERE id = ?');
-    for (const s of drop) del.run(sessionIdFor(s));
+    for (const s of drop) {
+      del.run(sessionIdFor(s));
+      purgeSessionRows(d, sessionIdFor(s));
+    }
     return drop;
   });
-  for (const s of gone) await purgeSessionState(s.target, s.branch);
+  for (const s of gone) removeSessionFiles(sessionIdFor(s));
   return { pruned: gone.length };
 }
 

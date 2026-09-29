@@ -88,7 +88,10 @@ export function importLegacyState(d: Db, configDir: string): string[] {
       if (spec && typeof spec === 'object') ins.run(id, JSON.stringify(spec));
     }
   }
-  if (fs.existsSync(at('pty-sessions.json'))) consumed.push(at('pty-sessions.json'));
+  if (fs.existsSync(at('pty-sessions.json'))) {
+    d.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('pty_sessions:updated_at', ?)").run(new Date().toISOString());
+    consumed.push(at('pty-sessions.json'));
+  }
 
   // -- PR watch (the old single capped list, and the per-session files)
   const insSeen = d.prepare('INSERT OR IGNORE INTO pr_watch_seen (session_id, key) VALUES (?, ?)');

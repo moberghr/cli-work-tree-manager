@@ -73,14 +73,13 @@ describe('comment-file-store', () => {
     expect(a).toBe(b);
   });
 
-  it('the cached snapshot is stale until reload(); readStoreComments is always current', () => {
+  it('reads see another process\'s write at once (work broadcast, the hooks)', () => {
     const s = getCommentFileStore('sid');
     s.post({ body: 'one' });
     writeFromElsewhere('sid', 'manual', 'inserted by another process');
-    expect(s.snapshot()).toHaveLength(1);
-    expect(readStoreComments('sid')).toHaveLength(2);
-    s.reload();
     expect(s.snapshot()).toHaveLength(2);
+    expect(s.list()).toHaveLength(2);
+    expect(readStoreComments('sid')).toHaveLength(2);
   });
 
   it('remove() persists the deletion', () => {

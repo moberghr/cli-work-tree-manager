@@ -87,24 +87,40 @@ describe('a saved dev-server pid is only trusted while it is still ours', () => 
   const s = () => session({ port: 3999 });
 
   it('after a reboot the old row is dropped: not shown as running, Stop kills nothing', async () => {
-    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't', boot: bootTime() - 3 * 60 * 60 * 1000, image: 'cmd.exe' });
+    // Started an hour before this boot: whatever has that pid now isn't it.
+    const beforeBoot = new Date(bootTime() - 60 * 60 * 1000).toISOString();
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: beforeBoot, image: 'cmd.exe' });
     expect((await devState('s1', s(), null)).running).toBeNull();
     expect(stopDev('s1')).toBe(false);
     expect(alive(other.pid!)).toBe(true);
   });
 
   it('same boot but the pid is now a different program: Stop forgets it instead of killing', () => {
-    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't', boot: bootTime(), image: 'definitely-not-this.exe' });
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: new Date().toISOString(), image: 'definitely-not-this.exe' });
     expect(stopDev('s1')).toBe(false);
     expect(alive(other.pid!)).toBe(true);
     expect(withDb((d) => d.prepare('SELECT 1 FROM dev_runs').get())).toBeUndefined();
   });
 
-  it('a row from before this check (no boot recorded) is not trusted', async () => {
-    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 't' });
+  it('a record imported from the old JSON files (no image) is still running after the upgrade', async () => {
+    // Otherwise a vite started before the upgrade shows Stopped, Stop can't
+    // reach it, and Start collides on the port.
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: new Date().toISOString() });
+    expect((await devState('s1', s(), null)).running?.pid).toBe(other.pid);
+    expect(stopDev('s1')).toBe(true);
+    await expect.poll(() => alive(other.pid!), { timeout: 10_000 }).toBe(false);
+  });
+
+  it('a start time that cannot be parsed is not trusted', async () => {
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: 'yesterday-ish' });
     expect((await devState('s1', s(), null)).running).toBeNull();
-    expect(stopDev('s1')).toBe(false);
     expect(alive(other.pid!)).toBe(true);
+  });
+
+  it('an unreadable process name (tasklist slow or missing) does not forget a live run', () => {
+    save({ pid: other.pid, command: 'npm run dev', cwd: home, startedAt: new Date().toISOString(), image: 'cmd.exe' });
+    expect(stopDev('s1', () => null)).toBe(true); // pid alive, this boot: killed
+    expect(withDb((d) => d.prepare('SELECT 1 FROM dev_runs').get())).toBeUndefined();
   });
 
   it('processName reads a live process and returns null for a dead one', () => {

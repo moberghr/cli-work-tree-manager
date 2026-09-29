@@ -158,6 +158,23 @@ describe('an old PTY host that outlived the upgrade', () => {
     // Nothing to adopt the next time.
     expect(adoptLegacyRestoreList()).toBeNull();
   });
+
+  it('a pty-sessions.json OLDER than the database list (a `work state --export` copy) is set aside, not adopted', async () => {
+    legacyTree();
+    loadHistory(); // first open: imports (and renames) the legacy files
+    const tool = { cmd: 'claude', baseArgs: [] };
+    write('pty-sessions.json', { stale: { cwd: '/wt/stale', tool, startedAt: 't0' } });
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(path.join(work, 'pty-sessions.json'), old, old);
+    await new Promise((r) => setTimeout(r, 20));
+    dbPtySessions.write({ current: { cwd: '/wt/current', tool, startedAt: 't1' } }); // newer than the file
+
+    const { adoptLegacyRestoreList } = await import('../../src/core/pty-sessions-file.js');
+    expect(adoptLegacyRestoreList()).toBeNull();
+    expect(Object.keys(dbPtySessions.read())).toEqual(['current']);
+    expect(fs.existsSync(path.join(work, 'pty-sessions.json'))).toBe(false);
+    expect(fs.readdirSync(work).some((f) => f.startsWith('pty-sessions.json.stale-'))).toBe(true);
+  });
 });
 
 describe('change counters', () => {

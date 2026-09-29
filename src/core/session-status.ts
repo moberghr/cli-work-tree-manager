@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { json, tx, withDb, type Db } from './db.js';
 
 /**

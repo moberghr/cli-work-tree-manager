@@ -32,20 +32,18 @@ export function sessionStatePaths(id: string): string[] {
   return [devLogFile(id)];
 }
 
-/** Remove every piece of per-session state for a session that no longer
- *  exists. Best-effort per step (logged), never throws. */
-export async function purgeSessionState(target: string, branch: string): Promise<void> {
-  const id = sessionIdFor({ target, branch });
+/** Before the session's rows go: stop its dev server (needs the dev_runs
+ *  row). Best-effort, logged. */
+export function stopSessionDevServer(id: string): void {
   try {
-    stopDev(id); // needs its dev_runs row, so before the purge
+    stopDev(id);
   } catch (err) {
     logSwallowed(`stop dev server ${id}`, err);
   }
-  try {
-    tx((d) => purgeSessionRows(d, id));
-  } catch (err) {
-    logSwallowed(`purge state rows ${id}`, err);
-  }
+}
+
+/** After the session's rows are gone: its files. Best-effort per file. */
+export function removeSessionFiles(id: string): void {
   for (const p of sessionStatePaths(id)) {
     try {
       fs.rmSync(p, { force: true });
@@ -53,4 +51,21 @@ export async function purgeSessionState(target: string, branch: string): Promise
       logSwallowed(`purge ${p}`, err);
     }
   }
+}
+
+/**
+ * Remove every piece of per-session state for a session that has no
+ * `sessions` row (any more). history.ts removes a session's row and its
+ * state in ONE transaction (`purgeSessionRows`); this is the standalone
+ * form for state left behind. Best-effort per step (logged), never throws.
+ */
+export async function purgeSessionState(target: string, branch: string): Promise<void> {
+  const id = sessionIdFor({ target, branch });
+  stopSessionDevServer(id);
+  try {
+    tx((d) => purgeSessionRows(d, id));
+  } catch (err) {
+    logSwallowed(`purge state rows ${id}`, err);
+  }
+  removeSessionFiles(id);
 }

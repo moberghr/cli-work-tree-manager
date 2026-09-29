@@ -15,7 +15,6 @@
  * conversation), and marks them delivered.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { sessionIdFor } from './web-state.js';

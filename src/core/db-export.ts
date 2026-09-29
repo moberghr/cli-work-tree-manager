@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { dbPath, SCHEMA_VERSION, withDb } from './db.js';
+import { dbPath, withDb } from './db.js';
 
 /**
  * Read-only views of state.db for `work state`: a summary, and an export
@@ -81,5 +81,3 @@ export function exportLegacyState(dir: string): string[] {
   });
   return written;
 }
-
-export { SCHEMA_VERSION };

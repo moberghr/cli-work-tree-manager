@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnDetachedWork } from './process.js';
 import { getConfigDir } from './config.js';
+import { isPidAlive } from './process.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import {
   PROTOCOL_VERSION,
@@ -86,10 +87,33 @@ export async function findHost(timeoutsMs: number[] = [800, 5000]): Promise<Host
     probe = await probeHostDetailed(info, t);
     if (probe.kind !== 'timeout') break;
   }
-  if (probe.kind === 'timeout') throw new PtyHostBusyError();
+  if (probe.kind === 'timeout') {
+    // No answer: a host whose process is alive is busy — but a dead one
+    // (crashed, killed) left a stale file, and whatever now holds that port
+    // is not our host. Calling THAT busy would make the host unstartable.
+    if (!isPidAlive(info.pid)) return null;
+    throw new PtyHostBusyError();
+  }
   if (probe.kind !== 'host' || probe.pid !== info.pid) return null;
   if (probe.version !== PROTOCOL_VERSION) throw new PtyHostVersionError(probe.version);
   return info;
+}
+
+/**
+ * findHost that waits out a busy host: retries until it answers or
+ * `timeoutMs` passes, then throws PtyHostBusyError. For callers that must
+ * reach the host (stopping a session before its worktree is deleted).
+ */
+export async function findHostPatient(timeoutMs = 20_000): Promise<HostInfo | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await findHost();
+    } catch (err) {
+      if (!(err instanceof PtyHostBusyError) || Date.now() >= deadline) throw err;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
 }
 
 /** findHost for "should I start one?": a busy host counts as running. */

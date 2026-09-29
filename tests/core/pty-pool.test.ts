@@ -20,6 +20,9 @@ const host = {
 let hostRunning = false;
 const ensureHost = vi.fn(async () => { hostRunning = true; return { pid: 1, port: 9, token: 't', version: 1 }; });
 const findHost = vi.fn(async () => (hostRunning ? { pid: 1, port: 9, token: 't', version: 1 } : null));
+/** The patient variant: what the real one returns after waiting. */
+const findHostPatient = vi.fn(async () => findHost());
+class PtyHostVersionError extends Error {}
 
 vi.mock('../../src/core/web-state.js', () => ({
   findSession: (id: string) => sessions[id] ?? null,
@@ -30,6 +33,8 @@ vi.mock('../../src/core/ai-launcher.js', () => ({ getAiTool: () => ({ cmd: 'clau
 vi.mock('../../src/core/pty-host-client.js', () => ({
   ensureHost: (...a: unknown[]) => ensureHost(...(a as [])),
   findHost: (...a: unknown[]) => findHost(...(a as [])),
+  findHostPatient: (...a: unknown[]) => findHostPatient(...(a as [])),
+  PtyHostVersionError,
   PtyHostClient: class {
     async spawn(id: string, spec: { cwd: string; port?: number }) {
       if (host.failNextSpawn) { host.failNextSpawn = false; throw new Error('ECONNREFUSED'); }
@@ -66,7 +71,7 @@ async function freshPool() {
 beforeEach(() => {
   host.spawned = []; host.killed = []; host.written = []; host.live = new Set(); host.failNextSpawn = false;
   hostRunning = false;
-  ensureHost.mockClear(); findHost.mockClear();
+  ensureHost.mockClear(); findHost.mockClear(); findHostPatient.mockClear(); findHostPatient.mockImplementation(async () => findHost());
   sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pty-pool-')), 'pty-sessions.json');
   restore.list = {};
 });
@@ -123,6 +128,28 @@ describe('writeToPty / disposePty / detach', () => {
     await pool.disposePty('single');
     expect(host.killed).toEqual(['single']);
     expect(pool.peekPty('single')).toBe(false);
+  });
+
+  it('disposePty with no cached client finds the host (waiting out a busy one) and kills', async () => {
+    hostRunning = true;
+    const pool = await freshPool();
+    await pool.disposePty('single');
+    expect(findHostPatient).toHaveBeenCalled();
+    expect(host.killed).toEqual(['single']);
+  });
+
+  it('disposePty reports a host that stays busy instead of silently skipping the kill', async () => {
+    const pool = await freshPool();
+    findHostPatient.mockRejectedValueOnce(new Error('The PTY host is running but not answering (busy?).'));
+    await expect(pool.disposePty('single')).rejects.toThrow(/busy/);
+    expect(host.killed).toEqual([]);
+  });
+
+  it('disposePty leaves a host from another build alone', async () => {
+    const pool = await freshPool();
+    findHostPatient.mockRejectedValueOnce(new PtyHostVersionError('old'));
+    await pool.disposePty('single');
+    expect(host.killed).toEqual([]);
   });
 
   it('detaching (work web shutdown) kills nothing', async () => {

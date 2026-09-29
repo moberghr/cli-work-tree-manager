@@ -1,4 +1,4 @@
-import { json, tx, withDb } from './db.js';
+import { json, tx, withDb, type Db } from './db.js';
 import fs from 'node:fs';
 import { isPersistedPty, ptySessionsPath, type PersistedPtys } from './pty-host-protocol.js';
 
@@ -16,6 +16,13 @@ export interface PtySessionsStore {
   write(all: PersistedPtys): void;
 }
 
+/** meta key: when `pty_sessions` was last written (ISO). */
+const UPDATED_AT = 'pty_sessions:updated_at';
+
+function touch(d: Db): void {
+  d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(UPDATED_AT, new Date().toISOString());
+}
+
 export const dbPtySessions: PtySessionsStore = {
   read() {
     const out: PersistedPtys = {};
@@ -30,6 +37,7 @@ export const dbPtySessions: PtySessionsStore = {
       d.prepare('DELETE FROM pty_sessions').run();
       const ins = d.prepare('INSERT INTO pty_sessions (session_id, data) VALUES (?, ?)');
       for (const [id, spec] of Object.entries(all)) ins.run(id, JSON.stringify(spec));
+      touch(d);
     });
   },
 };
@@ -38,13 +46,24 @@ export const dbPtySessions: PtySessionsStore = {
  * A pty-sessions.json present at host start was written by an OLDER host
  * (protocol v1) that kept running across the upgrade to state.db: after the
  * one-time import renamed the file, that host re-created it and went on
- * recording sessions there. It is the newest list, so it replaces the
- * database's — otherwise sessions started after the upgrade would not be
- * restored, and ones it forgot would come back. Returns how many entries
- * it adopted (null: no file).
+ * recording sessions there. If it is newer than the database's list, it
+ * replaces it — otherwise sessions started after the upgrade would not be
+ * restored, and ones it forgot would come back. A file OLDER than the last
+ * database write is not the newest list (a `work state --export` copy left
+ * in ~/.work, say) and is set aside instead. Returns how many entries it
+ * adopted (null: no file, or nothing to adopt).
  */
 export function adoptLegacyRestoreList(file = ptySessionsPath()): number | null {
   if (!fs.existsSync(file)) return null;
+  const last = withDb((d) => d.prepare('SELECT value FROM meta WHERE key = ?').get(UPDATED_AT) as { value: string } | undefined);
+  if (last && fs.statSync(file).mtimeMs <= Date.parse(last.value)) {
+    try {
+      fs.renameSync(file, `${file}.stale-${Date.now()}`);
+    } catch {
+      /* leave it */
+    }
+    return null;
+  }
   const adopted: PersistedPtys = {};
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown;
@@ -68,5 +87,8 @@ export function adoptLegacyRestoreList(file = ptySessionsPath()): number | null 
  * next host start doesn't restore it (its worktree is being deleted).
  */
 export async function forgetPersistedSession(id: string): Promise<void> {
-  withDb((d) => d.prepare('DELETE FROM pty_sessions WHERE session_id = ?').run(id));
+  tx((d) => {
+    d.prepare('DELETE FROM pty_sessions WHERE session_id = ?').run(id);
+    touch(d);
+  });
 }

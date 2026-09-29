@@ -86,8 +86,18 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
   }
 
   const store: CommentFileStore = {
-    list: () => inner.list(),
-    snapshot: () => inner.snapshot(),
+    // Reads reload first (one indexed query): `work broadcast` and the
+    // hooks write to the same store from other processes, and a list
+    // served from this process's memory didn't show them until something
+    // here mutated. The in-memory model is for mutations, not a cache.
+    list: () => {
+      reloadInner();
+      return inner.list();
+    },
+    snapshot: () => {
+      reloadInner();
+      return inner.snapshot();
+    },
     post(input: CommentInput) {
       return lockedMutate(() => {
         const c = inner.post(input);
