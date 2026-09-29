@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,23 +18,34 @@ let tmpHome: string;
 let repoA: string;
 let repoB: string;
 
+// Two real repos (for group scenarios), built ONCE per file and copied per
+// test: building them in every beforeEach was ~10 synchronous git spawns per
+// test, which made this file 109 s of a 111 s parallel suite and starved
+// vitest's worker into an RPC timeout. A copied .git is a complete,
+// independent repo. (Commit identity comes from tests/setup/isolate-git.ts.)
+let template: string;
+beforeAll(() => {
+  template = fs.mkdtempSync(path.join(os.tmpdir(), 'work-cp-template-'));
+  for (const name of ['repoA', 'repoB']) {
+    const r = path.join(template, name);
+    fs.mkdirSync(r);
+    git(['init', '-q', '-b', 'main'], r);
+    fs.writeFileSync(path.join(r, 'README.md'), '# initial\n');
+    git(['add', '.'], r);
+    git(['commit', '-q', '-m', 'init', '--no-gpg-sign'], r);
+  }
+});
+afterAll(() => {
+  fs.rmSync(template, { recursive: true, force: true });
+});
+
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'work-cp-test-'));
   vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
-
-  // Two real repos so we can exercise group scenarios.
   repoA = path.join(tmpHome, 'repoA');
   repoB = path.join(tmpHome, 'repoB');
-  fs.mkdirSync(repoA);
-  fs.mkdirSync(repoB);
-  for (const r of [repoA, repoB]) {
-    git(['init', '-b', 'main'], r);
-    git(['config', 'user.email', 't@t.t'], r);
-    git(['config', 'user.name', 'Test'], r);
-    fs.writeFileSync(path.join(r, 'README.md'), '# initial\n');
-    git(['add', '.'], r);
-    git(['commit', '-m', 'init', '--no-gpg-sign'], r);
-  }
+  fs.cpSync(path.join(template, 'repoA'), repoA, { recursive: true });
+  fs.cpSync(path.join(template, 'repoB'), repoB, { recursive: true });
 });
 
 afterEach(() => {

@@ -19,6 +19,13 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
 
 const RUNTIME_IMPORT = /^\s*import\s+(?!type\b)[^'"]*?from\s*['"]([^'"]+)['"]/gm;
 
+/** Route modules that are not part of the dashboard SPA's contract. */
+const NOT_DASHBOARD = new Map([
+  // `wd`'s per-scope review API (/diff/<hash>, /review/<hash>) and the
+  // Stop-hook checkpoint bridge: called by `wd` and `work hook`, not the dashboard.
+  ['scope-routes.ts', 'wd scopes + checkpoint hook'],
+]);
+
 describe('demo mode is separated from the real machinery', () => {
   const demoFiles = fs.readdirSync(path.join(ROOT, 'src/core/demo')).filter((f) => f.endsWith('.ts'));
 
@@ -56,15 +63,12 @@ describe('demo mode is separated from the real machinery', () => {
     const ROUTE = /app\.(get|post|patch|delete)\(\s*['"]([^'"]+)['"]/g;
     const routes = (files: string[]) =>
       new Set(files.flatMap((f) => [...read(f).matchAll(ROUTE)].map((m) => `${m[1].toUpperCase()} ${m[2]}`)));
-    const real = routes([
-      'src/core/web-server.ts',
-      'src/core/session-comment-routes.ts',
-      'src/core/panes-routes.ts',
-      'src/core/worktree-routes.ts',
-      'src/core/status-routes.ts',
-      'src/core/ship-routes.ts',
-      'src/core/terminal-routes.ts',
-    ]);
+    // Every route module, not a hand list: a new *-routes.ts is covered the
+    // day it lands (the old list had silently fallen three files behind).
+    const routeModules = fs.readdirSync(path.join(ROOT, 'src/core'))
+      .filter((f) => f.endsWith('-routes.ts') && !NOT_DASHBOARD.has(f))
+      .map((f) => `src/core/${f}`);
+    const real = routes(['src/core/web-server.ts', ...routeModules]);
     // Not part of the dashboard's contract: the Claude hook nudge (called
     // by `work hook`, not the SPA) and the SPA fallback itself.
     for (const r of ['POST /api/status-changed', 'GET *']) real.delete(r);

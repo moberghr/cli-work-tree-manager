@@ -29,7 +29,10 @@ beforeEach(() => {
   process.env.USERPROFILE = tmpHome;
 });
 
+const setupHome = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 afterEach(() => {
+  process.env.HOME = setupHome.HOME;
+  process.env.USERPROFILE = setupHome.USERPROFILE;
   fs.rmSync(tmpHome, { recursive: true, force: true });
   vi.resetModules();
 });

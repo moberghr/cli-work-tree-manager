@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { killTree, runAll } from './fixtures/processes.js';
 
 /**
  * Functional test of the built `work attach` binary end to end: it starts a
@@ -76,10 +77,31 @@ beforeAll(() => {
   env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
 });
 
-afterAll(() => {
+/** `work attach` clients the tests started, swept in afterAll. */
+const children: ChildProcess[] = [];
+function track<T extends ChildProcess>(child: T): T {
+  children.push(child);
+  return child;
+}
+function hostPid(): number | null {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(home, '.work', 'pty-host.json'), 'utf-8')) as { pid: number }).pid;
+  } catch {
+    return null;
+  }
+}
+
+afterAll(async () => {
   if (!hasBuild) return;
-  work(['pty-host', '--stop']);
-  fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  // Polite first; then whatever a failed test left behind. /T takes the
+  // host's session processes (echo-ai) down with it.
+  const host = hostPid();
+  await runAll([
+    () => { work(['pty-host', '--stop']); },
+    () => { for (const c of children) if (c.pid && c.exitCode === null) killTree(c.pid); },
+    () => { if (host) killTree(host); },
+    () => fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }),
+  ]);
 });
 
 // Each test spawns real detached processes (PTY host, tool via a .cmd shim);
@@ -87,11 +109,11 @@ afterAll(() => {
 // most of the default 20 s.
 describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeout: 60_000 }, () => {
   it('attaches from the worktree dir, round-trips input, and detaches with Ctrl+]', async () => {
-    const child: ChildProcess = spawn(process.execPath, [BIN, 'attach'], {
+    const child: ChildProcess = track(spawn(process.execPath, [BIN, 'attach'], {
       cwd: path.join(worktree), // session resolved from cwd
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }));
     let out = '';
     let err = '';
     child.stdout!.on('data', (d) => { out += d.toString(); });
@@ -113,10 +135,10 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
   });
 
   it('a second attach replays the screen from the first', async () => {
-    const child = spawn(process.execPath, [BIN, 'attach', 'api', 'feat/x'], {
+    const child = track(spawn(process.execPath, [BIN, 'attach', 'api', 'feat/x'], {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }));
     let out = '';
     let err = '';
     child.stdout!.on('data', (d) => { out += d.toString(); });
@@ -152,11 +174,11 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
 
   /** Run a `work` command that attaches, wait for `until`, then Ctrl+]. */
   async function runAttached(args: string[], until: (out: string) => boolean, extraEnv = {}) {
-    const child = spawn(process.execPath, [BIN, ...args], {
+    const child = track(spawn(process.execPath, [BIN, ...args], {
       cwd: home,
       env: { ...env, ...extraEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }));
     let out = '';
     let err = '';
     child.stdout!.on('data', (d) => { out += d.toString(); });

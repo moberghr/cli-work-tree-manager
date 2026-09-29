@@ -5,12 +5,22 @@ on:
   pull_request:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Windows is where ConPTY, .cmd shims, cmd.exe escaping and NTFS
+    # filename rules live (the pty-host / attach functional tests); Node 22
+    # is the supported floor.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: ubuntu-latest, node: 22 }
+          - { os: windows-latest, node: 24 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -40,12 +50,23 @@ jobs:
       - name: Install the tarball globally and use state.db
         shell: bash
         run: |
-          npm install -g ./moberg_hr-work-tree-*.tgz
+          # HOME first: the postinstall registers the Claude Code plugin
+          # marketplace under ~/.claude, which must not be the runner's.
           export HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home"
           mkdir -p "$HOME"
+          npm install -g ./moberg_hr-work-tree-*.tgz
           work todo add "smoke test"
           work todo | grep "smoke test"
           test -f "$HOME/.work/state.db"
+          # Each binary and the lazily imported command chunks load
+          # (tsup code-splitting): the PTY-host client, attach, and wd.
+          work pty-host --status
+          wd --help | grep -i diff
+          set +e
+          work attach 2> attach.err; code=$?
+          set -e
+          test "$code" = 1
+          grep "not inside a work session" attach.err
   e2e:
     # Real `work web` + PTY host + browser, each test in an isolated HOME
     # (see e2e/fixtures.ts); Claude is replaced by e2e/fake-ai.cjs.

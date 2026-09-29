@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { killTree, runAll } from './fixtures/processes.js';
 import { WebSocket } from 'ws';
 import { PtyRegistry } from '../../src/core/pty-registry.js';
 import { startPtyHost, type PtyHostHandle } from '../../src/core/pty-host.js';
@@ -36,9 +37,16 @@ beforeEach(() => {
   cwd = path.join(dir, 'worktree');
   fs.mkdirSync(cwd);
 });
+/** Every session pid a test started — swept even if a polite kill failed. */
+const pids = new Set<number>();
 afterEach(async () => {
-  for (const fn of cleanup.splice(0).reverse()) await fn();
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  try {
+    await runAll(cleanup.splice(0).reverse());
+  } finally {
+    for (const pid of pids) killTree(pid);
+    pids.clear();
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  }
 });
 
 function registry(hasConversation = () => false) {
@@ -46,6 +54,7 @@ function registry(hasConversation = () => false) {
   // Kill (and wait for exit) rather than just dispose, so the temp cwd is
   // released before afterEach deletes it.
   cleanup.push(async () => {
+    for (const p of reg.list()) pids.add(p.pid);
     await Promise.all(reg.list().map((p) => reg.kill(p.id)));
   });
   return reg;
@@ -170,6 +179,7 @@ describe('PTY host server over real sockets', () => {
     // Runs before stop() (cleanup is LIFO): kill and wait so the temp cwd
     // is released — stop() alone doesn't wait for exits.
     cleanup.push(async () => {
+      for (const p of host.registry.list()) pids.add(p.pid);
       await Promise.all(host.registry.list().map((p) => host.registry.kill(p.id)));
     });
   });
