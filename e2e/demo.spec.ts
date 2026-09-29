@@ -78,3 +78,22 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
   expect(created.filter((f) => !f.startsWith('debug.log'))).toEqual([]);
   expect(fs.existsSync(path.join(home, '.claude'))).toBe(false);
 });
+
+test('"Last turn" narrows the diff to what the last instruction changed', async ({ page }) => {
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  const files = page.locator('.wd-web-review-main article');
+  await expect(files).toHaveCount(2);
+
+  await page.getByRole('tab', { name: 'Last turn' }).click();
+  await expect(files).toHaveCount(1);
+  await expect(files).toContainText('src/auth.test.ts');
+
+  await page.getByLabel('Which turn').selectOption({ label: '1 · Implemented the change' });
+  await expect(files).toHaveCount(1);
+  await expect(files).not.toContainText('auth.test.ts');
+  await expect(files).toContainText('src/auth.ts');
+
+  await page.getByRole('tab', { name: 'Uncommitted' }).click();
+  await expect(files).toHaveCount(2);
+});

@@ -380,11 +380,41 @@ export interface SessionDiff {
 export function fetchSessionDiff(
   sessionId: string,
   base: DiffBase = 'uncommitted',
+  range?: { from: number; to: number },
 ): Promise<SessionDiff> {
-  const q = base === 'branch' ? '?base=branch' : '';
+  const q = range
+    ? `?from=${range.from}&to=${range.to}`
+    : base === 'branch'
+      ? '?base=branch'
+      : '';
   return getJson<SessionDiff>(
     `/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
   );
+}
+
+/** A session's checkpoint history: one step per Claude instruction, taken
+ *  when its turn ends (the first entry is the baseline). */
+export function fetchSessionCheckpoints(sessionId: string): Promise<CheckpointEntry[]> {
+  return getJson<{ entries: CheckpointEntry[] }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`,
+  ).then((r) => r.entries);
+}
+
+/** Consecutive checkpoint pairs = turns, newest first. */
+export interface TurnRange {
+  from: number;
+  to: number;
+  /** 1-based turn number. */
+  n: number;
+  label?: string;
+  ts: string;
+}
+export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
+  const out: TurnRange[] = [];
+  for (let i = 1; i < entries.length; i++) {
+    out.push({ from: entries[i - 1].id, to: entries[i].id, n: i, label: entries[i].label, ts: entries[i].ts });
+  }
+  return out.reverse();
 }
 
 /** The user opened a session that wanted attention — clear its unseen flag. */

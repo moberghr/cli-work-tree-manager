@@ -476,6 +476,51 @@ export class DemoScenario {
     };
   }
 
+  /**
+   * Simulated per-turn checkpoints: a baseline plus one step per
+   * instruction. Turn 1 wrote all but each repo's last uncommitted file;
+   * turn 2 wrote that last file. Sessions with nothing uncommitted have
+   * only the baseline (so "Last turn" is disabled there).
+   */
+  checkpoints(id: string): Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const repos = Object.fromEntries(s.repos.map((r) => [r.name, null]));
+    const base = Date.parse(s.lastAccessedAt);
+    const at = (minsAgo: number) => new Date(base - minsAgo * 60_000).toISOString();
+    const entries: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> = [
+      { id: 0, ts: at(40), label: 'Initial', repos },
+    ];
+    if (s.repos.some((r) => r.uncommitted)) {
+      entries.push({ id: 1, ts: at(25), label: 'Implemented the change', repos });
+      entries.push({ id: 2, ts: at(5), label: 'Addressed review feedback', repos });
+    }
+    return entries;
+  }
+
+  /** The files a checkpoint range changed — see checkpoints(). */
+  rangeDiff(id: string, from: number, to: number): { sessionId: string; base: string; resolvedBase: string; repos: Array<{ name: string; root: string; files: ParsedFile[]; resolvedBase: string }> } | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const lo = Math.max(0, Math.min(from, to));
+    const hi = Math.min(2, Math.max(from, to));
+    return {
+      sessionId: id,
+      base: 'range',
+      resolvedBase: `checkpoint ${lo}`,
+      repos: s.repos.map((r) => {
+        const files = parseGitDiff(r.uncommitted);
+        const inTurn = (i: number) => (i === files.length - 1 ? 2 : 1);
+        return {
+          name: r.name,
+          root: `~/worktrees/${s.target}/${r.name}`,
+          files: files.filter((_, i) => inTurn(i) > lo && inTurn(i) <= hi),
+          resolvedBase: `checkpoint ${lo}`,
+        };
+      }),
+    };
+  }
+
   comments(id: string): CommentStore | null {
     return this.sessions.get(id)?.comments ?? null;
   }

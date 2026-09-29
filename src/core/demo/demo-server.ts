@@ -37,7 +37,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true }));
   app.get('/api/sessions', (c) => c.json({ sessions: scenario.list() }));
 
+  app.get('/api/sessions/:id/checkpoints', (c) => {
+    const entries = scenario.checkpoints(c.req.param('id'));
+    return entries ? c.json({ scopeHash: `demo-${c.req.param('id')}`, entries }) : notFound(c);
+  });
+
   app.get('/api/sessions/:id/diff', (c) => {
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    if (from !== undefined && to !== undefined) {
+      const d = scenario.rangeDiff(c.req.param('id'), Number(from), Number(to));
+      return d ? c.json(d) : notFound(c);
+    }
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';
     const d = scenario.diff(c.req.param('id'), base);
     return d ? c.json(d) : notFound(c);

@@ -68,6 +68,17 @@ describe('demo server', () => {
     expect(b.repos.map((r: { name: string }) => r.name)).toEqual(['backend', 'frontend']);
   });
 
+  it('fakes per-turn checkpoints, and a turn diffs to part of the change', async () => {
+    const login = await byBranch('fix/login-redirect');
+    const { entries } = await get(`/api/sessions/${login.id}/checkpoints`);
+    expect(entries.map((e: { id: number }) => e.id)).toEqual([0, 1, 2]);
+    const last = await get(`/api/sessions/${login.id}/diff?from=1&to=2`);
+    expect(last.base).toBe('range');
+    expect(last.repos[0].files.map((f: { path: string }) => f.path)).toEqual(['src/auth.test.ts']);
+    const all = await get(`/api/sessions/${login.id}/diff?from=0&to=2`);
+    expect(all.repos[0].files).toHaveLength(2);
+  });
+
   it('the scripted day moves on: an agent asks for permission, another finishes', async () => {
     expect((await byBranch('feat/search-filters')).attention?.state).toBe('working');
     advance(21_000);

@@ -331,6 +331,10 @@ Checkpoints are **authoritatively taken per Claude turn**: `work web` installs a
 
 § WHEN touching the scope diff server, preserve `suppressScopeWatch` (`core/scope-manager.ts`): the `to=working` range diff runs `git add -A`/`write-tree`, whose `.git` churn surfaces as nameless `fs.watch` events that can't be path-filtered. The diff route calls `suppressScopeWatch(hash, 800)` after computing so that self-induced churn doesn't fire `diff-changed` → refetch → recompute → **reload loop**. Real edits land outside the window and still reload. Checkpoint names come from `core/checkpoint-summary.ts` (lazy `claude -p`, cached). Comment `resolved` (mark-done) and `side:'file'` (whole-file) are routed via `/api/scopes/<hash>/comments/:cid/resolve` and the normal POST with `side:'file'`.
 
+### "Last turn" (session diffs by turn)
+
+The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since branch. A session's turns are its diff scope's checkpoints (one per instruction, taken by the Stop hook): `GET /api/sessions/:id/checkpoints` creates the scope on demand (`ensureScope`, returned by `mountScopeRoutes` — the same scope `wd` registers for those paths) and `GET /api/sessions/:id/diff?from=&to=` serves a checkpoint range (delegates to `/api/scopes/:hash/diff`). Status hooks also ensure the scope, so turns are recorded for sessions nobody has opened yet. The demo fakes three checkpoints per session with changes.
+
 ### Configuration
 
 Stored at `~/.work/config.json`. Schema in `core/config.ts`:

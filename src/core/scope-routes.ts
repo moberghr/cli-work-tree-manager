@@ -33,6 +33,7 @@ import {
   subscribeScope,
   suppressScopeWatch,
 } from './scope-manager.js';
+import type { Scope } from './scope-manager.js';
 import { getCommentFileStore } from './comment-file-store.js';
 import {
   commentInputSchema,
@@ -66,7 +67,7 @@ export interface ScopeMountOptions {
  *   GET    /api/scopes/:hash/events          — SSE: diff-changed,
  *                                              comments-changed
  */
-export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
+export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): { ensureScope: (paths: string[], label?: string) => Scope } {
   // -- Lifecycle -----------------------------------------------------------
 
   // Scopes that already have an auto-snapshot subscriber wired. The
@@ -216,6 +217,126 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     return true;
   }
 
+  /**
+   * Register (or refresh) a scope for `paths` and wire its checkpointing:
+   * the Initial baseline, re-baselining on a new HEAD, and the fs-watch
+   * fallback. Used by POST /api/scopes (`wd`) and by work web for dashboard
+   * sessions, so a session's Claude turns are checkpointed — and "last turn"
+   * diffs exist — without anyone opening `wd`. Throws ScopePathRejectedError.
+   */
+  function ensureScope(paths: string[], label?: string): Scope {
+    const scope = registerScope(paths, label);
+
+    // Re-registering an ENDED scope means a new `wd -c` run on the same
+    // paths. Reset the flag and clear the previous run's comments —
+    // otherwise the CLI proxy replays the old comments as new and sees
+    // `ended: true` on its first poll, emitting `--- review done ---`
+    // immediately.
+    if (reviveScope(scope.hash)) {
+      const cleared = commentStore(scope.hash).clearAll();
+      if (cleared > 0) {
+        emitCommentsChanged({ scopeHash: scope.hash });
+      }
+    }
+
+    opts.broadcast('scopes-changed', { hash: scope.hash });
+
+    const announceCheckpoint = (entry: CheckpointEntry) => {
+      const payload = { scopeHash: scope.hash, id: entry.id };
+      opts.broadcast('checkpoints-changed', payload);
+      scopeBus.emit('checkpoints-changed', payload);
+    };
+
+    // Establish / refresh the "Initial" checkpoint — the baseline every
+    // subsequent step diffs against. Two cases:
+    //   - empty manifest: first time this scope is seen → take Initial.
+    //   - existing manifest: the baseline is pinned to the last commit, so
+    //     if HEAD advanced since (a commit/pull/merge between sessions)
+    //     re-baseline at the new HEAD (`rebaselineIfHeadAdvanced`).
+    // Fire and forget: `git add -A` against a large untracked tree can
+    // take hundreds of ms, and the `wd` foreground caller is waiting on
+    // this response to open the browser. The SPA fetches checkpoints
+    // separately and will see the entry once it lands (or via the
+    // `checkpoints-changed` SSE event below).
+    if (loadManifest(scope.hash).entries.length === 0) {
+      takeCheckpoint(scope.hash, scopeRepos(scope.paths))
+        .then((entry) => {
+          if (entry) announceCheckpoint(entry);
+        })
+        .catch((err) => {
+          // Best-effort, but DO surface persistent failures (disk full on
+          // `~/.work/diffs/`, stale lockfile, git permission denied).
+          // `installConsoleLogger` mirrors console.error into
+          // `~/.work/debug.log` for a diagnostic trail.
+          console.error('[checkpoint] initial snapshot failed:', err);
+        });
+    } else {
+      rebaselineIfHeadAdvanced(scope.hash, scope.paths).catch((err) => {
+        console.error('[checkpoint] re-baseline failed:', err);
+      });
+    }
+
+    // Wire an auto-snapshot subscriber that fires on every debounced
+    // fs change for this scope. A cheap `git status` fingerprint
+    // gate short-circuits before the expensive snapshot pipeline
+    // when the working tree hasn't moved — common when editor
+    // autosave rewrites a file with identical content, or when
+    // chokidar fires for an `.gitignore`'d path that git wouldn't
+    // capture anyway.
+    if (!checkpointWatched.has(scope.hash)) {
+      checkpointWatched.add(scope.hash);
+      const hash = scope.hash;
+      // Fires once the edit burst settles. Defers while Claude is still
+      // writing its transcript so the checkpoint maps to a finished turn,
+      // then runs the cheap status-fingerprint gate before the expensive
+      // snapshot pipeline.
+      const runSnapshot = () => {
+        snapshotTimers.delete(hash);
+        const claudeMs = scope.paths.reduce(
+          (m, p) => Math.max(m, getClaudeActivityMs(p)),
+          0,
+        );
+        if (claudeActiveWithin(claudeMs, Date.now(), CLAUDE_SESSION_MS)) {
+          // A Claude session is active for this scope — the Stop hook is
+          // authoritative for checkpoints, so the timer stands down. This
+          // is what guarantees the timer can never snapshot before Claude
+          // finishes a turn. It only acts below when no Claude is around.
+          return;
+        }
+        try {
+          const fp = workingTreeFingerprint(scope.paths);
+          if (lastStatus.get(hash) === fp) return;
+          lastStatus.set(hash, fp);
+        } catch {
+          // Fingerprint failure shouldn't block the snapshot — fall
+          // through to takeCheckpoint and let its own logic decide.
+        }
+        // A manual commit (no Claude around) advances HEAD — re-baseline
+        // first so the strip resets to "since the last commit", then
+        // capture any remaining uncommitted edits as the first new step.
+        rebaselineIfHeadAdvanced(hash, scope.paths)
+          .then(() => takeCheckpoint(hash, scopeRepos(scope.paths)))
+          .then((entry) => {
+            if (entry) {
+              announceCheckpoint(entry);
+              ensureSummary(scope, entry.id);
+            }
+          })
+          .catch((err) => {
+            console.error('[checkpoint] auto-snapshot failed:', err);
+          });
+      };
+      // Coalesce: every fs burst resets the settle timer, so a flurry of
+      // saves produces one checkpoint at the end, not one per save.
+      subscribeScope(hash, () => {
+        const pending = snapshotTimers.get(hash);
+        if (pending) clearTimeout(pending);
+        snapshotTimers.set(hash, setTimeout(runSnapshot, CHECKPOINT_SETTLE_MS));
+      });
+    }
+    return scope;
+  }
+
   app.post(
     '/api/scopes',
     zValidator(
@@ -228,115 +349,7 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
     (c) => {
       const { paths, label } = c.req.valid('json');
       try {
-        const scope = registerScope(paths, label);
-
-        // Re-registering an ENDED scope means a new `wd -c` run on the same
-        // paths. Reset the flag and clear the previous run's comments —
-        // otherwise the CLI proxy replays the old comments as new and sees
-        // `ended: true` on its first poll, emitting `--- review done ---`
-        // immediately.
-        if (reviveScope(scope.hash)) {
-          const cleared = commentStore(scope.hash).clearAll();
-          if (cleared > 0) {
-            emitCommentsChanged({ scopeHash: scope.hash });
-          }
-        }
-
-        opts.broadcast('scopes-changed', { hash: scope.hash });
-
-        const announceCheckpoint = (entry: CheckpointEntry) => {
-          const payload = { scopeHash: scope.hash, id: entry.id };
-          opts.broadcast('checkpoints-changed', payload);
-          scopeBus.emit('checkpoints-changed', payload);
-        };
-
-        // Establish / refresh the "Initial" checkpoint — the baseline every
-        // subsequent step diffs against. Two cases:
-        //   - empty manifest: first time this scope is seen → take Initial.
-        //   - existing manifest: the baseline is pinned to the last commit, so
-        //     if HEAD advanced since (a commit/pull/merge between sessions)
-        //     re-baseline at the new HEAD (`rebaselineIfHeadAdvanced`).
-        // Fire and forget: `git add -A` against a large untracked tree can
-        // take hundreds of ms, and the `wd` foreground caller is waiting on
-        // this response to open the browser. The SPA fetches checkpoints
-        // separately and will see the entry once it lands (or via the
-        // `checkpoints-changed` SSE event below).
-        if (loadManifest(scope.hash).entries.length === 0) {
-          takeCheckpoint(scope.hash, scopeRepos(scope.paths))
-            .then((entry) => {
-              if (entry) announceCheckpoint(entry);
-            })
-            .catch((err) => {
-              // Best-effort, but DO surface persistent failures (disk full on
-              // `~/.work/diffs/`, stale lockfile, git permission denied).
-              // `installConsoleLogger` mirrors console.error into
-              // `~/.work/debug.log` for a diagnostic trail.
-              console.error('[checkpoint] initial snapshot failed:', err);
-            });
-        } else {
-          rebaselineIfHeadAdvanced(scope.hash, scope.paths).catch((err) => {
-            console.error('[checkpoint] re-baseline failed:', err);
-          });
-        }
-
-        // Wire an auto-snapshot subscriber that fires on every debounced
-        // fs change for this scope. A cheap `git status` fingerprint
-        // gate short-circuits before the expensive snapshot pipeline
-        // when the working tree hasn't moved — common when editor
-        // autosave rewrites a file with identical content, or when
-        // chokidar fires for an `.gitignore`'d path that git wouldn't
-        // capture anyway.
-        if (!checkpointWatched.has(scope.hash)) {
-          checkpointWatched.add(scope.hash);
-          const hash = scope.hash;
-          // Fires once the edit burst settles. Defers while Claude is still
-          // writing its transcript so the checkpoint maps to a finished turn,
-          // then runs the cheap status-fingerprint gate before the expensive
-          // snapshot pipeline.
-          const runSnapshot = () => {
-            snapshotTimers.delete(hash);
-            const claudeMs = scope.paths.reduce(
-              (m, p) => Math.max(m, getClaudeActivityMs(p)),
-              0,
-            );
-            if (claudeActiveWithin(claudeMs, Date.now(), CLAUDE_SESSION_MS)) {
-              // A Claude session is active for this scope — the Stop hook is
-              // authoritative for checkpoints, so the timer stands down. This
-              // is what guarantees the timer can never snapshot before Claude
-              // finishes a turn. It only acts below when no Claude is around.
-              return;
-            }
-            try {
-              const fp = workingTreeFingerprint(scope.paths);
-              if (lastStatus.get(hash) === fp) return;
-              lastStatus.set(hash, fp);
-            } catch {
-              // Fingerprint failure shouldn't block the snapshot — fall
-              // through to takeCheckpoint and let its own logic decide.
-            }
-            // A manual commit (no Claude around) advances HEAD — re-baseline
-            // first so the strip resets to "since the last commit", then
-            // capture any remaining uncommitted edits as the first new step.
-            rebaselineIfHeadAdvanced(hash, scope.paths)
-              .then(() => takeCheckpoint(hash, scopeRepos(scope.paths)))
-              .then((entry) => {
-                if (entry) {
-                  announceCheckpoint(entry);
-                  ensureSummary(scope, entry.id);
-                }
-              })
-              .catch((err) => {
-                console.error('[checkpoint] auto-snapshot failed:', err);
-              });
-          };
-          // Coalesce: every fs burst resets the settle timer, so a flurry of
-          // saves produces one checkpoint at the end, not one per save.
-          subscribeScope(hash, () => {
-            const pending = snapshotTimers.get(hash);
-            if (pending) clearTimeout(pending);
-            snapshotTimers.set(hash, setTimeout(runSnapshot, CHECKPOINT_SETTLE_MS));
-          });
-        }
+        const scope = ensureScope(paths, label);
 
         return c.json({
           hash: scope.hash,
@@ -850,4 +863,6 @@ export function mountScopeRoutes(app: Hono, opts: ScopeMountOptions): void {
       });
     });
   });
+
+  return { ensureScope };
 }

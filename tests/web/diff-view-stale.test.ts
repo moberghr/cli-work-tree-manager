@@ -67,6 +67,7 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
     fetchSessionDiff: (sessionId: string) =>
       new Promise((resolve) => h.pending.set(sessionId, resolve)),
     fetchCheckpoints: () => Promise.resolve([]),
+    fetchSessionCheckpoints: () => Promise.resolve([]),
   };
 });
 

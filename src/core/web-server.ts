@@ -25,6 +25,8 @@ import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import type { SessionWire } from './api-types.js';
+import { bestEffort } from './best-effort.js';
+import { loadManifest } from './checkpoint.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -223,10 +225,44 @@ export async function startWebServer(
     return c.json(sessionsCache.body);
   });
 
-  app.get('/api/sessions/:id/diff', (c) => {
+  // A session's checkpoint history lives in its diff SCOPE (the machinery
+  // `wd` uses: one step per Claude instruction, taken by the Stop hook). The
+  // dashboard addresses sessions, so these routes make sure the session's
+  // scope exists — the manifest on disk survives restarts, the in-memory
+  // registration doesn't — and hide scopes from the SPA.
+  let scopeApi: ReturnType<typeof mountScopeRoutes> | null = null;
+  const sessionScope = (session: WorktreeSession) =>
+    bestEffort(
+      `checkpoint scope for ${session.target}:${session.branch}`,
+      () => scopeApi?.ensureScope(session.paths, `${session.target} · ${session.branch}`) ?? null,
+      null,
+    ) ?? null;
+
+  app.get('/api/sessions/:id/checkpoints', (c) => {
+    const session = findSession(c.req.param('id'));
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const scope = sessionScope(session);
+    if (!scope) return c.json({ scopeHash: null, entries: [] });
+    return c.json({ scopeHash: scope.hash, entries: loadManifest(scope.hash).entries });
+  });
+
+  app.get('/api/sessions/:id/diff', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
+    // Range between two checkpoints (e.g. "last turn"): delegate to the
+    // scope's range diff, which already handles groups and 'working'.
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    if (from !== undefined && to !== undefined) {
+      const scope = sessionScope(session);
+      if (!scope) return c.json({ error: 'no checkpoints for this session' }, 404);
+      const res = await app.request(
+        `/api/scopes/${encodeURIComponent(scope.hash)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      const body = (await res.json()) as Record<string, unknown>;
+      return c.json(res.ok ? { ...body, sessionId: id, base: 'range' } : body, res.ok ? 200 : (res.status as 400));
+    }
     const baseParam = c.req.query('base') ?? 'uncommitted';
     const base: DiffBase =
       baseParam === 'branch' ? 'branch' : 'uncommitted';
@@ -252,7 +288,7 @@ export async function startWebServer(
   // an addressable URL per scope (/diff/<hash>, /review/<hash>) so we
   // can collapse the standalone wd-server/wd -c daemons into this
   // single process.
-  mountScopeRoutes(app, { broadcast });
+  scopeApi = mountScopeRoutes(app, { broadcast });
 
   // PTY upgrade endpoint. Returns a noop response — the upgrade is handled
   // by the server's `upgrade` event below.
@@ -260,7 +296,16 @@ export async function startWebServer(
 
   // Attention inbox: hook nudges + mark-seen. A status change usually means
   // a turn touched files, so the row's +N −M refreshes too.
-  mountStatusRoutes(app, { broadcast, onStatusChanged: (id) => diffStats.invalidate(id) });
+  mountStatusRoutes(app, {
+    broadcast,
+    onStatusChanged: (id) => {
+      diffStats.invalidate(id);
+      // Make sure this session's turns are checkpointed ("last turn" diffs)
+      // from its first hook on, not only once someone opens it.
+      const session = findSession(id);
+      if (session) sessionScope(session);
+    },
+  });
 
   // Ship (push / PR / merge) + archive.
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id) });

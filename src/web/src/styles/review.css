@@ -937,3 +937,9 @@
   box-sizing: border-box;
   margin-top: 4px;
 }
+
+/* "Last turn" picker under the diff scope tabs. */
+.wd-web-turn-pick { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
+.wd-web-turn-pick select { max-width: 100%; font: inherit; }
+.wd-web-turn-label { margin: 6px 0 0; font-size: 12px; }
+.wd-web-diff-scope-btn:disabled { opacity: 0.45; cursor: not-allowed; }

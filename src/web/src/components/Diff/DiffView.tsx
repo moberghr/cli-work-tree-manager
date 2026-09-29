@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  fetchSessionCheckpoints,
   fetchSessionDiff,
+  turnsFrom,
+  type CheckpointEntry,
   type DiffBase,
   type RepoData,
   type SessionDiff,
@@ -45,6 +48,29 @@ export function DiffView({ session }: Props) {
   // using the recorded baseBranch or auto-detected parent (main/master/
   // dev/develop).
   const [diffBase, setDiffBase] = useState<DiffBase>('uncommitted');
+  // "Last turn" (Codex-style): the diff of one Claude instruction, between
+  // two consecutive checkpoints. null = not in turn mode; otherwise the
+  // `to` checkpoint id of the turn being shown.
+  const [turnTo, setTurnTo] = useState<number | null>(null);
+  const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
+  const turns = useMemo(() => turnsFrom(checkpoints), [checkpoints]);
+  const turn = turnTo === null ? null : (turns.find((t) => t.to === turnTo) ?? null);
+  // A late answer for the previous session must not land on this one.
+  const checkpointsFor = useRef(session.id);
+  checkpointsFor.current = session.id;
+  const loadCheckpoints = () => {
+    const id = session.id;
+    const apply = (entries: CheckpointEntry[]) => {
+      if (checkpointsFor.current === id) setCheckpoints(entries);
+    };
+    fetchSessionCheckpoints(id).then(apply, () => apply([]));
+  };
+  useEffect(() => {
+    setTurnTo(null);
+    setCheckpoints([]);
+    loadCheckpoints();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
 
   // Shared fetch + deferred-loading hook (same one ReviewApp uses) so a
   // base switch here gets the spinner/dim feedback instead of the old
@@ -60,8 +86,11 @@ export function DiffView({ session }: Props) {
     reload,
     checkForUpdates,
   } = useDeferredDiffLoad(
-    () => fetchSessionDiff(session.id, diffBase),
-    [session.id, diffBase],
+    () =>
+      turn
+        ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to })
+        : fetchSessionDiff(session.id, diffBase),
+    [session.id, diffBase, turn?.from, turn?.to],
   );
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
@@ -70,6 +99,8 @@ export function DiffView({ session }: Props) {
       // files must not re-render the diff under someone reading it. The
       // update banner hands control to the user.
       'diff-changed': () => checkForUpdates(),
+      // A turn finished → a new checkpoint (and so a new "last turn").
+      'checkpoints-changed': () => loadCheckpoints(),
     },
   });
 
@@ -170,7 +201,9 @@ export function DiffView({ session }: Props) {
   //   - branch mode, resolvedBase is a real branch → there genuinely
   //     are no commits past it. The branch is up to date or merged.
   let emptyMessage: string;
-  if (diffBase === 'uncommitted') {
+  if (turn) {
+    emptyMessage = 'This turn changed no files.';
+  } else if (diffBase === 'uncommitted') {
     emptyMessage = 'No uncommitted changes.';
   } else if (!diff.resolvedBase || diff.resolvedBase === 'HEAD') {
     emptyMessage =
@@ -224,14 +257,17 @@ export function DiffView({ session }: Props) {
               <button
                 type="button"
                 role="tab"
-                aria-selected={diffBase === 'uncommitted'}
+                aria-selected={!turn && diffBase === 'uncommitted'}
                 className={
                   'wd-web-diff-scope-btn' +
-                  (diffBase === 'uncommitted'
+                  (!turn && diffBase === 'uncommitted'
                     ? ' wd-web-diff-scope-btn-active'
                     : '')
                 }
-                onClick={() => setDiffBase('uncommitted')}
+                onClick={() => {
+                  setTurnTo(null);
+                  setDiffBase('uncommitted');
+                }}
                 title="git diff HEAD — only the working-tree deltas"
               >
                 Uncommitted
@@ -239,14 +275,17 @@ export function DiffView({ session }: Props) {
               <button
                 type="button"
                 role="tab"
-                aria-selected={diffBase === 'branch'}
+                aria-selected={!turn && diffBase === 'branch'}
                 className={
                   'wd-web-diff-scope-btn' +
-                  (diffBase === 'branch'
+                  (!turn && diffBase === 'branch'
                     ? ' wd-web-diff-scope-btn-active'
                     : '')
                 }
-                onClick={() => setDiffBase('branch')}
+                onClick={() => {
+                  setTurnTo(null);
+                  setDiffBase('branch');
+                }}
                 title={
                   session.baseBranch
                     ? `git diff ${session.baseBranch} — everything since this branch was created`
@@ -255,7 +294,41 @@ export function DiffView({ session }: Props) {
               >
                 Since branch
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!!turn}
+                className={'wd-web-diff-scope-btn' + (turn ? ' wd-web-diff-scope-btn-active' : '')}
+                disabled={turns.length === 0}
+                onClick={() => setTurnTo(turns[0]?.to ?? null)}
+                title={
+                  turns.length
+                    ? "Only what Claude's last instruction changed"
+                    : 'No finished turn yet — appears after Claude finishes one'
+                }
+              >
+                Last turn
+              </button>
             </div>
+            {turn && turns.length > 1 && (
+              <label className="wd-web-turn-pick">
+                <span className="wd-web-muted">Turn</span>{' '}
+                <select
+                  value={turn.to}
+                  onChange={(e) => setTurnTo(Number(e.target.value))}
+                  aria-label="Which turn"
+                >
+                  {turns.map((t) => (
+                    <option key={t.to} value={t.to}>
+                      {t.n}{t.label ? ` · ${t.label}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {turn && turns.length === 1 && turn.label && (
+              <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>
+            )}
             <DiffModeToggle />
             {pending && (
               <DiffUpdateChip
@@ -321,7 +394,7 @@ export function DiffView({ session }: Props) {
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
               <p>{emptyMessage}</p>
-              {diffBase === 'uncommitted' && (
+              {!turn && diffBase === 'uncommitted' && (
                 <p className="wd-web-empty-hint">
                   Try <button
                     type="button"
