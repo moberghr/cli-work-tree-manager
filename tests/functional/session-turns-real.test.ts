@@ -69,10 +69,17 @@ describe('session turns', () => {
   it('each finished turn is a range the session diff can show on its own', async () => {
     const id = sessionIdFor({ target: 'repo', branch: 'feat/x' });
 
-    // Opening the session creates its scope; the baseline lands shortly
-    // after (announced over SSE — here we poll).
+    // Opening the session (a GET) changes nothing: no scope, no baseline.
     const first = await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`);
     expect(first.status).toBe(200);
+    expect(first.body.entries).toEqual([]);
+    // Claude's first hook (a POST) creates the scope; the baseline lands
+    // shortly after (announced over SSE — here we poll).
+    await fetch(server.url.replace(/\/$/, '') + '/api/status-changed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repo }),
+    });
     await expect
       .poll(async () => (await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`)).body.entries.map((e) => e.id), { timeout: 15_000 })
       .toEqual([0]);

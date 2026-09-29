@@ -15,6 +15,7 @@
  * conversation), and marks them delivered.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { sessionIdFor } from './session-id.js';
@@ -46,17 +47,30 @@ export function findSessionForCwd(
   // Deepest root containing cwd wins, so nested worktrees disambiguate. A
   // group's roots include the group root (the sub-repos' parent) — that's
   // where `work tree` launches Claude for a group, so hooks fire from there.
-  let best: { session: WorktreeSession; len: number } | null = null;
+  let best: { session: WorktreeSession; root: string; len: number } | null = null;
   for (const s of sessions) {
     const roots = s.isGroup && s.paths[0] ? [...s.paths, path.dirname(s.paths[0])] : s.paths;
     for (const root of roots) {
       const r = normalize(root);
       if ((here === r || here.startsWith(r + '/')) && (!best || r.length > best.len)) {
-        best = { session: s, len: r.length };
+        best = { session: s, root, len: r.length };
       }
     }
   }
-  return best?.session ?? null;
+  if (!best) return null;
+  // A separate checkout nested INSIDE the session's tree (a git worktree at
+  // <repo>/.claude/worktrees/x, a vendored repo) is not this session: its
+  // Claude must not report status, take checkpoints or receive comments as
+  // if it were the parent. Any `.git` between cwd and the matched root —
+  // other than the session's own repos — marks a different checkout.
+  // (Plain fs checks: this runs on every hook.)
+  const own = new Set(best.session.paths.map(normalize));
+  const top = normalize(best.root);
+  for (let dir = path.resolve(cwd); normalize(dir) !== top && normalize(dir).startsWith(top + '/'); dir = path.dirname(dir)) {
+    if (!own.has(normalize(dir)) && fs.existsSync(path.join(dir, '.git'))) return null;
+    if (path.dirname(dir) === dir) break;
+  }
+  return best.session;
 }
 
 function isPendingFor(delivered: Set<string>) {

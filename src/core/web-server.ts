@@ -31,7 +31,7 @@ import { mountDevRoutes } from './dev-routes.js';
 import { mountCiRoutes } from './ci-routes.js';
 import { sweepOldDiffArtifacts } from './diffs-sweep.js';
 import { revision } from './db.js';
-import { disposeAllScopes, listScopes, scopesToSweep } from './scope-manager.js';
+import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
 import { detachPtyPool, disposePty, initPtyPool } from './pty-pool.js';
@@ -261,12 +261,15 @@ export async function startWebServer(
       null,
     ) ?? null;
 
+  // GETs change nothing (§1.5 — a page on another site can make the browser
+  // open one). The turns are read from the manifest on disk by hash, so
+  // they're there right after a work web restart too; the scope that
+  // records them is created by the status hook (a POST), not here.
   app.get('/api/sessions/:id/checkpoints', (c) => {
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
-    const scope = sessionScope(session);
-    if (!scope) return c.json({ scopeHash: null, entries: [] });
-    return c.json({ scopeHash: scope.hash, entries: loadManifest(scope.hash).entries });
+    const hash = scopeHashForPaths(session.paths);
+    return c.json({ scopeHash: hash, entries: loadManifest(hash).entries });
   });
 
   app.get('/api/sessions/:id/diff', async (c) => {
@@ -278,7 +281,9 @@ export async function startWebServer(
     const from = c.req.query('from');
     const to = c.req.query('to');
     if (from !== undefined && to !== undefined) {
-      const scope = sessionScope(session);
+      // Only the in-memory record the range diff route checks paths against
+      // — no baseline snapshot, no watcher (those come with the hook).
+      const scope = findScope(session.paths) ?? bestEffort('register scope', () => registerScope(session.paths, `${session.target} · ${session.branch}`), null);
       if (!scope) return c.json({ error: 'no checkpoints for this session' }, 404);
       const res = await app.request(
         `/api/scopes/${encodeURIComponent(scope.hash)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,

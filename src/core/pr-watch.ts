@@ -47,7 +47,9 @@ export interface PrWatch {
   /** Check every eligible session once. */
   tick(): Promise<void>;
   /** Check one session now (the header asked). */
-  refresh(id: string): Promise<SessionCi | null>;
+  /** Re-check one session now. `act: false` only reports (for GETs, which
+   *  must not post notes or archive). */
+  refresh(id: string, opts?: { act?: boolean }): Promise<SessionCi | null>;
   state(id: string): SessionCi | null;
   /** Ask the session's Claude to fix its failing checks, now. */
   fixNow(id: string): Promise<boolean>;
@@ -201,9 +203,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       });
       return running;
     },
-    async refresh(id) {
+    async refresh(id, opts) {
       const s = sessionOf(id);
-      return s ? check(id, s.session) : null;
+      return s ? check(id, s.session, opts?.act ?? true) : null;
     },
     state: (id) => states.get(id) ?? null,
     async fixNow(id) {

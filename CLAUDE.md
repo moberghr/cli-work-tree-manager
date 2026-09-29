@@ -338,7 +338,7 @@ Checkpoints are **authoritatively taken per Claude turn**: `work web` installs a
 
 ### "Last turn" (session diffs by turn)
 
-§ Dashboard paths get a session's scope through `sessionScope` (lookup-or-create, `findScope`), never `ensureScope`: ensureScope is what a NEW `wd -c` run does — revive an ended review, clear its comments, relabel — and running that on every Claude hook wiped finished reviews.
+§ The session's scope is created by the status hook (a POST); `GET …/checkpoints` reads the manifest from disk by `scopeHashForPaths` and creates nothing (GETs have no side effects, §1.5). Dashboard paths get a session's scope through `sessionScope` (lookup-or-create, `findScope`), never `ensureScope`: ensureScope is what a NEW `wd -c` run does — revive an ended review, clear its comments, relabel — and running that on every Claude hook wiped finished reviews.
 
 The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since branch. A session's turns are its diff scope's checkpoints (one per instruction, taken by the Stop hook): `GET /api/sessions/:id/checkpoints` creates the scope on demand (`ensureScope`, returned by `mountScopeRoutes` — the same scope `wd` registers for those paths) and `GET /api/sessions/:id/diff?from=&to=` serves a checkpoint range (delegates to `/api/scopes/:hash/diff`). Status hooks also ensure the scope, so turns are recorded for sessions nobody has opened yet. The demo fakes three checkpoints per session with changes.
 

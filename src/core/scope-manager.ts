@@ -171,7 +171,13 @@ export function scopesToSweep(scopes: Scope[], sessionPaths: string[][]): Scope[
 /** The registered scope for exactly these paths, or null — no side effects
  *  (unlike registerScope, which relabels). */
 export function findScope(paths: string[]): Scope | null {
-  return getScope(hashFor(paths.map((p) => path.resolve(p))));
+  return getScope(scopeHashForPaths(paths));
+}
+
+/** The scope hash for these paths, registered or not (its checkpoint
+ *  manifest on disk is keyed by it). */
+export function scopeHashForPaths(paths: string[]): string {
+  return hashFor(paths.map((p) => path.resolve(p)));
 }
 
 export function getScope(hash: string): Scope | null {

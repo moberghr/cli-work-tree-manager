@@ -31,3 +31,16 @@ describe('internal-claude marker', () => {
     expect(childEnv[INTERNAL_CLAUDE_ENV]).toBe('1');
   });
 });
+
+describe('internalClaudeSpawn', () => {
+  it('runs text-only: no tools, a neutral cwd, tagged as internal', async () => {
+    const os = await import('node:os');
+    const { internalClaudeSpawn, INTERNAL_CLAUDE_ENV } = await import('../../src/core/internal-claude.js');
+    const run = internalClaudeSpawn();
+    // `--tools ""` disables every tool: text in the prompt (a diff, another
+    // repo's CLAUDE.md) can't make this run execute anything.
+    expect(run.args).toEqual(['-p', '--tools', '']);
+    expect(run.cwd).toBe(os.tmpdir()); // no project's .claude/settings.json applies
+    expect(run.env[INTERNAL_CLAUDE_ENV]).toBe('1');
+  });
+});

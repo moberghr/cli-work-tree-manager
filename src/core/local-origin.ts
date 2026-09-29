@@ -10,7 +10,8 @@
  *
  * Rules:
  *   - Host must be 127.0.0.1:<port> or localhost:<port> (DNS rebinding).
- *   - A browser marking the request `Sec-Fetch-Site: cross-site` is refused,
+ *   - A browser marking the request `Sec-Fetch-Site: cross-site` (or
+ *     `same-site`: another localhost port) is refused,
  *     except a top-level page load (GET/HEAD, `Sec-Fetch-Mode: navigate`,
  *     `Sec-Fetch-Dest: document`): clicking a dashboard or diff link in
  *     GitHub, Jira or Slack must open it. The opening site can't read the
@@ -55,7 +56,9 @@ export function refuseReason(req: RequestFacts, port: number): string | null {
     ['GET', 'HEAD'].includes(req.method.toUpperCase()) &&
     req.secFetchMode === 'navigate' &&
     req.secFetchDest === 'document';
-  if (req.secFetchSite === 'cross-site' && !pageLoad) return 'cross-site request';
+  // same-site = another localhost port (your dev servers, say): the
+  // dashboard itself is always same-origin, so treat it like cross-site.
+  if ((req.secFetchSite === 'cross-site' || req.secFetchSite === 'same-site') && !pageLoad) return 'cross-site request';
   if (mutating && !allowedOrigin(req.origin, port)) return 'foreign origin';
   return null;
 }

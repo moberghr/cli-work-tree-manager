@@ -4,7 +4,7 @@ import spawn from 'cross-spawn';
 import chalk from 'chalk';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
-import { internalClaudeEnv } from './internal-claude.js';
+import { internalClaudeSpawn } from './internal-claude.js';
 
 /**
  * Generate a combined CLAUDE.md for a group using `claude -p`.
@@ -76,13 +76,15 @@ export function generateGroupClaudeMd(
   );
 
   // Try claude -p
-  const result = spawn.sync('claude', ['-p'], {
+  // Text-only, no tools, neutral cwd, tagged internal — see internalClaudeSpawn.
+  const run = internalClaudeSpawn();
+  const result = spawn.sync('claude', run.args, {
     input: prompt,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    // Internal call — don't trip work's checkpoint hooks (see internal-claude.ts).
-    env: { ...process.env, ...internalClaudeEnv() },
+    cwd: run.cwd,
+    env: run.env,
   });
 
   let content: string;

@@ -26,6 +26,12 @@ describe('refuseReason', () => {
     expect(refuseReason({ method: 'GET', host: 'evil.example' }, P)).toBe('bad host');
   });
 
+  it('treats another localhost port (same-site: a dev server) like another site', () => {
+    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'no-cors', secFetchDest: 'image' }, P)).toBe('cross-site request');
+    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'navigate', secFetchDest: 'document' }, P)).toBeNull();
+    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-origin' }, P)).toBeNull();
+  });
+
   it('opens a dashboard link clicked on another site (a top-level page load)', () => {
     const nav = { host: H, secFetchSite: 'cross-site', secFetchMode: 'navigate', secFetchDest: 'document' };
     expect(refuseReason({ method: 'GET', ...nav }, P)).toBeNull();

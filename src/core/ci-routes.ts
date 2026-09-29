@@ -62,7 +62,9 @@ export function mountCiRoutes(
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     const cached = watch.state(id);
     if (cached && Date.now() - Date.parse(cached.checkedAt) < FRESH_MS) return c.json(cached);
-    return c.json((await watch.refresh(id)) ?? { checkedAt: new Date().toISOString(), repos: [] });
+    // Report only: a GET must not post notes to Claude or archive (the
+    // sweep and POST …/ci/fix do the acting).
+    return c.json((await watch.refresh(id, { act: false })) ?? { checkedAt: new Date().toISOString(), repos: [] });
   });
 
   app.post('/api/sessions/:id/ci/fix', async (c) => {

@@ -70,6 +70,31 @@ describe('findSessionForCwd', () => {
     expect(s?.branch).toBe('nested');
   });
 
+  it('a separate checkout nested inside the session is not the session', () => {
+    // e.g. a git worktree at <repo>/.claude/worktrees/agent-x, or a vendored repo.
+    const repo = path.join(tmpDir, 'wt', 'repo');
+    const nested = path.join(repo, '.claude', 'worktrees', 'agent-x');
+    fs.mkdirSync(path.join(nested, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.git'), 'gitdir: /main/.git/worktrees/repo');
+    fs.writeFileSync(path.join(nested, '.git'), 'gitdir: /main/.git/worktrees/agent-x');
+    saveHistory([session({ paths: [repo] })]);
+    expect(findSessionForCwd(path.join(nested, 'src'))).toBeNull();
+    expect(findSessionForCwd(nested)).toBeNull();
+    expect(findSessionForCwd(path.join(repo, 'src'))?.branch).toBe('feat/x'); // its own tree still matches
+  });
+
+  it("a group's sub-repos (which have .git) still resolve to the group, from the root or inside", () => {
+    const root = path.join(tmpDir, 'wt', 'shop', 'feat-x');
+    const be = path.join(root, 'backend');
+    const fe = path.join(root, 'frontend');
+    for (const p of [path.join(be, 'src'), fe]) fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(be, '.git'), 'gitdir: x');
+    fs.writeFileSync(path.join(fe, '.git'), 'gitdir: y');
+    saveHistory([session({ target: 'shop', isGroup: true, paths: [be, fe] })]);
+    expect(findSessionForCwd(root)?.target).toBe('shop');
+    expect(findSessionForCwd(path.join(be, 'src'))?.target).toBe('shop');
+  });
+
   it('returns null when no session matches', () => {
     saveHistory([session({ paths: ['C:/work/repo'] })]);
     expect(findSessionForCwd('C:/totally/elsewhere')).toBeNull();

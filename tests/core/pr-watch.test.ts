@@ -63,6 +63,16 @@ describe('PR watch', () => {
     expect(h.deps.archive).toHaveBeenCalledWith('s1');
   });
 
+  it('a report-only refresh (the GET) posts no notes and archives nothing', async () => {
+    const h = harness([repo('api', merged(), true)]);
+    const h2 = harness([repo('api', failing())]);
+    await h.watch.refresh('s1', { act: false });
+    await h2.watch.refresh('s1', { act: false });
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(h2.deps.tell).not.toHaveBeenCalled();
+    expect(h2.watch.state('s1')?.repos[0].pr?.checks).toBe('fail'); // still reported
+  });
+
   it('never archives for a merge from before you entered the session', async () => {
     // `work tree` on a branch name whose old PR merged last week (gh reports
     // that PR), or re-entering an archived session on purpose.
