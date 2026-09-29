@@ -44,6 +44,9 @@ export async function computeDiffStat(
 
 const lines = (out: string) => out.split('\n').map((l) => l.trim()).filter(Boolean);
 
+/** Where "the main branch" is looked for, in order (same as cleanup.ts). */
+const MAIN_BRANCHES = ['origin/HEAD', 'origin/main', 'origin/master', 'main', 'master'];
+
 /** A repository's identity across its worktrees: the shared git dir.
  *  Never changes for a path, so it's asked once. */
 const commonDirs = new Map<string, string>();
@@ -84,9 +87,16 @@ export async function computeChanges(
 
     const repoKey = await repoKeyFor(p, run);
     if (!repoKey) continue;
-    // Since the fork point; with no origin default branch known, since HEAD.
-    const mb = await run('git', ['merge-base', 'HEAD', 'origin/HEAD'], p);
-    const since = mb.code === 0 && /^[0-9a-f]{7,64}$/.test(mb.stdout.trim()) ? mb.stdout.trim() : 'HEAD';
+    // Since the fork point from the main branch — origin's default, else a
+    // local main/master (a repo with no remote); with neither, since HEAD.
+    let since = 'HEAD';
+    for (const base of MAIN_BRANCHES) {
+      const mb = await run('git', ['merge-base', 'HEAD', base], p);
+      if (mb.code === 0 && /^[0-9a-f]{7,64}$/.test(mb.stdout.trim())) {
+        since = mb.stdout.trim();
+        break;
+      }
+    }
     const changed = await run('git', ['diff', '--name-only', since], p);
     const files = new Set([...(changed.code === 0 ? lines(changed.stdout) : []), ...newFiles]);
     if (files.size) touched.push({ repoKey, name: names[i] ?? path.basename(p), files: [...files].sort() });

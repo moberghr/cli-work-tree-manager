@@ -112,8 +112,13 @@ work list [target]                                 # List worktrees
 work status [target] [branch] [--prune]            # Show worktree status
 work recent [count]                                # List recent sessions
 work resume [--unsafe]                             # Resume a recent session
-work prune [--force]                               # Remove merged worktrees (interactive)
-work sync [--dry-run] [--force] [--include-squash] # Fetch all repos in parallel + prune merged worktrees (non-interactive; skips dirty/unpushed unless --force, skips repos whose fetch failed)
+work prune [--force]                               # Remove merged worktrees (pick from a list; squash merges offered). Same cleanup as the web view (core/cleanup.ts); skips anything used in the last day
+work sync [--dry-run] [--force] [--include-squash] # Fetch all repos + remove merged worktrees (non-interactive; skips dirty ones unless --force, never one with commits the main branch lacks; skips repos whose fetch failed)
+work sessions [target] [--json] [--all] [--changes] # Every session with its status, as the dashboard shows it (--json = the /api/sessions rows + a `view` block: label, age, lastActive). --changes adds +N −M and same-file overlaps (runs git)
+work digest [--since today|yesterday|week|<date>] [--json] # What each session did (Markdown standup note, or JSON). Asks a running work web (PR states, diff stats), else builds it from disk
+work overlaps [--json]                             # Live sessions changing the same files of a repo
+work cleanup [--json] [--no-fetch]                 # Which worktrees can go, and why (the Clean up view's scan)
+work cleanup --apply <id...> [--action delete|archive|forget] [--force] [--json] # Act on them, each re-checked first; exit 1 if any was refused
 work completion [--install]                        # Shell completions
 
 work run <cmd...> [--target <a>] [--branch <b>] [--all] [--parallel] [--jobs N] [--halt-on-error]  # Run a shell command across worktrees (bare run needs --all; Ctrl-C kills the whole fleet)
@@ -250,6 +255,15 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   tui/ (PTY wrapper, used only by the PTY host)
                                   └── session.ts                 ← PtySession (node-pty + @xterm/headless)
 ```
+
+### Core is a library: two front-ends, one implementation
+
+`src/core` holds every piece of logic; the CLI (`src/commands`) and the HTTP API (`src/core/*-routes.ts`, the backend for the SPA and a future desktop app) are thin front-ends that call it. Neither calls the other. Pure pieces that the SPA shares live in core and are re-exported by the SPA: `session-view.ts` (status vocabulary, age sections), `digest-view.ts` (Today windows and Markdown), `saved-prompts.ts`, `attention.ts`, `api-types.ts`.
+
+§ Core never prints (architecture test §2.7): no `chalk`, no `console.*`, no raw stdout/stderr writes under `src/core` (logger.ts excepted). Use `report(level, text)` (`core/report.ts`). The reporter is scoped with AsyncLocalStorage (`withReporter`): the CLI shows reports with colors (`commands/shared/console-reporter.ts`: stdout for `work`, stderr for `wd`), servers default to the debug log, and a route can collect them (`collectingReporter`) to return a failure's real reason — `POST /api/worktrees` does.
+§ WHEN adding logic, put it in core and call it from both front-ends; a route or command handler only parses input and formats output. `work sessions --json` rows come from `sessionWire` (`core/session-wire.ts`), the same function as `/api/sessions`; the digest from `createDigestSource` (`core/digest-source.ts`); cleanup from `scanCleanup` / `applyCleanup` (`core/cleanup.ts`, deps in `core/cleanup-deps.ts`).
+
+Claude reads this data through the CLI (`--json`), described to every session by the `work-sessions` skill in the plugin (`plugins/work-tree/skills/work-sessions/SKILL.md`).
 
 ### Key Design
 

@@ -21,6 +21,10 @@ import { broadcastCommand } from './commands/broadcast.js';
 import { attachCommand } from './commands/attach.js';
 import { ptyHostCommand } from './commands/pty-host.js';
 import { stateCommand } from './commands/state.js';
+import { sessionsCommand } from './commands/sessions.js';
+import { digestCommand } from './commands/digest.js';
+import { cleanupCommand } from './commands/cleanup.js';
+import { overlapsCommand } from './commands/overlaps.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -43,12 +47,17 @@ function showHelp() {
   console.log('  work status --prune                                - Remove stale entries');
   console.log('  work recent [count]                                - List recent sessions');
   console.log('  work resume                                        - Resume a recent session');
+  console.log('  work sessions [project] [--json] [--changes]      - Every session with its status, as the dashboard shows it');
+  console.log('  work digest [--since today|yesterday|week]         - What each session did (Markdown for a standup; --json)');
+  console.log('  work overlaps [--json]                             - Live sessions changing the same files');
+  console.log('  work cleanup [--json]                              - Which worktrees can go, and why');
+  console.log('  work cleanup --apply <id...> [--action …]          - Remove / archive / forget them, after a fresh check');
   console.log('  work web                                           - Browser dashboard (one tab, every session)');
   console.log('  work prune                                         - Remove merged worktrees');
   console.log('  work prune --force                                 - Remove all merged (no prompt)');
   console.log('  work sync                                          - Fetch all repos and prune merged (non-interactive)');
   console.log('  work sync --dry-run                                - Show what sync would prune, remove nothing');
-  console.log('  work sync --force                                  - Also remove worktrees with uncommitted/unpushed changes');
+  console.log('  work sync --force                                  - Also remove merged worktrees with uncommitted changes');
   console.log('  work sync --include-squash                         - Also prune squash-merged branches (lower confidence)');
   console.log('  work hydrate                                       - Seed history from worktrees on disk');
   console.log('  work diff [base]                                   - Open a GitHub-PR-style diff in your browser');
@@ -104,6 +113,10 @@ export function run(argv: string[]) {
     .command(statusCommand)
     .command(recentCommand)
     .command(resumeCommand)
+    .command(sessionsCommand)
+    .command(digestCommand)
+    .command(cleanupCommand)
+    .command(overlapsCommand)
     .command(pruneCommand)
     .command(syncCommand)
     .command(todoCommand)

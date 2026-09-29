@@ -28,6 +28,8 @@ import { buildDigest } from './digest.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
 import { effectiveStatus, readStatus } from './session-status.js';
 import { buildStamp } from './build-stamp.js';
+import { sessionWire } from './session-wire.js';
+import { createDigestSource } from './digest-source.js';
 import { report } from './report.js';
 import { mountCleanupRoutes } from './cleanup-routes.js';
 import { readSessionActivity } from './claude-activity.js';
@@ -49,37 +51,6 @@ import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
 import type { ParsedFile } from './diff-parse.js';
 
 export type WebServerHandle = DiffServerHandle;
-
-function sessionToWire(
-  s: WorktreeSession,
-  diffStatFor?: (id: string, s: WorktreeSession, hasStatus: boolean) => DiffStat | null,
-): SessionWire {
-  const id = sessionIdFor(s);
-  const meta = readSessionMeta(id, s);
-  return {
-    id,
-    target: s.target,
-    branch: s.branch,
-    isGroup: s.isGroup,
-    paths: s.paths,
-    baseBranch: s.baseBranch,
-    jiraKey: s.jiraKey,
-    createdAt: s.createdAt,
-    lastAccessedAt: s.lastAccessedAt,
-    draftCount: meta.draftCount,
-    commentCount: meta.commentCount,
-    claudeCount: meta.claudeCount,
-    ptyStatus: meta.ptyStatus,
-    lastActivity: meta.lastActivity,
-    activityState: meta.activityState,
-    pendingForClaudeCount: meta.pendingForClaudeCount,
-    attention: meta.attention,
-    diffStat: diffStatFor ? diffStatFor(id, s, meta.attention !== null) : null,
-    archivedAt: s.archivedAt ?? null,
-    port: s.port ?? null,
-    context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
-  };
-}
 
 export interface RepoData {
   name: string;
@@ -251,7 +222,7 @@ export async function startWebServer(
   app.get('/api/sessions', (c) => {
     if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
       const history = loadHistory();
-      const sessions = history.map((s) => sessionToWire(s, diffStatFor));
+      const sessions = history.map((s) => sessionWire(s, { diffStatFor }));
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
       const overlaps = findOverlaps(
@@ -348,58 +319,9 @@ export async function startWebServer(
 
   // "What did each session do today?" — read from what's on disk (see
   // digest.ts); PR state from the watch's cache, no gh call here.
-  // Transcripts already parsed for a window, by file identity: changing the
-  // window on the Today tab re-reads only what changed since.
-  let transcriptCache = new Map<string, { sinceMs: number; win: TranscriptWindow }>();
+  const digest = createDigestSource({ diffStatFor: (id) => diffStats.peek(id), ciFor: (id) => prWatch.state(id) });
   app.get('/api/digest', async (c) => {
-    const now = Date.now();
-    const asked = Date.parse(c.req.query('since') ?? '');
-    // Default: the last 24 hours; never more than two weeks back.
-    const sinceMs = Math.max(Number.isFinite(asked) ? asked : now - 24 * 3_600_000, now - 14 * 24 * 3_600_000);
-    const nextCache = new Map<string, { sinceMs: number; win: TranscriptWindow }>();
-    const inputs = await Promise.all(
-      loadHistory()
-        .filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs)
-        .map(async (s) => {
-          const id = sessionIdFor(s);
-          // Only what the digest shows — not the whole session row (comment
-          // counts, context usage…); the cached stat only, no git.
-          const status = readStatus(id);
-          const attention = status ? effectiveStatus(status, readSessionActivity(s).lastActivity ?? 0) : null;
-          const transcripts: TranscriptEntry[][] = [];
-          let partial = false;
-          for (const t of listTranscripts(s)) {
-            if (t.mtimeMs < sinceMs) continue;
-            const key = `${t.file}:${t.size}:${t.mtimeMs}`;
-            const hit = transcriptCache.get(key);
-            const reuse = !!hit && hit.sinceMs <= sinceMs;
-            const win = reuse ? hit.win : await readTranscriptSince(t.file, sinceMs);
-            nextCache.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win });
-            transcripts.push(win.entries);
-            if (win.partial) partial = true;
-          }
-          return {
-            sessionId: id,
-            target: s.target,
-            branch: s.branch,
-            isGroup: s.isGroup,
-            lastAccessedAt: s.lastAccessedAt,
-            archivedAt: s.archivedAt ?? null,
-            status: attention ? { state: attention.state, summary: attention.summary, updatedAt: attention.updatedAt } : null,
-            transcripts,
-            transcriptsPartial: partial,
-            checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
-            diffStat: diffStats.peek(id),
-            ci: prWatch.state(id),
-          };
-        }),
-    );
-    transcriptCache = nextCache;
-    const body: DigestResponse = {
-      since: new Date(sinceMs).toISOString(),
-      generatedAt: new Date(now).toISOString(),
-      sessions: buildDigest(inputs, sinceMs),
-    };
+    const body: DigestResponse = await digest.collect(Date.parse(c.req.query('since') ?? ''));
     return c.json(body);
   });
 

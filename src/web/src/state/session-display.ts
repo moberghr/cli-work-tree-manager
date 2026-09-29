@@ -2,105 +2,10 @@ import type { SessionSummary } from '../api/client.js';
 import type { PrInfo } from '../api/panes.js';
 import type { SessionSubTab } from './dashboard-route.js';
 
-/**
- * ONE status vocabulary for every view (rail, Sessions table, inbox, header
- * strip). Hook-driven attention wins when a session has it; otherwise we fall
- * back to the older transcript-activity signal, so a session never shows two
- * contradicting states in two places.
- *
- *   needs_input — blocked on you (permission / question)
- *   done        — finished a turn you haven't looked at
- *   working     — mid-turn
- *   quiet       — finished, and you've seen it
- *   active/open/recent/stale — no hook status yet (its Claude has not
- *     taken a turn since the dashboard's hooks went in, or runs a tool
- *     without them): transcript activity only. Active ≤ 30 s, Open ≤ 5 min,
- *     Idle (recent) within a day, Stale after that.
- */
-export type DisplayKind =
-  | 'needs_input'
-  | 'done'
-  | 'working'
-  | 'quiet'
-  | 'active'
-  | 'open'
-  | 'recent'
-  | 'stale';
-
-/** Used today = not stale, whatever the hooks know. */
-export const RECENT_MS = 24 * 3_600_000;
-
-/** When the session last did anything: the newest of its hook update,
- *  Claude's last transcript write and the `work tree` entry. (Reading only
- *  the entry time called a session Active and "1d" at once.) */
-export function lastActiveAt(s: SessionSummary): string {
-  const candidates = [Date.parse(s.lastAccessedAt) || 0, s.lastActivity ?? 0, s.attention ? Date.parse(s.attention.updatedAt) || 0 : 0];
-  return new Date(Math.max(...candidates)).toISOString();
-}
-
-export function displayStatus(s: SessionSummary, now: number = Date.now()): DisplayKind {
-  const a = s.attention;
-  if (a) {
-    if (a.state === 'needs_input') return 'needs_input';
-    if (a.state === 'working') return 'working';
-    return a.seen ? 'quiet' : 'done';
-  }
-  if (s.activityState === 'active') return 'active';
-  if (s.activityState === 'open') return 'open';
-  return now - Date.parse(lastActiveAt(s)) < RECENT_MS ? 'recent' : 'stale';
-}
-
-export const DISPLAY_LABEL: Record<DisplayKind, string> = {
-  needs_input: 'Needs your input',
-  done: 'Done',
-  working: 'Working',
-  quiet: 'Idle',
-  active: 'Active',
-  open: 'Open',
-  recent: 'Idle',
-  stale: 'Stale',
-};
-
-/** How long ago a session was used, for the Sessions table's sections. */
-export type AgeBucket = 'now' | 'week' | 'older';
-
-export const AGE_LABEL: Record<AgeBucket, string> = {
-  now: 'Now',
-  week: 'This week',
-  older: 'Older',
-};
-
-export const WEEK_MS = 7 * 24 * 3_600_000;
-
-/** Now: wants you, is working, or was used in the last day. This week:
- *  used within 7 days. Older: everything else — cleanup material. */
-export function ageBucket(s: SessionSummary, now: number = Date.now()): AgeBucket {
-  const kind = displayStatus(s, now);
-  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'active' || kind === 'open') return 'now';
-  const age = now - Date.parse(lastActiveAt(s));
-  if (age < RECENT_MS) return 'now';
-  return age < WEEK_MS ? 'week' : 'older';
-}
-
-/** Coarse buckets the Sessions header counts and filters by. */
-export type StatusBucket = 'needs' | 'working' | 'idle' | 'stale';
-
-export function statusBucket(kind: DisplayKind): StatusBucket {
-  switch (kind) {
-    case 'needs_input':
-    case 'done':
-      return 'needs';
-    case 'working':
-    case 'active':
-      return 'working';
-    case 'quiet':
-    case 'open':
-    case 'recent':
-      return 'idle';
-    default:
-      return 'stale';
-  }
-}
+// The status vocabulary (Needs your input / Working / Idle / Stale, the age
+// sections) lives in core, shared with `work sessions`.
+export * from '../../../core/session-view.js';
+import { displayStatus } from '../../../core/session-view.js';
 
 /** Where opening a session should land: the terminal to answer a question
  *  (or watch it work), the diff to review finished work. */

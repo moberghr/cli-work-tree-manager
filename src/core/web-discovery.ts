@@ -112,3 +112,19 @@ export async function webServerResponds(url: string, timeoutMs = 1500): Promise<
     return false;
   }
 }
+
+/**
+ * GET a JSON route from the running work web, for what only it holds (the
+ * PR watch's cache, which PTYs are live). Null when none runs or it doesn't
+ * answer in time: callers go without that part rather than fail.
+ */
+export async function askWorkWeb<T>(route: string, timeoutMs = 3000): Promise<T | null> {
+  const url = readWebUrl();
+  if (!url) return null;
+  try {
+    const res = await fetch(`${url}${route.replace(/^\//, '')}`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok ? ((await res.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
