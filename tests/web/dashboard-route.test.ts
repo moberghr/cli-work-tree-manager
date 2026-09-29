@@ -19,7 +19,7 @@ describe('parseHash', () => {
     expect(parseHash('#/sessions')).toEqual({
       tab: 'sessions',
       sessionId: null,
-      sessionSubTab: 'diff',
+      sessionSubTab: 'term',
     });
     expect(parseHash('#/prs')).toMatchObject({ tab: 'prs', sessionId: null });
     expect(parseHash('#/jira')).toMatchObject({ tab: 'jira' });
@@ -34,7 +34,7 @@ describe('parseHash', () => {
     expect(parseHash('#/s/abc-123')).toEqual({
       tab: 'sessions',
       sessionId: 'abc-123',
-      sessionSubTab: 'diff',
+      sessionSubTab: 'term',
     });
   });
 
@@ -83,10 +83,10 @@ describe('toHash', () => {
 
   it('round-trips through parseHash for every variant', () => {
     const cases = [
-      { tab: 'sessions' as const, sessionId: null, sessionSubTab: 'diff' as const },
-      { tab: 'prs' as const, sessionId: null, sessionSubTab: 'diff' as const },
-      { tab: 'jira' as const, sessionId: null, sessionSubTab: 'diff' as const },
-      { tab: 'tasks' as const, sessionId: null, sessionSubTab: 'diff' as const },
+      { tab: 'sessions' as const, sessionId: null, sessionSubTab: 'term' as const },
+      { tab: 'prs' as const, sessionId: null, sessionSubTab: 'term' as const },
+      { tab: 'jira' as const, sessionId: null, sessionSubTab: 'term' as const },
+      { tab: 'tasks' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'diff' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'comments' as const },

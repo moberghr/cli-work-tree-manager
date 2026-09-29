@@ -80,11 +80,12 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(statusBucket('stale')).toBe('stale');
   });
 
-  it('opens blocked/working sessions on the terminal, the rest on the diff', () => {
+  it('opens sessions on the terminal, unseen finished work on the diff', () => {
     expect(defaultSubTab(s({ id: 'a', attention: att('needs_input', false) }))).toBe('term');
     expect(defaultSubTab(s({ id: 'a', attention: att('working', true) }))).toBe('term');
     expect(defaultSubTab(s({ id: 'a', attention: att('idle', false) }))).toBe('diff');
-    expect(defaultSubTab(s({ id: 'a' }))).toBe('diff');
+    expect(defaultSubTab(s({ id: 'a', attention: att('idle', true) }))).toBe('term');
+    expect(defaultSubTab(s({ id: 'a' }))).toBe('term');
   });
 
   it('stable order: project, then most recently entered — ignores status', () => {

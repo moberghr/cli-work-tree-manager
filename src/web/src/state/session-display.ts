@@ -7,11 +7,10 @@ import type { SessionSubTab } from './dashboard-route.js';
 export * from '../../../core/session-view.js';
 import { displayStatus } from '../../../core/session-view.js';
 
-/** Where opening a session should land: the terminal to answer a question
- *  (or watch it work), the diff to review finished work. */
+/** Where opening a session should land: its terminal — except finished
+ *  work you haven't looked at yet, which opens on the diff to review. */
 export function defaultSubTab(s: SessionSummary): SessionSubTab {
-  const k = displayStatus(s);
-  return k === 'needs_input' || k === 'working' ? 'term' : 'diff';
+  return displayStatus(s) === 'done' ? 'diff' : 'term';
 }
 
 export function isArchived(s: SessionSummary): boolean {

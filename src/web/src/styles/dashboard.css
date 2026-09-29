@@ -1496,3 +1496,9 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-assistant-toggle:hover, .wd-assistant-toggle-on { background: var(--hover); }
 .wd-assistant-toggle kbd { font-size: 10px; color: var(--muted); }
 @media (max-width: 640px) { .wd-assistant-toggle kbd { display: none; } }
+
+/* Terminal deck: the last few session terminals, kept connected, laid over
+   the session view's slot. */
+.wd-term-slot { flex: 1; min-height: 0; background: #1e1e1e; }
+.wd-term-deck { position: fixed; z-index: 1; display: flex; }
+.wd-term-deck-item { position: absolute; inset: 0; display: flex; }

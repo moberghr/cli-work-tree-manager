@@ -141,6 +141,13 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
   });
 
+  it('Today shows the seeded day even when asked right after midnight', async () => {
+    // "Since midnight", five minutes after it: the seeded prompts are older.
+    const d = await get<{ sessions: Array<{ branch: string; prompts: Array<{ text: string }> }> }>(`/api/digest?since=${new Date(clock - 5 * 60_000).toISOString()}`);
+    const inv = d.sessions.find((x) => x.branch === 'feat/invoice-export');
+    expect(inv?.prompts.map((p) => p.text)).toContain('Add CSV export to the invoices endpoint');
+  });
+
   it('the scripted day moves on: an agent asks for permission, another finishes', async () => {
     expect((await byBranch('feat/search-filters')).attention?.state).toBe('working');
     advance(21_000);

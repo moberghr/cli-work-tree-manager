@@ -82,6 +82,7 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
 test('"Last turn" narrows the diff to what the last instruction changed', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
@@ -101,6 +102,7 @@ test('"Last turn" narrows the diff to what the last instruction changed', async 
 test('revert a file from the diff, and Claude is told', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
@@ -205,6 +207,8 @@ test('j/k walk the rail in the order it shows', async ({ page }) => {
   const order = await rail.allTextContents();
   await page.locator('.wd-dash-rail-item').first().click();
   await expect(page.locator('.wd-session-detail-branch')).toHaveText(order[0]);
+  // On the terminal, j/k are Claude's; walk from the diff (which j/k keep).
+  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
   await page.locator('body').click({ position: { x: 5, y: 5 } }); // keys go to the page, not a field
   for (const expected of order.slice(1, 4)) {
     await page.keyboard.press('j');
@@ -346,4 +350,22 @@ test('Ctrl+K opens the assistant, which knows the tab you are on', async ({ page
   // Ctrl+K again closes it — even with focus inside its terminal.
   await page.keyboard.press('Control+k');
   await expect(panel).toBeHidden();
+});
+
+test('a session opens on its terminal, and going back to one is instant (same connection)', async ({ page }) => {
+  const sockets: string[] = [];
+  page.on('websocket', (ws) => sockets.push(ws.url()));
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  await expect(page).toHaveURL(/\/term$/);
+  await expect(page.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.wd-term-deck .xterm').first()).toBeVisible();
+
+  await page.locator('.wd-dash-rail-item', { hasText: 'feat/invoice-export' }).click();
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText('feat/invoice-export');
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  await expect(page.locator('.wd-session-detail-branch')).toHaveText('fix/login-redirect');
+
+  const terminals = sockets.filter((u) => u.includes('/terminal'));
+  expect(terminals).toHaveLength(2); // one per session, none reopened
 });

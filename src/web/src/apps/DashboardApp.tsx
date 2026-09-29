@@ -7,7 +7,7 @@ import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
-import { isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
+import { defaultSubTab, isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
@@ -21,6 +21,7 @@ import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
 import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
 import { AssistantPanel } from '../components/Dashboard/AssistantPanel.js';
+import { TerminalDeck } from '../components/Terminal/TerminalDeck.js';
 import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
@@ -88,6 +89,9 @@ export function DashboardApp() {
     jiraKey?: string;
     prompt?: string;
   } | null>(null);
+
+  // Where the session view wants its terminal drawn (the deck follows it).
+  const [termSlot, setTermSlot] = useState<HTMLDivElement | null>(null);
 
   // The Ctrl+K assistant. Mounted from the first open, then only hidden.
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -206,7 +210,7 @@ export function DashboardApp() {
   // -- Navigation handlers --------------------------------------------------
   const goTab = useCallback(
     (tab: DashboardTab) => {
-      navigate({ tab, sessionId: null, sessionSubTab: 'diff' });
+      navigate({ tab, sessionId: null, sessionSubTab: 'term' });
     },
     [navigate],
   );
@@ -214,7 +218,7 @@ export function DashboardApp() {
   // opened to review finished work: the queue, or its inbox row).
   const [lastTurnFor, setLastTurnFor] = useState<string | null>(null);
   const openSession = useCallback(
-    (sessionId: string, sub: SessionSubTab = 'diff', opts: { lastTurn?: boolean } = {}) => {
+    (sessionId: string, sub: SessionSubTab = 'term', opts: { lastTurn?: boolean } = {}) => {
       setLastTurnFor(opts.lastTurn ? sessionId : null);
       // Preserve the current tab as the breadcrumb target.
       navigate({
@@ -224,6 +228,14 @@ export function DashboardApp() {
       });
     },
     [navigate, route.tab],
+  );
+
+  // Moving between sessions (rail, j/k) keeps the tab you are on — comparing
+  // diffs across sessions stays on the diff; entering from elsewhere lands
+  // on the terminal.
+  const hopTo = useCallback(
+    (sessionId: string) => openSession(sessionId, route.sessionId ? route.sessionSubTab : 'term'),
+    [openSession, route.sessionId, route.sessionSubTab],
   );
 
   // Review queue ("Review all" on the inbox): finished sessions one by one.
@@ -255,7 +267,7 @@ export function DashboardApp() {
     [navigate, route],
   );
   const backFromSession = useCallback(() => {
-    navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'diff' });
+    navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'term' });
   }, [navigate, route.tab]);
   const goHome = useCallback(() => goTab('sessions'), [goTab]);
 
@@ -276,7 +288,7 @@ export function DashboardApp() {
       setSessions((prev) => prev.filter((s) => s.id !== id));
       setRefreshKey((n) => n + 1);
       if (route.sessionId === id) {
-        navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'diff' });
+        navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'term' });
       }
     },
     [navigate, route.sessionId, route.tab],
@@ -343,7 +355,7 @@ export function DashboardApp() {
         const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
         if (next) {
           e.preventDefault();
-          openSession(next.id, next.attention?.state === 'needs_input' ? 'term' : 'diff');
+          openSession(next.id, defaultSubTab(next));
         }
         return;
       }
@@ -366,7 +378,7 @@ export function DashboardApp() {
         const next = sorted[nextIdx];
         if (next) {
           e.preventDefault();
-          openSession(next.id);
+          hopTo(next.id);
         }
       }
     };
@@ -375,7 +387,7 @@ export function DashboardApp() {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, route.sessionId, sessions, modalOpen, reviewQueue]);
+  }, [goTab, openSession, hopTo, route.sessionId, sessions, modalOpen, reviewQueue]);
 
   // Set of Jira keys that already have a worktree, for the Jira tab's
   // "already-has-worktree" badge.
@@ -445,6 +457,7 @@ export function DashboardApp() {
       )}
       <SessionDetail
         startOnLastTurn={lastTurnFor === activeSession.id}
+        onTermSlot={setTermSlot}
         onOpenSession={(id) => openSession(id)}
         session={activeSession}
         subTab={route.sessionSubTab}
@@ -536,7 +549,7 @@ export function DashboardApp() {
         sessions={sessions}
         currentScopeLabel={currentScopeLabel}
         onSelectTab={goTab}
-        onSelectSession={openSession}
+        onSelectSession={hopTo}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
@@ -546,6 +559,11 @@ export function DashboardApp() {
       >
         {body}
       </DashboardLayout>
+      <TerminalDeck
+        activeId={activeSession && route.sessionSubTab === 'term' ? activeSession.id : null}
+        slot={termSlot}
+        sessions={sessions}
+      />
       {assistantMounted && (
         <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} seeing={assistantSeeing} />
       )}
@@ -555,8 +573,8 @@ export function DashboardApp() {
           onCreated={(id, result) => {
             setNewOpen(false);
             setNewInitial(null);
-            // Started with a prompt: watch it begin in its terminal.
-            openSession(id, result?.started === 'started' ? 'term' : 'diff');
+            // A new worktree has no diff yet: land on its terminal.
+            openSession(id, 'term');
           }}
           onClose={() => {
             setNewOpen(false);

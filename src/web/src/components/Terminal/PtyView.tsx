@@ -11,6 +11,11 @@ interface Props {
   /** For the `work tree … --host` hint when its Claude runs elsewhere. */
   target?: string;
   branch?: string;
+  /** False while kept alive but not shown (the terminal deck): it stays
+   *  connected, but never resizes the shared PTY — the last resize wins for
+   *  every client, your real terminal included. Refits and takes focus when
+   *  shown again. Default true. */
+  active?: boolean;
 }
 
 /** The server said the session's Claude runs in another terminal. */
@@ -32,8 +37,18 @@ const ago = (ms: number | null) => {
  * Lifecycle: mounts xterm + FitAddon, opens WS, attaches keyboard input.
  * On unmount: closes WS and disposes xterm. The server-side PTY survives.
  */
-export function PtyView({ sessionId, target, branch }: Props) {
+export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  // Set by the connect effect: refit + resize-if-changed, and focus.
+  const shown = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (active) shown.current?.();
+  }, [active]);
+  // Until the first screen arrives: "Connecting…", then — when it takes a
+  // while, i.e. Claude is being started — say so instead of a blank pane.
+  const [phase, setPhase] = useState<'connecting' | 'starting' | 'ready'>('connecting');
   // Bumped to tear down and re-run the connect effect (restart after exit).
   const [generation, setGeneration] = useState(0);
   // Its Claude runs in a plain terminal: nothing spawned, explain instead.
@@ -85,7 +100,7 @@ export function PtyView({ sessionId, target, branch }: Props) {
     // input", `n`, a notification click). Without focus your answer went to
     // the dashboard, whose j/k/n navigated away. Typing before the replay
     // arrives is queued below, so this is safe immediately.
-    term.focus();
+    if (activeRef.current) term.focus();
 
     // Keys a real terminal handles that xterm-in-a-browser doesn't:
     //  - Shift+Enter → newline in Claude's prompt (ESC CR, what Claude
@@ -113,6 +128,8 @@ export function PtyView({ sessionId, target, branch }: Props) {
     })();
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
+    setPhase('connecting');
+    const slowStart = setTimeout(() => setPhase((p) => (p === 'connecting' ? 'starting' : p)), 700);
 
     let ready = false;
     const pendingInput: string[] = [];
@@ -121,10 +138,12 @@ export function PtyView({ sessionId, target, branch }: Props) {
     // drawn: input typed meanwhile is queued, and our size is sent only
     // after the snapshot is on screen, so Claude redraws for our grid.
     const finishReplay = () => {
+      clearTimeout(slowStart);
+      setPhase('ready');
       fit.fit();
       // After a reconnect the terminal is rebuilt: take focus back unless
       // the user has put it somewhere else meanwhile.
-      if (!document.activeElement || document.activeElement === document.body) term.focus();
+      if (activeRef.current && (!document.activeElement || document.activeElement === document.body)) term.focus();
       ready = true;
       sentCols = term.cols;
       sentRows = term.rows;
@@ -206,6 +225,8 @@ export function PtyView({ sessionId, target, branch }: Props) {
     let sentCols = term.cols;
     let sentRows = term.rows;
     const onResize = () => {
+      // Hidden in the deck: keep the grid as it was, send nothing.
+      if (!activeRef.current) return;
       fit.fit();
       if (term.cols === sentCols && term.rows === sentRows) return;
       sentCols = term.cols;
@@ -228,8 +249,14 @@ export function PtyView({ sessionId, target, branch }: Props) {
         : null;
     if (observer) observer.observe(hostRef.current);
     else window.addEventListener('resize', onResize);
+    shown.current = () => {
+      onResize();
+      term.focus();
+    };
 
     return () => {
+      clearTimeout(slowStart);
+      shown.current = null;
       observer?.disconnect();
       window.removeEventListener('resize', onResize);
       inputSub.dispose();
@@ -267,7 +294,14 @@ export function PtyView({ sessionId, target, branch }: Props) {
           </p>
         </div>
       )}
-      <div ref={hostRef} className="wd-pty-host" style={elsewhere ? { display: 'none' } : undefined} />
+      <div className="wd-pty-frame" style={elsewhere ? { display: 'none' } : undefined}>
+        <div ref={hostRef} className="wd-pty-host" />
+        {phase !== 'ready' && !elsewhere && (
+          <div className="wd-pty-connecting" role="status">
+            {phase === 'starting' ? 'Starting Claude — resuming the conversation…' : 'Connecting…'}
+          </div>
+        )}
+      </div>
     </>
   );
 }

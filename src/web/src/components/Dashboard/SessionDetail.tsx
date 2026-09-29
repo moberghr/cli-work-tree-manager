@@ -33,6 +33,9 @@ interface Props {
   startOnLastTurn?: boolean;
   /** Open another session (the overlap warning links to it). */
   onOpenSession?: (id: string) => void;
+  /** Where the dashboard's terminal deck should draw this session's
+   *  terminal; without it the terminal is rendered here directly. */
+  onTermSlot?: (el: HTMLDivElement | null) => void;
 }
 
 /**
@@ -58,6 +61,7 @@ export function SessionDetail({
   onShipped,
   startOnLastTurn = false,
   onOpenSession,
+  onTermSlot,
 }: Props) {
   // Which session the Ship panel was opened FOR: it closes itself when the
   // detail switches to another session (j/k, a notification click), so a
@@ -128,14 +132,14 @@ export function SessionDetail({
       )}
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton
-          label="Diff"
-          active={subTab === 'diff'}
-          onClick={() => onSelectSubTab('diff')}
-        />
-        <SubTabButton
           label="Terminal"
           active={subTab === 'term'}
           onClick={() => onSelectSubTab('term')}
+        />
+        <SubTabButton
+          label="Diff"
+          active={subTab === 'diff'}
+          onClick={() => onSelectSubTab('diff')}
         />
         <SubTabButton
           label="Comments"
@@ -146,7 +150,14 @@ export function SessionDetail({
       </nav>
       <div className="wd-session-subtab-body">
         {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
-        {subTab === 'term' && <PtyView sessionId={session.id} target={session.target} branch={session.branch} />}
+        {subTab === 'term' &&
+          (onTermSlot ? (
+            // The dashboard's terminal deck draws the terminal over this slot,
+            // so it stays connected when you switch away and back.
+            <div className="wd-term-slot" ref={onTermSlot} />
+          ) : (
+            <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
+          ))}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
       </div>
     </div>

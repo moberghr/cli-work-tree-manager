@@ -227,6 +227,9 @@ export interface ScenarioOptions {
   speed?: number;
 }
 
+/** How far back the seeded world reaches (the oldest seeded prompt). */
+const DEMO_HISTORY_MS = 6 * 3_600_000;
+
 export class DemoScenario {
   /** Which demo tabs are looking at what (POST /api/presence). */
   readonly presence: Presence;
@@ -713,6 +716,10 @@ export class DemoScenario {
   /** The Today digest, through the same builder as work web: the demo's
    *  prompts are the `> …` lines of its simulated terminals. */
   digest(sinceMs: number): DigestResponse {
+    // The world is seeded up to a few hours back; "since midnight" asked
+    // just after midnight would cut it off, and Today would show a demo
+    // with nothing in it.
+    sinceMs = Math.min(sinceMs, this.started - DEMO_HISTORY_MS);
     const inputs = [...this.sessions.values()].map((s) => ({
       sessionId: s.id,
       target: s.target,

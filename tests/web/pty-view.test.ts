@@ -328,6 +328,52 @@ describe('PtyView', () => {
     expect(term.writes).toContain('x');
   });
 
+  it('says what it is waiting for until the first screen: connecting, then starting Claude', () => {
+    vi.useFakeTimers();
+    try {
+      const { ws } = mount();
+      const overlay = () => container.querySelector('.wd-pty-connecting')?.textContent ?? null;
+      expect(overlay()).toBe('Connecting…');
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(overlay()).toMatch(/Starting Claude/);
+      ws.serverOpen();
+      act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+      expect(overlay()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('while hidden (active=false) stays connected but never resizes the shared PTY; refits and focuses when shown', () => {
+    const render = (active: boolean) =>
+      act(() => root.render(createElement(PtyView, { sessionId: 's1', active })));
+    render(true);
+    const ws = FakeWebSocket.instances.at(-1)!;
+    const term = h.terms.at(-1)!;
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+    const resizes = () => ws.sent.filter((m) => (m as { type: string }).type === 'resize');
+    expect(resizes()).toHaveLength(1);
+
+    render(false);
+    const before = { ...h.FIT };
+    h.FIT.cols = 60;
+    h.FIT.rows = 20;
+    try {
+      act(() => { window.dispatchEvent(new Event('resize')); });
+      expect(resizes()).toHaveLength(1);
+      expect(ws.closed).toBe(false);
+
+      const focused = term.focused;
+      render(true);
+      expect(resizes().at(-1)).toEqual({ type: 'resize', cols: 60, rows: 20 });
+      expect(term.focused).toBeGreaterThan(focused);
+      expect(FakeWebSocket.instances.at(-1)).toBe(ws);
+    } finally {
+      Object.assign(h.FIT, before);
+    }
+  });
+
   it('closes the socket and disposes xterm on unmount', () => {
     const { ws, term } = mount();
     act(() => root.render(createElement('div')));

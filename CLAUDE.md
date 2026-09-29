@@ -235,7 +235,7 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/ship.ts                  ← ship per repo: preflight (dirty/upstream/PR/checks/merge blockers) + push / create-pr / merge (--match-head-commit; group merge all-or-nothing). Injectable CommandRunner (cross-spawn, argv only)
                                   ├── core/ship-routes.ts           ← Hono sub-app: GET/POST /api/sessions/:id/ship (merge success → archive), POST /api/sessions/:id/archive
                                   ├── core/diff-stat.ts             ← +N −M per session (numstat + untracked); DiffStatCache: non-blocking, TTL, bounded concurrency, broadcast on change
-                                  ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health
+                                  ├── core/terminal-routes.ts       ← /api/sessions/:id/terminal/health (SPA: a session opens on its Terminal tab; web/src/components/Terminal/TerminalDeck.tsx keeps the last 5 terminals connected and lays the active one over SessionDetail's slot — hidden ones pass active=false so they never resize the shared PTY)
                                   └── core/terminal-ws.ts           ← browser WS ↔ PTY-host WS relay for the Terminal tab (binary = output, text = control JSON)
                                   │
                                   Review-comment delivery to live Claude (hook bridge)

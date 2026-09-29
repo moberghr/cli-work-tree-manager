@@ -35,7 +35,7 @@ export interface DashboardRoute {
 export const DEFAULT_ROUTE: DashboardRoute = {
   tab: 'sessions',
   sessionId: null,
-  sessionSubTab: 'diff',
+  sessionSubTab: 'term',
 };
 
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|prs|jira|tasks)\/?$/;
@@ -45,7 +45,8 @@ export function parseHash(hash: string): DashboardRoute {
   if (!hash || hash === '#' || hash === '#/') return DEFAULT_ROUTE;
   const session = hash.match(SESSION_RE);
   if (session) {
-    const sub = (session[2] as SessionSubTab | undefined) ?? 'diff';
+    // A session opens on its terminal unless the link says otherwise.
+    const sub = (session[2] as SessionSubTab | undefined) ?? 'term';
     return {
       // Keep the "tab" carrier so breadcrumb knows where to go back to;
       // default to sessions when entering a session URL cold.
@@ -59,7 +60,7 @@ export function parseHash(hash: string): DashboardRoute {
     return {
       tab: tab[1] as DashboardTab,
       sessionId: null,
-      sessionSubTab: 'diff',
+      sessionSubTab: 'term',
     };
   }
   return DEFAULT_ROUTE;
