@@ -15,6 +15,8 @@ import {
   type StatusEvent,
 } from '../core/session-status.js';
 import { bestEffortAsync } from '../core/best-effort.js';
+import { pendingToolUse } from '../core/permission-request.js';
+import { readTranscriptTail } from '../core/transcript.js';
 
 /**
  * `work hook prompt-submit` / `work hook stop` — invoked by Claude Code's
@@ -144,8 +146,12 @@ export function statusEventFor(event: HookEvent, payload: HookPayload): StatusEv
       return { kind: 'prompt', prompt: payload.prompt };
     case 'status-stop':
       return { kind: 'stop', lastMessage: lastAssistantText(payload.transcript_path) ?? undefined };
-    case 'status-notify':
-      return { kind: 'notification', message: payload.message };
+    case 'status-notify': {
+      // Which call the permission prompt is about: the transcript has it,
+      // the hook message only names the tool.
+      const request = pendingToolUse(readTranscriptTail(payload.transcript_path));
+      return { kind: 'notification', message: payload.message, ...(request ? { request } : {}) };
+    }
     default:
       return null;
   }

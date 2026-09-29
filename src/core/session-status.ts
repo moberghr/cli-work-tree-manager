@@ -1,5 +1,5 @@
-import fs from 'node:fs';
 import { json, tx, withDb, type Db } from './db.js';
+import { contentBlocks, readTranscriptTail } from './transcript.js';
 
 /**
  * Per-session agent status, driven by Claude Code's own hooks (installed by
@@ -11,6 +11,7 @@ import { json, tx, withDb, type Db } from './db.js';
  */
 
 import type { AgentState } from './attention.js';
+import type { PermissionAnswer, PermissionRequest } from './permission-request.js';
 
 export type { AgentState } from './attention.js';
 export { attentionRank, compareAttention, needsAttention } from './attention.js';
@@ -30,12 +31,17 @@ export interface SessionStatus {
    *  server, which is only told "status changed", decide whether the
    *  transition deserves a notification. */
   prevState?: AgentState | null;
+  /** While needs_input on a permission prompt: the tool call it is about
+   *  (from the transcript), so the inbox can show it and answer it. */
+  request?: PermissionRequest;
 }
 
 export type StatusEvent =
   | { kind: 'prompt'; prompt?: string }
   | { kind: 'stop'; lastMessage?: string }
-  | { kind: 'notification'; message?: string };
+  | { kind: 'notification'; message?: string; request?: PermissionRequest }
+  /** The user answered the permission prompt from the dashboard. */
+  | { kind: 'answered'; answer: PermissionAnswer };
 
 /** Claude's Notification hook fires both for permission prompts and for the
  *  "waiting for your input" nudge after ~60 s idle; only the former means
@@ -81,11 +87,20 @@ export function applyStatusEvent(
     }
     case 'notification': {
       if (event.message && NEEDS_INPUT_RE.test(event.message)) {
-        return enter('needs_input', oneLine(event.message), false);
+        const next = enter('needs_input', oneLine(event.message), false);
+        return event.request ? { ...next, request: event.request } : next;
       }
       // The idle nudge: nothing new happened, don't re-flag it as unseen.
       if (prev) return { ...prev, updatedAt: ts };
       return enter('idle', undefined, false);
+    }
+    case 'answered': {
+      // Allowed: the tool runs, the turn goes on. Denied: Claude stops and
+      // waits for you to say what to do instead.
+      const what = prev?.request ? `${prev.request.tool}: ${prev.request.detail}` : 'the request';
+      return event.answer === 'allow'
+        ? enter('working', oneLine(`Allowed ${what}`), true)
+        : enter('idle', oneLine(`Denied ${what} — tell Claude what to do instead`), true);
     }
   }
 }
@@ -182,51 +197,20 @@ export async function markSeen(sessionId: string): Promise<SessionStatus | null>
 
 // ---- transcript summary ---------------------------------------------------
 
-const TAIL_BYTES = 256 * 1024;
-
 /**
  * Text of the last assistant message in a Claude Code transcript (JSONL),
- * for the "done" summary. Reads only the file's tail — transcripts get
- * large. Null when unreadable or there's no assistant text yet.
+ * for the "done" summary. Null when unreadable or there's no assistant text yet.
  */
 export function lastAssistantText(transcriptPath: string | undefined): string | null {
-  if (!transcriptPath) return null;
-  let text: string;
-  try {
-    const fd = fs.openSync(transcriptPath, 'r');
-    try {
-      const size = fs.fstatSync(fd).size;
-      const start = Math.max(0, size - TAIL_BYTES);
-      const buf = Buffer.alloc(size - start);
-      fs.readSync(fd, buf, 0, buf.length, start);
-      text = buf.toString('utf-8');
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line.startsWith('{')) continue; // first line of a tail may be partial
-    let entry: { type?: string; message?: { content?: unknown } };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (entry.type !== 'assistant') continue;
-    const content = entry.message?.content;
-    if (typeof content === 'string' && content.trim()) return content;
-    if (Array.isArray(content)) {
-      const parts = content
-        .filter((c): c is { type: string; text: string } => c?.type === 'text' && typeof c.text === 'string')
-        .map((c) => c.text)
-        .join('\n')
-        .trim();
-      if (parts) return parts;
-    }
+  const entries = readTranscriptTail(transcriptPath);
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].type !== 'assistant') continue;
+    const text = contentBlocks(entries[i])
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    if (text) return text;
   }
   return null;
 }

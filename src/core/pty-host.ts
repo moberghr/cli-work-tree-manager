@@ -15,7 +15,7 @@ import {
 } from './pty-host-protocol.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
-const PTY_PATH = /^\/ptys\/([^/?]+)(\/write)?$/;
+const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen)?$/;
 const MAX_BODY = 1024 * 1024;
 
 export interface PtyHostHandle {
@@ -110,6 +110,10 @@ export async function startPtyHost(
       const m = url.pathname.match(PTY_PATH);
       if (m) {
         const id = decodeURIComponent(m[1]);
+        if (m[2] === '/screen' && req.method === 'GET') {
+          const text = registry.screen(id);
+          return text === null ? send(res, 404, { error: 'not found' }) : send(res, 200, { text });
+        }
         if (m[2] === '/write' && req.method === 'POST') {
           const body = (await readBody(req)) as { data?: unknown };
           if (typeof body.data !== 'string') return send(res, 400, { error: 'data required' });

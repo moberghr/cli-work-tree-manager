@@ -24,6 +24,21 @@ export interface DiffStat {
   files: number;
 }
 
+/** The tool call a permission prompt is about (from the transcript). */
+export interface PermissionRequest {
+  /** Tool name as Claude Code calls it (Bash, Edit, WebFetch, mcp__…). */
+  tool: string;
+  /** What it wants to do: the command, the file, the URL. One line. */
+  detail: string;
+}
+
+/** POST /api/sessions/:id/answer — answer the permission prompt shown. */
+export interface AnswerRequest {
+  answer: 'allow' | 'deny';
+  /** The request the user was shown; refused if the prompt moved on. */
+  request: PermissionRequest;
+}
+
 /** Hook-driven agent status as sent to the dashboard (attention inbox). */
 export interface SessionAttention extends AttentionLike {
   /** One line: prompt while working, last message when done, the
@@ -32,6 +47,8 @@ export interface SessionAttention extends AttentionLike {
   updatedAt: string;
   /** A "working" that went quiet for 15 min, shown as idle. */
   stale: boolean;
+  /** needs_input on a permission prompt: what it wants to run. */
+  request?: PermissionRequest;
 }
 
 /** One row of GET /api/sessions — what every dashboard server (the real

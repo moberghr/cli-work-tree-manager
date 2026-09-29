@@ -6,6 +6,8 @@ import type {
 } from '../../../core/comment-types.js';
 import type {
   ActivityState,
+  AnswerRequest,
+  PermissionRequest,
   ChecksState,
   DevServerState,
   DiffStat,
@@ -32,6 +34,8 @@ import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile 
 // keeps importing from api/client.
 export type {
   ActivityState,
+  AnswerRequest,
+  PermissionRequest,
   ChecksState,
   DevServerState,
   DiffStat,
@@ -432,6 +436,21 @@ export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
 /** The user opened a session that wanted attention — clear its unseen flag. */
 export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});
+}
+
+/** Allow / Deny the permission prompt a session is blocked on. Throws with
+ *  the server's reason when it refused to type (already answered, a
+ *  different prompt on screen, not running in the PTY host). */
+export async function answerPermission(sessionId: string, req: AnswerRequest): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `answer failed (${res.status})`);
+  }
 }
 
 /** Undo an uncommitted file or hunk and tell Claude. Throws with the

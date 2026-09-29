@@ -222,6 +222,17 @@ export class PtyHostClient {
     return this.call('POST', `/ptys/${encodeURIComponent(id)}`, spec);
   }
 
+  /** The session's visible screen as text; null when it has none — or the
+   *  host predates this call (404 either way: nothing to answer by key). */
+  async screen(id: string): Promise<string | null> {
+    try {
+      const r = await this.call<{ text?: unknown }>('GET', `/ptys/${encodeURIComponent(id)}/screen`);
+      return typeof r.text === 'string' ? r.text : null;
+    } catch {
+      return null;
+    }
+  }
+
   async write(id: string, data: string): Promise<boolean> {
     try {
       await this.call('POST', `/ptys/${encodeURIComponent(id)}/write`, { data });

@@ -80,6 +80,41 @@ describe('InboxTab', () => {
   });
 });
 
+describe('InboxTab: answering a permission prompt', () => {
+  const bash = { tool: 'Bash', detail: 'npm test -- invoices' };
+  const blocked = (running: boolean): SessionSummary => ({
+    ...session('blocked', { ...att('needs_input', false, 2, 'Claude needs your permission to use Bash'), request: bash }),
+    ptyStatus: running ? 'running' : 'idle',
+  });
+  const button = (label: string) =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+
+  it('shows the command, and Allow / Deny when the session runs in the PTY host', async () => {
+    const onAnswer = vi.fn(async () => {});
+    act(() => root.render(createElement(InboxTab, { sessions: [blocked(true)], onOpenSession: () => {}, onAnswer })));
+    expect(text(container.querySelector('.wd-inbox-request'))).toBe('Bash npm test -- invoices');
+    await act(async () => button('Allow')!.click());
+    expect(onAnswer).toHaveBeenCalledWith('blocked', { answer: 'allow', request: bash });
+    await act(async () => button('Deny')!.click());
+    expect(onAnswer).toHaveBeenLastCalledWith('blocked', { answer: 'deny', request: bash });
+  });
+
+  it('a session outside the PTY host shows the command but no buttons (answer it in its terminal)', () => {
+    act(() => root.render(createElement(InboxTab, { sessions: [blocked(false)], onOpenSession: () => {}, onAnswer: vi.fn() })));
+    expect(text(container.querySelector('.wd-inbox-request'))).toContain('npm test -- invoices');
+    expect(button('Allow')).toBeUndefined();
+    expect(button('Terminal')).toBeDefined();
+  });
+
+  it("shows the server's reason when it refused to type", async () => {
+    const onAnswer = vi.fn(async () => { throw new Error('The permission prompt is no longer on screen'); });
+    act(() => root.render(createElement(InboxTab, { sessions: [blocked(true)], onOpenSession: () => {}, onAnswer })));
+    await act(async () => button('Allow')!.click());
+    expect(text(container.querySelector('[role=alert]'))).toBe('The permission prompt is no longer on screen');
+    expect(button('Allow')!.disabled).toBe(false); // can try again
+  });
+});
+
 describe('SessionRail with attention', () => {
   it('keeps a STABLE order (project, then most recent) and marks what wants you; urgency order is the inbox job', () => {
     act(() =>

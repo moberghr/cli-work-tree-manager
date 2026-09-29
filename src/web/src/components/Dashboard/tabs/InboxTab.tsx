@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
-import { markSessionSeen, type SessionSummary } from '../../../api/client.js';
+import { answerPermission, markSessionSeen, type AnswerRequest, type SessionSummary } from '../../../api/client.js';
 import { isArchived, type PrLookup } from '../../../state/session-display.js';
 import { DiffStatChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
@@ -17,6 +17,8 @@ interface Props {
   /** Clear a finished session's unseen flag without opening it. Defaults
    *  to the API call; injectable for tests. */
   onMarkSeen?: (id: string) => Promise<unknown>;
+  /** Allow / Deny a permission prompt. Defaults to the API call. */
+  onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
 }
 
 interface Section {
@@ -72,7 +74,20 @@ export function InboxTab({
   onOpenSession,
   prsFor,
   onMarkSeen = markSessionSeen,
+  onAnswer = answerPermission,
 }: Props) {
+  // Per session: the answer being sent, or why the server refused it.
+  const [answering, setAnswering] = useState<Record<string, 'allow' | 'deny'>>({});
+  const [answerError, setAnswerError] = useState<Record<string, string>>({});
+  const answer = (s: SessionSummary, choice: 'allow' | 'deny') => {
+    const request = s.attention?.request;
+    if (!request) return;
+    setAnswering((a) => ({ ...a, [s.id]: choice }));
+    setAnswerError(({ [s.id]: _, ...rest }) => rest);
+    onAnswer(s.id, { answer: choice, request })
+      .catch((err: unknown) => setAnswerError((e) => ({ ...e, [s.id]: err instanceof Error ? err.message : String(err) })))
+      .finally(() => setAnswering(({ [s.id]: _, ...rest }) => rest));
+  };
   const [marking, setMarking] = useState<Set<string>>(new Set());
   const markSeen = (id: string) => {
     setMarking((m) => new Set(m).add(id));
@@ -149,7 +164,16 @@ export function InboxTab({
                       <span className="wd-inbox-branch">{s.branch}</span>
                     </span>
                     <span className="wd-inbox-summary">
-                      {s.attention!.summary ?? <span className="wd-tab-header-muted">—</span>}
+                      {answerError[s.id] ? (
+                        <span className="wd-inbox-answer-error" role="alert">{answerError[s.id]}</span>
+                      ) : s.attention!.state === 'needs_input' && s.attention!.request ? (
+                        <span className="wd-inbox-request" title={`${s.attention!.request.tool}: ${s.attention!.request.detail}`}>
+                          <span className="wd-inbox-request-tool">{s.attention!.request.tool}</span>{' '}
+                          <code>{s.attention!.request.detail}</code>
+                        </span>
+                      ) : (
+                        s.attention!.summary ?? <span className="wd-tab-header-muted">—</span>
+                      )}
                     </span>
                     <span className="wd-inbox-meta">
                       <DiffStatChip session={s} />
@@ -160,9 +184,32 @@ export function InboxTab({
                     </span>
                   </button>
                   <span className="wd-inbox-actions">
-                    <button type="button" className="wd-row-action" onClick={() => onOpenSession(s.id, 'diff')}>
-                      Diff
-                    </button>
+                    {sec.rank === 0 && s.attention!.request && s.ptyStatus === 'running' ? (
+                      <>
+                        <button
+                          type="button"
+                          className="wd-row-action wd-row-action-allow"
+                          disabled={!!answering[s.id]}
+                          onClick={() => answer(s, 'allow')}
+                          title="Press Yes in its terminal — only if the prompt on screen is still this one"
+                        >
+                          {answering[s.id] === 'allow' ? 'Allowing…' : 'Allow'}
+                        </button>
+                        <button
+                          type="button"
+                          className="wd-row-action wd-row-action-danger"
+                          disabled={!!answering[s.id]}
+                          onClick={() => answer(s, 'deny')}
+                          title="Say No; Claude stops and waits for you to say what to do instead"
+                        >
+                          {answering[s.id] === 'deny' ? 'Denying…' : 'Deny'}
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="wd-row-action" onClick={() => onOpenSession(s.id, 'diff')}>
+                        Diff
+                      </button>
+                    )}
                     <button type="button" className="wd-row-action" onClick={() => onOpenSession(s.id, 'term')}>
                       Terminal
                     </button>

@@ -6,6 +6,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
+import type { AnswerRequest } from '../api-types.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -166,6 +167,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- status / ship / archive -----------------------------------------------
   app.post('/api/sessions/:id/seen', (c) => (scenario.markSeen(c.req.param('id')) ? c.json({ ok: true }) : notFound(c)));
+  app.post('/api/sessions/:id/answer', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as Partial<AnswerRequest> | null;
+    if (!body || (body.answer !== 'allow' && body.answer !== 'deny')) return c.json({ error: 'answer must be allow or deny' }, 400);
+    const error = scenario.answer(c.req.param('id'), body.answer, body.request);
+    return error ? c.json({ error }, 409) : c.json({ ok: true });
+  });
   app.get('/api/sessions/:id/ship', (c) => {
     const p = scenario.preflight(c.req.param('id'));
     return p ? c.json(p) : notFound(c);

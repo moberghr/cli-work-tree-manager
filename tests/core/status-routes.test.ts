@@ -156,3 +156,82 @@ describe('notification discipline', () => {
     expect((await post('/api/presence', {})).status).toBe(400);
   });
 });
+
+describe('POST /api/sessions/:id/answer', () => {
+  const bash = { tool: 'Bash', detail: 'npm test -- invoices' };
+  const DIALOG = [
+    ' Bash command',
+    '   npm test -- invoices',
+    ' Do you want to proceed?',
+    ' ❯ 1. Yes',
+    "   2. Yes, and don't ask again for npm test commands",
+    '   3. No, and tell Claude what to do differently (esc)',
+  ].join('\n');
+  let screen: string | null;
+  let typed: string[];
+  let answerApp: Hono;
+  let id: string;
+
+  beforeEach(async () => {
+    id = sessionIdFor(session);
+    screen = DIALOG;
+    typed = [];
+    answerApp = new Hono();
+    mountStatusRoutes(answerApp, {
+      broadcast: (e) => events.push(e),
+      presence,
+      pty: { screen: async () => screen, write: async (_id, d) => (typed.push(d), true) },
+    });
+    await recordStatusEvent(id, { kind: 'prompt', prompt: 'add the export' });
+    await recordStatusEvent(id, { kind: 'notification', message: 'Claude needs your permission to use Bash', request: bash });
+  });
+  const answer = (body: unknown) =>
+    answerApp.request(`/api/sessions/${id}/answer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('Allow presses Enter on the highlighted Yes and marks the session working', async () => {
+    const res = await answer({ answer: 'allow', request: bash });
+    expect(res.status).toBe(200);
+    expect(typed).toEqual(['\r']);
+    expect(readStatus(id)).toMatchObject({ state: 'working', seen: true });
+    expect(events).toContain('sessions-changed');
+  });
+
+  it('Deny presses Esc and leaves it idle, waiting for you', async () => {
+    expect((await answer({ answer: 'deny', request: bash })).status).toBe(200);
+    expect(typed).toEqual(['\x1b']);
+    expect(readStatus(id)?.state).toBe('idle');
+  });
+
+  it('types nothing unless the screen shows exactly what the user was shown', async () => {
+    const refused = async (why: RegExp) => {
+      const res = await answer({ answer: 'allow', request: bash });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(why);
+    };
+    screen = '> \n  ? for shortcuts';
+    await refused(/no longer on screen/);
+    screen = DIALOG.replace('npm test -- invoices', 'git push --force');
+    await refused(/about something else/);
+    screen = DIALOG.replace(' ❯ 1. Yes', '   1. Yes').replace('   3. No', ' ❯ 3. No');
+    await refused(/highlighted/);
+    screen = null;
+    await refused(/not running in the PTY host/);
+    expect(typed).toEqual([]);
+    expect(readStatus(id)?.state).toBe('needs_input');
+  });
+
+  it('refuses a stale click: a different request, or one already answered', async () => {
+    const other = await answer({ answer: 'allow', request: { tool: 'Bash', detail: 'rm -rf /' } });
+    expect(other.status).toBe(409);
+    expect((await answer({ answer: 'allow', request: bash })).status).toBe(200);
+    const again = await answer({ answer: 'allow', request: bash });
+    expect(again.status).toBe(409); // the double click
+    expect(typed).toEqual(['\r']);
+  });
+
+  it('validates the body and the session', async () => {
+    expect((await answer({ answer: 'maybe', request: bash })).status).toBe(400);
+    const res = await answerApp.request('/api/sessions/nope/answer', { method: 'POST', body: '{}' });
+    expect(res.status).toBe(404);
+  });
+});

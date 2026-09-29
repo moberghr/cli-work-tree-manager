@@ -145,6 +145,13 @@ export function peekPty(sessionId: string): boolean {
   return live.has(sessionId);
 }
 
+/** A session's live PTY screen as text; null when there is none (never spawns). */
+export async function readPtyScreen(sessionId: string): Promise<string | null> {
+  if (!live.has(sessionId)) return null;
+  const c = await getClient(false);
+  return c ? c.screen(sessionId) : null;
+}
+
 /** Write to a session's live PTY. False when there is none (never spawns). */
 export async function writeToPty(sessionId: string, data: string): Promise<boolean> {
   if (!live.has(sessionId)) return false;

@@ -222,6 +222,18 @@ describe('PTY host server over real sockets', () => {
       String(b.control[0]?.data ?? '').includes('echo:still-here'), 15_000, 'reattach');
   });
 
+  it('serves the visible screen as plain text (what inbox answers are checked against)', async () => {
+    await client.spawn('s', { cwd, tool });
+    expect(await client.write('s', 'Do you want to proceed?\r')).toBe(true);
+    let text: string | null = null;
+    await waitFor(() => {
+      void client.screen('s').then((t) => (text = t));
+      return !!text && text.includes('echo:Do you want to proceed?');
+    }, 15_000, 'screen text');
+    expect(text).not.toMatch(/\x1b\[/); // no escape sequences
+    expect(await client.screen('nope')).toBeNull();
+  });
+
   it('kill waits for the process to exit, so its worktree can be deleted right away', async () => {
     await client.spawn('s', { cwd, tool });
     await client.kill('s');

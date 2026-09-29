@@ -1214,3 +1214,18 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-ci-fail { background: color-mix(in srgb, var(--del-fg) 8%, transparent); }
 .wd-ci-fail .wd-ci-item > [aria-hidden] { color: var(--del-fg); }
 .wd-ci-fix { font-size: 12px; padding: 2px 10px; }
+
+/* Inbox: what a permission prompt wants to run, answerable in place. */
+.wd-inbox-request { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; }
+.wd-inbox-request-tool { font-size: 11px; font-weight: 600; color: var(--muted); flex: 0 0 auto; }
+.wd-inbox-request code {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.wd-inbox-answer-error { color: var(--del-fg); font-size: 12px; }
+.wd-row-action-allow { color: var(--fg); border-color: var(--add-fg, #2ea043); }
+.wd-row-action-allow:hover:not(:disabled) { background: color-mix(in srgb, var(--add-fg, #2ea043) 14%, transparent); }

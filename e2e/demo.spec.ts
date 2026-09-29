@@ -213,3 +213,13 @@ test('j/k walk the rail in the order it shows', async ({ page }) => {
   await page.keyboard.press('k');
   await expect(page.locator('.wd-session-detail-branch')).toHaveText(order[2]);
 });
+
+test('a permission prompt is answered from the inbox, showing the command it allows', async ({ page }) => {
+  await page.goto(`${url}#/inbox`);
+  const item = page.locator('.wd-inbox-rank-0 .wd-inbox-item', { hasText: 'feat/invoice-export' });
+  await expect(item.locator('.wd-inbox-request')).toHaveText('Bash npm test -- invoices');
+  await item.getByRole('button', { name: 'Allow' }).click();
+  // It leaves "Needs your input" and shows up as working, with what was allowed.
+  await expect(page.locator('.wd-inbox-rank-0', { hasText: 'feat/invoice-export' })).toHaveCount(0);
+  await expect(page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText('Allowed Bash: npm test -- invoices');
+});

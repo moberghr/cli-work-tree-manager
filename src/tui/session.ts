@@ -181,6 +181,21 @@ export class PtySession {
     }
   }
 
+  /** The visible screen as plain text, one line per row (no colors).
+   *  What the dashboard checks before answering a prompt by keystroke. */
+  screenText(): string {
+    try {
+      const buf = this.terminal.buffer.active;
+      const lines: string[] = [];
+      for (let y = buf.viewportY; y < buf.viewportY + this.terminal.rows; y++) {
+        lines.push(buf.getLine(y)?.translateToString(true) ?? '');
+      }
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  }
+
   setOutputHandler(handler?: (data: string) => void) {
     this.outputHandler = handler;
   }

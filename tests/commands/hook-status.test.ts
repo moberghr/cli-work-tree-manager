@@ -30,6 +30,20 @@ describe('statusEventFor (Claude hook payload → status event)', () => {
     expect(statusEventFor('status-stop', {})).toEqual({ kind: 'stop', lastMessage: undefined });
   });
 
+  it('a permission Notification carries the tool call from the transcript', () => {
+    const t = path.join(tmpDir, 't.jsonl');
+    const lines = [
+      { type: 'user', message: { content: 'ship it' } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x1', name: 'Bash', input: { command: 'git push' } }] } },
+    ];
+    fs.writeFileSync(t, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    expect(statusEventFor('status-notify', { message: 'Claude needs your permission to use Bash', transcript_path: t })).toEqual({
+      kind: 'notification',
+      message: 'Claude needs your permission to use Bash',
+      request: { tool: 'Bash', detail: 'git push' },
+    });
+  });
+
   it('non-status hooks map to nothing', () => {
     expect(statusEventFor('stop', {})).toBeNull();
     expect(statusEventFor('checkpoint', {})).toBeNull();

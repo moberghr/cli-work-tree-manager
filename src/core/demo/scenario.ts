@@ -15,6 +15,7 @@ import type {
   ShipPr,
   ShipPreflight,
   ShipResult,
+  PermissionRequest,
 } from '../api-types.js';
 import type { AgentState } from '../attention.js';
 import type { PullRequestInfo } from '../pr.js';
@@ -265,7 +266,7 @@ export class DemoScenario {
     target: string,
     branch: string,
     repos: Array<Partial<DemoRepo> & { name: string }>,
-    state: { state: AgentState; seen: boolean; summary: string; minutesAgo: number } | null,
+    state: { state: AgentState; seen: boolean; summary: string; minutesAgo: number; request?: PermissionRequest } | null,
     transcript: string[],
     lastAccessedMinutesAgo = 30,
   ): DemoSession {
@@ -278,7 +279,10 @@ export class DemoScenario {
       createdAt: this.iso(lastAccessedMinutesAgo + 60),
       lastAccessedAt: this.iso(lastAccessedMinutesAgo),
       attention: state
-        ? { state: state.state, seen: state.seen, since: this.iso(state.minutesAgo), summary: state.summary, updatedAt: this.iso(state.minutesAgo), stale: false }
+        ? {
+            state: state.state, seen: state.seen, since: this.iso(state.minutesAgo), summary: state.summary,
+            updatedAt: this.iso(state.minutesAgo), stale: false, ...(state.request ? { request: state.request } : {}),
+          }
         : null,
       archivedAt: null,
       comments: createCommentStore(),
@@ -294,7 +298,7 @@ export class DemoScenario {
     this.add(
       'api', 'feat/invoice-export',
       [{ name: 'api', uncommitted: CSV_EXPORT, sinceBranch: CSV_EXPORT }],
-      { state: 'needs_input', seen: false, summary: PERMISSION_BASH, minutesAgo: 4 },
+      { state: 'needs_input', seen: false, summary: PERMISSION_BASH, minutesAgo: 4, request: { tool: 'Bash', detail: 'npm test -- invoices' } },
       claudeScreen('Add CSV export to the invoices endpoint', [
         '● Read(src/invoices/routes.ts)',
         '● Write(src/invoices/export.ts)',
@@ -374,14 +378,17 @@ export class DemoScenario {
 
     // The day moves on while you look: agents finish and ask for things.
     this.script = [
-      { at: 20_000, run: (s) => s.setState('demo-web-feat-search-filters', 'needs_input', PERMISSION_EDIT) },
+      {
+        at: 20_000,
+        run: (s) => s.setState('demo-web-feat-search-filters', 'needs_input', PERMISSION_EDIT, { tool: 'Edit', detail: 'src/search/BrandFilter.tsx' }),
+      },
       { at: 45_000, run: (s) => s.finishTurn('demo-shop-feat-checkout-v2') },
     ];
   }
 
   // -- state changes --------------------------------------------------------
 
-  private setState(id: string, state: AgentState, summary?: string): void {
+  private setState(id: string, state: AgentState, summary?: string, request?: PermissionRequest): void {
     const s = this.sessions.get(id);
     if (!s || s.archivedAt) return;
     const ts = new Date(this.now()).toISOString();
@@ -394,6 +401,7 @@ export class DemoScenario {
       summary: summary ?? s.attention?.summary,
       updatedAt: ts,
       stale: false,
+      ...(state === 'needs_input' && request ? { request } : {}),
     };
     if (state === 'needs_input' && summary) {
       s.transcript.push('', `  ${summary.replace('Claude needs your permission to use ', '')} — do you want to proceed?`, '  ❯ 1. Yes', '    2. No, tell Claude what to do differently');
@@ -419,6 +427,27 @@ export class DemoScenario {
     s.transcript.push('', `● ${msg}`);
     this.emitTerminal(id, `\r\n\r\n● ${msg}\r\n`);
     this.setState(id, 'idle', msg);
+  }
+
+  /** Allow / Deny from the inbox. Same refusals as the real route: an
+   *  error message when there's nothing (or something else) to answer. */
+  answer(id: string, answer: 'allow' | 'deny', request: PermissionRequest | undefined): string | null {
+    const s = this.sessions.get(id);
+    const req = s?.attention?.state === 'needs_input' ? s.attention.request : undefined;
+    if (!s || !req) return 'Nothing to answer — it has moved on.';
+    if (request?.tool !== req.tool || request?.detail !== req.detail) return 'The request changed since you saw it. Look again before answering.';
+    if (answer === 'deny') {
+      s.transcript.push('  ⎿  User rejected the request');
+      this.emitTerminal(id, '\r\n  ⎿  User rejected the request\r\n> ');
+      this.setState(id, 'idle', `Denied ${req.tool}: ${req.detail} — tell Claude what to do instead`);
+      this.markSeen(id);
+      return null;
+    }
+    s.transcript.push(`● Allowed ${req.tool}(${req.detail})`);
+    this.setState(id, 'working', `Allowed ${req.tool}: ${req.detail}`);
+    this.emitTerminal(id, `\r\n● ${req.tool}(${req.detail})\r\n✻ Working…\r\n`);
+    this.after(8_000, () => this.finishTurn(id));
+    return null;
   }
 
   /** The user typed a line into a session's terminal. */
@@ -472,7 +501,7 @@ export class DemoScenario {
       draftCount: comments.filter((c) => c.status === 'draft').length,
       commentCount: comments.length,
       claudeCount: comments.filter((c) => c.author === 'claude').length,
-      ptyStatus: s.attention?.state === 'working' ? 'running' : 'idle',
+      ptyStatus: s.attention?.state === 'working' || s.attention?.state === 'needs_input' ? 'running' : 'idle',
       lastActivity: s.attention ? Date.parse(s.attention.updatedAt) : null,
       activityState: s.attention?.state === 'working' ? 'active' : s.attention ? 'open' : 'stale',
       pendingForClaudeCount: 0,

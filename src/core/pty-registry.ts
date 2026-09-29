@@ -28,6 +28,8 @@ export interface PtyLike {
   /** Serialized screen state (see PtySession.serialize). Optional so test
    *  fakes can fall back to the raw replay buffer. */
   serialize?(): string;
+  /** Visible screen as plain text (PtySession.screenText). */
+  screenText?(): string;
 }
 
 /** What a newly attached client is sent first: the screen as it stands,
@@ -191,6 +193,14 @@ export class PtyRegistry {
     this.entries.set(id, entry);
     void this.persist();
     return this.info(entry);
+  }
+
+  /** The live PTY's visible screen as text; null when there is none (or
+   *  it can't render one — test fakes). */
+  screen(id: string): string | null {
+    const e = this.entries.get(id);
+    if (!e || e.pty.exited || !e.pty.screenText) return null;
+    return e.pty.screenText();
   }
 
   write(id: string, data: string): boolean {

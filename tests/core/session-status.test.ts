@@ -73,6 +73,33 @@ describe('applyStatusEvent', () => {
   });
 });
 
+describe('permission requests', () => {
+  const bash = { tool: 'Bash', detail: 'npm test' };
+  const blocked = () =>
+    applyStatusEvent(applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, at(0)), {
+      kind: 'notification', message: 'Claude needs your permission to use Bash', request: bash,
+    }, at(5));
+
+  it('a permission notification keeps the tool call it is about', () => {
+    expect(blocked()).toMatchObject({ state: 'needs_input', request: bash });
+  });
+
+  it('allowed from the dashboard → working again; denied → idle, waiting for you; both seen', () => {
+    const allowed = applyStatusEvent(blocked(), { kind: 'answered', answer: 'allow' }, at(9));
+    expect(allowed).toMatchObject({ state: 'working', seen: true, summary: 'Allowed Bash: npm test' });
+    const denied = applyStatusEvent(blocked(), { kind: 'answered', answer: 'deny' }, at(9));
+    expect(denied).toMatchObject({ state: 'idle', seen: true });
+    expect(denied.summary).toContain('Denied Bash: npm test');
+  });
+
+  it('the request is dropped by the next state change (never answered twice)', () => {
+    expect(applyStatusEvent(blocked(), { kind: 'answered', answer: 'allow' }, at(9)).request).toBeUndefined();
+    expect(applyStatusEvent(blocked(), { kind: 'stop', lastMessage: 'done' }, at(9)).request).toBeUndefined();
+    // …but the 60 s idle nudge while still blocked keeps it.
+    expect(applyStatusEvent(blocked(), { kind: 'notification', message: 'Claude is waiting for your input' }, at(65)).request).toEqual(bash);
+  });
+});
+
 describe('oneLine', () => {
   it('takes the first non-empty line, strips markdown, truncates', () => {
     expect(oneLine('\n\n# **Title** `x`\nmore')).toBe('Title x');
