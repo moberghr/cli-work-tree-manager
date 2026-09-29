@@ -223,3 +223,21 @@ test('a permission prompt is answered from the inbox, showing the command it all
   await expect(page.locator('.wd-inbox-rank-0', { hasText: 'feat/invoice-export' })).toHaveCount(0);
   await expect(page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText('Allowed Bash: npm test -- invoices');
 });
+
+test('"Review all" walks the finished sessions, each on its last turn, and n moves on', async ({ page }) => {
+  await page.goto(`${url}#/inbox`);
+  const done = page.locator('.wd-inbox-rank-1 .wd-inbox-item');
+  const total = await done.count();
+  expect(total).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Review all' }).click();
+
+  const bar = page.locator('.wd-review-queue-bar');
+  for (let i = 1; i <= total; i++) {
+    await expect(bar).toContainText(`${i} of ${total}`);
+    await expect(page.getByRole('tab', { name: 'Last turn' })).toHaveAttribute('aria-selected', 'true');
+    await page.locator('body').press('n');
+  }
+  // Past the last one: back to the inbox, nothing left unseen.
+  await expect(page).toHaveURL(/#\/inbox$/);
+  await expect(page.locator('.wd-inbox-rank-1')).toHaveCount(0);
+});

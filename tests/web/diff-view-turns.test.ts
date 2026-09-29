@@ -116,9 +116,9 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const tab = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === name)!;
 
-async function render(id = 's1') {
+async function render(id = 's1', startOnLastTurn = false) {
   await act(async () => {
-    root.render(createElement(DiffView, { session: session(id) }));
+    root.render(createElement(DiffView, { session: session(id), startOnLastTurn }));
   });
   await flush();
 }
@@ -158,6 +158,22 @@ describe('DiffView "Last turn"', () => {
     await flush();
     expect(h.calls.at(-1)).toMatchObject({ base: 'branch', range: undefined });
     expect(container.querySelector('select[aria-label="Which turn"]')).toBeNull();
+  });
+
+  it('opened to review finished work, it starts on the last turn — once, then the buttons are yours', async () => {
+    h.checkpoints = [entry(0), entry(1), entry(2)];
+    await render('s1', true);
+    await flush();
+    expect(h.calls.at(-1)?.range).toEqual({ from: 1, to: 2 });
+    expect(tab('Last turn').getAttribute('aria-selected')).toBe('true');
+    await act(async () => tab('Uncommitted').click());
+    await flush();
+    await render('s1', true); // a re-render (SSE refresh) doesn't pull you back
+    expect(tab('Uncommitted').getAttribute('aria-selected')).toBe('true');
+    // No finished turn yet: stays on Uncommitted.
+    h.checkpoints = [entry(0)];
+    await render('s2', true);
+    expect(h.calls.at(-1)).toMatchObject({ sessionId: 's2', range: undefined });
   });
 
   it('switching sessions leaves turn mode', async () => {

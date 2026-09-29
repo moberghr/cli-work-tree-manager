@@ -35,6 +35,9 @@ import {
 
 interface Props {
   session: SessionSummary;
+  /** Open on "Last turn" once the session's turns are known (the review
+   *  queue, and finished sessions opened from the inbox). */
+  startOnLastTurn?: boolean;
 }
 
 /**
@@ -44,7 +47,7 @@ interface Props {
  * All hooks must run unconditionally on every render — branching on
  * `diff === null` happens after the hooks.
  */
-export function DiffView({ session }: Props) {
+export function DiffView({ session, startOnLastTurn = false }: Props) {
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
   // Per-session diff scope. Defaults to uncommitted (the working-tree
   // view). 'branch' shows everything since this worktree was forked,
@@ -74,6 +77,14 @@ export function DiffView({ session }: Props) {
     loadCheckpoints();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+  // Once per session: jump to its newest turn as soon as the turns load.
+  // Only once — after that the scope buttons are the user's.
+  const lastTurnApplied = useRef<string | null>(null);
+  useEffect(() => {
+    if (!startOnLastTurn || lastTurnApplied.current === session.id || turns.length === 0) return;
+    lastTurnApplied.current = session.id;
+    setTurnTo(turns[0].to);
+  }, [startOnLastTurn, session.id, turns]);
 
   // Shared fetch + deferred-loading hook (same one ReviewApp uses) so a
   // base switch here gets the spinner/dim feedback instead of the old

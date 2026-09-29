@@ -16,6 +16,8 @@ import {
   taskSlug,
 } from '../components/Dashboard/tabs/TasksTab.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
+import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
+import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import {
@@ -180,8 +182,12 @@ export function DashboardApp() {
     },
     [navigate],
   );
+  // The one session whose diff should open on "Last turn" (set when it is
+  // opened to review finished work: the queue, or its inbox row).
+  const [lastTurnFor, setLastTurnFor] = useState<string | null>(null);
   const openSession = useCallback(
-    (sessionId: string, sub: SessionSubTab = 'diff') => {
+    (sessionId: string, sub: SessionSubTab = 'diff', opts: { lastTurn?: boolean } = {}) => {
+      setLastTurnFor(opts.lastTurn ? sessionId : null);
       // Preserve the current tab as the breadcrumb target.
       navigate({
         tab: route.tab,
@@ -191,6 +197,27 @@ export function DashboardApp() {
     },
     [navigate, route.tab],
   );
+
+  // Review queue ("Review all" on the inbox): finished sessions one by one.
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueue | null>(null);
+  const startReview = useCallback(() => {
+    const q = startQueue(sessions);
+    if (!q) return;
+    setReviewQueue(q);
+    openSession(q.ids[0], 'diff', { lastTurn: true });
+  }, [sessions, openSession]);
+  const reviewNext = useCallback(() => {
+    if (!reviewQueue) return;
+    const next = nextInQueue(reviewQueue, route.sessionId, sessions);
+    if (next) {
+      openSession(next, 'diff', { lastTurn: true });
+    } else {
+      setReviewQueue(null);
+      navigate({ ...DEFAULT_ROUTE, tab: 'inbox' });
+    }
+  }, [reviewQueue, route.sessionId, sessions, openSession, navigate]);
+  const reviewNextRef = useRef(reviewNext);
+  reviewNextRef.current = reviewNext;
   notifyTarget.current = { sessionId: route.sessionId, open: openSession };
   const setSubTab = useCallback(
     (sub: SessionSubTab) => {
@@ -275,6 +302,12 @@ export function DashboardApp() {
       // n — jump to the next session that wants you, in inbox order,
       // cycling past the one you're on. Opens it where you'd act on it.
       if (e.key === 'n') {
+        // In the review queue, n is "next in the queue".
+        if (reviewQueue && queuePosition(reviewQueue, route.sessionId) !== null) {
+          e.preventDefault();
+          reviewNextRef.current();
+          return;
+        }
         const queue = sessions
           .filter((s) => !isArchived(s) && needsAttention(s.attention))
           .sort((a, b) => compareAttention(a.attention, b.attention));
@@ -313,7 +346,7 @@ export function DashboardApp() {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, route.sessionId, sessions, modalOpen]);
+  }, [goTab, openSession, route.sessionId, sessions, modalOpen, reviewQueue]);
 
   // Set of Jira keys that already have a worktree, for the Jira tab's
   // "already-has-worktree" badge.
@@ -357,8 +390,19 @@ export function DashboardApp() {
   if (error && sessions.length === 0) {
     body = <div className="wd-tab-error">{error}</div>;
   } else if (activeSession) {
+    const position = reviewQueue ? queuePosition(reviewQueue, activeSession.id) : null;
     body = (
+      <>
+      {reviewQueue && position !== null && (
+        <ReviewQueueBar
+          position={position}
+          total={reviewQueue.ids.length}
+          onNext={reviewNext}
+          onStop={() => setReviewQueue(null)}
+        />
+      )}
       <SessionDetail
+        startOnLastTurn={lastTurnFor === activeSession.id}
         session={activeSession}
         subTab={route.sessionSubTab}
         onSelectSubTab={setSubTab}
@@ -368,6 +412,7 @@ export function DashboardApp() {
         prs={prsFor(activeSession)}
         onShipped={backFromSession}
       />
+      </>
     );
   } else if (route.sessionId) {
     // Routed to a session that doesn't exist (yet?). Show a placeholder
@@ -388,7 +433,7 @@ export function DashboardApp() {
   } else {
     switch (route.tab) {
       case 'inbox':
-        body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} />;
+        body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} onReviewAll={startReview} />;
         break;
       case 'sessions':
         body = (

@@ -11,7 +11,9 @@ interface Props {
   sessions: SessionSummary[];
   /** Open a session on the sub-tab that fits why it's here: the terminal to
    *  answer a question, the diff to review finished work. */
-  onOpenSession: (id: string, sub: SessionSubTab) => void;
+  onOpenSession: (id: string, sub: SessionSubTab, opts?: { lastTurn?: boolean }) => void;
+  /** Start the review queue over the Done section. */
+  onReviewAll?: () => void;
   /** Open PRs for a session; rows skip the badge without it. */
   prsFor?: PrLookup;
   /** Clear a finished session's unseen flag without opening it. Defaults
@@ -75,6 +77,7 @@ export function InboxTab({
   prsFor,
   onMarkSeen = markSessionSeen,
   onAnswer = answerPermission,
+  onReviewAll,
 }: Props) {
   // Per session: the answer being sent, or why the server refused it.
   const [answering, setAnswering] = useState<Record<string, 'allow' | 'deny'>>({});
@@ -148,6 +151,16 @@ export function InboxTab({
             <h2 className="wd-inbox-section-title" title={sec.hint}>
               {sec.title}{' '}
               <span className="wd-tab-header-muted">({bySection.get(sec.rank)!.length})</span>
+              {sec.rank === 1 && onReviewAll && (
+                <button
+                  type="button"
+                  className="wd-btn-secondary wd-inbox-review-all"
+                  onClick={onReviewAll}
+                  title="Walk them one by one, each on what its last instruction changed (n for next)"
+                >
+                  Review all
+                </button>
+              )}
             </h2>
             <ul className="wd-inbox-list">
               {bySection.get(sec.rank)!.map((s) => (
@@ -155,7 +168,7 @@ export function InboxTab({
                   <button
                     type="button"
                     className="wd-inbox-row"
-                    onClick={() => onOpenSession(s.id, sec.open)}
+                    onClick={() => onOpenSession(s.id, sec.open, sec.rank === 1 ? { lastTurn: true } : undefined)}
                     title={`Open ${s.target} · ${s.branch} (${sec.open === 'term' ? 'terminal' : 'diff'})`}
                   >
                     <span className={`wd-inbox-dot wd-inbox-dot-${s.attention!.state}`} aria-hidden />

@@ -282,6 +282,8 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 § WHEN adding an attention state or signal, extend `applyStatusEvent`/`effectiveStatus` and `core/attention.ts` — the SPA imports the latter directly, so keep it free of imports.
 
+**Review queue.** "Review all" on the inbox's Done section walks the finished, unseen sessions one by one (`state/review-queue.ts`). The order is fixed when the queue starts, since opening a session marks it seen and would otherwise reshuffle the rest. Each opens on its **Last turn** diff (`DiffView startOnLastTurn`, applied once per session), a done row opened from the inbox does too, and `n` means "next in the queue" while you're in it (`ReviewQueueBar`).
+
 **Answering permission prompts from the inbox.** The Notification hook stores the tool call the prompt is about (`request`: the transcript's newest unanswered `tool_use`, `core/permission-request.ts`), and the inbox shows it (`Bash npm test`) with Allow / Deny for sessions running in the PTY host. `POST /api/sessions/:id/answer` types Enter (Yes) or Esc (No) into the PTY, and records an `answered` event. § It only types after `checkDialog` passes on the host's plain-text screen (`GET /ptys/:id/screen`, `PtySession.screenText`): the permission dialog is showing, it is about the request the user was shown (command start or file name), and "1. Yes" is highlighted. Otherwise it refuses with the reason and types nothing. Keep that check in front of any new keystroke path. The screen route is additive, so there's no protocol bump: an older host answers 404, which shows as "answer it in its terminal".
 
 ### Ship & archive

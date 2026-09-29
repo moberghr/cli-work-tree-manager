@@ -66,7 +66,7 @@ describe('InboxTab', () => {
     const rows = [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-row')];
     act(() => rows[0].click());
     act(() => rows[2].click());
-    expect(onOpen.mock.calls).toEqual([['blocked-old', 'term'], ['done', 'diff']]);
+    expect(onOpen.mock.calls).toEqual([['blocked-old', 'term', undefined], ['done', 'diff', { lastTurn: true }]]);
   });
 
   it('explains where status comes from when no session has reported yet', () => {
@@ -112,6 +112,22 @@ describe('InboxTab: answering a permission prompt', () => {
     await act(async () => button('Allow')!.click());
     expect(text(container.querySelector('[role=alert]'))).toBe('The permission prompt is no longer on screen');
     expect(button('Allow')!.disabled).toBe(false); // can try again
+  });
+});
+
+describe('InboxTab: review queue', () => {
+  it('offers "Review all" on the Done section, and opens a done row on its last turn', () => {
+    const onReviewAll = vi.fn();
+    const onOpenSession = vi.fn();
+    act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession, onReviewAll })));
+    const done = container.querySelector('.wd-inbox-rank-1')!;
+    const btn = done.querySelector<HTMLButtonElement>('.wd-inbox-review-all')!;
+    expect(btn.textContent).toBe('Review all');
+    expect(container.querySelectorAll('.wd-inbox-review-all')).toHaveLength(1); // not on the other sections
+    act(() => btn.click());
+    expect(onReviewAll).toHaveBeenCalledOnce();
+    act(() => done.querySelector<HTMLButtonElement>('.wd-inbox-row')!.click());
+    expect(onOpenSession).toHaveBeenCalledWith('done', 'diff', { lastTurn: true });
   });
 });
 

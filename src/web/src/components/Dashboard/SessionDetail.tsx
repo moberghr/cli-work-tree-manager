@@ -28,6 +28,8 @@ interface Props {
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
   onShipped?: () => void;
+  /** Open the diff on "Last turn" (review queue / a finished session). */
+  startOnLastTurn?: boolean;
 }
 
 /**
@@ -51,6 +53,7 @@ export function SessionDetail({
   onDelete,
   prs = [],
   onShipped,
+  startOnLastTurn = false,
 }: Props) {
   // Which session the Ship panel was opened FOR: it closes itself when the
   // detail switches to another session (j/k, a notification click), so a
@@ -135,7 +138,7 @@ export function SessionDetail({
         />
       </nav>
       <div className="wd-session-subtab-body">
-        {subTab === 'diff' && <DiffView session={session} />}
+        {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
         {subTab === 'term' && <PtyView sessionId={session.id} />}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
       </div>
