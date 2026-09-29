@@ -1,14 +1,8 @@
 import type { Hono } from 'hono';
-import { loadConfig } from './config.js';
-import { loadHistory, removeSession, setSessionArchived } from './history.js';
-import { disposeSessionWatcher, sessionIdFor } from './web-state.js';
-import { disposePty } from './pty-pool.js';
-import { teardownWorktree } from './worktree.js';
-import { defaultRunner } from './ship.js';
-import { readSessionActivity } from './claude-activity.js';
-import { readStatus } from './session-status.js';
-import { createCleanupJob, type CleanupDeps, type CleanupJob, type CleanupSession } from './cleanup.js';
-import type { CleanupAction, CleanupApplyRequest } from './api-types.js';
+import { disposeSessionWatcher } from './web-state.js';
+import { createCleanupJob, type CleanupJob } from './cleanup.js';
+import { defaultCleanupDeps } from './cleanup-deps.js';
+import type { CleanupApplyRequest } from './api-types.js';
 
 export interface CleanupRoutesOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -16,59 +10,9 @@ export interface CleanupRoutesOptions {
   job?: CleanupJob;
 }
 
-/** Newest sign of life: the hook status, Claude's last write, the entry. */
-function lastActiveMs(s: { lastAccessedAt: string }, id: string, activity: number | null): number {
-  const status = readStatus(id);
-  return Math.max(Date.parse(s.lastAccessedAt) || 0, activity ?? 0, status ? Date.parse(status.updatedAt) || 0 : 0);
-}
-
-/** The real deps: history, config, git, and the same teardown as Delete. */
-export function defaultCleanupDeps(broadcast: CleanupRoutesOptions['broadcast']): CleanupDeps {
-  return {
-    sessions: (): CleanupSession[] =>
-      loadHistory().map((s) => {
-        const id = sessionIdFor(s);
-        return {
-          id,
-          target: s.target,
-          branch: s.branch,
-          isGroup: s.isGroup,
-          paths: s.paths,
-          archivedAt: s.archivedAt ?? null,
-          lastActiveMs: lastActiveMs(s, id, readSessionActivity(s).lastActivity),
-        };
-      }),
-    baseCheckouts: () => Object.values(loadConfig()?.repos ?? {}),
-    fetchRepos: () => Object.values(loadConfig()?.repos ?? {}),
-    run: defaultRunner,
-    act: async (s: CleanupSession, action: CleanupAction) => {
-      if (action === 'archive') {
-        await disposePty(s.id);
-        await setSessionArchived(s.target, s.branch, true);
-        return;
-      }
-      if (action === 'delete') {
-        const config = loadConfig();
-        if (!config) throw new Error('no config');
-        // Release our handles first (a live PTY's cwd blocks the delete on
-        // Windows). Force skips only the "ahead of upstream" refusal: the
-        // job just re-checked there is nothing uncommitted and nothing that
-        // isn't in the main branch, and the branch itself is kept.
-        await disposePty(s.id);
-        await disposeSessionWatcher(s.id);
-        if (!teardownWorktree(s.target, s.isGroup, s.branch, config, true)) throw new Error('git refused to remove the worktree.');
-      }
-      await removeSession(s.target, s.branch); // delete and forget
-    },
-    onChange: () => {
-      broadcast('cleanup-changed', { ts: Date.now() });
-      broadcast('sessions-changed', { ts: Date.now() });
-    },
-  };
-}
-
 /**
- * The Clean up view's API:
+ * The Clean up view's API (the same cleanup as `work prune` / `sync` /
+ * `cleanup`, run as a job the view polls):
  *
  *   GET  /api/cleanup        — the job: phase, progress, candidates, results
  *   POST /api/cleanup/scan   — start a scan (fetches the repos first)
@@ -78,7 +22,15 @@ export function defaultCleanupDeps(broadcast: CleanupRoutesOptions['broadcast'])
  * GET only reads (§1.5); scanning runs git, so it is a POST.
  */
 export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): CleanupJob {
-  const job = opts.job ?? createCleanupJob(defaultCleanupDeps(opts.broadcast));
+  const job =
+    opts.job ??
+    createCleanupJob({
+      ...defaultCleanupDeps({ release: (id) => disposeSessionWatcher(id) }),
+      onChange: () => {
+        opts.broadcast('cleanup-changed', { ts: Date.now() });
+        opts.broadcast('sessions-changed', { ts: Date.now() });
+      },
+    });
   app.get('/api/cleanup', (c) => c.json(job.state()));
   app.post('/api/cleanup/scan', (c) => {
     job.scan();

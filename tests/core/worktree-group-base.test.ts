@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { git, getCurrentBranch } from '../../src/core/git.js';
 import { setupWorktree } from '../../src/core/worktree.js';
+import { collectingReporter, withReporter } from '../../src/core/report.js';
 import { parseBaseSpec } from '../../src/core/base-spec.js';
 import { loadHistory } from '../../src/core/history.js';
 import type { WorkConfig } from '../../src/core/config.js';
@@ -92,15 +93,15 @@ describe('setupWorktree — group with per-repo bases', () => {
   });
 
   it('rejects a base branch missing from one repo', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reports = collectingReporter();
     // `dev` exists in backend but not in frontend.
     const spec = parseBaseSpec('dev');
-    const result = await setupWorktree('grp', 'feature/z', config, spec);
+    const result = await withReporter(reports, () => setupWorktree('grp', 'feature/z', config, spec));
 
     expect(result).toBeNull();
-    expect(errSpy).toHaveBeenCalledWith(
-      expect.stringContaining('frontend (dev)'),
-    );
+    // Core reports the reason (it no longer prints): the CLI shows it, the
+    // web route returns it.
+    expect(reports.errors().join('\n')).toContain('frontend (dev)');
     // Nothing created.
     expect(fs.existsSync(path.join(config.worktreesRoot, 'grp', 'feature-z'))).toBe(
       false,
@@ -108,11 +109,11 @@ describe('setupWorktree — group with per-repo bases', () => {
   });
 
   it('rejects an override naming a repo outside the group', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reports = collectingReporter();
     const spec = parseBaseSpec('mobile=dev');
-    const result = await setupWorktree('grp', 'feature/w', config, spec);
+    const result = await withReporter(reports, () => setupWorktree('grp', 'feature/w', config, spec));
 
     expect(result).toBeNull();
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('mobile'));
+    expect(reports.errors().join('\n')).toContain('mobile');
   });
 });

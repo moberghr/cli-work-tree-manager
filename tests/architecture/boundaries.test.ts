@@ -67,6 +67,24 @@ describe('architecture boundaries', () => {
     ).toEqual([]);
   });
 
+  it('§2.7 core never prints: no chalk, no console output, no raw stdout/stderr writes', () => {
+    // Core reports through report() (core/report.ts); the CLI, the server
+    // and a future app each decide how to show it. logger.ts is the one
+    // place that wraps the console (it IS the debug log).
+    const printing = /\bconsole\.(log|error|warn|info)\s*\(|process\.(stdout|stderr)\.write\s*\(/;
+    const offenders = files
+      .filter((f) => f.rel.startsWith('src/core/') && f.rel !== 'src/core/logger.ts')
+      .flatMap((f) => [
+        ...(f.imports.includes('chalk') ? [`${f.rel} imports chalk`] : []),
+        ...f.text
+          .split('\n')
+          .map((line, i) => ({ line, i }))
+          .filter(({ line }) => printing.test(line) && !/^\s*(\/\/|\*)/.test(line))
+          .map(({ line, i }) => `${f.rel}:${i + 1} ${line.trim()}`),
+      ]);
+    expect(offenders).toEqual([]);
+  });
+
   it('§2.4 node-pty is imported only by src/tui/session.ts', () => {
     expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/tui/session.ts')).toEqual([]);
   });

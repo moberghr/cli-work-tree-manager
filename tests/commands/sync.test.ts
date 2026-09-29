@@ -7,39 +7,17 @@ import { createSingleWorktree } from '../../src/core/worktree.js';
 import { saveConfig, type WorkConfig } from '../../src/core/config.js';
 import { syncCommand } from '../../src/commands/sync.js';
 
-// Controllable wrapper around the real removeSingleWorktree so individual
-// tests can force a non-throwing failure (returns false) for a chosen path.
-const failingPaths = new Set<string>();
-// Normalise slash direction + case + Windows 8.3 short-name expansion.
-// The test stores `wtPath` as the path it constructed (potentially with
-// `DOMAGO~1`-style short segments if TEMP is set that way), but git emits
-// the canonical long-name form with forward slashes from `worktree list`.
-// `realpathSync.native` is the only Node API that expands 8.3 on Windows.
-function canonPath(p: string): string {
-  try {
-    return fs.realpathSync.native(p).replace(/\\/g, '/').toLowerCase();
-  } catch {
-    return p.replace(/\\/g, '/').toLowerCase();
-  }
-}
+// Controllable wrapper around the real teardownWorktree (what cleanup removes
+// through) so a test can force a non-throwing failure for a chosen branch.
+const failingBranches = new Set<string>();
 vi.mock('../../src/core/worktree.js', async () => {
   const actual = await vi.importActual<typeof import('../../src/core/worktree.js')>(
     '../../src/core/worktree.js',
   );
   return {
     ...actual,
-    removeSingleWorktree: (
-      repoPath: string,
-      worktreePath: string,
-      branchName: string,
-      force: boolean,
-    ): boolean => {
-      const incoming = canonPath(worktreePath);
-      for (const p of failingPaths) {
-        if (canonPath(p) === incoming) return false;
-      }
-      return actual.removeSingleWorktree(repoPath, worktreePath, branchName, force);
-    },
+    teardownWorktree: (...args: Parameters<typeof actual.teardownWorktree>): boolean =>
+      failingBranches.has(args[2]) ? false : actual.teardownWorktree(...args),
   };
 });
 
@@ -76,7 +54,7 @@ beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   process.exitCode = undefined;
-  failingPaths.clear();
+  failingBranches.clear();
 
   initRepo();
 
@@ -150,9 +128,9 @@ describe('work sync dirty-tree safety', () => {
 
 describe('work sync partial failure', () => {
   it('sets exitCode=1 when a removal returns false (non-throwing)', async () => {
-    // The single merged worktree is clean, but removeSingleWorktree is forced
-    // to report a non-throwing failure for it.
-    failingPaths.add(wtPath);
+    // The single merged worktree is clean, but its removal is forced to
+    // report a non-throwing failure (git refusing).
+    failingBranches.add('feature/z');
 
     await runSync({ force: true });
 

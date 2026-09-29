@@ -51,5 +51,8 @@ if (args[0] === 'hook') {
   await runHookEvent(args[1]);
 } else {
   const { run } = await import('./cli.js');
-  run(args);
+  const { withReporter } = await import('./core/report.js');
+  const { consoleReporter } = await import('./commands/shared/console-reporter.js');
+  // Core never prints; in a terminal, what it reports is shown here.
+  withReporter(consoleReporter('stdout'), () => run(args));
 }

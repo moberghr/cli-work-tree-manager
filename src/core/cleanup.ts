@@ -7,31 +7,31 @@ import { CLEANUP_MIN_IDLE_MS, cleanupVerdict } from './cleanup-verdict.js';
 export { CLEANUP_ARCHIVE_AFTER_MS, CLEANUP_MIN_IDLE_MS, cleanupVerdict, type VerdictInput } from './cleanup-verdict.js';
 
 /**
- * Worktree cleanup for the dashboard: which sessions can go, and why.
+ * Which worktrees can go, and why — the one implementation behind the Clean
+ * up view, `work prune`, `work sync` and `work cleanup`.
  *
- * `work prune` has the CLI version (synchronous, console output, one repo at
- * a time), fine for a terminal and far too slow to run inside work web over
- * hundreds of worktrees. This is the async one: facts per repo from a few
- * git calls (bounded concurrency), a pure verdict, and a job the Clean up
- * view polls.
+ * Facts per repo come from a few git calls (bounded concurrency), the
+ * verdict is pure (cleanup-verdict.ts). "Safe to remove" means every repo of
+ * the worktree is clean (nothing uncommitted or untracked) and has nothing
+ * of its own that the main branch doesn't — merged, squash-merged, or never
+ * committed to. `git worktree remove` keeps the branch, so no commit is ever
+ * lost; the one thing a removal can destroy is uncommitted work, which is
+ * what is checked — and checked again right before acting.
  *
- * What "safe to delete" means here: every repo of the session is clean
- * (no uncommitted or untracked changes) and has nothing of its own that
- * origin's default branch doesn't have — merged, squash-merged, or never
- * committed to. `git worktree remove` keeps the branch, so even then no
- * commit is lost; the one thing a removal can destroy is uncommitted work,
- * which is exactly what is checked, and checked again right before acting.
+ * Worktrees are the sessions in work's history plus, from git, worktrees it
+ * doesn't know (`untracked`: made by hand, or before history existed).
  */
 
 const lines = (out: string) => out.split('\n').map((l) => l.trim()).filter(Boolean);
-const norm = (p: string) => {
+export const normPath = (p: string) => {
   const r = path.resolve(p);
   return process.platform === 'win32' ? r.toLowerCase() : r;
 };
 
-/** origin's default branch as a ref this repo can use, or null. */
+/** The main branch to compare with: origin's default, else a local one
+ *  (a repo with no remote — tests, scratch repos). */
 async function baseRef(cwd: string, run: CommandRunner): Promise<string | null> {
-  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master']) {
+  for (const ref of ['origin/HEAD', 'origin/main', 'origin/master', 'main', 'master']) {
     const r = await run('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], cwd);
     if (r.code === 0) return ref;
   }
@@ -40,8 +40,8 @@ async function baseRef(cwd: string, run: CommandRunner): Promise<string | null> 
 
 /**
  * Is the branch's whole change already in `base` as one commit (GitHub's
- * squash merge)? Same trick as `work prune`: a throwaway commit of the
- * branch's tree on the merge-base, then `git cherry` for an equal patch.
+ * squash merge)? A throwaway commit of the branch's tree on the merge-base,
+ * then `git cherry` for an equal patch.
  */
 async function squashMerged(cwd: string, base: string, run: CommandRunner): Promise<boolean> {
   const mb = await run('git', ['merge-base', base, 'HEAD'], cwd);
@@ -54,7 +54,7 @@ async function squashMerged(cwd: string, base: string, run: CommandRunner): Prom
   return cherry.code === 0 && cherry.stdout.trim().startsWith('-');
 }
 
-/** The facts about one repo of a session that cleanup decides on. */
+/** The facts about one repo of a worktree that cleanup decides on. */
 export async function repoFacts(
   name: string,
   worktreePath: string,
@@ -64,7 +64,7 @@ export async function repoFacts(
   const repo: CleanupRepo = { name, path: worktreePath, exists: false, readable: false, dirty: null, ahead: null, merged: null, base: null, baseCheckout: false };
   if (!fs.existsSync(worktreePath)) return repo;
   repo.exists = true;
-  repo.baseCheckout = baseCheckouts.has(norm(worktreePath));
+  repo.baseCheckout = baseCheckouts.has(normPath(worktreePath));
   const status = await run('git', ['status', '--porcelain'], worktreePath);
   if (status.code !== 0) return repo;
   repo.readable = true;
@@ -78,7 +78,7 @@ export async function repoFacts(
   return repo;
 }
 
-/** A session as the scanner needs it. */
+/** A worktree as cleanup needs it: a history session, or one only git knows. */
 export interface CleanupSession {
   id: string;
   target: string;
@@ -86,24 +86,31 @@ export interface CleanupSession {
   isGroup: boolean;
   paths: string[];
   archivedAt: string | null;
+  /** Newest sign of life; 0 = unknown (an untracked worktree). */
   lastActiveMs: number;
+  /** Repo aliases it belongs to — to skip the ones whose fetch failed. */
+  aliases: string[];
+  /** Not in work's history: found by git. It has no session to archive. */
+  untracked?: boolean;
 }
 
 export interface CleanupDeps {
-  sessions: () => CleanupSession[];
+  /** History sessions plus untracked worktrees (see cleanup-deps.ts). */
+  sessions: () => Promise<CleanupSession[]> | CleanupSession[];
   /** Configured repo paths (a session there is the repo, not a worktree). */
   baseCheckouts: () => string[];
-  /** Fetch these repos first, so "merged" is judged against today's origin. */
-  fetchRepos: () => string[];
+  /** Fetch these first, so "merged" is judged against today's origin. */
+  fetchRepos: () => Array<{ alias: string; path: string }>;
+  /** Fetch one repo; throws when it fails. */
+  fetch: (repoPath: string) => Promise<void>;
   run: CommandRunner;
   /** Carry out one checked action; throws with the reason on refusal. */
   act: (s: CleanupSession, action: CleanupAction) => Promise<void>;
-  onChange?: () => void;
   now?: () => number;
   concurrency?: number;
 }
 
-async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Promise<void> {
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(n, items.length) }, async () => {
@@ -112,9 +119,117 @@ async function pool<T>(items: T[], n: number, fn: (t: T) => Promise<void>): Prom
   );
 }
 
-/** Repo names for a session's paths: group sub-repo folders, else the target. */
+/** Repo names for a worktree's paths: group sub-repo folders, else the target. */
 function repoNames(s: CleanupSession): string[] {
   return s.isGroup ? s.paths.map((p) => path.basename(p)) : s.paths.map(() => s.target);
+}
+
+/** One worktree, examined now. */
+export async function examineWorktree(
+  s: CleanupSession,
+  deps: Pick<CleanupDeps, 'baseCheckouts' | 'run' | 'now'>,
+): Promise<CleanupCandidate> {
+  const checkouts = new Set(deps.baseCheckouts().map(normPath));
+  const names = repoNames(s);
+  const repos = await Promise.all(s.paths.map((p, i) => repoFacts(names[i], p, checkouts, deps.run)));
+  const v = cleanupVerdict({ repos, lastActiveMs: s.lastActiveMs, archived: !!s.archivedAt }, (deps.now ?? Date.now)());
+  // Nothing to archive for a worktree work doesn't track.
+  const suggested = s.untracked && v.suggested === 'archive' ? null : v.suggested;
+  return {
+    sessionId: s.id, target: s.target, branch: s.branch, isGroup: s.isGroup,
+    lastActive: new Date(s.lastActiveMs).toISOString(), archivedAt: s.archivedAt,
+    ...v, suggested, repos,
+  };
+}
+
+export interface ScanOptions {
+  /** Fetch the repos first (default true). */
+  fetch?: boolean;
+  onPhase?: (phase: 'fetching' | 'scanning', total: number) => void;
+  onProgress?: (done: number) => void;
+}
+
+export interface ScanResult {
+  candidates: CleanupCandidate[];
+  /** Aliases whose fetch failed: their worktrees were not judged (stale refs). */
+  fetchFailed: Array<{ alias: string; error: string }>;
+  checked: number;
+}
+
+/** Every worktree that isn't a 'keep', oldest first. */
+export async function scanCleanup(deps: CleanupDeps, opts: ScanOptions = {}): Promise<ScanResult> {
+  const now = deps.now ?? Date.now;
+  const sessions = await deps.sessions();
+  const fetchFailed: ScanResult['fetchFailed'] = [];
+  if (opts.fetch !== false) {
+    const repos = deps.fetchRepos();
+    opts.onPhase?.('fetching', repos.length);
+    await pool(repos, 4, async (r) => {
+      try {
+        await deps.fetch(r.path);
+      } catch (err) {
+        fetchFailed.push({ alias: r.alias, error: (err as Error).message });
+      }
+    });
+  }
+  const failed = new Set(fetchFailed.map((f) => f.alias));
+  opts.onPhase?.('scanning', sessions.length);
+  const found: CleanupCandidate[] = [];
+  let done = 0;
+  await pool(sessions, deps.concurrency ?? 6, async (s) => {
+    const recent = now() - s.lastActiveMs < CLEANUP_MIN_IDLE_MS && s.paths.some((p) => fs.existsSync(p));
+    if (!recent && !s.aliases.some((a) => failed.has(a))) {
+      const c = await examineWorktree(s, deps);
+      if (c.verdict !== 'keep') found.push(c);
+    }
+    opts.onProgress?.(++done);
+  });
+  found.sort((a, b) => a.lastActive.localeCompare(b.lastActive));
+  return { candidates: found, fetchFailed, checked: sessions.length };
+}
+
+export type CleanupResult = CleanupState['results'][number];
+
+export interface ApplyOptions {
+  /** Also remove merged worktrees that have uncommitted changes (they are
+   *  lost). Never removes one with commits the main branch doesn't have. */
+  force?: boolean;
+  onResult?: (r: CleanupResult) => void;
+}
+
+/** Carry out the chosen actions, each after a fresh check. */
+export async function applyCleanup(
+  deps: CleanupDeps,
+  items: Array<{ sessionId: string; action: CleanupAction }>,
+  opts: ApplyOptions = {},
+): Promise<CleanupResult[]> {
+  const byId = new Map((await deps.sessions()).map((s) => [s.id, s]));
+  const results: CleanupResult[] = [];
+  for (const it of items) {
+    const s = byId.get(it.sessionId);
+    let ok = false;
+    let message: string;
+    try {
+      if (!s) throw new Error('The worktree is gone already.');
+      // The scan may be minutes old: decide again on what is there now.
+      const fresh = await examineWorktree(s, deps);
+      if (it.action === 'delete') {
+        const mergedButDirty = fresh.verdict === 'dirty' && fresh.repos.every((r) => !r.exists || r.merged !== null);
+        if (fresh.verdict !== 'merged' && !(opts.force && mergedButDirty)) throw new Error(`Not removed: ${fresh.reason}.`);
+      }
+      if (it.action === 'forget' && fresh.verdict !== 'gone') throw new Error('Not forgotten: its folder exists again.');
+      if (it.action === 'archive' && s.untracked) throw new Error('Not archived: work does not track it.');
+      await deps.act(s, it.action);
+      ok = true;
+      message = it.action === 'delete' ? 'Worktree removed' : it.action === 'archive' ? 'Archived' : 'Forgotten';
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    const r = { sessionId: it.sessionId, action: it.action, ok, message };
+    results.push(r);
+    opts.onResult?.(r);
+  }
+  return results;
 }
 
 export interface CleanupJob {
@@ -127,96 +242,62 @@ export interface CleanupJob {
   idle(): Promise<void>;
 }
 
-export function createCleanupJob(deps: CleanupDeps): CleanupJob {
+/** The web view's background job: scan / apply with progress to poll. */
+export function createCleanupJob(deps: CleanupDeps & { onChange?: () => void }): CleanupJob {
   const now = deps.now ?? Date.now;
-  const concurrency = deps.concurrency ?? 6;
   let st: CleanupState = { phase: 'idle', done: 0, total: 0, candidates: [], results: [] };
   let running: Promise<void> = Promise.resolve();
   const changed = () => deps.onChange?.();
 
-  const examine = async (s: CleanupSession, checkouts: Set<string>): Promise<CleanupCandidate> => {
-    const names = repoNames(s);
-    const repos = await Promise.all(s.paths.map((p, i) => repoFacts(names[i], p, checkouts, deps.run)));
-    const v = cleanupVerdict({ repos, lastActiveMs: s.lastActiveMs, archived: !!s.archivedAt }, now());
-    return {
-      sessionId: s.id, target: s.target, branch: s.branch, isGroup: s.isGroup,
-      lastActive: new Date(s.lastActiveMs).toISOString(), archivedAt: s.archivedAt,
-      ...v, repos,
-    };
-  };
-
   const scan = async () => {
-    const sessions = deps.sessions();
-    const checkouts = new Set(deps.baseCheckouts().map(norm));
-    st = { phase: 'fetching', done: 0, total: sessions.length, candidates: [], results: [], startedAt: new Date(now()).toISOString() };
+    st = { phase: 'fetching', done: 0, total: 0, candidates: [], results: [], startedAt: new Date(now()).toISOString() };
     changed();
-    await pool(deps.fetchRepos(), 4, async (repo) => {
-      await deps.run('git', ['fetch', '--prune', '--quiet', 'origin'], repo);
+    const r = await scanCleanup(deps, {
+      onPhase: (phase, total) => {
+        st = { ...st, phase, total, done: 0 };
+        changed();
+      },
+      onProgress: (done) => {
+        st = { ...st, done };
+        if (done % 10 === 0) changed();
+      },
     });
-    st = { ...st, phase: 'scanning' };
-    changed();
-    const found: CleanupCandidate[] = [];
-    // Newest first gets the "Used in the last day" ones out of the way cheaply.
-    await pool(sessions, concurrency, async (s) => {
-      const recent = now() - s.lastActiveMs < CLEANUP_MIN_IDLE_MS && s.paths.some((p) => fs.existsSync(p));
-      if (!recent) {
-        const c = await examine(s, checkouts);
-        if (c.verdict !== 'keep') found.push(c);
-      }
-      st = { ...st, done: st.done + 1 };
-      if (st.done % 10 === 0) changed();
-    });
-    found.sort((a, b) => a.lastActive.localeCompare(b.lastActive));
-    st = { ...st, phase: 'idle', candidates: found, finishedAt: new Date(now()).toISOString() };
+    const error = r.fetchFailed.length
+      ? `Could not fetch ${r.fetchFailed.map((f) => f.alias).join(', ')}; their worktrees were not checked.`
+      : undefined;
+    st = { ...st, phase: 'idle', candidates: r.candidates, finishedAt: new Date(now()).toISOString(), ...(error ? { error } : {}) };
     changed();
   };
 
   const apply = async (items: Array<{ sessionId: string; action: CleanupAction }>) => {
-    const byId = new Map(deps.sessions().map((s) => [s.id, s]));
-    const checkouts = new Set(deps.baseCheckouts().map(norm));
-    st = { ...st, phase: 'applying', done: 0, total: items.length, results: [] };
+    st = { ...st, phase: 'applying', done: 0, total: items.length, results: [], error: undefined };
     changed();
-    const done = new Set<string>();
-    for (const it of items) {
-      const s = byId.get(it.sessionId);
-      let ok = false;
-      let message: string;
-      try {
-        if (!s) throw new Error('The session is gone already.');
-        // The scan may be minutes old: decide again on what is there now.
-        const fresh = await examine(s, checkouts);
-        if (it.action === 'delete' && fresh.verdict !== 'merged') throw new Error(`Not removed: ${fresh.reason}.`);
-        if (it.action === 'forget' && fresh.verdict !== 'gone') throw new Error('Not forgotten: its folder exists again.');
-        await deps.act(s, it.action);
-        ok = true;
-        message = it.action === 'delete' ? 'Worktree removed' : it.action === 'archive' ? 'Archived' : 'Forgotten';
-        done.add(it.sessionId);
-      } catch (err) {
-        message = (err as Error).message;
-      }
-      st = { ...st, done: st.done + 1, results: [...st.results, { sessionId: it.sessionId, action: it.action, ok, message }] };
-      changed();
-    }
-    st = { ...st, phase: 'idle', candidates: st.candidates.filter((c) => !done.has(c.sessionId)) };
+    const results = await applyCleanup(deps, items, {
+      onResult: (r) => {
+        st = { ...st, done: st.done + 1, results: [...st.results, r] };
+        changed();
+      },
+    });
+    const gone = new Set(results.filter((r) => r.ok).map((r) => r.sessionId));
+    st = { ...st, phase: 'idle', candidates: st.candidates.filter((c) => !gone.has(c.sessionId)) };
     changed();
   };
 
   const busy = () => st.phase !== 'idle';
+  const guard = (p: Promise<void>) =>
+    p.catch((err: Error) => {
+      st = { ...st, phase: 'idle', error: err.message };
+      changed();
+    });
   return {
     state: () => st,
     scan() {
       if (busy()) return;
-      running = scan().catch((err: Error) => {
-        st = { ...st, phase: 'idle', error: err.message };
-        changed();
-      });
+      running = guard(scan());
     },
     apply(items) {
       if (busy()) return false;
-      running = apply(items).catch((err: Error) => {
-        st = { ...st, phase: 'idle', error: err.message };
-        changed();
-      });
+      running = guard(apply(items));
       return true;
     },
     idle: () => running,

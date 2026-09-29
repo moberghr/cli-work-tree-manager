@@ -15,7 +15,7 @@ import {
   setupCompletions,
   printCompletionResults,
   printManualInstructions,
-} from '../core/setup-completions.js';
+} from './shared/setup-completions.js';
 
 export const initCommand: CommandModule = {
   command: 'init',

@@ -9,6 +9,7 @@ import {
 } from './diff-parse.js';
 import { coverageLookup } from './lcov.js';
 import { writeTempTree } from './git-tree-snapshot.js';
+import { report } from './report.js';
 
 /** `git`'s rename-detection flag. Centralised so the three diff invocations
  *  (HEAD-vs-working, checkpoint-vs-working, checkpoint-vs-checkpoint) stay in
@@ -253,7 +254,7 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
     },
   );
   if (trackedResult.status !== 0) {
-    if (trackedResult.stderr) console.error(trackedResult.stderr);
+    if (trackedResult.stderr) report('error', trackedResult.stderr);
     return [];
   }
 
@@ -381,7 +382,7 @@ export function computeRangeDiff(opts: ComputeRangeDiffOptions): ParsedFile[] {
       },
     );
     if (result.status !== 0) {
-      if (result.stderr) console.error(result.stderr);
+      if (result.stderr) report('error', result.stderr);
       return [];
     }
     const parsed = parseGitDiff(result.stdout);
@@ -411,7 +412,7 @@ export function computeRangeDiff(opts: ComputeRangeDiffOptions): ParsedFile[] {
     },
   );
   if (result.status !== 0) {
-    if (result.stderr) console.error(result.stderr);
+    if (result.stderr) report('error', result.stderr);
     return [];
   }
 

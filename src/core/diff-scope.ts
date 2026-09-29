@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
 import { git } from './git.js';
 import { loadHistory, type WorktreeSession } from './history.js';
 import type { RepoSpec } from './repo-spec.js';
+import { report } from './report.js';
 
 export interface DiffScope {
   isGroup: boolean;
@@ -193,10 +193,8 @@ export function resolveBase(
     const detected = detectParentBranch(primaryRoot);
     if (detected) return { base: detected, source: 'auto-detected' };
 
-    console.error(
-      chalk.red('Could not determine a parent branch for this worktree.'),
-    );
-    console.error(chalk.gray('Pass one explicitly: diff <ref>'));
+    report('error', 'Could not determine a parent branch for this worktree.');
+    report('detail', 'Pass one explicitly: diff <ref>');
     process.exit(1);
   }
 

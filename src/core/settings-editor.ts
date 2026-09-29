@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { atomicWriteFile, ensureFile, resolveLinkTarget, withFileLock, withFileLockSync } from './fs-safe.js';
+import { report } from './report.js';
 
 /** Resolved lazily (not at module load) so tests can stub `os.homedir`. */
 function settingsPath(): string {
@@ -93,9 +94,7 @@ function backupOnce(file: string): void {
 function applyEdit(file: string, mutate: (s: SettingsFile) => void): boolean {
   const read = readSettings(file);
   if (read.kind === 'unreadable') {
-    console.error(
-      `[work] ${file} is not valid JSON (${read.error}) — left it alone; work's Claude hooks were not updated. Fix the file and restart work web.`,
-    );
+    report('error', `[work] ${file} is not valid JSON (${read.error}) — left it alone; work's Claude hooks were not updated. Fix the file and restart work web.`);
     return false;
   }
   const s = read.kind === 'ok' ? read.settings : {};
@@ -128,7 +127,7 @@ export function editSettings(mutate: (s: SettingsFile) => void): Promise<void> {
       if (!fs.existsSync(file)) ensureFile(file, '{}\n');
       await withFileLock(file, () => applyEdit(file, mutate));
     } catch (err) {
-      console.error(`[work] could not update Claude settings: ${(err as Error).message}`);
+      report('error', `[work] could not update Claude settings: ${(err as Error).message}`);
     }
   });
   editQueue = run;
@@ -143,7 +142,7 @@ export function editSettingsSync(mutate: (s: SettingsFile) => void): void {
     if (!fs.existsSync(file)) ensureFile(file, '{}\n');
     withFileLockSync(file, () => applyEdit(file, mutate));
   } catch (err) {
-    console.error(`[work] could not update Claude settings: ${(err as Error).message}`);
+    report('error', `[work] could not update Claude settings: ${(err as Error).message}`);
   }
 }
 

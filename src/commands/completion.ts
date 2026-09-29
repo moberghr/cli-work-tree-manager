@@ -4,7 +4,7 @@ import {
   setupCompletions,
   printCompletionResults,
   printManualInstructions,
-} from '../core/setup-completions.js';
+} from './shared/setup-completions.js';
 
 const POWERSHELL_SCRIPT = `
 Register-ArgumentCompleter -CommandName work -Native -ScriptBlock {

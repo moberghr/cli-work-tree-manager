@@ -15,6 +15,7 @@ import {
 } from './web-state.js';
 import { disposePty, ensurePty, getWorkBin, peekPty, spawnSpecFor } from './pty-pool.js';
 import { getCommentFileStore } from './comment-file-store.js';
+import { collectingReporter, withReporter } from './report.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
 
@@ -81,15 +82,13 @@ export function mountWorktreeRoutes(
       if (!config) return c.json({ error: 'no config' }, 400);
 
       try {
-        const result = await setupWorktree(
-          target,
-          branch,
-          config,
-          base,
-          jiraKey,
-        );
+        // Keep what core reports, so a failure says why (it used to go only
+        // to the server's console: "setup failed" was all the UI got).
+        const reports = collectingReporter();
+        const result = await withReporter(reports, () => setupWorktree(target, branch, config, base, jiraKey));
         if (!result) {
-          return c.json({ error: 'setup failed (target not found?)' }, 400);
+          const why = reports.errors().map((e) => e.trim()).join(' ');
+          return c.json({ error: why || 'setup failed (target not found?)' }, 400);
         }
         opts.broadcast('sessions-changed', { ts: Date.now() });
         // Re-derive the new session id so the client can route to it

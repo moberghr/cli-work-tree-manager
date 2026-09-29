@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import { report } from './report.js';
 import { Hono } from 'hono';
 import { serve, type ServerType } from '@hono/node-server';
 import { refuseReason } from './local-origin.js';
@@ -54,7 +54,7 @@ export function launch(app: Hono): Promise<DiffServerHandle & { httpServer: Serv
       (info) => {
         listenPort = info.port;
         const url = `http://127.0.0.1:${info.port}/`;
-        process.stderr.write(chalk.gray(`[server] listening at ${url}\n`));
+        report('detail', `[server] listening at ${url}`);
         resolve({
           url,
           port: info.port,

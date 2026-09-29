@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { computeDiff } from './diff-pipeline.js';
@@ -29,6 +28,7 @@ import { buildDigest } from './digest.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
 import { effectiveStatus, readStatus } from './session-status.js';
 import { buildStamp } from './build-stamp.js';
+import { report } from './report.js';
 import { mountCleanupRoutes } from './cleanup-routes.js';
 import { readSessionActivity } from './claude-activity.js';
 import type { DigestResponse, SessionWire } from './api-types.js';
@@ -479,7 +479,7 @@ export async function startWebServer(
   // Pick up PTYs that survived a previous `work web` in the PTY host so
   // their badges show immediately. Never spawns a host.
   void initPtyPool();
-  process.stderr.write(chalk.gray(`[web] dashboard at ${handle.url}\n`));
+  report('detail', `[web] dashboard at ${handle.url}`);
 
   return {
     url: handle.url,

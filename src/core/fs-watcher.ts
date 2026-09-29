@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
+import { report } from './report.js';
 import chokidar from 'chokidar';
 
 export interface FsWatcherOptions {
@@ -66,9 +66,7 @@ const SUPPORTS_RECURSIVE_WATCH =
   process.platform === 'darwin' || process.platform === 'win32';
 
 function logWatchError(err: unknown): void {
-  process.stderr.write(
-    chalk.yellow('[watcher] fs error: ') + (err as Error).message + '\n',
-  );
+  report('warn', `[watcher] fs error: ${(err as Error).message}`);
 }
 
 /**

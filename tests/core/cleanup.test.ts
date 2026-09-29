@@ -114,13 +114,14 @@ describe('cleanup on real repositories', () => {
 
   it('the job scans, then re-checks each item right before acting', async () => {
     const session = (name: string, idleDays = 3): CleanupSession => ({
-      id: name, target: 'repo', branch: `feat/${name}`, isGroup: false, paths: [wt[name]], archivedAt: null, lastActiveMs: Date.now() - idleDays * DAY,
+      id: name, target: 'repo', branch: `feat/${name}`, isGroup: false, paths: [wt[name]], archivedAt: null, lastActiveMs: Date.now() - idleDays * DAY, aliases: ['repo'],
     });
     const acted: Array<[string, CleanupAction]> = [];
     const job = createCleanupJob({
       sessions: () => [session('merged'), session('squashed'), session('work'), session('dirty'), session('fresh', 0)],
       baseCheckouts: () => [main],
-      fetchRepos: () => [main],
+      fetchRepos: () => [{ alias: 'repo', path: main }],
+      fetch: async () => {},
       run: defaultRunner,
       act: async (s, a) => void acted.push([s.id, a]),
     });

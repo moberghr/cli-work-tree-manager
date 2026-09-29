@@ -2,82 +2,56 @@ import chalk from 'chalk';
 import { checkbox } from '@inquirer/prompts';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
-import {
-  type PrunableEntry,
-  collectPrunable,
-  removeSingleEntry,
-  removeGroupEntry,
-} from '../core/prunable-scan.js';
+import { applyCleanup, scanCleanup } from '../core/cleanup.js';
+import { defaultCleanupDeps } from '../core/cleanup-deps.js';
+import type { CleanupCandidate } from '../core/api-types.js';
+import { printCleanupResults, removable } from './shared/cleanup-print.js';
 
 export const pruneCommand: CommandModule = {
   command: 'prune',
-  describe: 'Remove worktrees for merged branches',
+  describe: 'Remove worktrees that are merged (or never committed to), picking from a list',
   builder: (yargs) =>
     yargs.option('force', {
-      describe: 'Skip interactive picker and remove all merged worktrees',
+      describe: 'Skip the picker and remove every one that is safe to remove',
       type: 'boolean',
       default: false,
     }),
   handler: async (argv) => {
     const force = argv.force as boolean;
-
-    const config = ensureConfig();
-    console.log(chalk.gray('Scanning worktrees for merged branches...\n'));
-    // Interactive prune is human-confirmed (the user sees the list and picks),
-    // so squash-merged matches are safe to surface here. `work sync` stays gated
-    // to true-merge confidence by default (opt in via --include-squash).
-    const prunable = collectPrunable(config, { includeSquash: true });
-
-    if (prunable.length === 0) {
-      console.log(chalk.green('No merged worktrees found. Nothing to prune.'));
+    ensureConfig();
+    const deps = defaultCleanupDeps();
+    console.log(chalk.gray('Fetching and checking worktrees…\n'));
+    const scan = await scanCleanup(deps);
+    for (const f of scan.fetchFailed) console.log(chalk.yellow(`  Could not fetch ${f.alias}; its worktrees were not checked: ${f.error}`));
+    // Interactive prune is human-confirmed (you see the list and pick), so
+    // squash-merged branches are offered too.
+    const candidates = removable(scan.candidates, { includeSquash: true });
+    if (candidates.length === 0) {
+      console.log(chalk.green('Nothing to prune: no worktree is merged, clean and unused for a day.'));
       return;
     }
-
-    console.log(
-      chalk.cyan(`Found ${prunable.length} merged worktree(s):\n`),
-    );
-
-    let selected: PrunableEntry[];
-
+    const label = (c: CleanupCandidate) => `${c.target}: ${c.branch}${c.isGroup ? ' [group]' : ''} — ${c.reason}`;
+    let selected: CleanupCandidate[];
     if (force) {
-      selected = prunable;
-      for (const entry of selected) {
-        const suffix = entry.type === 'group' ? ' [group]' : '';
-        console.log(`  ${entry.target}: ${entry.branch}${suffix}`);
-      }
-      console.log('');
+      selected = candidates;
+      console.log(chalk.cyan(`Removing ${selected.length} worktree(s):`));
+      for (const c of selected) console.log(`  ${label(c)}`);
     } else {
-      const choices = prunable.map((entry) => {
-        const suffix = entry.type === 'group' ? ' [group]' : '';
-        return {
-          name: `${entry.target}: ${entry.branch}${suffix}`,
-          value: entry,
-        };
-      });
-
       selected = await checkbox({
-        message: 'Select merged worktrees to remove',
-        choices,
-        pageSize: choices.length,
+        message: 'Select worktrees to remove (the branches are kept)',
+        choices: candidates.map((c) => ({ name: label(c), value: c, checked: true })),
+        pageSize: Math.min(candidates.length, 25),
       });
-
       if (selected.length === 0) {
         console.log(chalk.yellow('Nothing selected.'));
         return;
       }
-
-      console.log('');
     }
-
-    for (const entry of selected) {
-      if (entry.type === 'single') {
-        await removeSingleEntry(entry);
-      } else {
-        await removeGroupEntry(entry, config);
-      }
-    }
-
     console.log('');
-    console.log(chalk.green(`Pruned ${selected.length} worktree(s).`));
+    const results = await applyCleanup(
+      deps,
+      selected.map((c) => ({ sessionId: c.sessionId, action: c.verdict === 'gone' ? 'forget' : 'delete' })),
+    );
+    printCleanupResults(selected, results);
   },
 };

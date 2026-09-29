@@ -13,6 +13,7 @@ import {
   type HostInfo,
   type SpawnSpec,
 } from './pty-host-protocol.js';
+import { report } from './report.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen)?$/;
@@ -220,7 +221,7 @@ export async function startPtyHost(
     // file: take it over before restoring (see adoptLegacyRestoreList).
     if (!opts.registry) {
       const adopted = bestEffort('adopt the old pty-sessions.json', () => adoptLegacyRestoreList(), null);
-      if (adopted !== null && adopted !== undefined) process.stderr.write(`[pty-host] adopted ${adopted} session(s) from an older host's pty-sessions.json\n`);
+      if (adopted !== null && adopted !== undefined) report('info', `[pty-host] adopted ${adopted} session(s) from an older host's pty-sessions.json`);
     }
     await registry.restore();
   }

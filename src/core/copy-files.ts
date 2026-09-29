@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'glob';
-import chalk from 'chalk';
+import { report } from './report.js';
 
 /** Directories to exclude when copying files. */
 const EXCLUDED_DIRS = ['bin', 'obj', 'node_modules', '.git'];
@@ -30,7 +30,7 @@ export function copyConfigFiles(
         const destDir = path.dirname(destPath);
         fs.mkdirSync(destDir, { recursive: true });
         fs.copyFileSync(sourcePath, destPath);
-        console.log(`  Copied: ${relativePath}`);
+        report('info', `  Copied: ${relativePath}`);
       }
       continue;
     }
@@ -56,7 +56,7 @@ export function copyConfigFiles(
 
       fs.mkdirSync(destDir, { recursive: true });
       fs.copyFileSync(sourcePath, destPath);
-      console.log(`  Copied: ${match}`);
+      report('info', `  Copied: ${match}`);
     }
   }
 }

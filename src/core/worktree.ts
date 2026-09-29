@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
 import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
@@ -25,6 +24,7 @@ import {
   isEmptyBaseSpec,
   toBaseSpec,
 } from './base-spec.js';
+import { report } from './report.js';
 
 /**
  * Pull latest changes for a checkout we're switching into (a worktree that
@@ -41,18 +41,14 @@ export function pullLatestForBranch(worktreePath: string, branchName: string): v
   );
   if (upstream.exitCode !== 0) return;
 
-  console.log(`  Pulling latest changes for ${branchName}...`);
+  report('info', `  Pulling latest changes for ${branchName}...`);
   // Fetch first so origin/* is fresh even if the pull below can't fast-forward.
   git(['fetch', '--quiet'], worktreePath);
   const pull = git(['pull', '--quiet'], worktreePath);
   if (pull.exitCode !== 0) {
-    console.log(
-      chalk.yellow(
-        `  ⚠ Could not pull '${branchName}' (uncommitted changes or conflicts). Worktree may be behind origin.`,
-      ),
-    );
+    report('warn', `  ⚠ Could not pull '${branchName}' (uncommitted changes or conflicts). Worktree may be behind origin.`);
     const firstErrLine = pull.stderr.split('\n')[0];
-    if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+    if (firstErrLine) report('detail', `    ${firstErrLine}`);
   }
 }
 
@@ -82,9 +78,7 @@ export function createSingleWorktree(
     if (isGitRepo(worktreePath)) {
       const currentBranch = getCurrentBranch(worktreePath);
       if (currentBranch === branchName) {
-        console.log(
-          chalk.yellow(`  Worktree already exists at: ${worktreePath}`),
-        );
+        report('warn', `  Worktree already exists at: ${worktreePath}`);
         if (pull) pullLatestForBranch(worktreePath, branchName);
         return true;
       }
@@ -98,14 +92,8 @@ export function createSingleWorktree(
   );
 
   if (existingForBranch) {
-    console.log(
-      chalk.red(
-        `  Branch '${branchName}' is already checked out in a worktree at: ${existingForBranch.path}`,
-      ),
-    );
-    console.log(
-      chalk.red('  Remove that worktree first, or use the existing one.'),
-    );
+    report('error', `  Branch '${branchName}' is already checked out in a worktree at: ${existingForBranch.path}`);
+    report('error', '  Remove that worktree first, or use the existing one.');
     return false;
   }
 
@@ -119,24 +107,16 @@ export function createSingleWorktree(
   // Pull latest changes for current branch in main repo
   const baseRepoBranch = getCurrentBranch(repoPath);
   const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
-  console.log(`  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
+  report('info', `  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
   if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
-    console.log(
-      chalk.yellow(
-        `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`,
-      ),
-    );
+    report('warn', `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`);
   }
   const baseRepoPull = git(['pull', '--quiet'], repoPath);
   const baseRepoPullFailed = baseRepoPull.exitCode !== 0;
   if (baseRepoPullFailed) {
-    console.log(
-      chalk.yellow(
-        `  ⚠ Could not pull '${baseBranchLabel}' (uncommitted changes, conflicts, or no upstream).`,
-      ),
-    );
+    report('warn', `  ⚠ Could not pull '${baseBranchLabel}' (uncommitted changes, conflicts, or no upstream).`);
     const firstErrLine = baseRepoPull.stderr.split('\n')[0];
-    if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+    if (firstErrLine) report('detail', `    ${firstErrLine}`);
   }
 
   const hasLocal = localBranchExists(branchName, repoPath);
@@ -144,28 +124,20 @@ export function createSingleWorktree(
 
   // --base requires a brand-new branch
   if (baseBranch && (hasLocal || hasRemote)) {
-    console.log(
-      chalk.red(
-        `  Cannot use --base: branch '${branchName}' already exists ${hasLocal ? 'locally' : 'on remote'}`,
-      ),
-    );
+    report('error', `  Cannot use --base: branch '${branchName}' already exists ${hasLocal ? 'locally' : 'on remote'}`);
     return false;
   }
 
   // Pull latest changes if branch exists locally
   if (hasLocal) {
-    console.log(`  Pulling latest changes for ${branchName}...`);
+    report('info', `  Pulling latest changes for ${branchName}...`);
     const prevBranch = getCurrentBranch(repoPath);
     git(['checkout', branchName, '--quiet'], repoPath);
     const branchPull = git(['pull', '--quiet'], repoPath);
     if (branchPull.exitCode !== 0) {
-      console.log(
-        chalk.yellow(
-          `  ⚠ Could not pull '${branchName}'. Worktree may be behind origin.`,
-        ),
-      );
+      report('warn', `  ⚠ Could not pull '${branchName}'. Worktree may be behind origin.`);
       const firstErrLine = branchPull.stderr.split('\n')[0];
-      if (firstErrLine) console.log(chalk.gray(`    ${firstErrLine}`));
+      if (firstErrLine) report('detail', `    ${firstErrLine}`);
     }
     if (prevBranch) {
       git(['checkout', prevBranch, '--quiet'], repoPath);
@@ -203,11 +175,7 @@ export function createSingleWorktree(
     const baseRemote = remoteBranchExists(baseBranch, repoPath);
 
     if (!baseLocal && !baseRemote) {
-      console.log(
-        chalk.red(
-          `  Base branch '${baseBranch}' does not exist locally or on remote`,
-        ),
-      );
+      report('error', `  Base branch '${baseBranch}' does not exist locally or on remote`);
       return false;
     }
 
@@ -224,9 +192,7 @@ export function createSingleWorktree(
       !!baseRepoBranch &&
       remoteBranchExists(baseRepoBranch, repoPath);
     if (fallbackToRemote) {
-      console.log(
-        chalk.cyan(`  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`),
-      );
+      report('step', `  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`);
       result = git(
         ['worktree', 'add', worktreePath, '-b', branchName, `origin/${baseRepoBranch}`],
         repoPath,
@@ -241,9 +207,9 @@ export function createSingleWorktree(
 
   if (result.exitCode !== 0) {
     debug('git worktree add failed', { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr });
-    console.log(chalk.red('  Failed to create worktree'));
+    report('error', '  Failed to create worktree');
     if (result.stderr) {
-      console.log(chalk.red(`  ${result.stderr}`));
+      report('error', `  ${result.stderr}`);
     }
     return false;
   }
@@ -254,16 +220,16 @@ export function createSingleWorktree(
   }
 
   if (branchSource === 'remote') {
-    console.log(chalk.cyan(`  Tracking remote branch origin/${branchName}`));
+    report('step', `  Tracking remote branch origin/${branchName}`);
   } else if (branchSource === 'local') {
-    console.log(chalk.cyan(`  Using existing local branch ${branchName}`));
+    report('step', `  Using existing local branch ${branchName}`);
   } else if (baseBranch) {
-    console.log(chalk.cyan(`  Created new branch ${branchName} from ${baseBranch}`));
+    report('step', `  Created new branch ${branchName} from ${baseBranch}`);
   } else {
-    console.log(chalk.cyan(`  Created new branch ${branchName}`));
+    report('step', `  Created new branch ${branchName}`);
   }
 
-  console.log(chalk.green(`  Created worktree: ${worktreePath}`));
+  report('success', `  Created worktree: ${worktreePath}`);
   return true;
 }
 
@@ -294,9 +260,7 @@ export function removeSingleWorktree(
   force: boolean,
 ): boolean {
   if (!fs.existsSync(worktreePath)) {
-    console.log(
-      chalk.yellow(`  Worktree does not exist at: ${worktreePath}`),
-    );
+    report('warn', `  Worktree does not exist at: ${worktreePath}`);
     return true; // Nothing to remove is success
   }
 
@@ -307,13 +271,11 @@ export function removeSingleWorktree(
   if (state === 'not-a-repo') {
     fs.rmSync(worktreePath, { recursive: true, force: true });
     git(['worktree', 'prune'], repoPath);
-    console.log(`  Removed invalid worktree directory: ${worktreePath}`);
+    report('info', `  Removed invalid worktree directory: ${worktreePath}`);
     return true;
   }
   if (state === 'unknown' && !force) {
-    console.log(
-      chalk.yellow(`  git can't read ${worktreePath} (ownership, a moved main repo, git not on PATH?) — not removing it. Check it, or use --force.`),
-    );
+    report('warn', `  git can't read ${worktreePath} (ownership, a moved main repo, git not on PATH?) — not removing it. Check it, or use --force.`);
     return false;
   }
 
@@ -321,24 +283,20 @@ export function removeSingleWorktree(
     // Check for uncommitted changes
     const status = getStatusChecked(worktreePath);
     if (status === null) {
-      console.log(chalk.yellow(`  Could not check ${worktreePath} for uncommitted changes — not removing it.`));
+      report('warn', `  Could not check ${worktreePath} for uncommitted changes — not removing it.`);
       return false;
     }
     if (status) {
-      console.log(
-        chalk.yellow(`  Uncommitted changes in: ${worktreePath}`),
-      );
-      console.log(status);
+      report('warn', `  Uncommitted changes in: ${worktreePath}`);
+      report('info', status);
       return false;
     }
 
     // Check for unpushed commits
     const unpushed = getUnpushedCommits(worktreePath);
     if (unpushed) {
-      console.log(
-        chalk.yellow(`  Unpushed commits in: ${worktreePath}`),
-      );
-      console.log(unpushed);
+      report('warn', `  Unpushed commits in: ${worktreePath}`);
+      report('info', unpushed);
       return false;
     }
   }
@@ -350,19 +308,19 @@ export function removeSingleWorktree(
   const result = git(args, repoPath);
 
   if (result.exitCode === 0) {
-    console.log(chalk.green(`  Removed worktree: ${worktreePath}`));
+    report('success', `  Removed worktree: ${worktreePath}`);
     return true;
   } else if (force && state === 'unknown') {
     // git can't handle it (its main repo moved, say) and the user forced
     // it: delete the folder, then let git forget the registration.
     fs.rmSync(worktreePath, { recursive: true, force: true });
     git(['worktree', 'prune'], repoPath);
-    console.log(chalk.green(`  Removed worktree folder git could not read: ${worktreePath}`));
+    report('success', `  Removed worktree folder git could not read: ${worktreePath}`);
     return true;
   } else {
-    console.log(chalk.red(`  Failed to remove worktree: ${worktreePath}`));
+    report('error', `  Failed to remove worktree: ${worktreePath}`);
     if (result.stderr) {
-      console.log(chalk.red(`  ${result.stderr}`));
+      report('error', `  ${result.stderr}`);
     }
     return false;
   }
@@ -439,9 +397,7 @@ async function setupGroupWorktree(
       (a) => !repoAliases.includes(a),
     );
     if (unknownAliases.length > 0) {
-      console.error(
-        `--base names repo(s) not in group '${groupName}': ${unknownAliases.join(', ')}. Group repos: ${repoAliases.join(', ')}`,
-      );
+      report('error', `--base names repo(s) not in group '${groupName}': ${unknownAliases.join(', ')}. Group repos: ${repoAliases.join(', ')}`);
       return null;
     }
 
@@ -461,18 +417,18 @@ async function setupGroupWorktree(
     }
 
     if (missingBase.length > 0) {
-      console.error(`Base branch not found in: ${missingBase.join(', ')}`);
+      report('error', `Base branch not found in: ${missingBase.join(', ')}`);
       return null;
     }
     if (branchExists.length > 0) {
-      console.error(`Cannot use --base: branch '${branchName}' already exists in: ${branchExists.join(', ')}`);
+      report('error', `Cannot use --base: branch '${branchName}' already exists in: ${branchExists.join(', ')}`);
       return null;
     }
   }
 
-  console.log(chalk.cyan(`Creating group worktree: ${groupName}/${branchName}`));
-  console.log(chalk.gray(`Directory: ${groupWorktreePath}`));
-  console.log('');
+  report('step', `Creating group worktree: ${groupName}/${branchName}`);
+  report('detail', `Directory: ${groupWorktreePath}`);
+  report('info', '');
 
   fs.mkdirSync(groupWorktreePath, { recursive: true });
 
@@ -486,7 +442,7 @@ async function setupGroupWorktree(
     const subWorktreePath = path.join(groupWorktreePath, repoName);
     const repoBase = baseForAlias(spec, alias);
 
-    console.log(chalk.cyan(`[${alias}] (${repoName}):`));
+    report('step', `[${alias}] (${repoName}):`);
     const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, repoBase, opts.pull !== false);
 
     if (success) {
@@ -494,8 +450,8 @@ async function setupGroupWorktree(
       if (repoBase) baseBranches[subWorktreePath] = repoBase;
     } else {
       // Rollback
-      console.log('');
-      console.log(chalk.yellow('Rolling back created worktrees due to failure...'));
+      report('info', '');
+      report('warn', 'Rolling back created worktrees due to failure...');
       for (const wt of createdWorktrees) {
         removeSingleWorktree(wt.repoPath, wt.worktreePath, branchName, true);
       }
@@ -504,7 +460,7 @@ async function setupGroupWorktree(
           fs.rmSync(groupWorktreePath, { recursive: true, force: true });
         }
       } catch { /* */ }
-      console.error('Failed to create group worktree. Changes have been rolled back.');
+      report('error', 'Failed to create group worktree. Changes have been rolled back.');
       return null;
     }
   }
@@ -516,12 +472,12 @@ async function setupGroupWorktree(
 
   if (fs.existsSync(claudeMdSrc)) {
     fs.copyFileSync(claudeMdSrc, claudeMdDest);
-    console.log('');
-    console.log(chalk.green('Copied group CLAUDE.md to worktree root'));
+    report('info', '');
+    report('success', 'Copied group CLAUDE.md to worktree root');
   } else {
-    console.log('');
-    console.log(chalk.yellow(`Warning: Group CLAUDE.md not found at ${claudeMdSrc}`));
-    console.log(chalk.yellow(`Run 'work config regengroup ${groupName}' to generate it.`));
+    report('info', '');
+    report('warn', `Warning: Group CLAUDE.md not found at ${claudeMdSrc}`);
+    report('warn', `Run 'work config regengroup ${groupName}' to generate it.`);
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
@@ -541,9 +497,9 @@ async function setupGroupWorktree(
     baseBranches,
   );
 
-  console.log('');
-  console.log(`Branch: ${branchName}`);
-  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
+  report('info', '');
+  report('info', `Branch: ${branchName}`);
+  if (port !== undefined) report('detail', `Dev-server port: ${port}`);
 
   return { launchDir: groupWorktreePath, paths: allPaths, isGroup: true, port };
 }
@@ -564,15 +520,13 @@ async function setupSingleWorktree(
   // For a single repo, the only valid per-repo override alias is the target.
   const unknownAliases = baseSpecOverrideAliases(spec).filter((a) => a !== targetName);
   if (unknownAliases.length > 0) {
-    console.error(
-      `--base names repo(s) other than '${targetName}': ${unknownAliases.join(', ')}`,
-    );
+    report('error', `--base names repo(s) other than '${targetName}': ${unknownAliases.join(', ')}`);
     return null;
   }
   const baseBranch = baseForAlias(spec, targetName);
 
   if (!fs.existsSync(repoPath)) {
-    console.error(`Repository path does not exist: ${repoPath}`);
+    report('error', `Repository path does not exist: ${repoPath}`);
     return null;
   }
 
@@ -586,10 +540,10 @@ async function setupSingleWorktree(
 
   if (existing) {
     if (baseBranch) {
-      console.error(`Cannot use --base: worktree for '${branchName}' already exists at ${existing.path}`);
+      report('error', `Cannot use --base: worktree for '${branchName}' already exists at ${existing.path}`);
       return null;
     }
-    console.log(`Worktree already exists at: ${existing.path}`);
+    report('info', `Worktree already exists at: ${existing.path}`);
     workTreePath = existing.path;
     if (opts.pull !== false) pullLatestForBranch(workTreePath, branchName);
   } else {
@@ -608,8 +562,8 @@ async function setupSingleWorktree(
     baseBranch ? { [workTreePath]: baseBranch } : undefined,
   );
 
-  console.log(`Branch: ${branchName}`);
-  if (port !== undefined) console.log(chalk.gray(`Dev-server port: ${port}`));
+  report('info', `Branch: ${branchName}`);
+  if (port !== undefined) report('detail', `Dev-server port: ${port}`);
 
   return { launchDir: workTreePath, paths: [workTreePath], isGroup: false, port };
 }
@@ -638,7 +592,7 @@ export function teardownWorktree(
       if (!repoPath) continue;
       const repoName = path.basename(repoPath);
       const subWorktreePath = path.join(groupWorktreePath, repoName);
-      console.log(chalk.cyan(`[${alias}] (${repoName}):`));
+      report('step', `[${alias}] (${repoName}):`);
       if (!removeSingleWorktree(repoPath, subWorktreePath, branch, force)) {
         allRemoved = false;
       }
@@ -650,7 +604,7 @@ export function teardownWorktree(
     try {
       if (fs.existsSync(groupWorktreePath) && fs.readdirSync(groupWorktreePath).length === 0) {
         fs.rmSync(groupWorktreePath, { recursive: true, force: true });
-        console.log(chalk.green(`Cleaned up group directory: ${groupWorktreePath}`));
+        report('success', `Cleaned up group directory: ${groupWorktreePath}`);
       }
     } catch { /* */ }
 
@@ -664,7 +618,7 @@ export function teardownWorktree(
         return removeSingleWorktree(repoPath, wt.path, branch, force);
       }
     }
-    console.log(chalk.yellow(`No worktree found for branch '${branch}' in '${target}'.`));
+    report('warn', `No worktree found for branch '${branch}' in '${target}'.`);
     return false;
   }
 }

@@ -100,12 +100,18 @@ function retryBusy<T>(fn: () => T, deadlineMs = 15_000): T {
   }
 }
 
+/** Most the write-ahead log (`state.db-wal`) keeps between checkpoints. */
+export const WAL_SIZE_LIMIT = 4 * 1024 * 1024;
+
 function open(file: string): Db {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const d = new Database(file, { timeout: 10_000 });
   try {
     retryBusy(() => d.pragma('journal_mode = WAL'));
     d.pragma('synchronous = NORMAL');
+    // SQLite folds the WAL back into the database at ~4 MB but never shrinks
+    // the file; this truncates it to at most 4 MB after each checkpoint.
+    d.pragma(`journal_size_limit = ${WAL_SIZE_LIMIT}`);
     retryBusy(() => migrate(d, path.dirname(file)));
   } catch (err) {
     d.close();

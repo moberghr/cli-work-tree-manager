@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import spawn from 'cross-spawn';
-import chalk from 'chalk';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { internalClaudeSpawn } from './internal-claude.js';
+import { report } from './report.js';
 
 /**
  * Generate a combined CLAUDE.md for a group using `claude -p`.
@@ -66,14 +66,8 @@ export function generateGroupClaudeMd(
 
   const prompt = promptParts.join('\n');
 
-  console.log(
-    chalk.cyan(
-      `Generating combined CLAUDE.md for group '${groupName}'...`,
-    ),
-  );
-  console.log(
-    chalk.gray('(This will call Claude to generate the combined file)'),
-  );
+  report('step', `Generating combined CLAUDE.md for group '${groupName}'...`);
+  report('detail', '(This will call Claude to generate the combined file)');
 
   // Try claude -p
   // Text-only, no tools, neutral cwd, tagged internal — see internalClaudeSpawn.
@@ -90,18 +84,14 @@ export function generateGroupClaudeMd(
   let content: string;
 
   if (result.status !== 0 || !result.stdout?.trim()) {
-    console.log(
-      chalk.yellow(
-        'Failed to generate CLAUDE.md via Claude. Creating a basic template instead.',
-      ),
-    );
+    report('warn', 'Failed to generate CLAUDE.md via Claude. Creating a basic template instead.');
     content = buildFallbackTemplate(groupName, repoAliases, config);
   } else {
     content = result.stdout.trim();
   }
 
   fs.writeFileSync(outputPath, content, 'utf-8');
-  console.log(chalk.green(`Saved: ${outputPath}`));
+  report('success', `Saved: ${outputPath}`);
 }
 
 function buildFallbackTemplate(

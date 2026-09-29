@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { sessionIdFor } from './session-id.js';
+import { report } from './report.js';
 
 /**
  * One-time import of the pre-SQLite JSON state into a fresh state.db.
@@ -27,7 +28,7 @@ function readJson(file: string): unknown {
     return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.error(`[work] skipped unreadable ${file} while importing into state.db: ${(err as Error).message}`);
+      report('error', `[work] skipped unreadable ${file} while importing into state.db: ${(err as Error).message}`);
     }
     return undefined;
   }

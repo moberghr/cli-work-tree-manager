@@ -1,35 +1,31 @@
-import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
-import { fetchRemoteAsync, getUnpushedCommits } from '../core/git.js';
-import {
-  collectPrunable,
-  removeSingleEntry,
-  removeGroupEntry,
-} from '../core/prunable-scan.js';
+import { applyCleanup, scanCleanup } from '../core/cleanup.js';
+import { defaultCleanupDeps } from '../core/cleanup-deps.js';
+import { printCleanupResults, removable } from './shared/cleanup-print.js';
 
 export const syncCommand: CommandModule = {
   command: 'sync',
-  describe: 'Fetch all repos in parallel and prune merged worktrees (non-interactive)',
+  describe: 'Fetch all repos and remove merged worktrees (non-interactive)',
   builder: (yargs) =>
     yargs
       .option('dry-run', {
-        describe: 'Show what would be pruned without removing anything',
+        describe: 'Show what would be removed without removing anything',
         type: 'boolean',
         default: false,
       })
       .option('force', {
         describe:
-          'Force-remove worktrees with uncommitted changes or unpushed commits ' +
-          '(default: false — such worktrees are skipped unless --force is given)',
+          'Also remove merged worktrees that have uncommitted changes (those changes are lost). ' +
+          'A worktree with commits the main branch lacks is never removed.',
         type: 'boolean',
         default: false,
       })
       .option('include-squash', {
         describe:
-          'Also prune branches detected only via the squash-merge heuristic ' +
-          '(default: false — unattended sync requires true-merge confidence)',
+          'Also remove branches detected as squash-merged ' +
+          '(default: false — unattended sync requires a true merge)',
         type: 'boolean',
         default: false,
       }),
@@ -37,158 +33,37 @@ export const syncCommand: CommandModule = {
     const dryRun = argv['dryRun'] as boolean;
     const force = argv['force'] as boolean;
     const includeSquash = argv['includeSquash'] as boolean;
+    ensureConfig();
+    const deps = defaultCleanupDeps();
 
-    const config = ensureConfig();
+    console.log(chalk.gray('Fetching all repos and checking worktrees…\n'));
+    const scan = await scanCleanup(deps);
+    // A repo whose fetch failed has stale refs: its worktrees were not judged.
+    for (const f of scan.fetchFailed) console.log(chalk.yellow(`  Warning: fetch failed for ${f.alias} — skipping it (refs may be stale): ${f.error}`));
 
-    // Fetch all configured repos in parallel so merge checks use fresh refs.
-    const repoEntries = Object.entries(config.repos).filter(([, repoPath]) =>
-      fs.existsSync(repoPath),
-    );
-
-    // Repos whose fetch failed: their remote refs may be stale, so merge checks
-    // are unreliable. Skip pruning any worktree backed by these repos.
-    const skipAliases = new Set<string>();
-
-    if (repoEntries.length > 0) {
-      console.log(chalk.gray(`Fetching ${repoEntries.length} repo(s)...`));
-      await Promise.all(
-        repoEntries.map(async ([alias, repoPath]) => {
-          try {
-            await fetchRemoteAsync(repoPath);
-          } catch (err) {
-            skipAliases.add(alias);
-            console.log(
-              chalk.yellow(
-                `  Warning: fetch failed for ${alias} — skipping prune for this ` +
-                  `repo (refs may be stale): ${
-                    err instanceof Error ? err.message : String(err)
-                  }`,
-              ),
-            );
-          }
-        }),
-      );
-      console.log('');
-    }
-
-    console.log(chalk.gray('Scanning worktrees for merged branches...\n'));
-    // We already fetched in parallel above; skip the serial fetch in collect.
-    // print:false avoids double-printing the scan table — sync prints its own
-    // summary below.
-    const prunable = collectPrunable(config, {
-      fetch: false,
-      print: false,
-      includeSquash,
-      skipAliases,
-    });
-
-    if (prunable.length === 0) {
-      console.log(chalk.green('No merged worktrees found. Everything is in sync.'));
+    const chosen = removable(scan.candidates, { includeSquash, dirtyToo: force });
+    const skippedDirty = removable(scan.candidates, { includeSquash, dirtyToo: true }).length - chosen.length;
+    if (chosen.length === 0) {
+      console.log(chalk.green('No merged worktrees to remove. Everything is in sync.'));
+      if (skippedDirty > 0) console.log(chalk.yellow(`Skipped ${skippedDirty} merged worktree(s) with local changes (use --force).`));
       return;
     }
-
-    console.log(chalk.cyan(`Found ${prunable.length} merged worktree(s):\n`));
-    for (const entry of prunable) {
-      const suffix = entry.type === 'group' ? ' [group]' : '';
-      console.log(`  ${entry.target}: ${entry.branch}${suffix}`);
-    }
+    console.log(chalk.cyan(`${dryRun ? 'Would remove' : 'Removing'} ${chosen.length} merged worktree(s):`));
+    for (const c of chosen) console.log(`  ${c.target}: ${c.branch}${c.isGroup ? ' [group]' : ''} — ${c.reason}`);
     console.log('');
-
     if (dryRun) {
-      console.log(
-        chalk.yellow(`Dry run: would prune ${prunable.length} worktree(s). Nothing removed.`),
-      );
+      console.log(chalk.yellow(`Dry run: nothing removed.`));
       return;
     }
-
-    let removed = 0;
-    let failed = 0;
-    let skippedDirty = 0;
-    let skippedUnpushed = 0;
-    for (const entry of prunable) {
-      // Safe by default: never force-remove a worktree with uncommitted
-      // changes or unpushed commits unless --force was passed explicitly.
-      if (entry.hasChanges && !force) {
-        skippedDirty++;
-        console.log(
-          chalk.yellow(
-            `  Skipping ${entry.target}: ${entry.branch} — uncommitted changes ` +
-              `(pass --force to remove anyway).`,
-          ),
-        );
-        continue;
-      }
-
-      // A clean worktree may still hold commits not pushed to its upstream.
-      // removeSingleWorktree(force=false) refuses these, which would otherwise
-      // surface as a "Failed to remove" + exitCode=1. That's not a failure —
-      // it's the same safe-by-default skip as uncommitted changes. Detect it
-      // here and report it as a benign skip. (entry.hasChanges only covers the
-      // working tree, not unpushed history.)
-      if (!force) {
-        const unpushedRepos = entry.repos.filter(
-          (r) => getUnpushedCommits(r.worktreePath) !== '',
-        );
-        if (unpushedRepos.length > 0) {
-          skippedUnpushed++;
-          console.log(
-            chalk.yellow(
-              `  Skipping ${entry.target}: ${entry.branch} — unpushed commits ` +
-                `(pass --force to remove anyway).`,
-            ),
-          );
-          continue;
-        }
-      }
-
-      try {
-        const ok =
-          entry.type === 'single'
-            ? await removeSingleEntry(entry, force)
-            : await removeGroupEntry(entry, config, force);
-        if (ok) {
-          removed++;
-        } else {
-          // Non-throwing failure (e.g. removeSingleWorktree refused or git
-          // failed). Count it so process.exitCode is reliable for CI.
-          failed++;
-          console.log(
-            chalk.red(
-              `  Failed to remove ${entry.target}: ${entry.branch}`,
-            ),
-          );
-        }
-      } catch (err) {
-        failed++;
-        console.log(
-          chalk.red(
-            `  Failed to remove ${entry.target}: ${entry.branch} — ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          ),
-        );
-      }
-    }
-
-    console.log('');
-    console.log(chalk.green(`Pruned ${removed} worktree(s).`));
-    if (skippedDirty > 0) {
-      console.log(
-        chalk.yellow(
-          `Skipped ${skippedDirty} worktree(s) with local changes (use --force).`,
-        ),
-      );
-    }
-    if (skippedUnpushed > 0) {
-      console.log(
-        chalk.yellow(
-          `Skipped ${skippedUnpushed} worktree(s) with unpushed commits (use --force).`,
-        ),
-      );
-    }
-    if (failed > 0) {
-      console.log(chalk.red(`Failed to remove ${failed} worktree(s).`));
-      process.exitCode = 1;
-    }
+    const results = await applyCleanup(
+      deps,
+      chosen.map((c) => ({ sessionId: c.sessionId, action: c.verdict === 'gone' ? ('forget' as const) : ('delete' as const) })),
+      { force },
+    );
+    printCleanupResults(chosen, results);
+    if (skippedDirty > 0) console.log(chalk.yellow(`Skipped ${skippedDirty} merged worktree(s) with local changes (use --force).`));
+    // A removal that git refused is a failure for scripts; "changed since the
+    // scan" is a safe skip, counted in the summary above.
+    if (results.some((r) => !r.ok && r.message.startsWith('git refused'))) process.exitCode = 1;
   },
 };

@@ -11,7 +11,7 @@ import { readPendingForSession } from '../../src/core/pending-delivery.js';
 import { dbPtySessions } from '../../src/core/pty-sessions-file.js';
 import { createSeenStores } from '../../src/core/pr-watch-store.js';
 import { getTasks, addTask } from '../../src/core/tasks.js';
-import { revision, withDb } from '../../src/core/db.js';
+import { revision, withDb, WAL_SIZE_LIMIT } from '../../src/core/db.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 
 /**
@@ -221,4 +221,11 @@ describe('several processes', () => {
     expect(new Set(ports).size).toBe(4);
     expect(ports.every((p) => Number(p) >= 45100 && Number(p) <= 45103)).toBe(true);
   }, 90_000);
+});
+
+describe('state.db write-ahead log', () => {
+  it('caps the WAL file, so state.db-wal cannot keep growing', () => {
+    expect(withDb((d) => d.pragma('journal_size_limit', { simple: true }))).toBe(WAL_SIZE_LIMIT);
+    expect(withDb((d) => d.pragma('journal_mode', { simple: true }))).toBe('wal');
+  });
 });

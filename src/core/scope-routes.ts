@@ -42,6 +42,7 @@ import {
   submitReviewSchema,
 } from './comment-schemas.js';
 import { streamSSE } from 'hono/streaming';
+import { report } from './report.js';
 
 export interface ScopeMountOptions {
   /** Server-level broadcast. Scope events go here too. */
@@ -270,13 +271,13 @@ export function mountScopeRoutes(
         .catch((err) => {
           // Best-effort, but DO surface persistent failures (disk full on
           // `~/.work/diffs/`, stale lockfile, git permission denied).
-          // `installConsoleLogger` mirrors console.error into
+          // report() lands in
           // `~/.work/debug.log` for a diagnostic trail.
-          console.error('[checkpoint] initial snapshot failed:', err);
+          report('warn', `[checkpoint] initial snapshot failed: ${(err as Error).message}`);
         });
     } else {
       rebaselineIfHeadAdvanced(scope.hash, scope.paths).catch((err) => {
-        console.error('[checkpoint] re-baseline failed:', err);
+        report('warn', `[checkpoint] re-baseline failed: ${(err as Error).message}`);
       });
     }
 
@@ -327,7 +328,7 @@ export function mountScopeRoutes(
             }
           })
           .catch((err) => {
-            console.error('[checkpoint] auto-snapshot failed:', err);
+            report('warn', `[checkpoint] auto-snapshot failed: ${(err as Error).message}`);
           });
       };
       // Coalesce: every fs burst resets the settle timer, so a flurry of
