@@ -30,6 +30,7 @@ import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
 import { mountDevRoutes } from './dev-routes.js';
 import { mountCiRoutes } from './ci-routes.js';
+import { sweepOldDiffArtifacts } from './diffs-sweep.js';
 import { disposeAllScopes, listScopes } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
@@ -197,6 +198,13 @@ export async function startWebServer(
         () => broadcast('sessions-changed', { ts: Date.now() }),
         10_000,
       );
+
+  // Old `wd --static` pages and dead daemon logs pile up in ~/.work/diffs
+  // (16 MB on one machine). Sweep them off the startup path.
+  const sweepTimer = setTimeout(() => {
+    bestEffort('sweep old diff artifacts', () => sweepOldDiffArtifacts(), null);
+  }, 5_000);
+  sweepTimer.unref?.();
 
   const app = new Hono();
 
@@ -385,6 +393,7 @@ export async function startWebServer(
       fs.unwatchFile(tasksPath, onTasksChange);
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
+      clearTimeout(sweepTimer);
       activityWatcher?.stop();
       disposeAllWatchers();
       // Sweep checkpoint refs + manifests for every active scope BEFORE
