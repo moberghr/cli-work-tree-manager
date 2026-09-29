@@ -107,6 +107,54 @@ describe('TodayTab', () => {
     expect(btn.textContent).toBe('Copied');
   });
 
+  it("does not repeat the prompt as 'Last:' while the session is working on it", async () => {
+    const working: DigestResponse = {
+      ...DIGEST,
+      sessions: [{ ...DIGEST.sessions[0], state: 'working', summary: 'Add the CSV export', turnLabels: [] }],
+    };
+    act(() => root.render(createElement(TodayTab, { onOpenSession: vi.fn(), load: async () => working })));
+    await flush();
+    expect(container.querySelector('.wd-today-last')).toBeNull();
+    expect(digestMarkdown(working, 'Today')).not.toContain('Last:');
+    const idle: DigestResponse = { ...working, sessions: [{ ...working.sessions[0], state: 'idle', summary: 'Export works' }] };
+    expect(digestMarkdown(idle, 'Today')).toContain('Last: Export works');
+  });
+
+  it('marks a PR merged in the window, and says when earlier prompts are missing', async () => {
+    const d: DigestResponse = {
+      ...DIGEST,
+      sessions: [{
+        ...DIGEST.sessions[0],
+        partial: true,
+        prs: [
+          { repo: 'api', number: 7, url: 'u7', state: 'MERGED', mergedAt: '2026-09-29T15:00:00.000Z' },
+          { repo: 'api', number: 3, url: 'u3', state: 'MERGED', mergedAt: '2026-09-20T15:00:00.000Z' },
+          { repo: 'web', number: 9, url: 'u9', state: 'OPEN' },
+        ],
+      }],
+    };
+    act(() => root.render(createElement(TodayTab, { onOpenSession: vi.fn(), load: async () => d })));
+    await flush();
+    const prs = [...container.querySelectorAll('.wd-today-pr')].map((a) => [a.textContent, a.classList.contains('wd-today-pr-merged')]);
+    expect(prs).toEqual([['#7 merged', true], ['#3 merged', false], ['#9 open', false]]);
+    expect(text(container.querySelector('.wd-today-prompts'))).toContain('Earlier prompts not shown');
+  });
+
+  it("shows 'Copy failed' when the browser has no clipboard, instead of throwing", async () => {
+    const saved = navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    try {
+      act(() => root.render(createElement(TodayTab, { onOpenSession: vi.fn(), load: async () => DIGEST })));
+      await flush();
+      const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Copy as Markdown')!;
+      await act(async () => btn.click());
+      await flush();
+      expect(btn.textContent).toBe('Copy failed');
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { value: saved, configurable: true });
+    }
+  });
+
   it('says so when nothing happened', async () => {
     act(() => root.render(createElement(TodayTab, { onOpenSession: vi.fn(), load: async () => ({ ...DIGEST, sessions: [] }) })));
     await flush();

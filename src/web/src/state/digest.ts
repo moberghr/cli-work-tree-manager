@@ -58,7 +58,7 @@ export function digestMarkdown(d: DigestResponse, title: string): string {
     if (s.turnLabels.length) {
       lines.push('', 'Done:');
       for (const l of s.turnLabels) lines.push(`- ${l}`);
-    } else if (s.summary) {
+    } else if (s.summary && s.state !== 'working') {
       lines.push('', `Last: ${s.summary}`);
     }
   }

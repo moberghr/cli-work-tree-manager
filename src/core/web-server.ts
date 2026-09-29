@@ -26,10 +26,9 @@ import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
 import { listTranscripts, readContextUsage } from './context-usage.js';
 import { buildDigest } from './digest.js';
-import { readTranscriptTail } from './transcript.js';
-
-/** A day of prompts fits comfortably in the last 2 MB of a transcript. */
-const DIGEST_TAIL_BYTES = 2 * 1024 * 1024;
+import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
+import { effectiveStatus, readStatus } from './session-status.js';
+import { readSessionActivity } from './claude-activity.js';
 import type { DigestResponse, SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -347,32 +346,53 @@ export async function startWebServer(
 
   // "What did each session do today?" — read from what's on disk (see
   // digest.ts); PR state from the watch's cache, no gh call here.
-  app.get('/api/digest', (c) => {
+  // Transcripts already parsed for a window, by file identity: changing the
+  // window on the Today tab re-reads only what changed since.
+  let transcriptCache = new Map<string, { sinceMs: number; win: TranscriptWindow }>();
+  app.get('/api/digest', async (c) => {
     const now = Date.now();
     const asked = Date.parse(c.req.query('since') ?? '');
     // Default: the last 24 hours; never more than two weeks back.
     const sinceMs = Math.max(Number.isFinite(asked) ? asked : now - 24 * 3_600_000, now - 14 * 24 * 3_600_000);
-    const inputs = loadHistory()
-      .filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs)
-      .map((s) => {
-        // The cached stat only: a digest is a read and starts no git.
-        const w = sessionToWire(s, (id) => diffStats.peek(id));
-        return {
-          sessionId: w.id,
-          target: s.target,
-          branch: s.branch,
-          isGroup: s.isGroup,
-          lastAccessedAt: s.lastAccessedAt,
-          archivedAt: s.archivedAt ?? null,
-          status: w.attention ? { state: w.attention.state, summary: w.attention.summary, updatedAt: w.attention.updatedAt } : null,
-          transcripts: listTranscripts(s)
-            .filter((t) => t.mtimeMs >= sinceMs)
-            .map((t) => readTranscriptTail(t.file, DIGEST_TAIL_BYTES)),
-          checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
-          diffStat: w.diffStat,
-          ci: prWatch.state(w.id),
-        };
-      });
+    const nextCache = new Map<string, { sinceMs: number; win: TranscriptWindow }>();
+    const inputs = await Promise.all(
+      loadHistory()
+        .filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs)
+        .map(async (s) => {
+          const id = sessionIdFor(s);
+          // Only what the digest shows — not the whole session row (comment
+          // counts, context usage…); the cached stat only, no git.
+          const status = readStatus(id);
+          const attention = status ? effectiveStatus(status, readSessionActivity(s).lastActivity ?? 0) : null;
+          const transcripts: TranscriptEntry[][] = [];
+          let partial = false;
+          for (const t of listTranscripts(s)) {
+            if (t.mtimeMs < sinceMs) continue;
+            const key = `${t.file}:${t.size}:${t.mtimeMs}`;
+            const hit = transcriptCache.get(key);
+            const reuse = !!hit && hit.sinceMs <= sinceMs;
+            const win = reuse ? hit.win : await readTranscriptSince(t.file, sinceMs);
+            nextCache.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win });
+            transcripts.push(win.entries);
+            if (win.partial) partial = true;
+          }
+          return {
+            sessionId: id,
+            target: s.target,
+            branch: s.branch,
+            isGroup: s.isGroup,
+            lastAccessedAt: s.lastAccessedAt,
+            archivedAt: s.archivedAt ?? null,
+            status: attention ? { state: attention.state, summary: attention.summary, updatedAt: attention.updatedAt } : null,
+            transcripts,
+            transcriptsPartial: partial,
+            checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
+            diffStat: diffStats.peek(id),
+            ci: prWatch.state(id),
+          };
+        }),
+    );
+    transcriptCache = nextCache;
     const body: DigestResponse = {
       since: new Date(sinceMs).toISOString(),
       generatedAt: new Date(now).toISOString(),

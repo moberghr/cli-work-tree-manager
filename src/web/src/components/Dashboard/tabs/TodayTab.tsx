@@ -40,13 +40,19 @@ function savedWindow(): DigestWindow {
  * finished, where it stands, its PRs. For a standup ("Copy as Markdown"),
  * or for coming back after a weekend.
  */
-export function TodayTab({ onOpenSession, load = fetchDigest, copy = (t) => navigator.clipboard.writeText(t) }: Props) {
+/** Deferred so a browser without `navigator.clipboard` (a non-secure
+ *  context) rejects instead of throwing out of the click handler. */
+const clipboardCopy = (t: string) => Promise.resolve().then(() => navigator.clipboard.writeText(t));
+
+export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCopy }: Props) {
   const [win, setWin] = useState<DigestWindow>(savedWindow);
   const [data, setData] = useState<DigestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null);
   const request = useRef(0);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
 
   const refresh = useCallback(() => {
     const n = ++request.current;
@@ -81,7 +87,8 @@ export function TodayTab({ onOpenSession, load = fetchDigest, copy = (t) => navi
       () => setCopied('ok'),
       () => setCopied('failed'),
     );
-    setTimeout(() => setCopied(null), 2500);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(null), 2500);
   };
 
   const t = data ? totals(data) : null;
@@ -151,11 +158,23 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
               <span className="wd-diffstat-add">+{s.diffStat.added}</span> <span className="wd-diffstat-del">−{s.diffStat.deleted}</span>
             </span>
           )}
-          {s.prs.map((p) => (
-            <a key={`${p.repo}#${p.number}`} className={`wd-today-pr wd-today-pr-${p.state.toLowerCase()}`} href={p.url} target="_blank" rel="noreferrer">
-              #{p.number} {p.mergedAt && Date.parse(p.mergedAt) >= sinceMs ? 'merged' : p.state.toLowerCase()}
-            </a>
-          ))}
+          {s.prs.map((p) => {
+            // Merged inside the window is the news; a PR merged last week
+            // on a reused branch name is just its state.
+            const mergedNow = !!p.mergedAt && Date.parse(p.mergedAt) >= sinceMs;
+            return (
+              <a
+                key={`${p.repo}#${p.number}`}
+                className={'wd-today-pr' + (mergedNow ? ' wd-today-pr-merged' : '')}
+                href={p.url}
+                target="_blank"
+                rel="noreferrer"
+                title={mergedNow ? 'Merged in this window' : undefined}
+              >
+                #{p.number} {p.state.toLowerCase()}
+              </a>
+            );
+          })}
           {s.archivedAt && <span className="wd-archived-pill">archived</span>}
         </span>
       </header>
@@ -163,6 +182,7 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
         <section className="wd-today-section">
           <h3>You asked</h3>
           <ol className="wd-today-prompts">
+            {s.partial && <li className="wd-today-more">Earlier prompts not shown: the transcript was too large to read back that far.</li>}
             {s.morePrompts > 0 && <li className="wd-today-more">…{s.morePrompts} earlier</li>}
             {s.prompts.map((p) => (
               <li key={p.ts + p.text}>
@@ -182,7 +202,8 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
           </ul>
         </section>
       ) : (
-        s.summary && <p className="wd-today-last">Last: {s.summary}</p>
+        // While working, the status summary is the prompt itself (just listed).
+        s.summary && s.state !== 'working' && <p className="wd-today-last">Last: {s.summary}</p>
       )}
     </article>
   );

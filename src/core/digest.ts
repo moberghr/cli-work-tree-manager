@@ -12,8 +12,14 @@ import type { DiffStat, DigestSession, SessionCi } from './api-types.js';
 export const MAX_PROMPTS = 12;
 const MAX_PROMPT_CHARS = 240;
 
-/** Text Claude Code writes as a "user" entry that you didn't type. */
-const NOT_TYPED = /^\s*(<command-name>|<command-message>|<local-command-|<system-reminder>|<bash-|Caveat: )/;
+/** Text Claude Code writes as a "user" entry that you didn't type: slash
+ *  command echoes, the local-command caveat, subagent task notifications,
+ *  the "[Request interrupted by user]" marker. */
+const NOT_TYPED = /^\s*(<command-name>|<command-message>|<local-command-|<system-reminder>|<bash-|<task-notification>|\[Request interrupted|Caveat: )/;
+
+/** What `checkpoint-summary.ts` names a turn when Claude was unavailable:
+ *  "3 files · +52 −8" or "no changes". A size, not what the turn did. */
+export const HEURISTIC_LABEL_RE = /^(\d+ files? · \+\d+ −\d+|no changes)$/;
 
 function promptText(e: TranscriptEntry): string | null {
   if (e.type !== 'user' || e.isSidechain === true || e.isMeta === true) return null;
@@ -35,7 +41,9 @@ function clip(text: string): string {
   return line.length > MAX_PROMPT_CHARS ? line.slice(0, MAX_PROMPT_CHARS - 1).trimEnd() + '…' : line;
 }
 
-/** Your prompts after `sinceMs`, oldest first, repeats dropped. */
+/** Your prompts after `sinceMs`, oldest first. The same entry seen twice
+ *  (by its uuid, else time + text) counts once; typing "commit" three times
+ *  is three prompts. */
 export function promptsSince(transcripts: TranscriptEntry[][], sinceMs: number): Array<{ ts: string; text: string }> {
   const out: Array<{ ts: string; text: string }> = [];
   const seen = new Set<string>();
@@ -46,8 +54,9 @@ export function promptsSince(transcripts: TranscriptEntry[][], sinceMs: number):
       const text = promptText(e);
       if (!text) continue;
       const line = clip(text);
-      if (seen.has(line)) continue;
-      seen.add(line);
+      const key = typeof e.uuid === 'string' && e.uuid ? e.uuid : `${ts}|${line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push({ ts: new Date(ts).toISOString(), text: line });
     }
   }
@@ -64,6 +73,8 @@ export interface DigestInput {
   status: { state: 'working' | 'needs_input' | 'idle'; summary?: string; updatedAt: string } | null;
   /** Entries of the transcripts written to since the window opened. */
   transcripts: TranscriptEntry[][];
+  /** A transcript was too large to read back to the window's start. */
+  transcriptsPartial?: boolean;
   /** The session scope's checkpoints (id 0 is the baseline, not a turn). */
   checkpoints: Array<{ id: number; ts: string; label?: string }>;
   diffStat: DiffStat | null;
@@ -90,6 +101,7 @@ export function digestSession(s: DigestInput, sinceMs: number): DigestSession | 
   const times = [
     ...prompts.map((p) => Date.parse(p.ts)),
     ...turns.map((t) => Date.parse(t.ts)),
+    ...prs.map((p) => (p.mergedAt && Date.parse(p.mergedAt) >= sinceMs ? Date.parse(p.mergedAt) : 0)),
     archivedInWindow ? Date.parse(s.archivedAt!) : 0,
     s.status ? Date.parse(s.status.updatedAt) || 0 : 0,
   ];
@@ -103,7 +115,10 @@ export function digestSession(s: DigestInput, sinceMs: number): DigestSession | 
     prompts: prompts.slice(-MAX_PROMPTS),
     morePrompts: Math.max(0, prompts.length - MAX_PROMPTS),
     turns: turns.length,
-    turnLabels: turns.map((t) => t.label?.trim()).filter((l): l is string => !!l && l !== 'Initial'),
+    turnLabels: turns
+      .map((t) => t.label?.trim())
+      .filter((l): l is string => !!l && l !== 'Initial' && !HEURISTIC_LABEL_RE.test(l)),
+    ...(s.transcriptsPartial ? { partial: true } : {}),
     diffStat: s.diffStat,
     prs,
     archivedAt: s.archivedAt,

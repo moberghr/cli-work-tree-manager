@@ -64,6 +64,23 @@ describe('GET /api/digest', () => {
     expect(narrow.sessions[0].prompts.map((p) => p.text)).toEqual(['Now quote commas']);
   });
 
+  it("a busy day's morning is not cut off by a transcript that grew past a fixed tail", async () => {
+    const now = Date.now();
+    const iso = (minsAgo: number) => new Date(now - minsAgo * 60_000).toISOString();
+    // First the morning prompt, then ~3 MB of tool results (the bulk of any
+    // real transcript), then an afternoon prompt.
+    const filler = 'x'.repeat(30_000);
+    const lines: object[] = [{ type: 'user', timestamp: iso(400), uuid: 'morning', message: { content: 'Start on the export' } }];
+    for (let i = 0; i < 100; i++) {
+      lines.push({ type: 'user', timestamp: iso(390 - i), message: { content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: filler }] } });
+    }
+    lines.push({ type: 'user', timestamp: iso(30), uuid: 'afternoon', message: { content: 'Now the tests' } });
+    transcript('busy.jsonl', lines);
+    const d = await digest(iso(480));
+    expect(d.sessions[0].prompts.map((p) => p.text)).toEqual(['Start on the export', 'Now the tests']);
+    expect(d.sessions[0].partial).toBeUndefined();
+  }, 30_000);
+
   it('defaults to the last 24 hours and never reaches back more than two weeks', async () => {
     const now = Date.now();
     const def = await digest();

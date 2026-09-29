@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDigest, digestSession, promptsSince, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
+import { buildDigest, digestSession, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
@@ -8,10 +8,10 @@ const you = (min: number, content: unknown, extra: Partial<TranscriptEntry> = {}
   ({ type: 'user', timestamp: at(min), message: { content }, ...extra });
 
 describe('promptsSince', () => {
-  it('keeps what you typed in the window, oldest first, once', () => {
+  it('keeps what you typed in the window, oldest first, and nothing Claude Code wrote for you', () => {
     const t: TranscriptEntry[] = [
       you(-30, 'yesterday: set up the repo'),
-      you(5, 'Add the CSV export'),
+      you(5, 'Add the CSV export', { uuid: 'u5' }),
       { type: 'assistant', timestamp: at(6), message: { content: 'On it' } },
       you(7, [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }]), // Claude's own loop
       you(8, '<command-name>/clear</command-name>'),
@@ -19,12 +19,19 @@ describe('promptsSince', () => {
       you(10, 'meta', { isMeta: true }),
       you(11, 'subagent prompt', { isSidechain: true }),
       you(12, [{ type: 'text', text: 'Also   quote\ncommas' }]),
-      you(13, 'Add the CSV export'), // repeated
+      you(13, '<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n</task-notification>'),
+      you(14, '[Request interrupted by user for tool use]'),
+      you(5, 'Add the CSV export', { uuid: 'u5' }), // the same entry, seen again (another tail read)
     ];
     expect(promptsSince([t], T0)).toEqual([
       { ts: at(5), text: 'Add the CSV export' },
       { ts: at(12), text: 'Also quote commas' },
     ]);
+  });
+
+  it('typing the same thing three times is three prompts', () => {
+    const t = [you(1, 'commit', { uuid: 'a' }), you(2, 'run the tests', { uuid: 'b' }), you(3, 'commit', { uuid: 'c' }), you(4, 'commit')];
+    expect(promptsSince([t], T0).map((p) => p.text)).toEqual(['commit', 'run the tests', 'commit', 'commit']);
   });
 
   it('merges several conversations by time and clips long prompts', () => {
@@ -65,6 +72,22 @@ describe('digestSession', () => {
     expect(digestSession(input({ transcripts: [[you(-5, 'old')]], checkpoints: [{ id: 1, ts: at(-5) }] }), T0)).toBeNull();
   });
 
+  it('leaves out the size-only names a turn gets when Claude was unavailable', () => {
+    for (const l of ['3 files · +52 −8', '1 file · +1 −0', 'no changes']) expect(HEURISTIC_LABEL_RE.test(l)).toBe(true);
+    expect(HEURISTIC_LABEL_RE.test('Renamed 3 files')).toBe(false);
+    const d = digestSession(
+      input({ checkpoints: [{ id: 1, ts: at(5), label: '3 files · +52 −8' }, { id: 2, ts: at(6), label: 'Wrote the export' }, { id: 3, ts: at(7), label: 'no changes' }] }),
+      T0,
+    )!;
+    expect(d.turns).toBe(3);
+    expect(d.turnLabels).toEqual(['Wrote the export']);
+  });
+
+  it('says when a transcript was too large to read back to the window', () => {
+    expect(digestSession(input({ transcripts: [[you(1, 'x')]], transcriptsPartial: true }), T0)?.partial).toBe(true);
+    expect(digestSession(input({ transcripts: [[you(1, 'x')]] }), T0)?.partial).toBeUndefined();
+  });
+
   it('a PR merged in the window counts, even without prompts; lists every PR', () => {
     const ci = {
       checkedAt: at(50),
@@ -75,6 +98,7 @@ describe('digestSession', () => {
     };
     const d = digestSession(input({ ci }), T0)!;
     expect(d.prs).toEqual([{ repo: 'api', number: 7, url: 'u7', state: 'MERGED', mergedAt: at(45) }]);
+    expect(d.lastActivity).toBe(at(45)); // the merge is its activity, so it sorts by it
   });
 
   it(`keeps the last ${MAX_PROMPTS} prompts and says how many came before`, () => {

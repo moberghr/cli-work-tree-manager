@@ -73,6 +73,9 @@ export interface DigestSession {
   /** Finished turns (checkpoints) in the window, and the names already given to them. */
   turns: number;
   turnLabels: string[];
+  /** A transcript was too large to read back to the window's start, so
+   *  earlier prompts are missing. */
+  partial?: boolean;
   diffStat: DiffStat | null;
   prs: Array<{ repo: string; number: number; url: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; mergedAt?: string }>;
   archivedAt: string | null;
