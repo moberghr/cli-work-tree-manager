@@ -1296,3 +1296,40 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-context-full .wd-context-fill { background: var(--del-fg); }
 .wd-st-context { margin-top: 2px; }
 .wd-st-overlap { margin-top: 2px; }
+
+/* "Prompts ▾": saved one-click instructions for a session. */
+.wd-prompts { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.wd-prompts-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-width: 360px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+.wd-prompts-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+}
+.wd-prompts-item:hover, .wd-prompts-item:focus-visible { background: var(--hover); }
+.wd-prompts-empty { padding: 6px 10px; font-size: 12px; color: var(--muted); }
+.wd-prompts-state { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.wd-prompts-state-sent { color: var(--add-fg, #1a7f37); }
+.wd-prompts-state-error { color: var(--del-fg); }

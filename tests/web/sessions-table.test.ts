@@ -43,7 +43,9 @@ const s = (over: Partial<SessionSummary> & { id: string }): SessionSummary => ({
 });
 
 const SESSIONS = [
-  s({ id: 'blocked', attention: att('needs_input', false, 'Needs Bash'), diffStat: { added: 4, deleted: 2, files: 1 } }),
+  // Distinct access times: equal ones computed a moment apart made the
+  // "recent" order depend on whether the clock ticked a millisecond between.
+  s({ id: 'blocked', lastAccessedAt: minsAgo(9), attention: att('needs_input', false, 'Needs Bash'), diffStat: { added: 4, deleted: 2, files: 1 } }),
   s({ id: 'done', attention: att('idle', false, 'Added tests') }),
   s({ id: 'working', attention: att('working', true, 'Refactoring') }),
   s({ id: 'old' }),

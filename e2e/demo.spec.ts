@@ -263,3 +263,13 @@ test('a Jira issue starts a session with a first prompt, opened on its terminal'
   await expect(page).toHaveURL(/\/term$/);
   await expect(page.locator('.wd-session-strip')).toContainText('Work on it: add the export button');
 });
+
+test('a saved prompt is sent to a session from its header, and shows in its comments', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  await page.getByRole('button', { name: 'Prompts ▾' }).click();
+  await page.getByRole('menuitem', { name: 'Add tests' }).click();
+  await expect(page.locator('.wd-prompts-state')).toContainText('"Add tests"');
+  await page.getByRole('tab', { name: /Comments/ }).click();
+  await expect(page.locator('.wd-session-detail')).toContainText('Add tests for what changed on this branch');
+});

@@ -7,6 +7,7 @@ import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
 import type { AnswerRequest } from '../api-types.js';
+import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -224,6 +225,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
+  app.get('/api/prompts', (c) => c.json({ prompts: DEFAULT_PROMPTS, configured: false }));
   app.get('/api/prs', (c) => c.json({ prs: scenario.prs() }));
   app.get('/api/jira', (c) => c.json({ available: true, issues: scenario.jira() }));
   app.get('/api/tasks', (c) => c.json({ tasks: scenario.taskList() }));

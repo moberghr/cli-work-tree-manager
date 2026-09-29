@@ -51,6 +51,21 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** A one-click instruction for a session (config `prompts`, or defaults). */
+export interface SavedPrompt {
+  label: string;
+  prompt: string;
+  /** Only for these repo aliases / group names; all when absent. */
+  repos?: string[];
+}
+
+/** GET /api/prompts */
+export interface PromptsResponse {
+  prompts: SavedPrompt[];
+  /** False when these are the built-in defaults (no `prompts` in config). */
+  configured: boolean;
+}
+
 /** How full the session's Claude conversation is (tokens). */
 export interface ContextUsage {
   /** Tokens the conversation holds now (last request's prompt + reply). */

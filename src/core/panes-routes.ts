@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { loadConfig } from './config.js';
+import { DEFAULT_PROMPTS } from './saved-prompts.js';
+import type { PromptsResponse } from './api-types.js';
 import { fetchAllPullRequests, type PullRequestInfo } from './pr.js';
 import { fetchJiraPane, type JiraIssue } from './jira.js';
 import {
@@ -32,6 +34,14 @@ export function mountPanesRoutes(
   //
   // Used by the new-worktree modal's project picker. Lists configured
   // single repos and groups together; the client filters.
+  // One-click prompts for the session header menu: config.json `prompts`,
+  // or the built-in defaults.
+  app.get('/api/prompts', (c) => {
+    const configured = loadConfig()?.prompts;
+    const body: PromptsResponse = { prompts: configured ?? DEFAULT_PROMPTS, configured: !!configured };
+    return c.json(body);
+  });
+
   app.get('/api/projects', (c) => {
     const config = loadConfig();
     if (!config) {

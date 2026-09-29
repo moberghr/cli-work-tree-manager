@@ -362,6 +362,10 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 
 The New worktree dialog has a "Start Claude with" prompt, which Jira and PR picks pre-fill (`state/start-prompts.ts`: the issue key, summary and link; for a PR, failing checks or requested changes). With a prompt, `POST /api/worktrees` starts the session's Claude in the PTY host with it as the first message (`ensurePty(id, {initialPrompt})`) and the dashboard opens its terminal. § If the session's Claude is already running (the worktree existed), the prompt is queued as a published comment for its next turn, never typed into the terminal. A start that fails still returns the created worktree, with `startError`.
 
+### Saved prompts
+
+"Prompts ▾" in the session header sends a saved instruction ("Review your changes", "Add tests", "Commit", …; `core/saved-prompts.ts`, pure, shared with the SPA and the demo). `prompts` in config.json replaces the defaults, and each may be limited to repos with `repos: [...]`. `GET /api/prompts` serves the list. § Sending is a published general comment (`POST /api/sessions/:id/comments`), so it reaches Claude like any review comment: pushed into a terminal the dashboard owns, or on its next turn. Don't add a path that types it into the PTY directly. `work broadcast` covers many sessions at once.
+
 ### Dev server + preview
 
 Each worktree's stable `$PORT` (`port-allocator.ts`, on `SessionWire.port`) is shown in the session header by `DevChip`, which polls `GET /api/sessions/:id/dev` every 5 s (TCP probe on 127.0.0.1/::1, so it also sees a server Claude started). `core/dev-server.ts` runs `devCommands[alias]` with `shell: true` (user config, like statusHooks), `PORT` in env, output → `~/.work/dev/<id>.log`, pid → `~/.work/dev/<id>.json`. § Detached on POSIX only (process-group kill). On Windows a detached cmd.exe gives its children their own VISIBLE console and loses their output, so it stays attached with `windowsHide`, and `taskkill /T` stops the tree.

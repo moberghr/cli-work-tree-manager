@@ -4,6 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
 import { ContextChip, DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
+import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip } from './DevChip.js';
 import { CiStrip } from './CiStrip.js';
 import { useSse } from '../../api/events.js';
@@ -83,6 +84,7 @@ export function SessionDetail({
         </h1>
         {archived && <span className="wd-archived-pill">archived</span>}
         <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
+        <PromptsMenu session={session} />
         <button
           type="button"
           className="wd-session-detail-btn wd-session-detail-ship"

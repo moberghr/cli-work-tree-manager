@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { atomicWriteFile } from './fs-safe.js';
+import { validatePrompts } from './saved-prompts.js';
+import type { SavedPrompt } from './api-types.js';
 
 /**
  * An opt-in shell command that runs when a session changes status. The command
@@ -74,6 +76,12 @@ export interface WorkConfig {
    * Generalizes `notifications`; both paths work independently. Default: none.
    */
   statusHooks?: StatusHook[];
+  /**
+   * One-click instructions in a session's "Prompts ▾" menu, replacing the
+   * built-in ones: `[{ "label": "Add tests", "prompt": "…", "repos": ["api"] }]`
+   * (`repos` optional: only for those repo aliases / group names).
+   */
+  prompts?: SavedPrompt[];
 }
 
 /** Lowest port we allow to be configured (avoid privileged ports < 1024). */
@@ -140,6 +148,7 @@ export function loadConfig(): WorkConfig | null {
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
       launchViaHost: parsed.launchViaHost === true,
       devCommands: validateDevCommands(parsed.devCommands),
+      prompts: validatePrompts(parsed.prompts),
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
         ? { autoArchive: parsed.prWatch.autoArchive !== false, fixCi: parsed.prWatch.fixCi !== false, reviewComments: parsed.prWatch.reviewComments !== false }
         : undefined,
