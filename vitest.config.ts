@@ -12,6 +12,12 @@ export default defineConfig({
     // push past the 5 s default when the suite runs in parallel.
     // Raise the floor to 20 s so flaky timeouts don't mask real bugs.
     testTimeout: 20_000,
+    // Half the cores: the git-heavy files saturate every core (git.exe
+    // under AV scanning), and with one worker per core the main process got
+    // starved enough to miss a worker RPC ("Timeout calling onTaskUpdate")
+    // — an error that fails the run though every test passed. Wall time
+    // is about the same either way; the run is just calmer.
+    maxWorkers: '50%',
     // Tests run git against an empty config, never the developer's (commit
     // signing, hooks…), and under a throwaway HOME, never the developer's
     // ~/.work or ~/.claude — see tests/setup/.
