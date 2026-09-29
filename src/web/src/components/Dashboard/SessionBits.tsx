@@ -85,11 +85,11 @@ export function ContextChip({ session }: { session: SessionSummary }) {
       : '\nNearly full: Claude will compact it soon. For the next task, start fresh (work tree … --fresh, or /clear).';
   return (
     <span
-      className={`wd-context wd-context-${level}`}
+      className={`wd-ctx wd-ctx-${level}`}
       title={`${formatTokens(c.used)} of ${formatTokens(c.window)} tokens in this conversation${c.model ? ` (${c.model})` : ''}.${advice}`}
     >
-      <span className="wd-context-bar" aria-hidden>
-        <span className="wd-context-fill" style={{ width: `${pct}%` }} />
+      <span className="wd-ctx-bar" aria-hidden>
+        <span className="wd-ctx-fill" style={{ width: `${pct}%` }} />
       </span>
       Context {pct}%
     </span>

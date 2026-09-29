@@ -285,3 +285,16 @@ test('Today lists what each session did, and g d gets there', async ({ page }) =
   await card.locator('.wd-today-title').click();
   await expect(page).toHaveURL(/#\/s\/demo-api-feat-invoice-export\/diff$/);
 });
+
+test('a split-view diff lays its columns out at full width', async ({ page }) => {
+  // A stray `.wd-context { display: inline-flex }` (the diff's own row class)
+  // once shrank every cell to 50 px; the demo's data was fine, so only a
+  // layout measurement catches it.
+  await page.goto(`${url}#/s/demo-api-feat-invoice-export/diff`);
+  const cell = page.locator('table.wd-diff-table.wd-side td.wd-content').first();
+  await expect(cell).toBeVisible();
+  const table = page.locator('table.wd-diff-table.wd-side').first();
+  const [cellBox, tableBox] = await Promise.all([cell.boundingBox(), table.boundingBox()]);
+  expect(cellBox!.width).toBeGreaterThan(tableBox!.width * 0.35); // ~half the table, minus line numbers
+  await expect(cell).toHaveCSS('display', 'table-cell');
+});

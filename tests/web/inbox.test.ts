@@ -159,18 +159,18 @@ describe('OverlapChip', () => {
 
 describe('ContextChip', () => {
   const at = (used: number): SessionSummary => ({ ...session('me', null), context: { used, window: 200_000, model: 'claude-sonnet-5' } });
-  const chip = () => container.querySelector('.wd-context');
+  const chip = () => container.querySelector('.wd-ctx');
 
   it('shows how full the conversation is, and warns as it fills', () => {
     act(() => root.render(createElement(ContextChip, { session: at(40_000) })));
     expect(text(chip())).toBe('Context 20%');
-    expect(chip()!.className).toContain('wd-context-ok');
+    expect(chip()!.className).toContain('wd-ctx-ok');
     expect(chip()!.getAttribute('title')).toBe('40k of 200k tokens in this conversation (claude-sonnet-5).');
     act(() => root.render(createElement(ContextChip, { session: at(150_000) })));
-    expect(chip()!.className).toContain('wd-context-warn');
+    expect(chip()!.className).toContain('wd-ctx-warn');
     expect(chip()!.getAttribute('title')).toContain('start fresh');
     act(() => root.render(createElement(ContextChip, { session: at(195_000) })));
-    expect(chip()!.className).toContain('wd-context-full');
+    expect(chip()!.className).toContain('wd-ctx-full');
   });
 
   it('nothing before the first reply', () => {
