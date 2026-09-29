@@ -2,38 +2,45 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from './config.js';
 
-const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB
+let maxLogSize = 5 * 1024 * 1024; // 5MB, then debug.log → debug.log.1
 
 let logPath: string | null = null;
-let logStream: fs.WriteStream | null = null;
+/** A plain file descriptor, written synchronously: a line is on disk when
+ *  debugLog returns (a buffered stream lost the last lines on exit), and
+ *  rotation can close the file before renaming it — Windows refuses to
+ *  rename a file that is still open. */
+let logFd: number | null = null;
+/** Bytes in the current file: its size at open plus what we wrote since. */
+let logBytes = 0;
 
-function ensureLogStream(): fs.WriteStream | null {
-  if (logStream) return logStream;
+/** Tests shrink the cap to exercise rotation. */
+export function setMaxLogSizeForTests(bytes: number): void {
+  maxLogSize = bytes;
+}
+
+function rotate(file: string): void {
+  const prev = file + '.1';
+  try { fs.unlinkSync(prev); } catch { /* */ }
+  try { fs.renameSync(file, prev); } catch { /* another process has it open; next time */ }
+}
+
+function ensureLog(): number | null {
+  if (logFd !== null) return logFd;
   try {
     const dir = getConfigDir();
-    // Make sure the parent directory exists before opening a stream into
-    // it — under tests (mocked homedir) or first-run conditions the .work
-    // dir may not have been created yet, and createWriteStream's failure
-    // is async (emits 'error') which would otherwise become an unhandled
-    // exception in the host process.
     fs.mkdirSync(dir, { recursive: true });
     logPath = path.join(dir, 'debug.log');
-
-    // Rotate if too large
+    let size = 0;
     try {
-      const stat = fs.statSync(logPath);
-      if (stat.size > MAX_LOG_SIZE) {
-        const prev = logPath + '.1';
-        try { fs.unlinkSync(prev); } catch { /* */ }
-        fs.renameSync(logPath, prev);
-      }
+      size = fs.statSync(logPath).size;
     } catch { /* file doesn't exist yet */ }
-
-    const stream = fs.createWriteStream(logPath, { flags: 'a' });
-    // Best-effort logging — async stream errors must not crash the host.
-    stream.on('error', () => { /* */ });
-    logStream = stream;
-    return logStream;
+    if (size > maxLogSize) {
+      rotate(logPath);
+      size = 0;
+    }
+    logFd = fs.openSync(logPath, 'a');
+    logBytes = size;
+    return logFd;
   } catch {
     return null;
   }
@@ -49,10 +56,22 @@ function stripAnsi(str: string): string {
 }
 
 export function debugLog(level: 'INFO' | 'ERROR' | 'DEBUG' | 'WARN', ...args: unknown[]): void {
-  const stream = ensureLogStream();
-  if (!stream) return;
+  const fd = ensureLog();
+  if (fd === null) return;
   const msg = args.map((a) => typeof a === 'string' ? stripAnsi(a) : JSON.stringify(a)).join(' ');
-  stream.write(`${timestamp()} [${level}] ${msg}\n`);
+  const line = `${timestamp()} [${level}] ${msg}\n`;
+  try {
+    fs.writeSync(fd, line);
+  } catch {
+    return; // best effort: logging must never break the host
+  }
+  logBytes += Buffer.byteLength(line);
+  // Rotate while running too: work web and the PTY host run for days, and
+  // the cap used to be checked only when a process opened the log.
+  if (logBytes > maxLogSize && logPath) {
+    closeLog();
+    rotate(logPath);
+  }
 }
 
 /**
@@ -87,14 +106,14 @@ export function debug(...args: unknown[]): void {
 
 /** Get the log file path. */
 export function getLogPath(): string {
-  ensureLogStream();
+  ensureLog();
   return logPath ?? path.join(getConfigDir(), 'debug.log');
 }
 
 /** Flush and close the log stream. */
 export function closeLog(): void {
-  if (logStream) {
-    logStream.end();
-    logStream = null;
+  if (logFd !== null) {
+    try { fs.closeSync(logFd); } catch { /* */ }
+    logFd = null;
   }
 }

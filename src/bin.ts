@@ -6,7 +6,9 @@ import { getConfigDir } from './core/config.js';
 
 // Install debug logging — all console.log/error/warn also write to ~/.work/debug.log
 installConsoleLogger();
-debug('--- work started', process.argv.slice(2).join(' '), '---');
+// Not for hooks: Claude runs several per turn in every session, and a
+// banner each made most of the log. What a hook actually logs still lands.
+if (process.argv[2] !== 'hook') debug('--- work started', process.argv.slice(2).join(' '), '---');
 
 // Force color support — this is an interactive CLI, and some Windows terminals
 // (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims.
