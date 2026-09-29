@@ -16,7 +16,7 @@ import {
   groupRepoNames,
   groupSessionsByTarget,
 } from '../../../utils/session-groups.js';
-import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
+import { ContextChip, DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -313,16 +313,25 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
       </td>
       <td className="wd-st-col-changes">
         <DiffStatChip session={s} />
-        <OverlapChip session={s} />
         {!!s.diffStat?.files && (
           <span className="wd-st-files"> · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}</span>
         )}
+        {s.overlaps?.length ? (
+          <div className="wd-st-overlap">
+            <OverlapChip session={s} />
+          </div>
+        ) : null}
       </td>
       <td className="wd-st-col-pr">
         <PrChips prs={prs} link />
       </td>
       <td className="wd-st-col-when">
         {relativeTime(s.attention?.updatedAt ?? s.lastAccessedAt)}
+        {s.context && (
+          <div className="wd-st-context">
+            <ContextChip session={s} />
+          </div>
+        )}
       </td>
       <td className="wd-st-col-actions" onClick={(e) => e.stopPropagation()}>
         <button

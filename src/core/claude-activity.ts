@@ -10,7 +10,7 @@ import type { WorktreeSession } from './session-types.js';
  * message, so their mtimes reflect actual conversation activity — which is
  * what the user cares about, not when `work tree` was last invoked.
  */
-function encodeProjectDir(p: string): string {
+export function encodeProjectDir(p: string): string {
   return path.resolve(p).replace(/[^A-Za-z0-9]/g, '-');
 }
 

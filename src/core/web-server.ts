@@ -24,6 +24,7 @@ import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
+import { readContextUsage } from './context-usage.js';
 import type { SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -70,6 +71,7 @@ function sessionToWire(
     diffStat: diffStatFor ? diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,
+    context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
   };
 }
 

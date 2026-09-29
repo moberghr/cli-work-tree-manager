@@ -187,6 +187,15 @@ const DEPS = diffEdit(
   ['  "dependencies": {'],
 );
 
+/** How full each demo conversation is (share of a 200k window). */
+const DEMO_CONTEXT: Record<string, number> = {
+  'feat/invoice-export': 0.38,
+  'feat/checkout-v2': 0.84, // a long session: the dashboard suggests starting fresh
+  'feat/search-filters': 0.21,
+  'fix/login-redirect': 0.55,
+  'chore/deps-update': 0.12,
+};
+
 const PERMISSION_BASH = 'Claude needs your permission to use Bash';
 const PERMISSION_EDIT = 'Claude needs your permission to use Edit';
 
@@ -538,6 +547,7 @@ export class DemoScenario {
       diffStat: stat.files ? stat : null,
       archivedAt: s.archivedAt,
       port: s.port,
+      context: DEMO_CONTEXT[s.branch] ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' } : null,
     };
   }
 

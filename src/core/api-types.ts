@@ -51,6 +51,15 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** How full the session's Claude conversation is (tokens). */
+export interface ContextUsage {
+  /** Tokens the conversation holds now (last request's prompt + reply). */
+  used: number;
+  /** The model's context window. */
+  window: number;
+  model?: string;
+}
+
 /** Another live session that changes some of the same files (same repo,
  *  same path): the two will conflict when both merge. */
 export interface SessionOverlap {
@@ -89,6 +98,8 @@ export interface SessionWire {
   port: number | null;
   /** Other sessions changing the same files; absent when there are none. */
   overlaps?: SessionOverlap[];
+  /** Context used by its Claude conversation; null before the first reply. */
+  context?: ContextUsage | null;
 }
 
 // ---- ship -----------------------------------------------------------------

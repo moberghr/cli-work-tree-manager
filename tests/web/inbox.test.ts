@@ -6,7 +6,7 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { TopNav } from '../../src/web/src/components/Dashboard/TopNav.js';
-import { OverlapChip } from '../../src/web/src/components/Dashboard/SessionBits.js';
+import { ContextChip, OverlapChip, formatTokens } from '../../src/web/src/components/Dashboard/SessionBits.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -154,6 +154,29 @@ describe('OverlapChip', () => {
     expect(text(container)).toBe('⚠ Same files as a, b +1 (3 files)');
     act(() => root.render(createElement(OverlapChip, { session: withOverlaps(undefined) })));
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('ContextChip', () => {
+  const at = (used: number): SessionSummary => ({ ...session('me', null), context: { used, window: 200_000, model: 'claude-sonnet-5' } });
+  const chip = () => container.querySelector('.wd-context');
+
+  it('shows how full the conversation is, and warns as it fills', () => {
+    act(() => root.render(createElement(ContextChip, { session: at(40_000) })));
+    expect(text(chip())).toBe('Context 20%');
+    expect(chip()!.className).toContain('wd-context-ok');
+    expect(chip()!.getAttribute('title')).toBe('40k of 200k tokens in this conversation (claude-sonnet-5).');
+    act(() => root.render(createElement(ContextChip, { session: at(150_000) })));
+    expect(chip()!.className).toContain('wd-context-warn');
+    expect(chip()!.getAttribute('title')).toContain('start fresh');
+    act(() => root.render(createElement(ContextChip, { session: at(195_000) })));
+    expect(chip()!.className).toContain('wd-context-full');
+  });
+
+  it('nothing before the first reply', () => {
+    act(() => root.render(createElement(ContextChip, { session: { ...session('me', null), context: null } })));
+    expect(container.innerHTML).toBe('');
+    expect([formatTokens(950), formatTokens(124_400), formatTokens(1_000_000)]).toEqual(['950', '124k', '1.0M']);
   });
 });
 

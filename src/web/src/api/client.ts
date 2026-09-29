@@ -9,6 +9,7 @@ import type {
   AnswerRequest,
   PermissionRequest,
   ChecksState,
+  ContextUsage,
   DevServerState,
   DiffStat,
   MergeMethod,
@@ -38,6 +39,7 @@ export type {
   AnswerRequest,
   PermissionRequest,
   ChecksState,
+  ContextUsage,
   DevServerState,
   DiffStat,
   MergeMethod,
@@ -99,6 +101,8 @@ export interface SessionSummary {
   /** Other live sessions changing some of the same files (merge conflict
    *  ahead); absent when none. */
   overlaps?: SessionOverlap[];
+  /** How full its Claude conversation is; null before the first reply. */
+  context?: ContextUsage | null;
 }
 
 // ---- Ship / archive ---------------------------------------------------

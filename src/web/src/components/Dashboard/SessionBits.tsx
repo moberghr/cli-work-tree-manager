@@ -56,6 +56,46 @@ export function DiffStatChip({ session }: { session: SessionSummary }) {
   );
 }
 
+/** 124000 → "124k". */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+/** Where a conversation's fill level starts to matter. */
+export const CONTEXT_WARN = 0.7;
+export const CONTEXT_FULL = 0.9;
+
+/**
+ * "Context 62%" with a small bar: how full the session's Claude
+ * conversation is. Near the window Claude compacts it (and answers get
+ * vaguer before that), so past 70% it's worth wrapping up and starting a
+ * fresh conversation for the next task.
+ */
+export function ContextChip({ session }: { session: SessionSummary }) {
+  const c = session.context;
+  if (!c || c.window <= 0) return null;
+  const ratio = Math.min(1, c.used / c.window);
+  const pct = Math.round(ratio * 100);
+  const level = ratio >= CONTEXT_FULL ? 'full' : ratio >= CONTEXT_WARN ? 'warn' : 'ok';
+  const advice =
+    level === 'ok'
+      ? ''
+      : '\nNearly full: Claude will compact it soon. For the next task, start fresh (work tree … --fresh, or /clear).';
+  return (
+    <span
+      className={`wd-context wd-context-${level}`}
+      title={`${formatTokens(c.used)} of ${formatTokens(c.window)} tokens in this conversation${c.model ? ` (${c.model})` : ''}.${advice}`}
+    >
+      <span className="wd-context-bar" aria-hidden>
+        <span className="wd-context-fill" style={{ width: `${pct}%` }} />
+      </span>
+      Context {pct}%
+    </span>
+  );
+}
+
 /** Hover text: which files, shared with which session. */
 export function overlapTitle(session: SessionSummary): string {
   return (session.overlaps ?? [])

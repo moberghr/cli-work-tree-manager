@@ -1271,3 +1271,28 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
   cursor: pointer;
 }
 .wd-overlap-count { color: var(--muted); font-weight: 400; }
+
+/* How full a session's Claude conversation is. */
+.wd-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.wd-context-bar {
+  width: 34px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.wd-context-fill { display: block; height: 100%; background: var(--muted); }
+.wd-context-warn { color: var(--warn-fg); }
+.wd-context-warn .wd-context-fill { background: var(--warn-fg); }
+.wd-context-full { color: var(--del-fg); font-weight: 600; }
+.wd-context-full .wd-context-fill { background: var(--del-fg); }
+.wd-st-context { margin-top: 2px; }
+.wd-st-overlap { margin-top: 2px; }
