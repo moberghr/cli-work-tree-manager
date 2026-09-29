@@ -8,10 +8,8 @@ import { loadHistory, setSessionArchived, type WorktreeSession } from './history
 import {
   disposeAllWatchers,
   findSession,
-  sessionIdFor,
   subscribeSession,
 } from './web-state.js';
-import { readSessionMeta } from './session-meta.js';
 import { claudeProjectsRoot } from './claude-activity.js';
 import { createFsWatcher } from './fs-watcher.js';
 import { mountSessionCommentRoutes } from './session-comment-routes.js';
@@ -21,18 +19,14 @@ import { mountScopeRoutes } from './scope-routes.js';
 import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
-import { DiffStatCache, wantsDiffStat, type DiffStat } from './diff-stat.js';
+import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
-import { listTranscripts, readContextUsage } from './context-usage.js';
-import { buildDigest } from './digest.js';
-import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
-import { effectiveStatus, readStatus } from './session-status.js';
 import { buildStamp } from './build-stamp.js';
 import { sessionWire } from './session-wire.js';
 import { createDigestSource } from './digest-source.js';
 import { report } from './report.js';
 import { mountCleanupRoutes } from './cleanup-routes.js';
-import { readSessionActivity } from './claude-activity.js';
+import { mountAssistantRoutes } from './assistant-routes.js';
 import type { DigestResponse, SessionWire } from './api-types.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -327,6 +321,14 @@ export async function startWebServer(
 
   // Clean up view: which worktrees can go (scan), and removing them.
   mountCleanupRoutes(app, { broadcast });
+
+  // The Ctrl+K assistant: what the dashboard shows, for its prompt hook.
+  // Stats and overlaps from the same caches the session list uses.
+  mountAssistantRoutes(app, {
+    wireOptions: { diffStatFor: (id) => diffStats.peek(id) },
+    overlapsFor: (id) =>
+      ((sessionsCache?.body as { sessions?: SessionWire[] } | undefined)?.sessions ?? []).find((w) => w.id === id)?.overlaps,
+  });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast });

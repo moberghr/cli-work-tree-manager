@@ -51,6 +51,21 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+// ---- assistant (Ctrl+K) ---------------------------------------------------
+
+/** POST /api/assistant/context — what the dashboard shows right now, so the
+ *  assistant knows what "this" means. */
+export interface AssistantView {
+  /** The top tab or view: inbox, today, sessions, cleanup, prs, jira, tasks, session. */
+  tab: string;
+  /** Sub-view (a session's diff / term / comments). */
+  sub?: string;
+  /** The session on screen, if any. */
+  sessionId?: string | null;
+  /** Anything else worth saying (e.g. "12 cleanup candidates listed"). */
+  note?: string;
+}
+
 // ---- cleanup --------------------------------------------------------------
 
 /** What cleanup found: `merged` — safe to delete; `work`/`dirty` — has

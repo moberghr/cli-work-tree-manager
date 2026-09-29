@@ -7,6 +7,7 @@ import type {
 import type {
   ActivityState,
   AnswerRequest,
+  AssistantView,
   PermissionRequest,
   ChecksState,
   CleanupAction,
@@ -44,6 +45,7 @@ import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile 
 export type {
   ActivityState,
   AnswerRequest,
+  AssistantView,
   PermissionRequest,
   ChecksState,
   CleanupAction,
@@ -454,6 +456,11 @@ export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
     out.push({ from: entries[i - 1].id, to: entries[i].id, n: i, label: entries[i].label, ts: entries[i].ts });
   }
   return out.reverse();
+}
+
+/** What the dashboard shows, for the Ctrl+K assistant's context. */
+export function reportAssistantView(view: AssistantView): Promise<{ ok: true }> {
+  return postJson('/api/assistant/context', view);
 }
 
 /** The user opened a session that wanted attention — clear its unseen flag. */

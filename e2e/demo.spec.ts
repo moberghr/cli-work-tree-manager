@@ -327,3 +327,23 @@ test('Clean up finds the old merged worktree and removes it after a confirm', as
   await expect(page.locator('.wd-cleanup-results')).toContainText('1 done.');
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'spike/dark-mode' })).toHaveCount(0);
 });
+
+test('Ctrl+K opens the assistant, which knows the tab you are on', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  const panel = page.locator('.wd-assistant');
+  await expect(panel).toBeHidden();
+  await page.keyboard.press('Control+k');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('.wd-assistant-seeing')).toHaveText('sees: the Sessions tab');
+  // It tells the server what is on screen (the prompt hook reads that), and
+  // again when the view changes. (The terminal draws on a canvas, so its
+  // text isn't in the DOM to assert on.)
+  const told = page.waitForRequest((r) => r.url().endsWith('/api/assistant/context') && r.postDataJSON()?.tab === 'inbox');
+  await page.evaluate(() => { location.hash = '#/inbox'; });
+  await told;
+  await expect(panel.locator('.wd-assistant-seeing')).toHaveText('sees: the Inbox tab');
+  await panel.locator('.xterm').click();
+  // Ctrl+K again closes it — even with focus inside its terminal.
+  await page.keyboard.press('Control+k');
+  await expect(panel).toBeHidden();
+});

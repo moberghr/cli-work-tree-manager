@@ -17,6 +17,7 @@ import {
 import { bestEffortAsync } from '../core/best-effort.js';
 import { pendingToolUse } from '../core/permission-request.js';
 import { readTranscriptTail } from '../core/transcript.js';
+import { readAssistantContext } from '../core/assistant.js';
 
 /**
  * `work hook prompt-submit` / `work hook stop` — invoked by Claude Code's
@@ -38,7 +39,8 @@ export type HookEvent =
   | 'checkpoint-seal'
   | 'status-prompt'
   | 'status-stop'
-  | 'status-notify';
+  | 'status-notify'
+  | 'assistant-context';
 
 const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
@@ -194,6 +196,7 @@ const HOOK_EVENTS = [
   'status-prompt',
   'status-stop',
   'status-notify',
+  'assistant-context',
 ] as const;
 
 /** `work hook <event>` without the yargs router (bin.ts's fast path). An
@@ -225,6 +228,14 @@ async function handleHook(event: HookEvent): Promise<void> {
     if (isInternalClaude()) return;
     const payload = await readStdinJson();
     const cwd = payload.cwd ?? process.cwd();
+    // The dashboard assistant's UserPromptSubmit hook (installed only in its
+    // own folder): stdout becomes context for the prompt — what the user is
+    // looking at in the dashboard.
+    if (event === 'assistant-context') {
+      const text = readAssistantContext();
+      if (text) process.stdout.write(text + '\n');
+      return;
+    }
     // Checkpoint bridges are independent of comment delivery: just nudge work
     // web, emit nothing to Claude's context.
     if (event === 'checkpoint') {

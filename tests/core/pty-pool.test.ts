@@ -104,6 +104,16 @@ describe('ensurePty', () => {
     expect(pool.peekPty('single')).toBe(true);
   });
 
+  it('the dashboard assistant spawns in its own folder, written first — not a worktree', async () => {
+    const pool = await freshPool();
+    expect(await pool.ensurePty('assistant')).toBe('ws://host/assistant');
+    const spec = host.spawned.find((s) => s.id === 'assistant')!.spec as { cwd: string; unsafe?: boolean };
+    const { assistantDir } = await import('../../src/core/assistant.js');
+    expect(spec.cwd).toBe(assistantDir());
+    expect(spec.unsafe).toBeFalsy(); // normal permission mode, always
+    expect(fs.existsSync(path.join(spec.cwd, '.claude', 'settings.json'))).toBe(true);
+  });
+
   it('passes a first prompt to the spawn (a session started from a ticket)', async () => {
     const pool = await freshPool();
     await pool.ensurePty('single', { initialPrompt: 'Work on ABC-1' });

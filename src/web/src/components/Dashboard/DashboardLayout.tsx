@@ -22,6 +22,9 @@ interface Props {
   inboxCount?: number;
   /** Open PRs per session, for the rail badges. */
   prsFor?: PrLookup;
+  /** Opens / closes the Ctrl+K assistant (the top-nav button). */
+  onAssistant?: () => void;
+  assistantOpen?: boolean;
   children: ReactNode;
 }
 
@@ -49,6 +52,8 @@ export function DashboardLayout({
   onNewWorktree,
   inboxCount,
   prsFor,
+  onAssistant,
+  assistantOpen,
   children,
 }: Props) {
   // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
@@ -81,6 +86,8 @@ export function DashboardLayout({
         inboxCount={inboxCount}
         onToggleRail={() => setRailOpen((o) => !o)}
         railOpen={railOpen}
+        onAssistant={onAssistant}
+        assistantOpen={assistantOpen}
       />
       <div
         ref={bodyRef}

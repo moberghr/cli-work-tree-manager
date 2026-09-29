@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchSessions, markSessionSeen, type NotifyEvent, type SessionSummary } from '../api/client.js';
+import { fetchSessions, markSessionSeen, reportAssistantView, type NotifyEvent, type SessionSummary } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
@@ -20,6 +20,7 @@ import {
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
 import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
+import { AssistantPanel } from '../components/Dashboard/AssistantPanel.js';
 import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
@@ -87,6 +88,27 @@ export function DashboardApp() {
     jiraKey?: string;
     prompt?: string;
   } | null>(null);
+
+  // The Ctrl+K assistant. Mounted from the first open, then only hidden.
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantMounted, setAssistantMounted] = useState(false);
+  const toggleAssistant = useCallback(() => {
+    setAssistantMounted(true);
+    setAssistantOpen((o) => !o);
+  }, []);
+  useEffect(() => {
+    // Capture phase, so it works from inside a terminal too (xterm would
+    // otherwise take the key).
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleAssistant();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [toggleAssistant]);
 
   // Session pending delete confirmation (card trash button / detail header).
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
@@ -368,6 +390,19 @@ export function DashboardApp() {
     ? sessions.find((s) => s.id === route.sessionId) ?? null
     : null;
 
+  // Tell the assistant what is on screen while it is open (its prompt hook
+  // adds this to every message), whenever the view changes.
+  const assistantSeeing = activeSession
+    ? `${activeSession.target} · ${activeSession.branch} (${route.sessionSubTab})`
+    : `the ${TAB_LABEL[route.tab]} tab`;
+  useEffect(() => {
+    if (!assistantOpen) return;
+    const view = route.sessionId
+      ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
+      : { tab: route.tab };
+    void reportAssistantView(view).catch(() => {});
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab]);
+
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state).
   const seenKey =
@@ -506,9 +541,14 @@ export function DashboardApp() {
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
         prsFor={prsFor}
+        onAssistant={toggleAssistant}
+        assistantOpen={assistantOpen}
       >
         {body}
       </DashboardLayout>
+      {assistantMounted && (
+        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} seeing={assistantSeeing} />
+      )}
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}

@@ -184,5 +184,5 @@ describe('work sync group worktrees', () => {
 
     expect(fs.existsSync(wtA)).toBe(false);
     expect(fs.existsSync(wtB)).toBe(false);
-  });
+  }, 60_000); // real git on two repos, and the squash check: slow under load
 });

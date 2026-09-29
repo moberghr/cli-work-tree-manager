@@ -475,6 +475,20 @@ export class DemoScenario {
 
   /** The user typed a line into a session's terminal. */
   input(id: string, line: string): void {
+    if (id === 'assistant') {
+      const text = line.trim();
+      if (!text) return;
+      const reply = [
+        '',
+        `● (demo) You're on ${this.assistantView}. In the real dashboard I'd run`,
+        '  `work sessions --json` and answer here; anything that changes things',
+        '  asks you first.',
+        '',
+      ];
+      this.assistantLines.push(`> ${text}`, ...reply);
+      this.emitTerminal(id, `\r\n${reply.join('\r\n')}\r\n> `);
+      return;
+    }
     const s = this.sessions.get(id);
     if (!s) return;
     const text = line.trim();
@@ -500,7 +514,26 @@ export class DemoScenario {
     for (const cb of this.terminalListeners.get(id) ?? []) cb(data);
   }
 
+  /** The Ctrl+K assistant's simulated terminal (the real one is a Claude
+   *  session in the PTY host; see core/assistant.ts). */
+  private assistantLines = [
+    '╭──────────────────────────────────────────────╮',
+    '│ ✻ Claude Code  ·  dashboard assistant (demo) │',
+    '╰──────────────────────────────────────────────╯',
+    '',
+    '  Ask about your sessions: what needs you, what each did today,',
+    '  what can be cleaned up, which ones touch the same files.',
+    '',
+  ];
+  private assistantView = 'the dashboard';
+
+  /** What the dashboard says it shows (POST /api/assistant/context). */
+  setAssistantView(text: string): void {
+    this.assistantView = text;
+  }
+
   screen(id: string): string {
+    if (id === 'assistant') return this.assistantLines.join('\r\n') + '\r\n> ';
     return (this.sessions.get(id)?.transcript ?? []).join('\r\n') + '\r\n';
   }
 

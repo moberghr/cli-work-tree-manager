@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { getAiTool } from './ai-launcher.js';
 import { ensureHost, findHost, PtyHostClient, findHostPatient, PtyHostVersionError } from './pty-host-client.js';
 import { logSwallowed, swallow } from './best-effort.js';
+import { ASSISTANT_ID, prepareAssistantDir } from './assistant.js';
 
 /**
  * `work web`'s view of the Claude PTYs. The PTYs themselves live in the
@@ -106,6 +107,8 @@ export async function resumePersistedSessions(): Promise<number> {
  * in: the worktree for a single repo, the group root (parent of the
  * sub-repos) for a group.
  */
+export { ASSISTANT_ID };
+
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   const first = session.paths[0];
   if (!first) return null;
@@ -122,8 +125,15 @@ export async function ensurePty(
   sessionId: string,
   extra: { initialPrompt?: string } = {},
 ): Promise<string | null> {
-  const session = findSession(sessionId);
-  const base = session ? spawnSpecFor(session) : null;
+  // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
+  // folder, which is (re)written first (assistant.ts).
+  const session = sessionId === ASSISTANT_ID ? null : findSession(sessionId);
+  const base =
+    sessionId === ASSISTANT_ID
+      ? { cwd: prepareAssistantDir(), tool: getAiTool(loadConfig() ?? {}) }
+      : session
+        ? spawnSpecFor(session)
+        : null;
   if (!base) return null;
   // The first prompt only applies to a fresh spawn (the host ignores the
   // spec when the session's PTY is already running).

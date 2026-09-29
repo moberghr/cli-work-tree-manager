@@ -82,6 +82,16 @@ describe.skipIf(!hasBuild)('work hook (built binary)', () => {
     expect(again.stdout).toBe('');
   });
 
+  it("assistant-context prints what the dashboard shows (Claude adds it to the prompt), and nothing when stale", async () => {
+    const { writeAssistantContext } = await import('../../src/core/assistant.js');
+    writeAssistantContext('The user is looking at the cleanup tab.');
+    const r = await hook('assistant-context', { prompt: 'clean these up' });
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe('[work dashboard] The user is looking at the cleanup tab.');
+    writeAssistantContext('old', Date.now() - 2 * 3_600_000);
+    expect((await hook('assistant-context', {})).stdout).toBe('');
+  });
+
   it('an unknown event, or no payload at all, is a quiet no-op', async () => {
     expect((await hook('not-an-event', {})).code).toBe(0);
     expect((await hook('status-stop', 'not json')).code).toBe(0);

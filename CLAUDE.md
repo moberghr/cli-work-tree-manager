@@ -230,6 +230,7 @@ wd-bin.ts → forwards argv to the `diff` command (the `wd` shim binary)
                                   ├── core/context-usage.ts         ← how full a session's conversation is (last usage in its newest transcript)
                                   ├── core/overlap.ts               ← PURE: sessions changing the same files of a repo (from diff-stat's touched files)
                                   ├── core/digest.ts                ← PURE: the Today digest (prompts, turns, PRs per session) from given inputs
+                                  ├── core/assistant.ts             ← the Ctrl+K assistant's folder (CLAUDE.md, settings, allow list) + dashboard-view context for its prompt hook
                                   ├── core/saved-prompts.ts         ← PURE: default one-click prompts + config validation (SPA + demo import it)
                                   ├── core/ship.ts                  ← ship per repo: preflight (dirty/upstream/PR/checks/merge blockers) + push / create-pr / merge (--match-head-commit; group merge all-or-nothing). Injectable CommandRunner (cross-spawn, argv only)
                                   ├── core/ship-routes.ts           ← Hono sub-app: GET/POST /api/sessions/:id/ship (merge success → archive), POST /api/sessions/:id/archive
@@ -380,6 +381,12 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 ### Start from a ticket or PR
 
 The New worktree dialog has a "Start Claude with" prompt, which Jira and PR picks pre-fill (`state/start-prompts.ts`: the issue key, summary and link; for a PR, failing checks or requested changes). With a prompt, `POST /api/worktrees` starts the session's Claude in the PTY host with it as the first message (`ensurePty(id, {initialPrompt})`) and the dashboard opens its terminal. § If the session's Claude is already running (the worktree existed), the prompt is queued as a published comment for its next turn, never typed into the terminal. A start that fails still returns the created worktree, with `startError`.
+
+### The Ctrl+K assistant
+
+Ctrl+K (or "Ask" in the top bar) opens a right-hand panel with a real Claude session: session id `assistant` in the PTY host, like any worktree's, so it survives restarts and keeps its conversation. It runs in `~/.work/assistant/`, which `prepareAssistantDir` (`core/assistant.ts`) rewrites before each spawn: a CLAUDE.md (its role; get data with `work … --json`, ask before changing anything) and `.claude/settings.json` (pre-allowed read-only commands, and a `UserPromptSubmit` hook → `work hook assistant-context`). While the panel is open the SPA posts the view (`POST /api/assistant/context`: tab, sub-view, session); the server puts it into words (`describeView`, with the session's status, diff, overlaps) and the hook adds it to every prompt for 30 minutes, so "this" and "these" mean what's on screen. The panel stays mounted after the first open; Ctrl+K works from inside a terminal (a capture-phase listener).
+
+§ It runs in Claude Code's normal permission mode, never --unsafe. `ASSISTANT_ALLOW` holds only read-only commands, with exact rules for cleanup: `Bash(work cleanup --json:*)` is a prefix rule and would let `--apply` through without asking (tests/core/assistant.test.ts checks this). The user's own "don't ask again" choices go to `.claude/settings.local.json`, which work never writes.
 
 ### Today (digest)
 

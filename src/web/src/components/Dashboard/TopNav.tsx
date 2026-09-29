@@ -17,6 +17,9 @@ interface Props {
    *  below the breakpoint, via CSS). */
   onToggleRail?: () => void;
   railOpen?: boolean;
+  /** Opens / closes the Ctrl+K assistant. */
+  onAssistant?: () => void;
+  assistantOpen?: boolean;
 }
 
 interface TabDef {
@@ -52,6 +55,8 @@ export function TopNav({
   inboxCount = 0,
   onToggleRail,
   railOpen = false,
+  onAssistant,
+  assistantOpen = false,
 }: Props) {
   return (
     <nav className="wd-dash-topnav" role="navigation" aria-label="Dashboard">
@@ -109,6 +114,17 @@ export function TopNav({
         >
           {currentScopeLabel}
         </span>
+      )}
+      {onAssistant && (
+        <button
+          type="button"
+          className={'wd-assistant-toggle' + (assistantOpen ? ' wd-assistant-toggle-on' : '')}
+          onClick={onAssistant}
+          aria-pressed={!!assistantOpen}
+          title="Ask Claude about your sessions (Ctrl+K)"
+        >
+          Ask <kbd>Ctrl K</kbd>
+        </button>
       )}
       <ThemeToggle />
     </nav>

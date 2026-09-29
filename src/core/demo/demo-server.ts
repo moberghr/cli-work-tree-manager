@@ -227,6 +227,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
   app.get('/api/prompts', (c) => c.json({ prompts: DEFAULT_PROMPTS, configured: false }));
+  app.post('/api/assistant/context', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { tab?: unknown; sessionId?: unknown } | null;
+    if (!body || typeof body.tab !== 'string') return c.json({ error: 'tab required' }, 400);
+    scenario.setAssistantView(`the ${body.tab} tab${typeof body.sessionId === 'string' ? ` (session ${body.sessionId})` : ''}`);
+    return c.json({ ok: true });
+  });
   app.get('/api/cleanup', (c) => c.json(scenario.cleanup()));
   app.post('/api/cleanup/scan', (c) => c.json(scenario.cleanupScan()));
   app.post('/api/cleanup/apply', async (c) => {
