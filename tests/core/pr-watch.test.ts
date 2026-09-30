@@ -32,8 +32,8 @@ function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: R
     told: () => ({ has: (k: string) => told.has(k), add: (k: string) => void told.add(k) }),
     reviewFeedback: vi.fn(async () => feedback),
     now: () => LATER,
-    ...extra,
   } satisfies PrWatchDeps;
+  Object.assign(deps, extra); // tests also change deps later: the watch must see the same object
   return { deps, watch: createPrWatch(deps), set: (r: RepoShipState[]) => (pre = { repos: r }) };
 }
 /** A note's first words, before any "(…)" or ":" */
@@ -97,6 +97,42 @@ describe('PR watch', () => {
       { now: () => Date.parse(ENTERED) + 3600_000 });
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
+  it("GitHub's rate limit: keeps what it knew, acts on nothing, and rests its sweeps", async () => {
+    let t = LATER;
+    const h = harness([{ ...repo('api', pr({ state: 'OPEN' })), openThreads: 0 } as RepoShipState], ON, false, {
+      viewer: 'me', reviews: [], comments: [],
+      threads: [{ id: 't1', isResolved: false, isOutdated: false, path: 'a.ts', line: 1, comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }] }],
+    } as unknown as ReviewFeedback, { now: () => t });
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+
+    // Now every gh call says the limit is spent: the PR reads as none.
+    h.set([{ ...repo('api', null, true), ghError: 'GraphQL: API rate limit already exceeded for user ID 1.' } as RepoShipState]);
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0]).toMatchObject({ pr: { number: 7 }, openThreads: 1 }); // not "no PR"
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    const calls = h.deps.preflight.mock.calls.length;
+    t += 60_000;
+    await h.watch.tick(); // resting: no gh at all
+    expect(h.deps.preflight.mock.calls.length).toBe(calls);
+    t += 10 * 60_000;
+    await h.watch.tick();
+    expect(h.deps.preflight.mock.calls.length).toBe(calls + 1);
+  });
+
+  it('a review lookup that fails keeps the last count for the same PR', async () => {
+    const feedback = vi.fn<() => Promise<ReviewFeedback | null>>(async () => ({
+      viewer: 'me', reviews: [], comments: [],
+      threads: [{ id: 't1', isResolved: false, isOutdated: false, path: 'a.ts', line: 1, comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }] }],
+    } as unknown as ReviewFeedback));
+    const h = harness([repo('api', pr({ state: 'OPEN' }))], ON, false, null, { reviewFeedback: feedback });
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+    feedback.mockResolvedValue(null);
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
   });
 
   it('never archives while its Claude is working or waiting for you', async () => {

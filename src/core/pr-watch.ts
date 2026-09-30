@@ -59,6 +59,10 @@ export interface PrWatch {
 }
 
 const CONCURRENCY = 3;
+/** gh's words when GitHub's API limit is spent ("API rate limit already exceeded", "secondary rate limit"). */
+export const RATE_LIMITED = /rate limit/i;
+/** How long the sweeps rest after GitHub said so. */
+export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
 
 export function ciFixMessage(failing: Array<{ repo: string; number: number; checks: string[] }>, isGroup: boolean): string {
   const lines = failing.map(
@@ -107,6 +111,8 @@ export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSess
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>();
+  /** Sweeps skip until then: GitHub's API limit was spent (see check). */
+  let pausedUntil = 0;
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
 
   /**
@@ -151,6 +157,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     } catch {
       return states.get(id) ?? null;
     }
+    // GitHub refused: every PR reads as "none". Keep what we knew, act on
+    // nothing, and let the sweeps rest (each would only spend more).
+    if (pre.repos.some((r) => r.ghError && RATE_LIMITED.test(r.ghError))) {
+      pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
+      return states.get(id) ?? null;
+    }
     const opts = deps.options();
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
@@ -165,7 +177,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN') continue;
         const fb = await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
-        if (!fb) continue;
+        if (!fb) {
+          // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
+          const was = states.get(id)?.repos.find((p) => p.name === r.name);
+          if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
+          continue;
+        }
         threads.set(r.name, openThreadCount(fb));
         if (act && deliverReviews) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen);
@@ -206,6 +223,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   let running: Promise<void> | null = null;
   const watch: PrWatch = {
     tick() {
+      if (now() < pausedUntil) return Promise.resolve();
       // One sweep at a time: a slow gh must not stack sweeps up.
       running ??= (async () => {
         const queue = deps.sessions();

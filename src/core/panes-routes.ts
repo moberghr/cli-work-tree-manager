@@ -5,6 +5,10 @@ import { loadConfig } from './config.js';
 import { DEFAULT_PROMPTS } from './saved-prompts.js';
 import type { PromptsResponse } from './api-types.js';
 import { fetchAllPullRequests, type PullRequestInfo } from './pr.js';
+import { createSharedFetch } from './shared-fetch.js';
+
+/** How long the open-PR list is reused before a background refresh. */
+export const PRS_TTL_MS = 120_000;
 import { fetchJiraPane, type JiraIssue } from './jira.js';
 import {
   addTask,
@@ -62,30 +66,22 @@ export function mountPanesRoutes(
 
   // -- PRs ---------------------------------------------------------------
   //
-  // In-flight dedup: `gh pr list` is slow and the pane fires on a 60s
-  // interval. A burst of refresh clicks (or interval + sessions-changed
-  // racing) would otherwise spawn N × gh subprocesses concurrently. The
-  // first concurrent request triggers the fetch; everyone else awaits
-  // the same promise.
-  let prsInFlight: Promise<{ prs: PullRequestInfo[]; incomplete?: string[] }> | null = null;
-  app.get('/api/prs', async (c) => {
+  // One `gh pr list` per repo, shared by every window and reused for two
+  // minutes (shared-fetch.ts): each window asks on an interval and on every
+  // sessions change, which without this spent GitHub's hourly API limit.
+  const prsFetch = createSharedFetch(async (): Promise<{ prs: PullRequestInfo[]; incomplete?: string[] }> => {
     const config = loadConfig();
-    if (!config) return c.json({ prs: [] });
-    if (!prsInFlight) {
-      prsInFlight = (async () => {
-        try {
-          const { map, incomplete } = await fetchAllPullRequests(config.repos);
-          // Flatten: one entry per PR, with the resolved repo alias attached.
-          const prs = Array.from(map.values()).flat();
-          // Repos gh couldn't list in full: "no PR" there means "don't know".
-          return incomplete.length ? { prs, incomplete } : { prs };
-        } finally {
-          prsInFlight = null;
-        }
-      })();
-    }
+    if (!config) return { prs: [] };
+    const { map, incomplete } = await fetchAllPullRequests(config.repos);
+    // Flatten: one entry per PR, with the resolved repo alias attached.
+    const prs = Array.from(map.values()).flat();
+    // Repos gh couldn't list in full: "no PR" there means "don't know".
+    return incomplete.length ? { prs, incomplete } : { prs };
+  }, PRS_TTL_MS);
+  app.get('/api/prs', async (c) => {
+    if (!loadConfig()) return c.json({ prs: [] });
     try {
-      const result = await prsInFlight;
+      const result = await prsFetch.get();
       return c.json(result);
     } catch (err) {
       // gh missing or unauthenticated — surface empty rather than 500;
