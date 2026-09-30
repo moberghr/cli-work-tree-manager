@@ -20,6 +20,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant. */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** What work is doing in the background (ActivityIndicator). */
+  activity?: React.ReactNode;
 }
 
 interface TabDef {
@@ -57,6 +59,7 @@ export function TopNav({
   railOpen = false,
   onAssistant,
   assistantOpen = false,
+  activity,
 }: Props) {
   return (
     <nav className="wd-dash-topnav" role="navigation" aria-label="Dashboard">
@@ -115,6 +118,7 @@ export function TopNav({
           {currentScopeLabel}
         </span>
       )}
+      {activity}
       {onAssistant && (
         <button
           type="button"

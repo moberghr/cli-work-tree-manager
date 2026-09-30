@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { buildFoldersOf, clearBuildFolders } from './build-folders.js';
 import type { BuildFolder, BuildFolderCandidate, BuildFoldersApplyResult, BuildFoldersState } from './api-types.js';
 import type { CommandRunner } from './ship.js';
+import type { ActivityLog } from './activity.js';
 
 /** Sessions idle at least this long are offered (a week). */
 export const BUILD_FOLDERS_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -45,16 +46,27 @@ export async function scanBuildFolders(deps: BuildFoldersDeps, onProgress?: (che
 }
 
 /** One scan at a time; its latest result kept for the view. */
-export function createBuildFoldersJob(deps: BuildFoldersDeps) {
+export function createBuildFoldersJob(deps: BuildFoldersDeps, activity?: ActivityLog) {
   let state: BuildFoldersState = { scanning: false, checked: 0, total: 0, scannedAt: null, candidates: [] };
   return {
     state: () => state,
     scan: () => {
       if (state.scanning) return;
       state = { ...state, scanning: true, checked: 0, total: 0 };
-      void scanBuildFolders(deps, (checked, total) => (state = { ...state, checked, total }))
-        .then((candidates) => (state = { ...state, scanning: false, candidates, scannedAt: new Date().toISOString() }))
-        .catch(() => (state = { ...state, scanning: false }));
+      const run = activity?.start('build-folders', 'Measuring build folders in idle worktrees');
+      void scanBuildFolders(deps, (checked, total) => {
+        state = { ...state, checked, total };
+        run?.progress(checked, total);
+      })
+        .then((candidates) => {
+          state = { ...state, scanning: false, candidates, scannedAt: new Date().toISOString() };
+          const gb = candidates.reduce((n, c) => n + c.bytes, 0) / 1e9;
+          run?.done(`${candidates.length} idle worktree${candidates.length === 1 ? '' : 's'} with build output · ${gb.toFixed(1)} GB`);
+        })
+        .catch((err: Error) => {
+          state = { ...state, scanning: false };
+          run?.fail(err.message);
+        });
     },
     /** Clear the build folders of these sessions (each checked again as it goes). */
     apply: async (ids: string[]) => {

@@ -162,6 +162,11 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** What work is doing in the background, and what it decided (the Activity panel). */
+export function fetchActivity(): Promise<import('../../../core/api-types.js').ActivityWire> {
+  return getJson('/api/activity');
+}
+
 export function fetchSessions(): Promise<SessionSummary[]> {
   return getJson<{ sessions: SessionSummary[] }>('/api/sessions').then(
     (r) => r.sessions,

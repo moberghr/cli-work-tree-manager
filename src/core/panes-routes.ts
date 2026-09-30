@@ -6,6 +6,7 @@ import { DEFAULT_PROMPTS } from './saved-prompts.js';
 import type { PromptsResponse } from './api-types.js';
 import { fetchAllPullRequests, type PullRequestInfo } from './pr.js';
 import { createSharedFetch } from './shared-fetch.js';
+import type { ActivityLog } from './activity.js';
 
 /** How long the open-PR list is reused before a background refresh. */
 export const PRS_TTL_MS = 120_000;
@@ -22,6 +23,8 @@ import {
 export interface PanesMountOptions {
   /** Server-level broadcast so mutations emit *-changed events. */
   broadcast: (event: string, data: unknown) => void;
+  /** Where the PR and Jira fetches show (the Activity panel). */
+  activity?: ActivityLog;
 }
 
 /**
@@ -72,11 +75,19 @@ export function mountPanesRoutes(
   const prsFetch = createSharedFetch(async (): Promise<{ prs: PullRequestInfo[]; incomplete?: string[] }> => {
     const config = loadConfig();
     if (!config) return { prs: [] };
-    const { map, incomplete } = await fetchAllPullRequests(config.repos);
-    // Flatten: one entry per PR, with the resolved repo alias attached.
-    const prs = Array.from(map.values()).flat();
-    // Repos gh couldn't list in full: "no PR" there means "don't know".
-    return incomplete.length ? { prs, incomplete } : { prs };
+    const run = opts.activity?.start('pr-list', 'Listing open pull requests');
+    try {
+      const { map, incomplete } = await fetchAllPullRequests(config.repos);
+      // Flatten: one entry per PR, with the resolved repo alias attached.
+      const prs = Array.from(map.values()).flat();
+      if (incomplete.length) run?.note(`couldn't list every PR of ${incomplete.join(', ')} (gh failed, or 100+ open): archiving isn't suggested for sessions there`, { level: 'warn' });
+      run?.done(`${prs.length} open PR${prs.length === 1 ? '' : 's'} in ${Object.keys(config.repos).length} repos`);
+      // Repos gh couldn't list in full: "no PR" there means "don't know".
+      return incomplete.length ? { prs, incomplete } : { prs };
+    } catch (err) {
+      run?.fail((err as Error).message);
+      throw err;
+    }
   }, PRS_TTL_MS);
   app.get('/api/prs', async (c) => {
     if (!loadConfig()) return c.json({ prs: [] });
@@ -104,8 +115,15 @@ export function mountPanesRoutes(
   app.get('/api/jira', async (c) => {
     if (!jiraInFlight) {
       jiraInFlight = (async () => {
+        const run = opts.activity?.start('jira', 'Fetching your Jira issues');
         try {
-          return await fetchJiraPane();
+          const r = await fetchJiraPane();
+          if (!r.available) run?.fail('Jira CLI (acli) not available or not logged in');
+          else run?.done(`${r.issues.length} issue${r.issues.length === 1 ? '' : 's'}`);
+          return r;
+        } catch (err) {
+          run?.fail((err as Error).message);
+          throw err;
         } finally {
           jiraInFlight = null;
         }

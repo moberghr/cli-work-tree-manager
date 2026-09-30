@@ -10,6 +10,7 @@ import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CleanupApply
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
+import { createDemoActivity } from './demo-activity.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -321,6 +322,15 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const asked = Date.parse(c.req.query('since') ?? '');
     return c.json(scenario.digest(Number.isFinite(asked) ? asked : Date.now() - 24 * 3_600_000));
   });
+  // What work would be doing in the background (demo-activity.ts).
+  let activityTimer: NodeJS.Timeout | null = null;
+  const activity = createDemoActivity(scenario, () => {
+    activityTimer ??= setTimeout(() => {
+      activityTimer = null;
+      broadcast({ event: 'activity-changed', data: { ts: Date.now() } });
+    }, 400);
+  });
+  app.get('/api/activity', (c) => c.json(activity.log.snapshot()));
   app.get('/api/prs', (c) => c.json({ prs: scenario.prs() }));
   app.get('/api/jira', (c) => c.json({ available: true, issues: scenario.jira() }));
   app.get('/api/tasks', (c) => c.json({ tasks: scenario.taskList() }));
@@ -418,6 +428,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     scenario,
     async stop() {
       clearInterval(tick);
+      activity.stop();
       unsubscribe();
       wss.close();
       await handle.stop();

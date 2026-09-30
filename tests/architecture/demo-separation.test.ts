@@ -50,6 +50,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/cleanup-verdict.ts', // pure: what to do with a worktree, given its git facts
       'src/core/transcript-entry.ts', // pure: transcript line shapes
       'src/core/session-order.ts', // pure: the sessions list's manual order
+      'src/core/activity.ts', // pure: the in-memory Activity log
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

@@ -8,6 +8,7 @@ import { defaultBuildFoldersDeps } from './build-folders-deps.js';
 import { deleteMergedBranches, findMergedBranches, type BranchTidyDeps } from './branch-tidy.js';
 import { defaultBranchTidyDeps } from './branch-tidy-deps.js';
 import type { BranchesState } from './api-types.js';
+import type { ActivityLog, RunHandle } from './activity.js';
 
 export interface CleanupRoutesOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -17,6 +18,8 @@ export interface CleanupRoutesOptions {
   buildFolders?: BuildFoldersDeps;
   /** Tests inject the branch scan's inputs. */
   branches?: BranchTidyDeps;
+  /** Where the scans show (the Activity panel). */
+  activity?: ActivityLog;
 }
 
 /**
@@ -38,11 +41,33 @@ export interface CleanupRoutesOptions {
  * GET only reads (§1.5); scanning runs git, so it is a POST.
  */
 export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): CleanupJob {
+  // The job's phases as Activity runs: one per scan or clean-up.
+  let cleanupRun: RunHandle | null = null;
+  const trackCleanup = () => {
+    const st = job.state();
+    if (st.phase !== 'idle') {
+      cleanupRun ??= opts.activity?.start('cleanup', st.phase === 'applying' ? 'Cleaning up worktrees' : 'Checking which worktrees can go') ?? null;
+      cleanupRun?.progress(st.done, st.total);
+      return;
+    }
+    if (!cleanupRun) return;
+    if (st.error) cleanupRun.fail(st.error);
+    else if (st.results.length) {
+      for (const r of st.results) cleanupRun.note(`${r.action}: ${r.message}`, { level: r.ok ? 'action' : 'warn', sessionId: r.sessionId });
+      const ok = st.results.filter((r) => r.ok).length;
+      cleanupRun.done(`${ok} of ${st.results.length} done`);
+    } else {
+      const can = st.candidates.filter((c) => c.suggested).length;
+      cleanupRun.done(`${st.candidates.length} worktrees checked · ${can} can go`);
+    }
+    cleanupRun = null;
+  };
   const job =
     opts.job ??
     createCleanupJob({
       ...defaultCleanupDeps({ release: (id) => disposeSessionWatcher(id) }),
       onChange: () => {
+        trackCleanup();
         opts.broadcast('cleanup-changed', { ts: Date.now() });
         opts.broadcast('sessions-changed', { ts: Date.now() });
       },
@@ -64,7 +89,7 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
   });
 
   // Space without archiving: build output in worktrees you haven't used for a week.
-  const folders = createBuildFoldersJob(opts.buildFolders ?? defaultBuildFoldersDeps());
+  const folders = createBuildFoldersJob(opts.buildFolders ?? defaultBuildFoldersDeps(), opts.activity);
   app.get('/api/cleanup/build-folders', (c) => c.json(folders.state()));
   app.post('/api/cleanup/build-folders/scan', (c) => {
     folders.scan();
@@ -86,9 +111,16 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
   app.post('/api/cleanup/branches/scan', (c) => {
     if (!branches.scanning) {
       branches = { ...branches, scanning: true };
+      const run = opts.activity?.start('branches', 'Looking for merged local branches');
       void findMergedBranches(branchDeps)
-        .then((candidates) => (branches = { scanning: false, scannedAt: new Date().toISOString(), candidates }))
-        .catch(() => (branches = { ...branches, scanning: false }));
+        .then((candidates) => {
+          branches = { scanning: false, scannedAt: new Date().toISOString(), candidates };
+          run?.done(`${candidates.length} merged local branch${candidates.length === 1 ? '' : 'es'}`);
+        })
+        .catch((err: Error) => {
+          branches = { ...branches, scanning: false };
+          run?.fail(err.message);
+        });
     }
     return c.json(branches);
   });
@@ -100,7 +132,10 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
           .map((i) => ({ repo: i.repo, branch: i.branch, ...(typeof i.tip === 'string' ? { tip: i.tip } : {}) }))
       : [];
     if (items.length === 0) return c.json({ error: 'items: [{repo, branch, tip?}]' }, 400);
+    const run = opts.activity?.start('branches', 'Deleting merged local branches');
     const results = await deleteMergedBranches(items, branchDeps);
+    for (const r of results) run?.note(`${r.repo} ${r.branch}: ${r.message}`, { level: r.ok ? 'action' : 'warn' });
+    run?.done(`${results.filter((r) => r.ok).length} of ${results.length} deleted`);
     const gone = new Set(results.filter((r) => r.ok).map((r) => `${r.repo}\0${r.branch}`));
     branches = { ...branches, candidates: branches.candidates.filter((b) => !gone.has(`${b.repo}\0${b.branch}`)) };
     return c.json({ results, state: branches });

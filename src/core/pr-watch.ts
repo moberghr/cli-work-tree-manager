@@ -2,6 +2,7 @@ import type { WorktreeSession } from './session-types.js';
 import type { SessionCi, ShipPreflight } from './api-types.js';
 import { DECISION_MARKER } from './attention.js';
 import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore } from './pr-review.js';
+import type { ActivityLog, RunHandle, ScheduleHandle } from './activity.js';
 
 /**
  * Background PR watch for `work web` (full mode): what GitHub knows about
@@ -43,6 +44,8 @@ export interface PrWatchDeps {
    *  review comments handed over (persisted, see pr-watch-store.ts). */
   told: (sessionId: string) => SeenStore;
   now?: () => number;
+  /** Where its runs and decisions show (the Activity panel). */
+  activity?: ActivityLog;
 }
 
 export interface PrWatch {
@@ -96,16 +99,39 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
 export const REENTERED_GRACE_MS = 24 * 3600_000;
 
 export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>, now: number): boolean {
-  if (pre.repos.length === 0 || !pre.repos.every((r) => r.done)) return false;
-  if (pre.repos.some((r) => r.dirtyFiles > 0)) return false;
+  return autoArchiveVerdict(pre, session, now)?.archive === true;
+}
+
+/**
+ * The same rule, with its reason, for the Activity panel: null when no PR
+ * of the session is merged (nothing to decide), else whether it archives
+ * and, when not, why it keeps the session.
+ */
+export function autoArchiveVerdict(
+  pre: ShipPreflight,
+  session: Pick<WorktreeSession, 'lastAccessedAt'>,
+  now: number,
+): { archive: true } | { archive: false; why: string } | null {
+  const merged = pre.repos.filter((r) => r.pr?.state === 'MERGED');
+  if (merged.length === 0) return null;
+  const open = pre.repos.filter((r) => !r.done);
+  if (open.length) return { archive: false, why: `not all merged yet (${open.map((r) => r.name).join(', ')})` };
+  const dirty = pre.repos.reduce((n, r) => n + r.dirtyFiles, 0);
+  if (dirty > 0) return { archive: false, why: `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` };
   const entered = Date.parse(session.lastAccessedAt);
-  return pre.repos.some((r) => {
-    if (r.pr?.state !== 'MERGED') return false;
-    const merged = r.pr.mergedAt ? Date.parse(r.pr.mergedAt) : NaN;
-    if (Number.isFinite(merged) && (!Number.isFinite(entered) || merged > entered)) return true;
-    const sameWork = !!r.pr.headSha && !!r.localSha && r.pr.headSha === r.localSha;
-    return sameWork && Number.isFinite(entered) && now - entered >= REENTERED_GRACE_MS;
-  });
+  let waiting = false;
+  for (const r of merged) {
+    const mergedAt = r.pr!.mergedAt ? Date.parse(r.pr!.mergedAt) : NaN;
+    if (Number.isFinite(mergedAt) && (!Number.isFinite(entered) || mergedAt > entered)) return { archive: true };
+    const sameWork = !!r.pr!.headSha && !!r.localSha && r.pr!.headSha === r.localSha;
+    if (sameWork && Number.isFinite(entered)) {
+      if (now - entered >= REENTERED_GRACE_MS) return { archive: true };
+      waiting = true;
+    }
+  }
+  return waiting
+    ? { archive: false, why: 'you opened it after the merge; archiving once it has been left alone for a day' }
+    : { archive: false, why: "the merged PR is older work on this branch name, not what's checked out" };
 }
 
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
@@ -150,17 +176,22 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
   }
 
-  async function check(id: string, session: WorktreeSession, act = true): Promise<SessionCi | null> {
+  async function check(id: string, session: WorktreeSession, act = true, run?: RunHandle): Promise<SessionCi | null> {
+    const name = `${session.target} ${session.branch}`;
+    const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(`${name}: ${text}`, { level, sessionId: id });
     let pre: ShipPreflight;
     try {
       pre = await deps.preflight(session);
-    } catch {
+    } catch (err) {
+      note(`couldn't check (${(err as Error).message}); keeping what it knew`, 'warn');
       return states.get(id) ?? null;
     }
     // GitHub refused: every PR reads as "none". Keep what we knew, act on
     // nothing, and let the sweeps rest (each would only spend more).
     if (pre.repos.some((r) => r.ghError && RATE_LIMITED.test(r.ghError))) {
       pausedUntil = now() + RATE_LIMIT_PAUSE_MS;
+      schedule?.pause(pausedUntil, "GitHub's API limit is spent");
+      note(`GitHub says its API limit is spent: keeping what it knew, resting ${RATE_LIMIT_PAUSE_MS / 60_000} min`, 'warn');
       return states.get(id) ?? null;
     }
     const opts = deps.options();
@@ -204,33 +235,87 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     if (before !== JSON.stringify(ci.repos)) deps.broadcast('ci-changed', { sessionId: id });
 
     if (!act) return ci;
-    if (feedback.length) await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen);
-    else feedbackSeen.commit(); // only history / baselines: nothing to deliver
+    if (feedback.length) {
+      const n = feedback.reduce((k, f) => k + f.items.length, 0);
+      const prs = feedback.map((f) => `#${f.number}`).join(', ');
+      const what = `${n} new review comment${n === 1 ? '' : 's'} on ${prs}`;
+      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen)) note(`handed ${what} to its Claude`, 'action');
+      else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
+    } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
       const fresh = failingOf(ci).filter((f) => !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
       if (fresh.length) {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
-        await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen);
+        const what = fresh.map((f) => `#${f.number} (${f.checks.join(', ') || 'checks'})`).join(', ');
+        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them`, 'action');
+        else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }
-    if (opts.autoArchive && !deps.busy?.(id) && shouldAutoArchive(pre, session, now())) {
-      await deps.archive(id).catch(() => {});
+    if (opts.autoArchive) {
+      const verdict = autoArchiveVerdict(pre, session, now());
+      if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude is done');
+      else if (verdict?.archive) {
+        try {
+          await deps.archive(id);
+          note('archived: every PR merged, nothing uncommitted (the conversation is kept)', 'action');
+        } catch (err) {
+          note(`every PR merged, but archiving failed: ${(err as Error).message}`, 'warn');
+        }
+      } else if (verdict) note(`a PR is merged, but kept: ${verdict.why}`);
     }
     return ci;
   }
 
+  /** The sweep's one-line result, from what it just saw. */
+  function sweepSummary(ids: string[]): string {
+    let prs = 0;
+    let threads = 0;
+    let failing = 0;
+    for (const id of ids) {
+      for (const r of states.get(id)?.repos ?? []) {
+        if (r.pr?.state !== 'OPEN') continue;
+        prs++;
+        threads += r.openThreads ?? 0;
+        if (r.pr.checks === 'fail') failing++;
+      }
+    }
+    const parts = [`${ids.length} session${ids.length === 1 ? '' : 's'}`, `${prs} open PR${prs === 1 ? '' : 's'}`];
+    if (threads) parts.push(`${threads} unresolved review thread${threads === 1 ? '' : 's'}`);
+    if (failing) parts.push(`${failing} failing`);
+    return parts.join(' · ');
+  }
+
+  let schedule: ScheduleHandle | undefined;
+
   let running: Promise<void> | null = null;
   const watch: PrWatch = {
     tick() {
-      if (now() < pausedUntil) return Promise.resolve();
+      if (now() < pausedUntil) {
+        deps.activity?.skip('pr-watch', 'Checking pull requests', "GitHub's API limit is spent; resting");
+        return Promise.resolve();
+      }
       // One sweep at a time: a slow gh must not stack sweeps up.
       running ??= (async () => {
+        schedule?.resume();
         const queue = deps.sessions();
+        const ids = queue.map((q) => q.id);
+        const run = deps.activity?.start('pr-watch', 'Checking pull requests');
+        let done = 0;
+        run?.progress(0, ids.length);
         const worker = async () => {
-          for (let next = queue.shift(); next; next = queue.shift()) await check(next.id, next.session);
+          for (let next = queue.shift(); next; next = queue.shift()) {
+            await check(next.id, next.session, true, run);
+            run?.progress(++done, ids.length);
+          }
         };
-        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        try {
+          await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+          run?.done(sweepSummary(ids));
+        } catch (err) {
+          run?.fail((err as Error).message);
+          throw err;
+        }
       })().finally(() => {
         running = null;
       });
@@ -254,8 +339,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       return true;
     },
     start(intervalMs, firstDelayMs = 15_000) {
-      const first = setTimeout(() => void watch.tick(), firstDelayMs);
-      const every = setInterval(() => void watch.tick(), intervalMs);
+      schedule = deps.activity?.schedule('pr-watch', 'Pull request check', intervalMs);
+      schedule?.next(now() + firstDelayMs);
+      const tickAndPlan = () => {
+        schedule?.next(now() + intervalMs);
+        void watch.tick();
+      };
+      const first = setTimeout(tickAndPlan, firstDelayMs);
+      const every = setInterval(tickAndPlan, intervalMs);
       first.unref?.();
       every.unref?.();
       return () => {

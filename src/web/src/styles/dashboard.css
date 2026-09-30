@@ -1600,3 +1600,88 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-legend-marks li { padding: 3px 0; color: var(--muted); }
 .wd-legend-marks b { color: var(--fg); }
 .wd-legend-overlap { color: var(--warn-fg); }
+
+/* Background activity (ActivityIndicator): what work is doing, and what it decided. */
+.wd-activity { position: relative; margin-right: 8px; }
+.wd-activity-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.wd-activity-busy { color: var(--fg); }
+.wd-activity-paused { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 50%, var(--border)); }
+.wd-activity-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.wd-activity-spinner {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: wd-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .wd-activity-spinner { animation: none; } }
+.wd-activity-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: min(460px, calc(100vw - 16px));
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.wd-activity-empty { color: var(--muted); margin: 0 0 6px; }
+.wd-activity-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.wd-activity-schedule { padding: 2px 0; }
+.wd-activity-name { font-weight: 600; }
+.wd-activity-muted { color: var(--muted); }
+.wd-activity-warn { color: var(--warn-fg); }
+.wd-activity-run { padding: 6px 0; border-top: 1px solid var(--border); }
+.wd-activity-run:first-of-type { border-top: 0; }
+.wd-activity-head { display: flex; align-items: center; gap: 6px; }
+.wd-activity-when { margin-left: auto; white-space: nowrap; }
+.wd-activity-mark { width: 12px; text-align: center; color: var(--muted); }
+.wd-activity-run-done .wd-activity-mark { color: var(--add-fg); }
+.wd-activity-run-failed .wd-activity-mark,
+.wd-activity-run-failed .wd-activity-summary { color: var(--del-fg); }
+.wd-activity-run-skipped .wd-activity-mark,
+.wd-activity-run-skipped .wd-activity-summary { color: var(--warn-fg); }
+.wd-activity-progress { width: 80px; height: 6px; }
+.wd-activity-summary { margin: 2px 0 0 18px; color: var(--muted); }
+.wd-activity-notes { list-style: none; margin: 4px 0 0 18px; padding: 0; }
+.wd-activity-note { padding: 1px 0; color: var(--muted); }
+.wd-activity-panel .wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-activity-panel .wd-link-button:hover { text-decoration: underline; }
+.wd-activity-note-action { color: var(--fg); }
+.wd-activity-note-warn { color: var(--warn-fg); }
+.wd-activity-more { font-size: 11px; }

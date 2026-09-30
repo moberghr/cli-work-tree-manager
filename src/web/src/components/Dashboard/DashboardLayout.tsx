@@ -25,6 +25,8 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant (the top-nav button). */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** The top bar's background-activity indicator. */
+  activity?: React.ReactNode;
   /** The rail's drag order (session ids, top first) and what a drag sets. */
   sessionOrder?: string[];
   onReorderSessions?: (order: string[]) => void;
@@ -57,6 +59,7 @@ export function DashboardLayout({
   prsFor,
   onAssistant,
   assistantOpen,
+  activity,
   sessionOrder,
   onReorderSessions,
   children,
@@ -93,6 +96,7 @@ export function DashboardLayout({
         railOpen={railOpen}
         onAssistant={onAssistant}
         assistantOpen={assistantOpen}
+        activity={activity}
       />
       <div
         ref={bodyRef}

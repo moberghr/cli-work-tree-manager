@@ -10,6 +10,7 @@ import { fetchPrs, type PrInfo } from '../api/panes.js';
 import { defaultSubTab, isArchived, prsForSession, prsKnownFrom, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
+import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { PrsTab } from '../components/Dashboard/tabs/PrsTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
@@ -573,6 +574,7 @@ export function DashboardApp() {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
+        activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         assistantOpen={assistantOpen}
       >
         {body}

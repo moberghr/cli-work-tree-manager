@@ -518,3 +518,49 @@ export interface SessionCi {
     openThreads?: number;
   }>;
 }
+
+/** What work does in the background (core/activity.ts), for the Activity panel. */
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches';
+
+/** One thing a run decided or noticed ("archived …", "kept … because …"). */
+export interface ActivityNote {
+  at: string;
+  text: string;
+  /** action: it did something; warn: something stopped it; info: why it didn't. */
+  level: 'info' | 'action' | 'warn';
+  /** The session it is about (click to open). */
+  sessionId?: string;
+}
+
+export interface ActivityRun {
+  id: number;
+  kind: ActivityKind;
+  label: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: 'running' | 'done' | 'failed' | 'skipped';
+  progress: { done: number; total: number } | null;
+  /** One line on how it ended (or why it was skipped / failed). */
+  summary: string | null;
+  notes: ActivityNote[];
+  /** The same skip, repeated this many more times (collapsed). */
+  repeats?: number;
+}
+
+/** A job that runs on its own, and when it runs next. */
+export interface ActivitySchedule {
+  kind: ActivityKind;
+  label: string;
+  everyMs: number;
+  nextAt: string | null;
+  pausedUntil: string | null;
+  pausedWhy: string | null;
+}
+
+/** GET /api/activity */
+export interface ActivityWire {
+  running: ActivityRun[];
+  /** Finished runs, newest first. */
+  recent: ActivityRun[];
+  schedules: ActivitySchedule[];
+}

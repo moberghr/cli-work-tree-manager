@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createPrWatch, ciFixMessage, type PrWatchDeps } from '../../src/core/pr-watch.js';
+import { autoArchiveVerdict, createPrWatch, ciFixMessage, type PrWatchDeps } from '../../src/core/pr-watch.js';
+import { createActivityLog } from '../../src/core/activity.js';
 import type { RepoShipState, ShipPr, ShipPreflight } from '../../src/core/api-types.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 import type { ReviewFeedback } from '../../src/core/pr-review.js';
@@ -133,6 +134,53 @@ describe('PR watch', () => {
     feedback.mockResolvedValue(null);
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+  });
+
+  describe('what it tells the Activity panel', () => {
+    it('one run per sweep, with progress, a note per decision, and a summary', async () => {
+      const activity = createActivityLog();
+      const h = harness([repo('api', failing())], ON, false, null, { activity });
+      await h.watch.tick();
+      const [run] = activity.snapshot().recent;
+      expect(run).toMatchObject({ kind: 'pr-watch', status: 'done', progress: { done: 1, total: 1 }, summary: '1 session · 1 open PR · 1 failing' });
+      expect(run.notes).toEqual([
+        expect.objectContaining({ level: 'action', sessionId: 's1', text: 'api feat/x: checks fail on #7 (test, lint): asked its Claude to fix them' }),
+      ]);
+    });
+
+    it('says why a merged session was kept, and when one is archived', async () => {
+      const activity = createActivityLog();
+      const kept = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState], ON, false, null, { activity });
+      await kept.watch.tick();
+      expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: a PR is merged, but kept: 2 uncommitted files');
+      const gone = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null, { activity });
+      await gone.watch.tick();
+      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({ level: 'action', text: expect.stringContaining('archived: every PR merged') });
+    });
+
+    it('GitHub’s limit: a warning, the schedule rests, and the skipped sweeps collapse into one row', async () => {
+      let t = LATER;
+      const activity = createActivityLog({ now: () => t });
+      const h = harness([{ ...repo('api', null, true), ghError: 'API rate limit already exceeded' } as RepoShipState], ON, false, null, { activity, now: () => t });
+      h.watch.start(180_000, 60_000)();
+      await h.watch.tick();
+      expect(activity.snapshot().recent[0].notes[0].level).toBe('warn');
+      expect(activity.snapshot().schedules[0]).toMatchObject({ kind: 'pr-watch', pausedWhy: "GitHub's API limit is spent" });
+      t += 60_000;
+      await h.watch.tick();
+      await h.watch.tick();
+      expect(activity.snapshot().recent[0]).toMatchObject({ status: 'skipped', repeats: 1 });
+    });
+  });
+
+  it('autoArchiveVerdict gives the reason it keeps a merged session', () => {
+    const pre = (over: Partial<RepoShipState>[]) => ({ repos: over.map((o, i) => ({ ...repo(`r${i}`, merged(), true), localSha: 'aaa', dirtyFiles: 0, ...o }) as RepoShipState) });
+    const s = { lastAccessedAt: ENTERED };
+    expect(autoArchiveVerdict({ repos: [repo('api', pr())] }, s, LATER)).toBeNull(); // nothing merged
+    expect(autoArchiveVerdict(pre([{}, { done: false, pr: pr() } as Partial<RepoShipState>]), s, LATER)).toEqual({ archive: false, why: 'not all merged yet (r1)' });
+    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z') }]), s, Date.parse(ENTERED) + 3600_000)).toMatchObject({ archive: false, why: expect.stringContaining('left alone for a day') });
+    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z'), localSha: 'new' }]), s, LATER)).toMatchObject({ archive: false, why: expect.stringContaining('older work') });
+    expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
   it('never archives while its Claude is working or waiting for you', async () => {

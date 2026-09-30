@@ -35,7 +35,8 @@ import { createDigestSource } from './digest-source.js';
 import { report } from './report.js';
 import { mountCleanupRoutes } from './cleanup-routes.js';
 import { mountAssistantRoutes } from './assistant-routes.js';
-import type { DigestResponse, SessionWire } from './api-types.js';
+import type { ActivityWire, DigestResponse, SessionWire } from './api-types.js';
+import { createActivityLog } from './activity.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
@@ -144,6 +145,19 @@ export async function startWebServer(
     for (const cb of sseListeners) cb({ event, data });
   };
 
+  // What work does in the background, and what it decided (activity.ts):
+  // the Activity panel. Its changes don't touch sessions, so they skip the
+  // sessions cache, and come at most every 400 ms (a sweep notes a lot).
+  let activityTimer: NodeJS.Timeout | null = null;
+  const activity = createActivityLog({
+    onChange: () => {
+      activityTimer ??= setTimeout(() => {
+        activityTimer = null;
+        for (const cb of sseListeners) cb({ event: 'activity-changed', data: { ts: Date.now() } });
+      }, 400);
+    },
+  });
+
   // Worktrees created or removed by other terminals, and `work todo` edits,
   // show up live: every write bumps a change counter in state.db (db.ts
   // triggers), and polling two counters once a second is cheaper than the
@@ -201,6 +215,7 @@ export async function startWebServer(
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp() }));
+  app.get('/api/activity', (c) => c.json(activity.snapshot() satisfies ActivityWire));
 
   // Graceful stop, for `work web --stop`: on Windows killing the process is
   // TerminateProcess, which skips the shutdown path (Claude hooks stay in
@@ -336,6 +351,7 @@ export async function startWebServer(
       threadsShown.set(id, n);
       broadcast('sessions-changed', { ts: Date.now() });
     },
+    activity,
     archive: async (id) => {
       const s = findSession(id);
       if (!s || s.archivedAt) return;
@@ -347,8 +363,13 @@ export async function startWebServer(
 
   // Idle Claudes nobody is looking at go to sleep (idle-sleep.ts): they stop
   // holding memory, and opening the session resumes the conversation.
+  const SLEEP_EVERY_MS = 5 * 60_000;
+  const sleepSchedule = lean ? null : activity.schedule('idle-sleep', 'Idle Claude check', SLEEP_EVERY_MS);
   const sleepIdle = async () => {
+    sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
+    if (sleepAfterMs(minutes) === 0) return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
+    const run = activity.start('idle-sleep', 'Looking for idle Claudes');
     const ptys = await listHostPtys().catch(() => []);
     const busy = (id: string) => {
       const st = readStatus(id)?.state;
@@ -357,11 +378,17 @@ export async function startWebServer(
     const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), busy);
     for (const id of ids) {
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
-      await disposePty(id).catch(swallow(`put ${id} to sleep`));
+      const s = findSession(id);
+      await disposePty(id).then(
+        () => run.note(`${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${Math.max(minutes, 30)} min, nothing attached; opening it resumes the conversation)`, { level: 'action', sessionId: id }),
+        (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
+      );
     }
+    run.done(`${ptys.length} Claude${ptys.length === 1 ? '' : 's'} running · ${ids.length ? `${ids.length} put to sleep` : 'none idle long enough'}`);
     if (ids.length) broadcast('sessions-changed', { ts: Date.now() });
   };
-  const sleepTimer = lean ? null : setInterval(() => void sleepIdle(), 5 * 60_000);
+  sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
+  const sleepTimer = lean ? null : setInterval(() => void sleepIdle(), SLEEP_EVERY_MS);
   sleepTimer?.unref?.();
 
   // "What did each session do today?" — read from what's on disk (see
@@ -373,7 +400,7 @@ export async function startWebServer(
   });
 
   // Clean up view: which worktrees can go (scan), and removing them.
-  mountCleanupRoutes(app, { broadcast });
+  mountCleanupRoutes(app, { broadcast, activity });
 
   // The Ctrl+K assistant: what the dashboard shows, for its prompt hook.
   // Stats and overlaps from the same caches the session list uses.
@@ -384,7 +411,7 @@ export async function startWebServer(
   });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
-  mountPanesRoutes(app, { broadcast });
+  mountPanesRoutes(app, { broadcast, activity });
 
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each
   // emits sessions-changed so the sidebar refreshes.

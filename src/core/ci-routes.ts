@@ -10,6 +10,7 @@ import { fetchReviewFeedback } from './pr-review.js';
 import { dbPtySessions } from './pty-sessions-file.js';
 import { readStatus } from './session-status.js';
 import { createPrWatch, type PrWatch } from './pr-watch.js';
+import type { ActivityLog } from './activity.js';
 
 /**
  * The PR watch (pr-watch.ts) wired to real sessions, gh and the comment
@@ -29,6 +30,7 @@ export function mountCiRoutes(
   opts: {
     broadcast: (event: string, data: unknown) => void;
     archive: (id: string) => Promise<void>;
+    activity?: ActivityLog;
   },
 ): PrWatch {
   const watch = createPrWatch({
@@ -41,6 +43,7 @@ export function mountCiRoutes(
     preflight: (s) => shipPreflight(s),
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
+    ...(opts.activity ? { activity: opts.activity } : {}),
     busy: (id) => {
       const st = readStatus(id)?.state;
       return st === 'working' || st === 'needs_input';
