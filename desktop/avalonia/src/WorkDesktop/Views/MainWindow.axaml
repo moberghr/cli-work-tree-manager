@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WorkDesktop.ViewModels"
+        xmlns:t="using:WorkDesktop.Terminal"
+        x:Class="WorkDesktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="work — native terminal (Avalonia)"
+        Width="1480" Height="940" MinWidth="720" MinHeight="480"
+        Background="{DynamicResource Bg.Window}">
+
+  <Grid ColumnDefinitions="280,1,*" RowDefinitions="*,26">
+
+    <!-- Sessions -->
+    <DockPanel Grid.Column="0" Grid.Row="0" Background="{DynamicResource Bg.Chrome}">
+      <TextBlock DockPanel.Dock="Top" Text="Sessions" Margin="14,12,14,8" FontWeight="SemiBold"
+                 Foreground="{DynamicResource Text.Dim}" FontSize="12"/>
+      <ListBox ItemsSource="{Binding Sessions}" SelectedItem="{Binding Selected}" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:SessionItem">
+            <Grid ColumnDefinitions="10,*" RowDefinitions="Auto,Auto" Margin="0,2">
+              <Ellipse Grid.RowSpan="2" Width="7" Height="7" VerticalAlignment="Center" Fill="{Binding StatusBrush}"/>
+              <TextBlock Grid.Column="1" Text="{Binding Branch}" Margin="8,0,0,0" FontSize="13"
+                         Foreground="{DynamicResource Text.Primary}" TextTrimming="CharacterEllipsis"/>
+              <StackPanel Grid.Column="1" Grid.Row="1" Orientation="Horizontal" Margin="8,1,0,0" Spacing="6">
+                <TextBlock Text="{Binding Target}" FontSize="11" Foreground="{DynamicResource Text.Dim}"/>
+                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{Binding StatusBrush}"/>
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <Border Grid.Column="1" Grid.Row="0" Grid.RowSpan="2" Background="{DynamicResource Border}"/>
+
+    <!-- Terminal -->
+    <t:TerminalView x:Name="Term" Grid.Column="2" Grid.Row="0" Session="{Binding Terminal}"/>
+    <TextBlock Grid.Column="2" Grid.Row="0" Text="Pick a session on the left." IsVisible="{Binding Terminal, Converter={x:Static ObjectConverters.IsNull}}"
+               HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource Text.Dim}"/>
+
+    <!-- Status bar -->
+    <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1" Background="{DynamicResource Bg.Window}"
+            BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto" Margin="12,0">
+        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Text.Dim}"/>
+        <TextBlock Grid.Column="1" Text="{Binding Latency}" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource Accent.Brand}"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

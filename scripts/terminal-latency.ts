@@ -13,6 +13,13 @@
  * session's output into a headless terminal on one event loop.
  *
  *   npx tsx scripts/terminal-latency.ts [--samples 150] [--noise 0,5,10]
+ *
+ * Then, in a page (key → sent → echo back → drawn, and how long the
+ * terminal takes to show up):
+ *   --browser                 headless Chromium (Playwright's)
+ *   --channel chrome|msedge   your installed browser, in a real window
+ *   --desktop <work.exe>      the Tauri app (desktop/), driven through
+ *                             WebView2's remote-debugging port
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,6 +36,9 @@ const NOISE = arg('noise', '0,5,10').split(',').map(Number);
 // A private HOME before any work module is loaded: config, state.db,
 // pty-host.json all go there.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'term-latency-'));
+// The desktop app needs the real ones: WebView2 won't open its DevTools
+// port under a made-up profile folder (it reads no ~/.work: it's given the URL).
+const realProfile = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 process.env.WORK_DB_EPHEMERAL = '1';
@@ -187,7 +197,13 @@ async function main() {
   for (const [name, st] of rows) console.log(`  ${name.padEnd(30)} ${fmt(st)}`);
   console.log('');
 
-  if (args.includes('--browser')) await browserStage(web.url, sessionId, cwd, upsertSession);
+  const desktopExe = arg('desktop', '');
+  const channel = arg('channel', '');
+  if (args.includes('--browser') || channel || desktopExe) {
+    await browserStage(web.url, sessionId, cwd, upsertSession, { channel, desktopExe });
+  }
+  const avaloniaExe = arg('avalonia', '');
+  if (avaloniaExe) await avaloniaStage(web.url, sessionId, avaloniaExe);
 
   await web.stop();
   await Promise.all(registry.list().map((x) => registry.kill(x.id)));
@@ -206,10 +222,47 @@ async function browserStage(
   sessionId: string,
   cwd: string,
   upsertSession: (t: string, g: boolean, b: string, p: string[]) => Promise<unknown>,
+  target: { channel: string; desktopExe: string },
 ): Promise<void> {
   const { chromium } = await import('@playwright/test');
-  const browser = await chromium.launch({ args: ['--enable-gpu', '--use-angle=d3d11'] });
-  const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+  let label: string;
+  let close: () => Promise<void>;
+  let page: import('@playwright/test').Page;
+  if (target.desktopExe) {
+    // The app opens a WebView2 DevTools port when WORK_DESKTOP_CDP_PORT is set;
+    // WORK_DESKTOP_URL points it at this throwaway server.
+    const { spawn, execFileSync } = await import('node:child_process');
+    const port = 9333;
+    const child = spawn(target.desktopExe, [], {
+      env: { ...process.env, ...realProfile, WORK_DESKTOP_URL: webUrl, WORK_DESKTOP_CDP_PORT: String(port) },
+      stdio: 'ignore',
+    });
+    let browser: import('@playwright/test').Browser | null = null;
+    for (let i = 0; i < 60 && !browser; i++) {
+      await sleep(500);
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`).catch(() => null);
+    }
+    if (!browser) throw new Error('the desktop app never opened its DevTools port');
+    const context = browser.contexts()[0];
+    page = context.pages()[0] ?? (await context.waitForEvent('page'));
+    // Let the app finish its own navigation to the dashboard first.
+    await page.waitForURL((u) => u.href.startsWith(webUrl), { timeout: 30_000 });
+    label = 'Desktop app (Tauri, WebView2)';
+    close = async () => {
+      await browser!.close().catch(() => {});
+      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* gone */ }
+    };
+  } else {
+    const headless = !target.channel;
+    const browser = await chromium.launch({
+      channel: target.channel || undefined,
+      headless,
+      args: ['--enable-gpu', '--use-angle=d3d11'],
+    });
+    page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
+    label = headless ? 'Browser (headless Chromium)' : `Browser (${target.channel}, a real window)`;
+    close = () => browser.close();
+  }
   page.on('pageerror', (e) => console.log('    page error:', e.message.slice(0, 200)));
   // Plain JS text: tsx (esbuild) wraps named functions in a __name() helper
   // that doesn't exist in the page, so a serialized function would throw.
@@ -239,8 +292,17 @@ async function browserStage(
   `);
 
   const run = async (label: string, samples: number) => {
+    let t0 = performance.now();
     await page.goto(`${webUrl}#/s/${encodeURIComponent(sessionId)}/term`);
+    // Already on the dashboard (the desktop app): a hash change loads no new
+    // document, so the init script hasn't run. A reload is one.
+    if (!(await page.evaluate('!!window.__lat'))) {
+      t0 = performance.now();
+      await page.reload();
+    }
     await page.locator('.wd-pty-host .xterm').waitFor();
+    await page.locator('.wd-pty-connecting').waitFor({ state: 'detached' });
+    const ready = performance.now() - t0;
     await page.locator('.wd-pty-host .xterm').click();
     await sleep(1500);
     const parts = { input: [] as number[], network: [] as number[], draw: [] as number[], total: [] as number[] };
@@ -271,10 +333,11 @@ async function browserStage(
       parts.total.push(l.paint[0] - l.key[0]);
     }
     console.log(`  ${label}`);
+    console.log(`    ${'open'.padEnd(8)} ${ready.toFixed(0).padStart(6)} ms  (page load → terminal on screen)`);
     for (const [k, xs] of Object.entries(parts)) if (xs.length) console.log(`    ${k.padEnd(8)} ${fmt(stats(xs))}`);
   };
 
-  console.log('Browser (headless Chromium): key → sent → echo back → drawn\n');
+  console.log(`${label}: key → sent → echo back → drawn\n`);
   await run('quiet dashboard, 1 session', 60);
 
   for (let i = 0; i < 300; i++) await upsertSession('lat', false, `feat/load-${i}`, [path.join(cwd, '..', `load-${i}`)]);
@@ -288,7 +351,40 @@ async function browserStage(
   await run('300 sessions, a status change every 500 ms', 60);
   on = false;
   await churn;
-  await browser.close();
+  await close();
+  console.log('');
+}
+
+/**
+ * The native terminal (desktop/avalonia): the app benchmarks itself when told to
+ * (WORK_DESKTOP_BENCH, see its Views/Bench.cs) — open the session, then type
+ * through its input path — and writes the numbers to a file before exiting.
+ */
+async function avaloniaStage(webUrl: string, sessionId: string, exe: string): Promise<void> {
+  const { spawn, execFileSync } = await import('node:child_process');
+  const out = path.join(home, 'avalonia-bench.txt');
+  const child = spawn(exe, [], {
+    env: { ...process.env, ...realProfile, WORK_DESKTOP_URL: webUrl, WORK_DESKTOP_BENCH: sessionId, WORK_DESKTOP_BENCH_OUT: out },
+    stdio: 'ignore',
+  });
+  const exited = await Promise.race([
+    new Promise<boolean>((r) => child.once('exit', () => r(true))),
+    sleep(90_000).then(() => false),
+  ]);
+  if (!exited) {
+    try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* gone */ }
+  }
+  console.log('Native terminal (Avalonia, Skia): key → echo back → drawn\n');
+  if (!fs.existsSync(out)) {
+    console.log('  no result (the app did not finish)\n');
+    return;
+  }
+  for (const line of fs.readFileSync(out, 'utf8').split(/\r?\n/)) {
+    const [k, ...rest] = line.split(' ');
+    if (k === 'open') console.log(`    ${'open'.padEnd(8)} ${rest[0].padStart(6)} ms  (session opened → terminal on screen)`);
+    else if (k === 'total' && rest.length) console.log(`    ${'total'.padEnd(8)} ${fmt(stats(rest.map(Number)))}`);
+    else if (k === 'error') console.log(`    error: ${rest.join(' ')}`);
+  }
   console.log('');
 }
 

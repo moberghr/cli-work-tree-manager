@@ -1,0 +1,15 @@
+{
+  "name": "work-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Spike: the work web dashboard in its own Tauri window (WebView2), to compare with a browser tab.",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle",
+    "icon": "node scripts/make-icon.mjs && tauri icon src-tauri/icons/source.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.0"
+  }
+}

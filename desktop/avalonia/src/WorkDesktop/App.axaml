@@ -1,0 +1,21 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="WorkDesktop.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Resources>
+    <!-- Bearing's graphite palette (Themes/Tokens.axaml there), the few this spike uses. -->
+    <SolidColorBrush x:Key="Bg.Window" Color="#0F1319"/>
+    <SolidColorBrush x:Key="Bg.Chrome" Color="#161B21"/>
+    <SolidColorBrush x:Key="Bg.Select" Color="#223440"/>
+    <SolidColorBrush x:Key="Border" Color="#2A323C"/>
+    <SolidColorBrush x:Key="Text.Primary" Color="#D8DEE6"/>
+    <SolidColorBrush x:Key="Text.Dim" Color="#79838F"/>
+    <SolidColorBrush x:Key="Accent.Brand" Color="#35D0BE"/>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
+
+</Application>

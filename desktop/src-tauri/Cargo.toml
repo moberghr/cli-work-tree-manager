@@ -1,0 +1,17 @@
+[package]
+name = "work-desktop"
+version = "0.1.0"
+description = "The work web dashboard in its own window"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.0", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.0", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
