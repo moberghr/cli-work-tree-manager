@@ -72,6 +72,11 @@ export interface PtyInfo {
   /** Respawned by the host on startup from the persisted session list
    *  (after a crash, `--restart` or reboot), not by a client. */
   restored: boolean;
+  /** Clients attached right now (dashboard Terminal tabs, `work attach`).
+   *  Additive: a host from before it sends none. */
+  clients?: number;
+  /** When the PTY last printed anything (ISO). Additive, like clients. */
+  lastOutputAt?: string;
 }
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →

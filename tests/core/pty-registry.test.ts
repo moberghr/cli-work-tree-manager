@@ -80,6 +80,23 @@ describe('PtyRegistry', () => {
     expect(got).toEqual(['world']);
   });
 
+  it('reports how many clients are attached and when it last printed (for putting idle ones to sleep)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-30T10:00:00Z'));
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(reg.get('a')).toMatchObject({ clients: 0, lastOutputAt: '2026-09-30T10:00:00.000Z' });
+    const one = reg.attach('a', () => {}, () => {});
+    const two = reg.attach('a', () => {}, () => {});
+    expect(reg.get('a')?.clients).toBe(2);
+    vi.setSystemTime(new Date('2026-09-30T12:30:00Z'));
+    spawned[0].pty.emit('spinner frame');
+    expect(reg.get('a')?.lastOutputAt).toBe('2026-09-30T12:30:00.000Z');
+    one?.detach();
+    two?.detach();
+    expect(reg.get('a')?.clients).toBe(0);
+  });
+
   it('persists live sessions and restores them on the next start', async () => {
     const first = makeRegistry();
     first.spawn('a', { cwd: '/x', tool, port: 4000 });

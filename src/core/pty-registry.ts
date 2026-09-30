@@ -66,6 +66,8 @@ interface Entry {
   exitSubscribers: Set<(code: number) => void>;
   /** Set once the process exited (the entry lingers FORGET_EXITED_MS). */
   exitCode: number | null;
+  /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
+  lastOutputAt: number;
 }
 
 export interface RegistryDeps {
@@ -162,11 +164,13 @@ export class PtyRegistry {
       subscribers: new Set(),
       exitSubscribers: new Set(),
       exitCode: null,
+      lastOutputAt: Date.now(),
     };
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
     const keepRaw = !pty.serialize;
     pty.setOutputHandler((data) => {
+      entry.lastOutputAt = Date.now();
       if (keepRaw) {
         entry.replay += data;
         if (entry.replay.length > REPLAY_MAX) {
@@ -327,6 +331,8 @@ export class PtyRegistry {
       rows: e.rows,
       startedAt: e.startedAt,
       restored: e.restored,
+      clients: e.subscribers.size,
+      lastOutputAt: new Date(e.lastOutputAt).toISOString(),
     };
   }
 

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
-import { hostStartLockPath, type SpawnSpec, type HostInfo } from './pty-host-protocol.js';
+import { hostStartLockPath, type SpawnSpec, type HostInfo, type PtyInfo } from './pty-host-protocol.js';
 import { dbPtySessions } from './pty-sessions-file.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
@@ -168,6 +168,12 @@ export async function ensurePty(
 /** Side-effect-free check: does an active (non-exited) PTY exist for this
  *  session? Served from the refresh cache — used by session-meta for the
  *  "running/idle" badge, which must stay synchronous. */
+/** Every PTY in the host, fresh (never starts a host; [] without one). */
+export async function listHostPtys(): Promise<PtyInfo[]> {
+  const c = await getClient(false);
+  return c ? c.list() : [];
+}
+
 /** Pids of the Claudes running in the PTY host (from the refresh cache). */
 export function ptyPids(): ReadonlySet<number> {
   return livePids;

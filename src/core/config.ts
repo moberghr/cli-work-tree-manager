@@ -61,6 +61,12 @@ export interface WorkConfig {
    */
   devCommands?: Record<string, string>;
   /**
+   * Stop a session's Claude in the PTY host after this many minutes idle with
+   * no window attached; opening the session resumes its conversation. Frees
+   * memory (each Claude holds a few hundred MB). Default 240; 0 = never.
+   */
+  sleepIdleAfterMinutes?: number;
+  /**
    * Background PR watch in `work web` (both default on): archive a session
    * once all its PRs merged, and tell its Claude when CI fails or reviewers
    * leave feedback.
@@ -149,6 +155,8 @@ export function loadConfig(): WorkConfig | null {
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
       launchViaHost: typeof parsed.launchViaHost === 'boolean' ? parsed.launchViaHost : undefined,
       devCommands: validateDevCommands(parsed.devCommands),
+      sleepIdleAfterMinutes:
+        typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       prompts: validatePrompts(parsed.prompts),
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
         ? { autoArchive: parsed.prWatch.autoArchive !== false, fixCi: parsed.prWatch.fixCi !== false, reviewComments: parsed.prWatch.reviewComments !== false }

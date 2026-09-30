@@ -46,7 +46,11 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, initPtyPool, ptyPids } from './pty-pool.js';
+import { detachPtyPool, disposePty, initPtyPool, listHostPtys, ptyPids } from './pty-pool.js';
+import { DEFAULT_SLEEP_AFTER_MINUTES, sleepCandidates } from './idle-sleep.js';
+import { loadConfig } from './config.js';
+import { readStatus } from './session-status.js';
+import { swallow } from './best-effort.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -328,6 +332,25 @@ export async function startWebServer(
   });
   const stopPrWatch = lean ? null : prWatch.start(180_000);
 
+  // Idle Claudes nobody is looking at go to sleep (idle-sleep.ts): they stop
+  // holding memory, and opening the session resumes the conversation.
+  const sleepIdle = async () => {
+    const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
+    const ptys = await listHostPtys().catch(() => []);
+    const busy = (id: string) => {
+      const st = readStatus(id)?.state;
+      return st === 'working' || st === 'needs_input';
+    };
+    const ids = sleepCandidates(ptys, Date.now(), minutes * 60_000, busy);
+    for (const id of ids) {
+      report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
+      await disposePty(id).catch(swallow(`put ${id} to sleep`));
+    }
+    if (ids.length) broadcast('sessions-changed', { ts: Date.now() });
+  };
+  const sleepTimer = lean ? null : setInterval(() => void sleepIdle(), 5 * 60_000);
+  sleepTimer?.unref?.();
+
   // "What did each session do today?" — read from what's on disk (see
   // digest.ts); PR state from the watch's cache, no gh call here.
   const digest = createDigestSource({ diffStatFor: (id) => diffStats.peek(id), ciFor: (id) => prWatch.state(id) });
@@ -442,6 +465,7 @@ export async function startWebServer(
       clearInterval(revPoll);
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
+      if (sleepTimer) clearInterval(sleepTimer);
       chatApi.stopAll();
       clearTimeout(sweepTimer);
       activityWatcher?.stop();
