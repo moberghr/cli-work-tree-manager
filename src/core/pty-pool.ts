@@ -81,6 +81,12 @@ function startRefresh(): void {
 
 /** Connect to an already-running host at `work web` startup so badges for
  *  PTYs that survived a web restart show immediately. Never spawns. */
+/** Re-read the host's PTY list now (the periodic refresh can be seconds old,
+ *  or not have run at all right after `work web` started). */
+export async function syncPtyPool(): Promise<void> {
+  await refresh();
+}
+
 export async function initPtyPool(): Promise<void> {
   await refresh().catch(() => {});
   startRefresh();

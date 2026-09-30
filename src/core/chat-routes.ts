@@ -7,7 +7,7 @@ import { ChatSession, newChatToken, writeMcpConfig, type ChatEvent } from './cha
 import { mountChatMcpRoutes } from './chat-mcp-routes.js';
 import { getConfigDir } from './config.js';
 import { latestTranscript } from './context-usage.js';
-import { disposePty, peekPty, ptyPids, spawnSpecFor } from './pty-pool.js';
+import { disposePty, peekPty, ptyPids, spawnSpecFor, syncPtyPool } from './pty-pool.js';
 import { claudesBySession, readLiveClaudes } from './live-claudes.js';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { readTranscriptTail } from './transcript.js';
@@ -122,6 +122,7 @@ export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { s
     if (!chats.get(id)?.running) {
       // A Claude in a terminal tab on this conversation: we can't stop it for
       // the user, and a second one here would write to the same conversation.
+      await syncPtyPool(); // current, not the periodic refresh's
       const hostPids = ptyPids();
       const outside = (claudesBySession(readLiveClaudes(), loadHistory()).get(id) ?? []).filter((x) => !hostPids.has(x.pid));
       if (outside.length > 0) return c.json({ error: 'running-in-terminal' }, 409);

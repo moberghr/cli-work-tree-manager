@@ -110,6 +110,39 @@ describe('terminal relay', () => {
     }
   });
 
+  it('waits for a slow elsewhere check (the host list being re-read), and spawns nothing for a browser that left meanwhile', async () => {
+    const host = await fakeHost();
+    ensureDelay = 0;
+    spawns = 0;
+    const server = http.createServer();
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    const bridge = attachTerminalWs(server, port, { elsewhere: () => sleep(150).then(() => null) });
+    cleanups.push(() => {
+      bridge.close();
+      return new Promise<void>((r) => server.close(() => r()));
+    });
+    const url = `ws://127.0.0.1:${port}/ws/sessions/s/terminal`;
+
+    const ok = new WebSocket(url);
+    const got: string[] = [];
+    ok.on('message', (d, bin) => { if (bin) got.push(d.toString()); });
+    await new Promise((r) => ok.on('open', r));
+    await sleep(300);
+    ok.send(JSON.stringify({ type: 'input', data: 'hi' }));
+    await sleep(150);
+    expect(got.join('')).toContain('echo:');
+    ok.close();
+    await sleep(100);
+
+    const leaver = new WebSocket(url);
+    await new Promise((r) => leaver.on('open', r));
+    leaver.close(); // before the check resolves
+    await sleep(300);
+    expect(spawns).toBe(1); // only the first
+    expect(host.open()).toBe(0);
+  });
+
   it('relays both ways and closes the upstream when the browser leaves', async () => {
     const host = await fakeHost();
     ensureDelay = 0;

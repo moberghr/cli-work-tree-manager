@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
+import { ensurePty, peekPty, ptyPids, syncPtyPool } from './pty-pool.js';
 import { claudesBySession, readLiveClaudes } from './live-claudes.js';
 import { loadHistory } from './history.js';
 import { refuseReason } from './local-origin.js';
@@ -59,7 +59,11 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: s?.state ?? null };
 }
 
-function defaultElsewhere(sessionId: string): TerminalElsewhere | null {
+async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | null> {
+  // Which Claudes the host runs must be current: right after a work web
+  // restart the pool's list is still empty, and the host's own Claude would
+  // count as running "elsewhere".
+  await syncPtyPool();
   const session = findSession(sessionId);
   if (!session) return null;
   const activity = readSessionActivity(session);
@@ -77,7 +81,7 @@ function defaultElsewhere(sessionId: string): TerminalElsewhere | null {
 
 export interface TerminalWsOptions {
   /** Whether the session's Claude runs outside the host (tests inject). */
-  elsewhere?: (sessionId: string) => TerminalElsewhere | null;
+  elsewhere?: (sessionId: string) => TerminalElsewhere | null | Promise<TerminalElsewhere | null>;
 }
 
 /**
@@ -152,7 +156,14 @@ export function attachTerminalWs(
  * Browser frames are already the host's ClientFrame JSON, so they pass
  * through verbatim.
  */
-async function bridgeToHost(ws: WebSocket, sessionId: string, elsewhere: TerminalElsewhere | null): Promise<void> {
+async function bridgeToHost(
+  ws: WebSocket,
+  sessionId: string,
+  pending: TerminalElsewhere | null | Promise<TerminalElsewhere | null>,
+): Promise<void> {
+  const elsewhere = await pending;
+  // The browser may have left while that was being worked out.
+  if (ws.readyState !== WebSocket.OPEN) return;
   if (elsewhere) {
     // Nothing spawned: the tab explains and offers to force it.
     try {
