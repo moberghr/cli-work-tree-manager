@@ -18,6 +18,13 @@ interface Props {
   active?: boolean;
 }
 
+/** Open a link from the terminal: web addresses only, in a new tab (the
+ *  desktop app hands those to the default browser). */
+export function openLink(uri: string): void {
+  if (!/^https?:\/\//i.test(uri)) return;
+  window.open(uri, '_blank', 'noopener');
+}
+
 /** The server said the session's Claude runs in another terminal. */
 interface Elsewhere {
   lastActivity: number | null;
@@ -80,6 +87,20 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       scrollback: 5000,
       // Required by the unicode11 addon (proposed API in xterm 6).
       allowProposedApi: true,
+      // Links Claude prints as terminal hyperlinks (OSC 8). xterm's default
+      // asks "could be dangerous?" and then opens a BLANK window it navigates
+      // afterwards — the desktop app only sees about:blank and opens nothing.
+      // Open the real address instead, web links only; hovering shows where
+      // it goes (the text of such a link can differ from its target).
+      linkHandler: {
+        activate: (_e, uri) => openLink(uri),
+        hover: (_e, uri) => {
+          if (hostRef.current) hostRef.current.title = uri;
+        },
+        leave: () => {
+          if (hostRef.current) hostRef.current.title = '';
+        },
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -90,7 +111,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.loadAddon(unicode);
     term.unicode.activeVersion = '11';
     term.loadAddon(
-      new WebLinksAddon((_e, uri) => window.open(uri, '_blank', 'noopener')),
+      new WebLinksAddon((_e, uri) => openLink(uri)),
     );
     term.open(hostRef.current);
     // GPU renderer: the DOM renderer is what makes a busy Claude feel

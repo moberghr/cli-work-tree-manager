@@ -136,7 +136,7 @@ class FakeWebSocket {
   serverClose() { this.readyState = 3; this.emit('close'); }
 }
 
-import { ELSEWHERE_RECHECK_MS, PtyView } from '../../src/web/src/components/Terminal/PtyView.js';
+import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -372,6 +372,19 @@ describe('PtyView', () => {
     const before = resizes();
     act(() => { term.textarea.dispatchEvent(new Event('focus')); });
     expect(resizes()).toBe(before + 1);
+  });
+
+  it("opens Claude's terminal hyperlinks at their real address, web links only", () => {
+    const { term } = mount();
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const handler = (term.opts as { linkHandler: { activate: (e: MouseEvent, uri: string) => void } }).linkHandler;
+    handler.activate(new MouseEvent('click'), 'https://github.com/o/r/pull/1');
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/1', '_blank', 'noopener');
+    open.mockClear();
+    openLink('file:///C:/Windows/System32/calc.exe');
+    openLink('javascript:alert(1)');
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 
   it('Ctrl+C without a selection passes through as an interrupt', () => {
