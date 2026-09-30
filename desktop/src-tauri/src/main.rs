@@ -35,6 +35,25 @@ fn log(msg: &str) {
     }
 }
 
+fn recorded_pid() -> Option<u32> {
+    std::fs::read_to_string(work_dir()?.join("web.pid")).ok()?.trim().parse().ok()
+}
+
+/// Is a process with this pid running? (tasklist, no console window.)
+fn pid_alive(pid: u32) -> bool {
+    let mut cmd = Command::new("tasklist");
+    cmd.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]).stdin(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    match cmd.output() {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")),
+        Err(_) => true, // can't tell: assume it runs, never start a second one blind
+    }
+}
+
 fn recorded_url() -> Option<String> {
     let text = std::fs::read_to_string(work_dir()?.join("web.url")).ok()?;
     let url = text.trim();
@@ -85,6 +104,24 @@ fn find_or_start_web() -> Result<String, String> {
     if let Some(url) = recorded_url().filter(|u| responds(u)) {
         return Ok(url);
     }
+    // Its process still runs: it is busy (a build, a big git scan), not gone.
+    // Starting another then left two servers once the first recovered.
+    if recorded_pid().is_some_and(pid_alive) {
+        log("work web is not answering but its process runs: waiting for it");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(500));
+            if let Some(url) = recorded_url().filter(|u| responds(u)) {
+                return Ok(url);
+            }
+            if !recorded_pid().is_some_and(pid_alive) {
+                break; // it did go
+            }
+        }
+        if recorded_pid().is_some_and(pid_alive) {
+            return Err("work web is running but not answering.".into());
+        }
+    }
     log("no work web answering: starting one");
     start_work_web().map_err(|e| {
         log(&format!("could not start work web: {e}"));
@@ -126,6 +163,10 @@ fn main() {
                 .title("work")
                 .inner_size(1480.0, 940.0)
                 .min_inner_size(720.0, 480.0)
+                // Tauri's own drop handler (for dropping files on the window)
+                // switches off the page's HTML5 drag and drop on Windows — the
+                // sessions list is reordered by dragging.
+                .disable_drag_drop_handler()
                 .on_new_window(|url, _features| {
                     open_in_browser(&url);
                     tauri::webview::NewWindowResponse::Deny
@@ -163,11 +204,19 @@ fn main() {
                 }
                 // Follow work web: a restart (after a rebuild, `work web --stop`, a crash)
                 // comes back on another port. Keep the place in the app (the #route).
+                let mut misses = 0;
                 loop {
                     thread::sleep(Duration::from_secs(2));
                     if responds(&current) {
+                        misses = 0;
                         continue;
                     }
+                    // One slow answer isn't a dead server.
+                    misses += 1;
+                    if misses < 3 {
+                        continue;
+                    }
+                    misses = 0;
                     log(&format!("{current} stopped answering"));
                     let next = match find_or_start_web() {
                         Ok(n) => n,
