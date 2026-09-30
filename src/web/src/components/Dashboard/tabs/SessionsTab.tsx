@@ -414,6 +414,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
       </td>
       <td className="wd-st-session">
         <span className="wd-st-branch" title={s.branch}>{s.branch || '(base)'}</span>
+        {s.title && <span className="wd-st-title" title={s.title}>{s.title}</span>}
         <span className="wd-st-target">
           {s.target}
           {s.isGroup && (

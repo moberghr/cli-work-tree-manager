@@ -186,6 +186,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ results, state: folderState() });
   });
 
+  // Naming a session: accepted, not kept (the demo names them after their prompt).
+  app.post('/api/sessions/:id/title', (c) => c.json({ ok: true }));
+
   // Search in archived conversations: the demo keeps none.
   app.get('/api/archive/search', (c) => c.json({ hits: [] }));
 

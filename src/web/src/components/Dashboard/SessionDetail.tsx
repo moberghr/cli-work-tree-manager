@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { setArchived, type SessionSummary } from '../../api/client.js';
+import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
 import { ClaudesChip, ContextChip, DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
@@ -86,6 +86,7 @@ export function SessionDetail({
           <span className="wd-session-detail-target">{session.target}</span>
           <span className="wd-session-detail-sep">·</span>
           <span className="wd-session-detail-branch">{session.branch}</span>
+          <SessionTitle session={session} />
         </h1>
         {archived && <span className="wd-archived-pill">archived</span>}
         <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
@@ -169,6 +170,58 @@ export function SessionDetail({
         {subTab === 'chat' && <ChatView sessionId={session.id} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The session's name beside its branch — yours, or else its first prompt —
+ * and renaming it: click, type, Enter (Esc cancels; an empty name goes back
+ * to the automatic one).
+ */
+export function SessionTitle({ session }: { session: SessionSummary }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const start = () => {
+    setDraft(session.titleIsYours ? (session.title ?? '') : '');
+    setEditing(true);
+  };
+  const save = async () => {
+    setSaving(true);
+    try {
+      await renameSession(session.id, draft);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (editing) {
+    return (
+      <input
+        className="wd-session-title-input"
+        autoFocus
+        value={draft}
+        disabled={saving}
+        placeholder={session.title ?? 'Name this session'}
+        aria-label="Session name"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void save();
+          if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={'wd-session-title' + (session.title ? '' : ' wd-session-title-empty')}
+      title={session.titleIsYours ? 'Your name for it — click to rename' : 'Named after its first prompt — click to rename'}
+      onClick={start}
+    >
+      {session.title ?? 'Name it…'}
+    </button>
   );
 }
 

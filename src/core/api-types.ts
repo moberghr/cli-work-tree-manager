@@ -335,6 +335,10 @@ export interface SessionWire {
   claudes?: SessionClaudes;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
+  /** Its name: the one you gave it, else its first prompt, else its Jira key. */
+  title?: string | null;
+  /** The title is one you gave it (not the automatic one). */
+  titleIsYours?: boolean;
   /** Other sessions changing the same files; absent when there are none. */
   overlaps?: SessionOverlap[];
   /** Context used by its Claude conversation; null before the first reply. */

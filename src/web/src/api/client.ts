@@ -127,6 +127,9 @@ export interface SessionSummary {
   claudes?: SessionClaudes;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
+  /** Its name: yours, else its first prompt, else its Jira key. */
+  title?: string | null;
+  titleIsYours?: boolean;
   /** How full its Claude conversation is; null before the first reply. */
   context?: ContextUsage | null;
 }
@@ -491,6 +494,16 @@ export async function answerPermission(sessionId: string, req: AnswerRequest): P
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `answer failed (${res.status})`);
   }
+}
+
+/** Name a session; an empty title goes back to the automatic name. */
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`renaming failed (${res.status})`);
 }
 
 // ---- search in archived conversations ---------------------------------------

@@ -1563,3 +1563,8 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-archive-hit-head { display: flex; align-items: baseline; gap: 8px; }
 .wd-archive-hit-head .wd-row-action { margin-left: auto; }
 .wd-archive-hit-snippet { margin: 4px 0 0; font-size: 12px; color: var(--fg); overflow-wrap: anywhere; }
+.wd-session-title { margin-left: 12px; padding: 0 4px; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 400; color: var(--muted); cursor: text; max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.wd-session-title:hover { color: var(--fg); text-decoration: underline dotted; }
+.wd-session-title-empty { font-style: italic; opacity: 0.6; }
+.wd-session-title-input { margin-left: 12px; font: inherit; font-size: 13px; font-weight: 400; padding: 2px 6px; min-width: 32ch; color: var(--fg); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; }
+.wd-st-title { display: block; font-size: 12px; color: var(--muted); max-width: 48ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

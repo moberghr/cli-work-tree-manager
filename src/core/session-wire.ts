@@ -5,6 +5,7 @@ import { bestEffort } from './best-effort.js';
 import type { WorktreeSession } from './history.js';
 import type { DiffStat, SessionArchiveInfo, SessionClaudes, SessionWire } from './api-types.js';
 import { readArchive } from './session-archive.js';
+import { sessionTitle } from './session-title.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -48,6 +49,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     activityState: shadowed ? 'stale' : claudes ? (claudes.busy ? 'active' : meta.activityState === 'active' ? 'active' : 'open') : meta.activityState,
     ...(claudes ? { claudes } : {}),
     ...(s.archivedAt ? archiveInfo(id) : {}),
+    title: bestEffort(`title of ${s.target}:${s.branch}`, () => sessionTitle(s, s.archivedAt ? readArchive(id)?.summary.prompts[0]?.text : null), null),
+    ...(s.title ? { titleIsYours: true } : {}),
     pendingForClaudeCount: meta.pendingForClaudeCount,
     attention: meta.attention,
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,

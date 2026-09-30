@@ -240,6 +240,19 @@ export async function setSessionArchived(
   });
 }
 
+/** Name a session (an empty title goes back to the automatic name). */
+export async function setSessionTitle(target: string, branch: string, title: string): Promise<boolean> {
+  return tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return false;
+    const t = title.trim().slice(0, 120);
+    if (t) s.title = t;
+    else delete s.title;
+    putRow(d, s);
+    return true;
+  });
+}
+
 export async function removeSession(target: string, branch: string): Promise<void> {
   const id = sessionIdFor({ target, branch });
   if (!withDb((d) => getRow(d, target, branch))) return; // nothing to remove: touch nothing

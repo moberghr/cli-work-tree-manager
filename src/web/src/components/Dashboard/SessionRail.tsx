@@ -212,7 +212,7 @@ export function SessionRail({
                     if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
                   }}
                   title={
-                    `${s.target} · ${s.branch}\n${DISPLAY_LABEL[kind]}` +
+                    `${s.target} · ${s.branch}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
                     (summary ? ` — ${summary}` : '')
                   }
                 >
@@ -225,7 +225,7 @@ export function SessionRail({
                     <span className="wd-dash-rail-line wd-dash-rail-sub">
                       <span className="wd-dash-rail-summary">
                         {s.target}
-                        {summary ? ` · ${summary}` : ''}
+                        {summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
                       </span>
                       {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
                         <span

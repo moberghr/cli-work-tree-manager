@@ -8,7 +8,7 @@ const disposePty = vi.fn(async (_id: string) => {});
 vi.mock('../../src/core/pty-pool.js', () => ({ disposePty: (id: string) => disposePty(id) }));
 
 import { mountShipRoutes } from '../../src/core/ship-routes.js';
-import { loadHistory, saveHistory, upsertSession, type WorktreeSession } from '../../src/core/history.js';
+import { findSession, loadHistory, saveHistory, upsertSession, type WorktreeSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/web-state.js';
 import type { CommandRunner } from '../../src/core/ship.js';
 
@@ -163,5 +163,14 @@ describe('ship routes', () => {
     expect(archivedAt()).toBeUndefined();
     expect((await post(app(), `/api/sessions/${id}/archive`, {})).status).toBe(400);
     expect((await post(app(), '/api/sessions/nope/archive', { archived: true })).status).toBe(404);
+  });
+
+  it('names a session, and an empty name goes back to the automatic one', async () => {
+    const id = sessionIdFor(session);
+    expect((await post(app(), `/api/sessions/${id}/title`, { title: '  Key rotation ' })).status).toBe(200);
+    expect(findSession(loadHistory(), 'api', 'feat/x')?.title).toBe('Key rotation');
+    await post(app(), `/api/sessions/${id}/title`, { title: '' });
+    expect(findSession(loadHistory(), 'api', 'feat/x')?.title).toBeUndefined();
+    expect((await post(app(), `/api/sessions/${id}/title`, { title: 3 })).status).toBe(400);
   });
 });

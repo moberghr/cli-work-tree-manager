@@ -29,4 +29,7 @@ export interface WorktreeSession {
   /** The AI tool was last launched with `--unsafe` (skip-permissions).
    *  Untrusted text (PR review comments) is never auto-delivered to it. */
   launchedUnsafe?: boolean;
+  /** The name you gave it (the dashboard's rename); otherwise it is named
+   *  after its first prompt (session-title.ts). */
+  title?: string;
 }

@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
-import { setSessionArchived } from './history.js';
+import { setSessionArchived, setSessionTitle } from './history.js';
 import fs from 'node:fs';
 import { loadConfig } from './config.js';
 import { archiveSession, restoreArchivedTranscripts } from './session-archive.js';
@@ -63,6 +63,17 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return ok;
   };
+
+  // Name a session ({title}; empty = back to the automatic name).
+  app.post('/api/sessions/:id/title', async (c) => {
+    const session = findSession(c.req.param('id'));
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { title?: unknown } | null;
+    if (typeof body?.title !== 'string') return c.json({ error: 'title: string' }, 400);
+    await setSessionTitle(session.target, session.branch, body.title);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ ok: true });
+  });
 
   app.get('/api/sessions/:id/ship', async (c) => {
     const session = findSession(c.req.param('id'));

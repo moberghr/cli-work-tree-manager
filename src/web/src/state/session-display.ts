@@ -69,7 +69,7 @@ export function railSessions(
 export function sessionMatches(s: SessionSummary, query: string): boolean {
   const words = query.toLowerCase().replace(/\\/g, '/').split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const hay = [s.branch, s.target, ...s.paths, s.attention?.summary ?? '', s.jiraKey ?? '', s.archive?.lastSummary ?? '', ...(s.archive?.prompts ?? [])]
+  const hay = [s.branch, s.target, ...s.paths, s.title ?? '', s.attention?.summary ?? '', s.jiraKey ?? '', s.archive?.lastSummary ?? '', ...(s.archive?.prompts ?? [])]
     .join('\n')
     .toLowerCase()
     .replace(/\\/g, '/');
