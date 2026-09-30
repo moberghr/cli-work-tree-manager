@@ -1,0 +1,63 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import type { SessionSummary } from '../../src/web/src/api/client.js';
+import type { PrInfo } from '../../src/web/src/api/panes.js';
+import { staleSuggestions, STALE_SUGGEST_MS } from '../../src/web/src/state/session-display.js';
+import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
+
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const NOW = Date.now();
+const ago = (ms: number) => new Date(NOW - ms).toISOString();
+const s = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
+  id, target: 'api', branch: `feat/${id}`, isGroup: false, paths: [`/wt/${id}`], createdAt: ago(STALE_SUGGEST_MS * 3), lastAccessedAt: ago(STALE_SUGGEST_MS + 60_000),
+  draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale', pendingForClaudeCount: 0,
+  attention: null, diffStat: null, archivedAt: null, port: null, ...over,
+} as SessionSummary);
+const pr = { number: 1 } as PrInfo;
+
+describe('staleSuggestions', () => {
+  it('suggests sessions untouched two weeks with no open PR and no Claude, oldest first', () => {
+    const list = [
+      s('stale'),
+      s('older', { lastAccessedAt: ago(STALE_SUGGEST_MS * 2) }),
+      s('recent', { lastAccessedAt: ago(60_000) }),
+      s('in-review'),
+      s('running', { claudes: { inTerminal: 1, inApp: 0, busy: false, duplicate: false } }),
+      s('archived', { archivedAt: ago(1000) }),
+      s('snoozed'),
+    ];
+    const out = staleSuggestions(list, (x) => (x.id === 'in-review' ? [pr] : []), NOW, { snoozed: NOW + 1000 });
+    expect(out.map((x) => x.id)).toEqual(['older', 'stale']);
+  });
+});
+
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  try { localStorage.clear(); } catch { /* */ }
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+describe('Inbox: worth archiving?', () => {
+  it('archives one on click, and Not now hides it', async () => {
+    const onArchive = vi.fn(async () => {});
+    act(() => root.render(createElement(InboxTab, { sessions: [s('a'), s('b')], onOpenSession: () => {}, onArchive })));
+    const section = () => container.querySelector('.wd-inbox-stale');
+    expect(section()?.textContent).toContain('Worth archiving? (2)');
+    const buttons = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-stale button')].filter((b) => b.textContent === label);
+    await act(async () => buttons('Archive')[0].click());
+    expect(onArchive).toHaveBeenCalledWith('a');
+    act(() => buttons('Not now')[1].click());
+    expect(section()?.textContent).toContain('Worth archiving? (1)');
+    expect(JSON.parse(localStorage.getItem('wd-stale-snoozed') ?? '{}')).toHaveProperty('b');
+  });
+});

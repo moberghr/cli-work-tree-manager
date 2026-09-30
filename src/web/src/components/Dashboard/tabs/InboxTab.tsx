@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
-import { answerPermission, markSessionSeen, type AnswerRequest, type SessionSummary } from '../../../api/client.js';
-import { isArchived, type PrLookup } from '../../../state/session-display.js';
+import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, type SessionSummary } from '../../../api/client.js';
+import { isArchived, lastActiveAt, staleSuggestions, type PrLookup } from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { attentionRank, compareAttention } from '../../../../../core/attention.js';
@@ -19,6 +19,8 @@ interface Props {
   /** Clear a finished session's unseen flag without opening it. Defaults
    *  to the API call; injectable for tests. */
   onMarkSeen?: (id: string) => Promise<unknown>;
+  /** Archive a session (the stale suggestions). Defaults to the API call. */
+  onArchive?: (id: string) => Promise<unknown>;
   /** Allow / Deny a permission prompt. Defaults to the API call. */
   onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
 }
@@ -78,6 +80,7 @@ export function InboxTab({
   onMarkSeen = markSessionSeen,
   onAnswer = answerPermission,
   onReviewAll,
+  onArchive = (id) => setArchived(id, true),
 }: Props) {
   // Per session: the answer being sent, or why the server refused it.
   const [answering, setAnswering] = useState<Record<string, 'allow' | 'deny'>>({});
@@ -245,6 +248,77 @@ export function InboxTab({
           </section>
         ))
       )}
+      <StaleSuggestions sessions={sessions} prsFor={prsFor} onOpen={(id) => onOpenSession(id, 'diff')} onArchive={onArchive} />
     </div>
+  );
+}
+
+const SNOOZE_KEY = 'wd-stale-snoozed';
+const SNOOZE_MS = 14 * 24 * 60 * 60_000;
+function readSnoozed(): Record<string, number> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SNOOZE_KEY) ?? '{}');
+    return raw && typeof raw === 'object' ? (raw as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Sessions nobody has touched for two weeks, with no open PR: suggested for
+ * archiving (the conversation is kept; the worktree too when it has work in
+ * it). "Not now" hides one for two weeks in this window.
+ */
+function StaleSuggestions({ sessions, prsFor, onOpen, onArchive }: { sessions: SessionSummary[]; prsFor?: PrLookup; onOpen: (id: string) => void; onArchive: (id: string) => Promise<unknown> }) {
+  const [snoozed, setSnoozed] = useState<Record<string, number>>(readSnoozed);
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const list = useMemo(() => staleSuggestions(sessions, prsFor, Date.now(), snoozed), [sessions, prsFor, snoozed]);
+  if (list.length === 0) return null;
+  const snooze = (ids: string[]) => {
+    const next = { ...snoozed };
+    for (const id of ids) next[id] = Date.now() + SNOOZE_MS;
+    setSnoozed(next);
+    try {
+      localStorage.setItem(SNOOZE_KEY, JSON.stringify(next));
+    } catch {
+      /* private window: only for now */
+    }
+  };
+  const archive = (ids: string[]) => {
+    setBusy((b) => new Set([...b, ...ids]));
+    void Promise.all(ids.map((id) => onArchive(id).catch(() => {}))).finally(() =>
+      setBusy((b) => new Set([...b].filter((x) => !ids.includes(x)))),
+    );
+  };
+  return (
+    <section className="wd-inbox-section wd-inbox-stale">
+      <h2 className="wd-inbox-section-title" title="Untouched for two weeks or more, no open PR, no Claude running">
+        Worth archiving? <span className="wd-tab-header-muted">({list.length})</span>
+        <button type="button" className="wd-row-action" onClick={() => archive(list.map((s) => s.id))} disabled={busy.size > 0}>
+          Archive all
+        </button>
+      </h2>
+      <p className="wd-cleanup-hint">Archiving keeps the conversation and removes the worktree when nothing would be lost; Restore brings it back.</p>
+      <ul className="wd-inbox-list">
+        {list.map((s) => (
+          <li key={s.id} className="wd-inbox-item wd-inbox-stale-item">
+            <button type="button" className="wd-inbox-row" onClick={() => onOpen(s.id)}>
+              <span className="wd-inbox-target">{s.target}</span>
+              <span className="wd-inbox-branch">{s.branch}</span>
+              {s.title && <span className="wd-inbox-summary">{s.title}</span>}
+              <span className="wd-inbox-when">{relativeTime(lastActiveAt(s))}</span>
+            </button>
+            <span className="wd-inbox-actions">
+              <button type="button" className="wd-row-action" disabled={busy.has(s.id)} onClick={() => archive([s.id])}>
+                {busy.has(s.id) ? 'Archiving…' : 'Archive'}
+              </button>
+              <button type="button" className="wd-row-action" onClick={() => snooze([s.id])} title="Hide it here for two weeks">
+                Not now
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

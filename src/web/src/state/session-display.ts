@@ -5,7 +5,7 @@ import type { SessionSubTab } from './dashboard-route.js';
 // The status vocabulary (Needs your input / Working / Idle / Stale, the age
 // sections) lives in core, shared with `work sessions`.
 export * from '../../../core/session-view.js';
-import { displayStatus } from '../../../core/session-view.js';
+import { displayStatus, lastActiveAt } from '../../../core/session-view.js';
 import { applyManualOrder } from '../../../core/session-order.js';
 
 /** Where opening a session should land: its terminal — except finished
@@ -74,6 +74,30 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
     .toLowerCase()
     .replace(/\\/g, '/');
   return words.every((w) => hay.includes(w));
+}
+
+/** A session untouched this long, with no open PR, is worth archiving. */
+export const STALE_SUGGEST_MS = 14 * 24 * 60 * 60_000;
+
+/**
+ * Sessions to suggest archiving: untouched two weeks or more, no open PR
+ * (a PR waiting on review is still going somewhere), no Claude running, and
+ * not snoozed ("Not now") in this window. Oldest first.
+ */
+export function staleSuggestions(
+  sessions: SessionSummary[],
+  prsFor: PrLookup | undefined,
+  now: number = Date.now(),
+  snoozedUntil: Record<string, number> = {},
+): SessionSummary[] {
+  return sessions
+    .filter((s) => {
+      if (isArchived(s) || s.claudes) return false;
+      if ((snoozedUntil[s.id] ?? 0) > now) return false;
+      if (now - Date.parse(lastActiveAt(s)) < STALE_SUGGEST_MS) return false;
+      return (prsFor?.(s) ?? []).length === 0;
+    })
+    .sort((a, b) => lastActiveAt(a).localeCompare(lastActiveAt(b)));
 }
 
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
