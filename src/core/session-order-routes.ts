@@ -2,6 +2,9 @@ import type { Hono } from 'hono';
 import { cleanOrder } from './session-order.js';
 import { readSessionOrder, writeSessionOrder } from './session-order-store.js';
 import { searchArchives } from './archive-search.js';
+import { archiveRoot } from './session-archive.js';
+import { loadHistory } from './history.js';
+import { sessionIdFor } from './session-id.js';
 
 /**
  * The sessions list's manual order (drag to reorder):
@@ -16,7 +19,8 @@ export function mountSessionOrderRoutes(app: Hono, opts: { broadcast: (event: st
   app.get('/api/archive/search', async (c) => {
     const q = (c.req.query('q') ?? '').trim();
     if (q.length < 2) return c.json({ hits: [] });
-    return c.json({ hits: await searchArchives(q) });
+    const archived = new Set(loadHistory().filter((s) => s.archivedAt).map(sessionIdFor));
+    return c.json({ hits: await searchArchives(q, archiveRoot(), (id) => archived.has(id)) });
   });
 
   app.put('/api/session-order', async (c) => {

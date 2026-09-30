@@ -47,7 +47,7 @@ import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPat
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
 import { detachPtyPool, disposePty, initPtyPool, listHostPtys, ptyPids } from './pty-pool.js';
-import { DEFAULT_SLEEP_AFTER_MINUTES, sleepCandidates } from './idle-sleep.js';
+import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from './idle-sleep.js';
 import { loadConfig } from './config.js';
 import { readStatus } from './session-status.js';
 import { swallow } from './best-effort.js';
@@ -341,7 +341,7 @@ export async function startWebServer(
       const st = readStatus(id)?.state;
       return st === 'working' || st === 'needs_input';
     };
-    const ids = sleepCandidates(ptys, Date.now(), minutes * 60_000, busy);
+    const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), busy);
     for (const id of ids) {
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
       await disposePty(id).catch(swallow(`put ${id} to sleep`));

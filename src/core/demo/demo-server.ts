@@ -202,7 +202,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const items = Array.isArray(body?.items) ? body.items : [];
     if (items.length === 0) return c.json({ error: 'items: [{repo, branch}]' }, 400);
     demoBranches = demoBranches.filter((b) => !items.some((i) => i.repo === b.repo && i.branch === b.branch));
-    return c.json({ results: items.map((i) => ({ ...i, ok: true, message: 'Deleted (simulated)' })), state: branchState() });
+    return c.json({ results: items.map((i) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted (simulated)' })), state: branchState() });
   });
 
   // Search in archived conversations: the demo keeps none.

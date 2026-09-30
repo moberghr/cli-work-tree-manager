@@ -25,12 +25,13 @@ export interface BuildFoldersDeps {
   now?: () => number;
 }
 
+/** Idle long enough, and no Claude in it: the rule for offering AND for clearing. */
+const idleEnough = (s: BuildFolderSession, now: number) => !s.running && now - s.lastActiveMs >= BUILD_FOLDERS_IDLE_MS;
+
 /** The worktrees idle a week or more, and the build folders they hold, biggest first. */
 export async function scanBuildFolders(deps: BuildFoldersDeps, onProgress?: (checked: number, total: number) => void): Promise<BuildFolderCandidate[]> {
   const now = (deps.now ?? Date.now)();
-  const eligible = (await deps.sessions()).filter(
-    (s) => !s.running && now - s.lastActiveMs >= BUILD_FOLDERS_IDLE_MS && s.paths.some((p) => fs.existsSync(p)),
-  );
+  const eligible = (await deps.sessions()).filter((s) => idleEnough(s, now) && s.paths.some((p) => fs.existsSync(p)));
   const out: BuildFolderCandidate[] = [];
   let checked = 0;
   for (const s of eligible) {
@@ -67,6 +68,11 @@ export function createBuildFoldersJob(deps: BuildFoldersDeps) {
         }
         if (s.running) {
           results.push({ sessionId: id, ok: false, removed: 0, message: 'Its Claude is running now: left alone.' });
+          continue;
+        }
+        // Checked again, not trusted from the scan (or the caller): used since → left alone.
+        if (!idleEnough(s, (deps.now ?? Date.now)())) {
+          results.push({ sessionId: id, ok: false, removed: 0, message: 'Used in the last week: left alone.' });
           continue;
         }
         let removed = 0;

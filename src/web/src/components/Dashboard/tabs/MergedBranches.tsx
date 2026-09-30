@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import type { BranchesState } from '../../../../../core/api-types.js';
 import { relativeTime } from '../../../utils/time.js';
 
-type Item = { repo: string; branch: string };
-type ApplyResult = Item & { ok: boolean; message: string };
+/** A branch to delete, with the tip you were shown (it is refused if it moved). */
+type Item = { repo: string; branch: string; tip: string };
+type ApplyResult = { repo: string; branch: string; ok: boolean; message: string };
 
 export interface MergedBranchesApi {
   state(): Promise<BranchesState>;
@@ -74,7 +75,7 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
           {st?.scanning ? 'Checking…' : st?.scannedAt ? 'Check again' : 'Check'}
         </button>
         {safe.length > 0 && !st?.scanning && (
-          <button type="button" className="wd-row-action wd-row-action-danger" disabled={busy} onClick={() => (armed ? void del(safe.map(({ repo, branch }) => ({ repo, branch }))) : setArmed(true))}>
+          <button type="button" className="wd-row-action wd-row-action-danger" disabled={busy} onClick={() => (armed ? void del(safe.map(({ repo, branch, tip }) => ({ repo, branch, tip }))) : setArmed(true))}>
             {armed ? `Really delete ${safe.length}?` : `Delete ${safe.length}`}
           </button>
         )}
@@ -96,7 +97,7 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
               {b.reason === 'merged' ? 'merged' : `squash-merged${b.prNumber ? ` in #${b.prNumber}` : ''}`}
               {b.archivedSession && ' · an archived session uses it: Restore would need it'}
             </span>
-            <button type="button" className="wd-row-action" disabled={busy} onClick={() => void del([{ repo: b.repo, branch: b.branch }])}>
+            <button type="button" className="wd-row-action" disabled={busy} onClick={() => void del([{ repo: b.repo, branch: b.branch, tip: b.tip }])}>
               Delete
             </button>
           </li>

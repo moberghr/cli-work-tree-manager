@@ -67,17 +67,18 @@ export function mountPanesRoutes(
   // racing) would otherwise spawn N × gh subprocesses concurrently. The
   // first concurrent request triggers the fetch; everyone else awaits
   // the same promise.
-  let prsInFlight: Promise<{ prs: PullRequestInfo[] }> | null = null;
+  let prsInFlight: Promise<{ prs: PullRequestInfo[]; incomplete?: string[] }> | null = null;
   app.get('/api/prs', async (c) => {
     const config = loadConfig();
     if (!config) return c.json({ prs: [] });
     if (!prsInFlight) {
       prsInFlight = (async () => {
         try {
-          const map = await fetchAllPullRequests(config.repos);
+          const { map, incomplete } = await fetchAllPullRequests(config.repos);
           // Flatten: one entry per PR, with the resolved repo alias attached.
           const prs = Array.from(map.values()).flat();
-          return { prs };
+          // Repos gh couldn't list in full: "no PR" there means "don't know".
+          return incomplete.length ? { prs, incomplete } : { prs };
         } finally {
           prsInFlight = null;
         }

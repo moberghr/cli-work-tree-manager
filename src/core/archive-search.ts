@@ -38,19 +38,29 @@ export function snippet(text: string, words: string[]): string {
   return (start > 0 ? '…' : '') + cut + (start + SNIPPET_CHARS < flat.length ? '…' : '');
 }
 
-export async function searchArchives(query: string, root = archiveRoot()): Promise<ArchiveSearchHit[]> {
+/**
+ * The newest archives first, up to MAX_SESSIONS with a match. `isArchived`
+ * says whether a session is archived NOW: Restore leaves its archive folder
+ * in place, and a restored session is in the live list, not here.
+ */
+export async function searchArchives(query: string, root = archiveRoot(), isArchived: (id: string) => boolean = () => true): Promise<ArchiveSearchHit[]> {
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
   if (words.length === 0) return [];
+  // The raw JSON line has `\` and `"` escaped: the pre-filter looks for each word as JSON writes it.
+  const jsonWords = words.map((w) => JSON.stringify(w).slice(1, -1));
   let ids: string[];
   try {
     ids = (await fs.promises.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch {
     return [];
   }
+  const records = ids
+    .filter(isArchived)
+    .map((id) => ({ id, rec: readArchive(id, root) }))
+    .filter((x): x is { id: string; rec: NonNullable<ReturnType<typeof readArchive>> } => !!x.rec)
+    .sort((a, b) => b.rec.archivedAt.localeCompare(a.rec.archivedAt));
   const hits: ArchiveSearchHit[] = [];
-  for (const id of ids) {
-    const rec = readArchive(id, root);
-    if (!rec) continue;
+  for (const { id, rec } of records) {
     const snippets: ArchiveSearchHit['snippets'] = [];
     for (const t of rec.transcripts) {
       if (snippets.length >= SNIPPETS_PER_SESSION) break;
@@ -64,7 +74,7 @@ export async function searchArchives(query: string, root = archiveRoot()): Promi
         if (snippets.length >= SNIPPETS_PER_SESSION) break;
         if (!line) continue;
         const lower = line.toLowerCase();
-        if (!words.every((w) => lower.includes(w))) continue; // cheap pre-filter on the raw JSON line
+        if (!jsonWords.every((w) => lower.includes(w))) continue; // cheap pre-filter on the raw JSON line
         let e: TranscriptEntry;
         try {
           e = JSON.parse(line) as TranscriptEntry;
@@ -79,5 +89,5 @@ export async function searchArchives(query: string, root = archiveRoot()): Promi
     if (snippets.length) hits.push({ sessionId: id, target: rec.target, branch: rec.branch, archivedAt: rec.archivedAt, worktreeRemoved: rec.worktreeRemoved, snippets });
     if (hits.length >= MAX_SESSIONS) break;
   }
-  return hits.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+  return hits;
 }

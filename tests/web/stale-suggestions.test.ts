@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
-import { staleSuggestions, STALE_SUGGEST_MS } from '../../src/web/src/state/session-display.js';
+import { prsKnownFrom, staleSuggestions, STALE_SUGGEST_MS } from '../../src/web/src/state/session-display.js';
 import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -29,8 +29,19 @@ describe('staleSuggestions', () => {
       s('archived', { archivedAt: ago(1000) }),
       s('snoozed'),
     ];
-    const out = staleSuggestions(list, (x) => (x.id === 'in-review' ? [pr] : []), NOW, { snoozed: NOW + 1000 });
+    const out = staleSuggestions(list, (x) => (x.id === 'in-review' ? [pr] : []), NOW, { snoozed: NOW + 1000 }, () => true);
     expect(out.map((x) => x.id)).toEqual(['older', 'stale']);
+  });
+
+  it('suggests nothing without a full PR answer: before the first list, gh failed, or a repo gh listed only partly', () => {
+    const none = () => [];
+    expect(staleSuggestions([s('a')], none, NOW)).toEqual([]); // no prsKnown given
+    expect(staleSuggestions([s('a')], undefined, NOW, {}, () => true)).toEqual([]);
+    expect(staleSuggestions([s('a')], none, NOW, {}, prsKnownFrom(null))).toEqual([]);
+    expect(staleSuggestions([s('a')], none, NOW, {}, prsKnownFrom(['api']))).toEqual([]);
+    expect(staleSuggestions([s('a')], none, NOW, {}, prsKnownFrom(['web'])).map((x) => x.id)).toEqual(['a']);
+    // a group's sub-repos aren't known in the SPA: it needs every repo listed in full
+    expect(staleSuggestions([s('g', { isGroup: true, target: 'shop' })], none, NOW, {}, prsKnownFrom(['web']))).toEqual([]);
   });
 });
 
@@ -50,7 +61,7 @@ afterEach(() => {
 describe('Inbox: worth archiving?', () => {
   it('archives one on click, and Not now hides it', async () => {
     const onArchive = vi.fn(async () => {});
-    act(() => root.render(createElement(InboxTab, { sessions: [s('a'), s('b')], onOpenSession: () => {}, onArchive })));
+    act(() => root.render(createElement(InboxTab, { sessions: [s('a'), s('b')], onOpenSession: () => {}, onArchive, prsFor: () => [], prsKnown: () => true })));
     const section = () => container.querySelector('.wd-inbox-stale');
     expect(section()?.textContent).toContain('Worth archiving? (2)');
     const buttons = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-stale button')].filter((b) => b.textContent === label);

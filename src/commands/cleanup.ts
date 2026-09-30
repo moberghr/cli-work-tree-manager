@@ -82,7 +82,7 @@ export const cleanupCommand: CommandModule = {
         }
         return;
       }
-      const results = await deleteMergedBranches(list.filter((b) => !b.archivedSession).map(({ repo, branch }) => ({ repo, branch })), deps);
+      const results = await deleteMergedBranches(list.filter((b) => !b.archivedSession).map(({ repo, branch, tip }) => ({ repo, branch, tip })), deps);
       if (argv.json) process.stdout.write(JSON.stringify(results, null, 2) + '\n');
       else for (const r of results) console.log(r.ok ? chalk.green(`  ✓ ${r.repo} ${r.branch} — ${r.message}`) : chalk.yellow(`  ✗ ${r.repo} ${r.branch} — ${r.message}`));
       if (results.some((r) => !r.ok)) process.exitCode = 1;

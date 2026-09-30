@@ -17,7 +17,9 @@ const repo = (name: string, p: ShipPr | null, done = false): RepoShipState =>
   ({ name, path: `/wt/${name}`, pr: p, done, mergeBlockers: [] } as unknown as RepoShipState);
 
 const ON = { autoArchive: true, fixCi: true, reviewComments: true };
-function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: ReviewFeedback | null = null) {
+/** "Now" for the watch: two days after ENTERED, unless a test says otherwise. */
+const LATER = Date.parse(ENTERED) + 48 * 3600_000;
+function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: ReviewFeedback | null = null, extra: Partial<PrWatchDeps> = {}) {
   let pre: ShipPreflight = { repos };
   const told = new Set<string>();
   const deps = {
@@ -29,6 +31,8 @@ function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: R
     options: () => opts,
     told: () => ({ has: (k: string) => told.has(k), add: (k: string) => void told.add(k) }),
     reviewFeedback: vi.fn(async () => feedback),
+    now: () => LATER,
+    ...extra,
   } satisfies PrWatchDeps;
   return { deps, watch: createPrWatch(deps), set: (r: RepoShipState[]) => (pre = { repos: r }) };
 }
@@ -81,11 +85,24 @@ describe('PR watch', () => {
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
 
-  it('archives a merge from before you re-entered when the merged PR is exactly the checked-out work', async () => {
-    // You opened the session again after its PR was merged, to look.
+  it('archives a merge from before you re-entered when the merged PR is exactly the checked-out work, after a quiet day', async () => {
+    // You opened the session again after its PR was merged, to look, then left it.
     const h = harness([{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState]);
     await h.watch.tick();
     expect(h.deps.archive).toHaveBeenCalledWith('s1');
+  });
+
+  it('re-entered on purpose (Restore, or work tree at the merged tip): not archived again that day', async () => {
+    const h = harness([{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null,
+      { now: () => Date.parse(ENTERED) + 3600_000 });
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
+  it('never archives while its Claude is working or waiting for you', async () => {
+    const h = harness([repo('api', merged(), true)], ON, false, null, { busy: () => true });
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
   });
 
   it('a reused branch name: an old merged PR with another head never archives the new work', async () => {

@@ -12,6 +12,10 @@ import { defaultRunner, type CommandRunner } from './ship.js';
  * (`git check-ignore`: tracked content is never reported as ignored), and
  * the check runs again right before deleting. Symlinks and junctions (pnpm)
  * are neither followed nor sized; deleting removes the link, not its target.
+ * A nested repository or worktree (a folder with its own `.git`, such as
+ * `.claude/worktrees/<agent>`) is never entered: the outer repo's
+ * check-ignore calls its node_modules ignored, but that tree is someone
+ * else's, maybe in use right now.
  */
 
 export const BUILD_DIR_NAMES = new Set([
@@ -20,7 +24,7 @@ export const BUILD_DIR_NAMES = new Set([
 ]);
 const SKIP = new Set(['.git']);
 
-/** Folders under `root` whose name is a build-output name (not descending into them). */
+/** Folders under `root` whose name is a build-output name (not descending into them, nor into nested repos). */
 export async function candidateBuildDirs(root: string, maxDepth = 4): Promise<string[]> {
   const found: string[] = [];
   const walk = async (dir: string, depth: number): Promise<void> => {
@@ -30,6 +34,7 @@ export async function candidateBuildDirs(root: string, maxDepth = 4): Promise<st
     } catch {
       return;
     }
+    if (depth > 0 && entries.some((e) => e.name === '.git')) return; // another repo or worktree
     for (const e of entries) {
       if (!e.isDirectory() || SKIP.has(e.name)) continue; // a symlink/junction is not a Dirent directory
       const full = path.join(dir, e.name);

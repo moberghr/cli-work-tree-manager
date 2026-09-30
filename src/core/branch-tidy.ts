@@ -44,11 +44,14 @@ async function baseRef(run: CommandRunner, repo: string): Promise<string | null>
   return null;
 }
 
-export async function findMergedBranches(deps: BranchTidyDeps): Promise<BranchCandidate[]> {
+/** `only`: look at just these branches (the re-check before deleting), not every repo's. */
+export async function findMergedBranches(deps: BranchTidyDeps, only?: Array<{ repo: string; branch: string }>): Promise<BranchCandidate[]> {
   const run = deps.run ?? defaultRunner;
   const sessions = deps.sessionBranches();
   const out: BranchCandidate[] = [];
+  const wanted = only && new Set(only.map((o) => `${o.repo}\0${o.branch}`));
   for (const repo of deps.repos()) {
+    if (only && !only.some((o) => o.repo === repo.alias)) continue;
     const base = await baseRef(run, repo.path);
     if (!base) continue;
     const baseName = base.replace(/^origin\//, '');
@@ -67,6 +70,7 @@ export async function findMergedBranches(deps: BranchTidyDeps): Promise<BranchCa
       .filter((p) => p[0]);
     const used = sessions.get(repo.alias) ?? new Map();
     for (const [branch, tip, track] of refs) {
+      if (wanted && !wanted.has(`${repo.alias}\0${branch}`)) continue;
       if (branch === baseName || LONG_LIVED.test(branch) || checkedOut.has(branch)) continue;
       const session = used.get(branch);
       if (session && !session.archived) continue;
@@ -101,24 +105,29 @@ export async function findMergedBranches(deps: BranchTidyDeps): Promise<BranchCa
 
 /**
  * Delete the chosen branches — each checked again first (still merged, still
- * not checked out, tip unchanged), then `git branch -D` (a squash merge is
- * not "merged" to git, so -d would refuse what we just verified).
+ * not checked out, and at the `tip` you were shown when one is given), then
+ * `git branch -D` (a squash merge is not "merged" to git, so -d would refuse
+ * what we just verified).
  */
 export async function deleteMergedBranches(
-  chosen: Array<{ repo: string; branch: string }>,
+  chosen: Array<{ repo: string; branch: string; tip?: string }>,
   deps: BranchTidyDeps,
 ): Promise<Array<{ repo: string; branch: string; ok: boolean; message: string }>> {
   const run = deps.run ?? defaultRunner;
-  const fresh = await findMergedBranches(deps);
+  const fresh = await findMergedBranches(deps, chosen);
   const results: Array<{ repo: string; branch: string; ok: boolean; message: string }> = [];
-  for (const c of chosen) {
-    const now = fresh.find((f) => f.repo === c.repo && f.branch === c.branch);
+  for (const { repo, branch, tip } of chosen) {
+    const now = fresh.find((f) => f.repo === repo && f.branch === branch);
     if (!now) {
-      results.push({ ...c, ok: false, message: 'Not deleted: no longer certain it is merged (or it is in use).' });
+      results.push({ repo, branch, ok: false, message: 'Not deleted: no longer certain it is merged (or it is in use).' });
+      continue;
+    }
+    if (tip && now.tip !== tip) {
+      results.push({ repo, branch, ok: false, message: 'Not deleted: it has moved since you looked.' });
       continue;
     }
     const r = await git(run, now.repoPath, 'branch', '-D', now.branch);
-    results.push({ ...c, ok: r.code === 0, message: r.code === 0 ? `Deleted (was ${now.tip.slice(0, 8)})` : r.stderr.trim() || 'git refused' });
+    results.push({ repo, branch, ok: r.code === 0, message: r.code === 0 ? `Deleted (was ${now.tip.slice(0, 8)})` : r.stderr.trim() || 'git refused' });
   }
   return results;
 }

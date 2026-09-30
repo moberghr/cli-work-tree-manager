@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sleepCandidates } from '../../src/core/idle-sleep.js';
+import { sleepAfterMs, sleepCandidates } from '../../src/core/idle-sleep.js';
 import type { PtyInfo } from '../../src/core/pty-host-protocol.js';
 
 const NOW = Date.parse('2026-09-30T18:00:00Z');
@@ -29,5 +29,13 @@ describe('sleepCandidates', () => {
   it('never acts on a host that does not report clients, or when switched off', () => {
     expect(sleepCandidates([pty('old-host', { clients: undefined })], NOW, 4 * HOUR, idle)).toEqual([]);
     expect(sleepCandidates([pty('a')], NOW, 0, idle)).toEqual([]);
+  });
+});
+
+describe('sleepAfterMs', () => {
+  it('0 = never; anything shorter than half an hour is half an hour (the Terminal tab would refuse to wake it)', () => {
+    expect(sleepAfterMs(0)).toBe(0);
+    expect(sleepAfterMs(10)).toBe(30 * 60_000);
+    expect(sleepAfterMs(240)).toBe(240 * 60_000);
   });
 });

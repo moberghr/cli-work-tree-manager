@@ -7,7 +7,7 @@ import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { fetchPrs, type PrInfo } from '../api/panes.js';
-import { defaultSubTab, isArchived, prsForSession, railSessions, type PrLookup } from '../state/session-display.js';
+import { defaultSubTab, isArchived, prsForSession, prsKnownFrom, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
@@ -183,14 +183,20 @@ export function DashboardApp() {
   // waits on it: every 120 s, plus on session changes at most once a minute
   // (a ship / new branch should show its PR without a reload).
   const [prs, setPrs] = useState<PrInfo[]>([]);
+  // Repos whose PRs gh couldn't list in full; null until a full answer came.
+  const [prsIncomplete, setPrsIncomplete] = useState<string[] | null>(null);
   const [prsFetchedAt, setPrsFetchedAt] = useState(0);
+  const takePrs = useCallback((r: Awaited<ReturnType<typeof fetchPrs>>) => {
+    setPrs(r.prs ?? []);
+    setPrsIncomplete(r.available === false || r.error ? null : (r.incomplete ?? []));
+  }, []);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
       setPrsFetchedAt(Date.now());
       fetchPrs().then(
-        (r) => { if (!cancelled) setPrs(r.prs ?? []); },
-        () => { /* gh missing / offline — badges just stay empty */ },
+        (r) => { if (!cancelled) takePrs(r); },
+        () => { if (!cancelled) setPrsIncomplete(null); /* gh missing / offline — badges just stay empty */ },
       );
     };
     load();
@@ -203,10 +209,11 @@ export function DashboardApp() {
   useEffect(() => {
     if (refreshKey === 0 || Date.now() - prsFetchedAt < PR_MIN_GAP_MS) return;
     setPrsFetchedAt(Date.now());
-    fetchPrs().then((r) => setPrs(r.prs ?? []), () => {});
+    fetchPrs().then(takePrs, () => setPrsIncomplete(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
   const prsFor: PrLookup = useCallback((s) => prsForSession(s, prs), [prs]);
+  const prsKnown = useMemo(() => prsKnownFrom(prsIncomplete), [prsIncomplete]);
 
   // -- Navigation handlers --------------------------------------------------
   const goTab = useCallback(
@@ -500,7 +507,7 @@ export function DashboardApp() {
   } else {
     switch (route.tab) {
       case 'inbox':
-        body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} onReviewAll={startReview} />;
+        body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} prsKnown={prsKnown} onReviewAll={startReview} />;
         break;
       case 'today':
         body = <TodayTab onOpenSession={openSession} />;

@@ -44,6 +44,17 @@ describe('build folders', () => {
     expect(found[1].bytes).toBe(500);
   });
 
+  it("never enters a nested repo or worktree (its node_modules is someone else's)", async () => {
+    const nested = path.join(repo, '.claude', 'worktrees', 'agent');
+    fs.mkdirSync(path.join(nested, 'node_modules', 'x'), { recursive: true });
+    fs.writeFileSync(path.join(nested, '.git'), 'gitdir: elsewhere\n'); // a worktree's .git is a file
+    fs.writeFileSync(path.join(nested, 'node_modules', 'x', 'i.js'), 'z');
+    const found = await buildFoldersOf(repo);
+    expect(found.map((f) => path.relative(repo, f.path).replace(/\\/g, '/'))).toEqual(['node_modules', 'apps/web/.next']);
+    await clearBuildFolders(repo);
+    expect(fs.existsSync(path.join(nested, 'node_modules', 'x', 'i.js'))).toBe(true);
+  });
+
   it('clears them, keeping tracked output and whatever a link points to', async () => {
     const r = await clearBuildFolders(repo);
     expect(r.removed).toHaveLength(2);
@@ -73,6 +84,13 @@ describe('scanBuildFolders', () => {
     const job = createBuildFoldersJob({ sessions: async () => [s('running', { running: true })], now: () => NOW });
     const [r] = await job.apply(['running']);
     expect(r.ok).toBe(false);
+    expect(fs.existsSync(path.join(repo, 'node_modules'))).toBe(true);
+  });
+
+  it('clearing checks the idle rule again: a session used this week is left alone', async () => {
+    const job = createBuildFoldersJob({ sessions: async () => [s('recent', { lastActiveMs: NOW - 3_600_000 })], now: () => NOW });
+    const [r] = await job.apply(['recent']);
+    expect(r).toMatchObject({ ok: false, message: 'Used in the last week: left alone.' });
     expect(fs.existsSync(path.join(repo, 'node_modules'))).toBe(true);
   });
 });

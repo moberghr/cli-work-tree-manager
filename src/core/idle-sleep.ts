@@ -16,6 +16,19 @@ import type { PtyInfo } from './pty-host-protocol.js';
  */
 export const DEFAULT_SLEEP_AFTER_MINUTES = 240;
 
+/**
+ * The shortest sleep: the Terminal tab reads a Stop within the last 30
+ * minutes, with no PTY, as "Claude runs in another terminal"
+ * (ELSEWHERE_IDLE_MS, terminal-ws.ts) and won't start it again, so a
+ * Claude slept sooner couldn't be opened for the rest of that half hour.
+ */
+export const MIN_SLEEP_AFTER_MINUTES = 30;
+
+/** `sleepIdleAfterMinutes` as milliseconds: 0 = never, else at least the minimum. */
+export function sleepAfterMs(minutes: number): number {
+  return minutes <= 0 ? 0 : Math.max(minutes, MIN_SLEEP_AFTER_MINUTES) * 60_000;
+}
+
 export function sleepCandidates(
   ptys: readonly PtyInfo[],
   now: number,

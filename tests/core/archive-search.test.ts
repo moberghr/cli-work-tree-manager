@@ -51,6 +51,25 @@ describe('searchArchives', () => {
     expect(await searchArchives('anything', path.join(tmp, 'no-archive'))).toEqual([]);
   });
 
+  it('matches words with a backslash or a quote (escaped in the raw JSON)', async () => {
+    await archived('fix/paths', [{ type: 'user', timestamp: '2026-09-03T10:00:00Z', message: { content: 'Open src\\core\\db.ts and set "strict" on' } }]);
+    expect((await searchArchives('src\\core\\db.ts', root)).map((h) => h.branch)).toEqual(['fix/paths']);
+    expect((await searchArchives('"strict"', root)).map((h) => h.branch)).toEqual(['fix/paths']);
+  });
+
+  it('newest archives first, and not a session that was restored since', async () => {
+    for (const [i, b] of ['a/one', 'a/two', 'a/three'].entries()) {
+      await archived(b, [{ type: 'user', message: { content: 'shared needle' } }]);
+      // set each archive's time explicitly: one → oldest, three → newest
+      const dir = fs.readdirSync(root).find((d) => JSON.parse(fs.readFileSync(path.join(root, d, 'archive.json'), 'utf8')).branch === b)!;
+      const f = path.join(root, dir, 'archive.json');
+      fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), archivedAt: `2026-09-1${i}T10:00:00Z` }));
+    }
+    expect((await searchArchives('needle', root)).map((h) => h.branch)).toEqual(['a/three', 'a/two', 'a/one']);
+    const restored = fs.readdirSync(root).find((d) => JSON.parse(fs.readFileSync(path.join(root, d, 'archive.json'), 'utf8')).branch === 'a/two')!;
+    expect((await searchArchives('needle', root, (id) => id !== restored)).map((h) => h.branch)).toEqual(['a/three', 'a/one']);
+  });
+
   it('cuts a snippet around the match', () => {
     const long = 'x '.repeat(200) + 'the needle is here ' + 'y '.repeat(200);
     const s = snippet(long, ['needle']);

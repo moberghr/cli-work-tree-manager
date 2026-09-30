@@ -33,6 +33,8 @@ export interface PrWatchDeps {
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
   options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean };
+  /** Its Claude is working or waiting for you: never archived then. */
+  busy?: (sessionId: string) => boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
@@ -75,24 +77,30 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
  * Archive once the session's work is merged: every repo done, nothing
  * uncommitted anywhere, and at least one merged PR that is THIS work.
  *
- * "This work": the merged PR's head is exactly the commit the worktree has
- * checked out, or it was merged after the user last entered the session.
- * `gh pr view <branch>` also returns a PR merged long ago for a reused
- * branch name; such a PR has another head than the new work, and was merged
- * before it was entered, so it never archives a fresh session. (The "merged
- * after you entered" rule alone missed most real merges: you enter a
- * session, then its PR gets merged hours later — fine — but re-entering it
- * once more after the merge, to look, disarmed it for good.)
+ * "This work": it was merged after the user last entered the session, or
+ * its head is exactly the commit the worktree has checked out and the
+ * session has been left alone for a day since it was entered. `gh pr view
+ * <branch>` also returns a PR merged long ago for a reused branch name; such
+ * a PR has another head than the new work, and was merged before it was
+ * entered, so it never archives a fresh session. The day's grace is for
+ * entering on purpose after the merge — Restore, or `work tree` onto a
+ * branch still at the merged tip — which would otherwise be archived again
+ * by the next sweep, before any new file was written. (The "merged after
+ * you entered" rule alone disarmed a session for good once you re-entered
+ * it after the merge, just to look.)
  */
-export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>): boolean {
+export const REENTERED_GRACE_MS = 24 * 3600_000;
+
+export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>, now: number): boolean {
   if (pre.repos.length === 0 || !pre.repos.every((r) => r.done)) return false;
   if (pre.repos.some((r) => r.dirtyFiles > 0)) return false;
   const entered = Date.parse(session.lastAccessedAt);
   return pre.repos.some((r) => {
     if (r.pr?.state !== 'MERGED') return false;
-    if (r.pr.headSha && r.localSha && r.pr.headSha === r.localSha) return true;
     const merged = r.pr.mergedAt ? Date.parse(r.pr.mergedAt) : NaN;
-    return Number.isFinite(merged) && (!Number.isFinite(entered) || merged > entered);
+    if (Number.isFinite(merged) && (!Number.isFinite(entered) || merged > entered)) return true;
+    const sameWork = !!r.pr.headSha && !!r.localSha && r.pr.headSha === r.localSha;
+    return sameWork && Number.isFinite(entered) && now - entered >= REENTERED_GRACE_MS;
   });
 }
 
@@ -189,7 +197,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen);
       }
     }
-    if (opts.autoArchive && shouldAutoArchive(pre, session)) {
+    if (opts.autoArchive && !deps.busy?.(id) && shouldAutoArchive(pre, session, now())) {
       await deps.archive(id).catch(() => {});
     }
     return ci;

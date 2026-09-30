@@ -16,6 +16,9 @@ interface Props {
   onReviewAll?: () => void;
   /** Open PRs for a session; rows skip the badge without it. */
   prsFor?: PrLookup;
+  /** Whether `prsFor` is a full answer for a session (see staleSuggestions);
+   *  without it nothing is suggested for archiving. */
+  prsKnown?: (s: SessionSummary) => boolean;
   /** Clear a finished session's unseen flag without opening it. Defaults
    *  to the API call; injectable for tests. */
   onMarkSeen?: (id: string) => Promise<unknown>;
@@ -77,6 +80,7 @@ export function InboxTab({
   sessions,
   onOpenSession,
   prsFor,
+  prsKnown,
   onMarkSeen = markSessionSeen,
   onAnswer = answerPermission,
   onReviewAll,
@@ -248,7 +252,7 @@ export function InboxTab({
           </section>
         ))
       )}
-      <StaleSuggestions sessions={sessions} prsFor={prsFor} onOpen={(id) => onOpenSession(id, 'diff')} onArchive={onArchive} />
+      <StaleSuggestions sessions={sessions} prsFor={prsFor} prsKnown={prsKnown} onOpen={(id) => onOpenSession(id, 'diff')} onArchive={onArchive} />
     </div>
   );
 }
@@ -269,10 +273,10 @@ function readSnoozed(): Record<string, number> {
  * archiving (the conversation is kept; the worktree too when it has work in
  * it). "Not now" hides one for two weeks in this window.
  */
-function StaleSuggestions({ sessions, prsFor, onOpen, onArchive }: { sessions: SessionSummary[]; prsFor?: PrLookup; onOpen: (id: string) => void; onArchive: (id: string) => Promise<unknown> }) {
+function StaleSuggestions({ sessions, prsFor, prsKnown, onOpen, onArchive }: { sessions: SessionSummary[]; prsFor?: PrLookup; prsKnown?: (s: SessionSummary) => boolean; onOpen: (id: string) => void; onArchive: (id: string) => Promise<unknown> }) {
   const [snoozed, setSnoozed] = useState<Record<string, number>>(readSnoozed);
   const [busy, setBusy] = useState<Set<string>>(new Set());
-  const list = useMemo(() => staleSuggestions(sessions, prsFor, Date.now(), snoozed), [sessions, prsFor, snoozed]);
+  const list = useMemo(() => staleSuggestions(sessions, prsFor, Date.now(), snoozed, prsKnown), [sessions, prsFor, snoozed, prsKnown]);
   if (list.length === 0) return null;
   const snooze = (ids: string[]) => {
     const next = { ...snoozed };

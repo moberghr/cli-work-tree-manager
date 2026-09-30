@@ -102,7 +102,10 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
 /**
  * Fetch open PRs for a repo using `gh` CLI (async, non-blocking).
  */
-async function fetchPullRequests(repoPath: string, repoAlias: string, currentUser: string): Promise<PullRequestInfo[]> {
+const PR_LIST_LIMIT = 100;
+
+/** Open PRs for a repo; null when gh couldn't say (missing, offline, not a GitHub repo). */
+async function fetchPullRequests(repoPath: string, repoAlias: string, currentUser: string): Promise<PullRequestInfo[] | null> {
   try {
     const stdout = await execAsync(
       'gh',
@@ -110,7 +113,7 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
         'pr', 'list',
         '--state', 'open',
         '--json', 'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,mergeable,author',
-        '--limit', '100',
+        '--limit', String(PR_LIST_LIMIT),
       ],
       repoPath,
       15000,
@@ -118,7 +121,7 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
     if (!stdout) return [];
     return parsePrJson(stdout, repoAlias, currentUser);
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -136,16 +139,18 @@ async function getCurrentUser(): Promise<string> {
   }
 }
 
-export async function fetchAllPullRequests(repos: Record<string, string>): Promise<BranchPrMap> {
+export async function fetchAllPullRequests(repos: Record<string, string>): Promise<{ map: BranchPrMap; incomplete: string[] }> {
   const currentUser = await getCurrentUser();
   const entries = Object.entries(repos);
   const results = await Promise.all(
     entries.map(([alias, repoPath]) => fetchPullRequests(repoPath, alias, currentUser)),
   );
 
+  // Repos whose list may be missing PRs: gh failed, or it hit the limit.
+  const incomplete = entries.filter((_, i) => results[i] === null || results[i]!.length >= PR_LIST_LIMIT).map(([alias]) => alias);
   const map: BranchPrMap = new Map();
   for (const prList of results) {
-    for (const pr of prList) {
+    for (const pr of prList ?? []) {
       const existing = map.get(pr.branch);
       if (existing) {
         existing.push(pr);
@@ -155,6 +160,6 @@ export async function fetchAllPullRequests(repos: Record<string, string>): Promi
     }
   }
 
-  return map;
+  return { map, incomplete };
 }
 

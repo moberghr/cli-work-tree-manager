@@ -35,7 +35,7 @@ function fakeApi(): MergedBranchesApi {
     state: vi.fn(async () => STATE),
     scan: vi.fn(async () => STATE),
     apply: vi.fn(async (items) => ({
-      results: items.map((i: { repo: string; branch: string }) => ({ ...i, ok: true, message: 'Deleted' })),
+      results: items.map((i: { repo: string; branch: string }) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted' })),
       state: { ...STATE, candidates: STATE.candidates.filter((c) => !items.some((i: { repo: string; branch: string }) => i.repo === c.repo && i.branch === c.branch)) },
     })),
   };
@@ -56,7 +56,7 @@ describe('MergedBranches', () => {
     act(() => button('Delete 2')!.click());
     expect(api.apply).not.toHaveBeenCalled();
     await act(async () => button('Really delete 2?')!.click());
-    expect(api.apply).toHaveBeenCalledWith([{ repo: 'api', branch: 'feat/merged' }, { repo: 'api', branch: 'feat/squashed' }]);
+    expect(api.apply).toHaveBeenCalledWith([{ repo: 'api', branch: 'feat/merged', tip: 'a'.repeat(40) }, { repo: 'api', branch: 'feat/squashed', tip: 'b'.repeat(40) }]);
     expect(container.textContent).toContain('Deleted 2 branches.');
     expect(container.textContent).not.toContain('feat/merged');
     expect(container.textContent).toContain('feat/old');
@@ -69,7 +69,7 @@ describe('MergedBranches', () => {
     await flush();
     const del = [...container.querySelectorAll('li button')].at(-1) as HTMLButtonElement;
     await act(async () => del.click());
-    expect(api.apply).toHaveBeenCalledWith([{ repo: 'web', branch: 'feat/old' }]);
+    expect(api.apply).toHaveBeenCalledWith([{ repo: 'web', branch: 'feat/old', tip: 'c'.repeat(40) }]);
     expect(container.textContent).toContain('1 kept: feat/old (moved since the scan)');
   });
 });

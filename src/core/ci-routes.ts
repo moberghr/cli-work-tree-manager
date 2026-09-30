@@ -8,6 +8,7 @@ import { findSession } from './web-state.js';
 import { defaultRunner, shipPreflight } from './ship.js';
 import { fetchReviewFeedback } from './pr-review.js';
 import { dbPtySessions } from './pty-sessions-file.js';
+import { readStatus } from './session-status.js';
 import { createPrWatch, type PrWatch } from './pr-watch.js';
 
 /**
@@ -40,6 +41,10 @@ export function mountCiRoutes(
     preflight: (s) => shipPreflight(s),
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
+    busy: (id) => {
+      const st = readStatus(id)?.state;
+      return st === 'working' || st === 'needs_input';
+    },
     archive: opts.archive,
     tell: async (id, body) => {
       const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {

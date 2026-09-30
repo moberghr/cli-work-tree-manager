@@ -5,6 +5,9 @@ import { execFileSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deleteMergedBranches, findMergedBranches, type BranchTidyDeps } from '../../src/core/branch-tidy.js';
 import { defaultRunner, type CommandRunner } from '../../src/core/ship.js';
+import { sessionBranchUse } from '../../src/core/branch-tidy-deps.js';
+import { sessionIdFor } from '../../src/core/session-id.js';
+import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -118,4 +121,34 @@ describe('deleteMergedBranches', () => {
     expect(left).not.toContain('feat/merged');
     expect(left).toEqual(expect.arrayContaining(['feat/squashed', 'feat/wip', 'feat/live', 'main']));
   }, 60_000);
+
+  it('refuses a branch whose tip is not the one you were shown, and re-checks only the chosen ones', async () => {
+    const { repo, tips } = buildFixture(path.join(root, 'tip'));
+    const gh: string[][] = [];
+    const deps = depsFor(repo, tips, gh);
+    const results = await deleteMergedBranches(
+      [{ repo: 'api', branch: 'feat/merged', tip: 'f'.repeat(40) }, { repo: 'api', branch: 'feat/archived', tip: git(repo, 'rev-parse', 'feat/archived') }],
+      deps,
+    );
+    expect(results.map((r) => [r.branch, r.ok, r.message])).toEqual([
+      ['feat/merged', false, 'Not deleted: it has moved since you looked.'],
+      ['feat/archived', true, expect.stringContaining('Deleted')],
+    ]);
+    expect(gh).toEqual([]); // no gh for branches nobody chose
+  }, 60_000);
+});
+
+describe('sessionBranchUse', () => {
+  const sess = (target: string, isGroup: boolean, archived: boolean): WorktreeSession => ({
+    target, branch: 'feat/x', isGroup, paths: [], createdAt: '', lastAccessedAt: '', ...(archived ? { archivedAt: '2026-09-01T00:00:00Z' } : {}),
+  });
+  it('a current session using a branch wins over an archived one on the same repo + branch, in either order', () => {
+    const groups = { shop: ['api', 'web'] };
+    for (const list of [[sess('shop', true, false), sess('api', false, true)], [sess('api', false, true), sess('shop', true, false)]]) {
+      const use = sessionBranchUse(list, groups);
+      expect(use.get('api')?.get('feat/x')).toMatchObject({ archived: false, id: sessionIdFor(list.find((s) => s.isGroup)!) });
+      expect(use.get('web')?.get('feat/x')?.archived).toBe(false);
+    }
+    expect(sessionBranchUse([sess('api', false, true)], groups).get('api')?.get('feat/x')?.archived).toBe(true);
+  });
 });

@@ -95,9 +95,11 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
   app.post('/api/cleanup/branches/apply', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { items?: unknown } | null;
     const items = Array.isArray(body?.items)
-      ? body.items.filter((i): i is { repo: string; branch: string } => !!i && typeof i.repo === 'string' && typeof i.branch === 'string')
+      ? body.items
+          .filter((i): i is { repo: string; branch: string; tip?: unknown } => !!i && typeof i.repo === 'string' && typeof i.branch === 'string')
+          .map((i) => ({ repo: i.repo, branch: i.branch, ...(typeof i.tip === 'string' ? { tip: i.tip } : {}) }))
       : [];
-    if (items.length === 0) return c.json({ error: 'items: [{repo, branch}]' }, 400);
+    if (items.length === 0) return c.json({ error: 'items: [{repo, branch, tip?}]' }, 400);
     const results = await deleteMergedBranches(items, branchDeps);
     const gone = new Set(results.filter((r) => r.ok).map((r) => `${r.repo}\0${r.branch}`));
     branches = { ...branches, candidates: branches.candidates.filter((b) => !gone.has(`${b.repo}\0${b.branch}`)) };

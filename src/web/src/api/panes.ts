@@ -78,6 +78,8 @@ export function fetchProjects(): Promise<{
 
 export function fetchPrs(): Promise<{
   prs: PrInfo[];
+  /** Repo aliases whose open PRs couldn't all be listed. */
+  incomplete?: string[];
   error?: string;
   available?: boolean;
 }> {
