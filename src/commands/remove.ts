@@ -53,7 +53,9 @@ export const removeCommand: CommandModule = {
     if (paths.every((p) => !wouldRefuseRemoval(p, force))) {
       await stopSessionPty(targetName, branchName);
     }
-    const allRemoved = teardownWorktree(targetName, target.isGroup, branchName, config, force);
+    // The session's folder, not the branch name: the branch checked out in it
+    // may have been switched since.
+    const allRemoved = teardownWorktree(targetName, target.isGroup, branchName, config, force, paths.length ? paths : undefined);
 
     if (allRemoved === true) {
       await removeSession(targetName, branchName);
