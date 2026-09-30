@@ -98,6 +98,19 @@ describe('first open imports the JSON state', () => {
     expect(loadHistory().map((s) => s.target)).toEqual(['api', 'web']);
   });
 
+  it('a version-1 database gets the new tables, and the old files are not imported again', () => {
+    expect(loadHistory()).toEqual([]); // creates it (current version)
+    withDb((d) => {
+      d.exec('DROP TABLE pr_replies');
+      d.pragma('user_version = 1');
+    });
+    write('history.json', [{ target: 'late', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' }]);
+    const tables = withDb((d) => (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name));
+    expect(tables).toContain('pr_replies');
+    expect(withDb((d) => d.pragma('user_version', { simple: true }))).toBe(2);
+    expect(loadHistory()).toEqual([]);
+  });
+
   it('a fresh machine just gets an empty database', () => {
     expect(loadHistory()).toEqual([]);
     expect(getTasks()).toEqual([]);

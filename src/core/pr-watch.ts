@@ -3,6 +3,11 @@ import type { SessionCi, ShipPreflight } from './api-types.js';
 import { DECISION_MARKER } from './attention.js';
 import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from './activity.js';
+import { DEFAULT_TRUSTED_BOTS } from './pr-review.js';
+
+/** What waking a session's Claude did: started it; it was already running (it has the note);
+ *  waking is off; or it couldn't (no PTY host, no worktree). */
+export type WakeResult = 'started' | 'running' | 'off' | 'failed';
 
 /**
  * Background PR watch for `work web` (full mode): what GitHub knows about
@@ -33,7 +38,11 @@ export interface PrWatchDeps {
   /** Leave the session's Claude a (published) review note. */
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
-  options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean };
+  options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean; trustedBots?: string[] };
+  /** Threads just handed to a session's Claude, for the reply drafts (pr-replies.ts). */
+  rememberThreads?: (sessionId: string, threads: Array<{ threadId: string; repo: string; prNumber: number; url: string; where: string | null; reviewer: string; excerpt: string }>) => void;
+  /** After a note: start the session's Claude if it isn't running, so it works on it now. */
+  wake?: (sessionId: string) => Promise<WakeResult>;
   /** Its Claude is working or waiting for you: never archived then. */
   busy?: (sessionId: string) => boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
@@ -216,7 +225,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         }
         threads.set(r.name, openThreadCount(fb));
         if (act && deliverReviews) {
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen);
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, { trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS });
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
         }
       }
@@ -239,8 +248,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');
       const what = `${n} new review comment${n === 1 ? '' : 's'} on ${prs}`;
-      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen)) note(`handed ${what} to its Claude`, 'action');
-      else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
+      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen)) {
+        deps.rememberThreads?.(
+          id,
+          feedback.flatMap((f) =>
+            f.items
+              .filter((it) => it.threadId)
+              .map((it) => ({ threadId: it.threadId!, repo: f.repo, prNumber: f.number, url: it.url, where: it.where ?? null, reviewer: it.author, excerpt: it.body.slice(0, 400) })),
+          ),
+        );
+        note(`handed ${what} to its Claude${await wakeNote(id)}`, 'action');
+      } else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
     } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
       const fresh = failingOf(ci).filter((f) => !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
@@ -248,7 +266,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
         const what = fresh.map((f) => `#${f.number} (${f.checks.join(', ') || 'checks'})`).join(', ');
-        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them`, 'action');
+        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
         else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }
@@ -265,6 +283,17 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       } else if (verdict) note(`a PR is merged, but kept: ${verdict.why}`);
     }
     return ci;
+  }
+
+  /** Start the Claude that just got a note, if it isn't running; says what happened, for the note. */
+  async function wakeNote(id: string): Promise<string> {
+    if (!deps.wake) return '';
+    const r = await deps.wake(id).catch((): WakeResult => 'failed');
+    return r === 'started'
+      ? ' (started it: it resumes its conversation and works on it now)'
+      : r === 'failed'
+        ? " (couldn't start it: it gets the note when it next runs)"
+        : '';
   }
 
   /** The sweep's one-line result, from what it just saw. */

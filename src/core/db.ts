@@ -27,7 +27,8 @@ import { importLegacyState } from './db-import.js';
 
 export type Db = Database.Database;
 
-export const SCHEMA_VERSION = 1;
+/** 1: the first schema (and the JSON import). 2: pr_replies. */
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -64,6 +65,15 @@ CREATE TABLE IF NOT EXISTS pr_watch_seen (
 );
 
 CREATE TABLE IF NOT EXISTS dev_runs (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Review threads handed to a session's Claude, and the reply it drafted
+-- for you to post (pr-replies.ts).
+CREATE TABLE IF NOT EXISTS pr_replies (
+  session_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (session_id, thread_id)
+);
 
 CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
 
@@ -128,10 +138,13 @@ function migrate(d: Db, configDir: string): void {
   let imported: string[] = [];
   d.transaction(() => {
     // Re-check under the write lock: another process may have just done it.
-    if ((d.pragma('user_version', { simple: true }) as number) >= SCHEMA_VERSION) return;
-    d.exec(SCHEMA);
-    imported = importLegacyState(d, configDir);
-    d.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('migrated_at', ?)").run(new Date().toISOString());
+    const from = d.pragma('user_version', { simple: true }) as number;
+    if (from >= SCHEMA_VERSION) return;
+    d.exec(SCHEMA); // every statement is IF NOT EXISTS: a later version only adds its tables
+    if (from < 1) {
+      imported = importLegacyState(d, configDir);
+      d.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('migrated_at', ?)").run(new Date().toISOString());
+    }
     d.pragma(`user_version = ${SCHEMA_VERSION}`);
   }).immediate();
   // Keep the old files (renamed), so a downgrade can go back to them.
@@ -194,7 +207,7 @@ export function revision(table: 'sessions' | 'tasks'): number {
 
 /** Every row a session owns, outside `sessions` itself. */
 export function purgeSessionRows(d: Db, sessionId: string): void {
-  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs']) {
+  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies']) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }
   d.prepare('DELETE FROM comments WHERE store = ?').run(sessionId);

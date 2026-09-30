@@ -20,7 +20,7 @@ const repo = (name: string, p: ShipPr | null, done = false): RepoShipState =>
 const ON = { autoArchive: true, fixCi: true, reviewComments: true };
 /** "Now" for the watch: two days after ENTERED, unless a test says otherwise. */
 const LATER = Date.parse(ENTERED) + 48 * 3600_000;
-function harness(repos: RepoShipState[], opts = ON, isGroup = false, feedback: ReviewFeedback | null = null, extra: Partial<PrWatchDeps> = {}) {
+function harness(repos: RepoShipState[], opts: ReturnType<PrWatchDeps['options']> = ON, isGroup = false, feedback: ReviewFeedback | null = null, extra: Partial<PrWatchDeps> = {}) {
   let pre: ShipPreflight = { repos };
   const told = new Set<string>();
   const deps = {
@@ -134,6 +134,40 @@ describe('PR watch', () => {
     feedback.mockResolvedValue(null);
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+  });
+
+  describe('feedback for a Claude that is not running', () => {
+    const botThread = {
+      viewer: 'me', reviews: [], comments: [],
+      threads: [{ id: 'PRRT_t1', isResolved: false, isOutdated: false, path: 'a.ts', line: 3, comments: [{ id: 'c1', author: 'copilot-pull-request-reviewer', association: 'NONE', body: 'use a const', url: 'u1', createdAt: ENTERED }] }],
+    } as unknown as ReviewFeedback;
+
+    it("hands a trusted bot's thread over, records it for the reply drafts, and starts the Claude", async () => {
+      const activity = createActivityLog();
+      const wake = vi.fn(async () => 'started' as const);
+      const rememberThreads = vi.fn();
+      const h = harness([repo('api', pr())], ON, false, botThread, { wake, rememberThreads, activity });
+      await h.watch.tick();
+      expect(h.deps.tell).toHaveBeenCalledTimes(1);
+      expect(h.deps.tell.mock.calls[0][1]).toContain('[thread PRRT_t1]');
+      expect(rememberThreads).toHaveBeenCalledWith('s1', [expect.objectContaining({ threadId: 'PRRT_t1', repo: 'api', prNumber: 7, reviewer: 'copilot-pull-request-reviewer', where: 'a.ts:3' })]);
+      expect(wake).toHaveBeenCalledWith('s1');
+      expect(activity.snapshot().recent[0].notes[0].text).toContain('(started it: it resumes its conversation and works on it now)');
+    });
+
+    it('trustedBots: [] turns bots off', async () => {
+      const h = harness([repo('api', pr())], { ...ON, trustedBots: [] }, false, botThread);
+      await h.watch.tick();
+      expect(h.deps.tell).not.toHaveBeenCalled();
+    });
+
+    it('a note that could not be delivered wakes nothing', async () => {
+      const wake = vi.fn(async () => 'started' as const);
+      const h = harness([repo('api', pr())], ON, false, botThread, { wake });
+      h.deps.tell.mockRejectedValueOnce(new Error('down'));
+      await h.watch.tick();
+      expect(wake).not.toHaveBeenCalled();
+    });
   });
 
   describe('what it tells the Activity panel', () => {

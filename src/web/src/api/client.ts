@@ -134,6 +134,8 @@ export interface SessionSummary {
   context?: ContextUsage | null;
   /** Unresolved review threads on its open PRs, waiting on you. */
   openReviewThreads?: number;
+  /** Replies its Claude drafted on those threads, for you to post. */
+  replyDrafts?: number;
 }
 
 // ---- Ship / archive ---------------------------------------------------
@@ -160,6 +162,40 @@ async function getJson<T>(path: string): Promise<T> {
     throw new Error(`${res.status} ${res.statusText} for ${path}`);
   }
   return res.json() as Promise<T>;
+}
+
+type PrReply = import('../../../core/api-types.js').PrReply;
+
+/** Review threads handed to the session's Claude, and the replies it drafted. */
+export function fetchReplies(sessionId: string): Promise<PrReply[]> {
+  return getJson<{ replies: PrReply[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => r.replies);
+}
+
+async function sendJson<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(json.error ?? `${res.status} for ${path}`);
+  return json;
+}
+
+const replyPath = (sessionId: string, threadId: string) =>
+  `/api/sessions/${encodeURIComponent(sessionId)}/replies/${encodeURIComponent(threadId)}`;
+
+export function editReply(sessionId: string, threadId: string, body: string): Promise<{ reply: PrReply }> {
+  return sendJson('PUT', replyPath(sessionId, threadId), { body });
+}
+
+export function discardReply(sessionId: string, threadId: string): Promise<{ ok: boolean }> {
+  return sendJson('DELETE', replyPath(sessionId, threadId));
+}
+
+/** Post the reply from your GitHub account; `resolve` also resolves the thread. */
+export function postReply(sessionId: string, threadId: string, body: string, resolve: boolean): Promise<{ ok: true; url: string; resolved: boolean }> {
+  return sendJson('POST', `${replyPath(sessionId, threadId)}/post`, { body, resolve });
 }
 
 /** What work is doing in the background, and what it decided (the Activity panel). */

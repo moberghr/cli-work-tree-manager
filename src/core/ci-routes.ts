@@ -11,6 +11,33 @@ import { dbPtySessions } from './pty-sessions-file.js';
 import { readStatus } from './session-status.js';
 import { createPrWatch, type PrWatch } from './pr-watch.js';
 import type { ActivityLog } from './activity.js';
+import type { WakeResult } from './pr-watch.js';
+import { rememberSent } from './pr-replies.js';
+import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
+import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+
+/** The first message of a Claude started for a PR note: the note itself
+ *  rides along (the UserPromptSubmit hook adds pending comments). */
+export const WAKE_PROMPT =
+  'work just sent you new feedback on your pull request (it is attached to this message). Work through it now.';
+
+/**
+ * A note was just queued for the session's Claude. If that Claude isn't
+ * running anywhere, start it in the PTY host — resuming its conversation,
+ * with WAKE_PROMPT — so it works on the note now instead of whenever you
+ * next open the session. A Claude already running (here or in a terminal)
+ * gets the note from the comment path. Config `prWatch.wakeClaude: false`
+ * turns this off.
+ */
+async function wakeForNote(id: string): Promise<WakeResult> {
+  if (loadConfig()?.prWatch?.wakeClaude === false) return 'off';
+  if (peekPty(id)) return 'running';
+  const hostPids = ptyPids();
+  const elsewhere = (claudesBySession(readLiveClaudes(), loadHistory()).get(id) ?? []).filter((c) => !hostPids.has(c.pid));
+  if (elsewhere.length) return 'running';
+  const url = await ensurePty(id, { initialPrompt: WAKE_PROMPT }).catch(() => null);
+  return url ? 'started' : 'failed';
+}
 
 /**
  * The PR watch (pr-watch.ts) wired to real sessions, gh and the comment
@@ -61,8 +88,18 @@ export function mountCiRoutes(
     broadcast: opts.broadcast,
     options: () => {
       const w = loadConfig()?.prWatch;
-      return { autoArchive: w?.autoArchive !== false, fixCi: w?.fixCi !== false, reviewComments: w?.reviewComments !== false };
+      return {
+        autoArchive: w?.autoArchive !== false,
+        fixCi: w?.fixCi !== false,
+        reviewComments: w?.reviewComments !== false,
+        ...(w?.trustedBots ? { trustedBots: w.trustedBots } : {}),
+      };
     },
+    rememberThreads: (id, threads) => {
+      rememberSent(id, threads);
+      opts.broadcast('replies-changed', { sessionId: id });
+    },
+    wake: (id) => wakeForNote(id),
     told: createSeenStores(),
   });
 

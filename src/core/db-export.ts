@@ -19,7 +19,7 @@ export interface StateSummary {
   counts: Record<string, number>;
 }
 
-const TABLES = ['sessions', 'session_status', 'comments', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'tasks'];
+const TABLES = ['sessions', 'session_status', 'comments', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'tasks'];
 
 export function stateSummary(): StateSummary {
   return withDb((d) => {

@@ -11,6 +11,7 @@ import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
 import { createDemoActivity } from './demo-activity.js';
+import { mountDemoReplies } from './demo-replies.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -42,7 +43,14 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, demo: true, lean: false, build: buildStamp() }));
   // The demo is not the singleton and has nothing to clean up; refuse.
   app.post('/api/shutdown', (c) => c.json({ error: 'the demo is stopped with Ctrl+C' }, 501));
-  app.get('/api/sessions', (c) => c.json({ sessions: scenario.list() }));
+  // Reply drafts on review threads (demo-replies.ts).
+  const draftsFor = mountDemoReplies(app, scenario, (sessionId) => {
+    broadcast({ event: 'replies-changed', data: { sessionId } });
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
+  });
+  app.get('/api/sessions', (c) =>
+    c.json({ sessions: scenario.list().map((w) => (draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : w)) }),
+  );
 
   app.get('/api/sessions/:id/checkpoints', (c) => {
     const entries = scenario.checkpoints(c.req.param('id'));

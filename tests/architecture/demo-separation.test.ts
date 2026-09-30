@@ -82,7 +82,8 @@ describe('demo mode is separated from the real machinery', () => {
     // Not part of the dashboard's contract: the Claude hook nudge (called
     // by `work hook`, not the SPA) and the SPA fallback itself.
     for (const r of ['POST /api/status-changed', 'GET *']) real.delete(r);
-    const demo = routes(['src/core/demo/demo-server.ts']);
+    // The demo's routes may live in any of its files (demo-replies.ts, …).
+    const demo = routes(fs.readdirSync(path.join(ROOT, 'src/core/demo')).filter((f) => f.endsWith('.ts')).map((f) => `src/core/demo/${f}`));
     const missing = [...real].filter((r) => !demo.has(r)).sort();
     expect(missing).toEqual([]);
     expect(real.size).toBeGreaterThan(20); // the scan really found the routes

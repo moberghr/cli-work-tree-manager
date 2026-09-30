@@ -369,6 +369,8 @@ export interface SessionWire {
    *  yours (the PR watch's count, pr-review.ts); absent when none or not
    *  checked yet. Makes it "Review comments" (session-view.ts). */
   openReviewThreads?: number;
+  /** Replies its Claude drafted for you to post on those threads (pr-replies.ts). */
+  replyDrafts?: number;
 }
 
 // ---- ship -----------------------------------------------------------------
@@ -563,4 +565,28 @@ export interface ActivityWire {
   /** Finished runs, newest first. */
   recent: ActivityRun[];
   schedules: ActivitySchedule[];
+}
+
+/**
+ * A review thread handed to a session's Claude, and the reply it drafted
+ * for you (pr-replies.ts). GET /api/sessions/:id/replies.
+ */
+export interface PrReply {
+  /** GitHub's thread id (PRRT_…). */
+  threadId: string;
+  repo: string;
+  prNumber: number;
+  /** The reviewer comment it answers. */
+  url: string;
+  where: string | null;
+  reviewer: string;
+  excerpt: string;
+  /** sent: Claude has it; draft: Claude wrote a reply; posted: you posted it. */
+  status: 'sent' | 'draft' | 'posted';
+  draft: string | null;
+  sentAt: string;
+  draftedAt?: string;
+  postedAt?: string;
+  postedUrl?: string;
+  resolved?: boolean;
 }

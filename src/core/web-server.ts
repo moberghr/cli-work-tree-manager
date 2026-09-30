@@ -37,6 +37,8 @@ import { mountCleanupRoutes } from './cleanup-routes.js';
 import { mountAssistantRoutes } from './assistant-routes.js';
 import type { ActivityWire, DigestResponse, SessionWire } from './api-types.js';
 import { createActivityLog } from './activity.js';
+import { mountPrReplyRoutes } from './pr-reply-routes.js';
+import { draftCounts } from './pr-replies.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
 import { mountRevertRoutes } from './revert-routes.js';
@@ -253,8 +255,15 @@ export async function startWebServer(
       const running = claudesBySession(readLiveClaudes(), history.filter((s) => !shadow.has(sessionIdFor(s))));
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
+      const drafts = draftCounts();
       const sessions = history.map((s) =>
-        sessionWire(s, { diffStatFor, claudesFor, shadowed: (id) => shadow.has(id), reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)) }),
+        sessionWire(s, {
+          diffStatFor,
+          claudesFor,
+          shadowed: (id) => shadow.has(id),
+          reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+          replyDraftsFor: (id) => drafts.get(id) ?? 0,
+        }),
       );
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
@@ -398,6 +407,9 @@ export async function startWebServer(
     const body: DigestResponse = await digest.collect(Date.parse(c.req.query('since') ?? ''));
     return c.json(body);
   });
+
+  // Replies to PR review threads: Claude drafts, you post (pr-replies.ts).
+  mountPrReplyRoutes(app, { broadcast, activity });
 
   // Clean up view: which worktrees can go (scan), and removing them.
   mountCleanupRoutes(app, { broadcast, activity });

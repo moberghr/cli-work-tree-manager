@@ -25,6 +25,7 @@ import { sessionsCommand } from './commands/sessions.js';
 import { digestCommand } from './commands/digest.js';
 import { cleanupCommand } from './commands/cleanup.js';
 import { overlapsCommand } from './commands/overlaps.js';
+import { prCommand } from './commands/pr.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -117,6 +118,7 @@ export function run(argv: string[]) {
     .command(digestCommand)
     .command(cleanupCommand)
     .command(overlapsCommand)
+    .command(prCommand)
     .command(pruneCommand)
     .command(syncCommand)
     .command(todoCommand)

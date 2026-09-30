@@ -25,6 +25,8 @@ export interface SessionWireOptions {
   shadowed?: (id: string) => boolean;
   /** Unresolved review threads on its open PRs (the PR watch's last check). */
   reviewThreadsFor?: (id: string) => number;
+  /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
+  replyDraftsFor?: (id: string) => number;
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -33,6 +35,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const shadowed = opts.shadowed?.(id) ?? false;
   const claudes = shadowed ? null : (opts.claudesFor?.(id) ?? null);
   const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
+  const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
   return {
     id,
     target: s.target,
@@ -61,6 +64,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     port: s.port ?? null,
     context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
     ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
+    ...(replyDrafts > 0 ? { replyDrafts } : {}),
   };
 }
 

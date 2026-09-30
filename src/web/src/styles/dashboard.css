@@ -1685,3 +1685,18 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-activity-note-action { color: var(--fg); }
 .wd-activity-note-warn { color: var(--warn-fg); }
 .wd-activity-more { font-size: 11px; }
+
+/* Replies Claude drafted for review threads (ReplyDrafts): you post them. */
+.wd-replies { margin: 6px 16px 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--review-fg) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--review-fg) 5%, var(--bg)); font-size: 12px; }
+.wd-replies-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--review-fg); }
+.wd-replies-muted { color: var(--muted); font-weight: 400; }
+.wd-reply { padding: 8px 0; border-top: 1px solid var(--border); }
+.wd-reply:first-of-type { border-top: 0; }
+.wd-reply-where { font-weight: 600; color: var(--fg); text-decoration: none; }
+.wd-reply-where:hover { text-decoration: underline; }
+.wd-reply-quote { margin: 4px 0 6px; padding: 2px 0 2px 8px; border-left: 3px solid var(--border); color: var(--muted); white-space: pre-wrap; }
+.wd-reply-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
+.wd-reply-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.wd-reply-actions .wd-link-button { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
+.wd-reply-actions .wd-link-button:hover { text-decoration: underline; }
+.wd-inbox-drafts { color: var(--review-fg); font-weight: 600; margin-left: 6px; }

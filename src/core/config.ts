@@ -71,7 +71,18 @@ export interface WorkConfig {
    * once all its PRs merged, and tell its Claude when CI fails or reviewers
    * leave feedback.
    */
-  prWatch?: { autoArchive?: boolean; fixCi?: boolean; reviewComments?: boolean };
+  prWatch?: {
+    autoArchive?: boolean;
+    fixCi?: boolean;
+    reviewComments?: boolean;
+    /** Review bots whose comments go to Claude like a colleague's (logins,
+     *  e.g. "copilot-pull-request-reviewer"). Default: Copilot and
+     *  github-actions (pr-review.ts DEFAULT_TRUSTED_BOTS); [] = none. */
+    trustedBots?: string[];
+    /** Start a session's Claude (resuming its conversation) when feedback
+     *  arrives and it isn't running, so it works on it at once. Default on. */
+    wakeClaude?: boolean;
+  };
   /**
    * Opt-in desktop notifications. When true, the dashboard fires an OS
    * notification when a session goes idle or needs input. Default: off.
@@ -159,7 +170,15 @@ export function loadConfig(): WorkConfig | null {
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       prompts: validatePrompts(parsed.prompts),
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
-        ? { autoArchive: parsed.prWatch.autoArchive !== false, fixCi: parsed.prWatch.fixCi !== false, reviewComments: parsed.prWatch.reviewComments !== false }
+        ? {
+            autoArchive: parsed.prWatch.autoArchive !== false,
+            fixCi: parsed.prWatch.fixCi !== false,
+            reviewComments: parsed.prWatch.reviewComments !== false,
+            ...(Array.isArray(parsed.prWatch.trustedBots)
+              ? { trustedBots: parsed.prWatch.trustedBots.filter((b: unknown): b is string => typeof b === 'string' && b.trim().length > 0) }
+              : {}),
+            wakeClaude: parsed.prWatch.wakeClaude !== false,
+          }
         : undefined,
     };
   } catch {

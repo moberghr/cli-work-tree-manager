@@ -7,6 +7,7 @@ import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip } from './DevChip.js';
 import { CiStrip } from './CiStrip.js';
+import { ReplyDrafts } from './ReplyDrafts.js';
 import { useSse } from '../../api/events.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
@@ -122,6 +123,7 @@ export function SessionDetail({
         )}
       </div>
       <CiStrip sessionId={session.id} isGroup={session.isGroup} />
+      <ReplyDrafts sessionId={session.id} />
       {shipOpen && (
         <ShipPanel
           key={session.id}

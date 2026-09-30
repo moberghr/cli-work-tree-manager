@@ -192,6 +192,11 @@ export function InboxTab({
                       ) : sec.rank === 2 ? (
                         <span className="wd-inbox-review">
                           💬 {s.openReviewThreads} unresolved review comment{s.openReviewThreads === 1 ? '' : 's'}
+                          {!!s.replyDrafts && (
+                            <span className="wd-inbox-drafts" title="Claude drafted replies: review and post them in the session">
+                              · ✍ {s.replyDrafts} {s.replyDrafts === 1 ? 'reply' : 'replies'} to post
+                            </span>
+                          )}
                         </span>
                       ) : s.attention!.state === 'needs_input' && s.attention!.request ? (
                         <span className="wd-inbox-request" title={`${s.attention!.request.tool}: ${s.attention!.request.detail}`}>
