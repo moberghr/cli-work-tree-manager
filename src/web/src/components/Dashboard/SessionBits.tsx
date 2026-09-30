@@ -77,9 +77,9 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-/** Where a conversation's fill level starts to matter. */
-export const CONTEXT_WARN = 0.7;
-export const CONTEXT_FULL = 0.9;
+/** Where a conversation's fill level starts to matter (shared with the PR watch's notes). */
+export { CONTEXT_WARN, CONTEXT_FULL } from '../../state/session-display.js';
+import { CONTEXT_FULL, CONTEXT_WARN } from '../../state/session-display.js';
 
 /**
  * "Context 62%" with a small bar: how full the session's Claude

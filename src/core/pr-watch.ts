@@ -3,7 +3,7 @@ import type { SessionCi, ShipPreflight } from './api-types.js';
 import { DECISION_MARKER } from './attention.js';
 import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from './activity.js';
-import { DEFAULT_TRUSTED_BOTS } from './pr-review.js';
+import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
 
 /** What waking a session's Claude did: started it; it was already running (it has the note);
  *  waking is off; or it couldn't (no PTY host, no worktree). */
@@ -41,6 +41,8 @@ export interface PrWatchDeps {
   options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean; trustedBots?: string[] };
   /** Threads just handed to a session's Claude, for the reply drafts (pr-replies.ts). */
   rememberThreads?: (sessionId: string, threads: Array<{ threadId: string; repo: string; prNumber: number; url: string; where: string | null; reviewer: string; excerpt: string }>) => void;
+  /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
+  contextShare?: (session: WorktreeSession) => number | null;
   /** After a note: start the session's Claude if it isn't running, so it works on it now. */
   wake?: (sessionId: string) => Promise<WakeResult>;
   /** Its Claude is working or waiting for you: never archived then. */
@@ -76,16 +78,18 @@ export const RATE_LIMITED = /rate limit/i;
 /** How long the sweeps rest after GitHub said so. */
 export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
 
-export function ciFixMessage(failing: Array<{ repo: string; number: number; checks: string[] }>, isGroup: boolean): string {
+export function ciFixMessage(failing: Array<{ repo: string; number: number; checks: string[] }>, isGroup: boolean, contextShare?: number | null): string {
   const lines = failing.map(
     (f) => `- PR #${f.number}${isGroup ? ` (${f.repo})` : ''}: ${f.checks.join(', ')}`,
   );
+  const hint = subAgentHint(contextShare);
   return [
     'CI is failing:',
     ...lines,
     '',
     'Look at the failures (`gh pr checks <n>`, `gh run view <run-id> --log-failed`), fix them, and push.',
     `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
+    ...(hint ? [hint] : []),
   ].join('\n');
 }
 
@@ -248,7 +252,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');
       const what = `${n} new review comment${n === 1 ? '' : 's'} on ${prs}`;
-      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER), feedbackSeen)) {
+      if (await tellThenRecord(id, reviewMessage(feedback, session.isGroup, DECISION_MARKER, deps.contextShare?.(session)), feedbackSeen)) {
         deps.rememberThreads?.(
           id,
           feedback.flatMap((f) =>
@@ -266,7 +270,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
         const what = fresh.map((f) => `#${f.number} (${f.checks.join(', ') || 'checks'})`).join(', ');
-        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
+        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup, deps.contextShare?.(session)), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
         else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }
@@ -363,7 +367,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       if (!failing.length) return false;
       const seen = staged(id);
       for (const f of failing) seen.add(`${id}:${f.repo}:${f.headSha}`);
-      await deps.tell(id, ciFixMessage(failing, s.session.isGroup)); // the route reports a failure
+      await deps.tell(id, ciFixMessage(failing, s.session.isGroup, deps.contextShare?.(s.session))); // the route reports a failure
       seen.commit();
       return true;
     },

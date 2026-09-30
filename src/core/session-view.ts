@@ -93,6 +93,15 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
 /** The legend's rows, most urgent first. Idle covers `quiet` and `recent` (same colour, same word). */
 export const LEGEND_KINDS: readonly DisplayKind[] = ['needs_input', 'done', 'review', 'working', 'active', 'open', 'quiet', 'stale'];
 
+/**
+ * How full a Claude conversation may get before it matters: past WARN the
+ * header shows it amber and the PR watch's notes ask Claude to hand
+ * mechanical work to a sub-agent; past FULL it's red (Claude compacts near
+ * the window, and answers get vaguer before that).
+ */
+export const CONTEXT_WARN = 0.7;
+export const CONTEXT_FULL = 0.9;
+
 /** How long ago a session was used, for the Sessions table's sections. */
 export type AgeBucket = 'now' | 'week' | 'older';
 

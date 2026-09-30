@@ -13,6 +13,7 @@ import { createPrWatch, type PrWatch } from './pr-watch.js';
 import type { ActivityLog } from './activity.js';
 import type { WakeResult } from './pr-watch.js';
 import { rememberSent } from './pr-replies.js';
+import { readContextUsage } from './context-usage.js';
 import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
 import { claudesBySession, readLiveClaudes } from './live-claudes.js';
 
@@ -100,6 +101,10 @@ export function mountCiRoutes(
       opts.broadcast('replies-changed', { sessionId: id });
     },
     wake: (id) => wakeForNote(id),
+    contextShare: (s) => {
+      const u = readContextUsage(s);
+      return u && u.window > 0 ? u.used / u.window : null;
+    },
     told: createSeenStores(),
   });
 

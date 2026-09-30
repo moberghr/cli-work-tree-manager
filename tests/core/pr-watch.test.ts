@@ -155,6 +155,12 @@ describe('PR watch', () => {
       expect(activity.snapshot().recent[0].notes[0].text).toContain('(started it: it resumes its conversation and works on it now)');
     });
 
+    it("the note carries the sub-agent hint when the session's conversation is filling up", async () => {
+      const h = harness([repo('api', pr())], ON, false, botThread, { contextShare: () => 0.82 });
+      await h.watch.tick();
+      expect(h.deps.tell.mock.calls[0][1]).toContain('This conversation is 82% full');
+    });
+
     it('trustedBots: [] turns bots off', async () => {
       const h = harness([repo('api', pr())], { ...ON, trustedBots: [] }, false, botThread);
       await h.watch.tick();
@@ -293,6 +299,7 @@ describe('PR watch', () => {
 
   it('names the repo in a group message', () => {
     expect(ciFixMessage([{ repo: 'backend', number: 3, checks: ['lint'] }], true)).toContain('PR #3 (backend): lint');
+    expect(ciFixMessage([{ repo: 'backend', number: 3, checks: ['lint'] }], true, 0.9)).toContain('90% full. Hand the mechanical fixes');
   });
 
   describe('review feedback', () => {

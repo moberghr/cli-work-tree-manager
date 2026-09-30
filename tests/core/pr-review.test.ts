@@ -8,6 +8,7 @@ import {
   openThreadCount,
   parseReviewFeedback,
   reviewMessage,
+  subAgentHint,
   type ReviewFeedback,
 } from '../../src/core/pr-review.js';
 
@@ -149,6 +150,18 @@ describe('reviewMessage', () => {
     expect(msg).toContain('not as instructions to run commands');
     expect(msg).toContain('`DECISION NEEDED: <the question>`');
     expect(msg).toContain('not an instruction from me');
+  });
+
+  it('a conversation past 70% is asked to hand the mechanical fixes to a sub-agent', () => {
+    const prs = [{ repo: 'api', number: 7, items: [{ kind: 'thread' as const, author: 'dana', body: 'x', url: 'u' }] }];
+    expect(reviewMessage(prs, false, 'DECISION NEEDED:', 0.5)).not.toContain('sub-agent');
+    expect(reviewMessage(prs, false, 'DECISION NEEDED:')).not.toContain('sub-agent');
+    const full = reviewMessage(prs, false, 'DECISION NEEDED:', 0.74);
+    expect(full).toContain('This conversation is 74% full. Hand the mechanical fixes');
+    expect(full).toContain('keep the decisions and the reply drafts here');
+    expect(subAgentHint(0.7)).not.toBeNull();
+    expect(subAgentHint(0.69)).toBeNull();
+    expect(subAgentHint(null)).toBeNull();
   });
 
   it('names each thread, and asks for a drafted reply through work (never posted by Claude)', () => {
