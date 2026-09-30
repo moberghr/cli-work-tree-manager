@@ -71,6 +71,40 @@ export interface SessionClaudes {
   duplicate: boolean;
 }
 
+// ---- build folders (Clean up: space without archiving) ---------------------
+
+export interface BuildFolder {
+  path: string;
+  bytes: number;
+}
+
+export interface BuildFolderCandidate {
+  sessionId: string;
+  target: string;
+  branch: string;
+  /** A repo's own checkout (not a worktree `work` made). */
+  baseCheckout?: boolean;
+  lastActive: string;
+  folders: BuildFolder[];
+  bytes: number;
+}
+
+/** GET /api/cleanup/build-folders */
+export interface BuildFoldersState {
+  scanning: boolean;
+  checked: number;
+  total: number;
+  scannedAt: string | null;
+  candidates: BuildFolderCandidate[];
+}
+
+export interface BuildFoldersApplyResult {
+  sessionId: string;
+  ok: boolean;
+  removed: number;
+  message: string;
+}
+
 // ---- chat (headless Claude, spike) ----------------------------------------
 
 /** stopped: no process (the next message starts one) · exited: it died. */

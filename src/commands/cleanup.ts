@@ -4,6 +4,8 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { applyCleanup, scanCleanup } from '../core/cleanup.js';
 import { defaultCleanupDeps } from '../core/cleanup-deps.js';
+import { createBuildFoldersJob, scanBuildFolders } from '../core/build-folders-scan.js';
+import { defaultBuildFoldersDeps } from '../core/build-folders-deps.js';
 import type { CleanupAction, CleanupCandidate } from '../core/api-types.js';
 import { timeAgo } from '../utils/format.js';
 
@@ -26,6 +28,31 @@ function printCandidates(list: CleanupCandidate[]): void {
   }
 }
 
+/** `work cleanup --build-folders [--apply [ids…]] [--json]` */
+async function buildFoldersCommand(apply: boolean, ids: string[], json: boolean): Promise<void> {
+  const deps = defaultBuildFoldersDeps();
+  const list = await scanBuildFolders(deps);
+  if (!apply) {
+    if (json) {
+      process.stdout.write(JSON.stringify(list, null, 2) + '\n');
+      return;
+    }
+    const total = list.reduce((n, c) => n + c.bytes, 0);
+    console.log(chalk.gray(`Build folders git ignores, in worktrees idle a week or more: ${(total / 1e9).toFixed(1)} GB in ${list.length}\n`));
+    for (const c of list) {
+      const top = c.folders.slice(0, 3).map((f) => f.path).join(', ') + (c.folders.length > 3 ? ` +${c.folders.length - 3} more` : '');
+      console.log(`  ${c.sessionId}  ${(c.bytes / 1e9).toFixed(2).padStart(6)} GB  ${c.target} ${c.branch}${c.baseCheckout ? chalk.cyan(' (repo checkout)') : ''}  ${chalk.gray(top)}`);
+    }
+    if (list.length) console.log(chalk.gray('\nClear them: work cleanup --build-folders --apply [<id>…]'));
+    return;
+  }
+  const chosen = ids.length ? ids : list.map((c) => c.sessionId);
+  const results = await createBuildFoldersJob(deps).apply(chosen);
+  if (json) process.stdout.write(JSON.stringify(results, null, 2) + '\n');
+  else for (const r of results) console.log(r.ok ? chalk.green(`  ✓ ${r.sessionId} — ${r.message}`) : chalk.yellow(`  ✗ ${r.sessionId} — ${r.message}`));
+  if (results.some((r) => !r.ok)) process.exitCode = 1;
+}
+
 export const cleanupCommand: CommandModule = {
   command: 'cleanup [ids..]',
   describe: 'Which worktrees can go, and why (--json); --apply <ids> removes, archives or forgets them after a fresh check',
@@ -36,9 +63,14 @@ export const cleanupCommand: CommandModule = {
       .option('fetch', { type: 'boolean', default: true, describe: 'Fetch the repos first (--no-fetch to skip)' })
       .option('apply', { type: 'boolean', default: false, describe: 'Act on the given ids' })
       .option('action', { type: 'string', choices: ACTIONS, default: 'delete', describe: 'With --apply: what to do (a gone folder is always forgotten)' })
-      .option('force', { type: 'boolean', default: false, describe: 'With --apply delete: also remove merged worktrees with uncommitted changes (lost)' }),
+      .option('force', { type: 'boolean', default: false, describe: 'With --apply delete: also remove merged worktrees with uncommitted changes (lost)' })
+      .option('build-folders', { type: 'boolean', default: false, describe: 'Instead: build output (node_modules, bin/obj, .next, …) git ignores, in worktrees idle a week+; with --apply, clear it' }),
   handler: async (argv) => {
     ensureConfig();
+    if (argv['build-folders']) {
+      await buildFoldersCommand(argv.apply as boolean, (argv.ids as string[] | undefined) ?? [], argv.json as boolean);
+      return;
+    }
     const deps = defaultCleanupDeps();
     if (argv.apply) {
       const ids = (argv.ids as string[] | undefined) ?? [];

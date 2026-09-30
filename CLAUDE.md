@@ -119,6 +119,7 @@ work digest [--since today|yesterday|week|<date>] [--json] # What each session d
 work overlaps [--json]                             # Live sessions changing the same files of a repo
 work cleanup [--json] [--no-fetch]                 # Which worktrees can go, and why (the Clean up view's scan)
 work cleanup --apply <id...> [--action delete|archive|forget] [--force] [--json] # Act on them, each re-checked first; exit 1 if any was refused
+work cleanup --build-folders [--apply [<id>...]] [--json] # Build output git ignores (node_modules, bin/obj, .next, target…) in worktrees idle a week+ with no Claude running; --apply clears it (checked again first). Also in the Clean up view
 work completion [--install]                        # Shell completions
 
 work run <cmd...> [--target <a>] [--branch <b>] [--all] [--parallel] [--jobs N] [--halt-on-error]  # Run a shell command across worktrees (bare run needs --all; Ctrl-C kills the whole fleet)

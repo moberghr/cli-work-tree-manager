@@ -57,11 +57,18 @@ function fakeApi(first: CleanupState) {
   } satisfies CleanupApi & { applied: unknown[] };
 }
 
+/** The build-folder section's API, empty (its own tests are in build-folders.test.ts). */
+const noFolders = {
+  state: async () => ({ scanning: false, checked: 0, total: 0, scannedAt: null, candidates: [] }),
+  scan: async () => ({ scanning: false, checked: 0, total: 0, scannedAt: null, candidates: [] }),
+  apply: async () => ({ results: [], state: { scanning: false, checked: 0, total: 0, scannedAt: null, candidates: [] } }),
+};
+
 describe('CleanupTab', () => {
   it('scans on the first visit, and shows progress while the job runs', async () => {
     const api = fakeApi({ phase: 'idle', done: 0, total: 0, candidates: [], results: [] });
     api.scan.mockResolvedValueOnce({ phase: 'scanning', done: 12, total: 40, candidates: [], results: [] });
-    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api, pollMs: 10_000 })));
+    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api, buildFoldersApi: noFolders, pollMs: 10_000 })));
     await flush();
     expect(api.scan).toHaveBeenCalledTimes(1);
     expect(text(container.querySelector('[role=status]'))).toBe('Checking 12 of 40 worktrees…');
@@ -69,10 +76,10 @@ describe('CleanupTab', () => {
 
   it('pre-selects the suggestions, splits safe from work of its own, and never offers delete for work', async () => {
     const api = fakeApi(DONE);
-    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api })));
+    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api, buildFoldersApi: noFolders })));
     await flush();
     expect(api.scan).not.toHaveBeenCalled(); // a result exists already
-    const titles = [...container.querySelectorAll('.wd-cleanup-section h2')].map((h) => text(h).replace(/ Select all None$/, ''));
+    const titles = [...container.querySelectorAll('.wd-cleanup-section:not(.wd-cleanup-build) h2')].map((h) => text(h).replace(/ Select all None$/, ''));
     expect(titles).toEqual(['Safe to remove (2)', 'Has work of its own (2)']);
     expect([checkbox('merged').checked, checkbox('gone').checked, checkbox('dirty').checked, checkbox('recentwork').checked]).toEqual([true, true, true, false]);
     const workOptions = [...container.querySelectorAll('.wd-cleanup-work select option, .wd-cleanup-work .wd-cleanup-action')].map((o) => o.textContent);
@@ -82,7 +89,7 @@ describe('CleanupTab', () => {
 
   it('applies only after a second click, sending exactly the chosen actions', async () => {
     const api = fakeApi(DONE);
-    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api })));
+    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api, buildFoldersApi: noFolders })));
     await flush();
     act(() => checkbox('gone').click()); // untick one
     await act(async () => button('Apply').click());
@@ -96,7 +103,7 @@ describe('CleanupTab', () => {
 
   it('lists what was left alone, with the reason', async () => {
     const api = fakeApi({ ...DONE, results: [{ sessionId: 'merged', action: 'delete', ok: false, message: 'Not removed: 1 uncommitted file.' }, { sessionId: 'gone', action: 'forget', ok: true, message: 'Forgotten' }] });
-    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api })));
+    act(() => root.render(createElement(CleanupTab, { onOpenSession: vi.fn(), api, buildFoldersApi: noFolders })));
     await flush();
     expect(text(container.querySelector('.wd-cleanup-results'))).toBe('1 done. 1 left alone: merged — Not removed: 1 uncommitted file.');
   });

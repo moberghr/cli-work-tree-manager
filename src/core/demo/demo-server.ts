@@ -6,7 +6,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, CleanupApplyRequest } from '../api-types.js';
+import type { AnswerRequest, BuildFolderCandidate, CleanupApplyRequest } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -170,6 +170,22 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- status / ship / archive -----------------------------------------------
   app.post('/api/sessions/:id/seen', (c) => (scenario.markSeen(c.req.param('id')) ? c.json({ ok: true }) : notFound(c)));
+  // Build folders in idle worktrees (simulated sizes; nothing on disk).
+  let demoFolders: BuildFolderCandidate[] = [
+    { sessionId: 'demo-web-fix-old-banner', target: 'web', branch: 'fix/old-banner', lastActive: new Date(Date.now() - 12 * 86_400_000).toISOString(), bytes: 812_000_000, folders: [{ path: 'C:/worktrees/web/fix-old-banner/node_modules', bytes: 790_000_000 }, { path: 'C:/worktrees/web/fix-old-banner/.next', bytes: 22_000_000 }] },
+  ];
+  const folderState = () => ({ scanning: false, checked: demoFolders.length, total: demoFolders.length, scannedAt: new Date().toISOString(), candidates: demoFolders });
+  app.get('/api/cleanup/build-folders', (c) => c.json(folderState()));
+  app.post('/api/cleanup/build-folders/scan', (c) => c.json(folderState()));
+  app.post('/api/cleanup/build-folders/apply', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { sessionIds?: unknown } | null;
+    const ids = Array.isArray(body?.sessionIds) ? body.sessionIds.filter((x): x is string => typeof x === 'string') : [];
+    if (ids.length === 0) return c.json({ error: 'sessionIds: [...]' }, 400);
+    const results = ids.map((id) => ({ sessionId: id, ok: demoFolders.some((f) => f.sessionId === id), removed: 1, message: 'Removed (simulated)' }));
+    demoFolders = demoFolders.filter((f) => !ids.includes(f.sessionId));
+    return c.json({ results, state: folderState() });
+  });
+
   // The sessions list's manual order, in memory.
   let sessionOrder: string[] = [];
   app.get('/api/session-order', (c) => c.json({ order: sessionOrder }));

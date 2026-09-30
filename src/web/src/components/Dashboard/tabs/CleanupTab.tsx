@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CleanupAction, CleanupCandidate, CleanupState } from '../../../api/client.js';
 import { relativeTime } from '../../../utils/time.js';
+import { BuildFolders, type BuildFoldersApi } from './BuildFolders.js';
 
 interface Props {
   onOpenSession: (id: string) => void;
   /** Test seams; default to the API. */
   api?: CleanupApi;
+  buildFoldersApi?: BuildFoldersApi;
   pollMs?: number;
 }
 
@@ -52,7 +54,7 @@ const SECTIONS: Array<{ key: string; title: string; hint: string; verdicts: Clea
   {
     key: 'work',
     title: 'Has work of its own',
-    hint: 'Uncommitted files or commits not in the main branch. Never removed from here; archive hides them and stops their Claude, keeping everything.',
+    hint: 'Uncommitted files or commits not in the main branch. Never removed from here; archive stops their Claude and keeps their conversation, and their worktree stays.',
     verdicts: ['dirty', 'work'],
   },
 ];
@@ -71,7 +73,7 @@ const busyText = (st: CleanupState) =>
  * the chosen ones in one go. The server re-checks each one right before it
  * acts, so a worktree that got a new file since the scan is left alone.
  */
-export function CleanupTab({ onOpenSession, api = httpCleanupApi, pollMs = 800 }: Props) {
+export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersApi, pollMs = 800 }: Props) {
   const [st, setSt] = useState<CleanupState | null>(null);
   const [error, setError] = useState<string | null>(null);
   // sessionId → chosen action (absent = not selected)
@@ -275,6 +277,8 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, pollMs = 800 }
           );
         })
       )}
+
+      <BuildFolders {...(buildFoldersApi ? { api: buildFoldersApi } : {})} />
 
       {selected.length > 0 && (
         <footer className="wd-cleanup-bar">
