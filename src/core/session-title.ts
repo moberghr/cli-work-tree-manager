@@ -49,12 +49,26 @@ export function firstPromptOf(file: string): string | null {
     }
   }
   const first = promptsSince([entries], 0)[0]?.text ?? null;
-  const title = first ? clip(first) : null;
+  const readable = first ? titleText(first) : null;
+  const title = readable ? clip(readable) : null;
   cache.set(file, { size, title });
   return title;
 }
 
 const clip = (s: string) => (s.length > TITLE_CHARS ? s.slice(0, TITLE_CHARS - 1).trimEnd() + '…' : s);
+
+/**
+ * A prompt as a name: what you wrote, without markup. A pasted block
+ * (`<pasted_content …>…</pasted_content>`, a log or code you pasted) is left
+ * out when you also wrote something; a prompt that is only a paste keeps its
+ * text. Other tags are dropped, their text kept. Null when nothing is left.
+ */
+export function titleText(prompt: string): string | null {
+  const flat = (s: string) => s.replace(/<\/?[A-Za-z][\w-]*(?:\s[^>]*)?>/g, ' ').replace(/\s+/g, ' ').trim();
+  const outside = flat(prompt.replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content>/g, ' '));
+  const text = outside || flat(prompt);
+  return text ? text : null;
+}
 
 /** The session's name: yours, else its first prompt, else its Jira key. */
 export function sessionTitle(s: WorktreeSession, fallbackPrompt?: string | null): string | null {
@@ -64,6 +78,7 @@ export function sessionTitle(s: WorktreeSession, fallbackPrompt?: string | null)
     const p = firstPromptOf(t.file);
     if (p) return p;
   }
-  if (fallbackPrompt) return clip(fallbackPrompt);
+  const fallback = fallbackPrompt ? titleText(fallbackPrompt) : null;
+  if (fallback) return clip(fallback);
   return s.jiraKey ?? null;
 }

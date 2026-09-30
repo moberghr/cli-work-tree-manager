@@ -36,12 +36,14 @@ export function ReplyDrafts({ sessionId, api = httpReplies }: { sessionId: strin
   });
   const drafts = replies.filter((r) => r.status === 'draft');
   const working = replies.filter((r) => r.status === 'sent').length;
-  if (drafts.length === 0 && working === 0) return null;
+  // Only when there is something to post: the status and the CI strip
+  // above already say there are review threads.
+  if (drafts.length === 0) return null;
   return (
     <section className="wd-replies" aria-label="Replies to review threads">
       <h3 className="wd-replies-title">
-        {drafts.length > 0 ? `✍ ${drafts.length} ${drafts.length === 1 ? 'reply' : 'replies'} to post` : 'Review threads'}
-        {working > 0 && <span className="wd-replies-muted"> · Claude is working on {working} more</span>}
+        ✍ {drafts.length} {drafts.length === 1 ? 'reply' : 'replies'} to post
+        {working > 0 && <span className="wd-replies-muted"> · Claude is still on {working} more</span>}
       </h3>
       {drafts.map((r) => (
         <Draft key={r.threadId} reply={r} sessionId={sessionId} api={api} onDone={load} />

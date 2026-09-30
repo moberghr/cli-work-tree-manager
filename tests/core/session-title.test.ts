@@ -7,7 +7,7 @@ import type { WorktreeSession } from '../../src/core/session-types.js';
 const files = vi.hoisted(() => ({ list: [] as Array<{ file: string; mtimeMs: number; size: number }> }));
 vi.mock('../../src/core/context-usage.js', () => ({ listTranscripts: () => files.list }));
 
-import { firstPromptOf, sessionTitle } from '../../src/core/session-title.js';
+import { firstPromptOf, sessionTitle, titleText } from '../../src/core/session-title.js';
 
 let tmp: string;
 const line = (o: object) => JSON.stringify(o) + '\n';
@@ -52,5 +52,15 @@ describe('sessionTitle', () => {
     expect(firstPromptOf(f)).toBe('First thing');
     fs.appendFileSync(f, line({ type: 'user', uuid: 'x', timestamp: '2026-09-09T00:00:00Z', message: { content: 'appended' } }));
     expect(firstPromptOf(f)).toBe('First thing');
+  });
+});
+
+describe('titleText', () => {
+  it('a name from what you wrote: pasted blocks and tags left out', () => {
+    expect(titleText('<pasted_content id="496a"> using Payfac.Worker; namespace X {} </pasted_content>\nwhy is this slow?')).toBe('why is this slow?');
+    expect(titleText('<pasted_content id="1">only the paste</pasted_content>')).toBe('only the paste');
+    expect(titleText('fix <b>the</b>\n  login   redirect')).toBe('fix the login redirect');
+    expect(titleText('<pasted_content id="1"></pasted_content>')).toBeNull();
+    expect(titleText('a < b and c > d')).toBe('a < b and c > d'); // not tags
   });
 });

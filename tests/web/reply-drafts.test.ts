@@ -46,7 +46,7 @@ describe('ReplyDrafts', () => {
   it("shows the reviewer's comment and Claude's draft, and counts threads still being worked on", async () => {
     act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a'), reply('PRRT_b', { status: 'sent', draft: null })]) })));
     await flush();
-    expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post · Claude is working on 1 more');
+    expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post · Claude is still on 1 more');
     expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('Why not a const?');
     expect(container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!.value).toBe('Fixed in abc1234: now a const.');
   });
@@ -73,6 +73,14 @@ describe('ReplyDrafts', () => {
     await act(async () => button('Discard').click());
     expect(api.calls).toEqual(['post PRRT_a Fixed in abc1234: now a const. resolve=false', 'discard PRRT_a']);
     act(() => root.render(createElement(ReplyDrafts, { sessionId: 's2', api: fakeApi([]) })));
+    await flush();
+    expect(container.querySelector('.wd-replies')).toBeNull();
+  });
+});
+
+describe('ReplyDrafts with nothing to post', () => {
+  it('shows nothing while Claude is still working on the threads (the CI strip already names them)', async () => {
+    act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a', { status: 'sent', draft: null })]) })));
     await flush();
     expect(container.querySelector('.wd-replies')).toBeNull();
   });
