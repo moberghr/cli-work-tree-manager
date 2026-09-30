@@ -7,8 +7,9 @@ import { ChatSession, newChatToken, writeMcpConfig, type ChatEvent } from './cha
 import { mountChatMcpRoutes } from './chat-mcp-routes.js';
 import { getConfigDir } from './config.js';
 import { latestTranscript } from './context-usage.js';
-import type { WorktreeSession } from './history.js';
-import { disposePty, peekPty, spawnSpecFor } from './pty-pool.js';
+import { disposePty, peekPty, ptyPids, spawnSpecFor } from './pty-pool.js';
+import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { loadHistory, type WorktreeSession } from './history.js';
 import { readTranscriptTail } from './transcript.js';
 import { findSession } from './web-state.js';
 
@@ -30,7 +31,7 @@ import { findSession } from './web-state.js';
 
 const HISTORY_BYTES = 1024 * 1024;
 
-export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { stopAll: () => void } {
+export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { stopAll: () => void; pids: () => number[] } {
   const chats = new Map<string, ChatSession>();
   const byToken = new Map<string, ChatSession>();
   const watchers = new Map<string, Set<(e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => void>>();
@@ -118,6 +119,13 @@ export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { s
     const body = (await c.req.json().catch(() => null)) as { text?: unknown; takeOver?: unknown } | null;
     const text = typeof body?.text === 'string' ? body.text : '';
     if (!text.trim()) return c.json({ error: 'text required' }, 400);
+    if (!chats.get(id)?.running) {
+      // A Claude in a terminal tab on this conversation: we can't stop it for
+      // the user, and a second one here would write to the same conversation.
+      const hostPids = ptyPids();
+      const outside = (claudesBySession(readLiveClaudes(), loadHistory()).get(id) ?? []).filter((x) => !hostPids.has(x.pid));
+      if (outside.length > 0) return c.json({ error: 'running-in-terminal' }, 409);
+    }
     if (peekPty(id) && !chats.get(id)?.running) {
       if (body?.takeOver !== true) return c.json({ error: 'terminal-running' }, 409);
       await disposePty(id);
@@ -147,5 +155,6 @@ export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { s
     stopAll: () => {
       for (const chat of chats.values()) chat.stop();
     },
+    pids: () => [...chats.values()].flatMap((c) => (c.pid ? [c.pid] : [])),
   };
 }

@@ -20,6 +20,9 @@ import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { mountChatRoutes } from './chat-routes.js';
+import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
+import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
+import { sessionIdFor } from './session-id.js';
 import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
 import { buildStamp } from './build-stamp.js';
@@ -39,7 +42,7 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, initPtyPool } from './pty-pool.js';
+import { detachPtyPool, disposePty, initPtyPool, ptyPids } from './pty-pool.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -155,8 +158,11 @@ export async function startWebServer(
   if (!lean) {
     try {
       if (fs.existsSync(projectsRoot)) {
+        // …and the per-process files, so a Claude opened or closed in a
+        // terminal tab shows at once (live-claudes.ts).
+        const sessionsDir = claudeSessionsDir();
         activityWatcher = createFsWatcher({
-          roots: [projectsRoot],
+          roots: fs.existsSync(sessionsDir) ? [projectsRoot, sessionsDir] : [projectsRoot],
           debounceMs: 250,
           onChange: () => broadcast('sessions-changed', { ts: Date.now() }),
         });
@@ -217,7 +223,14 @@ export async function startWebServer(
   app.get('/api/sessions', (c) => {
     if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
       const history = loadHistory();
-      const sessions = history.map((s) => sessionWire(s, { diffStatFor }));
+      // Old entries sharing a folder with the branch checked out there get
+      // none of that folder's activity; every running Claude (your terminal
+      // tabs included) goes to the entry that owns its folder.
+      const shadow = shadowedSessions(history, branchCheckedOut);
+      const running = claudesBySession(readLiveClaudes(), history.filter((s) => !shadow.has(sessionIdFor(s))));
+      const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
+      const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
+      const sessions = history.map((s) => sessionWire(s, { diffStatFor, claudesFor, shadowed: (id) => shadow.has(id) }));
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
       const overlaps = findOverlaps(

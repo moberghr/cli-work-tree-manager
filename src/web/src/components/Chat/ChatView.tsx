@@ -81,6 +81,8 @@ export function ChatView({ sessionId }: Props) {
     } catch (err) {
       const msg = (err as Error).message;
       if (msg === 'terminal-running') setTerminalBlock(text);
+      else if (msg === 'running-in-terminal')
+        setSendError("This session's Claude is open in one of your terminal tabs. Type /exit there (or close the tab), then send again — two Claudes would both write to this conversation.");
       else setSendError(msg);
     } finally {
       setSending(false);
@@ -190,6 +192,8 @@ function Item({ item, permission, onAnswer }: { item: ChatItem; permission?: Cha
   switch (item.kind) {
     case 'user':
       return <div className="wd-chat-user">{item.text}</div>;
+    case 'tagged':
+      return <Tagged parts={item.parts} />;
     case 'text':
       return <div className="wd-chat-text"><Markdown source={item.text} block /></div>;
     case 'thinking':
@@ -220,7 +224,48 @@ function Item({ item, permission, onAnswer }: { item: ChatItem; permission?: Cha
   }
 }
 
-const formatDuration = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
+/**
+ * Something you did in Claude Code rather than said: a `!` command and its
+ * output, a slash command. Known tags get a familiar look; any other tag is
+ * shown under its own name.
+ */
+function Tagged({ parts }: { parts: Array<{ tag: string; text: string }> }) {
+  const byTag = new Map(parts.map((p) => [p.tag, p.text]));
+  const rows: ReactNode[] = [];
+  parts.forEach((p, i) => {
+    if (!p.text && p.tag !== 'command-name') return;
+    switch (p.tag) {
+      case 'bash-input':
+        rows.push(<pre key={i} className="wd-chat-pre wd-chat-cmd">$ {p.text}</pre>);
+        break;
+      case 'command-name':
+        rows.push(<pre key={i} className="wd-chat-pre wd-chat-cmd">{`${p.text} ${byTag.get('command-args') ?? ''}`.trim()}</pre>);
+        break;
+      case 'command-message':
+      case 'command-args':
+        break; // folded into command-name
+      case 'bash-stderr':
+      case 'local-command-stderr':
+        rows.push(<pre key={i} className="wd-chat-pre wd-chat-stderr">{p.text}</pre>);
+        break;
+      case 'bash-stdout':
+      case 'local-command-stdout':
+        rows.push(<pre key={i} className="wd-chat-pre">{p.text}</pre>);
+        break;
+      default:
+        rows.push(
+          <div key={i}>
+            <div className="wd-chat-tag">{p.tag}</div>
+            <pre className="wd-chat-pre">{p.text}</pre>
+          </div>,
+        );
+    }
+  });
+  if (rows.length === 0) return null;
+  return <div className="wd-chat-local">{rows}</div>;
+}
+
+const formatDuration =(ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
 
 // ---------------------------------------------------------------- tools
 

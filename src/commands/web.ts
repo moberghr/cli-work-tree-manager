@@ -47,13 +47,13 @@ export async function stopExisting(
     return 'not-running';
   }
   if (!isPidAlive(pid) || !url) {
-    clearWebDiscovery();
+    clearWebDiscovery(pid);
     return 'stale';
   }
   const probe = await probeWeb(url, 3000);
   if (probe.kind === 'timeout') return 'unresponsive';
   if (probe.kind === 'gone' || (probe.pid !== null && probe.pid !== pid)) {
-    clearWebDiscovery();
+    clearWebDiscovery(pid);
     return 'stale';
   }
   // Ask it to run its own shutdown first (removes its Claude hooks, sweeps
@@ -73,7 +73,7 @@ export async function stopExisting(
       return 'failed';
     }
   }
-  clearWebDiscovery();
+  clearWebDiscovery(pid);
   return 'stopped';
 }
 
@@ -275,7 +275,7 @@ export const webCommand: CommandModule = {
 
     shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
-      clearWebDiscovery();
+      clearWebDiscovery(process.pid);
       if (!lean) {
         bestEffort(`remove Claude hook web/UserPromptSubmit`, () => removeCommandHookSync('web', 'UserPromptSubmit'));
         bestEffort(`remove Claude hook web/Stop`, () => removeCommandHookSync('web', 'Stop'));
@@ -292,7 +292,8 @@ export const webCommand: CommandModule = {
     // Windows doesn't deliver SIGTERM reliably; trap exit too so we
     // best-effort clean up our pid/url files even on abrupt deaths.
     process.on('exit', () => {
-      clearWebDiscovery();
+      // Ours only: by the time this runs a replacement may have written its own.
+      clearWebDiscovery(process.pid);
     });
     await new Promise(() => {});
   },

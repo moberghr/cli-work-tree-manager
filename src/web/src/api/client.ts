@@ -29,6 +29,7 @@ import type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
+  SessionClaudes,
   SessionOverlap,
   ShipAction,
   ShipPr,
@@ -67,6 +68,7 @@ export type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
+  SessionClaudes,
   SessionOverlap,
   ShipAction,
   ShipPr,
@@ -117,6 +119,8 @@ export interface SessionSummary {
   /** Other live sessions changing some of the same files (merge conflict
    *  ahead); absent when none. */
   overlaps?: SessionOverlap[];
+  /** Claudes running for it right now, wherever they were started. */
+  claudes?: SessionClaudes;
   /** How full its Claude conversation is; null before the first reply. */
   context?: ContextUsage | null;
 }

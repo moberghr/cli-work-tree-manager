@@ -337,6 +337,11 @@ export class ChatSession {
   get running(): boolean {
     return this.child !== null;
   }
+
+  /** The Claude process's pid while it runs. */
+  get pid(): number | null {
+    return this.child?.pid ?? null;
+  }
 }
 
 /** The MCP config file pointing Claude at our permission tool (under ~/.work/chat). */

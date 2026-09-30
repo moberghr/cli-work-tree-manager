@@ -19,6 +19,10 @@ export interface ChatMessage {
 
 export type ChatItem =
   | { kind: 'user'; key: string; text: string }
+  /** Tagged text Claude Code stores in a user message — a `!` command and its
+   *  output (<bash-input>, <bash-stdout>), a slash command (<command-name>),
+   *  … — one part per tag, whatever the tag. */
+  | { kind: 'tagged'; key: string; parts: Array<{ tag: string; text: string }> }
   | { kind: 'text'; key: string; text: string }
   | { kind: 'thinking'; key: string; text: string }
   | {
@@ -42,8 +46,28 @@ const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.i
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/** Terminal colour and cursor codes, which read as garbage outside a terminal. */
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]/g;
+export const stripAnsi = (text: string): string => text.replace(ANSI, '');
+
+const TAGGED = /<([a-z][\w-]*)>([\s\S]*?)<\/\1>/g;
+
+/** Splits `<tag>…</tag>` segments out of a message's text; the rest stays plain. */
+export function splitTagged(text: string): { plain: string; parts: Array<{ tag: string; text: string }> } {
+  const parts: Array<{ tag: string; text: string }> = [];
+  const plain = text.replace(TAGGED, (_m, tag: string, body: string) => {
+    parts.push({ tag, text: stripAnsi(body).trim() });
+    return '';
+  });
+  return { plain: plain.trim(), parts };
+}
+
 /** A tool_result's content as text (string, or text blocks; other blocks named). */
 export function resultText(content: unknown): string {
+  return stripAnsi(rawResultText(content));
+}
+
+function rawResultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return content == null ? '' : JSON.stringify(content);
   return content
@@ -82,8 +106,13 @@ export function chatItems(messages: readonly ChatMessage[]): ChatItem[] {
         } else if (b.type === 'text') {
           const text = str(b.text) ?? '';
           if (!text.trim()) return;
-          if (/^\[Request interrupted by user/.test(text)) items.push({ kind: 'notice', key, text: 'Interrupted' });
-          else items.push({ kind: 'user', key, text });
+          if (/^\[Request interrupted by user/.test(text)) {
+            items.push({ kind: 'notice', key, text: 'Interrupted' });
+            return;
+          }
+          const { plain, parts } = splitTagged(text);
+          if (parts.length) items.push({ kind: 'tagged', key, parts });
+          if (plain) items.push({ kind: 'user', key: parts.length ? `${key}:plain` : key, text: stripAnsi(plain) });
         } else {
           items.push({ kind: 'raw', key, label: `user ${str(b.type) ?? 'block'}`, raw: b });
         }
@@ -96,7 +125,7 @@ export function chatItems(messages: readonly ChatMessage[]): ChatItem[] {
         if (!isObj(b)) return;
         const key = `${m.seq}:${i}`;
         if (b.type === 'text') {
-          const text = str(b.text) ?? '';
+          const text = stripAnsi(str(b.text) ?? '');
           if (text.trim()) items.push({ kind: 'text', key, text });
         } else if (b.type === 'thinking') {
           const text = str(b.thinking) ?? '';

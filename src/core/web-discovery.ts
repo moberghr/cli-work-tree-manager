@@ -44,7 +44,17 @@ export function writeWebDiscovery(url: string, pid: number): void {
   fs.writeFileSync(webPidPath(), String(pid));
 }
 
-export function clearWebDiscovery(): void {
+/**
+ * Remove the discovery files. With `ownerPid`, only if they still name that
+ * server: a new one (the desktop app restarts it at once) may have written
+ * its own in the meantime, and deleting those hides it from every client —
+ * `wd`, the CLI, the Claude hooks.
+ */
+export function clearWebDiscovery(ownerPid?: number): void {
+  if (ownerPid !== undefined) {
+    const current = readWebPid();
+    if (current !== null && current !== ownerPid) return;
+  }
   try { fs.unlinkSync(webPidPath()); } catch { /* already gone */ }
   try { fs.unlinkSync(webUrlPath()); } catch { /* already gone */ }
 }

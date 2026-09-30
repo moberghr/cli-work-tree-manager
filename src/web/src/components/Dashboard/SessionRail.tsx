@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
-import { PrChips } from './SessionBits.js';
+import { ClaudesChip, PrChips } from './SessionBits.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
@@ -136,6 +136,7 @@ export function SessionRail({
                         </span>
                       )}
                       <PrChips prs={prs} />
+                      <ClaudesChip session={s} compact />
                     </span>
                   </span>
                 </button>

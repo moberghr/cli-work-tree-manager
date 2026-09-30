@@ -2,7 +2,9 @@ import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ensurePty, peekPty } from './pty-pool.js';
+import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
+import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { loadHistory } from './history.js';
 import { refuseReason } from './local-origin.js';
 import { findSession } from './web-state.js';
 import { readSessionActivity } from './claude-activity.js';
@@ -27,6 +29,9 @@ export interface ElsewhereInput {
   lastActivityMs: number | null;
   /** The session's effective hook status, or null. */
   status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string } | null;
+  /** Claudes running for this session outside the PTY host, known for sure
+   *  from Claude Code's own process files (live-claudes.ts). */
+  runningOutside?: Array<{ busy: boolean }>;
 }
 
 /**
@@ -41,6 +46,11 @@ export interface ElsewhereInput {
  */
 export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalElsewhere | null {
   if (i.hasPty) return null;
+  const outside = i.runningOutside ?? [];
+  if (outside.length > 0) {
+    // Not a guess: one is running, however quiet. A second would share its conversation.
+    return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: i.status?.state ?? (outside.some((c) => c.busy) ? 'working' : null) };
+  }
   const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS;
   const s = i.status;
   const blockedOrWorking = !!s && (s.state === 'needs_input' || s.state === 'working');
@@ -55,10 +65,13 @@ function defaultElsewhere(sessionId: string): TerminalElsewhere | null {
   const activity = readSessionActivity(session);
   const raw = readStatus(sessionId);
   const status = raw ? effectiveStatus(raw, activity.lastActivity ?? 0) : null;
+  const hostPids = ptyPids();
+  const runningOutside = (claudesBySession(readLiveClaudes(), loadHistory()).get(sessionId) ?? []).filter((c) => !hostPids.has(c.pid));
   return claudeElsewhere({
     hasPty: peekPty(sessionId),
     lastActivityMs: activity.lastActivity,
     status: status ? { state: status.state, updatedAt: status.updatedAt } : null,
+    runningOutside,
   });
 }
 

@@ -47,6 +47,32 @@ export function processName(pid: number): string | null {
   }
 }
 
+/**
+ * Every running process's executable name, by pid, in ONE call (tasklist /
+ * ps) — for checking many remembered pids at once. Empty if it can't be read.
+ */
+export function processTable(): Map<number, string> {
+  const out = new Map<number, string>();
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
+      for (const line of (r.stdout ?? '').split(/\r?\n/)) {
+        const m = /^"([^"]+)","(\d+)"/.exec(line);
+        if (m) out.set(Number(m[2]), m[1]);
+      }
+      return out;
+    }
+    const r = spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
+    for (const line of (r.stdout ?? '').split('\n')) {
+      const m = /^\s*(\d+)\s+(.+)$/.exec(line);
+      if (m) out.set(Number(m[1]), m[2].trim().split('/').pop()!);
+    }
+  } catch {
+    /* unreadable: nothing is known to be alive */
+  }
+  return out;
+}
+
 /** When this machine last booted (ms since epoch, ±1 s). */
 export function bootTime(): number {
   return Date.now() - os.uptime() * 1000;

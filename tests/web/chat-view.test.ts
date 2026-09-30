@@ -81,6 +81,22 @@ describe('ChatView', () => {
     expect(container.querySelector('.wd-chat-tool-running')).toBeNull(); // the result arrived
   });
 
+  it('shows a `!` command as a command with its output, not as tags', () => {
+    mount();
+    FakeEventSource.last!.fire('snapshot', {
+      type: 'snapshot',
+      snapshot: snapshot({
+        messages: [
+          { seq: 0, raw: { type: 'user', message: { content: '<bash-input>wd</bash-input>' } } },
+          { seq: 1, raw: { type: 'user', message: { content: '<bash-stdout>\u001b[90mOpening: http://x\u001b[39m</bash-stdout><bash-stderr></bash-stderr>' } } },
+        ],
+      }),
+    });
+    const blocks = [...container.querySelectorAll('.wd-chat-local')].map((b) => b.textContent);
+    expect(blocks).toEqual(['$ wd', 'Opening: http://x']);
+    expect(text()).not.toContain('<bash');
+  });
+
   it('asks for a pending permission on its tool card, and answers', () => {
     mount();
     FakeEventSource.last!.fire('snapshot', {

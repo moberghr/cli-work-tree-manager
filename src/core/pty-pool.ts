@@ -25,6 +25,8 @@ import { ASSISTANT_ID, prepareAssistantDir } from './assistant.js';
 let workBin = process.argv[1] ?? '';
 let client: PtyHostClient | null = null;
 let live = new Set<string>();
+/** The pids of those PTYs' processes (the Claudes the app runs). */
+let livePids = new Set<number>();
 let refreshTimer: NodeJS.Timeout | null = null;
 const REFRESH_MS = 2000;
 
@@ -57,14 +59,17 @@ async function refresh(): Promise<void> {
     const c = await getClient(false);
     if (!c) {
       live = new Set();
+      livePids = new Set();
       return;
     }
     const ptys = await c.list();
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
+    livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
   } catch {
     // Host went away (or was restarted on a new port) — rediscover next tick.
     client = null;
     live = new Set();
+    livePids = new Set();
   }
 }
 
@@ -157,6 +162,11 @@ export async function ensurePty(
 /** Side-effect-free check: does an active (non-exited) PTY exist for this
  *  session? Served from the refresh cache — used by session-meta for the
  *  "running/idle" badge, which must stay synchronous. */
+/** Pids of the Claudes running in the PTY host (from the refresh cache). */
+export function ptyPids(): ReadonlySet<number> {
+  return livePids;
+}
+
 export function peekPty(sessionId: string): boolean {
   return live.has(sessionId);
 }
@@ -237,4 +247,5 @@ export function detachPtyPool(): void {
   refreshTimer = null;
   client = null;
   live = new Set();
+  livePids = new Set();
 }

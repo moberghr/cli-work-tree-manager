@@ -74,6 +74,13 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 2 * 3_600_000, status: idle(ELSEWHERE_IDLE_MS + 1) }, now)).toBeNull();
     expect(claudeElsewhere({ hasPty: true, lastActivityMs: now, status: { state: 'working', updatedAt: idle(0).updatedAt } }, now)).toBeNull();
   });
+
+  it('a Claude known to run outside the host counts however quiet it is (no second one on its conversation)', () => {
+    const quiet = { hasPty: false, lastActivityMs: now - 9 * 3_600_000, status: null };
+    expect(claudeElsewhere(quiet, now)).toBeNull();
+    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: false }] }, now)).toMatchObject({ type: 'elsewhere', state: null });
+    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: true }] }, now)?.state).toBe('working');
+  });
 });
 
 describe('terminal relay', () => {

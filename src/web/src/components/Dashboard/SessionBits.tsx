@@ -113,6 +113,33 @@ export function overlapTitle(session: SessionSummary): string {
  * With `onOpen` (the session header) each name opens that session; in
  * rows (which are buttons themselves) it's plain text with the list on hover.
  */
+/**
+ * Where the session's Claude runs right now — your terminal, or the app —
+ * and a warning when two run on one conversation. `compact` for the rail.
+ */
+export function ClaudesChip({ session, compact }: { session: SessionSummary; compact?: boolean }) {
+  const c = session.claudes;
+  if (!c) return null;
+  const where = [c.inTerminal ? `${c.inTerminal > 1 ? `${c.inTerminal}× ` : ''}terminal` : '', c.inApp ? `${c.inApp > 1 ? `${c.inApp}× ` : ''}app` : '']
+    .filter(Boolean)
+    .join(' + ');
+  const title = c.duplicate
+    ? 'More than one Claude is running on this conversation. They would both write to it: close all but one (/exit in its terminal tab).'
+    : `Claude is running (${c.busy ? 'busy' : 'at its prompt'}) in ${where}.`;
+  if (c.duplicate) {
+    return (
+      <span className="wd-claudes wd-claudes-dup" title={title}>
+        <span aria-hidden>⚠</span> {compact ? '2 Claudes' : `Two Claudes on one conversation (${where})`}
+      </span>
+    );
+  }
+  return (
+    <span className={'wd-claudes' + (c.busy ? ' wd-claudes-busy' : '')} title={title}>
+      {compact ? (c.inTerminal ? '▣ terminal' : '▣ app') : `Running in ${where}`}
+    </span>
+  );
+}
+
 export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOpen?: (id: string) => void }) {
   const list = session.overlaps ?? [];
   if (list.length === 0) return null;

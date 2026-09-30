@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ContextChip, DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
+import { ClaudesChip, ContextChip, DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip } from './DevChip.js';
@@ -111,6 +111,7 @@ export function SessionDetail({
       <div className="wd-session-strip">
         <StatusLine session={session} />
         <DiffStatChip session={session} />
+        <ClaudesChip session={session} />
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ContextChip session={session} />
         <PrChips prs={prs} link />

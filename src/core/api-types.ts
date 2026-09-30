@@ -51,6 +51,16 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** A session's running Claudes: in your terminal, or run by the app. */
+export interface SessionClaudes {
+  inTerminal: number;
+  inApp: number;
+  /** One of them is in the middle of a turn. */
+  busy: boolean;
+  /** Two or more on one conversation (they would both write to it). */
+  duplicate: boolean;
+}
+
 // ---- chat (headless Claude, spike) ----------------------------------------
 
 /** stopped: no process (the next message starts one) · exited: it died. */
@@ -260,6 +270,9 @@ export interface SessionWire {
   archivedAt: string | null;
   /** This worktree's dev-server port ($PORT), when it has one. */
   port: number | null;
+  /** Claudes running for this session right now (core/live-claudes.ts);
+   *  absent when none. */
+  claudes?: SessionClaudes;
   /** Other sessions changing the same files; absent when there are none. */
   overlaps?: SessionOverlap[];
   /** Context used by its Claude conversation; null before the first reply. */

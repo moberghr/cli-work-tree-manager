@@ -50,6 +50,17 @@ describe('work web --stop', () => {
     expect(files()).toEqual([]);
   });
 
+  it("keeps a NEW server's discovery files written while it was stopping the old one", async () => {
+    // The desktop app starts a new work web the moment the old one stops
+    // answering; deleting its files afterwards hid it from wd, the CLI and hooks.
+    const url = await fakeWeb(context(process.pid));
+    record(url, process.pid);
+    const kill = vi.fn(() => record('http://127.0.0.1:1/', 4242));
+    expect(await stopExisting(kill, 300)).toBe('stopped');
+    expect(files()).toEqual(['web.url', 'web.pid']);
+    expect(fs.readFileSync(path.join(home, '.work', 'web.pid'), 'utf8')).toBe('4242');
+  });
+
   it('a live PID whose URL answers with ANOTHER pid (reused PID) is not killed', async () => {
     const kill = vi.fn();
     record(await fakeWeb(context(1)), process.pid);

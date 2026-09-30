@@ -1546,3 +1546,7 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-chat-composer { display: flex; gap: 10px; padding: 10px 20px 16px; border-top: 1px solid var(--border); }
 .wd-chat-composer textarea { flex: 1; resize: vertical; min-height: 44px; max-height: 40vh; padding: 8px 10px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .wd-chat-composer button { align-self: flex-end; }
+.wd-chat-local { align-self: flex-end; max-width: 80%; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg, var(--header-bg)); }
+.wd-chat-local .wd-chat-pre { max-height: 240px; }
+.wd-chat-stderr { color: #d2555a; }
+.wd-chat-tag { font-size: 11px; color: var(--muted); }

@@ -26,6 +26,15 @@ fn work_dir() -> Option<PathBuf> {
         .map(|h| PathBuf::from(h).join(".work"))
 }
 
+/// One line to ~/.work/desktop.log (release builds have no console).
+fn log(msg: &str) {
+    let Some(dir) = work_dir() else { return };
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("desktop.log")) {
+        let _ = writeln!(f, "{secs} {msg}");
+    }
+}
+
 fn recorded_url() -> Option<String> {
     let text = std::fs::read_to_string(work_dir()?.join("web.url")).ok()?;
     let url = text.trim();
@@ -76,7 +85,11 @@ fn find_or_start_web() -> Result<String, String> {
     if let Some(url) = recorded_url().filter(|u| responds(u)) {
         return Ok(url);
     }
-    start_work_web().map_err(|e| format!("Could not run <code>work web</code>: {e}. Is <code>work</code> on PATH?"))?;
+    log("no work web answering: starting one");
+    start_work_web().map_err(|e| {
+        log(&format!("could not start work web: {e}"));
+        format!("Could not run <code>work web</code>: {e}. Is <code>work</code> on PATH?")
+    })?;
     let deadline = Instant::now() + Duration::from_secs(25);
     while Instant::now() < deadline {
         thread::sleep(Duration::from_millis(250));
@@ -109,13 +122,47 @@ fn main() {
                 }
             }
             let window = builder.build()?;
-            thread::spawn(move || match find_or_start_web().and_then(|u| Url::parse(&u).map_err(|e| e.to_string())) {
-                Ok(url) => {
+            thread::spawn(move || {
+                let mut current = match find_or_start_web() {
+                    Ok(u) => u,
+                    Err(msg) => {
+                        let js = format!("document.getElementById('msg').innerHTML = {:?};", msg);
+                        let _ = window.eval(&js);
+                        return;
+                    }
+                };
+                log(&format!("showing {current}"));
+                if let Ok(url) = Url::parse(&current) {
                     let _ = window.navigate(url);
                 }
-                Err(msg) => {
-                    let js = format!("document.getElementById('msg').innerHTML = {:?};", msg);
-                    let _ = window.eval(&js);
+                if std::env::var("WORK_DESKTOP_URL").is_ok() {
+                    return; // pointed at one server on purpose (the latency script)
+                }
+                // Follow work web: a restart (after a rebuild, `work web --stop`, a crash)
+                // comes back on another port. Keep the place in the app (the #route).
+                loop {
+                    thread::sleep(Duration::from_secs(2));
+                    if responds(&current) {
+                        continue;
+                    }
+                    log(&format!("{current} stopped answering"));
+                    let next = match find_or_start_web() {
+                        Ok(n) => n,
+                        Err(e) => {
+                            log(&format!("no work web yet: {e}"));
+                            continue;
+                        }
+                    };
+                    log(&format!("following work web to {next}"));
+                    if next == current && responds(&current) {
+                        continue;
+                    }
+                    let fragment = window.url().ok().and_then(|u| u.fragment().map(str::to_string));
+                    if let Ok(mut url) = Url::parse(&next) {
+                        url.set_fragment(fragment.as_deref());
+                        let _ = window.navigate(url);
+                    }
+                    current = next;
                 }
             });
             Ok(())

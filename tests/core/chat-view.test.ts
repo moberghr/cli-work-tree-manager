@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatItems, resultText, type ChatMessage } from '../../src/core/chat-view.js';
+import { chatItems, resultText, stripAnsi, type ChatMessage } from '../../src/core/chat-view.js';
 
 const msgs = (...raws: unknown[]): ChatMessage[] => raws.map((raw, seq) => ({ seq, raw }));
 
@@ -54,6 +54,25 @@ describe('chatItems', () => {
       { type: 'user', isMeta: true, message: { content: 'caveat' } },
       { type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'subagent' }] } },
     ))).toEqual([]);
+  });
+
+  it('splits the tagged text of a `!` command out of a message, without terminal colour codes', () => {
+    const items = chatItems(msgs(
+      { type: 'user', message: { content: '<bash-input>wd</bash-input>' } },
+      { type: 'user', message: { content: '<bash-stdout>\u001b[90mShowing uncommitted changes vs HEAD.\u001b[39m</bash-stdout><bash-stderr></bash-stderr>' } },
+      { type: 'user', message: { content: 'Look at this <custom-tag>x</custom-tag> please' } },
+    ));
+    expect(items).toMatchObject([
+      { kind: 'tagged', parts: [{ tag: 'bash-input', text: 'wd' }] },
+      { kind: 'tagged', parts: [{ tag: 'bash-stdout', text: 'Showing uncommitted changes vs HEAD.' }, { tag: 'bash-stderr', text: '' }] },
+      { kind: 'tagged', parts: [{ tag: 'custom-tag', text: 'x' }] },
+      { kind: 'user', text: 'Look at this  please' },
+    ]);
+  });
+
+  it('strips terminal codes from tool output and Claude text', () => {
+    expect(stripAnsi('\u001b[1;31mred\u001b[0m \u001b]8;;http://x\u0007link\u001b]8;;\u0007')).toBe('red link');
+    expect(resultText('\u001b[32mok\u001b[39m')).toBe('ok');
   });
 
   it('reads tool results as text', () => {
