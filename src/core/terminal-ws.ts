@@ -49,7 +49,7 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   const outside = i.runningOutside ?? [];
   if (outside.length > 0) {
     // Not a guess: one is running, however quiet. A second would share its conversation.
-    return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: i.status?.state ?? (outside.some((c) => c.busy) ? 'working' : null) };
+    return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: i.status?.state ?? (outside.some((c) => c.busy) ? 'working' : null), confirmed: true };
   }
   const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS;
   const s = i.status;

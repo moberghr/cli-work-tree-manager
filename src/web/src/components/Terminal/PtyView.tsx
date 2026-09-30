@@ -22,7 +22,12 @@ interface Props {
 interface Elsewhere {
   lastActivity: number | null;
   state: string | null;
+  /** A Claude process is known to be running (not a guess from activity). */
+  confirmed: boolean;
 }
+
+/** While its Claude runs elsewhere, the tab looks again this often. */
+export const ELSEWHERE_RECHECK_MS = 6000;
 
 const ago = (ms: number | null) => {
   if (ms === null) return null;
@@ -53,8 +58,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const [generation, setGeneration] = useState(0);
   // Its Claude runs in a plain terminal: nothing spawned, explain instead.
   const [elsewhere, setElsewhere] = useState<Elsewhere | null>(null);
-  // "Start a second Claude here anyway": reconnect with ?force=1 once.
+  // "Start it here" (only offered when nothing is known to run): reconnect
+  // with ?force=1 once.
   const force = useRef(false);
+  const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
     force.current = false;
@@ -140,6 +147,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const finishReplay = () => {
       clearTimeout(slowStart);
       setPhase('ready');
+      setElsewhere(null);
+      setChecking(false);
       fit.fit();
       // After a reconnect the terminal is rebuilt: take focus back unless
       // the user has put it somewhere else meanwhile.
@@ -191,7 +200,12 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
       } else if (msg.type === 'elsewhere') {
         exited = true; // the server closes; no reconnect prompt
-        setElsewhere({ lastActivity: typeof msg.lastActivity === 'number' ? msg.lastActivity : null, state: typeof msg.state === 'string' ? msg.state : null });
+        setChecking(false);
+        setElsewhere({
+          lastActivity: typeof msg.lastActivity === 'number' ? msg.lastActivity : null,
+          state: typeof msg.state === 'string' ? msg.state : null,
+          confirmed: (msg as { confirmed?: unknown }).confirmed === true,
+        });
       }
     });
 
@@ -265,7 +279,24 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     };
   }, [sessionId, generation]);
 
-  const startAnyway = () => {
+  // Look again (the panel stays up meanwhile): attaches as soon as the other
+  // Claude is gone — by itself every few seconds, or on "Check again".
+  const checkAgain = () => {
+    setChecking(true);
+    setGeneration((g) => g + 1);
+  };
+  useEffect(() => {
+    if (!elsewhere || !active) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') checkAgain();
+    }, ELSEWHERE_RECHECK_MS);
+    return () => clearInterval(t);
+  }, [elsewhere, active]);
+  const startHere = () => {
+    const ok = window.confirm(
+      "Start this session's Claude here?\n\nIf it is still open in another terminal, both would write to the same conversation.",
+    );
+    if (!ok) return;
     force.current = true;
     setElsewhere(null);
     setGeneration((g) => g + 1);
@@ -276,21 +307,25 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       {elsewhere && (
         <div className="wd-pty-elsewhere" role="status">
           <p className="wd-pty-elsewhere-title">
-            This session&apos;s Claude is running in another terminal
+            {elsewhere.confirmed ? 'This session’s Claude is open in another terminal' : 'This session’s Claude seems to be running in another terminal'}
             {elsewhere.lastActivity !== null && <> (last wrote {ago(elsewhere.lastActivity)})</>}
             {elsewhere.state === 'needs_input' && <>, waiting for your answer there</>}.
           </p>
           <p>
-            It was started directly in that terminal (<code>--no-host</code>, or before host launches were the default),
-            so the dashboard can&apos;t show it. Use it there, or restart it with <code>{hostHint}</code>: it resumes the
-            conversation in the host, where this tab and your terminal show the same screen (Ctrl+] detaches, Claude
-            keeps running).
+            Close it there (type <code>/exit</code>) and this tab attaches by itself — it checks every few seconds. To
+            have both show the same screen instead, restart it with <code>{hostHint}</code> (Ctrl+] detaches, Claude keeps
+            running).
           </p>
           <p className="wd-pty-elsewhere-actions">
-            <button type="button" className="wd-btn-secondary" onClick={startAnyway}>
-              Start a second Claude here anyway
+            <button type="button" className="wd-btn-secondary" onClick={checkAgain} disabled={checking}>
+              {checking ? 'Checking…' : 'Check again'}
             </button>
-            <span className="wd-pty-elsewhere-warn">Both would work on the same conversation.</span>
+            {!elsewhere.confirmed && (
+              // Only a guess from recent activity: it may have been closed.
+              <button type="button" className="wd-link-button" onClick={startHere}>
+                It&apos;s not running — start it here…
+              </button>
+            )}
           </p>
         </div>
       )}

@@ -78,7 +78,7 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
   it('a Claude known to run outside the host counts however quiet it is (no second one on its conversation)', () => {
     const quiet = { hasPty: false, lastActivityMs: now - 9 * 3_600_000, status: null };
     expect(claudeElsewhere(quiet, now)).toBeNull();
-    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: false }] }, now)).toMatchObject({ type: 'elsewhere', state: null });
+    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: false }] }, now)).toMatchObject({ type: 'elsewhere', state: null, confirmed: true });
     expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: true }] }, now)?.state).toBe('working');
   });
 });

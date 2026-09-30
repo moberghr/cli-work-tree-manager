@@ -134,7 +134,7 @@ class FakeWebSocket {
   serverClose() { this.readyState = 3; this.emit('close'); }
 }
 
-import { PtyView } from '../../src/web/src/components/Terminal/PtyView.js';
+import { ELSEWHERE_RECHECK_MS, PtyView } from '../../src/web/src/components/Terminal/PtyView.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -249,20 +249,56 @@ describe('PtyView', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
-  it("when its Claude runs in another terminal: explains, spawns nothing, and 'start anyway' reconnects with force", () => {
+  const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('.wd-pty-elsewhere button')];
+
+  it('when a Claude is known to run in another terminal: explains, offers no way to start a second one, and checks again', () => {
     const { ws, term } = mount();
-    act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'working' }));
+    act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'working', confirmed: true }));
     const panel = document.querySelector('.wd-pty-elsewhere')!;
-    expect(panel.textContent).toContain('running in another terminal');
-    expect(panel.textContent).toContain('work tree');
+    expect(panel.textContent).toContain('open in another terminal');
+    expect(panel.textContent).toContain('/exit');
     expect(term.writes.join('')).not.toMatch(/reconnect/); // the server's close is expected, not an outage
     act(() => ws.serverClose());
     expect(term.writes.join('')).not.toMatch(/connection closed/);
+    expect(buttons().map((b) => b.textContent)).toEqual(['Check again']);
 
-    act(() => (panel.querySelector('button') as HTMLButtonElement).click());
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[1].url).toMatch(/\/terminal\?force=1$/);
+    act(() => buttons()[0].click());
+    const again = FakeWebSocket.instances.at(-1)!;
+    expect(again.url).toMatch(/\/terminal$/); // never ?force=1
+    expect(document.querySelector('.wd-pty-elsewhere')).not.toBeNull(); // stays up while it looks
+    // The other Claude was closed: the host's screen arrives and the panel goes.
+    again.serverOpen();
+    act(() => again.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
     expect(document.querySelector('.wd-pty-elsewhere')).toBeNull();
+  });
+
+  it('looks again by itself every few seconds while the other Claude runs', () => {
+    vi.useFakeTimers();
+    try {
+      const { ws } = mount();
+      act(() => ws.control({ type: 'elsewhere', lastActivity: null, state: null, confirmed: true }));
+      const before = FakeWebSocket.instances.length;
+      act(() => { vi.advanceTimersByTime(ELSEWHERE_RECHECK_MS + 10); });
+      expect(FakeWebSocket.instances.length).toBe(before + 1);
+      expect(FakeWebSocket.instances.at(-1)!.url).not.toMatch(/force/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('when it is only a guess from activity, starting here needs a confirmation', () => {
+    const { ws } = mount();
+    act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'idle' }));
+    const start = buttons().find((b) => /start it here/.test(b.textContent ?? ''))!;
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
+    const count = FakeWebSocket.instances.length;
+    act(() => start.click());
+    expect(confirm).toHaveBeenCalled();
+    expect(FakeWebSocket.instances.length).toBe(count); // declined: nothing started
+
+    confirm.mockReturnValueOnce(true);
+    act(() => start.click());
+    expect(FakeWebSocket.instances.at(-1)!.url).toMatch(/\/terminal\?force=1$/);
   });
 
   it('prints an error control frame', () => {

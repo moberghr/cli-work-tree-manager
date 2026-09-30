@@ -176,6 +176,10 @@ export interface TerminalElsewhere {
   /** Claude's last transcript write (ms since epoch), or null. */
   lastActivity: number | null;
   state: 'working' | 'needs_input' | 'idle' | null;
+  /** A Claude process is known to run on this conversation (Claude's own
+   *  process files), not inferred from activity: the tab then offers no way
+   *  to start a second one. */
+  confirmed?: boolean;
 }
 
 /** GET /api/digest — what each session did since a point in time. */
