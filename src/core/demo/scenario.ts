@@ -637,7 +637,13 @@ export class DemoScenario {
       archivedAt: s.archivedAt,
       port: s.port,
       context: DEMO_CONTEXT[s.branch] ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' } : null,
+      ...(this.reviewThreads(s) > 0 ? { openReviewThreads: this.reviewThreads(s) } : {}),
     };
+  }
+
+  /** Unresolved review threads on its open PRs, as the PR watch counts them. */
+  private reviewThreads(s: DemoSession): number {
+    return s.archivedAt ? 0 : s.repos.reduce((n, r) => n + (r.pr?.state === 'OPEN' ? (r.openThreads ?? 0) : 0), 0);
   }
 
   private diffStat(s: DemoSession): { added: number; deleted: number; files: number } {

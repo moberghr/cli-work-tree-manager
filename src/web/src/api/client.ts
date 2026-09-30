@@ -132,6 +132,8 @@ export interface SessionSummary {
   titleIsYours?: boolean;
   /** How full its Claude conversation is; null before the first reply. */
   context?: ContextUsage | null;
+  /** Unresolved review threads on its open PRs, waiting on you. */
+  openReviewThreads?: number;
 }
 
 // ---- Ship / archive ---------------------------------------------------

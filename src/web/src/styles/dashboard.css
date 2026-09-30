@@ -237,6 +237,7 @@
 .wd-rail-slot-needs { color: var(--del-fg); font-weight: 600; }
 .wd-rail-slot-done { color: var(--accent); }
 .wd-rail-slot-working { color: var(--add-fg); }
+.wd-rail-slot-review { color: var(--review-fg); font-weight: 600; }
 .wd-dash-rail-sub { font-size: 11px; color: var(--muted); }
 .wd-dash-rail-summary {
   flex: 1;
@@ -273,6 +274,7 @@
 .wd-rail-dot-working { background: var(--add-fg); animation: wd-inbox-pulse 1.4s ease-in-out infinite; }
 .wd-rail-dot-active  { background: var(--add-fg); }
 .wd-rail-dot-open    { background: #d29922; }   /* amber */
+.wd-rail-dot-review  { background: var(--review-fg); }   /* purple: reviewers are waiting on you */
 .wd-rail-dot-quiet,
 .wd-rail-dot-recent,
 .wd-rail-dot-stale   { background: #6e7681; }   /* grey */
@@ -853,6 +855,8 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-inbox-dot { width: 10px; height: 10px; border-radius: 50%; }
 .wd-inbox-dot-needs_input { background: var(--del-fg, #d1242f); }
 .wd-inbox-dot-idle { background: var(--accent, #0969da); }
+.wd-inbox-dot-review { background: var(--review-fg); }
+.wd-inbox-review { color: var(--review-fg); }
 .wd-inbox-dot-working { background: #2ea043; animation: wd-inbox-pulse 1.4s ease-in-out infinite; }
 @keyframes wd-inbox-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .wd-inbox-dot-working { animation: none; } }

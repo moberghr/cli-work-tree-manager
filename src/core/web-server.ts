@@ -30,7 +30,7 @@ import { sessionIdFor } from './session-id.js';
 import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
 import { buildStamp } from './build-stamp.js';
-import { sessionWire } from './session-wire.js';
+import { reviewThreadsOf, sessionWire } from './session-wire.js';
 import { createDigestSource } from './digest-source.js';
 import { report } from './report.js';
 import { mountCleanupRoutes } from './cleanup-routes.js';
@@ -238,7 +238,9 @@ export async function startWebServer(
       const running = claudesBySession(readLiveClaudes(), history.filter((s) => !shadow.has(sessionIdFor(s))));
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
-      const sessions = history.map((s) => sessionWire(s, { diffStatFor, claudesFor, shadowed: (id) => shadow.has(id) }));
+      const sessions = history.map((s) =>
+        sessionWire(s, { diffStatFor, claudesFor, shadowed: (id) => shadow.has(id), reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)) }),
+      );
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
       const overlaps = findOverlaps(
@@ -321,8 +323,19 @@ export async function startWebServer(
 
   // PR watch: CI state for the header strip; auto-archive once merged and
   // tell a session's Claude when its CI fails. Polls gh, so full mode only.
+  // A session's unresolved review threads colour it in every list, so a
+  // change in that count is a sessions change too.
+  const threadsShown = new Map<string, number>();
   const prWatch = mountCiRoutes(app, {
-    broadcast,
+    broadcast: (event, data) => {
+      broadcast(event, data);
+      const id = event === 'ci-changed' ? (data as { sessionId?: string }).sessionId : undefined;
+      if (!id) return;
+      const n = reviewThreadsOf(prWatch.state(id));
+      if (n === (threadsShown.get(id) ?? 0)) return;
+      threadsShown.set(id, n);
+      broadcast('sessions-changed', { ts: Date.now() });
+    },
     archive: async (id) => {
       const s = findSession(id);
       if (!s || s.archivedAt) return;

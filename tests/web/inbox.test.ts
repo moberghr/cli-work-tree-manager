@@ -61,6 +61,23 @@ describe('InboxTab', () => {
     expect(text(container)).toContain('waiting 8m');
   });
 
+  it('sessions with unresolved review comments get their own section, and count as needing you', () => {
+    const withReview = [
+      ...SESSIONS,
+      { ...session('reviewed', att('idle', true, 300)), openReviewThreads: 3 },
+      { ...session('reviewed-untracked', null), openReviewThreads: 1 },
+      { ...session('reviewed-busy', att('working', true, 1)), openReviewThreads: 2 }, // mid-turn: Working wins
+    ];
+    act(() => root.render(createElement(InboxTab, { sessions: withReview, onOpenSession: () => {} })));
+    const sections = [...container.querySelectorAll('.wd-inbox-section')].map((s) => text(s.querySelector('h2')));
+    expect(sections).toEqual(['Needs your input (2)', 'Done — not looked at yet (1)', 'Review comments (2)', 'Working (2)']);
+    const review = [...container.querySelectorAll('.wd-inbox-section')][2];
+    expect(text(review)).toContain('💬 3 unresolved review comments');
+    expect(text(review)).toContain('💬 1 unresolved review comment');
+    expect(review.querySelector('.wd-inbox-dot-review')).not.toBeNull();
+    expect(text(container.querySelector('h1'))).toContain('5 need you · 2 working');
+  });
+
   it('opens blocked sessions on the terminal and finished ones on the diff', () => {
     const onOpen = vi.fn();
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: onOpen })));
@@ -197,6 +214,15 @@ describe('SessionRail with attention', () => {
     expect(blocked.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-needs_input');
     expect(blocked.getAttribute('title')).toContain('Claude needs your permission to use Edit');
     expect(byName('done').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
+  });
+
+  it('colours a session with unresolved review comments, and says how many', () => {
+    const list = [{ ...session('reviewed', att('idle', true, 300)), openReviewThreads: 2 }];
+    act(() => root.render(createElement(SessionRail, { sessions: list, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const item = container.querySelector('.wd-dash-rail-item')!;
+    expect(item.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-review');
+    expect(item.querySelector('.wd-rail-dot')!.getAttribute('aria-label')).toBe('Review comments');
+    expect(text(item.querySelector('.wd-rail-slot-review'))).toBe('💬 2');
   });
 
   it('keeps an old selected session visible even with 40+ current ones', () => {

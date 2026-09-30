@@ -23,6 +23,8 @@ export interface SessionWireOptions {
   /** It shares its folder with another session that owns it
    *  (shared-folders.ts): the folder's activity isn't this one's. */
   shadowed?: (id: string) => boolean;
+  /** Unresolved review threads on its open PRs (the PR watch's last check). */
+  reviewThreadsFor?: (id: string) => number;
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -30,6 +32,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const meta = readSessionMeta(id, s);
   const shadowed = opts.shadowed?.(id) ?? false;
   const claudes = shadowed ? null : (opts.claudesFor?.(id) ?? null);
+  const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
   return {
     id,
     target: s.target,
@@ -57,7 +60,13 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,
     context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
+    ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
   };
+}
+
+/** A session's unresolved review threads, from the PR watch's per-repo counts (open PRs only). */
+export function reviewThreadsOf(ci: { repos: Array<{ pr: { state: string } | null; openThreads?: number }> } | null | undefined): number {
+  return (ci?.repos ?? []).reduce((n, r) => n + (r.pr?.state === 'OPEN' ? (r.openThreads ?? 0) : 0), 0);
 }
 
 function archiveInfo(id: string): { archive?: SessionArchiveInfo } {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
-import { compareAttention, needsAttention } from '../../../core/attention.js';
+import { compareInbox, needsAttention, wantsYou } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
@@ -367,9 +367,7 @@ export function DashboardApp() {
           reviewNextRef.current();
           return;
         }
-        const queue = sessions
-          .filter((s) => !isArchived(s) && needsAttention(s.attention))
-          .sort((a, b) => compareAttention(a.attention, b.attention));
+        const queue = sessions.filter((s) => !isArchived(s) && wantsYou(s)).sort(compareInbox);
         const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
         if (next) {
           e.preventDefault();
@@ -446,7 +444,7 @@ export function DashboardApp() {
 
   // Unread count in the browser tab, so a pinned tab shows it at a glance.
   const inboxCount = useMemo(
-    () => sessions.filter((s) => !isArchived(s) && needsAttention(s.attention)).length,
+    () => sessions.filter((s) => !isArchived(s) && wantsYou(s)).length,
     [sessions],
   );
   useEffect(() => {

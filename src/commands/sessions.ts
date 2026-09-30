@@ -27,6 +27,7 @@ const COLOR: Partial<Record<DisplayKind, (s: string) => string>> = {
   needs_input: chalk.red,
   done: chalk.blue,
   working: chalk.green,
+  review: chalk.magenta,
   active: chalk.green,
 };
 

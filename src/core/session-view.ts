@@ -7,6 +7,8 @@ export interface SessionLike {
   lastActivity?: number | null;
   activityState?: ActivityState;
   attention?: SessionAttention | null;
+  /** Unresolved review threads on its open PRs (SessionWire). */
+  openReviewThreads?: number;
 }
 
 /**
@@ -19,6 +21,8 @@ export interface SessionLike {
  *   needs_input — blocked on you (permission / question)
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
+ *   review      — nothing running for you to answer, but reviewers left
+ *                 unresolved comments on its open PR(s)
  *   quiet       — finished, and you've seen it
  *   active/open/recent/stale — no hook status yet (its Claude has not
  *     taken a turn since the dashboard's hooks went in, or runs a tool
@@ -29,6 +33,7 @@ export type DisplayKind =
   | 'needs_input'
   | 'done'
   | 'working'
+  | 'review'
   | 'quiet'
   | 'active'
   | 'open'
@@ -51,8 +56,10 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
     if (a.state === 'working') return 'working';
-    return a.seen ? 'quiet' : 'done';
+    if (!a.seen) return 'done';
   }
+  if ((s.openReviewThreads ?? 0) > 0) return 'review';
+  if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
   return now - Date.parse(lastActiveAt(s)) < RECENT_MS ? 'recent' : 'stale';
@@ -62,6 +69,7 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   needs_input: 'Needs your input',
   done: 'Done',
   working: 'Working',
+  review: 'Review comments',
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
@@ -84,7 +92,7 @@ export const WEEK_MS = 7 * 24 * 3_600_000;
  *  used within 7 days. Older: everything else — cleanup material. */
 export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
   const kind = displayStatus(s, now);
-  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'active' || kind === 'open') return 'now';
+  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'review' || kind === 'active' || kind === 'open') return 'now';
   const age = now - Date.parse(lastActiveAt(s));
   if (age < RECENT_MS) return 'now';
   return age < WEEK_MS ? 'week' : 'older';
@@ -97,6 +105,7 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
   switch (kind) {
     case 'needs_input':
     case 'done':
+    case 'review':
       return 'needs';
     case 'working':
     case 'active':

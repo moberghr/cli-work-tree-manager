@@ -19,7 +19,7 @@ import {
   recordStatusEvent,
   type SessionStatus,
 } from '../../src/core/session-status.js';
-import { attentionRank, compareAttention, needsAttention } from '../../src/core/attention.js';
+import { attentionRank, compareAttention, compareInbox, inboxRank, needsAttention, wantsYou } from '../../src/core/attention.js';
 
 const T0 = new Date('2026-09-28T10:00:00Z');
 const at = (sec: number) => new Date(T0.getTime() + sec * 1000);
@@ -154,6 +154,21 @@ describe('attention ordering', () => {
     ];
     const order = [...items].sort((x, y) => compareAttention(x.a, y.a)).map((x) => x.id);
     expect(order).toEqual(['blockedOld', 'blockedNew', 'done', 'working-new', 'working-old', 'none']);
+  });
+
+  it('the inbox puts review comments after done and before working, and counts them as wanting you', () => {
+    const items = [
+      { id: 'working', attention: s('working', true, 40), openReviewThreads: 2 }, // mid-turn: working, not review
+      { id: 'review-quiet', attention: s('idle', true, 10), openReviewThreads: 1 },
+      { id: 'review-untracked', attention: null, openReviewThreads: 3 },
+      { id: 'quiet', attention: s('idle', true, 20) },
+      { id: 'done', attention: s('idle', false, 5), openReviewThreads: 1 }, // done wins
+      { id: 'blocked', attention: s('needs_input', false, 0) },
+      { id: 'none', attention: null },
+    ];
+    expect([...items].sort(compareInbox).map((x) => x.id)).toEqual(['blocked', 'done', 'review-untracked', 'review-quiet', 'working', 'quiet', 'none']);
+    expect(items.filter(wantsYou).map((x) => x.id).sort()).toEqual(['blocked', 'done', 'review-quiet', 'review-untracked']);
+    expect(inboxRank({ attention: null })).toBe(5);
   });
 });
 

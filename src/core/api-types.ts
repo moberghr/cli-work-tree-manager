@@ -365,6 +365,10 @@ export interface SessionWire {
   overlaps?: SessionOverlap[];
   /** Context used by its Claude conversation; null before the first reply. */
   context?: ContextUsage | null;
+  /** Unresolved review threads on its open PRs whose last word isn't
+   *  yours (the PR watch's count, pr-review.ts); absent when none or not
+   *  checked yet. Makes it "Review comments" (session-view.ts). */
+  openReviewThreads?: number;
 }
 
 // ---- ship -----------------------------------------------------------------

@@ -51,6 +51,17 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(displayStatus(s({ id: 'a', lastAccessedAt: minsAgo(3 * 24 * 60), lastActivity: Date.now() - 2 * 3_600_000 }))).toBe('recent');
   });
 
+  it('unresolved review comments make a session "Review comments" unless its Claude wants you or is mid-turn', () => {
+    const r = { openReviewThreads: 2 };
+    expect(displayStatus(s({ id: 'a', ...r }))).toBe('review'); // no hook status at all
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', true) }))).toBe('review'); // was grey "Idle"
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('idle', false) }))).toBe('done');
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('working', true) }))).toBe('working');
+    expect(displayStatus(s({ id: 'a', ...r, attention: att('needs_input', false) }))).toBe('needs_input');
+    expect(statusBucket('review')).toBe('needs');
+    expect(ageBucket(s({ id: 'a', ...r, lastAccessedAt: minsAgo(30 * 24 * 60) }))).toBe('now');
+  });
+
   it("'last active' is the newest of the hook update, Claude's last write and the entry", () => {
     const entry = minsAgo(24 * 60);
     expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry }))).toBe(entry);

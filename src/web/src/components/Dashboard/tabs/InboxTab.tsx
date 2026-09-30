@@ -4,7 +4,7 @@ import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, typ
 import { isArchived, lastActiveAt, staleSuggestions, type PrLookup } from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { attentionRank, compareAttention } from '../../../../../core/attention.js';
+import { compareInbox, inboxRank } from '../../../../../core/attention.js';
 import { relativeTime } from '../../../utils/time.js';
 
 interface Props {
@@ -40,8 +40,11 @@ interface Section {
 const SECTIONS: Section[] = [
   { rank: 0, title: 'Needs your input', hint: 'Blocked on a permission or question', since: 'waiting', open: 'term' },
   { rank: 1, title: 'Done — not looked at yet', hint: 'Finished a turn since you last opened it', since: 'done', open: 'diff' },
-  { rank: 2, title: 'Working', hint: 'Mid-turn', since: 'working', open: 'term' },
+  { rank: 2, title: 'Review comments', hint: 'Reviewers left comments on its PR that nobody has answered or resolved', since: 'last active', open: 'diff' },
+  { rank: 3, title: 'Working', hint: 'Mid-turn', since: 'working', open: 'term' },
 ];
+/** Sections that want you (the header count and the badge): needs input, done, review comments. */
+const WAITING_RANKS = [0, 1, 2];
 
 /**
  * The attention inbox: every session whose Claude wants you, in the order
@@ -110,14 +113,14 @@ export function InboxTab({
     );
   };
   const { bySection, quiet, tracked } = useMemo(() => {
-    const sorted = sessions.filter((s) => !isArchived(s)).sort((a, b) => compareAttention(a.attention, b.attention));
+    const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
     const bySection = new Map<number, SessionSummary[]>();
     let quiet = 0;
     let tracked = 0;
     for (const s of sorted) {
-      if (s.attention) tracked++;
-      const rank = attentionRank(s.attention);
-      if (rank > 2) {
+      const rank = inboxRank(s);
+      if (s.attention || rank === 2) tracked++;
+      if (rank > 3) {
         if (s.attention) quiet++;
         continue;
       }
@@ -126,7 +129,7 @@ export function InboxTab({
     return { bySection, quiet, tracked };
   }, [sessions]);
 
-  const waitingCount = (bySection.get(0)?.length ?? 0) + (bySection.get(1)?.length ?? 0);
+  const waitingCount = WAITING_RANKS.reduce((n, r) => n + (bySection.get(r)?.length ?? 0), 0);
 
   return (
     <div className="wd-dash-tab-pane wd-tab-inbox">
@@ -134,7 +137,7 @@ export function InboxTab({
         <h1>
           Inbox{' '}
           <span className="wd-tab-header-muted">
-            ({waitingCount} need{waitingCount === 1 ? 's' : ''} you · {bySection.get(2)?.length ?? 0} working
+            ({waitingCount} need{waitingCount === 1 ? 's' : ''} you · {bySection.get(3)?.length ?? 0} working
             {quiet > 0 ? ` · ${quiet} quiet` : ''})
           </span>
         </h1>
@@ -150,7 +153,7 @@ export function InboxTab({
           <code>wd</code> starts) — they apply to Claudes started, or prompted,
           after that.
         </div>
-      ) : waitingCount === 0 && !bySection.get(2)?.length ? (
+      ) : waitingCount === 0 && !bySection.get(3)?.length ? (
         <div className="wd-tab-empty">Nothing needs you right now.</div>
       ) : (
         SECTIONS.filter((sec) => bySection.get(sec.rank)?.length).map((sec) => (
@@ -178,7 +181,7 @@ export function InboxTab({
                     onClick={() => onOpenSession(s.id, sec.open, sec.rank === 1 ? { lastTurn: true } : undefined)}
                     title={`Open ${s.target} · ${s.branch} (${sec.open === 'term' ? 'terminal' : 'diff'})`}
                   >
-                    <span className={`wd-inbox-dot wd-inbox-dot-${s.attention!.state}`} aria-hidden />
+                    <span className={`wd-inbox-dot wd-inbox-dot-${sec.rank === 2 ? 'review' : s.attention!.state}`} aria-hidden />
                     <span className="wd-inbox-name">
                       <span className="wd-inbox-target">{s.target}</span>
                       <span className="wd-inbox-branch">{s.branch}</span>
@@ -186,6 +189,10 @@ export function InboxTab({
                     <span className="wd-inbox-summary">
                       {answerError[s.id] ? (
                         <span className="wd-inbox-answer-error" role="alert">{answerError[s.id]}</span>
+                      ) : sec.rank === 2 ? (
+                        <span className="wd-inbox-review">
+                          💬 {s.openReviewThreads} unresolved review comment{s.openReviewThreads === 1 ? '' : 's'}
+                        </span>
                       ) : s.attention!.state === 'needs_input' && s.attention!.request ? (
                         <span className="wd-inbox-request" title={`${s.attention!.request.tool}: ${s.attention!.request.detail}`}>
                           <span className="wd-inbox-request-tool">{s.attention!.request.tool}</span>{' '}
@@ -200,7 +207,7 @@ export function InboxTab({
                       <OverlapChip session={s} />
                       <PrChips prs={prsFor?.(s) ?? []} />
                       <span className="wd-inbox-since">
-                        {sec.since} {relativeTime(s.attention!.since)}
+                        {sec.since} {relativeTime(sec.rank === 2 ? lastActiveAt(s) : s.attention!.since)}
                       </span>
                     </span>
                   </button>
