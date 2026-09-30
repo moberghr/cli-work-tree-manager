@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, type WorkConfig } from './config.js';
-import { loadHistory, removeSession, setSessionArchived } from './history.js';
+import { loadHistory, removeSession } from './history.js';
 import { sessionIdFor } from './session-id.js';
 import { readSessionActivity } from './claude-activity.js';
 import { readStatus } from './session-status.js';
 import { disposePty } from './pty-pool.js';
 import { teardownWorktree } from './worktree.js';
+import { archiveSession } from './session-archive.js';
+import { defaultArchiveDeps } from './session-archive-deps.js';
 import { fetchRemoteAsync } from './git.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { normPath, type CleanupDeps, type CleanupSession } from './cleanup.js';
@@ -134,8 +136,11 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
     run,
     act: async (s: CleanupSession, action: CleanupAction) => {
       if (action === 'archive') {
-        await disposePty(s.id);
-        await setSessionArchived(s.target, s.branch, true);
+        // Keeps the conversation; the worktree stays when it has work in it.
+        const session = loadHistory().find((h) => sessionIdFor(h) === s.id);
+        if (!session) throw new Error('Not archived: work does not track it.');
+        const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, run }));
+        if (!out.ok) throw new Error(out.message);
         return;
       }
       if (action === 'delete') {

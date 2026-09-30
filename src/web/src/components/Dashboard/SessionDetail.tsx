@@ -234,7 +234,7 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
           : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
       }
     >
-      {busy ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Unarchive' : error ? 'Archive ⚠' : 'Archive'}
+      {busy ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Restore' : error ? 'Archive ⚠' : 'Archive'}
     </button>
   );
 }

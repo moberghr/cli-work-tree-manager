@@ -364,13 +364,32 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
               group
             </span>
           )}
-          {archived && <span className="wd-archived-pill">archived</span>}
+          {archived && (
+            <span
+              className="wd-archived-pill"
+              title={
+                s.archive
+                  ? s.archive.worktreeRemoved
+                    ? 'Worktree removed; its branch and the conversation are kept. Restore recreates it.'
+                    : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}`
+                  : 'Archived'
+              }
+            >
+              {s.archive?.worktreeRemoved ? 'archived · folder removed' : 'archived'}
+            </span>
+          )}
         </span>
       </td>
       <td className="wd-st-col-summary">
-        <span className="wd-st-summary" title={s.attention?.summary}>
-          {s.attention?.summary ?? ''}
-        </span>
+        {(() => {
+          // An archived session: what it was about (its archive's summary / first prompt).
+          const text = s.attention?.summary ?? (archived ? (s.archive?.lastSummary ?? s.archive?.prompts[0]) : undefined) ?? '';
+          return (
+            <span className="wd-st-summary" title={text}>
+              {text}
+            </span>
+          );
+        })()}
       </td>
       <td className="wd-st-col-changes">
         <DiffStatChip session={s} />
@@ -408,10 +427,16 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
           type="button"
           className="wd-row-action"
           disabled={busy !== null}
-          title={archived ? 'Bring it back to the rail and inbox' : 'Stop its Claude, keep worktree, branch and conversation'}
+          title={
+            archived
+              ? s.archive?.worktreeRemoved
+                ? 'Recreate its worktree from the branch and continue the conversation'
+                : 'Bring it back to the rail and inbox'
+              : 'Stop its Claude and keep the conversation and a summary; the worktree is removed if nothing would be lost (the branch stays)'
+          }
           onClick={() => run('archive', () => setArchived(s.id, !archived))}
         >
-          {busy === 'archive' ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Unarchive' : 'Archive'}
+          {busy === 'archive' ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Restore' : 'Archive'}
         </button>
         <button
           type="button"

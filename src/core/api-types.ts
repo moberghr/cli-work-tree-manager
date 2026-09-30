@@ -51,6 +51,16 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+/** An archived session: whether its folder went, and what it was about. */
+export interface SessionArchiveInfo {
+  worktreeRemoved: boolean;
+  keptBecause: string | null;
+  promptCount: number;
+  /** Its prompts (first and latest), for recall and search. */
+  prompts: string[];
+  lastSummary: string | null;
+}
+
 /** A session's running Claudes: in your terminal, or run by the app. */
 export interface SessionClaudes {
   inTerminal: number;
@@ -277,6 +287,8 @@ export interface SessionWire {
   /** Claudes running for this session right now (core/live-claudes.ts);
    *  absent when none. */
   claudes?: SessionClaudes;
+  /** What its archive kept (archived sessions; session-archive.ts). */
+  archive?: SessionArchiveInfo;
   /** Other sessions changing the same files; absent when there are none. */
   overlaps?: SessionOverlap[];
   /** Context used by its Claude conversation; null before the first reply. */

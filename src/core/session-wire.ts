@@ -3,7 +3,8 @@ import { sessionIdFor } from './web-state.js';
 import { readContextUsage } from './context-usage.js';
 import { bestEffort } from './best-effort.js';
 import type { WorktreeSession } from './history.js';
-import type { DiffStat, SessionClaudes, SessionWire } from './api-types.js';
+import type { DiffStat, SessionArchiveInfo, SessionClaudes, SessionWire } from './api-types.js';
+import { readArchive } from './session-archive.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -46,12 +47,27 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     // A running Claude is open even when it writes nothing (idle at its prompt).
     activityState: shadowed ? 'stale' : claudes ? (claudes.busy ? 'active' : meta.activityState === 'active' ? 'active' : 'open') : meta.activityState,
     ...(claudes ? { claudes } : {}),
+    ...(s.archivedAt ? archiveInfo(id) : {}),
     pendingForClaudeCount: meta.pendingForClaudeCount,
     attention: meta.attention,
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,
     context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
+  };
+}
+
+function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
+  const rec = readArchive(id);
+  if (!rec) return {};
+  return {
+    archive: {
+      worktreeRemoved: rec.worktreeRemoved,
+      keptBecause: rec.keptBecause,
+      promptCount: rec.summary.promptCount,
+      prompts: rec.summary.prompts.map((p) => p.text),
+      lastSummary: rec.summary.lastSummary,
+    },
   };
 }
 

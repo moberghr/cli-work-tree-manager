@@ -182,7 +182,7 @@ describe('Session header strip', () => {
     await act(async () => resolve({ ok: true }));
     renderDetail(session({ archivedAt: minsAgo(0) }));
     expect(text(container.querySelector('.wd-archived-pill'))).toBe('archived');
-    expect(button('Unarchive')).toBeDefined();
+    expect(button('Restore')).toBeDefined();
   });
 
   it('Ship ▾ opens the ship panel', async () => {

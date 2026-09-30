@@ -21,9 +21,10 @@ export interface WorktreeSession {
   baseBranches?: Record<string, string>;
   /** Stable dev-server port allocated to this worktree, exposed as $PORT. */
   port?: number;
-  /** Set when archived (work web "Archive", or after "Ship → Merge"): the
-   *  worktree, branch and conversation are kept, it's just out of the way.
-   *  Re-entering it with `work tree` clears it. */
+  /** Set when archived (session-archive.ts): its conversation and a summary
+   *  are kept under ~/.work/archive, its worktree removed when nothing would
+   *  be lost, its branch kept. Re-entering it with `work tree` (or Restore)
+   *  recreates the worktree and clears it. */
   archivedAt?: string;
   /** The AI tool was last launched with `--unsafe` (skip-permissions).
    *  Untrusted text (PR review comments) is never auto-delivered to it. */

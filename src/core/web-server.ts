@@ -4,9 +4,10 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { computeDiff } from './diff-pipeline.js';
 import { resolveRepoDiff } from './diff-scope.js';
-import { loadHistory, setSessionArchived, type WorktreeSession } from './history.js';
+import { loadHistory, type WorktreeSession } from './history.js';
 import {
   disposeAllWatchers,
+  disposeSessionWatcher,
   findSession,
   subscribeSession,
 } from './web-state.js';
@@ -21,6 +22,8 @@ import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { mountChatRoutes } from './chat-routes.js';
 import { mountSessionOrderRoutes } from './session-order-routes.js';
+import { archiveSession } from './session-archive.js';
+import { defaultArchiveDeps } from './session-archive-deps.js';
 import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
 import { sessionIdFor } from './session-id.js';
@@ -43,7 +46,7 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, initPtyPool, ptyPids } from './pty-pool.js';
+import { detachPtyPool, initPtyPool, ptyPids } from './pty-pool.js';
 import { resolveWebRoot } from './web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -319,8 +322,7 @@ export async function startWebServer(
     archive: async (id) => {
       const s = findSession(id);
       if (!s || s.archivedAt) return;
-      await disposePty(id);
-      await setSessionArchived(s.target, s.branch, true);
+      await archiveSession(s, defaultArchiveDeps({ release: releaseSession }));
       broadcast('sessions-changed', { ts: Date.now() });
     },
   });
@@ -376,7 +378,12 @@ export async function startWebServer(
   });
 
   // Ship (push / PR / merge) + archive.
-  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id) });
+  // Before an archive removes a worktree: close our watcher and any chat on it.
+  const releaseSession = async (id: string) => {
+    await disposeSessionWatcher(id);
+    chatApi.stop(id);
+  };
+  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession });
 
   // The sessions list's manual order (drag to reorder).
   mountSessionOrderRoutes(app, { broadcast });

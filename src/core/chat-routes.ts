@@ -31,7 +31,7 @@ import { findSession } from './web-state.js';
 
 const HISTORY_BYTES = 1024 * 1024;
 
-export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { stopAll: () => void; pids: () => number[] } {
+export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { stopAll: () => void; stop: (id: string) => void; pids: () => number[] } {
   const chats = new Map<string, ChatSession>();
   const byToken = new Map<string, ChatSession>();
   const watchers = new Map<string, Set<(e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => void>>();
@@ -156,6 +156,7 @@ export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { s
     stopAll: () => {
       for (const chat of chats.values()) chat.stop();
     },
+    stop: (id: string) => chats.get(id)?.stop(),
     pids: () => [...chats.values()].flatMap((c) => (c.pid ? [c.pid] : [])),
   };
 }

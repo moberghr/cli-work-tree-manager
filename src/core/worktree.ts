@@ -4,7 +4,9 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { upsertSessionWithPort } from './history.js';
+import { findSession, loadHistory, upsertSessionWithPort } from './history.js';
+import { bestEffort } from './best-effort.js';
+import { restoreArchivedTranscripts } from './session-archive.js';
 import {
   git,
   parseWorktreeList,
@@ -397,11 +399,16 @@ export async function setupWorktree(
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 
-  if (target.isGroup) {
-    return setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts);
-  } else {
-    return setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
+  const result = target.isGroup
+    ? await setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
+    : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
+  // Coming back to an archived session: put its conversation back where
+  // Claude looks for it (only files that aren't there), so it continues.
+  if (result) {
+    const session = findSession(loadHistory(), target.isGroup ? target.name : targetName, branchName);
+    if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
   }
+  return result;
 }
 
 async function setupGroupWorktree(

@@ -1,7 +1,11 @@
 import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
 import { setSessionArchived } from './history.js';
-import { disposePty } from './pty-pool.js';
+import fs from 'node:fs';
+import { loadConfig } from './config.js';
+import { archiveSession, restoreArchivedTranscripts } from './session-archive.js';
+import { defaultArchiveDeps } from './session-archive-deps.js';
+import { setupWorktree } from './worktree.js';
 import {
   mergeSelected,
   runShipAction,
@@ -17,6 +21,8 @@ export interface ShipRoutesOptions {
   /** Called after git state changed (push/merge) so diff stats refresh. */
   onRepoChanged?: (sessionId: string) => void;
   run?: CommandRunner;
+  /** Let go of a session's folders before its worktree is removed (watchers, a chat). */
+  release?: (sessionId: string) => Promise<void>;
 }
 
 const ACTIONS = new Set<ShipAction>(['push', 'create-pr', 'merge']);
@@ -31,16 +37,29 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    exactly those PR heads (all validated
  *                                    first); archives only when something was
  *                                    merged AND every repo is now done
- *   POST /api/sessions/:id/archive   {archived}: archive stops the PTY and
- *                                    hides the session; worktree, branch and
- *                                    conversation are kept
+ *   POST /api/sessions/:id/archive   {archived}: archive (session-archive.ts)
+ *                                    keeps its conversation and a summary,
+ *                                    removes the worktree when nothing would
+ *                                    be lost, keeps the branch; {archived:
+ *                                    false} restores it (worktree recreated,
+ *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
   const archive = async (id: string, archived: boolean): Promise<boolean> => {
     const session = findSession(id);
     if (!session) return false;
-    if (archived) await disposePty(id);
-    const ok = await setSessionArchived(session.target, session.branch, archived);
+    let ok: boolean;
+    if (archived) {
+      ok = (await archiveSession(session, defaultArchiveDeps({ release: opts.release }))).ok;
+    } else if (session.paths.some((p) => !fs.existsSync(p))) {
+      // Its worktree was removed on archive: recreate it from the branch
+      // (setupWorktree also puts the conversation back and un-archives it).
+      const config = loadConfig();
+      ok = !!config && (await setupWorktree(session.target, session.branch, config)) !== null;
+    } else {
+      restoreArchivedTranscripts(session);
+      ok = await setSessionArchived(session.target, session.branch, false);
+    }
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return ok;
   };

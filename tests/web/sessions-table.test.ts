@@ -94,7 +94,7 @@ describe('Sessions table', () => {
     act(() => toggle.click());
     const arch = rows().find((r) => r.className.includes('wd-session-row-archived'))!;
     expect(text(arch.querySelector('.wd-archived-pill'))).toBe('archived');
-    expect(text(arch.querySelector('.wd-st-col-actions'))).toContain('Unarchive');
+    expect(text(arch.querySelector('.wd-st-col-actions'))).toContain('Restore');
   });
 
   it('a row click opens the session where you would act on it', () => {
