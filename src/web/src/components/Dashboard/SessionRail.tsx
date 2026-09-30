@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import { ClaudesChip, PrChips } from './SessionBits.js';
+import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
+  DISPLAY_MEANING,
   displayStatus,
   formatDiffStat,
   railSessions,
@@ -120,6 +122,7 @@ export function SessionRail({
     >
       <header className="wd-dash-rail-header">
         <h2>Sessions</h2>
+        <StatusLegend />
         <button
           type="button"
           className="wd-dash-rail-new"
@@ -202,7 +205,7 @@ export function SessionRail({
                   className={
                     'wd-dash-rail-item' +
                     (isActive ? ' wd-dash-rail-item-active' : '') +
-                    (kind === 'needs_input' || kind === 'done' ? ' wd-dash-rail-item-unseen' : '')
+                    (kind === 'needs_input' || kind === 'done' || kind === 'review' ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
                   onKeyDown={(e) => {
@@ -217,7 +220,7 @@ export function SessionRail({
                     (summary ? ` — ${summary}` : '')
                   }
                 >
-                  <span className={dotClass(kind)} aria-label={DISPLAY_LABEL[kind]} role="img" />
+                  <span className={dotClass(kind)} aria-label={DISPLAY_LABEL[kind]} role="img" title={`${DISPLAY_LABEL[kind]}: ${DISPLAY_MEANING[kind]}`} />
                   <span className="wd-dash-rail-lines">
                     <span className="wd-dash-rail-line">
                       <span className="wd-dash-rail-name">{label}</span>

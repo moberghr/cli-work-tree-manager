@@ -1572,3 +1572,31 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-session-title-empty { font-style: italic; opacity: 0.6; }
 .wd-session-title-input { margin-left: 12px; font: inherit; font-size: 13px; font-weight: 400; padding: 2px 6px; min-width: 32ch; color: var(--fg); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; }
 .wd-st-title { display: block; font-size: 12px; color: var(--muted); max-width: 48ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "What the colours mean" (StatusLegend): a "?" beside the sessions list. */
+.wd-legend { margin-left: auto; margin-right: 6px; }
+.wd-legend-toggle { font-size: 12px; font-weight: 600; }
+.wd-legend-panel {
+  position: fixed;
+  z-index: 50;
+  width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.wd-legend-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 6px 0 6px; }
+.wd-legend-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.wd-legend-row { display: grid; grid-template-columns: 12px 108px 1fr; gap: 6px; align-items: start; padding: 3px 0; }
+.wd-legend-row .wd-rail-dot { margin-top: 4px; }
+.wd-legend-name { font-weight: 600; }
+.wd-legend-meaning { color: var(--muted); }
+.wd-legend-marks li { padding: 3px 0; color: var(--muted); }
+.wd-legend-marks b { color: var(--fg); }
+.wd-legend-overlap { color: var(--warn-fg); }

@@ -77,6 +77,22 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   stale: 'Stale',
 };
 
+/** What each status means, in words — the legend and the dots' tooltips. */
+export const DISPLAY_MEANING: Record<DisplayKind, string> = {
+  needs_input: 'Its Claude is waiting for you: a permission prompt or a question.',
+  done: "Its Claude finished a turn you haven't looked at yet.",
+  working: 'Its Claude is working on your last instruction right now.',
+  review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
+  quiet: "Its Claude finished, and you've seen it. Nothing to do.",
+  active: "Its Claude wrote in the last 30 seconds (it isn't reporting its status, so this is from its transcript).",
+  open: 'Its Claude wrote in the last 5 minutes, or is open and idle at its prompt.',
+  recent: 'Used in the last day; nothing running now.',
+  stale: 'Not used for over a day.',
+};
+
+/** The legend's rows, most urgent first. Idle covers `quiet` and `recent` (same colour, same word). */
+export const LEGEND_KINDS: readonly DisplayKind[] = ['needs_input', 'done', 'review', 'working', 'active', 'open', 'quiet', 'stale'];
+
 /** How long ago a session was used, for the Sessions table's sections. */
 export type AgeBucket = 'now' | 'week' | 'older';
 
