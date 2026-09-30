@@ -1559,3 +1559,4 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-pr-chip-open { cursor: pointer; }
 .wd-dash-rail-search { margin: 0 12px 8px; padding: 5px 8px; font: inherit; font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .wd-dash-rail-search:focus { outline: none; border-color: var(--accent); }
+.wd-tab-search { min-width: 220px; padding: 4px 8px; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }

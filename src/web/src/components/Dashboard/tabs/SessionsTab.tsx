@@ -12,7 +12,7 @@ import {
   type StatusBucket,
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
-import { AGE_LABEL, ageBucket, lastActiveAt, statusHint, type AgeBucket } from '../../../state/session-display.js';
+import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import {
   groupRepoNames,
   groupSessionsByTarget,
@@ -72,6 +72,7 @@ export function SessionsTab({
 }: Props) {
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
   const [grouping, setGroupingState] = useState<Grouping>(() => {
     try {
       const v = localStorage.getItem(GROUPING_KEY);
@@ -104,7 +105,7 @@ export function SessionsTab({
   const filtered = useMemo(() => {
     const pool = showArchived ? sessions : live;
     const matched = pool.filter(
-      (s) => filter === 'all' || statusBucket(displayStatus(s)) === filter,
+      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && sessionMatches(s, query),
     );
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
@@ -114,7 +115,7 @@ export function SessionsTab({
       }
       return lastActiveAt(b).localeCompare(lastActiveAt(a));
     });
-  }, [sessions, live, showArchived, sort, filter]);
+  }, [sessions, live, showArchived, sort, filter, query]);
 
   const groups = useMemo(
     () =>
@@ -167,6 +168,17 @@ export function SessionsTab({
           </span>
         </h1>
         <div className="wd-tab-controls">
+          <input
+            className="wd-tab-search"
+            type="search"
+            placeholder="Search branch, repo, folder…"
+            aria-label="Search sessions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('');
+            }}
+          />
           <label>
             Filter{' '}
             <select
@@ -230,7 +242,8 @@ export function SessionsTab({
       ) : ages ? (
         <div className="wd-session-groups">
           {ages.map((g) => {
-            const folded = g.key === 'older' && !showOlder;
+            // A search shows its matches, the older ones too.
+            const folded = g.key === 'older' && !showOlder && query.trim() === '';
             return (
               <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
                 <h2 className="wd-session-group-header">

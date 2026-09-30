@@ -148,3 +148,20 @@ describe('Sessions table', () => {
     expect(rows().map((r) => text(r.querySelector('.wd-st-branch'))).sort()).toEqual(['blocked', 'done']);
   });
 });
+
+describe('Sessions tab search', () => {
+  it('filters the table by text, and Esc clears it', () => {
+    render();
+    const box = container.querySelector<HTMLInputElement>('.wd-tab-search')!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => {
+      setValue.call(box, 'work');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const branches = () => rows().map((r) => r.querySelector('.wd-session-name, td:nth-child(2)')?.textContent ?? '');
+    expect(rows()).toHaveLength(1);
+    expect(branches()[0]).toContain('working');
+    act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(rows().length).toBeGreaterThan(1);
+  });
+});
