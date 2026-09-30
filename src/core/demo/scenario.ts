@@ -23,6 +23,7 @@ import type {
   CleanupAction,
   CleanupCandidate,
   CleanupState,
+  ChatSnapshot,
 } from '../api-types.js';
 import type { AgentState } from '../attention.js';
 import type { PullRequestInfo } from '../pr.js';
@@ -502,6 +503,52 @@ export class DemoScenario {
     s.transcript.push(reply);
     this.emitTerminal(id, `\r\n${reply}\r\n✻ Working…\r\n`);
     this.after(8_000, () => this.finishTurn(id));
+  }
+
+  /**
+   * The session as a chat (the headless-Claude spike): the simulated
+   * terminal's `> ` lines are your messages, `● Tool(args)` lines tool calls,
+   * other `●` lines Claude's text — in the stream-json shapes the real chat
+   * route serves.
+   */
+  chatSnapshot(id: string): ChatSnapshot | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const raws: unknown[] = [];
+    let n = 0;
+    for (const line of s.transcript) {
+      if (line.startsWith('> ') && line.length > 2) {
+        raws.push({ type: 'user', message: { role: 'user', content: line.slice(2) } });
+        continue;
+      }
+      const tool = /^● (\w+)\((.*)\)$/.exec(line);
+      if (tool) {
+        const toolId = `demo-tool-${n++}`;
+        raws.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: toolId, name: tool[1], input: { args: tool[2] } }] } });
+        raws.push({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: 'ok (simulated)' }] } });
+        continue;
+      }
+      if (line.startsWith('● ')) raws.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: line.slice(2) }] } });
+    }
+    const state = s.attention?.state === 'working' ? 'working' : s.attention?.state === 'needs_input' ? 'needs_input' : 'idle';
+    return {
+      sessionId: id,
+      state,
+      error: null,
+      claudeSessionId: `demo-${id}`,
+      messages: raws.map((raw, seq) => ({ seq, raw })),
+      partial: null,
+      permissions: [],
+      terminalRunning: false,
+    };
+  }
+
+  /** A chat message: the same simulated turn as typing it in the terminal. */
+  chatSend(id: string, text: string): boolean {
+    if (!this.sessions.has(id)) return false;
+    this.input(id, text);
+    this.emit('chat-changed', { sessionId: id });
+    return true;
   }
 
   private terminalListeners = new Map<string, Set<(data: string) => void>>();

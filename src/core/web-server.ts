@@ -19,6 +19,7 @@ import { mountScopeRoutes } from './scope-routes.js';
 import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
+import { mountChatRoutes } from './chat-routes.js';
 import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
 import { findOverlaps } from './overlap.js';
 import { buildStamp } from './build-stamp.js';
@@ -363,6 +364,10 @@ export async function startWebServer(
   // Ship (push / PR / merge) + archive.
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id) });
 
+  // A session's Claude as a chat: headless, instead of the terminal (spike).
+  let selfUrl = '';
+  const chatApi = mountChatRoutes(app, { baseUrl: () => selfUrl });
+
   app.get('/events', (c) => {
     const wantedSession = c.req.query('session');
     return streamSSE(c, async (stream) => {
@@ -399,6 +404,7 @@ export async function startWebServer(
   app.get('*', (c) => serveSpa(c, webRoot));
 
   const handle = await launch(app);
+  selfUrl = handle.url;
   const wsBridge = attachTerminalWs(handle.httpServer, handle.port);
   // Pick up PTYs that survived a previous `work web` in the PTY host so
   // their badges show immediately. Never spawns a host.
@@ -412,6 +418,7 @@ export async function startWebServer(
       clearInterval(revPoll);
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
+      chatApi.stopAll();
       clearTimeout(sweepTimer);
       activityWatcher?.stop();
       disposeAllWatchers();

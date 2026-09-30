@@ -483,6 +483,28 @@ export async function answerPermission(sessionId: string, req: AnswerRequest): P
   }
 }
 
+// ---- chat (headless Claude, spike) ----------------------------------------
+
+async function chatPost(sessionId: string, sub: string, body: unknown): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/${sub}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `chat request failed (${res.status})`);
+  }
+}
+
+/** Send a message. Rejects with "terminal-running" while the session's Claude
+ *  runs in the terminal; `takeOver` stops that one and continues here. */
+export const sendChatMessage = (sessionId: string, text: string, takeOver = false) =>
+  chatPost(sessionId, 'messages', { text, takeOver });
+export const interruptChat = (sessionId: string) => chatPost(sessionId, 'interrupt', {});
+export const answerChatPermission = (sessionId: string, permissionId: string, allow: boolean, message?: string) =>
+  chatPost(sessionId, `permissions/${encodeURIComponent(permissionId)}`, { allow, message });
+
 /** Undo an uncommitted file or hunk and tell Claude. Throws with the
  *  server's reason (e.g. "the file changed since — reload the diff"). */
 export async function revertChange(sessionId: string, req: RevertRequest): Promise<RevertResponse> {

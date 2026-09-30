@@ -24,6 +24,8 @@ const NOT_DASHBOARD = new Map([
   // `wd`'s per-scope review API (/diff/<hash>, /review/<hash>) and the
   // Stop-hook checkpoint bridge: called by `wd` and `work hook`, not the dashboard.
   ['scope-routes.ts', 'wd scopes + checkpoint hook'],
+  // The permission tool headless Claude calls (chat-routes.ts), not the SPA.
+  ['chat-mcp-routes.ts', 'MCP permission tool for headless Claude'],
 ]);
 
 describe('demo mode is separated from the real machinery', () => {

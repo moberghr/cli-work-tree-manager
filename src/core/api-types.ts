@@ -51,6 +51,40 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
+// ---- chat (headless Claude, spike) ----------------------------------------
+
+/** stopped: no process (the next message starts one) · exited: it died. */
+export type ChatState = 'stopped' | 'starting' | 'working' | 'needs_input' | 'idle' | 'exited';
+
+/** The content block Claude is writing right now (streamed text). */
+export interface ChatPartial {
+  kind: 'text' | 'thinking';
+  text: string;
+}
+
+/** A permission prompt waiting for the user. */
+export interface ChatPermissionWire {
+  id: string;
+  toolName: string;
+  input: unknown;
+  toolUseId: string | null;
+  at: number;
+}
+
+/** GET /api/sessions/:id/chat, and the first `snapshot` event of its stream. */
+export interface ChatSnapshot {
+  sessionId: string;
+  state: ChatState;
+  error: string | null;
+  claudeSessionId: string | null;
+  /** stream-json lines as Claude wrote them; see core/chat-view.ts. */
+  messages: import('./chat-view.js').ChatMessage[];
+  partial: ChatPartial | null;
+  permissions: ChatPermissionWire[];
+  /** The session's Claude runs in the terminal (PTY host) right now. */
+  terminalRunning?: boolean;
+}
+
 // ---- assistant (Ctrl+K) ---------------------------------------------------
 
 /** POST /api/assistant/context — what the dashboard shows right now, so the

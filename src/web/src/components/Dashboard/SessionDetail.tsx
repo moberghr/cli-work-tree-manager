@@ -10,6 +10,7 @@ import { CiStrip } from './CiStrip.js';
 import { useSse } from '../../api/events.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
+import { ChatView } from '../Chat/ChatView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { relativeTime } from '../../utils/time.js';
 import { TrashIcon } from './tabs/SessionsTab.js';
@@ -132,6 +133,11 @@ export function SessionDetail({
       )}
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton
+          label="Chat"
+          active={subTab === 'chat'}
+          onClick={() => onSelectSubTab('chat')}
+        />
+        <SubTabButton
           label="Terminal"
           active={subTab === 'term'}
           onClick={() => onSelectSubTab('term')}
@@ -159,6 +165,7 @@ export function SessionDetail({
             <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
           ))}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
+        {subTab === 'chat' && <ChatView sessionId={session.id} />}
       </div>
     </div>
   );

@@ -21,7 +21,7 @@
  */
 
 export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'prs' | 'jira' | 'tasks';
-export type SessionSubTab = 'diff' | 'term' | 'comments';
+export type SessionSubTab = 'chat' | 'diff' | 'term' | 'comments';
 
 export interface DashboardRoute {
   tab: DashboardTab;
@@ -39,7 +39,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
 };
 
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|prs|jira|tasks)\/?$/;
-const SESSION_RE = /^#\/s\/([^/]+)(?:\/(diff|term|comments))?\/?$/;
+const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments))?\/?$/;
 
 export function parseHash(hash: string): DashboardRoute {
   if (!hash || hash === '#' || hash === '#/') return DEFAULT_ROUTE;
