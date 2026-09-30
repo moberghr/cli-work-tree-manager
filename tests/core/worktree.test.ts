@@ -195,6 +195,24 @@ describe('removeSingleWorktree', () => {
     expect(fs.existsSync(wtPath)).toBe(false);
   });
 
+  it('removes a worktree holding paths longer than Windows allows (deep node_modules)', () => {
+    const wtPath = path.join(wtDir, 'feature-deep');
+    createSingleWorktree(repoDir, wtPath, 'feature/deep', config);
+    fs.writeFileSync(path.join(wtPath, '.gitignore'), 'node_modules/\n');
+    git(['add', '.gitignore'], wtPath);
+    git(['commit', '-m', 'ignore', '--no-gpg-sign'], wtPath);
+    let deep = path.join(wtPath, 'node_modules');
+    while (deep.length < 320) deep = path.join(deep, 'a-rather-long-package-name');
+    fs.mkdirSync(deep, { recursive: true });
+    fs.writeFileSync(path.join(deep, 'index.js'), '// deep');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(removeSingleWorktree(repoDir, wtPath, 'feature/deep', false)).toBe(true);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(git(['worktree', 'list'], repoDir).stdout).not.toContain('feature-deep');
+    expect(localBranchExists('feature/deep', repoDir)).toBe(true); // the branch is kept
+  });
+
   it('succeeds when worktree does not exist', () => {
     const result = removeSingleWorktree(repoDir, '/nonexistent/path', 'x', false);
     expect(result).toBe(true);

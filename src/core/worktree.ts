@@ -253,6 +253,15 @@ export function wouldRefuseRemoval(worktreePath: string, force: boolean): boolea
   return !!status || !!getUnpushedCommits(worktreePath);
 }
 
+/**
+ * git got through its checks and failed while deleting the files (a path too
+ * long for Windows, a file another program holds) — as opposed to refusing
+ * ("contains modified or untracked files", "is locked").
+ */
+export function isDeleteFailure(stderr: string): boolean {
+  return /failed to delete/i.test(stderr);
+}
+
 export function removeSingleWorktree(
   repoPath: string,
   worktreePath: string,
@@ -301,14 +310,32 @@ export function removeSingleWorktree(
     }
   }
 
+  // core.longpaths: a worktree's node_modules / bin / obj easily pass
+  // Windows' 260-character limit, and without it git stops half way with
+  // "Filename too long" (a no-op elsewhere).
   const args = force
-    ? ['worktree', 'remove', worktreePath, '--force']
-    : ['worktree', 'remove', worktreePath];
+    ? ['-c', 'core.longpaths=true', 'worktree', 'remove', worktreePath, '--force']
+    : ['-c', 'core.longpaths=true', 'worktree', 'remove', worktreePath];
 
   const result = git(args, repoPath);
 
   if (result.exitCode === 0) {
     report('success', `  Removed worktree: ${worktreePath}`);
+    return true;
+  } else if (isDeleteFailure(result.stderr)) {
+    // git had passed its own checks (and ours above) and failed while
+    // deleting files: finish the delete ourselves — Node handles long paths —
+    // then let git forget the registration. A git REFUSAL never gets here.
+    try {
+      fs.rmSync(worktreePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    } catch (err) {
+      report('error', `  Failed to remove worktree: ${worktreePath}`);
+      report('error', `  ${(err as Error).message}`);
+      return false;
+    }
+    git(['worktree', 'prune'], repoPath);
+    const why = result.stderr.split('\n')[0].replace(/^error:\s*/, '');
+    report('success', `  Removed worktree: ${worktreePath} (finished the delete git could not: ${why})`);
     return true;
   } else if (force && state === 'unknown') {
     // git can't handle it (its main repo moved, say) and the user forced
