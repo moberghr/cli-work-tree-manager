@@ -600,12 +600,27 @@ async function setupSingleWorktree(
  * Returns true if all worktrees were successfully removed.
  * When force=false, stops on uncommitted/unpushed changes.
  */
+/** For comparing folders: absolute, long-form (Windows 8.3 names expanded), `/`, case-folded. */
+const normalizeWorktreePath = (p: string): string => {
+  let full = path.resolve(p);
+  try {
+    full = fs.realpathSync.native(full);
+  } catch {
+    /* gone: compare as given */
+  }
+  return full.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+};
+
 export function teardownWorktree(
   target: string,
   isGroup: boolean,
   branch: string,
   config: WorkConfig,
   force: boolean = true,
+  /** The session's folders, when the caller knows them: the worktree is the
+   *  one AT that folder, whatever branch is checked out there now (you may
+   *  have switched branches inside it). Without them, found by branch. */
+  paths?: string[],
 ): boolean {
   const workTreeDirName = branch.replace(/\//g, '-');
 
@@ -640,7 +655,8 @@ export function teardownWorktree(
     const repoPath = config.repos[target];
     if (repoPath) {
       const worktrees = parseWorktreeList(repoPath);
-      const wt = worktrees.find((w) => w.branch === branch);
+      const at = paths?.[0] ? normalizeWorktreePath(paths[0]) : null;
+      const wt = (at ? worktrees.find((w) => normalizeWorktreePath(w.path) === at) : undefined) ?? worktrees.find((w) => w.branch === branch);
       if (wt) {
         return removeSingleWorktree(repoPath, wt.path, branch, force);
       }

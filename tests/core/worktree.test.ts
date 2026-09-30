@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { git, parseWorktreeList, getCurrentBranch, localBranchExists, repoState } from '../../src/core/git.js';
-import { createSingleWorktree, removeSingleWorktree, wouldRefuseRemoval } from '../../src/core/worktree.js';
+import { createSingleWorktree, removeSingleWorktree, teardownWorktree, wouldRefuseRemoval } from '../../src/core/worktree.js';
 import type { WorkConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
@@ -211,6 +211,22 @@ describe('removeSingleWorktree', () => {
     expect(fs.existsSync(wtPath)).toBe(false);
     expect(git(['worktree', 'list'], repoDir).stdout).not.toContain('feature-deep');
     expect(localBranchExists('feature/deep', repoDir)).toBe(true); // the branch is kept
+  });
+
+  it('teardown finds the worktree by its folder after a branch switch inside it', () => {
+    const wtPath = path.join(wtDir, 'fix-ui');
+    createSingleWorktree(repoDir, wtPath, 'fix/ui', config);
+    git(['checkout', '-b', 'fix/push-setup-cancellation'], wtPath); // what the user did in it
+    const cfg: WorkConfig = { ...config, repos: { app: repoDir } };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    // By branch name alone it can't be found: no worktree has fix/ui checked out.
+    expect(teardownWorktree('app', false, 'fix/ui', cfg, true)).toBe(false);
+    expect(fs.existsSync(wtPath)).toBe(true);
+    // By the session's folder it is.
+    expect(teardownWorktree('app', false, 'fix/ui', cfg, true, [wtPath])).toBe(true);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(localBranchExists('fix/push-setup-cancellation', repoDir)).toBe(true);
   });
 
   it('succeeds when worktree does not exist', () => {

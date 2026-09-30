@@ -148,7 +148,9 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
           await disposePty(s.id);
           await opts.release?.(s.id);
         }
-        if (!teardownWorktree(s.target, s.isGroup, s.branch, config(), true)) throw new Error('git refused to remove the worktree.');
+        // By its folder (what the scan examined), not by branch name: the
+        // branch checked out there may since have changed.
+        if (!teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths)) throw new Error('git refused to remove the worktree.');
       }
       if (!s.untracked) await removeSession(s.target, s.branch); // delete and forget
     },
