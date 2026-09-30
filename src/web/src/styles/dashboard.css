@@ -293,9 +293,6 @@
   font-variant-numeric: tabular-nums;
 }
 a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
-.wd-pr-chip-success { color: var(--add-fg); border-color: color-mix(in srgb, var(--add-fg) 45%, transparent); }
-.wd-pr-chip-failure { color: var(--del-fg); border-color: color-mix(in srgb, var(--del-fg) 45%, transparent); }
-.wd-pr-chip-pending { color: #b08800; border-color: color-mix(in srgb, #d29922 45%, transparent); }
 .wd-pr-chip-draft { border-style: dashed; }
 
 .wd-dash-rail-pending {

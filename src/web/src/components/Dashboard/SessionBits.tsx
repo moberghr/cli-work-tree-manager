@@ -1,7 +1,6 @@
 import type { SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import {
-  CHECKS_GLYPH,
   DISPLAY_LABEL,
   displayStatus,
   formatDiffStat,
@@ -20,9 +19,11 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
   return (
     <>
       {prs.map((p) => {
-        const label = `#${p.number}${CHECKS_GLYPH[p.checksStatus] ? ` ${CHECKS_GLYPH[p.checksStatus]}` : ''}`;
-        const title = `${p.repoAlias} #${p.number}${p.isDraft ? ' (draft)' : ''} — ${p.title}`;
-        const cls = `wd-pr-chip wd-pr-chip-${p.checksStatus.toLowerCase()}${p.isDraft ? ' wd-pr-chip-draft' : ''}`;
+        // A pill says one thing: this PR is open (or a draft). Its checks are
+        // not shown here; failing CI has its own strip on the session.
+        const label = `#${p.number}`;
+        const title = `${p.repoAlias} #${p.number} — ${p.isDraft ? 'draft' : 'open'}: ${p.title}`;
+        const cls = `wd-pr-chip${p.isDraft ? ' wd-pr-chip-draft' : ''}`;
         return link ? (
           <a
             key={`${p.repoAlias}#${p.number}`}

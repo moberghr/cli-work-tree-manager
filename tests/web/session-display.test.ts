@@ -148,8 +148,8 @@ describe('SessionRail rows', () => {
     expect(row.querySelector('.wd-dash-rail-summary')?.textContent).toBe('api · Claude needs your permission to use Bash');
     expect(row.querySelector('.wd-dash-rail-stat')?.textContent).toBe('+5 −1');
     const chip = row.querySelector('.wd-pr-chip')!;
-    expect(chip.textContent).toBe('#42 ✗');
-    expect(chip.className).toContain('wd-pr-chip-failure');
+    expect(chip.textContent).toBe('#42');
+    expect(chip.className).not.toMatch(/wd-pr-chip-(failure|success|pending)/); // open or not — no checks colour
     expect(row.querySelector('.wd-dash-rail-slot')?.textContent).toMatch(/^◆ /);
   });
 

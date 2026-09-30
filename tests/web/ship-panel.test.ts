@@ -169,7 +169,7 @@ describe('Session header strip', () => {
     renderDetail(session({ attention: att(state, seen, summary), diffStat: { added: 3, deleted: 1, files: 1 } }));
     expect(text(container.querySelector('.wd-status-line'))).toBe(expected);
     expect(text(container.querySelector('.wd-session-strip .wd-diffstat'))).toBe('+3 −1');
-    expect(container.querySelector('.wd-session-strip a.wd-pr-chip')?.textContent).toBe('#7 ●');
+    expect(container.querySelector('.wd-session-strip a.wd-pr-chip')?.textContent).toBe('#7');
   });
 
   it('Archive shows progress and flips to an Archived pill + Unarchive', async () => {
