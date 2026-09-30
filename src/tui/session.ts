@@ -4,6 +4,32 @@ import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../core/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
+import childProcess from 'node:child_process';
+
+type Fork = typeof childProcess.fork;
+const HIDDEN = Symbol.for('work.forkHidesConsole');
+
+/**
+ * Make `fork()` hide the child's console window unless the caller says
+ * otherwise. node-pty kills a Windows PTY by forking a helper
+ * (conpty_console_list_agent) without `windowsHide`; from the PTY host —
+ * detached, so it has no console of its own — Windows gave every such helper
+ * a new, visible console: a window flashed on each Archive or stop.
+ */
+export function hideForkConsoles(cp: { fork: Fork }): void {
+  if ((cp.fork as { [HIDDEN]?: true })[HIDDEN]) return;
+  // windowsHide isn't in @types/node's ForkOptions, but fork passes its
+  // options on to spawn, which honours it.
+  const orig = cp.fork as unknown as (modulePath: string | URL, args: readonly string[], options: object) => ReturnType<Fork>;
+  const wrapped = function (modulePath: string | URL, a?: unknown, b?: unknown) {
+    const args = Array.isArray(a) ? (a as readonly string[]) : [];
+    const options = (Array.isArray(a) || a == null ? b : a) ?? {};
+    return orig.call(cp, modulePath, args, { windowsHide: true, ...(options as object) });
+  } as unknown as Fork & { [HIDDEN]?: true };
+  wrapped[HIDDEN] = true;
+  cp.fork = wrapped;
+}
+if (process.platform === 'win32') hideForkConsoles(childProcess);
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
