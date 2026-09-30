@@ -39,15 +39,36 @@ export function resolveLinkTarget(filePath: string): string {
  * over the target, so a crash mid-write can't leave a truncated file.
  * Symlinks are followed first (see {@link resolveLinkTarget}) and the
  * existing file's mode is preserved across the replace.
+ *
+ * On Windows the rename fails (EPERM/EACCES/EBUSY) while another process
+ * has the target open without delete sharing — a Claude Code reading
+ * `~/.claude/settings.json`, an editor, an antivirus scan — which lasts
+ * milliseconds, so it's retried for a few seconds. If it still fails
+ * the tmp file is removed rather than left beside the target.
  */
-export function atomicWriteFile(filePath: string, content: string): void {
+export function atomicWriteFile(filePath: string, content: string, renameSync: (from: string, to: string) => void = fs.renameSync): void {
   const target = resolveLinkTarget(filePath);
   const tmpPath = `${target}.tmp-${process.pid}`;
   fs.writeFileSync(tmpPath, content, 'utf-8');
   try {
     fs.chmodSync(tmpPath, fs.statSync(target).mode & 0o777);
   } catch { /* target is new — default umask is right */ }
-  fs.renameSync(tmpPath, target);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(tmpPath, target);
+      return;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if ((code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') && attempt < 12) {
+        sleepSync(Math.min(20 * 2 ** attempt, 400));
+        continue;
+      }
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch { /* already gone */ }
+      throw err;
+    }
+  }
 }
 
 /**
@@ -113,7 +134,7 @@ export function withFileLockSync<T>(filePath: string, fn: () => T): T {
 }
 
 /** Block the current thread for `ms` milliseconds without spinning the CPU.
- *  Used only by `withFileLockSync`'s contention backoff. */
+ *  Used by `withFileLockSync`'s contention backoff and `atomicWriteFile`'s rename retry. */
 function sleepSync(ms: number): void {
   const shared = new Int32Array(new SharedArrayBuffer(4));
   Atomics.wait(shared, 0, 0, ms);

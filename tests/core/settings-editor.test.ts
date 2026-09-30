@@ -91,6 +91,26 @@ describe('atomicWriteFile', () => {
     expect(fs.readdirSync(dotfiles)).toEqual(['settings.json']);
     expect(fs.readdirSync(claudeDir)).toEqual(['settings.json']);
   });
+
+  it('retries a rename Windows refuses while another process has the file open', () => {
+    fs.writeFileSync(link, 'old');
+    let refusals = 2;
+    const rename = vi.fn((from: string, to: string) => {
+      if (refusals-- > 0) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      fs.renameSync(from, to);
+    });
+    atomicWriteFile(link, 'new', rename);
+    expect(rename).toHaveBeenCalledTimes(3);
+    expect(fs.readFileSync(link, 'utf8')).toBe('new');
+  });
+
+  it('gives up on a rename that keeps failing, and removes its tmp file', () => {
+    fs.writeFileSync(link, 'old');
+    const always = () => { throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }); };
+    expect(() => atomicWriteFile(link, 'new', always)).toThrow('ENOSPC');
+    expect(fs.readdirSync(claudeDir)).toEqual(['settings.json']);
+    expect(fs.readFileSync(link, 'utf8')).toBe('old');
+  });
 });
 
 describe('editSettings', () => {
