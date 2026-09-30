@@ -25,6 +25,8 @@ const h = vi.hoisted(() => {
     dataCb: ((d: string) => void) | null = null;
     selection = '';
     disposed = false;
+    /** The hidden input xterm types into (paste and focus arrive on it). */
+    textarea = document.createElement('textarea');
     constructor(readonly opts: unknown) {
       terms.push(this);
     }
@@ -337,6 +339,39 @@ describe('PtyView', () => {
     expect(writeText).toHaveBeenCalledWith('copied text');
     expect(term.hasSelection()).toBe(false);
     expect(ws.sent.length).toBe(sent);
+  });
+
+  it('leaves Ctrl+V to the browser (it pastes; xterm would have sent ^V and swallowed the key)', () => {
+    const { term } = mount();
+    expect(term.keyHandler!(key({ key: 'v', ctrlKey: true }))).toBe(false);
+    expect(term.keyHandler!(key({ key: 'V', ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(term.keyHandler!(key({ key: 'Insert', shiftKey: true }))).toBe(false);
+  });
+
+  it('a paste with no text (an image) sends ^V, so Claude reads the image itself', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+    const paste = (text: string) => {
+      const ev = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: { getData: () => text } });
+      term.textarea.dispatchEvent(ev);
+      return ev;
+    };
+    expect(paste('hello').defaultPrevented).toBe(false); // text: xterm's own paste handles it
+    const image = paste('');
+    expect(image.defaultPrevented).toBe(true);
+    expect(ws.sent).toContainEqual({ type: 'input', data: '\x16' });
+  });
+
+  it('resends its size when focused, even unchanged (another window may have resized the PTY)', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
+    const resizes = () => ws.sent.filter((m) => (m as { type: string }).type === 'resize').length;
+    const before = resizes();
+    act(() => { term.textarea.dispatchEvent(new Event('focus')); });
+    expect(resizes()).toBe(before + 1);
   });
 
   it('Ctrl+C without a selection passes through as an interrupt', () => {

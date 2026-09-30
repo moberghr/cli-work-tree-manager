@@ -126,8 +126,21 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         term.clearSelection();
         return false;
       }
+      // Paste: xterm turns Ctrl+V into ^V and swallows the key, so the browser
+      // never pasted. Leave these to the browser; its paste event reaches
+      // xterm, which sends the text (bracketed when Claude asked for it).
+      if ((e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'v') || (e.shiftKey && e.key === 'Insert')) return false;
       return true;
     });
+    // A clipboard with no text — an image — still sends ^V: that is how Claude
+    // Code reads an image from the clipboard itself, as in a real terminal.
+    const onPaste = (ev: ClipboardEvent) => {
+      if (ev.clipboardData?.getData('text/plain')) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      sendInput('\x16');
+    };
+    term.textarea?.addEventListener('paste', onPaste, true);
 
     const wsUrl = (() => {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -238,11 +251,15 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     // grid actually changes.
     let sentCols = term.cols;
     let sentRows = term.rows;
-    const onResize = () => {
+    // `force`: send even if OUR size didn't change — another window on this
+    // session (your terminal tab, attached by `work tree`) may have resized
+    // the PTY since, and the last resize wins: Claude then wrapped its input
+    // at that window's width and text ran off the edge here.
+    const onResize = (force = false) => {
       // Hidden in the deck: keep the grid as it was, send nothing.
       if (!activeRef.current) return;
       fit.fit();
-      if (term.cols === sentCols && term.rows === sentRows) return;
+      if (!force && term.cols === sentCols && term.rows === sentRows) return;
       sentCols = term.cols;
       sentRows = term.rows;
       if (ready) {
@@ -255,6 +272,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         );
       }
     };
+    const onWindowResize = () => onResize();
     // Observe the host, not just the window: dragging the dashboard's rail
     // divider resizes the pane without any window resize event.
     const observer =
@@ -262,17 +280,22 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         ? new ResizeObserver(() => onResize())
         : null;
     if (observer) observer.observe(hostRef.current);
-    else window.addEventListener('resize', onResize);
+    else window.addEventListener('resize', onWindowResize);
     shown.current = () => {
-      onResize();
+      onResize(true);
       term.focus();
     };
+    // The terminal you type in sets the size.
+    const onFocus = () => onResize(true);
+    term.textarea?.addEventListener('focus', onFocus);
 
     return () => {
       clearTimeout(slowStart);
+      term.textarea?.removeEventListener('paste', onPaste, true);
+      term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
       observer?.disconnect();
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
       try { ws.close(); } catch { /* */ }
       term.dispose();
