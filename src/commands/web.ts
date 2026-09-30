@@ -14,6 +14,7 @@ import { resolveWebRoot } from '../core/web-static.js';
 import { isPidAlive } from '../core/process.js';
 import {
   clearWebDiscovery,
+  discoveryCheck,
   probeWeb,
   readWebPid,
   readWebUrl,
@@ -289,6 +290,21 @@ export const webCommand: CommandModule = {
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+    // Still the one? Two can start at once (a restart racing the desktop
+    // app's watchdog); the one not in web.pid steps aside. It leaves the
+    // Claude hooks alone — they are removed by owner, and the other server
+    // installed the same ones — and the discovery files, which are the
+    // other's. Nothing recorded: put ours back.
+    const discoveryTimer = setInterval(() => {
+      void discoveryCheck({ pid: process.pid, url: handle.url }).then((d) => {
+        if (d === 'reclaim') bestEffort('rewrite work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
+        if (d !== 'retire') return;
+        info(chalk.gray(`Another work web (${readWebUrl()}) is the running one; stopping this duplicate.`));
+        clearInterval(discoveryTimer);
+        void handle.stop().finally(() => process.exit(0));
+      }, swallow('check work web discovery'));
+    }, 20_000);
+    discoveryTimer.unref?.();
     // Windows doesn't deliver SIGTERM reliably; trap exit too so we
     // best-effort clean up our pid/url files even on abrupt deaths.
     process.on('exit', () => {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isPidAlive } from './process.js';
 
 /**
  * How everything finds the running `work web` (the singleton): the
@@ -106,6 +107,33 @@ export async function existingWebDecision(
     if (r.kind === 'gone') return 'start';
     if (Date.now() >= until) return 'reuse';
   }
+}
+
+/**
+ * A running work web checks, now and then, that it is still THE one:
+ *   - 'keep'    web.pid names us.
+ *   - 'retire'  web.pid names another work web that answers as itself: two
+ *               were started at once (a restart racing the desktop app's
+ *               watchdog, which starts one when none answers) and the other
+ *               won the discovery files. Ours can no longer be found, but it
+ *               kept its PR watch and gh calls going — twice the GitHub API
+ *               use — and the desktop app stayed on it, an old build.
+ *   - 'reclaim' nothing recorded (or a dead pid): write ours back, so `wd`,
+ *               the app and `work web --stop` find the one that runs.
+ * A busy or silent other is never reason to retire (see existingWebDecision).
+ */
+export async function discoveryCheck(
+  self: { pid: number; url: string },
+  deps: { readPid?: () => number | null; readUrl?: () => string | null; alive?: (pid: number) => boolean; probe?: typeof probeWeb } = {},
+): Promise<'keep' | 'retire' | 'reclaim'> {
+  const pid = (deps.readPid ?? readWebPid)();
+  if (pid === self.pid) return 'keep';
+  const alive = deps.alive ?? isPidAlive;
+  if (pid === null || !alive(pid)) return 'reclaim';
+  const url = (deps.readUrl ?? readWebUrl)();
+  if (!url || url === self.url) return 'keep';
+  const r = await (deps.probe ?? probeWeb)(url, 3000);
+  return r.kind === 'ours' && r.pid === pid ? 'retire' : 'keep';
 }
 
 /**

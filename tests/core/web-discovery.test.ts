@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { describe, it, expect, afterEach } from 'vitest';
-import { existingWebDecision, probeWeb } from '../../src/core/web-discovery.js';
+import { discoveryCheck, existingWebDecision, probeWeb } from '../../src/core/web-discovery.js';
 
 /**
  * Deciding whether the recorded work web is still there, against real HTTP
@@ -71,5 +71,31 @@ describe('existingWebDecision', () => {
 
   it('starts a new one when something that is not work web holds the port', async () => {
     expect(await existingWebDecision(await server(0, { hello: 'world' }))).toBe('start');
+  });
+});
+
+describe('discoveryCheck', () => {
+  const self = { pid: 100, url: 'http://127.0.0.1:1111/' };
+  const other = 'http://127.0.0.1:2222/';
+  const ours = (pid: number) => async () => ({ kind: 'ours' as const, pid, lean: false, build: 'b' });
+
+  it('keeps running when web.pid names it', async () => {
+    expect(await discoveryCheck(self, { readPid: () => 100 })).toBe('keep');
+  });
+
+  it('retires when another work web won the discovery files and answers as itself', async () => {
+    expect(await discoveryCheck(self, { readPid: () => 200, alive: () => true, readUrl: () => other, probe: ours(200) })).toBe('retire');
+  });
+
+  it('never retires for an other that is busy, gone, or answers with another pid', async () => {
+    const base = { readPid: () => 200, alive: () => true, readUrl: () => other };
+    expect(await discoveryCheck(self, { ...base, probe: async () => ({ kind: 'timeout' as const }) })).toBe('keep');
+    expect(await discoveryCheck(self, { ...base, probe: async () => ({ kind: 'gone' as const }) })).toBe('keep');
+    expect(await discoveryCheck(self, { ...base, probe: ours(300) })).toBe('keep'); // pid reused by something else
+  });
+
+  it('writes itself back when nothing live is recorded', async () => {
+    expect(await discoveryCheck(self, { readPid: () => null })).toBe('reclaim');
+    expect(await discoveryCheck(self, { readPid: () => 200, alive: () => false })).toBe('reclaim');
   });
 });
