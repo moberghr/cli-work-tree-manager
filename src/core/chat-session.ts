@@ -6,6 +6,7 @@ import spawn from 'cross-spawn';
 import type { ChatPartial, ChatPermissionWire, ChatSnapshot, ChatState } from './api-types.js';
 import type { ChatMessage } from './chat-view.js';
 import { report } from './report.js';
+import { withoutParentSession } from './claude-env.js';
 
 /**
  * One session's Claude, headless: `claude -p` with stream-json in and out,
@@ -133,7 +134,7 @@ export class ChatSession {
     if (this.claudeSessionId) args.push('--resume', this.claudeSessionId);
     else if (this.spec.continueExisting) args.push('--continue');
 
-    const env = { ...process.env, ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
+    const env = { ...withoutParentSession(process.env), ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
     this.stopping = false;
     this.stderrTail = '';
     this.setState('starting');
