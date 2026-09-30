@@ -186,6 +186,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ results, state: folderState() });
   });
 
+  // Search in archived conversations: the demo keeps none.
+  app.get('/api/archive/search', (c) => c.json({ hits: [] }));
+
   // The sessions list's manual order, in memory.
   let sessionOrder: string[] = [];
   app.get('/api/session-order', (c) => c.json({ order: sessionOrder }));

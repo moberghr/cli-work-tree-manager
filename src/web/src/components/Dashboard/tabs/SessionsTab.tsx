@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { setArchived, type SessionSummary } from '../../../api/client.js';
+import { useEffect, useMemo, useState } from 'react';
+import { searchArchives, setArchived, type ArchiveSearchHit, type SessionSummary } from '../../../api/client.js';
 import { openInTerminal } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
@@ -298,7 +298,67 @@ export function SessionsTab({
       ) : (
         <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
       )}
+      <ArchiveHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
     </div>
+  );
+}
+
+/**
+ * While searching: archived sessions whose kept conversation mentions it —
+ * "what did we do about the encryption keys?" — with the matching lines.
+ */
+function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
+  const [hits, setHits] = useState<ArchiveSearchHit[]>([]);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setHits([]);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      void searchArchives(q).then((h) => live && setHits(h), () => live && setHits([]));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [query]);
+  if (hits.length === 0) return null;
+  return (
+    <section className="wd-session-group wd-archive-hits">
+      <h2 className="wd-session-group-title">In archived conversations ({hits.length})</h2>
+      <ul className="wd-archive-hit-list">
+        {hits.map((h) => (
+          <li key={h.sessionId} className="wd-archive-hit">
+            <div className="wd-archive-hit-head">
+              <button type="button" className="wd-link-button" onClick={() => onOpen(h.sessionId)}>
+                {h.target} · {h.branch}
+              </button>
+              <span className="wd-tab-header-muted"> archived {relativeTime(h.archivedAt)}{h.worktreeRemoved ? ' · folder removed' : ''}</span>
+              <button
+                type="button"
+                className="wd-row-action"
+                disabled={restoring !== null}
+                title={h.worktreeRemoved ? 'Recreate its worktree from the branch and continue the conversation' : 'Bring it back'}
+                onClick={() => {
+                  setRestoring(h.sessionId);
+                  void setArchived(h.sessionId, false).finally(() => setRestoring(null));
+                }}
+              >
+                {restoring === h.sessionId ? 'Restoring…' : 'Restore'}
+              </button>
+            </div>
+            {h.snippets.map((sn, i) => (
+              <p key={i} className="wd-archive-hit-snippet">
+                <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : 'Claude'}:</span> {sn.text}
+              </p>
+            ))}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

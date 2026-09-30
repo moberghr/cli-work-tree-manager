@@ -1,6 +1,7 @@
 import type { Hono } from 'hono';
 import { cleanOrder } from './session-order.js';
 import { readSessionOrder, writeSessionOrder } from './session-order-store.js';
+import { searchArchives } from './archive-search.js';
 
 /**
  * The sessions list's manual order (drag to reorder):
@@ -10,6 +11,13 @@ import { readSessionOrder, writeSessionOrder } from './session-order-store.js';
  */
 export function mountSessionOrderRoutes(app: Hono, opts: { broadcast: (event: string, data: unknown) => void }): void {
   app.get('/api/session-order', (c) => c.json({ order: readSessionOrder() }));
+
+  // Search the conversations kept by archived sessions (read-only).
+  app.get('/api/archive/search', async (c) => {
+    const q = (c.req.query('q') ?? '').trim();
+    if (q.length < 2) return c.json({ hits: [] });
+    return c.json({ hits: await searchArchives(q) });
+  });
 
   app.put('/api/session-order', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { order?: unknown } | null;

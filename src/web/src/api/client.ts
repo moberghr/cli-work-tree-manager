@@ -29,6 +29,7 @@ import type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
+  ArchiveSearchHit,
   SessionArchiveInfo,
   SessionClaudes,
   SessionOverlap,
@@ -69,6 +70,7 @@ export type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
+  ArchiveSearchHit,
   SessionArchiveInfo,
   SessionClaudes,
   SessionOverlap,
@@ -489,6 +491,13 @@ export async function answerPermission(sessionId: string, req: AnswerRequest): P
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `answer failed (${res.status})`);
   }
+}
+
+// ---- search in archived conversations ---------------------------------------
+
+export async function searchArchives(q: string): Promise<ArchiveSearchHit[]> {
+  const r = await getJson<{ hits?: ArchiveSearchHit[] }>(`/api/archive/search?q=${encodeURIComponent(q)}`);
+  return r.hits ?? [];
 }
 
 // ---- the sessions list's manual order ---------------------------------------

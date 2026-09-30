@@ -71,6 +71,18 @@ export interface SessionClaudes {
   duplicate: boolean;
 }
 
+// ---- search in archived conversations ---------------------------------------
+
+/** GET /api/archive/search?q= — an archived session whose conversation matches. */
+export interface ArchiveSearchHit {
+  sessionId: string;
+  target: string;
+  branch: string;
+  archivedAt: string;
+  worktreeRemoved: boolean;
+  snippets: Array<{ role: 'you' | 'claude'; text: string; at: string | null }>;
+}
+
 // ---- build folders (Clean up: space without archiving) ---------------------
 
 export interface BuildFolder {
