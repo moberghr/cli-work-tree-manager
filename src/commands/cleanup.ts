@@ -6,6 +6,8 @@ import { applyCleanup, scanCleanup } from '../core/cleanup.js';
 import { defaultCleanupDeps } from '../core/cleanup-deps.js';
 import { createBuildFoldersJob, scanBuildFolders } from '../core/build-folders-scan.js';
 import { defaultBuildFoldersDeps } from '../core/build-folders-deps.js';
+import { deleteMergedBranches, findMergedBranches } from '../core/branch-tidy.js';
+import { defaultBranchTidyDeps } from '../core/branch-tidy-deps.js';
 import type { CleanupAction, CleanupCandidate } from '../core/api-types.js';
 import { timeAgo } from '../utils/format.js';
 
@@ -64,9 +66,28 @@ export const cleanupCommand: CommandModule = {
       .option('apply', { type: 'boolean', default: false, describe: 'Act on the given ids' })
       .option('action', { type: 'string', choices: ACTIONS, default: 'delete', describe: 'With --apply: what to do (a gone folder is always forgotten)' })
       .option('force', { type: 'boolean', default: false, describe: 'With --apply delete: also remove merged worktrees with uncommitted changes (lost)' })
+      .option('branches', { type: 'boolean', default: false, describe: 'Instead: local branches already merged (or squash-merged: a merged PR whose head is the tip); with --apply, delete them (checked again)' })
       .option('build-folders', { type: 'boolean', default: false, describe: 'Instead: build output (node_modules, bin/obj, .next, …) git ignores, in worktrees idle a week+; with --apply, clear it' }),
   handler: async (argv) => {
     ensureConfig();
+    if (argv.branches) {
+      const deps = defaultBranchTidyDeps();
+      const list = await findMergedBranches(deps);
+      if (!argv.apply) {
+        if (argv.json) process.stdout.write(JSON.stringify(list, null, 2) + '\n');
+        else {
+          for (const b of list) console.log(`  ${b.repo.padEnd(18)} ${b.branch}  ${chalk.gray(b.reason === 'merged' ? 'merged' : `squash-merged${b.prNumber ? ` #${b.prNumber}` : ''}`)}${b.archivedSession ? chalk.yellow('  (an archived session uses it)') : ''}`);
+          if (list.length) console.log(chalk.gray('\nDelete them: work cleanup --branches --apply'));
+          else console.log(chalk.gray('No merged local branches.'));
+        }
+        return;
+      }
+      const results = await deleteMergedBranches(list.filter((b) => !b.archivedSession).map(({ repo, branch }) => ({ repo, branch })), deps);
+      if (argv.json) process.stdout.write(JSON.stringify(results, null, 2) + '\n');
+      else for (const r of results) console.log(r.ok ? chalk.green(`  ✓ ${r.repo} ${r.branch} — ${r.message}`) : chalk.yellow(`  ✗ ${r.repo} ${r.branch} — ${r.message}`));
+      if (results.some((r) => !r.ok)) process.exitCode = 1;
+      return;
+    }
     if (argv['build-folders']) {
       await buildFoldersCommand(argv.apply as boolean, (argv.ids as string[] | undefined) ?? [], argv.json as boolean);
       return;

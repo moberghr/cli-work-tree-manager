@@ -83,6 +83,28 @@ export interface ArchiveSearchHit {
   snippets: Array<{ role: 'you' | 'claude'; text: string; at: string | null }>;
 }
 
+// ---- merged local branches (Clean up) ---------------------------------------
+
+export interface BranchCandidate {
+  /** Repo alias. */
+  repo: string;
+  repoPath: string;
+  branch: string;
+  tip: string;
+  /** merged: git says so; squash-merged: a merged PR's head is its tip. */
+  reason: 'merged' | 'squash-merged';
+  prNumber?: number;
+  /** An archived session uses it: its Restore needs the branch. */
+  archivedSession?: string;
+}
+
+/** GET /api/cleanup/branches */
+export interface BranchesState {
+  scanning: boolean;
+  scannedAt: string | null;
+  candidates: BranchCandidate[];
+}
+
 // ---- build folders (Clean up: space without archiving) ---------------------
 
 export interface BuildFolder {

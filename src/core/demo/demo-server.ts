@@ -6,7 +6,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BuildFolderCandidate, CleanupApplyRequest } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CleanupApplyRequest } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -188,6 +188,22 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // Naming a session: accepted, not kept (the demo names them after their prompt).
   app.post('/api/sessions/:id/title', (c) => c.json({ ok: true }));
+
+  // Merged local branches (simulated).
+  let demoBranches: BranchCandidate[] = [
+    { repo: 'api', repoPath: 'C:/repos/api', branch: 'feat/old-export', tip: '0f3c2a91d4', reason: 'squash-merged', prNumber: 41 },
+    { repo: 'web', repoPath: 'C:/repos/web', branch: 'fix/typo', tip: '9a1b2c3d4e', reason: 'merged' },
+  ];
+  const branchState = () => ({ scanning: false, scannedAt: new Date().toISOString(), candidates: demoBranches });
+  app.get('/api/cleanup/branches', (c) => c.json(branchState()));
+  app.post('/api/cleanup/branches/scan', (c) => c.json(branchState()));
+  app.post('/api/cleanup/branches/apply', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { items?: Array<{ repo: string; branch: string }> } | null;
+    const items = Array.isArray(body?.items) ? body.items : [];
+    if (items.length === 0) return c.json({ error: 'items: [{repo, branch}]' }, 400);
+    demoBranches = demoBranches.filter((b) => !items.some((i) => i.repo === b.repo && i.branch === b.branch));
+    return c.json({ results: items.map((i) => ({ ...i, ok: true, message: 'Deleted (simulated)' })), state: branchState() });
+  });
 
   // Search in archived conversations: the demo keeps none.
   app.get('/api/archive/search', (c) => c.json({ hits: [] }));

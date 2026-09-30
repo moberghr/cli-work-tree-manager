@@ -5,6 +5,9 @@ import { defaultCleanupDeps } from './cleanup-deps.js';
 import type { CleanupApplyRequest } from './api-types.js';
 import { createBuildFoldersJob, type BuildFoldersDeps } from './build-folders-scan.js';
 import { defaultBuildFoldersDeps } from './build-folders-deps.js';
+import { deleteMergedBranches, findMergedBranches, type BranchTidyDeps } from './branch-tidy.js';
+import { defaultBranchTidyDeps } from './branch-tidy-deps.js';
+import type { BranchesState } from './api-types.js';
 
 export interface CleanupRoutesOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -12,6 +15,8 @@ export interface CleanupRoutesOptions {
   job?: CleanupJob;
   /** Tests inject the build-folder scan's inputs. */
   buildFolders?: BuildFoldersDeps;
+  /** Tests inject the branch scan's inputs. */
+  branches?: BranchTidyDeps;
 }
 
 /**
@@ -26,6 +31,9 @@ export interface CleanupRoutesOptions {
  *                                            git-ignored build folders, sized
  *   POST /api/cleanup/build-folders/scan   — look again (sizes node_modules: slow)
  *   POST /api/cleanup/build-folders/apply  — {sessionIds}: clear them
+ *   GET  /api/cleanup/branches        — local branches already merged (branch-tidy.ts)
+ *   POST /api/cleanup/branches/scan   — look again (asks GitHub about squash merges)
+ *   POST /api/cleanup/branches/apply  — {items: [{repo, branch}]}: delete, each checked again
  *
  * GET only reads (§1.5); scanning runs git, so it is a POST.
  */
@@ -69,6 +77,31 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
     const results = await folders.apply(ids);
     opts.broadcast('cleanup-changed', { ts: Date.now() });
     return c.json({ results, state: folders.state() });
+  });
+
+  // Local branches already merged, left behind after their PR.
+  const branchDeps = opts.branches ?? defaultBranchTidyDeps();
+  let branches: BranchesState = { scanning: false, scannedAt: null, candidates: [] };
+  app.get('/api/cleanup/branches', (c) => c.json(branches));
+  app.post('/api/cleanup/branches/scan', (c) => {
+    if (!branches.scanning) {
+      branches = { ...branches, scanning: true };
+      void findMergedBranches(branchDeps)
+        .then((candidates) => (branches = { scanning: false, scannedAt: new Date().toISOString(), candidates }))
+        .catch(() => (branches = { ...branches, scanning: false }));
+    }
+    return c.json(branches);
+  });
+  app.post('/api/cleanup/branches/apply', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { items?: unknown } | null;
+    const items = Array.isArray(body?.items)
+      ? body.items.filter((i): i is { repo: string; branch: string } => !!i && typeof i.repo === 'string' && typeof i.branch === 'string')
+      : [];
+    if (items.length === 0) return c.json({ error: 'items: [{repo, branch}]' }, 400);
+    const results = await deleteMergedBranches(items, branchDeps);
+    const gone = new Set(results.filter((r) => r.ok).map((r) => `${r.repo}\0${r.branch}`));
+    branches = { ...branches, candidates: branches.candidates.filter((b) => !gone.has(`${b.repo}\0${b.branch}`)) };
+    return c.json({ results, state: branches });
   });
   return job;
 }
