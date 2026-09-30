@@ -1550,3 +1550,9 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-chat-local .wd-chat-pre { max-height: 240px; }
 .wd-chat-stderr { color: #d2555a; }
 .wd-chat-tag { font-size: 11px; color: var(--muted); }
+
+/* Rail: drag to reorder */
+.wd-dash-rail-list li[draggable="true"] { cursor: grab; }
+.wd-dash-rail-dragging { opacity: 0.45; }
+.wd-dash-rail-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.wd-dash-rail-drop-after { box-shadow: inset 0 -2px 0 var(--accent); }

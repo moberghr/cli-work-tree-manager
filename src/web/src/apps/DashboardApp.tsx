@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchSessions, markSessionSeen, reportAssistantView, type NotifyEvent, type SessionSummary } from '../api/client.js';
+import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareAttention, needsAttention } from '../../../core/attention.js';
@@ -169,6 +169,7 @@ export function DashboardApp() {
   const notifyTarget = useRef({ sessionId: route.sessionId, open: (_id: string, _sub: SessionSubTab) => {} });
   useSse('/events', {
     events: {
+      'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
       notify: (data) =>
@@ -229,6 +230,16 @@ export function DashboardApp() {
     },
     [navigate, route.tab],
   );
+
+  // The rail's drag order: shared by every window (state.db), applied at once here.
+  const [sessionOrder, setSessionOrder] = useState<string[]>([]);
+  useEffect(() => {
+    void fetchSessionOrder().then(setSessionOrder, () => {});
+  }, []);
+  const reorderSessions = useCallback((order: string[]) => {
+    setSessionOrder(order);
+    void saveSessionOrder(order).catch(() => void fetchSessionOrder().then(setSessionOrder, () => {}));
+  }, []);
 
   // Moving between sessions (rail, j/k) keeps the tab you are on — comparing
   // diffs across sessions stays on the diff; entering from elsewhere lands
@@ -364,7 +375,7 @@ export function DashboardApp() {
       // keeps pinned. (Walking all sessions by recency jumped to rows the
       // rail doesn't show, archived ones included.)
       if (e.key === 'j' || e.key === 'k') {
-        const { current, older } = railSessions(sessions);
+        const { current, older } = railSessions(sessions, Date.now(), sessionOrder);
         const sorted = [...current, ...older.filter((s) => s.id === route.sessionId)];
         if (sorted.length === 0) return;
         const currentIdx = route.sessionId
@@ -387,7 +398,7 @@ export function DashboardApp() {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, hopTo, route.sessionId, sessions, modalOpen, reviewQueue]);
+  }, [goTab, openSession, hopTo, route.sessionId, sessions, sessionOrder, modalOpen, reviewQueue]);
 
   // Set of Jira keys that already have a worktree, for the Jira tab's
   // "already-has-worktree" badge.
@@ -550,6 +561,8 @@ export function DashboardApp() {
         currentScopeLabel={currentScopeLabel}
         onSelectTab={goTab}
         onSelectSession={hopTo}
+        sessionOrder={sessionOrder}
+        onReorderSessions={reorderSessions}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}

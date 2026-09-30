@@ -9,6 +9,7 @@ import { DemoScenario, type DemoEvent } from './scenario.js';
 import type { AnswerRequest, CleanupApplyRequest } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
+import { cleanOrder } from '../session-order.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -169,6 +170,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- status / ship / archive -----------------------------------------------
   app.post('/api/sessions/:id/seen', (c) => (scenario.markSeen(c.req.param('id')) ? c.json({ ok: true }) : notFound(c)));
+  // The sessions list's manual order, in memory.
+  let sessionOrder: string[] = [];
+  app.get('/api/session-order', (c) => c.json({ order: sessionOrder }));
+  app.put('/api/session-order', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { order?: unknown } | null;
+    const order = cleanOrder(body?.order);
+    if (!order) return c.json({ error: 'order must be an array of session ids' }, 400);
+    sessionOrder = order;
+    return c.json({ order });
+  });
+
   // The headless-Claude chat (spike): snapshots only, resent on every change.
   app.get('/api/sessions/:id/chat', (c) => {
     const snap = scenario.chatSnapshot(c.req.param('id'));

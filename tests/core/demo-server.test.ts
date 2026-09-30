@@ -141,6 +141,13 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
   });
 
+  it('keeps the sessions list order', async () => {
+    expect(await get('/api/session-order')).toEqual({ order: [] });
+    expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);
+    expect(await get('/api/session-order')).toEqual({ order: ['b', 'a'] });
+    expect((await send('PUT', '/api/session-order', { order: 'nope' })).status).toBe(400);
+  });
+
   it('serves a session as a chat, and a message starts a simulated turn', async () => {
     const id = (await byBranch('feat/invoice-export')).id;
     const snap = await get<{ state: string; messages: Array<{ raw: { type: string; message?: { content: unknown } } }> }>(`/api/sessions/${id}/chat`);

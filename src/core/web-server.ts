@@ -20,6 +20,7 @@ import { mountTerminalRoutes } from './terminal-routes.js';
 import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { mountChatRoutes } from './chat-routes.js';
+import { mountSessionOrderRoutes } from './session-order-routes.js';
 import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
 import { sessionIdFor } from './session-id.js';
@@ -376,6 +377,9 @@ export async function startWebServer(
 
   // Ship (push / PR / merge) + archive.
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id) });
+
+  // The sessions list's manual order (drag to reorder).
+  mountSessionOrderRoutes(app, { broadcast });
 
   // A session's Claude as a chat: headless, instead of the terminal (spike).
   let selfUrl = '';

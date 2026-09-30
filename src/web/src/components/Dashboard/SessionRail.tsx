@@ -10,6 +10,7 @@ import {
   type PrLookup,
 } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
+import { moveSession } from '../../../../core/session-order.js';
 import { lastActiveAt } from '../../state/session-display.js';
 
 interface Props {
@@ -22,6 +23,10 @@ interface Props {
   /** Open PRs for a session (from the PRs pane data); optional — rows just
    *  skip the badge without it. */
   prsFor?: PrLookup;
+  /** Your drag order (session ids, top first). */
+  order?: string[];
+  /** Set when rows can be dragged (or moved with Alt+↑/↓) into a new order. */
+  onReorder?: (order: string[]) => void;
 }
 
 /** Status → CSS modifier; the colors live in CSS. */
@@ -44,8 +49,10 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
  * diff size and PR badge. Always visible across dashboard tabs so the user
  * can context-switch in one click without losing the lens they're on.
  *
- * Order is STABLE (project, then most recently entered) — see
- * stableSessionOrder; urgency ordering lives in the Inbox and on `n`.
+ * Order is yours: drag a row (or Alt+↑/↓ on it) and it stays there, in
+ * every window (state.db). Rows you never placed come first, in the stable
+ * order (project, then most recently entered — stableSessionOrder). Urgency
+ * ordering lives in the Inbox and on `n`.
  */
 export function SessionRail({
   sessions,
@@ -53,9 +60,13 @@ export function SessionRail({
   onSelect,
   onNewWorktree,
   prsFor,
+  order,
+  onReorder,
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
-  const { current, older } = useMemo(() => railSessions(sessions), [sessions]);
+  const { current, older } = useMemo(() => railSessions(sessions, Date.now(), order ?? []), [sessions, order]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [drop, setDrop] = useState<{ id: string; before: boolean } | null>(null);
   // Every current session, plus older ones only on request — and the
   // selected one always stays visible. (A length cap here used to cut the
   // pinned selection off once there were 40+ current sessions, and took it
@@ -63,6 +74,13 @@ export function SessionRail({
   const pinned = !showOlder && activeSessionId ? older.filter((s) => s.id === activeSessionId) : [];
   const visible = showOlder ? [...current, ...older] : [...current, ...pinned];
   const overflow = showOlder ? 0 : older.length - pinned.length;
+
+  const shownIds = visible.map((s) => s.id);
+  const move = (id: string, beforeId: string | null) => onReorder?.(moveSession(shownIds, id, beforeId, order ?? []));
+  const endDrag = () => {
+    setDragId(null);
+    setDrop(null);
+  };
 
   return (
     <aside
@@ -97,7 +115,35 @@ export function SessionRail({
             const prs = prsFor?.(s) ?? [];
             const summary = s.attention?.summary;
             return (
-              <li key={s.id}>
+              <li
+                key={s.id}
+                draggable={!!onReorder}
+                className={
+                  (dragId === s.id ? 'wd-dash-rail-dragging' : '') +
+                  (drop?.id === s.id && dragId !== s.id ? (drop.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '')
+                }
+                onDragStart={(e) => {
+                  setDragId(s.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', s.id);
+                }}
+                onDragOver={(e) => {
+                  if (!dragId) return;
+                  e.preventDefault();
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const before = e.clientY < r.top + r.height / 2;
+                  if (drop?.id !== s.id || drop.before !== before) setDrop({ id: s.id, before });
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragId && drop) {
+                    const i = shownIds.indexOf(drop.id);
+                    move(dragId, drop.before ? drop.id : shownIds[i + 1] ?? null);
+                  }
+                  endDrag();
+                }}
+                onDragEnd={endDrag}
+              >
                 <button
                   type="button"
                   className={
@@ -106,6 +152,13 @@ export function SessionRail({
                     (kind === 'needs_input' || kind === 'done' ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
+                  onKeyDown={(e) => {
+                    if (!onReorder || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+                    e.preventDefault();
+                    const i = shownIds.indexOf(s.id);
+                    if (e.key === 'ArrowUp' && i > 0) move(s.id, shownIds[i - 1]);
+                    if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
+                  }}
                   title={
                     `${s.target} · ${s.branch}\n${DISPLAY_LABEL[kind]}` +
                     (summary ? ` — ${summary}` : '')

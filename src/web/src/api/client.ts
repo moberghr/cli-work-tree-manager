@@ -487,6 +487,22 @@ export async function answerPermission(sessionId: string, req: AnswerRequest): P
   }
 }
 
+// ---- the sessions list's manual order ---------------------------------------
+
+export async function fetchSessionOrder(): Promise<string[]> {
+  const r = await getJson<{ order?: unknown }>('/api/session-order');
+  return Array.isArray(r.order) ? r.order.filter((x): x is string => typeof x === 'string') : [];
+}
+
+export async function saveSessionOrder(order: string[]): Promise<void> {
+  const res = await fetch('/api/session-order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
+}
+
 // ---- chat (headless Claude, spike) ----------------------------------------
 
 async function chatPost(sessionId: string, sub: string, body: unknown): Promise<void> {

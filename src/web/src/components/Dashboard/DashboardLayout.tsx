@@ -25,6 +25,9 @@ interface Props {
   /** Opens / closes the Ctrl+K assistant (the top-nav button). */
   onAssistant?: () => void;
   assistantOpen?: boolean;
+  /** The rail's drag order (session ids, top first) and what a drag sets. */
+  sessionOrder?: string[];
+  onReorderSessions?: (order: string[]) => void;
   children: ReactNode;
 }
 
@@ -54,6 +57,8 @@ export function DashboardLayout({
   prsFor,
   onAssistant,
   assistantOpen,
+  sessionOrder,
+  onReorderSessions,
   children,
 }: Props) {
   // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
@@ -113,6 +118,8 @@ export function DashboardLayout({
             onNewWorktree();
           }}
           prsFor={prsFor}
+          order={sessionOrder}
+          onReorder={onReorderSessions}
         />
         <ResizeDivider
           layoutRef={bodyRef}

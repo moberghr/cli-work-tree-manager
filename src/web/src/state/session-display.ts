@@ -6,6 +6,7 @@ import type { SessionSubTab } from './dashboard-route.js';
 // sections) lives in core, shared with `work sessions`.
 export * from '../../../core/session-view.js';
 import { displayStatus } from '../../../core/session-view.js';
+import { applyManualOrder } from '../../../core/session-order.js';
 
 /** Where opening a session should land: its terminal — except finished
  *  work you haven't looked at yet, which opens on the diff to review. */
@@ -45,6 +46,8 @@ export const RAIL_RECENT_MS = 14 * 24 * 60 * 60_000;
 export function railSessions(
   sessions: SessionSummary[],
   now: number = Date.now(),
+  /** Your drag order (session ids, top first); unplaced ones come first. */
+  order: readonly string[] = [],
 ): { current: SessionSummary[]; older: SessionSummary[] } {
   const current: SessionSummary[] = [];
   const older: SessionSummary[] = [];
@@ -54,7 +57,7 @@ export function railSessions(
     const live = !!s.attention || s.ptyStatus === 'running' || s.activityState === 'active' || s.activityState === 'open';
     (recent || live ? current : older).push(s);
   }
-  return { current: stableSessionOrder(current), older: stableSessionOrder(older) };
+  return { current: applyManualOrder(stableSessionOrder(current), order), older: applyManualOrder(stableSessionOrder(older), order) };
 }
 
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
