@@ -24,6 +24,8 @@ vi.mock('../../src/core/web-state.js', () => ({
 
 import { mountSessionCommentRoutes, SUBMIT_DELAY_MS, typeAndSubmit } from '../../src/core/session-comment-routes.js';
 import { clearCommentStoreCache } from '../../src/core/comment-file-store.js';
+import { formatPendingForPrompt, NOTE_NUDGE, readPendingForSession } from '../../src/core/pending-delivery.js';
+import { recordStatusEvent } from '../../src/core/session-status.js';
 
 let home: string;
 let app: Hono;
@@ -46,7 +48,7 @@ const post = (p: string, body: unknown) =>
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 describe('submit-review', () => {
-  it('holds drafts, then delivers the whole review as one message', async () => {
+  it('holds drafts, then nudges an idle Claude; the whole review rides on that prompt via the hook', async () => {
     await post('/api/sessions/s1/comments', { repo: 'repo', file: 'a.ts', line: 3, side: 'right', body: 'rename this', status: 'draft' });
     await post('/api/sessions/s1/comments', { repo: 'repo', file: 'b.ts', line: 9, side: 'right', body: 'add a test', status: 'draft' });
     await settle();
@@ -55,16 +57,30 @@ describe('submit-review', () => {
     const res = await post('/api/sessions/s1/submit-review', { summary: 'Nearly there' });
     expect(((await res.json()) as { count: number }).count).toBe(2);
     await vi.waitFor(() => expect(pty.writes).toHaveLength(2), { timeout: 2000 });
-    expect(pty.writes[1]).toBe('\r'); // Enter, so Claude gets it now (a \n only adds a line to the prompt)
-    expect(pty.writes[0]).toContain('rename this');
-    expect(pty.writes[0]).toContain('add a test');
-    expect(pty.writes[0]).toContain('Nearly there');
-    expect(pty.writes[0]).toContain('(3 items)');
+    // One short line, then Enter (\r; a \n only adds a line to the prompt).
+    // Never the note itself: typed in, a long note got mangled into lost
+    // "[Pasted text]" placeholders.
+    expect(pty.writes).toEqual([NOTE_NUDGE, '\r']);
+    // Still pending: the UserPromptSubmit hook claims and attaches them.
+    const text = formatPendingForPrompt(readPendingForSession('s1'));
+    expect(text).toContain('rename this');
+    expect(text).toContain('add a test');
+    expect(text).toContain('Nearly there');
 
-    // Delivered once: submitting again with nothing pending sends nothing.
+    // Submitting again with no drafts types nothing.
     await post('/api/sessions/s1/submit-review', {});
     await new Promise((r) => setTimeout(r, 400));
     expect(pty.writes).toHaveLength(2);
+  });
+});
+
+describe('a Claude mid-turn', () => {
+  it('gets nothing typed: the Stop hook delivers at the end of its turn', async () => {
+    await recordStatusEvent('s1', { kind: 'prompt' }); // working
+    await post('/api/sessions/s1/comments', { side: 'general', body: 'also check the logs', status: 'published' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(pty.writes).toEqual([]);
+    expect(readPendingForSession('s1').map((c) => c.body)).toEqual(['also check the logs']);
   });
 });
 

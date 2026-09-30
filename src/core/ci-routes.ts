@@ -13,14 +13,14 @@ import { createPrWatch, type PrWatch } from './pr-watch.js';
 import type { ActivityLog } from './activity.js';
 import type { WakeResult } from './pr-watch.js';
 import { rememberSent } from './pr-replies.js';
+import { NOTE_NUDGE } from './pending-delivery.js';
 import { readContextUsage } from './context-usage.js';
 import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
 import { claudesBySession, readLiveClaudes } from './live-claudes.js';
 
 /** The first message of a Claude started for a PR note: the note itself
  *  rides along (the UserPromptSubmit hook adds pending comments). */
-export const WAKE_PROMPT =
-  'work just sent you new feedback on your pull request (it is attached to this message). Work through it now.';
+export const WAKE_PROMPT = NOTE_NUDGE;
 
 /**
  * A note was just queued for the session's Claude. If that Claude isn't

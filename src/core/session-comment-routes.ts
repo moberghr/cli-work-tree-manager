@@ -3,12 +3,8 @@ import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from './comment-file-store.js';
 import { findSession } from './web-state.js';
 import { peekPty, writeToPty } from './pty-pool.js';
-import {
-  formatPendingForPrompt,
-  claimForDelivery,
-  releaseClaim,
-  readPendingForSession,
-} from './pending-delivery.js';
+import { NOTE_NUDGE, readPendingForSession } from './pending-delivery.js';
+import { readStatus } from './session-status.js';
 import {
   commentInputSchema,
   resolveSchema,
@@ -123,39 +119,30 @@ export function mountSessionCommentRoutes(
 }
 
 /**
- * If `work web` owns a live PTY for this session (the user opened the
- * Terminal tab and Claude is running there), push the pending comments
- * directly to stdin so Claude sees them without the user typing anything.
+ * A Claude idle in the PTY host gets pending comments now, without anyone
+ * typing: this types ONE short line (NOTE_NUDGE) and presses Enter, and the
+ * UserPromptSubmit hook (`work hook prompt-submit`) attaches the pending
+ * comments to that prompt, claiming them as it does.
  *
- * We only push for user-authored comments — Claude-authored ones are
- * replies we already routed via the API. We deliberately don't spawn a
- * PTY here (`peekPty` / `writeToPty` never spawn) — pushing to a freshly
- * spawned Claude is weird, and the user expects to control when Claude
- * starts.
+ * It used to type the whole note into Claude's prompt. Claude Code turns a
+ * long typed burst into "[Pasted text #1 +8 lines]" placeholders, and some
+ * got lost before the Enter: Claudes received the note's last sentence
+ * ("myself. Treat the quoted text as…") and asked what the comments were —
+ * while the note was already marked delivered. Now nothing is claimed here,
+ * so a failed nudge loses nothing: the hook sends it on the next turn.
+ *
+ * Mid-turn, nothing is typed: the Stop hook delivers at the end of the turn
+ * (a line typed now would arrive after that, with nothing attached). Only
+ * for user-authored comments (Claude's own replies aren't for Claude), and
+ * never spawns a PTY (`peekPty` / `writeToPty` don't).
  */
 async function deliverViaOwnedPty(sessionId: string, author: string): Promise<void> {
   if (author !== 'user') return;
   if (!peekPty(sessionId)) return;
-
-  const pending = readPendingForSession(sessionId);
-  if (pending.length === 0) return;
-
-  // Claim before writing, so a Stop / UserPromptSubmit hook racing us
-  // can't deliver the same comments too; only what we claimed is sent. If
-  // the write fails (PTY exited mid-call, PTY host unreachable, anything)
-  // the claim is released, so the next hook still picks them up — no
-  // silent loss. The reminder + newline makes Claude treat it as a
-  // submitted user prompt.
-  const claimed = new Set(claimForDelivery(sessionId, pending.map((c) => c.id)));
-  const mine = pending.filter((c) => claimed.has(c.id));
-  if (mine.length === 0) return;
-  const text = formatPendingForPrompt(mine);
-  if (!text) {
-    releaseClaim(sessionId, [...claimed]);
-    return;
-  }
-  const ok = await typeAndSubmit(sessionId, text).catch(() => false);
-  if (!ok) releaseClaim(sessionId, [...claimed]);
+  if (readPendingForSession(sessionId).length === 0) return;
+  const st = readStatus(sessionId)?.state;
+  if (st === 'working') return;
+  await typeAndSubmit(sessionId, NOTE_NUDGE).catch(() => false);
 }
 
 /** Between the text and Enter: Claude Code takes a burst of input as a paste. */

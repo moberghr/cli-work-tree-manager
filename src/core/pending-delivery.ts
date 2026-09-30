@@ -82,6 +82,15 @@ function isPendingFor(delivered: Set<string>) {
  *  Reads through the file-store cache so we see in-flight writes
  *  (`session-meta.ts` and other readers couldn't, when they re-read the
  *  disk directly). */
+/**
+ * The line typed into an idle Claude (or given as the first prompt of one
+ * work starts) so its UserPromptSubmit hook attaches the pending comments.
+ * Short on purpose: a long typed note got mangled by Claude Code's paste
+ * handling. It says where the content is, so it reads right in the
+ * transcript.
+ */
+export const NOTE_NUDGE = 'work has new notes for you (review feedback, CI results or comments); they are attached to this message. Work through them now.';
+
 export function readPendingForSession(sessionId: string): Comment[] {
   const delivered = withDb((d) => deliveredIds(d, sessionId));
   return readStoreComments(sessionId).filter(isPendingFor(delivered));
