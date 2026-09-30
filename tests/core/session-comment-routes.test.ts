@@ -22,7 +22,7 @@ vi.mock('../../src/core/web-state.js', () => ({
   findSession: (id: string) => (id === 's1' ? { target: 'repo', branch: 'b', paths: [] } : undefined),
 }));
 
-import { mountSessionCommentRoutes } from '../../src/core/session-comment-routes.js';
+import { mountSessionCommentRoutes, SUBMIT_DELAY_MS, typeAndSubmit } from '../../src/core/session-comment-routes.js';
 import { clearCommentStoreCache } from '../../src/core/comment-file-store.js';
 
 let home: string;
@@ -54,8 +54,8 @@ describe('submit-review', () => {
 
     const res = await post('/api/sessions/s1/submit-review', { summary: 'Nearly there' });
     expect(((await res.json()) as { count: number }).count).toBe(2);
-    await settle();
-    expect(pty.writes).toHaveLength(1);
+    await vi.waitFor(() => expect(pty.writes).toHaveLength(2), { timeout: 2000 });
+    expect(pty.writes[1]).toBe('\r'); // Enter, so Claude gets it now (a \n only adds a line to the prompt)
     expect(pty.writes[0]).toContain('rename this');
     expect(pty.writes[0]).toContain('add a test');
     expect(pty.writes[0]).toContain('Nearly there');
@@ -63,7 +63,24 @@ describe('submit-review', () => {
 
     // Delivered once: submitting again with nothing pending sends nothing.
     await post('/api/sessions/s1/submit-review', {});
-    await settle();
-    expect(pty.writes).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(pty.writes).toHaveLength(2);
+  });
+});
+
+describe('typeAndSubmit', () => {
+  it('types the text, waits, then presses Enter (\\r) in a separate write', async () => {
+    const writes: string[] = [];
+    const waits: number[] = [];
+    const ok = await typeAndSubmit('s1', 'line one\nline two', async (_id, d) => (writes.push(d), true), async (ms) => void waits.push(ms));
+    expect(ok).toBe(true);
+    expect(writes).toEqual(['line one\nline two', '\r']);
+    expect(waits).toEqual([SUBMIT_DELAY_MS]);
+  });
+
+  it("doesn't press Enter when the text couldn't be written", async () => {
+    const writes: string[] = [];
+    expect(await typeAndSubmit('s1', 'x', async (_id, d) => (writes.push(d), false), async () => {})).toBe(false);
+    expect(writes).toEqual(['x']);
   });
 });

@@ -154,6 +154,27 @@ async function deliverViaOwnedPty(sessionId: string, author: string): Promise<vo
     releaseClaim(sessionId, [...claimed]);
     return;
   }
-  const ok = await writeToPty(sessionId, text + '\n').catch(() => false);
+  const ok = await typeAndSubmit(sessionId, text).catch(() => false);
   if (!ok) releaseClaim(sessionId, [...claimed]);
+}
+
+/** Between the text and Enter: Claude Code takes a burst of input as a paste. */
+export const SUBMIT_DELAY_MS = 250;
+
+/**
+ * Type `text` into the session's Claude prompt and submit it. Enter is `\r`
+ * (what the terminal's Enter key sends); a `\n` only adds a line to the
+ * prompt, which left every pushed note sitting unsent in the input box.
+ * Sent apart from the text: in the same write Claude Code reads the `\r`
+ * as part of the pasted block.
+ */
+export async function typeAndSubmit(
+  sessionId: string,
+  text: string,
+  write: (id: string, data: string) => Promise<boolean> = writeToPty,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<boolean> {
+  if (!(await write(sessionId, text))) return false;
+  await wait(SUBMIT_DELAY_MS);
+  return write(sessionId, '\r');
 }
