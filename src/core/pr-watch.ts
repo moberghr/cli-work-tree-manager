@@ -72,19 +72,26 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
 }
 
 /**
- * Archive once every repo is done and a PR was merged SINCE the user last
- * entered the session. `gh pr view <branch>` returns the latest PR for a
- * branch name even if it was merged long ago, so without the "since" a
- * fresh `work tree` on a reused branch name — or deliberately re-entering
- * an archived session — would be archived on the first sweep, its Claude
- * stopped. A PR whose merge time gh doesn't report never auto-archives.
+ * Archive once the session's work is merged: every repo done, nothing
+ * uncommitted anywhere, and at least one merged PR that is THIS work.
+ *
+ * "This work": the merged PR's head is exactly the commit the worktree has
+ * checked out, or it was merged after the user last entered the session.
+ * `gh pr view <branch>` also returns a PR merged long ago for a reused
+ * branch name; such a PR has another head than the new work, and was merged
+ * before it was entered, so it never archives a fresh session. (The "merged
+ * after you entered" rule alone missed most real merges: you enter a
+ * session, then its PR gets merged hours later — fine — but re-entering it
+ * once more after the merge, to look, disarmed it for good.)
  */
 export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSession, 'lastAccessedAt'>): boolean {
   if (pre.repos.length === 0 || !pre.repos.every((r) => r.done)) return false;
+  if (pre.repos.some((r) => r.dirtyFiles > 0)) return false;
   const entered = Date.parse(session.lastAccessedAt);
   return pre.repos.some((r) => {
-    if (r.pr?.state !== 'MERGED' || !r.pr.mergedAt) return false;
-    const merged = Date.parse(r.pr.mergedAt);
+    if (r.pr?.state !== 'MERGED') return false;
+    if (r.pr.headSha && r.localSha && r.pr.headSha === r.localSha) return true;
+    const merged = r.pr.mergedAt ? Date.parse(r.pr.mergedAt) : NaN;
     return Number.isFinite(merged) && (!Number.isFinite(entered) || merged > entered);
   });
 }

@@ -18,8 +18,9 @@ import { createPrWatch, type PrWatch } from './pr-watch.js';
  *   POST /api/sessions/:id/ci/fix  tell the session's Claude to fix failing checks
  */
 
-/** Sessions touched this recently are watched; older ones are left alone. */
-const RECENT_MS = 14 * 24 * 60 * 60 * 1000;
+// Sessions checked: used in the last 30 days (a PR is often merged days after
+// you last touched the session — that is when it should archive itself).
+const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
 
 export function mountCiRoutes(

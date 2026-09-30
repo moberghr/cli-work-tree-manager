@@ -81,6 +81,25 @@ describe('PR watch', () => {
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
 
+  it('archives a merge from before you re-entered when the merged PR is exactly the checked-out work', async () => {
+    // You opened the session again after its PR was merged, to look.
+    const h = harness([{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState]);
+    await h.watch.tick();
+    expect(h.deps.archive).toHaveBeenCalledWith('s1');
+  });
+
+  it('a reused branch name: an old merged PR with another head never archives the new work', async () => {
+    const h = harness([{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'new-work', dirtyFiles: 0 } as RepoShipState]);
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
+  it('uncommitted files keep it from auto-archiving', async () => {
+    const h = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState]);
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
   it('does not archive when gh gives no merge time', async () => {
     const h = harness([repo('api', pr({ state: 'MERGED' }), true)]);
     await h.watch.tick();
