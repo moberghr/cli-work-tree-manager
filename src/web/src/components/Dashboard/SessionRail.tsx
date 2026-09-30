@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
 import { ClaudesChip, PrChips } from './SessionBits.js';
 import {
@@ -6,6 +6,7 @@ import {
   displayStatus,
   formatDiffStat,
   railSessions,
+  sessionMatches,
   type DisplayKind,
   type PrLookup,
 } from '../../state/session-display.js';
@@ -65,6 +66,9 @@ export function SessionRail({
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
   const { current, older } = useMemo(() => railSessions(sessions, Date.now(), order ?? []), [sessions, order]);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; before: boolean } | null>(null);
   // Every current session, plus older ones only on request — and the
@@ -72,11 +76,36 @@ export function SessionRail({
   // pinned selection off once there were 40+ current sessions, and took it
   // out of the "+N older" count too, so it vanished.)
   const pinned = !showOlder && activeSessionId ? older.filter((s) => s.id === activeSessionId) : [];
-  const visible = showOlder ? [...current, ...older] : [...current, ...pinned];
-  const overflow = showOlder ? 0 : older.length - pinned.length;
+  const searching = query.trim() !== '';
+  // A search looks through the older sessions too.
+  const visible = searching
+    ? [...current, ...older].filter((s) => sessionMatches(s, query))
+    : showOlder
+      ? [...current, ...older]
+      : [...current, ...pinned];
+  const overflow = searching || showOlder ? 0 : older.length - pinned.length;
+  // Moving a row among search results would scramble the full order.
+  const canReorder = !!onReorder && !searching;
+
+  // `/` jumps to the search box — not while typing somewhere (a terminal's
+  // input included, so `/` in Claude still reaches Claude).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const shownIds = visible.map((s) => s.id);
-  const move = (id: string, beforeId: string | null) => onReorder?.(moveSession(shownIds, id, beforeId, order ?? []));
+  const move = (id: string, beforeId: string | null) => {
+    if (canReorder) onReorder?.(moveSession(shownIds, id, beforeId, order ?? []));
+  };
   const endDrag = () => {
     setDragId(null);
     setDrop(null);
@@ -100,12 +129,35 @@ export function SessionRail({
           +
         </button>
       </header>
+      {current.length + older.length > 0 && (
+        <input
+          ref={searchRef}
+          className="wd-dash-rail-search"
+          type="search"
+          placeholder="Search sessions   /"
+          aria-label="Search sessions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setQuery('');
+              e.currentTarget.blur();
+            } else if (e.key === 'Enter' && visible[0]) {
+              onSelect(visible[0].id);
+            } else if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              listRef.current?.querySelector<HTMLButtonElement>('.wd-dash-rail-item')?.focus();
+            }
+          }}
+        />
+      )}
+      {searching && visible.length === 0 && <p className="wd-dash-rail-empty">No session matches “{query.trim()}”.</p>}
       {current.length + older.length === 0 ? (
         <p className="wd-dash-rail-empty">
           No worktrees yet. Click + to create one.
         </p>
       ) : (
-        <ul className="wd-dash-rail-list">
+        <ul className="wd-dash-rail-list" ref={listRef}>
           {visible.map((s) => {
             const kind = displayStatus(s);
             const isActive = s.id === activeSessionId;
@@ -117,7 +169,7 @@ export function SessionRail({
             return (
               <li
                 key={s.id}
-                draggable={!!onReorder}
+                draggable={canReorder}
                 className={
                   (dragId === s.id ? 'wd-dash-rail-dragging' : '') +
                   (drop?.id === s.id && dragId !== s.id ? (drop.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '')
@@ -153,7 +205,7 @@ export function SessionRail({
                   }
                   onClick={() => onSelect(s.id)}
                   onKeyDown={(e) => {
-                    if (!onReorder || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+                    if (!canReorder || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
                     e.preventDefault();
                     const i = shownIds.indexOf(s.id);
                     if (e.key === 'ArrowUp' && i > 0) move(s.id, shownIds[i - 1]);

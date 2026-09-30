@@ -60,6 +60,22 @@ export function railSessions(
   return { current: applyManualOrder(stableSessionOrder(current), order), older: applyManualOrder(stableSessionOrder(older), order) };
 }
 
+/**
+ * Does a session match the search box? Every word must appear somewhere in
+ * its branch, repo, folder, status summary or Jira key (any order, any case)
+ * — the folder too, since a repo's alias and folder name can differ
+ * (`straumur-backend` lives in `straumur-backend-ai`).
+ */
+export function sessionMatches(s: SessionSummary, query: string): boolean {
+  const words = query.toLowerCase().replace(/\\/g, '/').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const hay = [s.branch, s.target, ...s.paths, s.attention?.summary ?? '', s.jiraKey ?? '']
+    .join('\n')
+    .toLowerCase()
+    .replace(/\\/g, '/');
+  return words.every((w) => hay.includes(w));
+}
+
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
  *  to a sub-repo alias reliably, so any same-branch PR counts for them. */
 export function prsForSession(s: SessionSummary, prs: PrInfo[]): PrInfo[] {
