@@ -36,7 +36,19 @@ export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }
             {label}
           </a>
         ) : (
-          <span key={`${p.repoAlias}#${p.number}`} className={cls} title={title}>
+          // Inside a row that is itself a button (the rail, the inbox), where a
+          // link isn't allowed: opens the PR without also selecting the row.
+          <span
+            key={`${p.repoAlias}#${p.number}`}
+            className={cls + ' wd-pr-chip-open'}
+            title={`${title}\nClick to open on GitHub`}
+            role="link"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              window.open(p.url, '_blank', 'noopener');
+            }}
+          >
             {label}
           </span>
         );

@@ -100,13 +100,36 @@ fn find_or_start_web() -> Result<String, String> {
     Err("<code>work web</code> did not come up within 25 s. Run it in a terminal to see why.".into())
 }
 
+/// A link the page opens in a new window (a PR, a Jira issue): in the user's
+/// browser, not in another app window. Only http(s); explorer gets the URL as
+/// one argument, no shell in between.
+fn open_in_browser(url: &Url) {
+    if url.scheme() != "http" && url.scheme() != "https" {
+        log(&format!("not opening {url}: not an http(s) link"));
+        return;
+    }
+    #[cfg(windows)]
+    let r = Command::new("explorer").arg(url.as_str()).spawn();
+    #[cfg(target_os = "macos")]
+    let r = Command::new("open").arg(url.as_str()).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let r = Command::new("xdg-open").arg(url.as_str()).spawn();
+    if let Err(e) = r {
+        log(&format!("could not open {url}: {e}"));
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("work")
                 .inner_size(1480.0, 940.0)
-                .min_inner_size(720.0, 480.0);
+                .min_inner_size(720.0, 480.0)
+                .on_new_window(|url, _features| {
+                    open_in_browser(&url);
+                    tauri::webview::NewWindowResponse::Deny
+                });
             // For scripts/terminal-latency.ts: a DevTools port to drive the page through. Tauri sets
             // WebView2's browser arguments itself, which overrides WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
             // so it goes here (with the flags wry passes by default).
