@@ -369,3 +369,27 @@ test('a session opens on its terminal, and going back to one is instant (same co
   const terminals = sockets.filter((u) => u.includes('/terminal'));
   expect(terminals).toHaveLength(2); // one per session, none reopened
 });
+
+test('the terminal follows the window both ways: it grows, and shrinks back', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await page.goto(url);
+  await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  // What xterm drew (its canvas) against the box it sits in.
+  const term = page.locator('.wd-term-deck .wd-term-deck-item[aria-hidden="false"] .xterm');
+  await expect(term).toBeVisible();
+  const widths = async () =>
+    term.evaluate((el) => {
+      const host = el.closest('.wd-pty-host') as HTMLElement;
+      const drawn = Math.max(0, ...[...el.querySelectorAll('canvas')].map((c) => c.getBoundingClientRect().width));
+      return { screen: drawn, host: host.getBoundingClientRect().width };
+    });
+  const small = await widths();
+
+  await page.setViewportSize({ width: 1900, height: 700 });
+  await expect.poll(async () => (await widths()).screen).toBeGreaterThan(small.screen + 300);
+
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await expect.poll(async () => (await widths()).screen).toBeLessThan(small.screen + 30);
+  const after = await widths();
+  expect(after.screen).toBeLessThanOrEqual(after.host); // nothing drawn past the edge
+});

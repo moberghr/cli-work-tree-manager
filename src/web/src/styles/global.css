@@ -92,6 +92,11 @@ code, pre {
 .wd-pty-host {
   flex: 1;
   min-height: 0;
+  /* A flex item won't shrink below its content — here the canvas xterm drew
+     at the old size — so without this the terminal grew with the window but
+     never shrank back. */
+  min-width: 0;
+  overflow: hidden;
   background: #1e1e1e;
   padding: 8px;
 }
