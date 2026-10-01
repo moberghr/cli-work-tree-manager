@@ -18,10 +18,13 @@ export function switcherResults(sessions: SessionSummary[], query: string): Sess
   const q = query.trim().toLowerCase();
   const recent = (a: SessionSummary, b: SessionSummary) => lastActiveAt(b).localeCompare(lastActiveAt(a));
   if (!q) return sessions.filter((s) => !s.archivedAt).sort(recent).slice(0, RECENT);
+  // Ranked by every word (several words: each must start a name or a part of one).
+  const words = q.split(/\s+/);
   const rank = (s: SessionSummary) => {
     const names = [switcherLabel(s), s.branch, s.title ?? ''].map((n) => n.toLowerCase());
     if (names.some((n) => n === q)) return 0;
-    if (names.some((n) => n.startsWith(q) || n.split(/[/\-_ ]/).some((part) => part.startsWith(q)))) return 1;
+    const parts = names.flatMap((n) => [n, ...n.split(/[/\-_ ]/)]);
+    if (words.every((w) => parts.some((p) => p.startsWith(w)))) return 1;
     return 2;
   };
   return sessions
