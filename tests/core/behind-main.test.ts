@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
-import { behindMain, combineBehind, updateFromMain } from '../../src/core/behind-main.js';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { BehindCache, behindMain, combineBehind, updateFromMain, type Behind } from '../../src/core/behind-main.js';
+import type { CommandRunner } from '../../src/core/ship.js';
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -104,15 +105,93 @@ describe('updateFromMain', () => {
     expect(await updateFromMain(clone)).toMatchObject({ ok: false, reason: expect.stringContaining('uncommitted changes') });
   });
 
+  it('a merge a hook refuses is a failure with its reason, not a conflict for Claude to resolve', async () => {
+    git(clone, 'checkout', '-q', '-b', 'feat/hooked');
+    fs.writeFileSync(path.join(clone, 'c.txt'), 'c\n');
+    git(clone, 'add', '.');
+    git(clone, 'commit', '-q', '-m', 'c');
+    git(clone, 'push', '-q', '-u', 'origin', 'feat/hooked');
+    mainMovesOn('b.txt', 'b');
+    const before = git(clone, 'rev-parse', 'HEAD');
+    // commit-msg runs on a merge commit too (git merge --no-edit).
+    fs.writeFileSync(path.join(clone, '.git', 'hooks', 'commit-msg'), '#!/bin/sh\necho "subject must start with a ticket key" >&2\nexit 1\n', { mode: 0o755 });
+    const r = await updateFromMain(clone);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('subject must start with a ticket key') });
+    expect(r).not.toHaveProperty('conflicts');
+    expect(git(clone, 'rev-parse', 'HEAD')).toBe(before);
+    expect(git(clone, 'status', '--porcelain')).toBe('');
+  });
+
   it('already level: nothing to do', async () => {
     git(clone, 'checkout', '-q', '-b', 'feat/level');
     expect(await updateFromMain(clone)).toMatchObject({ ok: true, how: 'nothing', commits: 0 });
   });
 });
 
+describe('BehindCache', () => {
+  const level: Behind = { base: 'origin/main', commits: 0, conflicts: false };
+  /** A runner that answers like a repo `commits` behind, counting what it was asked. */
+  function fakeRepo(commits: () => number) {
+    const calls: string[][] = [];
+    let open = 0;
+    let maxOpen = 0;
+    const run: CommandRunner = async (_cmd, args) => {
+      calls.push(args);
+      open++;
+      maxOpen = Math.max(maxOpen, open);
+      await new Promise((r) => setTimeout(r, 2));
+      open--;
+      if (args.includes('--abbrev-ref')) return { code: 0, stdout: 'origin/main\n', stderr: '' };
+      if (args.includes('--count')) return { code: 0, stdout: `${commits()}\n`, stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    return { run, calls, maxOpen: () => maxOpen };
+  }
+
+  it('reads never wait; one look per session at a time; again after the TTL or invalidate; told only on a change', async () => {
+    let behind = 0;
+    let now = 1_000;
+    const repo = fakeRepo(() => behind);
+    const onChange = vi.fn();
+    const cache = new BehindCache({ run: repo.run, ttlMs: 60_000, now: () => now, onChange });
+    expect(cache.get('a', ['/r'])).toBeNull(); // nothing yet, and no waiting
+    expect(cache.get('a', ['/r'])).toBeNull(); // in flight: not asked twice
+    await cache.idle();
+    expect(cache.get('a', ['/r'])).toEqual(level);
+    const looks = () => repo.calls.filter((c) => c.includes('--count')).length;
+    expect(looks()).toBe(1);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    behind = 5;
+    now += 30_000;
+    cache.get('a', ['/r']);
+    await cache.idle();
+    expect(looks()).toBe(1); // within the TTL: cached
+    now += 31_000;
+    expect(cache.get('a', ['/r'])).toEqual(level); // stale value while it looks again
+    await cache.idle();
+    expect(cache.get('a', ['/r'])).toMatchObject({ commits: 5 });
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    cache.invalidate('a');
+    cache.get('a', ['/r']);
+    await cache.idle();
+    expect(looks()).toBe(3);
+    expect(onChange).toHaveBeenCalledTimes(2); // same answer: nobody told
+  });
+
+  it('a couple at a time', async () => {
+    const repo = fakeRepo(() => 0);
+    const cache = new BehindCache({ run: repo.run, concurrency: 2 });
+    for (const id of ['a', 'b', 'c', 'd', 'e']) cache.get(id, ['/r']);
+    await cache.idle();
+    expect(repo.calls.filter((c) => c.includes('--count'))).toHaveLength(5);
+    expect(repo.maxOpen()).toBeLessThanOrEqual(2);
+  });
+});
+
 describe('POST /api/sessions/:id/update-from-main', () => {
   it("not while its Claude works or waits on you (the files would move under it)", async () => {
-    const { vi } = await import('vitest');
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'update-route-'));
     fs.mkdirSync(path.join(home, '.work'), { recursive: true });
     const spy = vi.spyOn(os, 'homedir').mockReturnValue(home);
@@ -130,6 +209,10 @@ describe('POST /api/sessions/:id/update-from-main', () => {
       const r = await app.request(`/api/sessions/${sessionIdFor(s)}/update-from-main`, { method: 'POST' });
       expect(r.status).toBe(409);
       expect(await r.json()).toMatchObject({ error: expect.stringContaining('its Claude is working') });
+      // A Claude that died mid-turn (no Stop hook): shown idle after 15 quiet minutes, and no longer in the way.
+      await recordStatusEvent(sessionIdFor(s), { kind: 'prompt', prompt: 'go' }, new Date(Date.now() - 20 * 60_000));
+      const later = await app.request(`/api/sessions/${sessionIdFor(s)}/update-from-main`, { method: 'POST' });
+      expect(later.status).toBe(200);
     } finally {
       spy.mockRestore();
       fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

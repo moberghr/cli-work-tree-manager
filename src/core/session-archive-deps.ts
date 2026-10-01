@@ -4,10 +4,11 @@ import { checkedOutBranch } from './git-head.js';
 import { loadConfig } from './config.js';
 import { listTranscripts } from './context-usage.js';
 import { examineWorktree, normPath, type CleanupSession } from './cleanup.js';
-import { setSessionArchived, type WorktreeSession } from './history.js';
+import { loadHistory, setSessionArchived, type WorktreeSession } from './history.js';
 import { disposePty } from './pty-pool.js';
 import { sessionIdFor } from './session-id.js';
 import { readStatus } from './session-status.js';
+import { shownState } from './turn-activity.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { teardownWorktree } from './worktree.js';
 import type { ArchiveDeps, ArchivedPr } from './session-archive.js';
@@ -33,7 +34,9 @@ export function archiveWaiting(id: string): string[] {
   if (drafts) out.push(`${plural(drafts, 'reply', 'replies')} to post on review threads`);
   const pending = readPendingForSession(id).length;
   if (pending) out.push(`${plural(pending, 'note', 'notes')} not yet delivered to its Claude`);
-  const st = readStatus(id)?.state;
+  // As the dashboard shows it (a Claude that died mid-turn isn't "working" forever).
+  const session = loadHistory().find((s) => sessionIdFor(s) === id);
+  const st = session ? shownState(session) : readStatus(id)?.state;
   if (st === 'working') out.push('its Claude is working');
   if (st === 'needs_input') out.push('its Claude is waiting for your answer');
   return out;

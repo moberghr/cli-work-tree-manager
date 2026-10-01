@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
-import { readStatus } from './session-status.js';
+import { shownState } from './turn-activity.js';
 import { updateFromMain, type UpdateResult } from './behind-main.js';
 import type { CommandRunner } from './ship.js';
 import type { UpdateFromMainWire } from './api-types.js';
@@ -19,7 +19,7 @@ export function mountUpdateRoutes(
     const s = findSession(id);
     if (!s) return c.json({ error: 'unknown session' }, 404);
     if (s.archivedAt) return c.json({ error: 'it is archived: restore it first' }, 409);
-    const state = readStatus(id)?.state;
+    const state = shownState(s);
     if (state === 'working' || state === 'needs_input') {
       return c.json({ error: `Not now: its Claude is ${state === 'working' ? 'working' : 'waiting for your answer'} (the files would change under it).` }, 409);
     }

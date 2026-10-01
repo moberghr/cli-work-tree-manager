@@ -14,7 +14,9 @@ export interface Behind {
   /** origin/<main>, as the repo's origin/HEAD says. */
   base: string;
   commits: number;
-  /** Merging base would conflict (git merge-tree, no worktree touched). */
+  /** Merging base would conflict (git merge-tree, no worktree touched).
+   *  False also when it couldn't tell (git before 2.38 has no --write-tree):
+   *  nothing ever claims "no conflicts", only says so when they're found. */
   conflicts: boolean;
 }
 
@@ -26,7 +28,8 @@ export async function behindMain(repo: string, run: CommandRunner = defaultRunne
   const count = await run('git', ['-C', repo, 'rev-list', '--count', `HEAD..${base}`], repo);
   const commits = count.code === 0 ? Number(count.stdout.trim()) || 0 : 0;
   if (commits === 0) return { base, commits: 0, conflicts: false };
-  // Exit 1: the merge would conflict; 0: clean. (Anything else: can't tell — say nothing.)
+  // Exit 1: the merge would conflict; 0: clean. Anything else (an old git's
+  // usage error): can't tell, so no warning.
   const merge = await run('git', ['-C', repo, 'merge-tree', '--write-tree', '--quiet', 'HEAD', base], repo);
   return { base, commits, conflicts: merge.code === 1 };
 }
@@ -131,14 +134,21 @@ export async function updateFromMain(repo: string, run: CommandRunner = defaultR
   const commits = Number((await git('rev-list', '--count', `HEAD..${head}`)).stdout.trim()) || 0;
   if (commits === 0) return { ok: true, repo: name, how: 'nothing', base: head, commits: 0 };
   const published = (await git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`)).code === 0;
-  if (!published) {
-    const r = await git('rebase', head);
-    if (r.code === 0) return { ok: true, repo: name, how: 'rebase', base: head, commits };
-    await git('rebase', '--abort');
-    return { ok: false, repo: name, reason: `rebasing on ${head} conflicts`, conflicts: true, base: head };
-  }
-  const r = await git('merge', '--no-edit', head);
-  if (r.code === 0) return { ok: true, repo: name, how: 'merge', base: head, commits };
-  await git('merge', '--abort');
-  return { ok: false, repo: name, reason: `merging ${head} conflicts`, conflicts: true, base: head };
+  const how = published ? 'merge' : 'rebase';
+  const r = published ? await git('merge', '--no-edit', head) : await git('rebase', head);
+  if (r.code === 0) return { ok: true, repo: name, how, base: head, commits };
+  // A conflict leaves unmerged paths; anything else (a hook refusing the
+  // commit, signing) doesn't, and isn't one for Claude to resolve.
+  const unmerged = (await git('diff', '--name-only', '--diff-filter=U')).stdout.trim() !== '';
+  await git(how, '--abort');
+  const verb = published ? `merging ${head}` : `rebasing on ${head}`;
+  if (unmerged) return { ok: false, repo: name, reason: `${verb} conflicts`, conflicts: true, base: head };
+  return { ok: false, repo: name, reason: `${verb} failed: ${firstLine(r.stderr) || firstLine(r.stdout) || `git exited ${r.code}`}`, base: head };
 }
+
+/** What went wrong, in its first words (a hook's own message comes before git's "Not committing merge"). */
+const firstLine = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l && !l.startsWith('hint:')) ?? '';

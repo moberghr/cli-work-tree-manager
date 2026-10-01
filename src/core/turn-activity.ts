@@ -1,7 +1,9 @@
 import { latestTranscript } from './context-usage.js';
 import { readTranscriptTail } from './transcript.js';
-import { ANSWERED_AFTER_MS, effectiveStatus, idleFrom, lastTurnEntryMs, type EffectiveStatus, type SessionStatus } from './session-status.js';
+import { ANSWERED_AFTER_MS, effectiveStatus, idleFrom, lastTurnEntryMs, readStatus, type EffectiveStatus, type SessionStatus } from './session-status.js';
 import type { WorktreeSession } from './session-types.js';
+import { readSessionActivity } from './claude-activity.js';
+import { sessionIdFor } from './session-id.js';
 
 /**
  * A session's status as the dashboard shows it: the hooks' record
@@ -38,4 +40,15 @@ export function sessionStatusView(
     }
   }
   return effectiveStatus(status, lastActivityMs, now, turnMs);
+}
+
+/**
+ * Its state as the dashboard shows it, for an action that refuses a Claude
+ * mid-turn or waiting on you. Not the stored row alone: a Claude that died
+ * mid-turn (no Stop hook) leaves "working" there for good, and the action
+ * would be refused long after the dashboard shows it idle.
+ */
+export function shownState(session: WorktreeSession): SessionStatus['state'] | null {
+  const raw = readStatus(sessionIdFor(session));
+  return raw ? sessionStatusView(raw, session, readSessionActivity(session).lastActivity ?? 0).state : null;
 }

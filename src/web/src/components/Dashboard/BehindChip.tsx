@@ -32,7 +32,7 @@ export function BehindChip({ session }: { session: SessionSummary }) {
     updateFromMain(session.id).then(
       (results) => {
         setBusy(false);
-        setOutcome(describe(results));
+        setOutcome(describeUpdate(results));
       },
       (err: Error) => {
         setBusy(false);
@@ -72,12 +72,15 @@ export function BehindChip({ session }: { session: SessionSummary }) {
   );
 }
 
-function describe(results: UpdateFromMainResult[]): { text: string; conflictBase?: string; error?: boolean } {
-  const conflict = results.find((r) => !r.ok && r.conflicts);
-  if (conflict && !conflict.ok) return { text: `${conflict.repo}: ${conflict.reason} — nothing was changed.`, conflictBase: conflict.base, error: true };
-  const failed = results.find((r) => !r.ok);
-  if (failed && !failed.ok) return { text: `${failed.repo}: ${failed.reason}`, error: true };
+export function describeUpdate(results: UpdateFromMainResult[]): { text: string; conflictBase?: string; error?: boolean } {
   const done = results.filter((r): r is Extract<UpdateFromMainResult, { ok: true }> => r.ok && r.how !== 'nothing');
+  const doneText = done.map((r) => `${r.repo}: ${r.how === 'rebase' ? 'rebased on' : 'merged'} ${r.base} (${r.commits} commit${r.commits === 1 ? '' : 's'})`).join('; ');
+  // A group updates repo by repo: say what did change before what didn't.
+  const before = doneText ? `${doneText}. But ` : '';
+  const conflict = results.find((r) => !r.ok && r.conflicts);
+  if (conflict && !conflict.ok) return { text: `${before}${conflict.repo}: ${conflict.reason} — left as it was.`, conflictBase: conflict.base, error: true };
+  const failed = results.find((r) => !r.ok);
+  if (failed && !failed.ok) return { text: `${before}${failed.repo}: ${failed.reason}`, error: true };
   if (done.length === 0) return { text: 'Already up to date.' };
-  return { text: done.map((r) => `${r.repo}: ${r.how === 'rebase' ? 'rebased on' : 'merged'} ${r.base} (${r.commits} commit${r.commits === 1 ? '' : 's'})`).join('; ') + '.' };
+  return { text: doneText + '.' };
 }

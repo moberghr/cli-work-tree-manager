@@ -12,7 +12,7 @@ vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   updateFromMain: (id: string) => api.updateFromMain(id),
   sendPromptToSession: (id: string, t: string) => api.sendPromptToSession(id, t),
 }));
-const { BehindChip, behindText, resolvePrompt } = await import('../../src/web/src/components/Dashboard/BehindChip.js');
+const { BehindChip, behindText, describeUpdate, resolvePrompt } = await import('../../src/web/src/components/Dashboard/BehindChip.js');
 
 const session = (behind?: SessionSummary['behind']): SessionSummary =>
   ({ id: 's1', target: 'api', branch: 'feat/x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', activityState: 'stale', ...(behind ? { behind } : {}) }) as SessionSummary;
@@ -52,9 +52,22 @@ describe('behind main', () => {
     act(() => root.render(createElement(BehindChip, { session: session({ base: 'origin/main', commits: 4, conflicts: true }) })));
     expect(container.textContent).toContain('⚠ ↓ 4 behind origin/main · conflicts');
     await act(async () => button('Update from main').click());
-    expect(container.textContent).toContain('nothing was changed');
+    expect(container.textContent).toContain('left as it was');
     await act(async () => button('Ask Claude to resolve').click());
     expect(api.sendPromptToSession).toHaveBeenCalledWith('s1', resolvePrompt('origin/main'));
     expect(resolvePrompt('origin/main')).toContain('DECISION NEEDED:');
+  });
+});
+
+describe('describeUpdate', () => {
+  it('a group that half-updated says what did change before what did not', () => {
+    const out = describeUpdate([
+      { ok: true, repo: 'backend', how: 'rebase', base: 'origin/main', commits: 3 },
+      { ok: false, repo: 'frontend', reason: 'merging origin/main conflicts', conflicts: true, base: 'origin/main' },
+    ]);
+    expect(out.text).toBe('backend: rebased on origin/main (3 commits). But frontend: merging origin/main conflicts — left as it was.');
+    expect(out).toMatchObject({ error: true, conflictBase: 'origin/main' });
+    expect(describeUpdate([{ ok: false, repo: 'api', reason: 'merging origin/main failed: hook said no', base: 'origin/main' }])).toEqual({ text: 'api: merging origin/main failed: hook said no', error: true });
+    expect(describeUpdate([{ ok: true, repo: 'api', how: 'nothing', base: 'origin/main', commits: 0 }]).text).toBe('Already up to date.');
   });
 });
