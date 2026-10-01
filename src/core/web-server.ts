@@ -410,7 +410,15 @@ export async function startWebServer(
         (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
       );
     }
-    run.done(`${ptys.length} Claude${ptys.length === 1 ? '' : 's'} running · ${ids.length ? `${ids.length} put to sleep` : 'none idle long enough'}`);
+    // Headless chats too: idle that long with no chat view open.
+    const chats = chatApi.idle(sleepAfterMs(minutes));
+    for (const id of chats) {
+      chatApi.stop(id);
+      const s = findSession(id);
+      run.note(`${s ? `${s.target} ${s.branch}` : id}: put its chat's Claude to sleep (idle ${Math.max(minutes, 30)} min, no chat open; your next message resumes it)`, { level: 'action', sessionId: id });
+    }
+    const slept = ids.length + chats.length;
+    run.done(`${ptys.length} Claude${ptys.length === 1 ? '' : 's'} running · ${slept ? `${slept} put to sleep` : 'none idle long enough'}`);
     if (ids.length) broadcast('sessions-changed', { ts: Date.now() });
   };
   sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);

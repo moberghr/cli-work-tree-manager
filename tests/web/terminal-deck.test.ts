@@ -19,7 +19,7 @@ vi.mock('../../src/web/src/components/Terminal/PtyView.js', () => ({
   },
 }));
 
-import { TerminalDeck, nextDeck, DECK_SIZE } from '../../src/web/src/components/Terminal/TerminalDeck.js';
+import { TerminalDeck, nextDeck, pruneDeck, DECK_HIDDEN_MS, DECK_SIZE } from '../../src/web/src/components/Terminal/TerminalDeck.js';
 
 const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
   id, target: 'api', branch: id, isGroup: false, paths: [`/wt/${id}`],
@@ -107,5 +107,14 @@ describe('TerminalDeck', () => {
     render('b', sessions);
     const active = [...container.querySelectorAll('[data-pty]')].map((el) => [el.getAttribute('data-pty'), el.getAttribute('data-active')]);
     expect(active).toEqual([['b', 'true'], ['a', 'false']]);
+  });
+});
+
+describe('pruneDeck', () => {
+  it('lets go of terminals hidden longer than the limit, never the one on screen', () => {
+    const now = 1_000_000;
+    const hidden = new Map([['old', now - DECK_HIDDEN_MS], ['recent', now - 60_000], ['shown', now - 5 * DECK_HIDDEN_MS]]);
+    expect(pruneDeck(['shown', 'recent', 'old', 'unknown'], 'shown', hidden, now)).toEqual(['shown', 'recent', 'unknown']);
+    expect(pruneDeck(['a'], null, new Map([['a', now - DECK_HIDDEN_MS - 1]]), now)).toEqual([]);
   });
 });

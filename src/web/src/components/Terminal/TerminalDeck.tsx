@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PtyView } from './PtyView.js';
 import type { SessionSummary } from '../../api/client.js';
 
@@ -21,6 +21,20 @@ export function nextDeck(prev: string[], activeId: string | null, alive: Set<str
 }
 
 /**
+ * How long a hidden terminal stays connected. While connected, its Claude
+ * counts as watched and never goes to sleep (idle-sleep.ts) — with the app
+ * open all day, that kept the five most recent Claudes, each with its
+ * language server, awake forever. Coming back after this reconnects (the
+ * screen replays; nothing restarts unless it slept).
+ */
+export const DECK_HIDDEN_MS = 10 * 60_000;
+
+/** The deck without terminals hidden longer than `maxHiddenMs` (the shown one always stays). */
+export function pruneDeck(ids: string[], activeId: string | null, hiddenSince: ReadonlyMap<string, number>, now: number, maxHiddenMs = DECK_HIDDEN_MS): string[] {
+  return ids.filter((id) => id === activeId || now - (hiddenSince.get(id) ?? now) < maxHiddenMs);
+}
+
+/**
  * Keeps the last few session terminals connected, so going back to one is
  * instant: no new socket, no screen replay, no Claude start. Lives at the
  * dashboard level (the session view unmounts when you go to the Inbox) and
@@ -40,6 +54,27 @@ export function TerminalDeck({ activeId, slot, sessions }: Props) {
       return next.length === prev.length && next.every((id, i) => id === prev[i]) ? prev : next;
     });
   }, [activeId, sessions]);
+
+  // When each terminal was last on screen; hidden too long, it lets go.
+  const hiddenSince = useRef(new Map<string, number>());
+  const shown = slot ? activeId : null;
+  useEffect(() => {
+    const now = Date.now();
+    for (const id of ids) {
+      if (id === shown) hiddenSince.current.delete(id);
+      else if (!hiddenSince.current.has(id)) hiddenSince.current.set(id, now);
+    }
+    for (const id of [...hiddenSince.current.keys()]) if (!ids.includes(id)) hiddenSince.current.delete(id);
+  }, [ids, shown]);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setIds((prev) => {
+        const next = pruneDeck(prev, shown, hiddenSince.current, Date.now());
+        return next.length === prev.length ? prev : next;
+      });
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [shown]);
 
   // Follow the slot: its size changes with the rail divider, the window,
   // the header strip wrapping.

@@ -31,7 +31,10 @@ import { findSession } from './web-state.js';
 
 const HISTORY_BYTES = 1024 * 1024;
 
-export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { stopAll: () => void; stop: (id: string) => void; pids: () => number[] } {
+export function mountChatRoutes(
+  app: Hono,
+  opts: { baseUrl: () => string },
+): { stopAll: () => void; stop: (id: string) => void; pids: () => number[]; idle: (afterMs: number, now?: number) => string[] } {
   const chats = new Map<string, ChatSession>();
   const byToken = new Map<string, ChatSession>();
   const watchers = new Map<string, Set<(e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => void>>();
@@ -158,5 +161,17 @@ export function mountChatRoutes(app: Hono, opts: { baseUrl: () => string }): { s
     },
     stop: (id: string) => chats.get(id)?.stop(),
     pids: () => [...chats.values()].flatMap((c) => (c.pid ? [c.pid] : [])),
+    idle: (afterMs, now = Date.now()) => idleChats(chats, (id) => watchers.get(id)?.size ?? 0, afterMs, now),
   };
+}
+
+/** Chats to put to sleep: their Claude idle at its prompt for `afterMs`, nobody watching them. */
+export function idleChats(
+  chats: ReadonlyMap<string, Pick<ChatSession, 'state' | 'lastActivityAt'>>,
+  watching: (id: string) => number,
+  afterMs: number,
+  now: number,
+): string[] {
+  if (afterMs <= 0) return [];
+  return [...chats.entries()].filter(([id, c]) => c.state === 'idle' && now - c.lastActivityAt >= afterMs && watching(id) === 0).map(([id]) => id);
 }

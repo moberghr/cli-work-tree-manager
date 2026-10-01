@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ChatSession, type ChatEvent } from '../../src/core/chat-session.js';
+import { MAX_HISTORY_BYTES, ChatSession, type ChatEvent } from '../../src/core/chat-session.js';
 import { killTree, runAll } from '../functional/fixtures/processes.js';
 
 const FAKE = path.join(__dirname, 'fixtures', 'fake-claude-stream.cjs');
@@ -101,5 +101,26 @@ describe('ChatSession (headless Claude over stream-json)', () => {
     await expect(decision).resolves.toEqual({ behavior: 'deny', message: 'not that folder' });
     expect(chat.snapshot().permissions).toEqual([]);
     expect(chat.answer(p.id, true)).toBe(false); // already answered
+  });
+});
+
+describe('ChatSession memory', () => {
+  it('keeps the history under its size cap (oldest go first, never below the last 50)', () => {
+    const big = 'x'.repeat(300_000);
+    const history = Array.from({ length: 100 }, (_, i) => ({ type: 'user', i, message: { content: big } }));
+    const { chat } = make(history);
+    const kept = chat.snapshot().messages;
+    const bytes = kept.reduce((n, m) => n + JSON.stringify(m.raw).length, 0);
+    expect(bytes).toBeLessThanOrEqual(MAX_HISTORY_BYTES);
+    expect(kept.length).toBeGreaterThanOrEqual(50);
+    expect((kept[kept.length - 1].raw as { i: number }).i).toBe(99); // the newest stay
+    const few = make(Array.from({ length: 10 }, (_, i) => ({ type: 'user', i, message: { content: 'x'.repeat(5_000_000) } }))).chat;
+    expect(few.snapshot().messages).toHaveLength(10); // under 50: kept, however big
+  });
+
+  it('knows when it was last active', () => {
+    const before = Date.now();
+    const { chat } = make();
+    expect(chat.lastActivityAt).toBeGreaterThanOrEqual(before);
   });
 });

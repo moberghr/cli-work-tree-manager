@@ -14,7 +14,8 @@ import type { PtyInfo } from './pty-host-protocol.js';
  *  - its status isn't working or waiting for an answer;
  *  - it isn't the dashboard assistant (Ctrl+K), which is meant to stay.
  */
-export const DEFAULT_SLEEP_AFTER_MINUTES = 240;
+/** Two hours: a Claude holds a few hundred MB, more with its language server. */
+export const DEFAULT_SLEEP_AFTER_MINUTES = 120;
 
 /**
  * The shortest sleep: the Terminal tab reads a Stop within the last 30

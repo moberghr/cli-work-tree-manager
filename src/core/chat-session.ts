@@ -45,6 +45,8 @@ export interface PermissionDecision {
 }
 
 const MAX_MESSAGES = 3000;
+/** History kept for the view, by size too: tool results can be megabytes each. */
+export const MAX_HISTORY_BYTES = 16 * 1024 * 1024;
 const INTERRUPT_GRACE_MS = 4000;
 export const PERMISSION_TOOL = 'mcp__work_chat__approve';
 
@@ -54,6 +56,10 @@ export const newChatToken = (): string => crypto.randomBytes(16).toString('hex')
 export class ChatSession {
   state: ChatState = 'stopped';
   error: string | null = null;
+  /** When anything last happened (a message, a state change): idle sleep reads it. */
+  lastActivityAt = Date.now();
+  private historyBytes = 0;
+  private sizes: number[] = [];
   claudeSessionId: string | null = null;
   private messages: ChatMessage[] = [];
   private seq = 0;
@@ -106,13 +112,22 @@ export class ChatSession {
     if (this.state === state && this.error === error) return;
     this.state = state;
     this.error = error;
+    this.lastActivityAt = Date.now();
     this.emit({ type: 'state', state, error });
   }
 
   private push(raw: unknown, live = true): void {
     const message = { seq: this.seq++, raw };
+    const size = approxBytes(raw);
     this.messages.push(message);
-    if (this.messages.length > MAX_MESSAGES) this.messages.splice(0, this.messages.length - MAX_MESSAGES);
+    this.sizes.push(size);
+    this.historyBytes += size;
+    this.lastActivityAt = Date.now();
+    // Oldest first, but never below the last 50 messages.
+    while (this.messages.length > 50 && (this.messages.length > MAX_MESSAGES || this.historyBytes > MAX_HISTORY_BYTES)) {
+      this.messages.shift();
+      this.historyBytes -= this.sizes.shift() ?? 0;
+    }
     if (live) this.emit({ type: 'message', message });
   }
 
@@ -351,4 +366,13 @@ export function writeMcpConfig(dir: string, sessionId: string, url: string): str
   const file = path.join(dir, `${sessionId}.mcp.json`);
   fs.writeFileSync(file, JSON.stringify({ mcpServers: { work_chat: { type: 'http', url } } }, null, 2));
   return file;
+}
+
+/** About how many bytes a stream-json message holds (its JSON length). */
+function approxBytes(raw: unknown): number {
+  try {
+    return JSON.stringify(raw)?.length ?? 0;
+  } catch {
+    return 0;
+  }
 }
