@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { archiveWaiting } from './session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import crossSpawn from 'cross-spawn';
@@ -161,6 +162,14 @@ export function mountWorktreeRoutes(
       if (!config) return c.json({ error: 'no config' }, 400);
 
       const { force, sessionOnly } = c.req.valid('json');
+      // What deleting would cut off — its Claude mid-turn or waiting on you,
+      // replies to post, notes not yet delivered — refuses it unless forced,
+      // as archiving does. (A clean worktree used to be deleted with its
+      // Claude stopped mid-work: one click away with the bulk bar.)
+      if (!force) {
+        const waiting = archiveWaiting(id);
+        if (waiting.length) return c.json({ error: `Not deleted: ${waiting.join('; ')}.`, blocked: waiting }, 409);
+      }
       try {
         const onDisk = session.paths.some((p) => fs.existsSync(p));
         // A removal that will be refused (uncommitted or unpushed work,

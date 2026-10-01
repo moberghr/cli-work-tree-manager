@@ -20,12 +20,15 @@ export interface BulkActions {
  */
 export function BulkBar({
   selected,
+  hidden = 0,
   actions,
   onRun,
   onClear,
   busy,
 }: {
   selected: SessionSummary[];
+  /** Ticked, but hidden by the filter: left out. */
+  hidden?: number;
   actions: BulkActions;
   /** Run `act` over these sessions; the table owns progress and the outcome. */
   onRun: (verb: string, act: (s: SessionSummary) => Promise<unknown>, which: SessionSummary[]) => void;
@@ -40,6 +43,7 @@ export function BulkBar({
   return (
     <div className="wd-bulk-bar" role="toolbar" aria-label="Act on the ticked sessions">
       <span className="wd-bulk-count">{selected.length} selected</span>
+      {hidden > 0 && <span className="wd-bulk-hidden" title="Ticked, but hidden by the filter or search: the bar leaves them out">(+{hidden} hidden, not included)</span>}
       {busy ? (
         <span className="wd-bulk-busy">{busy}</span>
       ) : mode === 'send' ? (

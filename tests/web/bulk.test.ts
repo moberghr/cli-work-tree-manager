@@ -93,6 +93,21 @@ describe('the Sessions table’s bulk bar', () => {
     expect(button(/^Restore \d/).textContent).toBe('Restore 1');
   });
 
+  it('a ticked row the search hides is left out, and the bar says so', async () => {
+    tick('a');
+    tick('b');
+    const box = container.querySelector<HTMLInputElement>('.wd-tab-search')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, 'feat/a');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.querySelector('.wd-bulk-count')!.textContent).toBe('1 selected');
+    expect(container.querySelector('.wd-bulk-hidden')!.textContent).toContain('+1 hidden');
+    await act(async () => button('Archive 1').click());
+    await settle();
+    expect(bulk.archive.mock.calls.map((c) => (c[0] as SessionSummary).id)).toEqual(['a']);
+  });
+
   it('send one prompt to them all; delete asks first and never forces', async () => {
     tick('a');
     tick('c');
@@ -112,5 +127,25 @@ describe('the Sessions table’s bulk bar', () => {
     await act(async () => button('Delete').click());
     await settle();
     expect(bulk.remove).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the bulk bar’s real calls (defaultBulk)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('archive never forces: a session with work waiting is refused with why; delete sends no force', async () => {
+    const { defaultBulk } = await import('../../src/web/src/components/Dashboard/tabs/SessionsTab.js');
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method, body: init?.body as string | undefined });
+      if (url.endsWith('/archive')) return new Response(JSON.stringify({ blocked: ['its Claude is working'] }), { status: 409 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    await expect(defaultBulk.archive(session('a'))).rejects.toThrow('Not archived: its Claude is working');
+    expect(calls.filter((c) => c.url.endsWith('/archive'))).toHaveLength(1); // asked once, not again with force
+    await defaultBulk.remove(session('b'));
+    const del = calls.find((c) => c.method === 'DELETE')!;
+    expect(del.url).toContain('/api/sessions/b/worktree');
+    expect(JSON.parse(del.body ?? '{}')).toEqual({});
   });
 });

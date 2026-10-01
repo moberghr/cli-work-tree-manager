@@ -37,7 +37,7 @@ interface Props {
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
-const defaultBulk: BulkActions = {
+export const defaultBulk: BulkActions = {
   archive: (s) => setArchived(s.id, true, () => false),
   restore: (s) => setArchived(s.id, false, () => false),
   snooze: (s, choice) => snoozeSession(s, choice),
@@ -97,7 +97,9 @@ export function SessionsTab({
       else next.delete(id);
       return next;
     });
-  const selected = sessions.filter((s) => picked.has(s.id));
+  // Ticked AND shown: a filter that hides a ticked row takes it out of what
+  // the bar acts on (it would act on sessions you can't see); the bar says so.
+  const tickedAll = sessions.filter((s) => picked.has(s.id));
   const runBulkAction = (verb: string, act: (s: SessionSummary) => Promise<unknown>, which: SessionSummary[]) => {
     const byId = new Map(which.map((s) => [s.id, s]));
     setBulkOutcome(null);
@@ -157,6 +159,14 @@ export function SessionsTab({
       return lastActiveAt(b).localeCompare(lastActiveAt(a));
     });
   }, [sessions, live, showArchived, sort, filter, query]);
+
+  const selected = filtered.filter((s) => picked.has(s.id));
+  const hiddenTicked = tickedAll.length - selected.length;
+  // A ticked session that is gone (deleted elsewhere) leaves the selection.
+  useEffect(() => {
+    const ids = new Set(sessions.map((s) => s.id));
+    setPicked((prev) => ([...prev].every((id) => ids.has(id)) ? prev : new Set([...prev].filter((id) => ids.has(id)))));
+  }, [sessions]);
 
   const groups = useMemo(
     () =>
@@ -294,8 +304,8 @@ export function SessionsTab({
           </button>
         </div>
       </header>
-      {(picked.size > 0 || bulkBusy) && (
-        <BulkBar selected={selected} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} />
+      {(selected.length > 0 || bulkBusy) && (
+        <BulkBar selected={selected} hidden={hiddenTicked} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} />
       )}
       {bulkOutcome && (
         <p className="wd-bulk-outcome" role="status">

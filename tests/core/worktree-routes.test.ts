@@ -184,6 +184,17 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect(disposePty).not.toHaveBeenCalled();
   });
 
+  it('refuses a clean worktree whose Claude is working (or waits on you), unless forced — its Claude left alone', async () => {
+    const { recordStatusEvent } = await import('../../src/core/session-status.js');
+    await recordStatusEvent(sessionId(), { kind: 'prompt', prompt: 'go' });
+    const r = await del({});
+    expect(r.status).toBe(409);
+    expect(r.json).toMatchObject({ error: 'Not deleted: its Claude is working.', blocked: ['its Claude is working'] });
+    expect(disposePty).not.toHaveBeenCalled();
+    expect(fs.existsSync(wtPath)).toBe(true);
+    expect((await del({ force: true })).status).toBe(200);
+  });
+
   it('force removes a dirty worktree', async () => {
     fs.writeFileSync(path.join(wtPath, 'wip.txt'), 'dirty\n');
     const r = await del({ force: true });
