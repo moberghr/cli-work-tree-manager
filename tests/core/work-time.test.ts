@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { STEP_CAP_MS, workedBetween, workedByDay, workSteps } from '../../src/core/work-time.js';
+import { mergeSteps, STEP_CAP_MS, workedBetween, workedByDay, workSteps } from '../../src/core/work-time.js';
 import { dayKey, formatWorked, worklogTime } from '../../src/core/work-time-view.js';
 import { resetWorkTimeCache, sessionWorkTime } from '../../src/core/work-time-source.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
@@ -33,6 +33,13 @@ describe('workSteps', () => {
     const a = workSteps([you(0), claude(3)]);
     const b = workSteps([claude(2), claude(5)], a.lastMs);
     expect(workedBetween([...a.steps, ...b.steps])).toBe((3 + 2) * 60_000); // 2 is before 3: nothing; 3→5
+  });
+
+  it('two transcripts working at the same time count that time once', () => {
+    const a = workSteps([you(0), claude(10)]).steps; // 0→10
+    const b = workSteps([you(5), claude(15)]).steps; // 5→15, overlapping 5→10
+    expect(workedBetween(mergeSteps([...a, ...b]))).toBe(15 * 60_000);
+    expect(workedBetween(mergeSteps([...a, ...workSteps([you(20), claude(22)]).steps]))).toBe(12 * 60_000);
   });
 
   it('per window and per day', () => {
@@ -91,6 +98,32 @@ describe('sessionWorkTime (its transcripts on disk)', () => {
 
     fs.writeFileSync(file, line(you(0)) + line(claude(1))); // rewritten, shorter
     expect((await sessionWorkTime(session(), now)).workedMs).toBe(60_000);
+  });
+
+  it('a rewrite of the same size (or a longer one with another start) is read again, not taken for an append', async () => {
+    const now = T0 + 120 * 60_000;
+    fs.writeFileSync(file, line(you(0)) + line(claude(5)));
+    expect((await sessionWorkTime(session(), now)).workedMs).toBe(5 * 60_000);
+    const same = line(you(0)) + line(claude(9)); // same length, other content
+    expect(Buffer.byteLength(same)).toBe(fs.statSync(file).size);
+    fs.writeFileSync(file, same);
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 5_000));
+    expect((await sessionWorkTime(session(), now)).workedMs).toBe(9 * 60_000);
+    fs.writeFileSync(file, line(you(1, 'another conversation')) + line(claude(3)) + line(claude(40)));
+    expect((await sessionWorkTime(session(), now)).workedMs).toBe((2 + 15) * 60_000);
+  });
+
+  it('GET /api/sessions/:id/time', async () => {
+    const { Hono } = await import('hono');
+    const { saveHistory } = await import('../../src/core/history.js');
+    const { sessionIdFor } = await import('../../src/core/session-id.js');
+    const { mountCatchUpRoutes } = await import('../../src/core/catch-up-routes.js');
+    fs.writeFileSync(file, line(you(0)) + line(claude(7)));
+    saveHistory([session()]);
+    const app = new Hono();
+    mountCatchUpRoutes(app, { ask: async () => null });
+    expect(await (await app.request(`/api/sessions/${sessionIdFor(session())}/time`)).json()).toMatchObject({ workedMs: 7 * 60_000, prompts: 1 });
+    expect((await app.request('/api/sessions/nope/time')).status).toBe(404);
   });
 
   it('no transcripts: nothing', async () => {

@@ -33,9 +33,11 @@ afterEach(() => {
 });
 
 describe('worklogLine', () => {
-  it("today's work with the Jira key, rounded up to a quarter hour; all of it when nothing today", () => {
-    expect(worklogLine({ jiraKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({ text: 'PAY-12 1h — Retry payments', today: true });
-    expect(worklogLine({ branch: 'feat/x', title: null } as never, { ...time, byDay: [] })).toEqual({ text: '1h 45m — feat/x', today: false });
+  it("the latest day's work with the Jira key, rounded up to a quarter hour — never a lifetime total", () => {
+    expect(worklogLine({ jiraKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({ text: 'PAY-12 1h — Retry payments', day: today });
+    const earlier = { ...time, byDay: [{ day: '2026-09-28', ms: 20 * 60_000 }, { day: '2026-09-27', ms: 3 * 3600_000 }] };
+    expect(worklogLine({ branch: 'feat/x', title: null } as never, earlier)).toEqual({ text: '30m — feat/x', day: '2026-09-28' });
+    expect(worklogLine({ branch: 'feat/x', title: null } as never, { ...time, byDay: [] })).toBeNull();
   });
 });
 
@@ -59,6 +61,30 @@ describe('WorkTimeChip', () => {
     expect(api.fetchWorkTime).toHaveBeenCalledTimes(1);
     await act(async () => root.render(createElement(WorkTimeChip, { session: session({ id: 's2' }) })));
     expect(api.fetchWorkTime).toHaveBeenLastCalledWith('s2');
+  });
+
+  it("a copy that fails says so (no dead button); nothing to log in two weeks: it can't be clicked", async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => { throw new Error('denied'); }) }, configurable: true });
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session() })));
+    const chip = container.querySelector<HTMLButtonElement>('.wd-work-time')!;
+    await act(async () => chip.click());
+    expect(chip.textContent).toBe("⏱ Couldn't copy");
+    api.fetchWorkTime.mockResolvedValue({ ...time, byDay: [] });
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ id: 's9' }) })));
+    expect(container.querySelector<HTMLButtonElement>('.wd-work-time')!.disabled).toBe(true);
+  });
+
+  it('a change inside the minute is caught up when the minute is over', async () => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => root.render(createElement(WorkTimeChip, { session: session() })));
+      await act(async () => root.render(createElement(WorkTimeChip, { session: session({ lastActivity: 2 }) })));
+      expect(api.fetchWorkTime).toHaveBeenCalledTimes(1);
+      await act(async () => { vi.advanceTimersByTime(61_000); });
+      expect(api.fetchWorkTime).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('under a minute: nothing shown', async () => {

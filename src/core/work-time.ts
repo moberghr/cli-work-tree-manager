@@ -16,7 +16,10 @@ export const STEP_CAP_MS = 15 * 60_000;
 /** One step of Claude's: when it ended (ms) and how long it counted for. */
 export type WorkStep = readonly [endMs: number, ms: number];
 
-/** Claude's own line: its message, or a tool's result coming back to it. */
+/** Claude's own line: its message, or a tool's result coming back to it.
+ *  A subagent's lines count too (unlike the digest's prompts): its work is
+ *  Claude's work, and the steps of one file never overlap, so nothing is
+ *  counted twice. */
 function isClaudes(e: TranscriptEntry): boolean {
   if (e.type === 'assistant') return true;
   return e.type === 'user' && contentBlocks(e).some((b) => b.type === 'tool_result');
@@ -41,6 +44,26 @@ export function workSteps(entries: readonly TranscriptEntry[], prevMs: number | 
     prev = prev === null ? ts : Math.max(prev, ts);
   }
   return { steps, lastMs: prev };
+}
+
+/**
+ * Steps from several transcripts of one session (two Claudes on one folder
+ * at once, a conversation resumed beside another) as one timeline: time
+ * covered by both counts once. Pure.
+ */
+export function mergeSteps(steps: readonly WorkStep[]): WorkStep[] {
+  const spans = steps.map(([end, ms]) => [end - ms, end] as [number, number]).sort((a, b) => a[0] - b[0]);
+  const out: WorkStep[] = [];
+  let cur: [number, number] | null = null;
+  for (const [start, end] of spans) {
+    if (cur && start <= cur[1]) cur[1] = Math.max(cur[1], end);
+    else {
+      if (cur) out.push([cur[1], cur[1] - cur[0]]);
+      cur = [start, end];
+    }
+  }
+  if (cur) out.push([cur[1], cur[1] - cur[0]]);
+  return out;
 }
 
 /** Time worked in steps ending at or after `sinceMs` (and before `untilMs`). */
