@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { snoozeActive, type Snooze } from './snooze.js';
 import { withLiveClaude } from './session-status.js';
 import path from 'node:path';
 import { readSessionMeta } from './session-meta.js';
@@ -35,6 +36,8 @@ export interface SessionWireOptions {
   liveKnown?: boolean;
   /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
   hostedLive?: (id: string) => boolean;
+  /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
+  snoozeFor?: (id: string) => Snooze | null;
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -44,7 +47,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const claudes = shadowed ? null : (opts.claudesFor?.(id) ?? null);
   const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
   const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
-  return {
+  const wire: SessionWire = {
     id,
     target: s.target,
     branch: s.branch,
@@ -78,6 +81,10 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
     ...otherBranches(s),
   };
+  // Snoozed: only while it holds (a time not yet reached, or the status it was snoozed in).
+  const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
+  if (snooze && snoozeActive(snooze, wire)) wire.snoozed = { until: snooze.until };
+  return wire;
 }
 
 /**

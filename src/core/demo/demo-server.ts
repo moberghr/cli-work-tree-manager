@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { snoozeActive, snoozeFor, type Snooze } from '../snooze.js';
 import { streamSSE } from 'hono/streaming';
 import { WebSocketServer } from 'ws';
 import { launch, type DiffServerHandle } from '../local-server.js';
@@ -48,9 +49,30 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'replies-changed', data: { sessionId } });
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
   });
+  // Snoozes, in memory, by the real rules (snooze.ts).
+  const snoozes = new Map<string, Snooze>();
   app.get('/api/sessions', (c) =>
-    c.json({ sessions: scenario.list().map((w) => (draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : w)) }),
+    c.json({
+      sessions: scenario.list().map((w) => {
+        const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
+        const z = snoozes.get(w.id);
+        return z && snoozeActive(z, out) ? { ...out, snoozed: { until: z.until } } : out;
+      }),
+    }),
   );
+  app.post('/api/sessions/:id/snooze', async (c) => {
+    const body = await json(c);
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    if (body.for !== '2h' && body.for !== 'tomorrow' && body.for !== 'change') return c.json({ error: "for: '2h', 'tomorrow' or 'change'" }, 400);
+    const z = snoozeFor(body.for, w);
+    snoozes.set(w.id, z);
+    return c.json({ ok: true, snooze: z });
+  });
+  app.delete('/api/sessions/:id/snooze', (c) => {
+    snoozes.delete(c.req.param('id'));
+    return c.json({ ok: true });
+  });
 
   app.get('/api/sessions/:id/checkpoints', (c) => {
     const entries = scenario.checkpoints(c.req.param('id'));

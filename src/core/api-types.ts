@@ -330,6 +330,8 @@ export interface SessionOverlap {
  *  work web and the demo) sends. */
 export interface SessionWire {
   id: string;
+  /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
+  snoozed?: { until: string | null };
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;

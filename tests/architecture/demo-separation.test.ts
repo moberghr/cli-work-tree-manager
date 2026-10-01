@@ -51,6 +51,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/transcript-entry.ts', // pure: transcript line shapes
       'src/core/session-order.ts', // pure: the sessions list's manual order
       'src/core/activity.ts', // pure: the in-memory Activity log
+      'src/core/snooze.ts', // pure: when a snooze ends
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

@@ -27,6 +27,8 @@ const actions = (): SessionMenuActions & { calls: string[] } => {
     openEditor: (s) => void calls.push(`editor ${s.id}`),
     copyBranch: (s) => void calls.push(`copy ${s.branch}`),
     remove: (s) => void calls.push(`delete ${s.id}`),
+    snooze: (s, c) => void calls.push(`snooze ${s.id} ${c}`),
+    unsnooze: (s) => void calls.push(`unsnooze ${s.id}`),
   };
 };
 
@@ -43,13 +45,19 @@ afterEach(() => {
 });
 
 describe('sessionMenuItems', () => {
-  it("a live session: archive, open in terminal / editor, copy its branch, delete (in red)", () => {
+  it("a live session: archive, snooze, open in terminal / editor, copy its branch, delete (in red)", () => {
     const a = actions();
     const items = sessionMenuItems(session('a'), a);
-    expect(items.map((i) => i.label)).toEqual(['Archive', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
+    expect(items.map((i) => i.label)).toEqual(['Archive', 'Snooze 2 hours', 'Snooze until tomorrow 9:00', 'Snooze until it changes', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
     expect(items.find((i) => i.label === 'Delete…')).toMatchObject({ danger: true });
     for (const i of items) i.run();
-    expect(a.calls).toEqual(['archive a', 'terminal a', 'editor a', 'copy feat/a', 'delete a']);
+    expect(a.calls).toEqual(['archive a', 'snooze a 2h', 'snooze a tomorrow', 'snooze a change', 'terminal a', 'editor a', 'copy feat/a', 'delete a']);
+  });
+
+  it('a snoozed one offers Unsnooze instead', () => {
+    const labels = sessionMenuItems(session('z', { snoozed: { until: null } }), actions()).map((i) => i.label);
+    expect(labels).toContain('Unsnooze');
+    expect(labels).not.toContain('Snooze 2 hours');
   });
 
   it('an archived one: restore, copy, delete — nothing that opens its folder', () => {
@@ -64,8 +72,8 @@ describe('the rail menu', () => {
     const row = [...container.querySelectorAll('.wd-dash-rail-item')].find((r) => r.textContent?.includes('feat/b'))!;
     act(() => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
     const items = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual(['Rename', 'Archive', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
-    act(() => items[2].click());
+    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual(['Rename', 'Archive', 'Snooze 2 hours', 'Snooze until tomorrow 9:00', 'Snooze until it changes', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
+    act(() => items[5].click());
     expect(a.calls).toEqual(['terminal b']);
     expect(container.querySelector('[role="menu"]')).toBeNull();
   });

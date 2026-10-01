@@ -4,6 +4,7 @@ import type {
   CommentStatus,
   CommentSide,
 } from '../../../core/comment-types.js';
+import type { SnoozeFor } from '../../../core/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import type {
   ActivityState,
@@ -130,6 +131,8 @@ export interface SessionSummary {
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
   title?: string | null;
+  /** Snoozed out of the Inbox right now: until when, or null for "until it changes". */
+  snoozed?: { until: string | null };
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   titleIsYours?: boolean;
@@ -549,6 +552,16 @@ export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
 /** What the dashboard shows, for the Ctrl+K assistant's context. */
 export function reportAssistantView(view: AssistantView): Promise<{ ok: true }> {
   return postJson('/api/assistant/context', view);
+}
+
+/** Out of the Inbox for 2 hours, until tomorrow 9:00, or until its status changes (snooze.ts). */
+export function snoozeSession(s: Pick<SessionSummary, 'id' | 'openReviewThreads'>, choice: SnoozeFor): Promise<{ ok: true }> {
+  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { for: choice, openReviewThreads: s.openReviewThreads ?? 0 });
+}
+
+export async function unsnoozeSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/snooze`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`${res.status} unsnoozing`);
 }
 
 /** The user opened a session that wanted attention — clear its unseen flag. */

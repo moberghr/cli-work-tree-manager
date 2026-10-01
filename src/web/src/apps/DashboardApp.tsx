@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
-import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived } from '../api/client.js';
+import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareInbox, needsAttention, wantsYou } from '../../../core/attention.js';
@@ -154,6 +154,12 @@ export function DashboardApp() {
             () => showToast({ text: "Couldn't copy to the clipboard", kind: 'error' }),
           ),
         remove: (x) => setDeleting(x),
+        snooze: (x, choice) =>
+          void snoozeSession(x, choice).then(
+            () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
+            (err: Error) => showToast({ text: err.message, kind: 'error' }),
+          ),
+        unsnooze: (x) => void unsnoozeSession(x.id).catch((err: Error) => showToast({ text: err.message, kind: 'error' })),
       }),
     [showToast],
   );

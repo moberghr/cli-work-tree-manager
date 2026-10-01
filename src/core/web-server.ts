@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
 import path from 'node:path';
@@ -290,11 +291,13 @@ export async function startWebServer(
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
+      const snoozes = allSnoozes();
       const sessions = history.map((s) =>
         sessionWire(s, {
           diffStatFor,
           claudesFor,
           liveKnown: !!table && table.size > 0,
+          snoozeFor: (id) => snoozes.get(id) ?? null,
           hostedLive: (id) => peekPty(id) || chatApi.running(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),

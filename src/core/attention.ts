@@ -51,6 +51,8 @@ export function needsAttention(s: Pick<AttentionLike, 'state' | 'seen'> | null |
 /** What the inbox ranks: Claude's status plus reviewers waiting on the session's PRs. */
 export interface InboxSubject {
   attention?: AttentionLike | null;
+  /** Snoozed out of the Inbox (snooze.ts): a section of its own, last; it doesn't want you meanwhile. */
+  snoozed?: unknown;
   /** Unresolved review threads on its open PRs whose last word isn't yours. */
   openReviewThreads?: number;
 }
@@ -67,6 +69,7 @@ export interface InboxSubject {
  *   5 no status, no review comments
  */
 export function inboxRank(s: InboxSubject): number {
+  if (s.snoozed) return 6;
   const a = s.attention;
   if (a?.state === 'needs_input') return 0;
   if (a?.state === 'idle' && !a.seen) return 1;

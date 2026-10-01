@@ -42,6 +42,7 @@ interface Props {
  *  status icon on the left says what it is; this says how long, or how many. */
 function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
   const since = s.attention?.since ?? s.lastAccessedAt;
+  if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
   if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
   if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };

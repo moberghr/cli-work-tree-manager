@@ -1871,3 +1871,7 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-switcher-empty { padding: 10px; color: var(--muted); font-size: 12px; }
 .wd-switcher-hint { margin: 0; padding: 6px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .wd-switcher-hint kbd { font-family: inherit; }
+
+/* Snoozed (snooze.ts): the rail's slot, the Inbox's last section. */
+.wd-rail-slot-snoozed { color: var(--muted); font-style: italic; }
+.wd-inbox-snoozed { opacity: 0.8; }

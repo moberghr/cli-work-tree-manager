@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { snoozeActive, snoozeFor } from './snooze.js';
+import { clearSnooze, readSnooze, saveSnooze } from './snooze-store.js';
 import type { Hono } from 'hono';
 import { loadConfig } from './config.js';
 import { findSessionForCwd } from './pending-delivery.js';
@@ -75,7 +77,10 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
           ? path.dirname(session.paths[0])
           : session.paths[0] ?? body.cwd;
         const name = `${session.target} · ${session.branch}`;
-        const route = presence.route(id);
+        // Snoozed for a while: no notification until then ("until it
+        // changes" has just ended — this is the change).
+        const snooze = readSnooze(id);
+        const route = snooze?.until && snoozeActive(snooze, { attention: status }) ? 'none' : presence.route(id);
         if (route !== 'none') {
           const event: NotifyEvent = {
             sessionId: id,
@@ -94,6 +99,28 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
     // after the reply: the hook that nudged us is waiting on it.
     setImmediate(() => opts.onStatusChanged?.(id));
     return c.json({ ok: true, matched: true, sessionId: id });
+  });
+
+  // Snooze: out of the Inbox for a while, or until its status changes (snooze.ts).
+  app.post('/api/sessions/:id/snooze', async (c) => {
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => null)) as { for?: unknown; openReviewThreads?: unknown } | null;
+    const choice = body?.for;
+    if (choice !== '2h' && choice !== 'tomorrow' && choice !== 'change') return c.json({ error: "for: '2h', 'tomorrow' or 'change'" }, 400);
+    const session = findSession(id);
+    if (!session) return c.json({ error: 'unknown session' }, 404);
+    // "Until it changes" compares against what the dashboard shows now (review threads come from the PR watch).
+    const status = readStatus(id);
+    const threads = typeof body?.openReviewThreads === 'number' ? body.openReviewThreads : 0;
+    const snooze = snoozeFor(choice, { attention: status, openReviewThreads: threads });
+    saveSnooze(id, snooze);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ ok: true, snooze });
+  });
+  app.delete('/api/sessions/:id/snooze', (c) => {
+    clearSnooze(c.req.param('id'));
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ ok: true });
   });
 
   app.post('/api/presence', async (c) => {

@@ -1,4 +1,5 @@
 import type { SessionSummary } from '../api/client.js';
+import type { SnoozeFor } from '../../../core/snooze.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 
 /**
@@ -13,6 +14,8 @@ export interface SessionMenuActions {
   openEditor: (s: SessionSummary) => void;
   copyBranch: (s: SessionSummary) => void;
   remove: (s: SessionSummary) => void;
+  snooze: (s: SessionSummary, choice: SnoozeFor) => void;
+  unsnooze: (s: SessionSummary) => void;
 }
 
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
@@ -21,6 +24,16 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
     archived
       ? { label: 'Restore', run: () => a.setArchived(s, false) }
       : { label: 'Archive', run: () => a.setArchived(s, true) },
+    // Snooze: out of the Inbox for a while (an archived one isn't in it).
+    ...(archived
+      ? []
+      : s.snoozed
+        ? [{ label: 'Unsnooze', run: () => a.unsnooze(s), separated: true }]
+        : [
+            { label: 'Snooze 2 hours', run: () => a.snooze(s, '2h'), separated: true },
+            { label: 'Snooze until tomorrow 9:00', run: () => a.snooze(s, 'tomorrow') },
+            { label: 'Snooze until it changes', run: () => a.snooze(s, 'change') },
+          ]),
     // An archived one's Claude is stopped and its folder may be gone: Restore first.
     ...(archived
       ? []
