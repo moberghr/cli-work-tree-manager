@@ -1,4 +1,5 @@
 import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
+import { workedBetween, type WorkStep } from './work-time.js';
 import type { DiffStat, DigestSession, SessionCi } from './api-types.js';
 
 /**
@@ -21,7 +22,8 @@ const NOT_TYPED = /^\s*(<command-name>|<command-message>|<local-command-|<system
  *  "3 files · +52 −8" or "no changes". A size, not what the turn did. */
 export const HEURISTIC_LABEL_RE = /^(\d+ files? · \+\d+ −\d+|no changes)$/;
 
-function promptText(e: TranscriptEntry): string | null {
+/** The text you typed, when this entry is one of your prompts (not a tool result, echo or subagent line). */
+export function promptText(e: TranscriptEntry): string | null {
   if (e.type !== 'user' || e.isSidechain === true || e.isMeta === true) return null;
   const blocks = contentBlocks(e);
   // A tool result is Claude's own loop, not you.
@@ -96,6 +98,8 @@ export interface DigestInput {
   transcripts: TranscriptEntry[][];
   /** A transcript was too large to read back to the window's start. */
   transcriptsPartial?: boolean;
+  /** Claude's work steps in those transcripts (work-time.ts). */
+  work?: WorkStep[][];
   /** The session scope's checkpoints (id 0 is the baseline, not a turn). */
   checkpoints: Array<{ id: number; ts: string; label?: string }>;
   diffStat: DiffStat | null;
@@ -144,6 +148,10 @@ export function digestSession(s: DigestInput, sinceMs: number): DigestSession | 
     prs,
     archivedAt: s.archivedAt,
     lastActivity: new Date(Math.max(...times)).toISOString(),
+    ...(() => {
+      const ms = (s.work ?? []).reduce((n, steps) => n + workedBetween(steps, sinceMs), 0);
+      return ms > 0 ? { workedMs: ms } : {};
+    })(),
   };
 }
 

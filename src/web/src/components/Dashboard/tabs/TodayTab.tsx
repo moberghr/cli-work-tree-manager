@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatWorked } from '../../../../../core/work-time-view.js';
 import type { DigestResponse, DigestSession } from '../../../api/client.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
@@ -101,7 +102,8 @@ export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCo
             <span className="wd-tab-header-muted">
               ({t.sessions} session{t.sessions === 1 ? '' : 's'} · {t.prompts} prompt{t.prompts === 1 ? '' : 's'} · {t.turns} turn
               {t.turns === 1 ? '' : 's'}
-              {t.merged ? ` · ${t.merged} merged` : ''})
+              {t.merged ? ` · ${t.merged} merged` : ''}
+              {t.workedMs ? ` · ~${formatWorked(t.workedMs)} of Claude work` : ''})
             </span>
           )}
         </h1>
@@ -153,6 +155,7 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
               {s.turns} turn{s.turns === 1 ? '' : 's'}
             </span>
           )}
+          {!!s.workedMs && <span title="How long its Claude worked in this window (approximate: the time between its steps, at most 15 minutes each)">~{formatWorked(s.workedMs)} worked</span>}
           {!!s.diffStat?.files && (
             <span className="wd-diffstat" title="Uncommitted now">
               <span className="wd-diffstat-add">+{s.diffStat.added}</span> <span className="wd-diffstat-del">−{s.diffStat.deleted}</span>

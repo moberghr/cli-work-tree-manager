@@ -7,7 +7,8 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, UpdateFromMainWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -59,6 +60,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // "Catch me up": a canned summary (the demo runs no Claude).
   const caughtUp = new Map<string, { text: string; at: string }>();
+  // Time worked: a believable figure from the session's id (the demo keeps no transcripts).
+  app.get('/api/sessions/:id/time', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const seed = [...w.id].reduce((n, ch) => n + ch.charCodeAt(0), 0);
+    const today = (20 + (seed % 70)) * 60_000;
+    const yesterday = (seed % 3) * 25 * 60_000;
+    const d = (offset: number) => dayKey(Date.now() - offset * 24 * 3_600_000);
+    const byDay = [{ day: d(0), ms: today }, ...(yesterday ? [{ day: d(1), ms: yesterday }] : [])];
+    return c.json({ workedMs: today + yesterday, prompts: 3 + (seed % 9), byDay, firstAt: w.createdAt, lastAt: new Date().toISOString() } satisfies WorkTimeWire);
+  });
   app.get('/api/sessions/:id/catch-up', (c) => c.json({ catchUp: caughtUp.get(c.req.param('id')) ?? null } satisfies CatchUpWire));
   app.post('/api/sessions/:id/catch-up', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));

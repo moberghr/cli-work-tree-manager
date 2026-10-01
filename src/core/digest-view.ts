@@ -1,4 +1,5 @@
 import type { DigestResponse, DigestSession } from './api-types.js';
+import { formatWorked } from './work-time-view.js';
 
 /* Pure (the SPA imports it): the Today digest's windows, totals and Markdown,
  * shared by the Today tab and `work digest`. */
@@ -26,9 +27,10 @@ export const STATE_LABEL: Record<NonNullable<DigestSession['state']>, string> = 
   idle: 'idle',
 };
 
-export function totals(d: DigestResponse): { sessions: number; prompts: number; turns: number; merged: number } {
+export function totals(d: DigestResponse): { sessions: number; prompts: number; turns: number; merged: number; workedMs: number } {
   const since = Date.parse(d.since);
   return {
+    workedMs: d.sessions.reduce((n, s) => n + (s.workedMs ?? 0), 0),
     sessions: d.sessions.length,
     prompts: d.sessions.reduce((n, s) => n + s.prompts.length + s.morePrompts, 0),
     turns: d.sessions.reduce((n, s) => n + s.turns, 0),
@@ -42,13 +44,14 @@ export function digestMarkdown(d: DigestResponse, title: string): string {
   const lines = [
     `## ${title}`,
     '',
-    `${t.sessions} session${t.sessions === 1 ? '' : 's'} · ${t.prompts} prompt${t.prompts === 1 ? '' : 's'} · ${t.turns} turn${t.turns === 1 ? '' : 's'}${t.merged ? ` · ${t.merged} merged` : ''}`,
+    `${t.sessions} session${t.sessions === 1 ? '' : 's'} · ${t.prompts} prompt${t.prompts === 1 ? '' : 's'} · ${t.turns} turn${t.turns === 1 ? '' : 's'}${t.merged ? ` · ${t.merged} merged` : ''}${t.workedMs ? ` · ~${formatWorked(t.workedMs)} of Claude work` : ''}`,
   ];
   for (const s of d.sessions) {
     lines.push('', `### ${s.target} · ${s.branch}`);
     const facts: string[] = [];
     if (s.state) facts.push(STATE_LABEL[s.state]);
     if (s.turns) facts.push(`${s.turns} turn${s.turns === 1 ? '' : 's'}`);
+    if (s.workedMs) facts.push(`~${formatWorked(s.workedMs)} of Claude work`);
     if (s.diffStat?.files) facts.push(`+${s.diffStat.added} −${s.diffStat.deleted} uncommitted`);
     for (const p of s.prs) facts.push(`[#${p.number}](${p.url}) ${p.state.toLowerCase()}`);
     if (s.archivedAt) facts.push('archived');

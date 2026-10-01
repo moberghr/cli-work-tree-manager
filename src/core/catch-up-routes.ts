@@ -3,11 +3,13 @@ import { findSession } from './web-state.js';
 import { cachedCatchUp, catchUp, type CatchUpFacts } from './catch-up.js';
 import { runClaude } from './checkpoint-summary.js';
 import { readStatus } from './session-status.js';
-import type { CatchUpWire } from './api-types.js';
+import type { CatchUpWire, WorkTimeWire } from './api-types.js';
+import { sessionWorkTime } from './work-time-source.js';
 
 /**
  * "Catch me up" (catch-up.ts), for the session header:
  *
+ *   GET  /api/sessions/:id/time      — how long its Claude worked (work-time.ts)
  *   GET  /api/sessions/:id/catch-up  — the last summary, if the conversation hasn't grown (runs nothing)
  *   POST /api/sessions/:id/catch-up  — write one (an internal Claude, no tools)
  */
@@ -26,6 +28,13 @@ export function mountCatchUpRoutes(
 ): void {
   const ask = opts.ask ?? askCatchUp;
   const facts = (id: string): CatchUpFacts => catchUpFacts(id, opts.facts?.(id));
+
+  // How long its Claude worked (work-time.ts): reads the transcripts (only what's new since the last look).
+  app.get('/api/sessions/:id/time', async (c) => {
+    const s = findSession(c.req.param('id'));
+    if (!s) return c.json({ error: 'unknown session' }, 404);
+    return c.json((await sessionWorkTime(s)) satisfies WorkTimeWire);
+  });
 
   app.get('/api/sessions/:id/catch-up', (c) => {
     const s = findSession(c.req.param('id'));

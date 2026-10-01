@@ -288,6 +288,8 @@ export interface DigestSession {
   archivedAt: string | null;
   /** Newest activity in the window (ISO). */
   lastActivity: string;
+  /** How long its Claude worked in the window (work-time.ts; approximate). */
+  workedMs?: number;
 }
 
 /** A one-click instruction for a session (config `prompts`, or defaults). */
@@ -538,6 +540,19 @@ export interface SessionCi {
 
 /** GET /api/rail (and every rail write's answer). */
 export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
+
+// ---- time per session (work-time.ts) ---------------------------------------------
+
+/** GET /api/sessions/:id/time: how long its Claude worked (approximate: see work-time.ts). */
+export interface WorkTimeWire {
+  workedMs: number;
+  /** Prompts you gave it, in all its transcripts. */
+  prompts: number;
+  /** The last two weeks, per local day, newest first; days without work left out. */
+  byDay: Array<{ day: string; ms: number }>;
+  firstAt: string | null;
+  lastAt: string | null;
+}
 
 // ---- fork (fork.ts) ---------------------------------------------------------------
 

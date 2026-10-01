@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip } from './BehindChip.js';
 import { CatchUpButton } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
@@ -121,6 +122,7 @@ export function SessionDetail({
         <DiffStatChip session={session} />
         <ClaudesChip session={session} />
         <StackChip session={session} onOpen={onOpenSession} />
+        <WorkTimeChip session={session} />
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ContextChip session={session} />
         <PrChips prs={prs} link />

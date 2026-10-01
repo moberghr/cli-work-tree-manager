@@ -654,6 +654,15 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
 }
 
+// ---- time per session ----------------------------------------------------
+
+export type WorkTime = import('../../../core/api-types.js').WorkTimeWire;
+
+/** How long the session's Claude worked (approximate; reads its transcripts). */
+export function fetchWorkTime(sessionId: string): Promise<WorkTime> {
+  return getJson<WorkTime>(`/api/sessions/${encodeURIComponent(sessionId)}/time`);
+}
+
 // ---- fork a session ------------------------------------------------------
 
 /** A new branch from where the session is; its Claude starts with a summary of this conversation. Slow (the summary). */
