@@ -41,5 +41,17 @@ export async function summarizeArchive(rec: ArchiveRecord, ask: (prompt: string)
   const out = (await ask(summaryPrompt(rec)))?.trim();
   if (!out) return null;
   // One paragraph, bounded: it is shown in a list row.
-  return out.replace(/\s+/g, ' ').slice(0, 800);
+  return clipToSentence(out.replace(/\s+/g, ' '), MAX_SUMMARY_CHARS);
+}
+
+const MAX_SUMMARY_CHARS = 800;
+
+/** At most `max` characters, ending at a sentence when one ends past half of it (else at a word, with "…"). */
+export function clipToSentence(text: string, max = MAX_SUMMARY_CHARS): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const end = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+  if (end >= max / 2) return head.slice(0, end + 1);
+  const space = head.lastIndexOf(' ');
+  return `${head.slice(0, space > 0 ? space : max).trimEnd()}…`;
 }

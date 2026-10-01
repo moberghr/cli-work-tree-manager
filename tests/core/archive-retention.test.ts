@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyArchiveRetention } from '../../src/core/archive-retention.js';
 import { readArchive, readArchivedTranscript, type ArchiveRecord } from '../../src/core/session-archive.js';
 import { searchArchives } from '../../src/core/archive-search.js';
-import { summaryPrompt, summarizeArchive } from '../../src/core/archive-summary.js';
+import { clipToSentence, summaryPrompt, summarizeArchive } from '../../src/core/archive-summary.js';
 
 let root: string;
 const DAY = 24 * 3600_000;
@@ -73,5 +73,16 @@ describe('archive summary', () => {
     expect(p).toContain('How the last turn ended: Done.');
     expect(await summarizeArchive(rec, async () => '  Rotated the keys.\n\nPR merged.  ')).toBe('Rotated the keys. PR merged.');
     expect(await summarizeArchive(rec, async () => null)).toBeNull();
+  });
+});
+
+describe('clipToSentence', () => {
+  it('ends a long summary at a sentence, else at a word', () => {
+    // A sentence ending before half the limit isn't worth the loss: cut at a word.
+    expect(clipToSentence('First sentence here. ' + 'word '.repeat(30), 60)).toBe('First sentence here. word word word word word word word…');
+    expect(clipToSentence('A. ' + 'b'.repeat(10) + ' ' + 'c'.repeat(80), 40)).toBe('A. bbbbbbbbbb…');
+    expect(clipToSentence('short.', 40)).toBe('short.');
+    const two = 'One full sentence that is long enough. Second one cut off here mid';
+    expect(clipToSentence(two, 50)).toBe('One full sentence that is long enough.');
   });
 });
