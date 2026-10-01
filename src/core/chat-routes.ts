@@ -34,7 +34,7 @@ const HISTORY_BYTES = 1024 * 1024;
 export function mountChatRoutes(
   app: Hono,
   opts: { baseUrl: () => string },
-): { stopAll: () => void; stop: (id: string) => void; pids: () => number[]; idle: (afterMs: number, now?: number) => string[] } {
+): { stopAll: () => void; stop: (id: string) => void; pids: () => number[]; running: (id: string) => boolean; idle: (afterMs: number, now?: number) => string[] } {
   const chats = new Map<string, ChatSession>();
   const byToken = new Map<string, ChatSession>();
   const watchers = new Map<string, Set<(e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => void>>();
@@ -161,6 +161,7 @@ export function mountChatRoutes(
     },
     stop: (id: string) => chats.get(id)?.stop(),
     pids: () => [...chats.values()].flatMap((c) => (c.pid ? [c.pid] : [])),
+    running: (id: string) => chats.get(id)?.running === true,
     idle: (afterMs, now = Date.now()) => idleChats(chats, (id) => watchers.get(id)?.size ?? 0, afterMs, now),
   };
 }

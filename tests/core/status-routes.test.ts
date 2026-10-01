@@ -54,6 +54,18 @@ const post = (url: string, body: unknown = {}) =>
   app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('status routes', () => {
+  it('broadcasts before anything else, and does its bookkeeping after replying', async () => {
+    const order: string[] = [];
+    const a = new Hono();
+    mountStatusRoutes(a, { broadcast: (e) => void order.push(e), onStatusChanged: () => void order.push('bookkeeping'), presence });
+    await recordStatusEvent(sessionIdFor(session), { kind: 'prompt', prompt: 'go' });
+    const res = await a.request('/api/status-changed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: wt }) });
+    expect(res.status).toBe(200);
+    expect(order).toEqual(['sessions-changed']); // replied: bookkeeping not yet
+    await new Promise((r) => setImmediate(r));
+    expect(order).toEqual(['sessions-changed', 'bookkeeping']);
+  });
+
   it('a nudge for a session entering needs_input notifies once and broadcasts', async () => {
     const id = sessionIdFor(session);
     await recordStatusEvent(id, { kind: 'prompt', prompt: 'go' });
@@ -62,7 +74,7 @@ describe('status routes', () => {
     const res = await post('/api/status-changed', { cwd: path.join(wt, 'src') });
     expect(await res.json()).toMatchObject({ matched: true, sessionId: id });
     // No dashboard tab is watching → desktop toast, plus the SSE event.
-    expect(events).toEqual(['notify', 'sessions-changed']);
+    expect(events).toEqual(['sessions-changed', 'notify'] /* the windows first: nothing may hold a status back */);
     expect(notifyDesktop).toHaveBeenCalledWith('api · feat/x', 'needs_input', { enabled: true });
     expect(runStatusHooks).toHaveBeenCalledWith('needs_input', wt, 'api · feat/x', [{ on: 'needs_input', command: 'x' }]);
 

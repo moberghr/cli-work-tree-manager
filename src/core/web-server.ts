@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { describeStall, watchLoop } from './loop-watch.js';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
@@ -53,7 +54,7 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, initPtyPool, listHostPtys, ptyPids } from './pty-pool.js';
+import { detachPtyPool, disposePty, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from './idle-sleep.js';
 import { loadConfig } from './config.js';
 import { readStatus } from './session-status.js';
@@ -229,6 +230,20 @@ export async function startWebServer(
 
   const app = new Hono();
 
+  // A blocked event loop holds back everything — the status a hook just
+  // recorded included. Say when it happens, and what ran (loop-watch.ts).
+  const loop = watchLoop({
+    onStall: (st) => {
+      report('warn', `[server] ${describeStall(st)}`);
+      if (!lean) activity.start('server', 'Server responsiveness').done(describeStall(st));
+    },
+  });
+  app.use(async (c, next) => {
+    const t0 = performance.now();
+    await next();
+    if (!(c.res.headers.get('content-type') ?? '').includes('text/event-stream')) loop.request(`${c.req.method} ${c.req.path}`, performance.now() - t0);
+  });
+
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
   app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp() }));
@@ -278,6 +293,8 @@ export async function startWebServer(
         sessionWire(s, {
           diffStatFor,
           claudesFor,
+          liveKnown: !!table && table.size > 0,
+          hostedLive: (id) => peekPty(id) || chatApi.running(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
           replyDraftsFor: (id) => drafts.get(id) ?? 0,
@@ -614,6 +631,7 @@ export async function startWebServer(
     port: handle.port,
     stop: async () => {
       clearInterval(revPoll);
+      loop.stop();
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
       if (sleepTimer) clearInterval(sleepTimer);

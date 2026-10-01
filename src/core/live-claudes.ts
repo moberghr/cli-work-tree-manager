@@ -28,6 +28,12 @@ export interface LiveClaude {
   conversationId: string;
   cwd: string;
   busy: boolean;
+  /** What Claude Code says it is doing: mid-turn, at its prompt, or waiting on you (a permission, a dialog). */
+  state: 'busy' | 'idle' | 'waiting' | null;
+  /** When it last changed (ms). */
+  stateAt: number | null;
+  /** While waiting: what for ("input needed", "dialog open"). */
+  waitingFor: string | null;
   startedAt: number | null;
 }
 
@@ -37,7 +43,7 @@ const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.i
 /** One ~/.claude/sessions/<pid>.json, or null if it lacks what we need. */
 export function parseLiveClaude(raw: unknown): LiveClaude | null {
   if (!isObj(raw)) return null;
-  const { pid, sessionId, cwd, status, startedAt } = raw;
+  const { pid, sessionId, cwd, status, startedAt, statusUpdatedAt, waitingFor } = raw;
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return null;
   if (typeof sessionId !== 'string' || !sessionId || typeof cwd !== 'string' || !cwd) return null;
   return {
@@ -45,6 +51,9 @@ export function parseLiveClaude(raw: unknown): LiveClaude | null {
     conversationId: sessionId,
     cwd,
     busy: status === 'busy',
+    state: status === 'busy' || status === 'idle' || status === 'waiting' ? status : null,
+    stateAt: typeof statusUpdatedAt === 'number' ? statusUpdatedAt : null,
+    waitingFor: typeof waitingFor === 'string' && waitingFor ? waitingFor : null,
     startedAt: typeof startedAt === 'number' ? startedAt : null,
   };
 }
@@ -84,11 +93,14 @@ export function summarizeClaudes(list: LiveClaude[], appPids: ReadonlySet<number
   const inApp = list.filter((c) => appPids.has(c.pid)).length;
   const perConversation = new Map<string, number>();
   for (const c of list) perConversation.set(c.conversationId, (perConversation.get(c.conversationId) ?? 0) + 1);
+  // The most telling one: any mid-turn, else any waiting on you, else idle.
+  const pick = list.find((c) => c.state === 'busy') ?? list.find((c) => c.state === 'waiting') ?? list.find((c) => c.state === 'idle');
   return {
     inTerminal: list.length - inApp,
     inApp,
     busy: list.some((c) => c.busy),
     duplicate: [...perConversation.values()].some((n) => n > 1),
+    ...(pick?.state ? { state: pick.state, ...(pick.stateAt ? { stateAt: pick.stateAt } : {}), ...(pick.waitingFor ? { waitingFor: pick.waitingFor } : {}) } : {}),
   };
 }
 

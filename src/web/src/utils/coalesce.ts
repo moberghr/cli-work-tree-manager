@@ -1,7 +1,10 @@
 /**
  * Collapse a burst of triggers into few runs of `fn`: it runs `waitMs`
- * after the last trigger, never twice at once, and once more after a run if
- * triggers arrived while it was going.
+ * after the FIRST trigger of a burst (later ones don't push it back), never
+ * twice at once, and once more after a run if triggers arrived while it was
+ * going. So a change is on screen within `waitMs` plus one fetch, however
+ * busy things are — a debounce (wait for the burst to settle) kept the
+ * session list stale for as long as any Claude kept writing.
  *
  * For refetches driven by server events: `sessions-changed` fires every
  * 250 ms while any Claude is writing its transcript, and refetching the
@@ -35,7 +38,7 @@ export function coalesce(fn: () => Promise<unknown>, waitMs: number): { trigger:
     }
   };
   const schedule = () => {
-    if (timer) clearTimeout(timer);
+    if (timer) return; // already coming: it will see this change too
     timer = setTimeout(() => void run(), waitMs);
   };
   return {

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { withLiveClaude } from './session-status.js';
 import path from 'node:path';
 import { readSessionMeta } from './session-meta.js';
 import { checkedOutBranch } from './git-head.js';
@@ -30,6 +31,10 @@ export interface SessionWireOptions {
   reviewThreadsFor?: (id: string) => number;
   /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
   replyDraftsFor?: (id: string) => number;
+  /** The running Claudes were read against a real process list, so "none" means none. */
+  liveKnown?: boolean;
+  /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
+  hostedLive?: (id: string) => boolean;
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -61,7 +66,10 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     title: bestEffort(`title of ${s.target}:${s.branch}`, () => sessionTitle(s, s.archivedAt ? readArchive(id)?.summary.prompts[0]?.text : null), null),
     ...(s.title ? { titleIsYours: true } : {}),
     pendingForClaudeCount: meta.pendingForClaudeCount,
-    attention: meta.attention,
+    // Claude Code's own state file over what the hooks recorded, when newer.
+    attention: meta.attention && !shadowed && opts.claudesFor
+      ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
+      : meta.attention,
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,

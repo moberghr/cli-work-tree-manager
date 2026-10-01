@@ -20,8 +20,10 @@ const claude = (pid: number, over: Partial<LiveClaude> = {}): LiveClaude => ({ p
 
 describe('parseLiveClaude', () => {
   it("reads Claude Code's per-process file", () => {
-    expect(parseLiveClaude({ pid: 468, sessionId: 'abc', cwd: 'C:\\repo', status: 'busy', startedAt: 5, kind: 'interactive' }))
-      .toEqual({ pid: 468, conversationId: 'abc', cwd: 'C:\\repo', busy: true, startedAt: 5 });
+    expect(parseLiveClaude({ pid: 468, sessionId: 'abc', cwd: 'C:\\repo', status: 'busy', startedAt: 5, statusUpdatedAt: 9, kind: 'interactive' }))
+      .toEqual({ pid: 468, conversationId: 'abc', cwd: 'C:\\repo', busy: true, state: 'busy', stateAt: 9, waitingFor: null, startedAt: 5 });
+    expect(parseLiveClaude({ pid: 1, sessionId: 'a', cwd: '/x', status: 'waiting', waitingFor: 'dialog open' })).toMatchObject({ state: 'waiting', waitingFor: 'dialog open', busy: false });
+    expect(parseLiveClaude({ pid: 1, sessionId: 'a', cwd: '/x', status: 'sleeping' })?.state).toBeNull(); // not a state we know
   });
   it('skips anything without the fields it needs (the format is not ours)', () => {
     expect(parseLiveClaude({ pid: '468', sessionId: 'abc', cwd: '/x' })).toBeNull();
@@ -44,6 +46,13 @@ describe('summarizeClaudes', () => {
     expect(summarizeClaudes([claude(1, { busy: true })], new Set())).toEqual({ inTerminal: 1, inApp: 0, busy: true, duplicate: false });
     expect(summarizeClaudes([claude(1, { conversationId: 'x' }), claude(2, { conversationId: 'x' })], new Set([2])))
       .toEqual({ inTerminal: 1, inApp: 1, busy: false, duplicate: true });
+  });
+
+  it("carries the most telling state: any mid-turn, else any waiting on you, else idle", () => {
+    const at = (state: LiveClaude['state'], stateAt: number, waitingFor: string | null = null) => ({ state, stateAt, waitingFor });
+    expect(summarizeClaudes([claude(1, at('idle', 5)), claude(2, at('waiting', 7, 'dialog open'))], new Set())).toMatchObject({ state: 'waiting', stateAt: 7, waitingFor: 'dialog open' });
+    expect(summarizeClaudes([claude(1, at('waiting', 7)), claude(2, { ...at('busy', 3), busy: true })], new Set())).toMatchObject({ state: 'busy', stateAt: 3 });
+    expect(summarizeClaudes([claude(1)], new Set())).not.toHaveProperty('state'); // an old Claude Code: none
   });
 });
 

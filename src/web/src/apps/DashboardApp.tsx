@@ -169,6 +169,9 @@ export function DashboardApp() {
   usePresence(route.sessionId);
   const notifyTarget = useRef({ sessionId: route.sessionId, open: (_id: string, _sub: SessionSubTab) => {} });
   useSse('/events', {
+    // (Re)connected: whatever changed while the stream was down (work web
+    // restarting, the laptop asleep) was never sent — fetch it now.
+    onOpen: () => setRefreshKey((n) => n + 1),
     events: {
       'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),
       'sessions-changed': () => setRefreshKey((n) => n + 1),
@@ -433,15 +436,18 @@ export function DashboardApp() {
   }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab]);
 
   // Opening a session that wanted you counts as having seen it — once per
-  // unseen episode (keyed by when it entered that state).
+  // unseen episode (keyed by when it entered that state), and only while
+  // you can see it: a minimised or unfocused window left on a session used
+  // to clear every "Done" that landed there.
+  const looking = useLooking();
   const seenKey =
     activeSession && needsAttention(activeSession.attention) && activeSession.attention!.state === 'idle'
       ? `${activeSession.id}@${activeSession.attention!.since}`
       : null;
   useEffect(() => {
-    if (!seenKey) return;
+    if (!seenKey || !looking) return;
     void markSessionSeen(seenKey.slice(0, seenKey.indexOf('@'))).catch(() => {});
-  }, [seenKey]);
+  }, [seenKey, looking]);
 
   // Unread count in the browser tab, so a pinned tab shows it at a glance.
   const inboxCount = useMemo(
@@ -614,3 +620,21 @@ export function DashboardApp() {
 }
 
 export default DashboardApp;
+
+/** The page is visible and has focus: someone is looking at it. */
+export function useLooking(): boolean {
+  const read = () => typeof document === 'undefined' || (document.visibilityState === 'visible' && document.hasFocus());
+  const [looking, setLooking] = useState(read);
+  useEffect(() => {
+    const update = () => setLooking(read());
+    window.addEventListener('focus', update);
+    window.addEventListener('blur', update);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, []);
+  return looking;
+}

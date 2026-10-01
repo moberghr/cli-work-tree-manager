@@ -73,6 +73,12 @@ export interface SessionClaudes {
   busy: boolean;
   /** Two or more on one conversation (they would both write to it). */
   duplicate: boolean;
+  /** What Claude Code itself says (~/.claude/sessions/<pid>.json): mid-turn, at its prompt, or waiting on you. */
+  state?: 'busy' | 'idle' | 'waiting';
+  /** When that last changed (ms). */
+  stateAt?: number;
+  /** While waiting: what for. */
+  waitingFor?: string;
 }
 
 // ---- merged local branches (Clean up) ---------------------------------------
@@ -520,7 +526,7 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations';
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

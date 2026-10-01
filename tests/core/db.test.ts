@@ -5,13 +5,13 @@ import { execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadHistory } from '../../src/core/history.js';
-import { readStatus } from '../../src/core/session-status.js';
+import { readStatus, recordStatusEvent } from '../../src/core/session-status.js';
 import { getCommentFileStore, clearCommentStoreCache } from '../../src/core/comment-file-store.js';
 import { readPendingForSession } from '../../src/core/pending-delivery.js';
 import { dbPtySessions } from '../../src/core/pty-sessions-file.js';
 import { createSeenStores } from '../../src/core/pr-watch-store.js';
 import { getTasks, addTask } from '../../src/core/tasks.js';
-import { revision, withDb, WAL_SIZE_LIMIT } from '../../src/core/db.js';
+import { revision, SCHEMA_VERSION, withDb, WAL_SIZE_LIMIT } from '../../src/core/db.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 
 /**
@@ -107,8 +107,20 @@ describe('first open imports the JSON state', () => {
     write('history.json', [{ target: 'late', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' }]);
     const tables = withDb((d) => (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name));
     expect(tables).toContain('pr_replies');
-    expect(withDb((d) => d.pragma('user_version', { simple: true }))).toBe(2);
+    expect(withDb((d) => d.pragma('user_version', { simple: true }))).toBe(SCHEMA_VERSION);
     expect(loadHistory()).toEqual([]);
+  });
+
+  it('a version-2 database gets the status triggers: a hook recording a status bumps the sessions counter', async () => {
+    expect(loadHistory()).toEqual([]);
+    withDb((d) => {
+      d.exec('DROP TRIGGER status_rev_i; DROP TRIGGER status_rev_u;');
+      d.pragma('user_version = 2');
+    });
+    const before = revision('sessions');
+    await recordStatusEvent('s1', { kind: 'prompt', prompt: 'go' });
+    await recordStatusEvent('s1', { kind: 'stop' });
+    expect(revision('sessions')).toBe(before + 2);
   });
 
   it('a fresh machine just gets an empty database', () => {

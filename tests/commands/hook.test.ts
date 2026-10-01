@@ -156,7 +156,11 @@ describe('runTurnHook (one hook per turn edge)', () => {
     await runTurnHook(false, { cwd: s.paths[0] }, { write: (t) => void out.push(t), post: async (r) => void posts.push(r) });
     expect(JSON.parse(out.join(''))).toMatchObject({ decision: 'block' });
     expect(posts.sort()).toEqual(['api/checkpoint', 'api/status-changed']);
-    expect(readStatus(sessionIdFor(s))?.state).toBe('idle');
+    // It handed Claude the comment: the turn goes on (not a false "Done").
+    expect(readStatus(sessionIdFor(s))).toMatchObject({ state: 'working', summary: 'Working on the comments you sent' });
+    // Its real end: nothing more to hand over, so "done".
+    await runTurnHook(false, { cwd: s.paths[0] }, { write: () => {}, post: async () => {} });
+    expect(readStatus(sessionIdFor(s))).toMatchObject({ state: 'idle', seen: false });
     const elsewhere: string[] = [];
     await runTurnHook(false, { cwd: path.join(tmpDir, 'not-a-session') }, { write: () => {}, post: async (r) => void elsewhere.push(r) });
     expect(elsewhere).toEqual(['api/checkpoint']);

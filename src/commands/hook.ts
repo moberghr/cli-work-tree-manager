@@ -140,6 +140,8 @@ interface HookPayload {
   prompt?: string;
   /** Notification */
   message?: string;
+  /** Notification: permission_prompt, idle_prompt, elicitation_dialog, auth_success… */
+  notification_type?: string;
   /** Stop (and others): the conversation's JSONL transcript. */
   transcript_path?: string;
 }
@@ -155,7 +157,12 @@ export function statusEventFor(event: HookEvent, payload: HookPayload): StatusEv
       // Which call the permission prompt is about: the transcript has it,
       // the hook message only names the tool.
       const request = pendingToolUse(readTranscriptTail(payload.transcript_path));
-      return { kind: 'notification', message: payload.message, ...(request ? { request } : {}) };
+      return {
+        kind: 'notification',
+        message: payload.message,
+        ...(payload.notification_type ? { type: payload.notification_type } : {}),
+        ...(request ? { request } : {}),
+      };
     }
     default:
       return null;
@@ -241,9 +248,15 @@ export async function runTurnHook(
   const cwd = payload.cwd ?? process.cwd();
   const result = computeHookOutput({ event: start ? 'prompt-submit' : 'stop', cwd }, claimForDelivery);
   if (result?.sessionId) io.write(result.stdout);
+  // A Stop that just handed Claude your comments (`decision: block`) is no
+  // end of the turn: Claude goes on with them, and its real Stop comes later
+  // (recorded as a stop then, so you hear when it is done).
+  const handedOn = !start && !!result?.sessionId;
   await Promise.all([
     io.post(start ? 'api/checkpoint/seal' : 'api/checkpoint', cwd),
-    recordStatus(start ? 'status-prompt' : 'status-stop', payload, cwd, io.post),
+    handedOn
+      ? recordStatus('status-stop', payload, cwd, io.post, { kind: 'continue', what: 'Working on the comments you sent' })
+      : recordStatus(start ? 'status-prompt' : 'status-stop', payload, cwd, io.post),
   ]);
 }
 
@@ -253,9 +266,10 @@ async function recordStatus(
   payload: HookPayload,
   cwd: string,
   post: (route: string, cwd: string) => Promise<void> = postToWeb,
+  override?: StatusEvent,
 ): Promise<void> {
   const session = findSessionForCwd(cwd);
-  const statusEvent = statusEventFor(event, payload);
+  const statusEvent = override ?? statusEventFor(event, payload);
   if (!session || !statusEvent) return;
   // Best-effort — never block Claude's turn on bookkeeping — but logged,
   // so "why does the inbox not show this session?" has an answer.

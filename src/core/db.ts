@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -86,6 +86,11 @@ CREATE TRIGGER IF NOT EXISTS sessions_rev_d AFTER DELETE ON sessions BEGIN UPDAT
 CREATE TRIGGER IF NOT EXISTS tasks_rev_i AFTER INSERT ON tasks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:tasks'; END;
 CREATE TRIGGER IF NOT EXISTS tasks_rev_u AFTER UPDATE ON tasks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:tasks'; END;
 CREATE TRIGGER IF NOT EXISTS tasks_rev_d AFTER DELETE ON tasks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:tasks'; END;
+-- A status a hook recorded counts as a sessions change too: work web's poll
+-- sees it within a second even when the hook's nudge (POST) never arrived
+-- (work web busy, restarting, or started after the hook ran). (v3)
+CREATE TRIGGER IF NOT EXISTS status_rev_i AFTER INSERT ON session_status BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS status_rev_u AFTER UPDATE ON session_status BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
 `;
 
 export function dbPath(): string {

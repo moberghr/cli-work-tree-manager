@@ -15,6 +15,7 @@
  * conversation), and marks them delivered.
  */
 
+import { checkedOutBranch } from './git-head.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from './history.js';
@@ -39,6 +40,22 @@ function normalize(p: string): string {
 /** Map a Claude cwd back to a session. Tries direct-match against any
  *  session's path first, then ancestor match (so cwd inside a subdir of a
  *  worktree still resolves to the worktree's session). */
+/**
+ * Two sessions on one folder (an old entry and a newer one, a typo'd target
+ * re-added): which of them a Claude there is. Not an archived one when the
+ * other isn't; then the one whose branch is checked out there; then the one
+ * entered last. The oldest used to win, so status and comments went to an
+ * entry nobody looks at.
+ */
+function owns(candidate: WorktreeSession, current: WorktreeSession, root: string): boolean {
+  if (!!candidate.archivedAt !== !!current.archivedAt) return !candidate.archivedAt;
+  const onBranch = checkedOutBranch(root);
+  const a = candidate.branch === onBranch;
+  const b = current.branch === onBranch;
+  if (a !== b) return a;
+  return (Date.parse(candidate.lastAccessedAt) || 0) > (Date.parse(current.lastAccessedAt) || 0);
+}
+
 export function findSessionForCwd(
   cwd: string,
   sessions: WorktreeSession[] = loadHistory(),
@@ -52,7 +69,8 @@ export function findSessionForCwd(
     const roots = s.isGroup && s.paths[0] ? [...s.paths, path.dirname(s.paths[0])] : s.paths;
     for (const root of roots) {
       const r = normalize(root);
-      if ((here === r || here.startsWith(r + '/')) && (!best || r.length > best.len)) {
+      if (!(here === r || here.startsWith(r + '/'))) continue;
+      if (!best || r.length > best.len || (r.length === best.len && owns(s, best.session, root))) {
         best = { session: s, root, len: r.length };
       }
     }

@@ -13,6 +13,7 @@ import {
   effectiveStatus,
   lastAssistantText,
   lastTurnEntryMs,
+  withLiveClaude,
   markSeen,
   notifyKindForTransition,
   oneLine,
@@ -67,10 +68,33 @@ describe('applyStatusEvent', () => {
   });
 
   it('keeps `since` when the state does not change, and the old summary when none is given', () => {
-    const a = applyStatusEvent(null, { kind: 'stop', lastMessage: 'first' }, T0);
-    const b = applyStatusEvent(a, { kind: 'stop' }, at(30));
+    const a = applyStatusEvent(null, { kind: 'prompt', prompt: 'first' }, T0);
+    const b = applyStatusEvent(a, { kind: 'prompt' }, at(30));
     expect(b.since).toBe(T0.toISOString());
     expect(b.summary).toBe('first');
+  });
+
+  it('a Stop always starts its own `since` (a turn ended now), even idle → idle', () => {
+    const a = applyStatusEvent(null, { kind: 'stop', lastMessage: 'first' }, T0);
+    const b = applyStatusEvent(a, { kind: 'stop' }, at(30));
+    expect(b).toMatchObject({ state: 'idle', since: at(30).toISOString(), turnEndedAt: at(30).toISOString(), seen: false, summary: 'first' });
+  });
+
+  it('a Stop that handed Claude more work: still working', () => {
+    const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, T0);
+    expect(applyStatusEvent(working, { kind: 'continue', what: 'Working on the comments you sent' }, at(5))).toMatchObject({ state: 'working', summary: 'Working on the comments you sent' });
+  });
+
+  it('notification types: a permission prompt or a dialog waits on you; idle at its prompt ends an interrupted turn', () => {
+    const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, T0);
+    expect(applyStatusEvent(working, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }, at(1)).state).toBe('needs_input');
+    expect(applyStatusEvent(working, { kind: 'notification', type: 'elicitation_dialog', message: 'Claude needs your input' }, at(1)).state).toBe('needs_input');
+    expect(applyStatusEvent(working, { kind: 'notification', type: 'idle_prompt', message: 'Claude is waiting for your input' }, at(60))).toMatchObject({ state: 'idle', seen: true, turnEndedAt: at(60).toISOString() });
+    const done = applyStatusEvent(working, { kind: 'stop' }, at(10));
+    expect(applyStatusEvent(done, { kind: 'notification', type: 'idle_prompt' }, at(70))).toMatchObject({ state: 'idle', seen: false }); // the nudge after a real stop: still Done
+    expect(applyStatusEvent(working, { kind: 'notification', type: 'auth_success', message: 'approval granted' }, at(1)).state).toBe('working'); // typed: not the text
+    // No type (an older Claude Code): the message decides, now also "needs your input".
+    expect(applyStatusEvent(working, { kind: 'notification', message: 'Claude needs your input' }, at(1)).state).toBe('needs_input');
   });
 });
 
@@ -124,14 +148,23 @@ describe('effectiveStatus', () => {
 
   it('treats transcript activity after a permission prompt as answered', () => {
     const s = base('needs_input');
-    expect(effectiveStatus(s, T0.getTime() + ANSWERED_AFTER_MS + 500).state).toBe('working');
-    expect(effectiveStatus(s, T0.getTime() + 1000).state).toBe('needs_input');
+    const now = T0.getTime() + 10_000;
+    expect(effectiveStatus(s, T0.getTime() + ANSWERED_AFTER_MS + 500, now).state).toBe('working');
+    expect(effectiveStatus(s, T0.getTime() + 1000, now).state).toBe('needs_input');
+  });
+
+  it("only a turn's message answers it — not the away summary or the exit lines Claude Code writes on its own — and an answer goes quiet after 15 min", () => {
+    const s = base('needs_input');
+    const wrote = T0.getTime() + 5 * 60_000; // the away summary, 5 min later
+    expect(effectiveStatus(s, wrote, wrote + 1000, T0.getTime() - 1000).state).toBe('needs_input'); // newest turn entry: before the question
+    expect(effectiveStatus(s, wrote, wrote + 1000, T0.getTime() + 30_000).state).toBe('working'); // a tool result after it
+    expect(effectiveStatus(s, wrote, T0.getTime() + 30_000 + STALE_WORKING_MS + 1000, T0.getTime() + 30_000)).toMatchObject({ state: 'idle', stale: true });
   });
 
   it('an idle session with a message in its transcript after its turn ended is working (a `!` command fires no prompt hook)', () => {
     // The turn ended at T0; then an idle → idle stop keeps `since` but moves turnEndedAt.
     const ended = applyStatusEvent(applyStatusEvent(null, { kind: 'stop' }, at(0)), { kind: 'stop' }, at(100));
-    expect(ended).toMatchObject({ since: at(0).toISOString(), turnEndedAt: at(100).toISOString() });
+    expect(ended).toMatchObject({ since: at(100).toISOString(), turnEndedAt: at(100).toISOString() });
     const now = at(200).getTime();
     expect(effectiveStatus(ended, now, now, at(150).getTime())).toMatchObject({ state: 'working', seen: true, stale: false });
     // Before the last turn ended (Claude's final message precedes the Stop hook): idle.
@@ -164,6 +197,16 @@ describe('lastTurnEntryMs', () => {
     ];
     expect(lastTurnEntryMs(entries)).toBe(Date.parse('2026-10-01T08:42:22Z'));
     expect(lastTurnEntryMs([{ type: 'system', timestamp: '2026-10-01T08:42:23Z' }])).toBe(0);
+  });
+
+  it('slash commands and compaction are no turn; a background task’s result is', () => {
+    const turn = { type: 'assistant', timestamp: '2026-10-01T08:42:22Z', message: { content: [{ type: 'text', text: 'done' }] } };
+    const after = (content: string, extra: object = {}) => lastTurnEntryMs([turn, { type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content }, ...extra }]);
+    expect(after('<command-name>/model</command-name>')).toBe(Date.parse(turn.timestamp));
+    expect(after('<local-command-stdout>Set model to opus</local-command-stdout>')).toBe(Date.parse(turn.timestamp));
+    expect(after('This session is being continued…', { isCompactSummary: true })).toBe(Date.parse(turn.timestamp));
+    expect(after('<task-notification>agent finished</task-notification>')).toBe(Date.parse('2026-10-01T08:50:00Z'));
+    expect(after('<bash-input>ls</bash-input>')).toBe(Date.parse('2026-10-01T08:50:00Z'));
   });
 });
 
@@ -228,6 +271,14 @@ describe('notifyKindForTransition', () => {
     expect(notifyKindForTransition({ state: 'needs_input' }, { state: 'idle' })).toBe('idle');
   });
 
+  it('a Stop with no prompt hook before it (a `!` command, a background task) still notifies "Finished"', async () => {
+    await recordStatusEvent('p2', { kind: 'stop', lastMessage: 'first' }, T0);
+    const { prev, next } = await recordStatusEvent('p2', { kind: 'stop', lastMessage: 'background task done' }, at(300));
+    expect(prev?.state).toBe('idle');
+    expect(next?.prevState).toBe('working');
+    expect(notifyKindForTransition({ state: next!.prevState! }, next)).toBe('idle');
+  });
+
   it('end to end: prompt → permission → (approved, no hook) → Stop notifies "Finished"', async () => {
     await recordStatusEvent('p1', { kind: 'prompt', prompt: 'go' }, T0);
     await recordStatusEvent('p1', { kind: 'notification', message: 'Claude needs your permission to use Bash' }, at(5));
@@ -282,5 +333,30 @@ describe('lastAssistantText', () => {
     const file = path.join(configDir, 'g.jsonl');
     fs.writeFileSync(file, 'xt":"partial"}\nnot json\n' + JSON.stringify({ type: 'assistant', message: { content: 'plain string' } }) + '\n');
     expect(lastAssistantText(file)).toBe('plain string');
+  });
+});
+
+describe('withLiveClaude (Claude Code\'s own state over the hooks, when newer)', () => {
+  const rec = (state: SessionStatus['state'], sec = 0) => ({ state, since: at(sec).toISOString(), seen: true, updatedAt: at(sec).toISOString(), stale: false });
+  const known = { known: true, hosted: false };
+
+  it('busy → working, waiting → needs input, idle ends a working or waiting record', () => {
+    expect(withLiveClaude(rec('idle'), { state: 'busy', stateAt: at(5).getTime() }, known).state).toBe('working'); // a turn the hooks missed
+    expect(withLiveClaude(rec('working'), { state: 'waiting', stateAt: at(5).getTime(), waitingFor: 'input needed' }, known)).toMatchObject({ state: 'needs_input', seen: false, summary: 'Waiting for you: input needed' });
+    expect(withLiveClaude(rec('needs_input'), { state: 'busy', stateAt: at(5).getTime() }, known).state).toBe('working'); // answered in its terminal
+    expect(withLiveClaude(rec('working'), { state: 'idle', stateAt: at(5).getTime() }, known)).toMatchObject({ state: 'idle', seen: true }); // a Stop missed, an Esc
+    expect(withLiveClaude({ ...rec('idle'), seen: false }, { state: 'idle', stateAt: at(5).getTime() }, known)).toMatchObject({ state: 'idle', seen: false }); // Done stays Done
+  });
+
+  it('older than what the hooks recorded: the hooks win (the file lags a turn edge)', () => {
+    expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(9).getTime() }, known).state).toBe('idle');
+  });
+
+  it('nothing running anywhere: working / waiting is over at once — unless a PTY or chat of ours runs it, or the process list was not read', () => {
+    expect(withLiveClaude(rec('working'), null, known)).toMatchObject({ state: 'idle', stale: true });
+    expect(withLiveClaude(rec('needs_input'), null, known).state).toBe('idle');
+    expect(withLiveClaude(rec('working'), null, { known: true, hosted: true }).state).toBe('working');
+    expect(withLiveClaude(rec('working'), null, { known: false, hosted: false }).state).toBe('working');
+    expect(withLiveClaude({ ...rec('idle'), seen: false }, null, known)).toMatchObject({ state: 'idle', seen: false });
   });
 });

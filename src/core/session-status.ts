@@ -43,14 +43,19 @@ export interface SessionStatus {
 export type StatusEvent =
   | { kind: 'prompt'; prompt?: string }
   | { kind: 'stop'; lastMessage?: string }
-  | { kind: 'notification'; message?: string; request?: PermissionRequest }
+  | { kind: 'notification'; message?: string; request?: PermissionRequest; type?: string }
   /** The user answered the permission prompt from the dashboard. */
-  | { kind: 'answered'; answer: PermissionAnswer };
+  | { kind: 'answered'; answer: PermissionAnswer }
+  /** A Stop that handed Claude more to do (pending comments, a PR note): the turn goes on. */
+  | { kind: 'continue'; what?: string };
 
 /** Claude's Notification hook fires both for permission prompts and for the
  *  "waiting for your input" nudge after ~60 s idle; only the former means
  *  it's blocked on you. (Same regex Emdash settled on.) */
-const NEEDS_INPUT_RE = /permission|approval|approve/i;
+const NEEDS_INPUT_RE = /permission|approval|approve|needs your input|needs network access/i;
+
+/** `notification_type`s that mean Claude waits on you (vs idle_prompt, auth_success). */
+const WAITS_ON_YOU = new Set(['permission_prompt', 'elicitation_dialog']);
 
 /** A finished turn whose message has a DECISION_MARKER line (attention.ts). */
 const DECISION_RE = /^[\W_]*DECISION NEEDED\b[:\s-]*(.*)$/im;
@@ -85,12 +90,24 @@ export function applyStatusEvent(
       // The user just typed into it — by definition they've seen it.
       return enter('working', oneLine(event.prompt), true);
     case 'stop': {
+      // A turn ended now: `since` is now even when no prompt hook marked it
+      // working (a `!` command, a background task's result) — "finished 2m ago".
       const ask = event.lastMessage?.match(DECISION_RE);
-      if (ask) return { ...enter('needs_input', oneLine(ask[1]) ?? 'Claude needs a decision', false), turnEndedAt: ts };
-      return { ...enter('idle', oneLine(event.lastMessage), false), turnEndedAt: ts };
+      if (ask) return { ...enter('needs_input', oneLine(ask[1]) ?? 'Claude needs a decision', false), since: ts, turnEndedAt: ts };
+      return { ...enter('idle', oneLine(event.lastMessage), false), since: ts, turnEndedAt: ts };
     }
     case 'notification': {
-      if (event.message && NEEDS_INPUT_RE.test(event.message)) {
+      // Claude Code says what kind (`notification_type`): a permission prompt
+      // or a question / dialog for you, or "idle at its prompt" (a minute
+      // after it stopped). The message text is the fallback for older
+      // versions: it missed "Claude needs your input" and the like.
+      const blocks = event.type ? WAITS_ON_YOU.has(event.type) : !!event.message && NEEDS_INPUT_RE.test(event.message);
+      if (event.type === 'idle_prompt' && prev && (prev.state === 'working' || prev.state === 'needs_input')) {
+        // Waiting at its prompt with no Stop: the turn was interrupted (Esc,
+        // a denied permission) — by you, so nothing to flag.
+        return { ...enter('idle', prev.summary, true), turnEndedAt: ts };
+      }
+      if (blocks) {
         const next = enter('needs_input', oneLine(event.message), false);
         return event.request ? { ...next, request: event.request } : next;
       }
@@ -98,6 +115,8 @@ export function applyStatusEvent(
       if (prev) return { ...prev, updatedAt: ts };
       return enter('idle', undefined, false);
     }
+    case 'continue':
+      return enter('working', oneLine(event.what) ?? prev?.summary, prev?.seen ?? true);
     case 'answered': {
       // Allowed: the tool runs, the turn goes on. Denied: Claude stops and
       // waits for you to say what to do instead.
@@ -137,8 +156,15 @@ export function effectiveStatus(
   // Approving a permission prompt fires no hook until the turn ends, so a
   // blocked session would look blocked while it's working again. Claude
   // writing its transcript after the question is the tell.
+  // Answered in its terminal: Claude wrote a turn's message (a tool result,
+  // its reply) after the question. Its own lines — the away summary a few
+  // minutes after every turn, the last-prompt / cost lines on exit — are no
+  // answer, so only turn entries count (`lastTurnEntryMs`, when the caller
+  // read them; the bare transcript time otherwise). Quiet 15 min: idle.
   const since = Date.parse(status.since) || 0;
-  if (status.state === 'needs_input' && lastActivityMs > since + ANSWERED_AFTER_MS) {
+  const answeredAt = lastTurnEntryMs || lastActivityMs;
+  if (status.state === 'needs_input' && answeredAt > since + ANSWERED_AFTER_MS) {
+    if (now - answeredAt > STALE_WORKING_MS) return { ...status, state: 'idle', seen: true, stale: true };
     return { ...status, state: 'working', seen: true, stale: false };
   }
   // Some turns fire no prompt hook: a `!` shell command and Claude's turn on
@@ -156,6 +182,36 @@ export function effectiveStatus(
   return { ...status, stale: false };
 }
 
+/**
+ * Claude Code's own word on a running Claude (~/.claude/sessions/<pid>.json,
+ * via SessionClaudes) over what the hooks recorded, when it is newer: the
+ * hooks miss turns (a work web restart, an interrupt, a Stop that handed
+ * Claude more work), Claude Code's file doesn't. Busy → working, waiting →
+ * needs input, idle → a working / needs-input record is over.
+ *
+ * And with nothing running for the session anywhere (`known`: the process
+ * list was read; `hosted`: no PTY or chat of ours either), it can't be working
+ * or waiting: idle at once, not after 15 quiet minutes.
+ */
+export function withLiveClaude(
+  status: EffectiveStatus,
+  live: { state?: 'busy' | 'idle' | 'waiting'; stateAt?: number; waitingFor?: string } | null,
+  opts: { known: boolean; hosted: boolean },
+): EffectiveStatus {
+  const recorded = Date.parse(status.updatedAt) || 0;
+  if (live?.state && (live.stateAt ?? 0) > recorded) {
+    if (live.state === 'busy' && status.state !== 'working') return { ...status, state: 'working', seen: true, stale: false };
+    if (live.state === 'waiting' && status.state !== 'needs_input') {
+      return { ...status, state: 'needs_input', seen: false, stale: false, summary: live.waitingFor ? `Waiting for you: ${live.waitingFor}` : 'Waiting for you' };
+    }
+    if (live.state === 'idle' && (status.state === 'working' || status.state === 'needs_input')) return { ...status, state: 'idle', seen: true, stale: true };
+  }
+  if (!live && opts.known && !opts.hosted && (status.state === 'working' || status.state === 'needs_input')) {
+    return { ...status, state: 'idle', seen: true, stale: true };
+  }
+  return status;
+}
+
 /** When an idle session's last turn ended: the Stop hook's time, else (a row from before it was kept) `since`. */
 export function idleFrom(status: SessionStatus): number {
   return Date.parse(status.turnEndedAt ?? '') || Date.parse(status.since) || 0;
@@ -171,10 +227,26 @@ export function lastTurnEntryMs(entries: TranscriptEntry[]): number {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if ((e.type !== 'user' && e.type !== 'assistant') || e.isMeta === true) continue;
+    if (e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true) continue;
+    if (e.type === 'user' && isCommandEcho(e)) continue;
     const ms = Date.parse(typeof e.timestamp === 'string' ? e.timestamp : '');
     if (ms) return ms;
   }
   return 0;
+}
+
+/**
+ * A slash command you typed between turns (`/model`, `/clear`, `/exit`,
+ * `/compact`) and its output: written as user lines, but no turn — Claude
+ * doesn't work on them. A `!` command (`<bash-input>`) and a background
+ * task's result (`<task-notification>`) are turns, and stay.
+ */
+function isCommandEcho(e: TranscriptEntry): boolean {
+  const text = contentBlocks(e)
+    .map((b) => (typeof b.text === 'string' ? b.text : ''))
+    .join('')
+    .trimStart();
+  return /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/.test(text);
 }
 
 // ---- persistence ----------------------------------------------------------
@@ -223,7 +295,10 @@ export function recordStatusEvent(
 ): Promise<{ prev: SessionStatus | null; next: SessionStatus | null }> {
   return updateStatus(sessionId, (prev) => ({
     ...applyStatusEvent(prev, event, now),
-    prevState: prev?.state ?? null,
+    // A Stop ends a turn even when no prompt hook said one began (a `!`
+    // command, a background task's result): as far as notifying goes, it
+    // was working — so you hear that it finished.
+    prevState: event.kind === 'stop' && prev?.state === 'idle' ? 'working' : (prev?.state ?? null),
   }));
 }
 

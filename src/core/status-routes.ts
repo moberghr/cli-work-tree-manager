@@ -60,7 +60,8 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
     const session = findSessionForCwd(body.cwd);
     if (!session) return c.json({ ok: true, matched: false });
     const id = sessionIdFor(session);
-    opts.onStatusChanged?.(id);
+    // The windows first: nothing else here may hold a status back.
+    opts.broadcast('sessions-changed', { ts: Date.now() });
     const status = readStatus(id);
     if (status && lastNotified.get(id) !== status.updatedAt) {
       lastNotified.set(id, status.updatedAt);
@@ -89,7 +90,9 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
         runStatusHooks(kind, launchDir, name, config?.statusHooks);
       }
     }
-    opts.broadcast('sessions-changed', { ts: Date.now() });
+    // Bookkeeping (diff stats, the session's scope, its conversation copy)
+    // after the reply: the hook that nudged us is waiting on it.
+    setImmediate(() => opts.onStatusChanged?.(id));
     return c.json({ ok: true, matched: true, sessionId: id });
   });
 

@@ -14,16 +14,22 @@ const deferred = () => {
 };
 
 describe('coalesce', () => {
-  it('runs once after a burst settles', async () => {
+  it('a burst costs one run per wait, the first a wait after the first trigger — never held back until it settles', async () => {
     const fn = vi.fn(async () => {});
     const c = coalesce(fn, 400);
+    c.trigger();
+    await vi.advanceTimersByTimeAsync(399);
+    c.trigger(); // later triggers don't push it back
+    expect(fn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fn).toHaveBeenCalledTimes(1);
     for (let i = 0; i < 10; i++) {
       c.trigger();
       await vi.advanceTimersByTimeAsync(250);
     }
-    expect(fn).not.toHaveBeenCalled(); // still bursting
-    await vi.advanceTimersByTimeAsync(400);
-    expect(fn).toHaveBeenCalledTimes(1);
+    // 2.5 s of triggers every 250 ms: a run every 400 ms or so, not none until it stops.
+    expect(fn.mock.calls.length).toBeGreaterThanOrEqual(6);
+    expect(fn.mock.calls.length).toBeLessThanOrEqual(8);
   });
 
   it('never runs twice at once, and runs once more for triggers during a run', async () => {
