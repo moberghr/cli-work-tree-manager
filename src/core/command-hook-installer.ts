@@ -21,6 +21,7 @@ import {
   editSettingsSync,
   isOwnerEntry,
   isStaleEntry,
+  HOOK_TAGS,
   tag,
   type HookEntry,
 } from './settings-editor.js';
@@ -62,15 +63,48 @@ export function installCommandHook(opts: CommandHookOptions): Promise<void> {
   });
 }
 
+/** The hook commands work web installs in ~/.claude/settings.json. */
+export const MANAGED_HOOK_COMMANDS: ReadonlySet<string> = new Set(
+  ['prompt-submit', 'stop', 'checkpoint', 'checkpoint-seal', 'status-prompt', 'status-stop', 'status-notify', 'turn-start', 'turn-end'].map(
+    (e) => `work hook ${e}`,
+  ),
+);
+
+/**
+ * An entry of only work's own hook commands that lost its tags. Whatever
+ * else rewrites settings.json — Claude Code saving a setting, a Claude
+ * editing the file — may drop the `_workHook*` keys it doesn't know. Work
+ * then no longer saw the entry as its own and installed a new one beside
+ * it on every start: copies piled up, and each ran on every turn.
+ */
+export function isUntaggedWorkEntry(h: HookEntry): boolean {
+  if (typeof h[HOOK_TAGS.OWNER_TAG] === 'string') return false;
+  const cmds = (h.hooks ?? []).map((x) => (typeof x.command === 'string' ? x.command.trim() : ''));
+  return cmds.length > 0 && cmds.every((c) => MANAGED_HOOK_COMMANDS.has(c));
+}
+
+/** Drop untagged copies of work's own hooks from these events. */
+function removeUntaggedWorkEntries(s: { hooks?: Record<string, HookEntry[] | undefined> }, events: Iterable<string>): void {
+  if (!s.hooks) return;
+  for (const event of events) {
+    const list = s.hooks[event];
+    if (!Array.isArray(list)) continue;
+    s.hooks[event] = list.filter((h) => !isUntaggedWorkEntry(h));
+    if (s.hooks[event]!.length === 0) delete s.hooks[event];
+  }
+}
+
 /**
  * Install `install` and remove every `remove` (owner + event) in ONE write
  * of settings.json — one install per hook used to be one atomic rename
  * each, a burst Windows sometimes refused (EPERM while a Claude reads the
- * file). Stale entries (their process gone) are pruned on the way.
+ * file). Stale entries (their process gone) and untagged copies of work's
+ * own hooks are pruned on the way.
  */
 export function syncCommandHooks(install: CommandHookOptions[], remove: Array<{ owner: string; event: string }> = []): Promise<void> {
   return editSettings((s) => {
     if (!s.hooks) s.hooks = {};
+    removeUntaggedWorkEntries(s, new Set([...install, ...remove].map((x) => x.event)));
     for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
     for (const opts of install) {
       const list = (s.hooks[opts.event] ?? []) as HookEntry[];
@@ -84,6 +118,7 @@ export function syncCommandHooks(install: CommandHookOptions[], remove: Array<{ 
 /** Remove several owner + event entries in one write (signal handlers: synchronous). */
 export function removeCommandHooksSync(remove: Array<{ owner: string; event: string }>): void {
   editSettingsSync((s) => {
+    removeUntaggedWorkEntries(s, new Set(remove.map((r) => r.event)));
     for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
   });
 }

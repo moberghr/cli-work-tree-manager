@@ -135,3 +135,29 @@ describe('syncCommandHooks (work web, one write)', () => {
     expect(read().hooks?.Stop).toBeUndefined();
   });
 });
+
+describe('untagged copies of work’s hooks (tags dropped by another writer of settings.json)', () => {
+  it('are replaced on install and removed on shutdown; the user’s own hooks — even ones calling work — stay', async () => {
+    const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
+    const bare = (command: string, timeout = 5): Entry => ({ hooks: [{ type: 'command', command, timeout }] });
+    write({
+      hooks: {
+        UserPromptSubmit: [userHook, bare('work hook prompt-submit', 15), bare('work hook checkpoint-seal'), bare('work hook checkpoint-seal')],
+        Stop: [bare('work hook checkpoint', 15), { hooks: [{ type: 'command', command: 'work hook checkpoint && my-script' }] }],
+      },
+    });
+    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
+    expect(commands('Stop')).toEqual(['work hook checkpoint && my-script', 'work hook turn-end']); // not only ours: kept
+    // Something rewrites settings.json and drops our tags…
+    const s = read();
+    for (const list of Object.values(s.hooks ?? {})) for (const e of list) for (const k of Object.keys(e)) if (k.startsWith('_work')) delete e[k];
+    write(s);
+    // …the next start doesn't pile a second copy on.
+    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
+    removeCommandHooksSync([...FULL_HOOKS.map(({ owner, event }) => ({ owner, event })), ...LEGACY_HOOKS]);
+    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
+    expect(commands('Stop')).toEqual(['work hook checkpoint && my-script']);
+  });
+});
