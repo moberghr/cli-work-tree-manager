@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { loadConfig } from './config.js';
 import { forkSession, type ForkDeps } from './fork.js';
 import { checkedOutBranch } from './git-head.js';
-import { git, localBranchExists, remoteBranchExists } from './git.js';
+import { git } from './git.js';
 import { resolveProjectTarget } from './resolve.js';
 import { collectingReporter, withReporter } from './report.js';
 import { findSession, sessionIdFor } from './web-state.js';
@@ -21,7 +21,9 @@ export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'
       return t ? t.repoAliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : [])) : null;
     },
     branchOf: checkedOutBranch,
-    branchExists: (repoPath, branch) => localBranchExists(branch, repoPath) || remoteBranchExists(branch, repoPath),
+    // Branches only (a tag or a short SHA of that name is no clash).
+    branchExists: (repoPath, branch) =>
+      ['refs/heads/', 'refs/remotes/origin/'].some((prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], process.cwd()).exitCode === 0,
     setup: async (target, branch, config, base, name) => {
       // Keep what core reports, so a failure says why.
