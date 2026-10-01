@@ -66,6 +66,20 @@ export function pullLatestForBranch(worktreePath: string, branchName: string): v
  * `pull` (default true) only affects the already-exists path: a freshly created
  * worktree is at its branch tip anyway.
  */
+/** Same folder: git prints forward slashes and long names on Windows, where a path may come as a short 8.3 name or in another case. */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => {
+    let r = path.resolve(p);
+    try {
+      r = fs.realpathSync.native(r);
+    } catch {
+      /* not there: as given */
+    }
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
+  return norm(a) === norm(b);
+}
+
 export function createSingleWorktree(
   repoPath: string,
   worktreePath: string,
@@ -83,6 +97,15 @@ export function createSingleWorktree(
       if (currentBranch === branchName) {
         report('warn', `  Worktree already exists at: ${worktreePath}`);
         if (pull) pullLatestForBranch(worktreePath, branchName);
+        return true;
+      }
+      // This repo's worktree, on another branch now (Claude or you switched
+      // it): it is the session's checkout, used as it is. `git worktree add`
+      // into it would fail, and re-entering or restoring the session with it.
+      const ours = parseWorktreeList(repoPath).some((wt) => samePath(wt.path, worktreePath));
+      if (ours) {
+        report('warn', `  Worktree already exists at: ${worktreePath} (on ${currentBranch ?? 'a detached HEAD'}, not ${branchName}: using it as it is)`);
+        if (pull && currentBranch) pullLatestForBranch(worktreePath, currentBranch);
         return true;
       }
     }
@@ -363,6 +386,12 @@ export interface WorktreeSetupOptions {
    * Default true; `work tree --no-pull` turns it off.
    */
   pull?: boolean;
+  /**
+   * Per repo alias: the branch to check out instead of the session's — set
+   * when restoring an archived session whose worktree was removed while on
+   * another branch (archive.json `heads`). The folder keeps the session's name.
+   */
+  checkoutFor?: Record<string, string>;
 }
 
 /**
@@ -406,6 +435,10 @@ export async function setupWorktree(
   bestEffort('recreate the archived branch', () =>
     recreateArchivedBranches(target.isGroup ? target.name : targetName, branchName, target.repoAliases, config),
   );
+  // And its worktree comes back on the branch it was on (Claude may have
+  // switched from the session's), not a new one of the session's name.
+  const checkoutFor = opts.checkoutFor ?? archivedHeads(target.isGroup ? target.name : targetName, branchName);
+  if (checkoutFor) opts = { ...opts, checkoutFor };
 
   const result = target.isGroup
     ? await setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
@@ -434,12 +467,26 @@ export function recreateArchivedBranches(sessionTarget: string, branch: string, 
   for (const alias of aliases) {
     const repo = config.repos[alias];
     const tip = rec.tips[alias];
+    // The branch it was on: the session's, or the one Claude switched to.
+    const name = rec.heads?.[alias] ?? branch;
     if (!repo || !tip || !rec.branchesDeleted.includes(alias)) continue;
-    if (localBranchExists(branch, repo) || remoteBranchExists(branch, repo)) continue;
+    if (localBranchExists(name, repo) || remoteBranchExists(name, repo)) continue;
     if (git(['cat-file', '-e', `${tip}^{commit}`], repo).exitCode !== 0) continue;
-    if (git(['branch', branch, tip], repo).exitCode === 0) done.push(alias);
+    if (git(['branch', name, tip], repo).exitCode === 0) done.push(alias);
   }
   return done;
+}
+
+/**
+ * An archived session whose worktree was removed while (some of) its repos
+ * were on another branch: alias → that branch, for setupWorktree to check
+ * out. Undefined otherwise (the worktree was kept, or on the session's branch).
+ */
+export function archivedHeads(sessionTarget: string, branch: string): Record<string, string> | undefined {
+  const session = findSession(loadHistory(), sessionTarget, branch);
+  if (!session?.archivedAt) return undefined;
+  const rec = readArchive(sessionIdFor(session));
+  return rec?.worktreeRemoved && rec.heads && Object.keys(rec.heads).length ? rec.heads : undefined;
 }
 
 async function setupGroupWorktree(
@@ -508,7 +555,7 @@ async function setupGroupWorktree(
     const repoBase = baseForAlias(spec, alias);
 
     report('step', `[${alias}] (${repoName}):`);
-    const success = createSingleWorktree(repoPath, subWorktreePath, branchName, config, repoBase, opts.pull !== false);
+    const success = createSingleWorktree(repoPath, subWorktreePath, opts.checkoutFor?.[alias] ?? branchName, config, repoBase, opts.pull !== false);
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
@@ -612,7 +659,7 @@ async function setupSingleWorktree(
     workTreePath = existing.path;
     if (opts.pull !== false) pullLatestForBranch(workTreePath, branchName);
   } else {
-    const success = createSingleWorktree(repoPath, workTreePath, branchName, config, baseBranch, opts.pull !== false);
+    const success = createSingleWorktree(repoPath, workTreePath, opts.checkoutFor?.[targetName] ?? branchName, config, baseBranch, opts.pull !== false);
     if (!success) return null;
   }
 

@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { checkedOutBranch } from './git-head.js';
 import { loadConfig } from './config.js';
 import { listTranscripts } from './context-usage.js';
 import { examineWorktree, normPath, type CleanupSession } from './cleanup.js';
@@ -84,11 +86,20 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     lastSummary: (id) => readStatus(id)?.summary ?? null,
     waiting: archiveWaiting,
     stopDev: (id) => void stopDev(id),
-    tips: async (s) => {
+    heads: (s) => {
+      const out: Record<string, string> = {};
+      for (const [alias, repo] of repoPaths(s, loadConfig())) {
+        const wt = worktreeOf(s, repo);
+        const branch = wt ? checkedOutBranch(wt) : null;
+        if (branch && branch !== s.branch) out[alias] = branch;
+      }
+      return out;
+    },
+    tips: async (s, heads) => {
       const cfg = loadConfig();
       const out: Record<string, string> = {};
       for (const [alias, repo] of repoPaths(s, cfg)) {
-        const r = await run('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${s.branch}`], repo);
+        const r = await run('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${heads[alias] ?? s.branch}`], repo);
         if (r.code === 0 && r.stdout.trim()) out[alias] = r.stdout.trim();
       }
       return out;
@@ -105,7 +116,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       }
       return { folders, bytes };
     },
-    tidy: async (s) => {
+    tidy: async (s, heads) => {
       const cfg = loadConfig();
       const repos = repoPaths(s, cfg);
       // Its per-turn checkpoints: refs in the repos, and their manifest.
@@ -117,20 +128,31 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       // A local branch already in the main branch goes (its tip is recorded,
       // and reachable from the main branch, so Restore can recreate it). A
       // squash-merged one stays: its commits are reachable from nothing else.
+      // Both the session's branch and the one checked out, when Claude switched.
       const deleted: string[] = [];
       for (const [alias, repo] of repos) {
         const base = (await run('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'origin/HEAD'], repo)).stdout.trim();
         if (!base || base === 'origin/HEAD') continue;
         const merged = (await run('git', ['-C', repo, 'branch', '--merged', base, '--format=%(refname:short)'], repo)).stdout.split('\n').map((l) => l.trim());
-        if (!merged.includes(s.branch)) continue;
-        const inUse = (await run('git', ['-C', repo, 'worktree', 'list', '--porcelain'], repo)).stdout.includes(`branch refs/heads/${s.branch}\n`);
-        if (inUse) continue;
-        if ((await run('git', ['-C', repo, 'branch', '-D', s.branch], repo)).code === 0) deleted.push(alias);
+        const inUse = (await run('git', ['-C', repo, 'worktree', 'list', '--porcelain'], repo)).stdout;
+        const head = heads[alias] ?? s.branch;
+        for (const branch of new Set([s.branch, head])) {
+          if (!merged.includes(branch) || inUse.includes(`branch refs/heads/${branch}\n`)) continue;
+          // Reported only for the checked-out one: that is what Restore recreates.
+          if ((await run('git', ['-C', repo, 'branch', '-D', branch], repo)).code === 0 && branch === head) deleted.push(alias);
+        }
       }
       return deleted;
     },
     summarize: (rec) => summarizeArchive(rec, (prompt) => runClaude(prompt, 60_000)),
   };
+}
+
+/** The session's worktree of a repo: its only path, or (a group) the one named after the repo's folder. */
+function worktreeOf(s: WorktreeSession, repo: string): string | null {
+  if (!s.isGroup) return s.paths[0] ?? null;
+  const name = path.basename(repo).toLowerCase();
+  return s.paths.find((p) => path.basename(p).toLowerCase() === name) ?? null;
 }
 
 /** The session's repos as [alias, base checkout path] (a group: each member). */

@@ -65,8 +65,10 @@ export interface ArchiveRecord {
     /** What was done and why, in a few sentences (written after archiving). */
     written?: string | null;
   };
-  /** Each repo's branch tip when archived (repo alias → commit). */
+  /** Each repo's branch tip when archived (repo alias → commit): of the branch checked out (`heads`), else the session's. */
   tips?: Record<string, string>;
+  /** Repos checked out on another branch than the session's when archived (alias → branch): Restore brings that branch back. */
+  heads?: Record<string, string>;
   /** Repos whose local branch was deleted (merged): Restore recreates it at its tip. */
   branchesDeleted?: string[];
   /** Build output cleared from a kept worktree. */
@@ -89,12 +91,14 @@ export interface ArchiveDeps {
   /** What archiving now would leave behind unfinished (empty: nothing). */
   waiting?: (id: string) => string[];
   stopDev?: (id: string) => void;
-  /** Each repo's branch tip (alias → commit). */
-  tips?: (s: WorktreeSession) => Promise<Record<string, string>>;
+  /** Repos checked out on another branch than the session's (alias → branch). */
+  heads?: (s: WorktreeSession) => Record<string, string>;
+  /** Each repo's branch tip (alias → commit): of `heads[alias]`, else the session's branch. */
+  tips?: (s: WorktreeSession, heads: Record<string, string>) => Promise<Record<string, string>>;
   /** A kept worktree: clear its git-ignored build output. */
   clearBuildFolders?: (s: WorktreeSession) => Promise<{ folders: number; bytes: number }>;
-  /** A removed worktree: its checkpoint refs, and merged local branches (returns the repos whose branch went). */
-  tidy?: (s: WorktreeSession) => Promise<string[]>;
+  /** A removed worktree: its checkpoint refs, and merged local branches — the session's and the one checked out (returns the repos whose checked-out branch went). */
+  tidy?: (s: WorktreeSession, heads: Record<string, string>) => Promise<string[]>;
   /** A few sentences on what was done (background; null: none). */
   summarize?: (rec: ArchiveRecord) => Promise<string | null>;
   archiveRoot?: string;
@@ -140,7 +144,14 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
   } catch {
     /* not running */
   }
-  const tips = (await deps.tips?.(s).catch(() => ({}))) ?? {};
+  // Which branch each repo is on: Claude may have switched from the session's.
+  let heads: Record<string, string> = {};
+  try {
+    heads = deps.heads?.(s) ?? {};
+  } catch {
+    /* unreadable: the session's branch, as before */
+  }
+  const tips = (await deps.tips?.(s, heads).catch(() => ({}))) ?? {};
 
   // 2. The conversation. Copied before anything is removed; a copy that fails
   //    stops the archive (nothing removed, nothing marked).
@@ -170,7 +181,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
   }
   let branchesDeleted: string[] = [];
   let buildFolders: ArchiveRecord['buildFolders'];
-  if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s).catch(() => [])) ?? [];
+  if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s, heads).catch(() => [])) ?? [];
   else if (keptBecause !== "it is the repo's own checkout" && deps.clearBuildFolders) {
     buildFolders = await deps.clearBuildFolders(s).catch(() => undefined);
   }
@@ -195,6 +206,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
       jiraKey: s.jiraKey ?? null,
     },
     ...(Object.keys(tips).length ? { tips } : {}),
+    ...(Object.keys(heads).length ? { heads } : {}),
     ...(branchesDeleted.length ? { branchesDeleted } : {}),
     ...(buildFolders && buildFolders.folders ? { buildFolders } : {}),
   };

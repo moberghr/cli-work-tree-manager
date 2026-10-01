@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { readSessionMeta } from './session-meta.js';
+import { checkedOutBranch } from './git-head.js';
 import { sessionIdFor } from './web-state.js';
 import { readContextUsage } from './context-usage.js';
 import { bestEffort } from './best-effort.js';
@@ -65,7 +68,24 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
     ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
+    ...otherBranches(s),
   };
+}
+
+/**
+ * Repos of the session checked out on another branch than the session's
+ * (read from HEAD files, no git). Ship and the PR watch follow the real
+ * branch already; this is so the dashboard says so.
+ */
+export function otherBranches(s: Pick<WorktreeSession, 'branch' | 'paths' | 'target' | 'isGroup' | 'archivedAt'>): { onOtherBranch?: Array<{ repo: string; branch: string | null }> } {
+  if (s.archivedAt || !s.branch) return {};
+  const out: Array<{ repo: string; branch: string | null }> = [];
+  for (const p of s.paths) {
+    if (!fs.existsSync(p)) continue;
+    const branch = checkedOutBranch(p);
+    if (branch !== s.branch) out.push({ repo: s.isGroup ? path.basename(p) : s.target, branch });
+  }
+  return out.length ? { onOtherBranch: out } : {};
 }
 
 /** A session's unresolved review threads, from the PR watch's per-repo counts (open PRs only). */

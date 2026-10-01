@@ -325,7 +325,10 @@ export interface SessionOverlap {
 export interface SessionWire {
   id: string;
   target: string;
+  /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
+  /** Repos whose checkout is on another branch now (Claude switched, or you did); null = detached HEAD. */
+  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   isGroup: boolean;
   paths: string[];
   baseBranch?: string;

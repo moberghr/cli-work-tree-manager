@@ -4,8 +4,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { archiveWaiting, defaultArchiveDeps } from '../../src/core/session-archive-deps.js';
-import { recreateArchivedBranches } from '../../src/core/worktree.js';
-import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
+import { recreateArchivedBranches, setupWorktree } from '../../src/core/worktree.js';
+import { loadHistory, saveHistory, setSessionArchived, type WorktreeSession } from '../../src/core/history.js';
 import { saveConfig, type WorkConfig } from '../../src/core/config.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { rememberSent, saveDraft } from '../../src/core/pr-replies.js';
@@ -57,10 +57,10 @@ describe('archive deps (real git)', () => {
   it('records the tip; tidy deletes a branch already in main, keeps a squash-merged one', async () => {
     const d = defaultArchiveDeps();
     const tip = git(repo, 'rev-parse', 'feat/merged');
-    expect(await d.tips!(session('feat/merged'))).toEqual({ api: tip });
-    expect(await d.tidy!(session('feat/merged'))).toEqual(['api']);
+    expect(await d.tips!(session('feat/merged'), {})).toEqual({ api: tip });
+    expect(await d.tidy!(session('feat/merged'), {})).toEqual(['api']);
     expect(git(repo, 'branch', '--list', 'feat/merged')).toBe('');
-    expect(await d.tidy!(session('feat/squashed'))).toEqual([]);
+    expect(await d.tidy!(session('feat/squashed'), {})).toEqual([]);
     expect(git(repo, 'branch', '--list', 'feat/squashed')).toContain('feat/squashed');
   });
 
@@ -77,6 +77,53 @@ describe('archive deps (real git)', () => {
     expect(recreateArchivedBranches('api', 'feat/merged', ['api'], config)).toEqual(['api']);
     expect(git(repo, 'rev-parse', 'feat/merged')).toBe(tip);
     expect(recreateArchivedBranches('api', 'feat/merged', ['api'], config)).toEqual([]); // there now: left alone
+  });
+
+  // A session started on feat/start whose Claude then switched its worktree to feat/merged.
+  const switched = () => {
+    const wt = path.join(home, 'wt', 'repo', 'feat-start');
+    git(repo, 'worktree', 'add', '-q', wt, '-b', 'feat/start', 'main');
+    git(wt, 'checkout', '-q', 'feat/merged');
+    const s: WorktreeSession = { target: 'api', branch: 'feat/start', isGroup: false, paths: [wt], createdAt: 'x', lastAccessedAt: 'x' };
+    saveHistory([...loadHistory(), s]);
+    return { s, wt };
+  };
+
+  it('archiving a worktree on another branch records that branch, its tip, and tidies it too', async () => {
+    const { s, wt } = switched();
+    const d = defaultArchiveDeps();
+    const heads = d.heads!(s);
+    expect(heads).toEqual({ api: 'feat/merged' });
+    expect(await d.tips!(s, heads)).toEqual({ api: git(repo, 'rev-parse', 'feat/merged') });
+    git(repo, 'worktree', 'remove', wt);
+    expect(await d.tidy!(s, heads)).toEqual(['api']); // the checked-out one went (reported), and the session's
+    expect(git(repo, 'branch', '--list', 'feat/merged', 'feat/start')).toBe('');
+  });
+
+  it('Restore brings a removed worktree back on the branch it was on, at its tip, in the session’s folder', async () => {
+    const { s, wt } = switched();
+    const tip = git(repo, 'rev-parse', 'feat/merged');
+    const id = sessionIdFor(s);
+    fs.mkdirSync(path.join(home, '.work', 'archive', id), { recursive: true });
+    fs.writeFileSync(path.join(home, '.work', 'archive', id, 'archive.json'), JSON.stringify({
+      sessionId: id, target: 'api', branch: 'feat/start', isGroup: false, paths: [wt], archivedAt: 'x', worktreeRemoved: true, keptBecause: null,
+      transcripts: [], summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      tips: { api: tip }, heads: { api: 'feat/merged' }, branchesDeleted: ['api'],
+    }));
+    git(repo, 'worktree', 'remove', wt);
+    git(repo, 'branch', '-D', 'feat/merged');
+    await setSessionArchived('api', 'feat/start', true);
+    const r = await setupWorktree('api', 'feat/start', config, undefined, undefined, { pull: false });
+    expect(r?.paths).toEqual([wt]);
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/merged');
+    expect(git(wt, 'rev-parse', 'HEAD')).toBe(tip);
+  });
+
+  it('re-entering a kept worktree that is on another branch uses it as it is (git worktree add into it failed)', async () => {
+    const { wt } = switched();
+    const r = await setupWorktree('api', 'feat/start', config, undefined, undefined, { pull: false });
+    expect(r?.paths).toEqual([wt]);
+    expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/merged');
   });
 
   it('says what would be left unfinished', async () => {
