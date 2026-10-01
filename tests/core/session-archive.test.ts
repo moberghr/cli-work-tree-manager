@@ -7,6 +7,7 @@ import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import { archiveSession, readArchive, readArchivedTranscript, restoreArchivedTranscripts, writeArchiveSummary, type ArchiveDeps } from '../../src/core/session-archive.js';
 import zlib from 'node:zlib';
 import { sessionIdFor } from '../../src/core/session-id.js';
+import { isArchiving } from '../../src/core/archiving.js';
 
 let tmp: string;
 let root: string;
@@ -81,6 +82,23 @@ describe('archiveSession', () => {
     expect(d.calls).not.toContain('remove');
     expect(d.calls).not.toContain('archived');
     expect(fs.existsSync(wt)).toBe(true);
+  });
+});
+
+describe('archiveSession: nothing starts its Claude meanwhile', () => {
+  it('the session counts as being archived from stopping its Claude to the end, also when it fails', async () => {
+    const id = sessionIdFor(session);
+    const seen: boolean[] = [];
+    expect(isArchiving(id)).toBe(false);
+    await archiveSession(session, deps({
+      stopClaude: async () => void seen.push(isArchiving(id)),
+      removable: async () => (seen.push(isArchiving(id)), { ok: true, reason: 'merged' }),
+      setArchived: async () => (seen.push(isArchiving(id)), true),
+    }));
+    expect(seen).toEqual([true, true, true]);
+    expect(isArchiving(id)).toBe(false);
+    await expect(archiveSession(session, deps({ removable: async () => { throw new Error('git broke'); } }))).rejects.toThrow('git broke');
+    expect(isArchiving(id)).toBe(false);
   });
 });
 

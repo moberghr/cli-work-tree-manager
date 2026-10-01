@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useArchivePending } from '../../../api/archive-pending.js';
 import { searchConversations, setArchived, type ConversationHit, type SessionSummary } from '../../../api/client.js';
 import { openInTerminal } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
@@ -385,6 +386,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
   const repos = groupRepoNames(s);
   const [busy, setBusy] = useState<null | 'term' | 'archive'>(null);
   const [error, setError] = useState<string | null>(null);
+  const archiving = useArchivePending(s.id); // also one started elsewhere (the session header)
 
   const run = (what: 'term' | 'archive', fn: () => Promise<unknown>) => {
     setBusy(what);
@@ -497,7 +499,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
         <button
           type="button"
           className="wd-row-action"
-          disabled={busy !== null}
+          disabled={busy !== null || archiving !== undefined}
           title={
             archived
               ? s.archive?.worktreeRemoved
@@ -507,7 +509,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
           }
           onClick={() => run('archive', () => setArchived(s.id, !archived))}
         >
-          {busy === 'archive' ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Restore' : 'Archive'}
+          {archiving !== undefined ? (archiving ? 'Archiving…' : 'Restoring…') : archived ? 'Restore' : 'Archive'}
         </button>
         <button
           type="button"

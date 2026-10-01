@@ -4,6 +4,7 @@ import type {
   CommentStatus,
   CommentSide,
 } from '../../../core/comment-types.js';
+import { trackArchive } from './archive-pending.js';
 import type {
   ActivityState,
   AnswerRequest,
@@ -158,11 +159,16 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
  * says what; `confirm` asks whether to archive anyway (the browser's own
  * dialog by default). Declined: rejects with what was waiting.
  */
-export async function setArchived(
+export function setArchived(
   sessionId: string,
   archived: boolean,
   confirm: (question: string) => boolean = (q) => window.confirm(q),
 ): Promise<{ ok: true }> {
+  // Every caller's button shows it running, wherever you come back to it.
+  return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
+}
+
+async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean) =>
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }) });

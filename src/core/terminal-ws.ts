@@ -190,8 +190,12 @@ async function bridgeToHost(
   try {
     hostUrl = await ensurePty(sessionId);
   } catch (err) {
-    hostUrl = null;
-    try { ws.send(JSON.stringify({ type: 'error', message: (err as Error).message })); } catch { /* */ }
+    // Said once, with the reason (an archived session, a host that won't start).
+    try {
+      ws.send(JSON.stringify({ type: 'error', message: (err as Error).message }));
+      ws.close(1011);
+    } catch { /* */ }
+    return;
   }
   if (!hostUrl) {
     try {

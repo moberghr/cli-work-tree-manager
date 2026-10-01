@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
@@ -263,18 +264,14 @@ function OpenTerminalButton({ sessionId }: { sessionId: string }) {
 /** Archive stops the session's Claude but keeps worktree, branch and
  *  conversation; it drops off the rail and inbox until unarchived. */
 function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: boolean }) {
-  const [busy, setBusy] = useState(false);
+  // In flight is kept outside this button (archive-pending.ts): leaving the
+  // session and coming back makes a new button, which must still say so.
+  const pending = useArchivePending(sessionId);
+  const busy = pending !== undefined;
   const [error, setError] = useState<string | null>(null);
   const onClick = () => {
-    setBusy(true);
     setError(null);
-    setArchived(sessionId, !archived).then(
-      () => setBusy(false),
-      (err: Error) => {
-        setBusy(false);
-        setError(err.message);
-      },
-    );
+    setArchived(sessionId, !archived).catch((err: Error) => setError(err.message));
   };
   return (
     <button
@@ -289,7 +286,7 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
           : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
       }
     >
-      {busy ? (archived ? 'Restoring…' : 'Archiving…') : archived ? 'Restore' : error ? 'Archive ⚠' : 'Archive'}
+      {busy ? (pending ? 'Archiving…' : 'Restoring…') : archived ? 'Restore' : error ? 'Archive ⚠' : 'Archive'}
     </button>
   );
 }

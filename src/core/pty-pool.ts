@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { noClaudeBecause } from './archiving.js';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
 import { hostStartLockPath, type SpawnSpec, type HostInfo, type PtyInfo } from './pty-host-protocol.js';
@@ -139,6 +140,10 @@ export async function ensurePty(
   // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
   // folder, which is (re)written first (assistant.ts).
   const session = sessionId === ASSISTANT_ID ? null : findSession(sessionId);
+  // Not for a session being archived, or archived: its Claude was stopped on
+  // purpose (a Terminal tab still open on it reconnects and would start it).
+  const refused = sessionId === ASSISTANT_ID ? null : noClaudeBecause(session, sessionId);
+  if (refused) throw new Error(refused);
   const base =
     sessionId === ASSISTANT_ID
       ? { cwd: prepareAssistantDir(), tool: getAiTool(loadConfig() ?? {}) }

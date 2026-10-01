@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { whileArchiving } from './archiving.js';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { getConfigDir } from './config.js';
@@ -117,6 +118,11 @@ export const archiveRoot = (): string => path.join(getConfigDir(), 'archive');
 export const archiveDirFor = (id: string, root = archiveRoot()): string => path.join(root, id);
 
 export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean } = {}): Promise<ArchiveOutcome> {
+  // Nothing starts its Claude again while this runs (archiving.ts).
+  return whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
+}
+
+async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean }): Promise<ArchiveOutcome> {
   const id = sessionIdFor(s);
   const root = deps.archiveRoot ?? archiveRoot();
   const dir = archiveDirFor(id, root);

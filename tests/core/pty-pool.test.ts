@@ -5,8 +5,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---- fakes for the pool's collaborators -----------------------------------
 
-const sessions: Record<string, { paths: string[]; isGroup?: boolean; port?: number }> = {
+const sessions: Record<string, { paths: string[]; isGroup?: boolean; port?: number; archivedAt?: string }> = {
   single: { paths: [path.resolve('/wt/api/feat-x')], port: 4100 },
+  archived: { paths: [path.resolve('/wt/api/old')], archivedAt: '2026-10-01T10:33:03Z' },
   group: { paths: [path.resolve('/wt/shop/feat-y/backend'), path.resolve('/wt/shop/feat-y/frontend')], isGroup: true },
 };
 
@@ -118,6 +119,19 @@ describe('ensurePty', () => {
     const pool = await freshPool();
     await pool.ensurePty('single', { initialPrompt: 'Work on ABC-1' });
     expect(host.spawned[0].spec).toMatchObject({ cwd: sessions.single.paths[0], initialPrompt: 'Work on ABC-1' });
+  });
+
+  it("never starts an archived session's Claude, or one being archived (a Terminal tab still open on it reconnects)", async () => {
+    const pool = await freshPool();
+    await expect(pool.ensurePty('archived')).rejects.toThrow(/archived\. Restore it/);
+    const { whileArchiving } = await import('../../src/core/archiving.js');
+    let during: unknown;
+    await whileArchiving('single', async () => {
+      during = await pool.ensurePty('single').catch((e: Error) => e.message);
+    });
+    expect(during).toBe('This session is being archived.');
+    expect(host.spawned).toEqual([]);
+    expect(await pool.ensurePty('single')).toBe('ws://host/single'); // after: as before
   });
 
   it('retries once with a fresh host connection when the cached one is stale', async () => {
