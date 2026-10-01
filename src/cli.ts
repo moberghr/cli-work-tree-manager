@@ -27,6 +27,7 @@ import { cleanupCommand } from './commands/cleanup.js';
 import { overlapsCommand } from './commands/overlaps.js';
 import { searchCommand } from './commands/search.js';
 import { prCommand } from './commands/pr.js';
+import { forkCommand } from './commands/fork.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -111,6 +112,7 @@ export function run(argv: string[]) {
     .command(configCommand)
     .command(treeCommand)
     .command(removeCommand)
+    .command(forkCommand)
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)

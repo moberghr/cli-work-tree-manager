@@ -1,3 +1,4 @@
+import os from 'node:os';
 import type { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -24,7 +25,7 @@ export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'
     // Branches only (a tag or a short SHA of that name is no clash).
     branchExists: (repoPath, branch) =>
       ['refs/heads/', 'refs/remotes/origin/'].some((prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0),
-    validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], process.cwd()).exitCode === 0,
+    validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
     setup: async (target, branch, config, base, name) => {
       // Keep what core reports, so a failure says why.
       const reports = collectingReporter();
