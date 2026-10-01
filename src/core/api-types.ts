@@ -533,6 +533,9 @@ export interface SessionCi {
 // ---- behind main (behind-main.ts) -------------------------------------------------
 
 /** POST /api/sessions/:id/update-from-main: per repo. */
+/** GET /api/rail (and every rail write's answer): the rail's pins and sections. */
+export type { RailLayout, RailSection, RailPlace, PlacePatch } from './rail-layout.js';
+
 export interface UpdateFromMainWire {
   results: Array<
     | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }

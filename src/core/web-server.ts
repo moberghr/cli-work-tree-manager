@@ -28,6 +28,7 @@ import { mountStatusRoutes } from './status-routes.js';
 import { mountShipRoutes } from './ship-routes.js';
 import { mountChatRoutes } from './chat-routes.js';
 import { mountSessionOrderRoutes } from './session-order-routes.js';
+import { mountRailRoutes } from './rail-routes.js';
 import { archiveSession } from './session-archive.js';
 import { defaultArchiveDeps } from './session-archive-deps.js';
 import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
@@ -609,6 +610,8 @@ export async function startWebServer(
 
   // The sessions list's manual order (drag to reorder).
   mountSessionOrderRoutes(app, { broadcast });
+  // The rail's pins and sections.
+  mountRailRoutes(app, { broadcast });
 
   // A session's Claude as a chat: headless, instead of the terminal (spike).
   let selfUrl = '';

@@ -7,6 +7,7 @@ import type { SessionSubTab } from './dashboard-route.js';
 export * from '../../../core/session-view.js';
 import { displayStatus, lastActiveAt } from '../../../core/session-view.js';
 import { applyManualOrder } from '../../../core/session-order.js';
+import { groupRail, type RailGroup, type RailLayout } from '../../../core/rail-layout.js';
 
 /** Where opening a session should land: its terminal — except finished
  *  work you haven't looked at yet, which opens on the diff to review. */
@@ -58,6 +59,21 @@ export function railSessions(
     (recent || live ? current : older).push(s);
   }
   return { current: applyManualOrder(stableSessionOrder(current), order), older: applyManualOrder(stableSessionOrder(older), order) };
+}
+
+/**
+ * What the rail shows, in groups (Pinned, your sections, the rest): the
+ * current sessions, plus — while the older ones are folded away — the
+ * pinned ones and the selected one, which always stay visible. `hidden`:
+ * how many older ones the "+N older" button stands for.
+ */
+export function railGroups(
+  sessions: SessionSummary[],
+  opts: { now?: number; order?: readonly string[]; layout: RailLayout; activeId?: string | null; showOlder?: boolean },
+): { groups: RailGroup<SessionSummary>[]; hidden: number } {
+  const { current, older } = railSessions(sessions, opts.now ?? Date.now(), opts.order ?? []);
+  const kept = opts.showOlder ? older : older.filter((s) => s.id === opts.activeId || opts.layout.places[s.id]?.pinned);
+  return { groups: groupRail([...current, ...kept], opts.layout), hidden: older.length - kept.length };
 }
 
 /**

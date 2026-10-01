@@ -1903,3 +1903,34 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-behind-conflicts .wd-behind-text { color: var(--del-fg); }
 .wd-behind-outcome { font-size: 11px; color: var(--muted); }
 .wd-behind-outcome .wd-link-button { margin-left: 6px; }
+
+/* Rail groups: Pinned, your sections, the rest (rail-layout.ts). */
+.wd-dash-rail-group { padding: 8px 12px 2px; }
+.wd-dash-rail-group + .wd-dash-rail-group { padding-top: 2px; }
+.wd-dash-rail-group-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.wd-dash-rail-group-toggle:hover { color: var(--fg); }
+.wd-dash-rail-group-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+.wd-dash-rail-group-caret { width: 10px; flex: none; }
+.wd-dash-rail-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wd-dash-rail-group-count { font-weight: 400; font-variant-numeric: tabular-nums; }
+.wd-dash-rail-group-drop { box-shadow: inset 0 -2px 0 var(--accent); }
+.wd-dash-rail-group-empty { padding: 2px 12px 6px 27px; font-size: 11px; color: var(--muted); }
+.wd-dash-rail-group-naming { display: flex; flex-direction: column; gap: 2px; }
+.wd-dash-rail-group-error { font-size: 11px; color: var(--status-deleted-fg); }

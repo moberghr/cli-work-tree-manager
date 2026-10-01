@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS jira_watch (issue_key TEXT PRIMARY KEY, data TEXT NOT
 
 -- A session snoozed out of the Inbox for a while or until it changes (snooze.ts). (v5)
 CREATE TABLE IF NOT EXISTS session_snooze (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- Where a session sits in the rail: pinned, or under one of your sections (rail-layout.ts). (v6)
+CREATE TABLE IF NOT EXISTS rail_place (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
@@ -218,7 +221,7 @@ export function revision(table: 'sessions' | 'tasks'): number {
 
 /** Every row a session owns, outside `sessions` itself. */
 export function purgeSessionRows(d: Db, sessionId: string): void {
-  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'session_snooze']) {
+  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'session_snooze', 'rail_place']) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }
   d.prepare('DELETE FROM comments WHERE store = ?').run(sessionId);

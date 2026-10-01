@@ -650,6 +650,23 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
 }
 
+// ---- the rail's pins and sections ----------------------------------------
+
+type RailLayout = import('../../../core/rail-layout.js').RailLayout;
+
+export function fetchRailLayout(): Promise<RailLayout> {
+  return getJson<RailLayout>('/api/rail');
+}
+
+export function saveRailSections(sections: import('../../../core/rail-layout.js').RailSection[]): Promise<RailLayout> {
+  return sendJson('PUT', '/api/rail/sections', { sections });
+}
+
+/** Pin / unpin, or move into (`section: id`) or out of (`null`) a section. */
+export function placeSession(sessionId: string, patch: import('../../../core/rail-layout.js').PlacePatch): Promise<RailLayout> {
+  return sendJson('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/rail`, patch);
+}
+
 // ---- chat (headless Claude, spike) ----------------------------------------
 
 async function chatPost(sessionId: string, sub: string, body: unknown): Promise<void> {

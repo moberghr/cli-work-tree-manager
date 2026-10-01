@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { PlacePatch, RailLayout, RailSection } from '../../../../core/rail-layout.js';
 import type { MenuItem } from './RowMenu.js';
 import { renameSession, type SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
@@ -33,6 +34,9 @@ interface Props {
   onReorderSessions?: (order: string[]) => void;
   /** A rail row's right-click menu after Rename. */
   sessionMenu?: (s: SessionSummary) => MenuItem[];
+  railLayout?: RailLayout;
+  onPlaceSession?: (id: string, patch: PlacePatch) => void;
+  onRailSections?: (sections: RailSection[]) => Promise<void>;
   children: ReactNode;
 }
 
@@ -66,6 +70,9 @@ export function DashboardLayout({
   sessionOrder,
   onReorderSessions,
   sessionMenu,
+  railLayout,
+  onPlaceSession,
+  onRailSections,
   children,
 }: Props) {
   // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
@@ -128,6 +135,9 @@ export function DashboardLayout({
           prsFor={prsFor}
           onRename={renameSession}
           menuFor={sessionMenu}
+          layout={railLayout}
+          onPlace={onPlaceSession}
+          onSections={onRailSections}
           order={sessionOrder}
           onReorder={onReorderSessions}
         />

@@ -11,6 +11,7 @@ import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire,
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
+import { applyPlacePatch, cleanPlacePatch, cleanSections, type RailLayout } from '../rail-layout.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
 
@@ -266,6 +267,38 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (!order) return c.json({ error: 'order must be an array of session ids' }, 400);
     sessionOrder = order;
     return c.json({ order });
+  });
+
+  // The rail's pins and sections, in memory, by the real rules (rail-layout.ts).
+  let rail: RailLayout = { sections: [], places: {} };
+  const railChanged = () => broadcast({ event: 'rail-changed', data: { ts: Date.now() } });
+  app.get('/api/rail', (c) => c.json(rail));
+  app.put('/api/rail/sections', async (c) => {
+    const sections = cleanSections((await json(c)).sections);
+    if (!sections) return c.json({ error: 'sections must be a list of {id, name} (at most 30, names not empty)' }, 400);
+    const known = new Set(sections.map((s) => s.id));
+    const places: RailLayout['places'] = {};
+    for (const [id, p] of Object.entries(rail.places)) {
+      const next = p.section && !known.has(p.section) ? applyPlacePatch(p, { section: null }) : p;
+      if (next) places[id] = next;
+    }
+    rail = { sections, places };
+    railChanged();
+    return c.json(rail);
+  });
+  app.put('/api/sessions/:id/rail', async (c) => {
+    const id = c.req.param('id');
+    if (!scenario.list().some((x) => x.id === id)) return notFound(c);
+    const patch = cleanPlacePatch(await json(c));
+    if (!patch) return c.json({ error: 'expected {pinned?: boolean, section?: string | null}' }, 400);
+    if (patch.section && !rail.sections.some((s) => s.id === patch.section)) return c.json({ error: 'no such section' }, 409);
+    const places = { ...rail.places };
+    const next = applyPlacePatch(places[id], patch);
+    if (next) places[id] = next;
+    else delete places[id];
+    rail = { ...rail, places };
+    railChanged();
+    return c.json(rail);
   });
 
   // The headless-Claude chat (spike): snapshots only, resent on every change.

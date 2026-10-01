@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
+import { fetchRailLayout, placeSession, saveRailSections } from '../api/client.js';
+import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type RailSection } from '../../../core/rail-layout.js';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
@@ -10,7 +12,7 @@ import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
-import { defaultSubTab, isArchived, prsForSession, prsKnownFrom, railSessions, type PrLookup } from '../state/session-display.js';
+import { defaultSubTab, isArchived, prsForSession, prsKnownFrom, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
@@ -207,6 +209,7 @@ export function DashboardApp() {
     onOpen: () => setRefreshKey((n) => n + 1),
     events: {
       'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),
+      'rail-changed': () => void fetchRailLayout().then(setRailLayout, () => {}),
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
       notify: (data) =>
@@ -284,6 +287,25 @@ export function DashboardApp() {
     setSessionOrder(order);
     void saveSessionOrder(order).catch(() => void fetchSessionOrder().then(setSessionOrder, () => {}));
   }, []);
+
+  // The rail's pins and sections: every window's (state.db), applied as the server answers.
+  const [railLayout, setRailLayout] = useState<RailLayout>(EMPTY_RAIL_LAYOUT);
+  useEffect(() => {
+    void fetchRailLayout().then(setRailLayout, () => {});
+  }, []);
+  const placeInRail = useCallback(
+    (id: string, patch: PlacePatch) =>
+      void placeSession(id, patch).then(setRailLayout, (err: Error) => showToast({ text: err.message, kind: 'error' })),
+    [showToast],
+  );
+  const saveSections = useCallback(
+    (sections: RailSection[]) =>
+      saveRailSections(sections).then(setRailLayout, (err: Error) => {
+        showToast({ text: err.message, kind: 'error' });
+        throw err;
+      }),
+    [showToast],
+  );
 
   // Moving between sessions (rail, j/k) keeps the tab you are on — comparing
   // diffs across sessions stays on the diff; entering from elsewhere lands
@@ -413,12 +435,11 @@ export function DashboardApp() {
         return;
       }
       // j / k — move down/up through the rail, in the order it shows them:
-      // the current sessions (stable order), plus the selected older one it
-      // keeps pinned. (Walking all sessions by recency jumped to rows the
-      // rail doesn't show, archived ones included.)
+      // pinned, your sections, the rest — the current sessions, plus the
+      // older ones it keeps visible (pinned, selected). (Walking all sessions
+      // by recency jumped to rows the rail doesn't show, archived ones included.)
       if (e.key === 'j' || e.key === 'k') {
-        const { current, older } = railSessions(sessions, Date.now(), sessionOrder);
-        const sorted = [...current, ...older.filter((s) => s.id === route.sessionId)];
+        const sorted = railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId }).groups.flatMap((g) => g.sessions);
         if (sorted.length === 0) return;
         const currentIdx = route.sessionId
           ? sorted.findIndex((s) => s.id === route.sessionId)
@@ -440,7 +461,7 @@ export function DashboardApp() {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, hopTo, route.sessionId, sessions, sessionOrder, modalOpen, reviewQueue]);
+  }, [goTab, openSession, hopTo, route.sessionId, sessions, sessionOrder, railLayout, modalOpen, reviewQueue]);
 
   // Set of Jira keys that already have a worktree, for the Jira tab's
   // "already-has-worktree" badge.
@@ -610,6 +631,9 @@ export function DashboardApp() {
         sessionOrder={sessionOrder}
         onReorderSessions={reorderSessions}
         sessionMenu={sessionMenu}
+        railLayout={railLayout}
+        onPlaceSession={placeInRail}
+        onRailSections={saveSections}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
