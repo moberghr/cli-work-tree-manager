@@ -1,14 +1,17 @@
 import { json, tx, withDb } from './db.js';
 import type { PrReply } from './api-types.js';
 import type { CommandRunner } from './ship.js';
+import { sessionIdFor } from './session-id.js';
 
 /**
  * Replies to PR review threads, drafted by the session's Claude and posted
- * by you. The PR watch records each thread it hands over (`rememberSent`);
- * Claude drafts an answer with `work pr reply <thread id> "<text>"`
- * (`saveDraft`); the dashboard shows the drafts, and Post sends one from
- * your GitHub account and can resolve the thread (`postReply`). Claude
- * itself never posts: what appears on GitHub is in your name.
+ * with your yes. The PR watch records each thread it hands over
+ * (`rememberSent`); Claude drafts an answer with `work pr reply <thread id>
+ * "<text>"` (`saveDraft`) and shows you; the dashboard shows the drafts too,
+ * editable. What appears on GitHub is in your name, so a draft goes out
+ * only once you've said yes: your Post click, or Claude running `work pr
+ * post` after you agreed in the conversation (`postDrafts`; never on the
+ * assistant's allow list, so Claude Code asks you as well).
  *
  * Rows live in state.db `pr_replies`, keyed by session + thread, and go
  * with the session (purgeSessionRows).
@@ -111,8 +114,8 @@ export type PostResult = { ok: true; url: string; resolved: boolean } | { ok: fa
 
 /**
  * Post the reply from your GitHub account (gh), then resolve the thread if
- * asked. Only ever run on your click: the route is a POST behind the
- * local-origin guard, and it re-reads the row first.
+ * asked. Run on your yes: the Post route (a POST behind the local-origin
+ * guard) or `work pr post`. It re-reads the row first.
  */
 export async function postReply(
   sessionId: string,
@@ -140,4 +143,27 @@ export async function postReply(
   }
   markPosted(sessionId, threadId, text, url, resolved);
   return { ok: true, url, resolved };
+}
+
+/**
+ * Post saved drafts as they stand (your edits in the dashboard included):
+ * `work pr post`, which a session's Claude runs once you've said yes to
+ * them in the conversation. One at a time, each re-checked by postReply.
+ */
+export async function postDrafts(
+  session: { target: string; branch: string; paths: string[] },
+  drafts: PrReply[],
+  resolve: boolean,
+  run: CommandRunner,
+): Promise<{ posted: Array<PrReply & { url: string; resolved: boolean }>; failed: Array<{ threadId: string; error: string }> }> {
+  const id = sessionIdFor(session);
+  const cwd = session.paths.find((p) => p) ?? process.cwd();
+  const posted: Array<PrReply & { url: string; resolved: boolean }> = [];
+  const failed: Array<{ threadId: string; error: string }> = [];
+  for (const d of drafts) {
+    const r = await postReply(id, d.threadId, d.draft ?? '', { resolve, cwd, run });
+    if (r.ok) posted.push({ ...d, url: r.url, resolved: r.resolved });
+    else failed.push({ threadId: d.threadId, error: r.error });
+  }
+  return { posted, failed };
 }

@@ -14,7 +14,8 @@ import type { PrReply } from './api-types.js';
  *   POST   /api/sessions/:id/replies/:thread/post     — {body, resolve}: post it from your account
  *   POST   /api/replies-changed                       — {sessionId}: `work pr reply` saved a draft
  *
- * Posting is the only thing that writes to GitHub, and only on your click.
+ * Posting is the only thing that writes to GitHub: here on your click, or
+ * `work pr post` from the session's Claude once you said yes to the drafts.
  */
 export function mountPrReplyRoutes(
   app: Hono,

@@ -3,7 +3,8 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { findSessionForCwd } from '../core/pending-delivery.js';
 import { sessionIdFor } from '../core/session-id.js';
-import { listReplies, saveDraft } from '../core/pr-replies.js';
+import { listReplies, postDrafts, saveDraft } from '../core/pr-replies.js';
+import { defaultRunner } from '../core/ship.js';
 import { readWebUrl } from '../core/web-discovery.js';
 
 /** Tell a running work web a draft changed, so the session header shows it. Best effort. */
@@ -30,17 +31,19 @@ function sessionHere() {
 /**
  * `work pr reply <thread> "<text>"` — for the session's Claude: draft the
  * answer to a review thread it was handed (the PR feedback note names each
- * thread). Only a draft: the dashboard shows it to you, and you post it.
+ * thread). The dashboard shows the draft to you, editable.
+ * `work pr post <thread…> [--all] [--resolve]` — posts the drafts as they
+ * stand, which Claude runs only after you said yes to them.
  * `work pr replies [--json]` lists the threads and drafts.
  */
 export const prCommand: CommandModule = {
   command: 'pr <action>',
-  describe: 'Review threads handed to this session: draft replies for you to post',
+  describe: 'Review threads handed to this session: draft replies, and post them once the user says yes',
   builder: (y) =>
     y
       .command(
         'reply <thread> [text..]',
-        'Draft the reply to a review thread (you review and post it in the dashboard)',
+        "Draft the reply to a review thread (shown in the dashboard; posted only on the user's yes)",
         (b) =>
           b
             .positional('thread', { type: 'string', demandOption: true, describe: 'The thread id from the feedback note (PRRT_…)' })
@@ -56,7 +59,33 @@ export const prCommand: CommandModule = {
             process.exit(1);
           }
           await nudgeWeb(id);
-          console.log(`Draft saved for ${r.reply.reviewer}'s thread on PR #${r.reply.prNumber}. It is posted only when the user approves it in the dashboard.`);
+          console.log(`Draft saved for ${r.reply.reviewer}'s thread on PR #${r.reply.prNumber}. Show it to the user; post it (work pr post ${r.reply.threadId}) only once they say yes.`);
+        },
+      )
+      .command(
+        'post [threads..]',
+        'Post drafted replies from your GitHub account — for Claude, only once the user has said yes to them',
+        (b) =>
+          b
+            .positional('threads', { type: 'string', array: true, describe: 'Thread ids (PRRT_…) whose drafts to post' })
+            .option('all', { type: 'boolean', default: false, describe: 'Every draft of this session' })
+            .option('resolve', { type: 'boolean', default: false, describe: 'Also resolve each thread (for comments you fixed)' }),
+        async (argv) => {
+          const s = sessionHere();
+          const id = sessionIdFor(s);
+          const asked = (argv.threads as string[] | undefined) ?? [];
+          const drafts = listReplies(id).filter((r) => r.status === 'draft' && (argv.all || asked.includes(r.threadId)));
+          const unknown = argv.all ? [] : asked.filter((t) => !drafts.some((r) => r.threadId === t));
+          for (const t of unknown) console.error(chalk.red(`${t}: no draft to post for this session (draft it with \`work pr reply\` first)`));
+          if (drafts.length === 0) {
+            if (!unknown.length) console.error(chalk.red('Nothing to post: name the threads, or --all.'));
+            process.exit(1);
+          }
+          const r = await postDrafts(s, drafts, argv.resolve === true, defaultRunner);
+          await nudgeWeb(id);
+          for (const p of r.posted) console.log(`Posted to @${p.reviewer}'s thread on PR #${p.prNumber}${p.resolved ? ' (resolved)' : ''}: ${p.url}`);
+          for (const f of r.failed) console.error(chalk.red(`${f.threadId}: ${f.error}`));
+          if (r.failed.length || unknown.length) process.exit(1);
         },
       )
       .command(

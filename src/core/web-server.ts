@@ -502,7 +502,7 @@ export async function startWebServer(
     return c.json(body);
   });
 
-  // Replies to PR review threads: Claude drafts, you post (pr-replies.ts).
+  // Replies to PR review threads: Claude drafts, posted on your yes (pr-replies.ts).
   mountPrReplyRoutes(app, { broadcast, activity });
 
   // Clean up view: which worktrees can go (scan), and removing them.

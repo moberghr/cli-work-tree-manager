@@ -576,7 +576,7 @@ export interface PrReply {
   where: string | null;
   reviewer: string;
   excerpt: string;
-  /** sent: Claude has it; draft: Claude wrote a reply; posted: you posted it. */
+  /** sent: Claude has it; draft: Claude wrote a reply; posted: on GitHub (your click, or `work pr post` on your yes). */
   status: 'sent' | 'draft' | 'posted';
   draft: string | null;
   sentAt: string;

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { discardReply, draftCounts, listReplies, postReply, rememberSent, saveDraft } from '../../src/core/pr-replies.js';
+import { discardReply, draftCounts, listReplies, postDrafts, postReply, rememberSent, saveDraft } from '../../src/core/pr-replies.js';
 import { mountPrReplyRoutes } from '../../src/core/pr-reply-routes.js';
 import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
@@ -79,6 +79,27 @@ describe('reply drafts', () => {
     saveDraft('s1', T1, 'draft');
     expect(await postReply('s1', T1, 'draft', { resolve: false, cwd: home, run: gh(true).run })).toEqual({ ok: false, error: 'HTTP 403: Resource not accessible' });
     expect(listReplies('s1')[0].status).toBe('draft');
+  });
+
+  it('postDrafts (`work pr post`) posts the drafts as they stand — your dashboard edit included — and reports each', async () => {
+    const s = { target: 'api', branch: 'fix/x', paths: [home] };
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1), thread(T2)]);
+    saveDraft(id, T1, 'Claude wrote this');
+    saveDraft(id, T1, 'You edited this'); // the dashboard's PUT saves through the same function
+    saveDraft(id, T2, 'Second');
+    let n = 0;
+    const run: CommandRunner = async (cmd, args) => {
+      if (args.some((a) => a.includes('resolveReviewThread'))) return { code: 0, stdout: '{}', stderr: '' };
+      return ++n === 2 ? { code: 1, stdout: '', stderr: 'HTTP 502' } : gh().run(cmd, args, home);
+    };
+    const r = await postDrafts(s, listReplies(id), true, run);
+    expect(r.posted.map((p) => [p.threadId, p.resolved])).toEqual([[T1, true]]);
+    expect(r.failed).toEqual([{ threadId: T2, error: 'HTTP 502' }]);
+    expect(listReplies(id).map((x) => [x.threadId, x.status, x.draft])).toEqual([
+      [T1, 'posted', 'You edited this'],
+      [T2, 'draft', 'Second'], // a failed one stays a draft
+    ]);
   });
 
   it('go with the session, and discard removes one', () => {

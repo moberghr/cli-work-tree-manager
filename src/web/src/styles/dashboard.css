@@ -1696,7 +1696,7 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-activity-note-warn { color: var(--warn-fg); }
 .wd-activity-more { font-size: 11px; }
 
-/* Replies Claude drafted for review threads (ReplyDrafts): you post them. */
+/* Replies Claude drafted for review threads (ReplyDrafts): posted on your yes. */
 .wd-replies { margin: 6px 16px 8px; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--review-fg) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--review-fg) 5%, var(--bg)); font-size: 12px; }
 .wd-replies-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--review-fg); }
 .wd-replies-muted { color: var(--muted); font-weight: 400; }

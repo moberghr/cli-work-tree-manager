@@ -39,6 +39,7 @@ export const ASSISTANT_ALLOW = [
   'Bash(work sessions:*)',
   'Bash(work digest:*)',
   'Bash(work overlaps:*)',
+  'Bash(work search:*)',
   'Bash(work cleanup --json)',
   'Bash(work cleanup --json --no-fetch)',
   'Bash(work cleanup --no-fetch --json)',
@@ -58,6 +59,7 @@ Use the \`work\` CLI with \`--json\` (see the work-sessions skill) and parse it;
 - \`work digest --json --since today|yesterday|week\` — what each session did (prompts, turns, PRs).
 - \`work overlaps --json\` — live sessions changing the same files.
 - \`work cleanup --json\` — which worktrees can go, and why.
+- \`work search <words> --json\` — sessions whose conversation (live or archived, also older than Claude Code keeps) mentions it, with the matching lines: "what did we do about X?".
 
 Each prompt comes with what the user is looking at in the dashboard (the tab, the selected session). When they say "this", "these" or "here", that is what they mean.
 

@@ -47,7 +47,7 @@ describe('the assistant folder', () => {
   });
 
   it('never pre-allows anything that changes things', () => {
-    for (const read of ['work sessions --json', 'work digest --json --since today', 'work cleanup --json', 'work overlaps --json']) {
+    for (const read of ['work sessions --json', 'work digest --json --since today', 'work cleanup --json', 'work overlaps --json', 'work search encryption keys --json']) {
       expect(allows(ASSISTANT_ALLOW, read), read).toBe(true);
     }
     for (const change of [
@@ -57,6 +57,8 @@ describe('the assistant folder', () => {
       'work remove api feat/x',
       'work tree api feat/x',
       'git push --force',
+      'work pr post PRRT_abc --resolve', // writes on GitHub in your name: Claude Code must ask
+      'work pr post --all',
     ]) {
       expect(allows(ASSISTANT_ALLOW, change), change).toBe(false);
     }
