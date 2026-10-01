@@ -6,6 +6,8 @@ import { sessionIdFor } from './session-id.js';
 import type { SessionStatus } from './session-status.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionStacks, stackedOn } from './stack-sessions.js';
+import { parentTipFor, retargetIsClean, retargetOntoMain } from './stack-retarget.js';
+import { setSessionBase } from './history.js';
 import type { RunHandle } from './activity.js';
 
 /**
@@ -81,6 +83,43 @@ export async function syncStackChild(child: WorktreeSession, parentBranch: strin
   return { updated: true, commits, how, told };
 }
 
+/**
+ * After its own turn: a session whose parent merged (archived) moves onto
+ * main — by the same rules (idle, clean, git says it goes cleanly), all
+ * repos or none, its Claude told. Null when it isn't such a session.
+ */
+export async function retargetIfMerged(
+  child: WorktreeSession,
+  parent: Parameters<typeof parentTipFor>[1],
+  config: WorkConfig | null,
+  deps: StackSyncDeps,
+): Promise<StackSyncResult> {
+  const run = deps.run ?? defaultRunner;
+  const busy = busyWhy(deps.shownState(child));
+  if (busy) return { updated: false, why: busy };
+  const tips = new Map<string, string | null>();
+  for (const p of child.paths) tips.set(p, await parentTipFor(p, parent, config, run));
+  for (const p of child.paths) {
+    const tip = tips.get(p);
+    if (!tip) return { updated: false, why: `${parent.branch} merged, but its tip is unknown here: Move onto main by hand` };
+    if (!(await retargetIsClean(p, tip, run))) return { updated: false, why: `${parent.branch} merged; moving onto main would conflict (or has uncommitted changes): left for you` };
+  }
+  const nowBusy = busyWhy(deps.shownState(child));
+  if (nowBusy) return { updated: false, why: nowBusy };
+  const r = await retargetOntoMain(child, async (p) => tips.get(p) ?? null, run);
+  if (!r.ok) return { updated: false, why: r.results.filter((x) => !x.ok).map((x) => `${x.repo}: ${(x as { reason: string }).reason}`).pop() ?? 'failed' };
+  const main = (r.base ?? 'origin/main').replace(/^origin\//, '');
+  await setSessionBase(child.target, child.branch, main);
+  let told = true;
+  await deps
+    .tell(child, `${parent.branch} — the branch this one was stacked on — has merged, so this branch was moved onto ${r.base ?? 'main'} (only its own commits kept on top). Files may have changed since you last read them; look again before editing them.`)
+    .catch((err) => {
+      told = false;
+      logSwallowed(`telling ${child.branch} it moved onto main`, err);
+    });
+  return { updated: true, commits: r.results.reduce((n, x) => n + (x.ok ? x.commits : 0), 0), how: `moved onto ${main}`, told };
+}
+
 export interface AfterTurnDeps extends StackSyncDeps {
   history: () => WorktreeSession[];
   config: () => WorkConfig | null;
@@ -102,12 +141,28 @@ export async function syncStacksAfterTurn(sessionId: string, deps: AfterTurnDeps
   const config = deps.config();
   const stacks = sessionStacks(history, config);
   const self = history.find((s) => sessionIdFor(s) === sessionId);
+  const merged = self ? stacks.mergedParentOf.get(sessionId) : undefined;
   const candidates = [...(self && stacks.parentOf.has(sessionId) ? [self] : []), ...stackedOn(sessionId, stacks, history)];
-  if (candidates.length === 0) return 0;
+  if (candidates.length === 0 && !merged) return 0;
   for (const c of candidates) deps.invalidate(sessionIdFor(c));
   if (config?.stacks?.autoUpdate === false) return 0;
   const run = deps.startRun();
   let updated = 0;
+  if (self && merged && !deps.busy.has(sessionId)) {
+    deps.busy.add(sessionId);
+    try {
+      const r = await retargetIfMerged(self, merged, config, deps);
+      if (r.updated) {
+        updated++;
+        deps.invalidate(sessionId);
+        run.note(`${self.branch}: ${r.how} (${merged.branch} merged)${r.told ? '; its Claude was told' : " — telling its Claude failed"}`, { sessionId, ...(r.told ? {} : { level: 'warn' as const }) });
+      } else run.note(`${self.branch}: left as it is — ${r.why}`, { sessionId });
+    } catch (err) {
+      run.note(`${self.branch}: ${(err as Error).message}`, { sessionId, level: 'warn' });
+    } finally {
+      deps.busy.delete(sessionId);
+    }
+  }
   for (const child of candidates) {
     const childId = sessionIdFor(child);
     const parent = stacks.parentOf.get(childId);

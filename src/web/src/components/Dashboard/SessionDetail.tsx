@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { WorkTimeChip } from './WorkTimeChip.js';
-import { BehindChip } from './BehindChip.js';
+import { BehindChip, MergedParentChip } from './BehindChip.js';
 import { CatchUpButton } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
@@ -98,6 +98,7 @@ export function SessionDetail({
         <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
         <CatchUpButton key={`catch-${session.id}`} session={session} />
         <BehindChip key={`behind-${session.id}`} session={session} />
+        <MergedParentChip key={`merged-${session.id}`} session={session} />
         <PromptsMenu session={session} />
         <button
           type="button"

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { sendPromptToSession, updateFromMain, type SessionSummary, type UpdateFromMainResult } from '../../api/client.js';
+import { retargetSession, sendPromptToSession, updateFromMain, type SessionSummary, type UpdateFromMainResult } from '../../api/client.js';
 
 /** Fewer commits behind than this, and only a conflict is worth a word. */
 export const BEHIND_SHOWN_AT = 10;
@@ -96,4 +96,69 @@ export function describeUpdate(results: UpdateFromMainResult[]): { text: string;
   if (failed && !failed.ok) return { text: `${before}${failed.repo}: ${failed.reason}`, error: true };
   if (done.length === 0) return { text: 'Already up to date.' };
   return { text: doneText + '.' };
+}
+
+/**
+ * A stacked session whose parent merged and is archived (stack-retarget.ts):
+ * "was on feat/x — merged" and Move onto main, which replays only its own
+ * commits onto main (a pushed branch: main merged in). It happens by itself
+ * after its next turn when git says it goes cleanly; this is for now.
+ */
+export function MergedParentChip({ session }: { session: SessionSummary }) {
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ text: string; conflictBase?: string; error?: boolean } | null>(null);
+  const merged = session.stackParentMerged;
+  if (!merged && !outcome) return null;
+  const run = () => {
+    setBusy(true);
+    setOutcome(null);
+    retargetSession(session.id).then(
+      (results) => {
+        setBusy(false);
+        setOutcome(describeUpdate(results));
+      },
+      (err: Error) => {
+        setBusy(false);
+        setOutcome({ text: err.message, error: true });
+      },
+    );
+  };
+  const ask = (base: string) =>
+    void sendPromptToSession(
+      session.id,
+      `${merged?.branch ?? 'The branch this one was stacked on'} has merged into ${base}. Move this branch onto ${base} keeping only its own commits (git rebase --onto ${base} <where it left ${merged?.branch ?? 'that branch'}>, if it was never pushed; else merge ${base} in). Resolve the conflicts, run the tests, and commit. If a conflict needs a decision from me, start a line with DECISION NEEDED: and ask.`,
+    ).then(
+      () => setOutcome({ text: 'Asked its Claude to move it onto main and resolve the conflicts.' }),
+      (err: Error) => setOutcome({ text: err.message, error: true }),
+    );
+  return (
+    <span className="wd-behind">
+      {merged && (
+        <span className="wd-behind-text" title={`${merged.branch}, the session this one was stacked on, merged and was archived.`}>
+          ⤷ was on {merged.branch} — merged
+        </span>
+      )}
+      {merged && (
+        <button
+          type="button"
+          className="wd-session-detail-btn"
+          disabled={busy}
+          onClick={run}
+          title="Replay only this branch's own commits onto main (a pushed branch: merge main in). Conflicts are aborted, not left in the worktree."
+        >
+          {busy ? 'Moving…' : 'Move onto main'}
+        </button>
+      )}
+      {outcome && (
+        <span className={'wd-behind-outcome' + (outcome.error ? ' wd-tab-error' : '')} role="status">
+          {outcome.text}
+          {outcome.conflictBase && (
+            <button type="button" className="wd-link-button" onClick={() => ask(outcome.conflictBase!)}>
+              Ask Claude to resolve
+            </button>
+          )}
+        </span>
+      )}
+    </span>
+  );
 }

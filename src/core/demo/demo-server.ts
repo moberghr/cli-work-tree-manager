@@ -374,6 +374,14 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
 
   // -- worktree actions (simulated) -----------------------------------------
+  // Onto main once its parent merged: the demo has no real stacks to move, so it just says it did.
+  app.post('/api/sessions/:id/retarget', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    if (!w.stackParentMerged) return c.json({ error: 'it is not stacked on a merged session' }, 409);
+    return c.json({ results: [{ ok: true, repo: w.target, how: 'rebase', base: 'origin/main', commits: 3 }] } satisfies UpdateFromMainWire);
+  });
+
   // Fork: a new demo session on the new branch, started with a canned summary.
   app.post('/api/sessions/:id/fork', async (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));

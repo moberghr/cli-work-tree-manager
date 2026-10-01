@@ -140,6 +140,8 @@ export interface SessionSummary {
   stackedOn?: { id: string; branch: string; title?: string };
   /** How many live sessions are stacked on this one. */
   stackedChildren?: number;
+  /** It was stacked on a session that merged and is archived: it should move onto main. */
+  stackParentMerged?: { id: string; branch: string };
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   titleIsYours?: boolean;
@@ -586,6 +588,14 @@ export async function sendPromptToSession(sessionId: string, body: string): Prom
 export type UpdateFromMainResult = UpdateFromMainWire['results'][number];
 
 /** Fetch, then rebase (never pushed) or merge main in (pushed); conflicts aborted. One result per repo. */
+/** A stacked session whose parent merged: onto main (only its own commits on top). */
+export async function retargetSession(sessionId: string): Promise<UpdateFromMainResult[]> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/retarget`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as Partial<UpdateFromMainWire> & { error?: string };
+  if (!res.ok || !body.results) throw new Error(body.error ?? `moving onto main failed (${res.status})`);
+  return body.results;
+}
+
 export async function updateFromMain(sessionId: string): Promise<UpdateFromMainResult[]> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/update-from-main`, { method: 'POST' });
   const body = (await res.json().catch(() => ({}))) as Partial<UpdateFromMainWire> & { error?: string };

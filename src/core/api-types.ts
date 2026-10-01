@@ -341,6 +341,8 @@ export interface SessionWire {
   stackedOn?: { id: string; branch: string; title?: string };
   /** How many live sessions are stacked on this one. */
   stackedChildren?: number;
+  /** It was stacked on a session that merged and is archived: it should move onto main (POST …/retarget). */
+  stackParentMerged?: { id: string; branch: string };
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;

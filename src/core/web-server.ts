@@ -314,7 +314,12 @@ export async function startWebServer(
           behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
           stackFor: (id) => {
             const p = stacks.parentOf.get(id);
-            return { parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null, children: stacks.children.get(id) ?? 0 };
+            const m = stacks.mergedParentOf.get(id);
+            return {
+              parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
+              children: stacks.children.get(id) ?? 0,
+              merged: m ? { id: m.id, branch: m.branch } : null,
+            };
           },
           hostedLive: (id) => peekPty(id) || chatApi.running(id),
           shadowed: (id) => shadow.has(id),

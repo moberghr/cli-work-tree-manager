@@ -253,6 +253,18 @@ export async function setSessionTitle(target: string, branch: string, title: str
   });
 }
 
+/** Record the branch it is now based on (a stacked session moved onto main): one base for every repo. */
+export async function setSessionBase(target: string, branch: string, base: string): Promise<boolean> {
+  return tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return false;
+    s.baseBranch = base;
+    delete s.baseBranches;
+    putRow(d, s);
+    return true;
+  });
+}
+
 export async function removeSession(target: string, branch: string): Promise<void> {
   const id = sessionIdFor({ target, branch });
   if (!withDb((d) => getRow(d, target, branch))) return; // nothing to remove: touch nothing

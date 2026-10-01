@@ -42,7 +42,7 @@ export interface SessionWireOptions {
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
   behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
   /** Where it sits in a stack (stack-sessions.ts). */
-  stackFor?: (id: string) => { parent: { id: string; branch: string; title?: string } | null; children: number };
+  stackFor?: (id: string) => { parent: { id: string; branch: string; title?: string } | null; children: number; merged?: { id: string; branch: string } | null };
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -97,6 +97,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const stack = s.archivedAt ? null : (opts.stackFor?.(id) ?? null);
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
+  if (stack?.merged) wire.stackParentMerged = stack.merged;
   return wire;
 }
 

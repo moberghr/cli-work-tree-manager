@@ -3,8 +3,9 @@ import { findSession } from './web-state.js';
 import { shownState } from './turn-activity.js';
 import { updateFromMain, type UpdateResult } from './behind-main.js';
 import { loadConfig } from './config.js';
-import { loadHistory } from './history.js';
+import { loadHistory, setSessionBase } from './history.js';
 import { sessionStacks } from './stack-sessions.js';
+import { parentTipFor, retargetOntoMain } from './stack-retarget.js';
 import type { CommandRunner } from './ship.js';
 import type { UpdateFromMainWire } from './api-types.js';
 
@@ -33,5 +34,26 @@ export function mountUpdateRoutes(
     opts.changed?.(id);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ results } satisfies UpdateFromMainWire);
+  });
+
+  // A stacked session whose parent merged (its session archived): onto main (stack-retarget.ts).
+  app.post('/api/sessions/:id/retarget', async (c) => {
+    const id = c.req.param('id');
+    const s = findSession(id);
+    if (!s) return c.json({ error: 'unknown session' }, 404);
+    if (s.archivedAt) return c.json({ error: 'it is archived: restore it first' }, 409);
+    const state = shownState(s);
+    if (state === 'working' || state === 'needs_input') {
+      return c.json({ error: `Not now: its Claude is ${state === 'working' ? 'working' : 'waiting for your answer'} (the files would change under it).` }, 409);
+    }
+    const config = loadConfig();
+    const parent = sessionStacks(loadHistory(), config).mergedParentOf.get(id);
+    if (!parent) return c.json({ error: 'it is not stacked on a merged session' }, 409);
+    const r = await retargetOntoMain(s, (repo) => parentTipFor(repo, parent, config, opts.run), opts.run);
+    // On main now: no longer stacked on anything.
+    if (r.ok && r.base) await setSessionBase(s.target, s.branch, r.base.replace(/^origin\//, ''));
+    opts.changed?.(id);
+    opts.broadcast('sessions-changed', { ts: Date.now() });
+    return c.json({ results: r.results } satisfies UpdateFromMainWire);
   });
 }

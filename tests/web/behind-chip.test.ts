@@ -6,13 +6,14 @@ import type { SessionSummary } from '../../src/web/src/api/client.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const api = vi.hoisted(() => ({ updateFromMain: vi.fn(), sendPromptToSession: vi.fn() }));
+const api = vi.hoisted(() => ({ updateFromMain: vi.fn(), sendPromptToSession: vi.fn(), retargetSession: vi.fn() }));
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
   updateFromMain: (id: string) => api.updateFromMain(id),
+  retargetSession: (id: string) => api.retargetSession(id),
   sendPromptToSession: (id: string, t: string) => api.sendPromptToSession(id, t),
 }));
-const { BehindChip, behindText, describeUpdate, resolvePrompt } = await import('../../src/web/src/components/Dashboard/BehindChip.js');
+const { BehindChip, MergedParentChip, behindText, describeUpdate, resolvePrompt } = await import('../../src/web/src/components/Dashboard/BehindChip.js');
 
 const session = (behind?: SessionSummary['behind']): SessionSummary =>
   ({ id: 's1', target: 'api', branch: 'feat/x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', activityState: 'stale', ...(behind ? { behind } : {}) }) as SessionSummary;
@@ -92,5 +93,20 @@ describe('stacked sessions', () => {
     expect(onOpen).toHaveBeenCalledWith('p1');
     act(() => root.render(createElement(StackChip, { session: session(), onOpen })));
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('a stacked session whose parent merged', () => {
+  it('says so, and Move onto main reports what happened (a conflict can go to Claude)', async () => {
+    const s = { ...session(), stackParentMerged: { id: 'p1', branch: 'feat/p' } };
+    api.retargetSession.mockResolvedValue([{ ok: false, repo: 'api', reason: 'moving onto origin/main conflicts', conflicts: true, base: 'origin/main' }]);
+    act(() => root.render(createElement(MergedParentChip, { session: s })));
+    expect(container.textContent).toContain('⤷ was on feat/p — merged');
+    await act(async () => button('Move onto main').click());
+    expect(api.retargetSession).toHaveBeenCalledWith('s1');
+    expect(container.textContent).toContain('moving onto origin/main conflicts — left as it was');
+    await act(async () => button('Ask Claude to resolve').click());
+    expect(api.sendPromptToSession).toHaveBeenCalledWith('s1', expect.stringContaining('git rebase --onto origin/main'));
+    act(() => root.render(createElement(MergedParentChip, { session: session() })));
   });
 });
