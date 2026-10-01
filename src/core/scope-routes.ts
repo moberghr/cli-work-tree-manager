@@ -35,6 +35,7 @@ import {
   suppressScopeWatch,
 } from './scope-manager.js';
 import type { Scope } from './scope-manager.js';
+import { scopeHashForPaths } from './scope-manager.js';
 import { getCommentFileStore } from './comment-file-store.js';
 import {
   commentInputSchema,
@@ -72,7 +73,11 @@ export interface ScopeMountOptions {
 export function mountScopeRoutes(
   app: Hono,
   opts: ScopeMountOptions,
-): { ensureScope: (paths: string[], label?: string) => Scope; sessionScope: (paths: string[], label?: string) => Scope } {
+): {
+  ensureScope: (paths: string[], label?: string) => Scope;
+  sessionScope: (paths: string[], label?: string) => Scope;
+  releaseSessionScope: (paths: string[], clearRefs: boolean) => boolean;
+} {
   // -- Lifecycle -----------------------------------------------------------
 
   // Scopes that already have an auto-snapshot subscriber wired. The
@@ -452,22 +457,20 @@ export function mountScopeRoutes(
     },
   );
 
-  app.delete('/api/scopes/:hash', (c) => {
-    const hash = c.req.param('hash');
-    // Capture the paths BEFORE removeScope — the scope-manager entry
-    // is gone after that, and clearCheckpoints needs the repo roots
-    // to delete each `refs/wd/<hash>/<n>` ref. Without this cleanup,
-    // refs + the manifest leak forever: git GC can't reclaim the
-    // commits behind a named ref, and a re-register with the same
-    // paths would skip the Initial snapshot because the stale
-    // manifest still has entries.
+  /**
+   * Tear a scope down: its file watch, our bookkeeping (auto-snapshot
+   * wiring, fingerprint, live step, pending timers, summaries in flight) and,
+   * with `clearRefs`, its checkpoint refs and manifest. Archiving a session
+   * releases its scope (Windows won't remove a folder an open watch holds,
+   * and an archived session's watch otherwise stayed open until work web
+   * restarted); deleting it clears the refs too — git GC can't reclaim the
+   * commits behind a named ref.
+   */
+  function dropScope(hash: string, opts2: { clearRefs: boolean }): boolean {
+    // The paths BEFORE removeScope: clearCheckpoints needs the repo roots.
     const scope = getScope(hash);
     const repoPaths = scope ? [...scope.paths] : [];
     const ok = removeScope(hash);
-    // `removeScope` clears the scope's fs-watch subscribers; drop our
-    // record of having wired one so a re-register of the same paths
-    // rewires the auto-snapshot subscriber instead of silently doing
-    // nothing.
     checkpointWatched.delete(hash);
     lastStatus.delete(hash);
     liveCheckpoint.delete(hash);
@@ -479,10 +482,12 @@ export function mountScopeRoutes(
       clearTimeout(pendingTimer);
       snapshotTimers.delete(hash);
     }
-    if (repoPaths.length > 0) clearCheckpoints(hash, repoPaths);
+    if (opts2.clearRefs && repoPaths.length > 0) clearCheckpoints(hash, repoPaths);
     if (ok) opts.broadcast('scopes-changed', { hash });
-    return c.json({ ok });
-  });
+    return ok;
+  }
+
+  app.delete('/api/scopes/:hash', (c) => c.json({ ok: dropScope(c.req.param('hash'), { clearRefs: true }) }));
 
   // -- Diff ----------------------------------------------------------------
 
@@ -877,5 +882,7 @@ export function mountScopeRoutes(
     return existing ?? ensureScope(paths, label);
   }
 
-  return { ensureScope, sessionScope };
+  /** A session's scope, by its paths (archive / delete). */
+  const releaseSessionScope = (paths: string[], clearRefs: boolean) => dropScope(scopeHashForPaths(paths), { clearRefs });
+  return { ensureScope, sessionScope, releaseSessionScope };
 }

@@ -273,9 +273,29 @@ export async function takeCheckpoint(
     const label = opts.label ?? (isFirst ? 'Initial' : undefined);
     if (label) entry.label = label;
     manifest.entries.push(entry);
+    // At most MAX_CHECKPOINTS per scope: the oldest steps go (never the
+    // Initial baseline), refs and all — each ref keeps a full snapshot's
+    // objects from git's garbage collection.
+    const dropped = checkpointsOverCap(manifest.entries);
+    if (dropped.length) {
+      const gone = new Set(dropped.map((e) => e.id));
+      manifest.entries = manifest.entries.filter((e) => !gone.has(e.id));
+    }
     atomicWriteFile(file, JSON.stringify(manifest, null, 2));
+    for (const e of dropped) {
+      for (const repo of repos) await runGitAsync(repo.root, { args: ['update-ref', '-d', `refs/wd/${scopeHash}/${e.id}`] });
+    }
     return entry;
   });
+}
+
+/** How many checkpoints a scope keeps (Initial included). */
+export const MAX_CHECKPOINTS = 200;
+
+/** The entries to drop to get back to `max`: the oldest after the Initial one. */
+export function checkpointsOverCap<T extends { id: number }>(entries: T[], max = MAX_CHECKPOINTS): T[] {
+  if (entries.length <= max) return [];
+  return entries.slice(1, 1 + (entries.length - max));
 }
 
 export type UpdateCheckpointResult =

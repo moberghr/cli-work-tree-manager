@@ -478,7 +478,7 @@ export async function startWebServer(
 
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each
   // emits sessions-changed so the sidebar refreshes.
-  mountWorktreeRoutes(app, { broadcast });
+  mountWorktreeRoutes(app, { broadcast, releaseScope: (paths) => void scopeApi?.releaseSessionScope(paths, true) });
 
   // Ad-hoc scopes registered by `wd` invocations — gives the dashboard
   // an addressable URL per scope (/diff/<hash>, /review/<hash>) so we
@@ -508,6 +508,8 @@ export async function startWebServer(
   const releaseSession = async (id: string) => {
     await disposeSessionWatcher(id);
     chatApi.stop(id);
+    const s = findSession(id);
+    if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession });
 

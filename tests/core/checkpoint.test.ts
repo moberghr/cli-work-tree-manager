@@ -12,6 +12,7 @@ import {
   headAdvancedSinceInitial,
   resetBaseline,
   manifestPath,
+  checkpointsOverCap,
 } from '../../src/core/checkpoint.js';
 
 let tmpHome: string;
@@ -540,5 +541,13 @@ describe('clearCheckpoints', () => {
       git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/1'], repoA)
         .exitCode,
     ).not.toBe(0);
+  });
+});
+
+describe('checkpointsOverCap', () => {
+  it('drops the oldest steps after the Initial one, down to the cap', () => {
+    const entries = Array.from({ length: 7 }, (_, id) => ({ id }));
+    expect(checkpointsOverCap(entries, 10)).toEqual([]);
+    expect(checkpointsOverCap(entries, 5).map((e) => e.id)).toEqual([1, 2]); // 0 (Initial) stays
   });
 });

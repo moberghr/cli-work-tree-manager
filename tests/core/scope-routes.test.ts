@@ -76,6 +76,21 @@ describe('sessionScope (dashboard lookups)', () => {
     expect(getCommentFileStore(`scope-${hash}`).snapshot().map((c) => c.body)).toEqual(['please rename this']);
   });
 
+  it('archive releases the scope (its watch and all) but keeps its checkpoints; delete clears them', async () => {
+    const api = mountScopeRoutes(new Hono(), { broadcast: () => {} });
+    const scope = api.sessionScope([repoDir], 'repo · feat/x');
+    await takeCheckpoint(scope.hash, [{ name: 'repo', root: repoDir }]);
+    const before = loadManifest(scope.hash).entries.length;
+    expect(before).toBeGreaterThan(0);
+    expect(api.releaseSessionScope([repoDir], false)).toBe(true);
+    expect(getScope(scope.hash)).toBeNull();
+    expect(loadManifest(scope.hash).entries).toHaveLength(before); // kept for Restore
+    const again = api.sessionScope([repoDir], 'repo · feat/x');
+    expect(api.releaseSessionScope([repoDir], true)).toBe(true);
+    expect(loadManifest(again.hash).entries).toHaveLength(0);
+    expect(api.releaseSessionScope([repoDir], true)).toBe(false); // nothing left
+  });
+
   it('creates the scope when there is none', () => {
     const api = mountScopeRoutes(new Hono(), { broadcast: () => {} });
     const scope = api.sessionScope([repoDir], 'repo · feat/x');

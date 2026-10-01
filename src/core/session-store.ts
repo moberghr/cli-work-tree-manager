@@ -4,6 +4,10 @@ import { sessionIdFor } from './session-id.js';
 import { purgeSessionRows, tx } from './db.js';
 import { logSwallowed } from './best-effort.js';
 import { devLogFile, stopDev } from './dev-server.js';
+import { clearCheckpoints } from './checkpoint.js';
+import { scopeHashForPaths } from './scope-manager.js';
+import { loadConfig } from './config.js';
+import type { WorktreeSession } from './session-types.js';
 
 /**
  * Owner of a session's state beyond its `sessions` row. Everything
@@ -19,8 +23,10 @@ import { devLogFile, stopDev } from './dev-server.js';
  *
  * plus one file, ~/.work/dev/<id>.log (the dev server's output).
  *
- * (Diff scopes and their checkpoint refs are keyed by scope hash, not by
- * session, and are swept by work web.)
+ * plus its diff scope's checkpoints: refs/wd/<hash>/* in its repos and the
+ * manifest, keyed by the hash of its paths (clearSessionCheckpoints) — the
+ * refs keep their commits (untracked files `add -A` captured included) from
+ * git's garbage collection.
  *
  * § WHEN adding per-session state, add its table to `purgeSessionRows`
  * (db.ts), or its file here — so removing a session removes it. Before
@@ -42,6 +48,22 @@ export function stopSessionDevServer(id: string): void {
     stopDev(id);
   } catch (err) {
     logSwallowed(`stop dev server ${id}`, err);
+  }
+}
+
+/**
+ * A removed session's checkpoints: the refs in its repos' shared git dir
+ * (from the base checkouts: the worktree may already be gone) and the
+ * manifest. Best-effort, logged.
+ */
+export function clearSessionCheckpoints(s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths'>): void {
+  try {
+    const cfg = loadConfig();
+    const aliases = s.isGroup ? (cfg?.groups[s.target] ?? []) : [s.target];
+    const roots = aliases.map((a) => cfg?.repos[a]).filter((r): r is string => !!r && fs.existsSync(r));
+    clearCheckpoints(scopeHashForPaths(s.paths), roots);
+  } catch (err) {
+    logSwallowed(`clear checkpoints of ${s.target}`, err);
   }
 }
 

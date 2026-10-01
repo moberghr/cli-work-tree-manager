@@ -23,6 +23,8 @@ export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
   /** Start the new session's Claude with a first prompt (tests inject). */
   startSession?: (sessionId: string, prompt: string) => Promise<StartOutcome>;
+  /** Drop the session's diff scope (its watch and bookkeeping) before deleting it. */
+  releaseScope?: (paths: string[]) => void;
 }
 
 /** What happened to the first prompt of a created worktree. */
@@ -157,6 +159,7 @@ export function mountWorktreeRoutes(
         // delete on Windows.
         await disposePty(id);
         await disposeSessionWatcher(id);
+        opts.releaseScope?.(session.paths);
 
         let worktreeRemoved = false;
         if (!sessionOnly && onDisk) {

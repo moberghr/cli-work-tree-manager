@@ -6,7 +6,7 @@ import { json, purgeSessionRows, tx, withDb, type Db } from './db.js';
 import { sessionIdFor } from './session-id.js';
 import { effectiveLastAccessedAt } from './claude-activity.js';
 import { allocateFreePort } from './port-allocator.js';
-import { removeSessionFiles, stopSessionDevServer } from './session-store.js';
+import { removeSessionFiles, stopSessionDevServer, clearSessionCheckpoints } from './session-store.js';
 
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
@@ -256,6 +256,7 @@ export async function setSessionTitle(target: string, branch: string, title: str
 export async function removeSession(target: string, branch: string): Promise<void> {
   const id = sessionIdFor({ target, branch });
   if (!withDb((d) => getRow(d, target, branch))) return; // nothing to remove: touch nothing
+  const session = findSession(loadHistory(), target, branch);
   // The session's other state (status, comments, saved PTY entry, …) goes
   // with it — in the SAME transaction, so a crash can't leave state behind
   // for a re-created session to inherit (see session-store.ts).
@@ -265,7 +266,10 @@ export async function removeSession(target: string, branch: string): Promise<voi
     if (gone) purgeSessionRows(d, id);
     return gone;
   });
-  if (removed) removeSessionFiles(id);
+  if (removed) {
+    removeSessionFiles(id);
+    if (session) clearSessionCheckpoints(session);
+  }
 }
 
 export function getSessionsForTarget(
