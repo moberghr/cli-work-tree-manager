@@ -393,6 +393,9 @@ export interface ShipPr {
   headSha: string;
   /** When it was merged (ISO), for a MERGED PR. */
   mergedAt?: string;
+  /** When anything on it last changed (a push, a comment, a review): the
+   *  PR watch re-reads review threads only when this moved. */
+  updatedAt?: string;
   /** Checks that failed (name + link), when `checks` is 'fail'. */
   failing?: FailingCheck[];
 }

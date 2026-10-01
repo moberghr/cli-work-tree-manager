@@ -181,9 +181,14 @@ function oneLineErr(s: string): string {
   return s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
 }
 
+/** Whether to ask GitHub about a repo's PR at all (the PR watch skips
+ *  branches that were never pushed and have no PR it knows of). */
+export type AskGh = (repo: { name: string; hasUpstream: boolean; commitsVsBase: number | null }) => boolean;
+
 async function inspectRepo(
   repo: { name: string; path: string },
   run: CommandRunner,
+  askGh?: AskGh,
 ): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
   const branch = (await git('rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim();
@@ -220,16 +225,19 @@ async function inspectRepo(
 
   let pr: ShipPr | null = null;
   let ghError: string | undefined;
-  const view = await run(
-    'gh',
-    ['pr', 'view', branch, '--json', 'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,statusCheckRollup'],
-    repo.path,
-  );
+  const skipGh = askGh ? !askGh({ name: repo.name, hasUpstream, commitsVsBase }) : false;
+  const view = skipGh
+    ? { code: 1, stdout: '', stderr: 'no pull requests found (not asked: never pushed)' }
+    : await run(
+        'gh',
+        ['pr', 'view', branch, '--json', 'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup'],
+        repo.path,
+      );
   if (view.code === 0) {
     try {
       const j = JSON.parse(view.stdout) as {
         number: number; url: string; state: ShipPr['state']; isDraft: boolean;
-        mergeStateStatus?: string; headRefOid: string; mergedAt?: string | null; statusCheckRollup?: CheckRollupItem[];
+        mergeStateStatus?: string; headRefOid: string; mergedAt?: string | null; updatedAt?: string; statusCheckRollup?: CheckRollupItem[];
       };
       pr = {
         number: j.number,
@@ -240,6 +248,7 @@ async function inspectRepo(
         checks: checksFromRollup(j.statusCheckRollup),
         headSha: j.headRefOid,
         ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
+        ...(j.updatedAt ? { updatedAt: j.updatedAt } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {
@@ -262,8 +271,9 @@ async function inspectRepo(
 export async function shipPreflight(
   session: WorktreeSession,
   run: CommandRunner = defaultRunner,
+  opts: { askGh?: AskGh } = {},
 ): Promise<ShipPreflight> {
-  const repos = await Promise.all(shipRepos(session).map((r) => inspectRepo(r, run)));
+  const repos = await Promise.all(shipRepos(session).map((r) => inspectRepo(r, run, opts.askGh)));
   return { repos };
 }
 

@@ -69,7 +69,14 @@ export function mountCiRoutes(
         .filter((s) => !s.archivedAt && Date.parse(s.lastAccessedAt) >= cutoff && s.paths.some((p) => fs.existsSync(p)))
         .map((session) => ({ id: sessionIdFor(session), session }));
     },
-    preflight: (s) => shipPreflight(s),
+    // Never-pushed branches can't have a PR: don't ask GitHub about them,
+    // unless the watch already knows one (a merged PR whose branch is gone).
+    preflight: (s) => {
+      const id = sessionIdFor(s);
+      return shipPreflight(s, defaultRunner, {
+        askGh: (r) => r.hasUpstream || !!watch.state(id)?.repos.find((x) => x.name === r.name)?.pr,
+      });
+    },
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),

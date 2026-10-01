@@ -136,6 +136,31 @@ describe('PR watch', () => {
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
   });
 
+  describe('GitHub calls', () => {
+    it("re-reads a PR's review threads only when the PR changed (its updatedAt)", async () => {
+      const fbOf = { viewer: 'me', reviews: [], comments: [], threads: [] } as unknown as ReviewFeedback;
+      const h = harness([repo('api', pr({ updatedAt: '2026-09-30T10:00:00Z' }))], ON, false, fbOf);
+      await h.watch.tick();
+      await h.watch.tick();
+      expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(1);
+      h.set([repo('api', pr({ updatedAt: '2026-09-30T11:00:00Z' }))]);
+      await h.watch.tick();
+      expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(2);
+    });
+
+    it('a refresh while a check runs joins it instead of starting another', async () => {
+      let release!: () => void;
+      const h = harness([repo('api', pr())]);
+      h.deps.preflight.mockImplementationOnce(() => new Promise((r) => (release = () => r({ repos: [repo('api', pr())] }))));
+      const sweep = h.watch.tick();
+      await new Promise((r) => setTimeout(r, 0));
+      const refresh = h.watch.refresh('s1');
+      release();
+      await Promise.all([sweep, refresh]);
+      expect(h.deps.preflight).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('feedback for a Claude that is not running', () => {
     const botThread = {
       viewer: 'me', reviews: [], comments: [],

@@ -152,6 +152,10 @@ export function autoArchiveVerdict(
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>();
+  /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
+  const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
+  /** A session's check in flight: a refresh joins it instead of starting another. */
+  const inflight = new Map<string, Promise<SessionCi | null>>();
   /** Sweeps skip until then: GitHub's API limit was spent (see check). */
   let pausedUntil = 0;
   const sessionOf = (id: string) => deps.sessions().find((s) => s.id === id);
@@ -191,7 +195,16 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, checks: (r.pr!.failing ?? []).map((f) => f.name) }));
   }
 
-  async function check(id: string, session: WorktreeSession, act = true, run?: RunHandle): Promise<SessionCi | null> {
+  /** One check per session at a time: a second asker gets the one running. */
+  function check(id: string, session: WorktreeSession, act = true, run?: RunHandle): Promise<SessionCi | null> {
+    const running = inflight.get(id);
+    if (running) return running;
+    const p = checkNow(id, session, act, run).finally(() => inflight.delete(id));
+    inflight.set(id, p);
+    return p;
+  }
+
+  async function checkNow(id: string, session: WorktreeSession, act = true, run?: RunHandle): Promise<SessionCi | null> {
     const name = `${session.target} ${session.branch}`;
     const note = (text: string, level: 'info' | 'action' | 'warn' = 'info') => run?.note(`${name}: ${text}`, { level, sessionId: id });
     let pre: ShipPreflight;
@@ -222,7 +235,13 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN') continue;
-        const fb = await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
+        // Nothing new can have been said on a PR that hasn't changed since
+        // the last read (a comment or review moves its updatedAt).
+        const key = `${id}:${r.name}`;
+        const cached = feedbackCache.get(key);
+        const fresh = cached && r.pr.updatedAt && cached.number === r.pr.number && cached.updatedAt === r.pr.updatedAt;
+        const fb = fresh ? cached.fb : await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
+        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, fb });
         if (!fb) {
           // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
           const was = states.get(id)?.repos.find((p) => p.name === r.name);

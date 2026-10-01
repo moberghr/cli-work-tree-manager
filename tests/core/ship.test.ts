@@ -111,6 +111,16 @@ describe('preflight', () => {
     expect(r).toMatchObject({ hasUpstream: true, tracksRemote: true, ahead: 0, done: false, mergeBlockers: [] });
   });
 
+  it('askGh: a repo the caller says not to ask about makes no gh call and reads as no PR (no error)', async () => {
+    const { run, calls } = fakeRunner({ [P('api')]: ready({ remote: false }) });
+    const asked: Array<{ name: string; hasUpstream: boolean }> = [];
+    const [r] = (await shipPreflight(single(), run, { askGh: (x) => (asked.push(x), x.hasUpstream) })).repos;
+    expect(asked).toEqual([expect.objectContaining({ name: 'api', hasUpstream: false })]);
+    expect(calls.filter((c) => c.cmd === 'gh')).toEqual([]);
+    expect(r.pr).toBeNull();
+    expect(r.ghError).toBeUndefined();
+  });
+
   it('measures ahead vs origin/<branch> even when tracking points at the base (work tree default)', async () => {
     // The reviewed bug: tracking origin/main made the branch look
     // unpublished, hid 2 unpushed commits, and merge landed the old head.
