@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
 import path from 'node:path';
 import { Hono } from 'hono';
@@ -536,6 +537,10 @@ export async function startWebServer(
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.
   mountPanesRoutes(app, { broadcast, activity });
 
+  // The Jira watch: newly assigned issues started in the right project
+  // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
+  const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean });
+
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each
   // emits sessions-changed so the sidebar refreshes.
   mountWorktreeRoutes(app, { broadcast, releaseScope: (paths) => void scopeApi?.releaseSessionScope(paths, true) });
@@ -632,6 +637,7 @@ export async function startWebServer(
     stop: async () => {
       clearInterval(revPoll);
       loop.stop();
+      jiraWatch.stop();
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
       if (sleepTimer) clearInterval(sleepTimer);

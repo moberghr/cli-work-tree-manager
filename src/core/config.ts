@@ -20,6 +20,8 @@ export interface WorkConfig {
   repos: Record<string, string>;
   groups: Record<string, string[]>;
   copyFiles: string[];
+  /** The Jira watch (jira-watch.ts; turned on and off in the Jira tab): at most this many automatic starts a day (default 5). */
+  jiraWatch?: { maxPerDay?: number };
   /**
    * AI tool command to launch in worktrees. May include extra args, e.g.
    * "claude" (default), "gemini", "codex", or "my-tool --some-flag".

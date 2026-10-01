@@ -1,4 +1,5 @@
 import type { JiraIssue, PrInfo } from '../api/panes.js';
+import { jiraPrompt as coreJiraPrompt } from '../../../core/jira-prompt.js';
 
 /**
  * First messages for a session started from a ticket or a PR. They're a
@@ -6,13 +7,9 @@ import type { JiraIssue, PrInfo } from '../api/panes.js';
  * anything runs.
  */
 
+/** Shared with the Jira watch (core/jira-prompt.ts), so both start a session the same way. */
 export function jiraPrompt(issue: JiraIssue): string {
-  return [
-    `Work on ${issue.key}: ${issue.summary}`,
-    '',
-    `The issue (${issue.issuetype}, ${issue.priority}): ${issue.url}`,
-    'Read it first; ask me if the scope is unclear before changing code.',
-  ].join('\n');
+  return coreJiraPrompt(issue);
 }
 
 export function prPrompt(pr: PrInfo): string {

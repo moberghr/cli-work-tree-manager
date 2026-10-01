@@ -552,6 +552,7 @@ export function DashboardApp() {
               })
             }
             sessionJiraKeys={sessionJiraKeys}
+            onOpenSession={(id) => openSession(id)}
           />
         );
         break;

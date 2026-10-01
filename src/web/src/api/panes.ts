@@ -32,6 +32,8 @@ export interface JiraIssue {
   key: string;
   summary: string;
   status: string;
+  /** Jira's status category (new / indeterminate / done): the board's column order. */
+  statusCategory?: 'new' | 'indeterminate' | 'done';
   issuetype: string;
   priority: string;
   url: string;
@@ -92,6 +94,39 @@ export function fetchJira(): Promise<{
   error?: string;
 }> {
   return getJson('/api/jira');
+}
+
+// ---- the Jira watch ------------------------------------------------------------
+
+export type { JiraDecision, JiraWatchState } from '../../../core/api-types.js';
+import type { JiraWatchState } from '../../../core/api-types.js';
+
+/** The server's error text, from a JSON `{error}` body when there is one. */
+function reason(err: unknown): Error {
+  const msg = (err as Error).message;
+  try {
+    const parsed = JSON.parse(msg) as { error?: unknown };
+    if (typeof parsed.error === 'string') return new Error(parsed.error);
+  } catch {
+    /* not JSON */
+  }
+  return err as Error;
+}
+
+export function fetchJiraWatch(): Promise<JiraWatchState> {
+  return getJson('/api/jira/watch');
+}
+
+export function setJiraWatch(enabled: boolean): Promise<{ settings: JiraWatchState['settings'] }> {
+  return postJson<{ settings: JiraWatchState['settings'] }>('/api/jira/watch', { enabled }, 'PUT').catch((e) => Promise.reject(reason(e)));
+}
+
+export function startJiraIssue(key: string, target: string): Promise<{ ok: true; sessionId: string }> {
+  return postJson<{ ok: true; sessionId: string }>(`/api/jira/watch/${encodeURIComponent(key)}/start`, { target }).catch((e) => Promise.reject(reason(e)));
+}
+
+export function dismissJiraIssue(key: string): Promise<{ ok: true }> {
+  return postJson<{ ok: true }>(`/api/jira/watch/${encodeURIComponent(key)}/dismiss`, {}).catch((e) => Promise.reject(reason(e)));
 }
 
 export function fetchTasks(): Promise<{ tasks: TaskItem[] }> {

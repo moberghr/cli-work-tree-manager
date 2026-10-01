@@ -4,6 +4,8 @@ export interface JiraIssue {
   key: string;
   summary: string;
   status: string;
+  /** Jira's category for the status: new (to do), indeterminate (in progress, review…), done. Orders the board's columns. */
+  statusCategory?: 'new' | 'indeterminate' | 'done';
   issuetype: string;
   priority: string;
   url: string;
@@ -53,6 +55,7 @@ function parseIssuesJson(stdout: string, siteUrl: string): JiraIssue[] {
       key: issue.key ?? '',
       summary: fields.summary ?? '',
       status: fields.status?.name ?? '',
+      ...(['new', 'indeterminate', 'done'].includes(fields.status?.statusCategory?.key) ? { statusCategory: fields.status.statusCategory.key } : {}),
       issuetype: fields.issuetype?.name ?? '',
       priority: fields.priority?.name ?? '',
       url: siteUrl ? `${siteUrl}/browse/${issue.key}` : '',
@@ -93,4 +96,55 @@ export async function fetchJiraPane(): Promise<{
   if (!probe.available) return { available: false, issues: [] };
   const issues = await searchMyIssues(probe.siteUrl);
   return { available: true, issues };
+}
+
+/** What the Jira watch reads to decide where an issue belongs. */
+export interface JiraIssueDetail {
+  project: { key: string; name: string } | null;
+  components: string[];
+  labels: string[];
+  /** The description as plain text (from Jira's document format), cut to a few thousand characters. */
+  description: string;
+  created: string | null;
+}
+
+/** Jira's document format (ADF) as plain text: paragraphs and list items on their own lines. Pure. */
+export function adfText(node: unknown, max = 4000): string {
+  const out: string[] = [];
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== 'object') return;
+    const o = n as { type?: unknown; text?: unknown; content?: unknown };
+    if (o.type === 'text' && typeof o.text === 'string') out.push(o.text);
+    if (Array.isArray(o.content)) for (const c of o.content) walk(c);
+    if (o.type === 'paragraph' || o.type === 'heading' || o.type === 'listItem' || o.type === 'codeBlock') out.push('\n');
+  };
+  walk(node);
+  const text = out.join('').replace(/\n{3,}/g, '\n\n').trim();
+  return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+/** One issue's project, components, labels and description (`acli jira workitem view`). Null when acli can't say. */
+export async function fetchIssueDetail(key: string): Promise<JiraIssueDetail | null> {
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) return null;
+  try {
+    const stdout = await execAsync('acli', ['jira', 'workitem', 'view', key, '--json', '--fields', 'summary,description,project,components,labels,created'], 15000);
+    const f = (JSON.parse(stdout) as { fields?: Record<string, unknown> }).fields ?? {};
+    const p = f.project as { key?: unknown; name?: unknown } | undefined;
+    const names = (v: unknown) => (Array.isArray(v) ? v.map((c) => (typeof c === 'string' ? c : (c as { name?: unknown })?.name)).filter((s): s is string => typeof s === 'string') : []);
+    return {
+      project: p && typeof p.key === 'string' ? { key: p.key, name: typeof p.name === 'string' ? p.name : p.key } : null,
+      components: names(f.components),
+      labels: names(f.labels),
+      description: adfText(f.description),
+      created: typeof f.created === 'string' ? f.created : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Your assigned, unresolved issues (the Jira tab's list); [] when acli isn't there or fails. */
+export async function fetchMyIssues(): Promise<JiraIssue[]> {
+  const r = await fetchJiraPane();
+  return r.issues;
 }

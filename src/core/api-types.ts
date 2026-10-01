@@ -526,7 +526,34 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server';
+// ---- the Jira watch (jira-watch.ts) -----------------------------------------------
+
+/** What the Jira watch did with an issue assigned to you. */
+export interface JiraDecision {
+  key: string;
+  summary: string;
+  url: string;
+  at: string;
+  /** baseline: there when it was turned on · started: worktree + Claude · suggested: not sure, start it yourself · skipped: has a session · failed · dismissed: you said no. */
+  action: 'baseline' | 'started' | 'suggested' | 'skipped' | 'failed' | 'dismissed';
+  target?: string;
+  branch?: string;
+  sessionId?: string;
+  reason: string;
+}
+
+/** GET /api/jira/watch */
+export interface JiraWatchState {
+  settings: { enabled: boolean; since: string | null };
+  /** Newest first; baseline entries left out. */
+  decisions: JiraDecision[];
+  /** The projects an issue can be started in (for "Start in …"). */
+  targets: string[];
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+}
+
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

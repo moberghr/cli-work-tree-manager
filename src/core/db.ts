@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS pr_replies (
 );
 
 CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, data TEXT NOT NULL);
+
+-- What the Jira watch did with each issue assigned to you (jira-watch.ts). (v4)
+CREATE TABLE IF NOT EXISTS jira_watch (issue_key TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.

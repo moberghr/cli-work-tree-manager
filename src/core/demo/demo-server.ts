@@ -6,7 +6,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CleanupApplyRequest } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CleanupApplyRequest, JiraDecision, JiraWatchState } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -341,6 +341,26 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/activity', (c) => c.json(activity.log.snapshot()));
   app.get('/api/prs', (c) => c.json({ prs: scenario.prs() }));
   app.get('/api/jira', (c) => c.json({ available: true, issues: scenario.jira() }));
+
+  // The Jira watch, in memory: the switch works; nothing is ever started.
+  let jiraWatch: JiraWatchState['settings'] = { enabled: false, since: null };
+  const jiraDecisions: JiraDecision[] = [];
+  app.get('/api/jira/watch', (c) =>
+    c.json({ settings: jiraWatch, decisions: jiraDecisions, targets: [...new Set([...scenario.sessions.values()].map((s) => s.target))], lastRunAt: null, nextRunAt: null } satisfies JiraWatchState),
+  );
+  app.put('/api/jira/watch', async (c) => {
+    const body = await json(c);
+    if (typeof body.enabled !== 'boolean') return c.json({ error: 'enabled (true/false) required' }, 400);
+    jiraWatch = { enabled: body.enabled, since: body.enabled ? new Date().toISOString() : null };
+    return c.json({ settings: jiraWatch });
+  });
+  app.post('/api/jira/watch/:key/start', (c) => c.json({ error: 'the demo starts nothing' }, 400));
+  app.post('/api/jira/watch/:key/dismiss', (c) => {
+    const d = jiraDecisions.find((x) => x.key === c.req.param('key'));
+    if (!d) return c.json({ error: 'no such issue' }, 404);
+    d.action = 'dismissed';
+    return c.json({ ok: true });
+  });
   app.get('/api/tasks', (c) => c.json({ tasks: scenario.taskList() }));
   app.post('/api/tasks', async (c) => {
     const body = await json(c);

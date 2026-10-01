@@ -1793,3 +1793,15 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
   vertical-align: middle;
   white-space: nowrap;
 }
+
+/* The Jira watch (JiraTab): its switch, and what it did with an issue. */
+.wd-jira-watch-switch { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+.wd-jira-watch-line { margin: 0 24px 8px; font-size: 12px; color: var(--muted); }
+.wd-jira-watch { display: block; margin-top: 6px; font-size: 11px; }
+.wd-jira-watch-started { color: var(--add-fg); }
+.wd-jira-watch-started .wd-link-button { margin-left: 6px; font-size: 11px; }
+.wd-jira-watch-ask { color: var(--warn-fg); cursor: default; }
+.wd-jira-watch-actions { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.wd-jira-watch-actions select { font: inherit; font-size: 11px; max-width: 140px; }
+.wd-jira-watch-actions button { font-size: 11px; padding: 2px 8px; }
+.wd-jira-watch-error { display: block; color: var(--del-fg); margin-top: 2px; }

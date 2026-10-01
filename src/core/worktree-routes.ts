@@ -38,7 +38,7 @@ export type StartOutcome =
  * and its Claude is running, queue it like a review comment instead of
  * typing into a terminal that may be mid-turn or showing a prompt.
  */
-async function startSessionWithPrompt(sessionId: string, prompt: string): Promise<StartOutcome> {
+export async function startSessionWithPrompt(sessionId: string, prompt: string): Promise<StartOutcome> {
   if (peekPty(sessionId)) {
     getCommentFileStore(sessionId).post({ side: 'general', status: 'published', author: 'user', body: prompt });
     return 'queued';
