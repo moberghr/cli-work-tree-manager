@@ -55,6 +55,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/rail-layout.ts', // pure: the rail's pins and sections
       'src/core/work-time-view.ts', // pure: worked time in words
       'src/core/work-time.ts', // pure: worked time from transcript entries (the digest's)
+      'src/core/stack.ts', // pure: which session is stacked on which
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

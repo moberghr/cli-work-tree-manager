@@ -1,6 +1,7 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { findOverlaps } from '../overlap.js';
+import { stackChildCounts, stackParents } from '../stack.js';
 import { buildDigest } from '../digest.js';
 import { cleanupVerdict } from '../cleanup-verdict.js';
 import { createPresence, type Presence } from '../presence.js';
@@ -71,6 +72,8 @@ interface DemoSession {
   comments: CommentStore;
   /** Terminal screen, one entry per line. */
   transcript: string[];
+  /** The branch it was made from (a fork: the parent session's), for stacks. */
+  baseBranch?: string;
 }
 
 export type DemoEvent = { event: string; data: unknown };
@@ -396,6 +399,14 @@ export class DemoScenario {
       55,
     );
     this.add('web', 'spike/dark-mode', [{ name: 'web' }], null, claudeScreen('', []), 60 * 24 * 40);
+    // A fork of the invoice export, stacked on it (and two commits behind it).
+    this.add(
+      'api', 'feat/invoice-pdf',
+      [{ name: 'api' }],
+      { state: 'idle', seen: true, summary: 'PDF layout drafted; waiting for the CSV columns to settle.', minutesAgo: 90 },
+      claudeScreen('Add a PDF variant of the invoice export', ['● Read(src/invoices/export.ts)', '● Write(src/invoices/pdf.ts)', '', '● PDF layout drafted; waiting for the CSV columns to settle.']),
+      95,
+    ).baseBranch = 'feat/invoice-export';
 
     this.tasks = [
       { id: this.nextTaskId++, text: 'Rate-limit the public invoices API', done: false, createdAt: this.iso(300) },
@@ -607,6 +618,18 @@ export class DemoScenario {
           })),
         })),
     );
+    // Same rule as work web: made from another live session's branch = stacked on it.
+    const parents = stackParents(wires);
+    const children = stackChildCounts(parents);
+    for (const w of wires) {
+      const p = parents.get(w.id);
+      if (p) {
+        w.stackedOn = { id: p.id, branch: p.branch };
+        // The parent moved on since the fork: shown as work web would.
+        w.behind = { base: p.branch, commits: 2, conflicts: false, stacked: true };
+      }
+      if (children.get(w.id)) w.stackedChildren = children.get(w.id);
+    }
     for (const w of wires) {
       const o = overlaps.get(w.id);
       if (o) w.overlaps = o;
@@ -636,6 +659,7 @@ export class DemoScenario {
       diffStat: stat.files ? stat : null,
       archivedAt: s.archivedAt,
       port: s.port,
+      ...(s.baseBranch ? { baseBranch: s.baseBranch } : {}),
       context: DEMO_CONTEXT[s.branch] ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' } : null,
       ...(this.reviewThreads(s) > 0 ? { openReviewThreads: this.reviewThreads(s) } : {}),
     };
@@ -969,7 +993,7 @@ export class DemoScenario {
     return this.cleanupState;
   }
 
-  create(target: string, branch: string, prompt?: string): SessionWire {
+  create(target: string, branch: string, prompt?: string, baseBranch?: string): SessionWire {
     const project = this.projects();
     const group = project.groups.find((g) => g.name === target);
     const first = prompt?.split('\n')[0];
@@ -981,6 +1005,7 @@ export class DemoScenario {
       claudeScreen(first ?? '', ['✻ Reading the codebase…']),
       0,
     );
+    if (baseBranch) s.baseBranch = baseBranch;
     this.changed();
     return this.wire(s);
   }

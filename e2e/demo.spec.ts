@@ -225,7 +225,7 @@ test('a permission prompt is answered from the inbox, showing the command it all
   await item.getByRole('button', { name: 'Allow' }).click();
   // It leaves "Needs your input" and shows up as working, with what was allowed.
   await expect(page.locator('.wd-inbox-rank-0', { hasText: 'feat/invoice-export' })).toHaveCount(0);
-  await expect(page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText('Allowed Bash: npm test -- invoices');
+  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText('Allowed Bash: npm test -- invoices');
 });
 
 test('"Review all" walks the finished sessions, each on its last turn, and n moves on', async ({ page }) => {

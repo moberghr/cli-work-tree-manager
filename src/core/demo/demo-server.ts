@@ -383,7 +383,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (!branch || branch === w.branch) return c.json({ error: 'the fork needs a branch of its own' }, 400);
     if (scenario.list().some((x) => x.target === w.target && x.branch === branch)) return c.json({ error: `${branch} already exists: pick another name` }, 409);
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : `Forked from ${w.branch}: read the summary and wait for my instruction.`;
-    const s = scenario.create(w.target, branch, prompt);
+    const s = scenario.create(w.target, branch, prompt, w.branch);
     return c.json({ sessionId: s.id, paths: s.paths, summarized: true } satisfies ForkWire);
   });
 

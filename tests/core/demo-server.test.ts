@@ -141,6 +141,17 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
   });
 
+  it('shows a stack, by the real rule: the seeded fork, and a new fork of any session', async () => {
+    const list = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
+    const byBranch = async (b: string) => (await list()).find((s) => s.branch === b)!;
+    const parent = await byBranch('feat/invoice-export');
+    expect(await byBranch('feat/invoice-pdf')).toMatchObject({ stackedOn: { id: parent.id, branch: 'feat/invoice-export' }, behind: { base: 'feat/invoice-export', stacked: true } });
+    expect(parent.stackedChildren).toBe(1);
+    const login = (await list()).find((s) => s.branch !== 'feat/invoice-export' && !s.archivedAt && !s.stackedOn)!;
+    expect((await send('POST', `/api/sessions/${login.id}/fork`, { branch: `${login.branch}-2` })).status).toBe(200);
+    expect((await byBranch(`${login.branch}-2`)).stackedOn).toMatchObject({ id: login.id });
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);
