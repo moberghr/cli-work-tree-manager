@@ -1858,3 +1858,16 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
   cursor: pointer;
 }
 .wd-toast-error { background: var(--del-fg); color: #fff; }
+
+/* Ctrl+P: go to a session (QuickSwitcher). */
+.wd-switcher-backdrop { position: fixed; inset: 0; z-index: 1500; background: rgba(0, 0, 0, 0.25); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.wd-switcher { width: min(560px, calc(100vw - 32px)); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); overflow: hidden; }
+.wd-switcher-input { width: 100%; box-sizing: border-box; border: none; border-bottom: 1px solid var(--border); padding: 12px 14px; font: inherit; font-size: 14px; background: var(--bg); color: var(--fg); outline: none; }
+.wd-switcher-list { list-style: none; margin: 0; padding: 4px; max-height: 50vh; overflow-y: auto; }
+.wd-switcher-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.wd-switcher-item-active { background: var(--hover); }
+.wd-switcher-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-switcher-sub { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: auto; }
+.wd-switcher-empty { padding: 10px; color: var(--muted); font-size: 12px; }
+.wd-switcher-hint { margin: 0; padding: 6px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.wd-switcher-hint kbd { font-family: inherit; }

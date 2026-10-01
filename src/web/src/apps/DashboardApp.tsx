@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { QuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived } from '../api/client.js';
@@ -116,6 +117,22 @@ export function DashboardApp() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [toggleAssistant]);
+
+  // Ctrl+P: the quick switcher, from anywhere (a terminal included, as Ctrl+K;
+  // there it stands in for the shell's Ctrl+P, which ↑ also does). It also
+  // keeps the desktop app's print dialog away.
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSwitcherOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
 
   // Session pending delete confirmation (card trash button / detail header).
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
@@ -634,6 +651,7 @@ export function DashboardApp() {
         />
       )}
       <Toast toast={toast} onClose={hideToast} />
+      {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={() => setSwitcherOpen(false)} />}
       {deleting && (
         <DeleteSessionModal
           session={deleting}

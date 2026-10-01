@@ -161,6 +161,7 @@ export function SessionRail({
           className="wd-dash-rail-search"
           type="search"
           placeholder="Search sessions   /"
+          title="Filter this list (/). Ctrl+P jumps to any session from anywhere, a terminal included."
           aria-label="Search sessions"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
