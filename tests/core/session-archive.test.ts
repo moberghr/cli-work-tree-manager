@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../src/core/history.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
-import { archiveSession, readArchive, restoreArchivedTranscripts, type ArchiveDeps } from '../../src/core/session-archive.js';
+import { archiveSession, readArchive, readArchivedTranscript, restoreArchivedTranscripts, writeArchiveSummary, type ArchiveDeps } from '../../src/core/session-archive.js';
+import zlib from 'node:zlib';
 import { sessionIdFor } from '../../src/core/session-id.js';
 
 let tmp: string;
@@ -95,5 +96,61 @@ describe('restoreArchivedTranscripts', () => {
   it('does nothing for a session that was never archived with a copy', () => {
     expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, projects)).toBe(0);
     expect(vi.isMockFunction(restoreArchivedTranscripts)).toBe(false);
+  });
+});
+
+describe('archiveSession: what it does around the copy', () => {
+  it('refuses while something waits in the session, unless forced', async () => {
+    const d = deps({ waiting: () => ['2 replies to post on review threads'] });
+    const out = await archiveSession(session, d);
+    expect(out).toMatchObject({ ok: false, blocked: ['2 replies to post on review threads'], message: 'Not archived: 2 replies to post on review threads.' });
+    expect(d.calls).toEqual([]); // nothing stopped, nothing removed
+    expect((await archiveSession(session, d, { force: true })).ok).toBe(true);
+  });
+
+  it('stops the dev server, records the branch tips, and tidies a removed worktree', async () => {
+    const stopDev = vi.fn();
+    const tidy = vi.fn(async () => ['api']);
+    const clearBuildFolders = vi.fn(async () => ({ folders: 1, bytes: 10 }));
+    await archiveSession(session, deps({ stopDev, tips: async () => ({ api: 'abc123' }), tidy, clearBuildFolders }));
+    expect(stopDev).toHaveBeenCalledWith(sessionIdFor(session));
+    expect(tidy).toHaveBeenCalled();
+    expect(clearBuildFolders).not.toHaveBeenCalled(); // the folder is gone anyway
+    expect(readArchive(sessionIdFor(session), root)).toMatchObject({ tips: { api: 'abc123' }, branchesDeleted: ['api'] });
+  });
+
+  it('a kept worktree gets its build output cleared, not a repo’s own checkout', async () => {
+    const clear = vi.fn(async () => ({ folders: 2, bytes: 3_000_000 }));
+    const tidy = vi.fn(async () => []);
+    await archiveSession(session, deps({ removable: async () => ({ ok: false, reason: '2 uncommitted files' }), clearBuildFolders: clear, tidy }));
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(tidy).not.toHaveBeenCalled();
+    expect(readArchive(sessionIdFor(session), root)?.buildFolders).toEqual({ folders: 2, bytes: 3_000_000 });
+    const clear2 = vi.fn(async () => ({ folders: 1, bytes: 1 }));
+    await archiveSession(session, deps({ removable: async () => ({ ok: false, reason: "it is the repo's own checkout" }), clearBuildFolders: clear2 }));
+    expect(clear2).not.toHaveBeenCalled();
+  });
+
+  it('writes the summary of what was done, once', async () => {
+    const summarize = vi.fn(async () => 'Rotated the terminal encryption keys and added a test; PR #7 merged.');
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    expect(await writeArchiveSummary(id, summarize, root)).toBe('Rotated the terminal encryption keys and added a test; PR #7 merged.');
+    expect(readArchive(id, root)?.summary.written).toContain('Rotated the terminal');
+    await writeArchiveSummary(id, summarize, root);
+    expect(summarize).toHaveBeenCalledTimes(1);
+  });
+
+  it('a compressed transcript still reads, and restores', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const plain = path.join(root, id, 'transcripts', 'conv-1.jsonl');
+    const text = fs.readFileSync(plain, 'utf8');
+    fs.writeFileSync(`${plain}.gz`, zlib.gzipSync(text));
+    fs.rmSync(plain);
+    expect(readArchivedTranscript(id, 'conv-1.jsonl', root)).toBe(text);
+    fs.rmSync(transcript);
+    expect(restoreArchivedTranscripts(session, root, projects)).toBe(1);
+    expect(fs.readFileSync(transcript, 'utf8')).toBe(text);
   });
 });

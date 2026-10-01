@@ -152,8 +152,32 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`, body);
 }
 
-export function setArchived(sessionId: string, archived: boolean): Promise<{ ok: true }> {
-  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { archived });
+/**
+ * Archive or restore. When something is still waiting in the session
+ * (replies to post, notes for its Claude, a Claude mid-turn), the server
+ * says what; `confirm` asks whether to archive anyway (the browser's own
+ * dialog by default). Declined: rejects with what was waiting.
+ */
+export async function setArchived(
+  sessionId: string,
+  archived: boolean,
+  confirm: (question: string) => boolean = (q) => window.confirm(q),
+): Promise<{ ok: true }> {
+  const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
+  const send = (force: boolean) =>
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }) });
+  let res = await send(false);
+  if (res.status === 409) {
+    const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
+    const waiting = body.blocked ?? [];
+    if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
+      throw new Error(`Not archived: ${waiting.join('; ')}`);
+    }
+    res = await send(true);
+  }
+  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string };
+  if (!res.ok) throw new Error(json.error ?? `${res.status} for ${url}`);
+  return { ok: true };
 }
 
 async function getJson<T>(path: string): Promise<T> {

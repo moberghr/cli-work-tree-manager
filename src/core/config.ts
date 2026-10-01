@@ -67,6 +67,12 @@ export interface WorkConfig {
    */
   sleepIdleAfterMinutes?: number;
   /**
+   * Archived conversations (archive-retention.ts): gzip them once this many
+   * days old (default 30; 0 = never; lossless), and delete them after this
+   * many (default 0 = never; the summary and prompts stay).
+   */
+  archive?: { compressAfterDays?: number; dropTranscriptsAfterDays?: number };
+  /**
    * Background PR watch in `work web` (both default on): archive a session
    * once all its PRs merged, and tell its Claude when CI fails or reviewers
    * leave feedback.
@@ -169,6 +175,14 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       prompts: validatePrompts(parsed.prompts),
+      archive: parsed.archive && typeof parsed.archive === 'object'
+        ? {
+            ...(typeof parsed.archive.compressAfterDays === 'number' && parsed.archive.compressAfterDays >= 0 ? { compressAfterDays: parsed.archive.compressAfterDays } : {}),
+            ...(typeof parsed.archive.dropTranscriptsAfterDays === 'number' && parsed.archive.dropTranscriptsAfterDays >= 0
+              ? { dropTranscriptsAfterDays: parsed.archive.dropTranscriptsAfterDays }
+              : {}),
+          }
+        : undefined,
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
         ? {
             autoArchive: parsed.prWatch.autoArchive !== false,

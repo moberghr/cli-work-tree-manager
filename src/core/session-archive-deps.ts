@@ -9,6 +9,33 @@ import { readStatus } from './session-status.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { teardownWorktree } from './worktree.js';
 import type { ArchiveDeps, ArchivedPr } from './session-archive.js';
+import { readPendingForSession } from './pending-delivery.js';
+import { listReplies } from './pr-replies.js';
+import { stopDev } from './dev-server.js';
+import { buildFoldersOf, clearBuildFolders } from './build-folders.js';
+import { clearCheckpoints } from './checkpoint.js';
+import { scopeHashForPaths } from './scope-manager.js';
+import { runClaude } from './checkpoint-summary.js';
+import { summarizeArchive } from './archive-summary.js';
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * What archiving now would leave unfinished, in words (empty: nothing):
+ * replies Claude drafted for you to post, notes its Claude hasn't been
+ * given yet, a Claude mid-turn or waiting for your answer.
+ */
+export function archiveWaiting(id: string): string[] {
+  const out: string[] = [];
+  const drafts = listReplies(id).filter((r) => r.status === 'draft').length;
+  if (drafts) out.push(`${plural(drafts, 'reply', 'replies')} to post on review threads`);
+  const pending = readPendingForSession(id).length;
+  if (pending) out.push(`${plural(pending, 'note', 'notes')} not yet delivered to its Claude`);
+  const st = readStatus(id)?.state;
+  if (st === 'working') out.push('its Claude is working');
+  if (st === 'needs_input') out.push('its Claude is waiting for your answer');
+  return out;
+}
 
 export interface ArchiveDepsOptions {
   /** Release other handles on its folders first (the web server's watchers,
@@ -55,5 +82,60 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     transcripts: (s: WorktreeSession) => listTranscripts(s).map((t) => t.file),
     prs: opts.prs,
     lastSummary: (id) => readStatus(id)?.summary ?? null,
+    waiting: archiveWaiting,
+    stopDev: (id) => void stopDev(id),
+    tips: async (s) => {
+      const cfg = loadConfig();
+      const out: Record<string, string> = {};
+      for (const [alias, repo] of repoPaths(s, cfg)) {
+        const r = await run('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${s.branch}`], repo);
+        if (r.code === 0 && r.stdout.trim()) out[alias] = r.stdout.trim();
+      }
+      return out;
+    },
+    clearBuildFolders: async (s) => {
+      let folders = 0;
+      let bytes = 0;
+      for (const p of s.paths) {
+        if (!fs.existsSync(p)) continue;
+        const sized = await buildFoldersOf(p, run);
+        const r = await clearBuildFolders(p, run);
+        folders += r.removed.length;
+        bytes += sized.filter((f) => r.removed.includes(f.path)).reduce((n, f) => n + f.bytes, 0);
+      }
+      return { folders, bytes };
+    },
+    tidy: async (s) => {
+      const cfg = loadConfig();
+      const repos = repoPaths(s, cfg);
+      // Its per-turn checkpoints: refs in the repos, and their manifest.
+      try {
+        clearCheckpoints(scopeHashForPaths(s.paths), repos.map(([, r]) => r));
+      } catch {
+        /* best effort: orphaned refs only cost a little space */
+      }
+      // A local branch already in the main branch goes (its tip is recorded,
+      // and reachable from the main branch, so Restore can recreate it). A
+      // squash-merged one stays: its commits are reachable from nothing else.
+      const deleted: string[] = [];
+      for (const [alias, repo] of repos) {
+        const base = (await run('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'origin/HEAD'], repo)).stdout.trim();
+        if (!base || base === 'origin/HEAD') continue;
+        const merged = (await run('git', ['-C', repo, 'branch', '--merged', base, '--format=%(refname:short)'], repo)).stdout.split('\n').map((l) => l.trim());
+        if (!merged.includes(s.branch)) continue;
+        const inUse = (await run('git', ['-C', repo, 'worktree', 'list', '--porcelain'], repo)).stdout.includes(`branch refs/heads/${s.branch}\n`);
+        if (inUse) continue;
+        if ((await run('git', ['-C', repo, 'branch', '-D', s.branch], repo)).code === 0) deleted.push(alias);
+      }
+      return deleted;
+    },
+    summarize: (rec) => summarizeArchive(rec, (prompt) => runClaude(prompt, 60_000)),
   };
+}
+
+/** The session's repos as [alias, base checkout path] (a group: each member). */
+function repoPaths(s: WorktreeSession, cfg: ReturnType<typeof loadConfig>): Array<[string, string]> {
+  if (!cfg) return [];
+  const aliases = s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target];
+  return aliases.filter((a) => cfg.repos[a] && fs.existsSync(cfg.repos[a])).map((a) => [a, cfg.repos[a]]);
 }

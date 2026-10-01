@@ -45,12 +45,14 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
-  const archive = async (id: string, archived: boolean): Promise<boolean> => {
+  const archive = async (id: string, archived: boolean, force = false): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
     const session = findSession(id);
-    if (!session) return false;
+    if (!session) return { ok: false };
     let ok: boolean;
     if (archived) {
-      ok = (await archiveSession(session, defaultArchiveDeps({ release: opts.release }))).ok;
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force });
+      if (out.blocked) return { ok: false, blocked: out.blocked, message: out.message };
+      ok = out.ok;
     } else if (session.paths.some((p) => !fs.existsSync(p))) {
       // Its worktree was removed on archive: recreate it from the branch
       // (setupWorktree also puts the conversation back and un-archives it).
@@ -61,7 +63,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       ok = await setSessionArchived(session.target, session.branch, false);
     }
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return ok;
+    return { ok };
   };
 
   // Name a session ({title}; empty = back to the automatic name).
@@ -113,7 +115,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     opts.onRepoChanged?.(id);
     let archived = false;
     if (outcome.mergedAny && outcome.allDone) {
-      archived = await archive(id, true);
+      archived = (await archive(id, true)).ok; // not when something still waits in it
     } else {
       opts.broadcast('sessions-changed', { ts: Date.now() });
     }
@@ -121,10 +123,12 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
   });
 
   app.post('/api/sessions/:id/archive', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { archived?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { archived?: unknown; force?: unknown };
     if (typeof body.archived !== 'boolean') return c.json({ error: 'archived (boolean) required' }, 400);
-    const ok = await archive(c.req.param('id'), body.archived);
-    return ok ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
+    const r = await archive(c.req.param('id'), body.archived, body.force === true);
+    // Work still waiting in it: say what, and let the user decide (force).
+    if (r.blocked) return c.json({ error: r.message, blocked: r.blocked }, 409);
+    return r.ok ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
   });
 }
 

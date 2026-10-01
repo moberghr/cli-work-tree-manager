@@ -223,6 +223,14 @@ describe('PR watch', () => {
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
+  it('waits to auto-archive while replies to post or notes for Claude are waiting, and says so', async () => {
+    const activity = createActivityLog();
+    const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['1 reply to post on review threads'], activity });
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: every PR merged; archiving once nothing waits in it (1 reply to post on review threads)');
+  });
+
   it('never archives while its Claude is working or waiting for you', async () => {
     const h = harness([repo('api', merged(), true)], ON, false, null, { busy: () => true });
     await h.watch.tick();

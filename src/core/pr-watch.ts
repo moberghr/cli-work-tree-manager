@@ -43,6 +43,8 @@ export interface PrWatchDeps {
   rememberThreads?: (sessionId: string, threads: Array<{ threadId: string; repo: string; prNumber: number; url: string; where: string | null; reviewer: string; excerpt: string }>) => void;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
+  /** What archiving it now would leave unfinished (replies to post, undelivered notes): auto-archive waits. */
+  waiting?: (sessionId: string) => string[];
   /** After a note: start the session's Claude if it isn't running, so it works on it now. */
   wake?: (sessionId: string) => Promise<WakeResult>;
   /** Its Claude is working or waiting for you: never archived then. */
@@ -276,7 +278,9 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     }
     if (opts.autoArchive) {
       const verdict = autoArchiveVerdict(pre, session, now());
+      const waiting = verdict?.archive ? (deps.waiting?.(id) ?? []) : [];
       if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude is done');
+      else if (verdict?.archive && waiting.length) note(`every PR merged; archiving once nothing waits in it (${waiting.join('; ')})`);
       else if (verdict?.archive) {
         try {
           await deps.archive(id);

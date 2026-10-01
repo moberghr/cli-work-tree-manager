@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ArchiveSearchHit } from './api-types.js';
 import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
-import { archiveRoot, readArchive } from './session-archive.js';
+import { archiveRoot, readArchive, readArchivedTranscript } from './session-archive.js';
 
 /**
  * "What did we do about X?" over archived sessions: every word of the query
@@ -62,14 +62,16 @@ export async function searchArchives(query: string, root = archiveRoot(), isArch
   const hits: ArchiveSearchHit[] = [];
   for (const { id, rec } of records) {
     const snippets: ArchiveSearchHit['snippets'] = [];
+    const written = rec.summary.written;
+    if (written && words.every((w) => written.toLowerCase().includes(w))) {
+      snippets.push({ role: 'summary', text: snippet(written, words), at: rec.archivedAt });
+    }
     for (const t of rec.transcripts) {
       if (snippets.length >= SNIPPETS_PER_SESSION) break;
-      let raw: string;
-      try {
-        raw = await fs.promises.readFile(path.join(root, id, 'transcripts', t.file), 'utf8');
-      } catch {
-        continue;
-      }
+      // Compressed after a while (archive-retention.ts); gone once dropped.
+      const raw = readArchivedTranscript(id, t.file, root);
+      if (raw === null) continue;
+      await new Promise((r) => setImmediate(r)); // a big archive doesn't hold up the server
       for (const line of raw.split('\n')) {
         if (snippets.length >= SNIPPETS_PER_SESSION) break;
         if (!line) continue;

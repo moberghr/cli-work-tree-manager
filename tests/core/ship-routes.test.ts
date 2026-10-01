@@ -11,6 +11,7 @@ import { mountShipRoutes } from '../../src/core/ship-routes.js';
 import { findSession, loadHistory, saveHistory, upsertSession, type WorktreeSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/web-state.js';
 import type { CommandRunner } from '../../src/core/ship.js';
+import { rememberSent, saveDraft } from '../../src/core/pr-replies.js';
 
 const SHA = 'abcdef123456';
 let home: string;
@@ -163,6 +164,19 @@ describe('ship routes', () => {
     expect(archivedAt()).toBeUndefined();
     expect((await post(app(), `/api/sessions/${id}/archive`, {})).status).toBe(400);
     expect((await post(app(), '/api/sessions/nope/archive', { archived: true })).status).toBe(404);
+  });
+
+  it('archive refuses with what is still waiting (409), and goes ahead with force', async () => {
+    const id = sessionIdFor(session);
+    rememberSent(id, [{ threadId: 'PRRT_abcdef', repo: 'api', prNumber: 5, url: 'u', where: null, reviewer: 'r', excerpt: 'e' }]);
+    saveDraft(id, 'PRRT_abcdef', 'Fixed in abc');
+    const res = await post(app(), `/api/sessions/${id}/archive`, { archived: true });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ blocked: ['1 reply to post on review threads'] });
+    expect(archivedAt()).toBeUndefined();
+    expect(disposePty).not.toHaveBeenCalled();
+    expect((await post(app(), `/api/sessions/${id}/archive`, { archived: true, force: true })).status).toBe(200);
+    expect(archivedAt()).toBeTruthy();
   });
 
   it('names a session, and an empty name goes back to the automatic one', async () => {

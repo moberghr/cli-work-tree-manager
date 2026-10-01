@@ -6,7 +6,8 @@ import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
 import { findSession, loadHistory, upsertSessionWithPort } from './history.js';
 import { bestEffort } from './best-effort.js';
-import { restoreArchivedTranscripts } from './session-archive.js';
+import { readArchive, restoreArchivedTranscripts } from './session-archive.js';
+import { sessionIdFor } from './session-id.js';
 import {
   git,
   parseWorktreeList,
@@ -399,6 +400,13 @@ export async function setupWorktree(
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 
+  // Coming back to an archived session whose merged branch archiving
+  // deleted: put the branch back at the tip it had, so the worktree is that
+  // work (branch resolution would otherwise start a new branch from base).
+  bestEffort('recreate the archived branch', () =>
+    recreateArchivedBranches(target.isGroup ? target.name : targetName, branchName, target.repoAliases, config),
+  );
+
   const result = target.isGroup
     ? await setupGroupWorktree(target.name, target.repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
     : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
@@ -409,6 +417,29 @@ export async function setupWorktree(
     if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
   }
   return result;
+}
+
+/**
+ * For each repo whose local branch archiving deleted (archive.json
+ * `branchesDeleted`): recreate it at the recorded tip when neither a local
+ * nor a remote branch of that name exists and the commit is still there.
+ * Returns the aliases it recreated the branch in.
+ */
+export function recreateArchivedBranches(sessionTarget: string, branch: string, aliases: string[], config: WorkConfig): string[] {
+  const session = findSession(loadHistory(), sessionTarget, branch);
+  if (!session) return [];
+  const rec = readArchive(sessionIdFor(session));
+  if (!rec?.tips || !rec.branchesDeleted?.length) return [];
+  const done: string[] = [];
+  for (const alias of aliases) {
+    const repo = config.repos[alias];
+    const tip = rec.tips[alias];
+    if (!repo || !tip || !rec.branchesDeleted.includes(alias)) continue;
+    if (localBranchExists(branch, repo) || remoteBranchExists(branch, repo)) continue;
+    if (git(['cat-file', '-e', `${tip}^{commit}`], repo).exitCode !== 0) continue;
+    if (git(['branch', branch, tip], repo).exitCode === 0) done.push(alias);
+  }
+  return done;
 }
 
 async function setupGroupWorktree(

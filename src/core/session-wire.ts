@@ -83,6 +83,8 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
       promptCount: rec.summary.promptCount,
       prompts: rec.summary.prompts.map((p) => p.text),
       lastSummary: rec.summary.lastSummary,
+      ...(rec.summary.written ? { written: rec.summary.written } : {}),
+      ...(rec.buildFolders ? { buildFolders: rec.buildFolders } : {}),
     },
   };
 }

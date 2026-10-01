@@ -96,7 +96,7 @@ function heuristicLabel(
 
 /** Run `claude -p` with the prompt on stdin; resolve its trimmed stdout, or
  *  null on error/timeout. Async (never blocks the server event loop). */
-function runClaude(prompt: string, timeoutMs = 25_000): Promise<string | null> {
+export function runClaude(prompt: string, timeoutMs = 25_000): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v: string | null) => {

@@ -59,6 +59,10 @@ export interface SessionArchiveInfo {
   /** Its prompts (first and latest), for recall and search. */
   prompts: string[];
   lastSummary: string | null;
+  /** What was done and why, written after archiving (null until then). */
+  written?: string | null;
+  /** Build output cleared from its kept worktree. */
+  buildFolders?: { folders: number; bytes: number };
 }
 
 /** A session's running Claudes: in your terminal, or run by the app. */
@@ -80,7 +84,8 @@ export interface ArchiveSearchHit {
   branch: string;
   archivedAt: string;
   worktreeRemoved: boolean;
-  snippets: Array<{ role: 'you' | 'claude'; text: string; at: string | null }>;
+  /** 'summary': the written summary of what was done (archive-summary). */
+  snippets: Array<{ role: 'you' | 'claude' | 'summary'; text: string; at: string | null }>;
 }
 
 // ---- merged local branches (Clean up) ---------------------------------------
@@ -522,7 +527,7 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches';
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

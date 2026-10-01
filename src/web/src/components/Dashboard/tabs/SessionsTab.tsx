@@ -352,7 +352,7 @@ function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) =>
             </div>
             {h.snippets.map((sn, i) => (
               <p key={i} className="wd-archive-hit-snippet">
-                <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : 'Claude'}:</span> {sn.text}
+                <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : sn.role === 'summary' ? 'Summary' : 'Claude'}:</span> {sn.text}
               </p>
             ))}
           </li>
@@ -444,7 +444,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
       <td className="wd-st-col-summary">
         {(() => {
           // An archived session: what it was about (its archive's summary / first prompt).
-          const text = s.attention?.summary ?? (archived ? (s.archive?.lastSummary ?? s.archive?.prompts[0]) : undefined) ?? '';
+          const text = s.attention?.summary ?? (archived ? (s.archive?.written ?? s.archive?.lastSummary ?? s.archive?.prompts[0]) : undefined) ?? '';
           return (
             <span className="wd-st-summary" title={text}>
               {text}

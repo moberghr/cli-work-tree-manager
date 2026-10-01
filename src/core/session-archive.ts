@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { getConfigDir } from './config.js';
 import { claudeProjectsRoot, encodeProjectDir } from './claude-activity.js';
 import { promptsSince } from './digest.js';
@@ -10,20 +11,28 @@ import { readTranscriptTail, type TranscriptEntry } from './transcript.js';
 /**
  * Archiving a session: out of the way, its disk space back, its history kept.
  *
- *   1. its Claude is stopped;
+ *   0. unless forced, nothing is waiting in it: replies Claude drafted for
+ *      you to post, notes not yet delivered to its Claude, a Claude mid-turn
+ *      or waiting for your answer (`waiting`);
+ *   1. its Claude and its dev server are stopped;
  *   2. its conversation (every transcript) is copied to
  *      ~/.work/archive/<id>/transcripts — Claude Code deletes old transcripts
  *      by itself, and this is what "recall what we did" reads;
- *   3. a summary is written next to it: your prompts, the turns, its PRs, how
- *      it ended;
+ *   3. a summary is written next to it: your prompts, its PRs, how it ended,
+ *      the branch tips — and, in the background, a few sentences on what was
+ *      done and why (`writeArchiveSummary`, an internal `claude -p`);
  *   4. the worktree is removed — only when cleanup's own check says nothing
- *      would be lost (merged, clean); otherwise it stays, and the reason is
- *      recorded. The branch is always kept;
+ *      would be lost (merged, clean) — and then its checkpoint refs go, and a
+ *      branch already merged into the main branch is deleted (its tip is
+ *      recorded; Restore recreates it). Otherwise the worktree stays, the
+ *      reason is recorded, and its build output (node_modules, bin/obj, …)
+ *      is cleared to give the disk back anyway;
  *   5. the session is marked archived.
  *
  * Restoring (`work tree` into it, or Restore in the dashboard) recreates the
- * worktree from the branch and puts the transcripts back where Claude looks
- * for them, so it continues the conversation.
+ * branch if archiving deleted it, the worktree from the branch, and puts the
+ * transcripts back where Claude looks for them, so it continues the
+ * conversation. Old archives are compressed (archive-retention.ts).
  */
 
 export interface ArchivedPr {
@@ -43,7 +52,8 @@ export interface ArchiveRecord {
   /** The worktree folder(s) were removed (false: kept, see keptBecause). */
   worktreeRemoved: boolean;
   keptBecause: string | null;
-  /** Transcript file names under transcripts/, by the folder they belong to. */
+  /** Transcript file names under transcripts/, by the folder they belong to
+   *  (on disk `<file>` or, once compressed, `<file>.gz`). */
   transcripts: Array<{ file: string; projectDir: string }>;
   summary: {
     prompts: Array<{ ts: string; text: string }>;
@@ -51,7 +61,18 @@ export interface ArchiveRecord {
     lastSummary: string | null;
     prs: ArchivedPr[];
     jiraKey: string | null;
+    /** What was done and why, in a few sentences (written after archiving). */
+    written?: string | null;
   };
+  /** Each repo's branch tip when archived (repo alias → commit). */
+  tips?: Record<string, string>;
+  /** Repos whose local branch was deleted (merged): Restore recreates it at its tip. */
+  branchesDeleted?: string[];
+  /** Build output cleared from a kept worktree. */
+  buildFolders?: { folders: number; bytes: number };
+  /** When the transcripts were compressed / deleted for retention (ISO). */
+  compressedAt?: string;
+  transcriptsDroppedAt?: string;
 }
 
 export interface ArchiveDeps {
@@ -64,6 +85,17 @@ export interface ArchiveDeps {
   transcripts: (s: WorktreeSession) => string[];
   prs?: (id: string) => ArchivedPr[];
   lastSummary?: (id: string) => string | null;
+  /** What archiving now would leave behind unfinished (empty: nothing). */
+  waiting?: (id: string) => string[];
+  stopDev?: (id: string) => void;
+  /** Each repo's branch tip (alias → commit). */
+  tips?: (s: WorktreeSession) => Promise<Record<string, string>>;
+  /** A kept worktree: clear its git-ignored build output. */
+  clearBuildFolders?: (s: WorktreeSession) => Promise<{ folders: number; bytes: number }>;
+  /** A removed worktree: its checkpoint refs, and merged local branches (returns the repos whose branch went). */
+  tidy?: (s: WorktreeSession) => Promise<string[]>;
+  /** A few sentences on what was done (background; null: none). */
+  summarize?: (rec: ArchiveRecord) => Promise<string | null>;
   archiveRoot?: string;
   now?: () => number;
 }
@@ -74,6 +106,8 @@ export interface ArchiveOutcome {
   keptBecause: string | null;
   transcripts: number;
   message: string;
+  /** Not archived: these were waiting (archive with force to go ahead). */
+  blocked?: string[];
 }
 
 /** Most prompts kept in the summary: the first ones (what it was about) and the latest. */
@@ -82,13 +116,25 @@ const SUMMARY_PROMPTS = 40;
 export const archiveRoot = (): string => path.join(getConfigDir(), 'archive');
 export const archiveDirFor = (id: string, root = archiveRoot()): string => path.join(root, id);
 
-export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps): Promise<ArchiveOutcome> {
+export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean } = {}): Promise<ArchiveOutcome> {
   const id = sessionIdFor(s);
   const root = deps.archiveRoot ?? archiveRoot();
   const dir = archiveDirFor(id, root);
   const now = deps.now ?? Date.now;
 
+  // 0. Work still waiting in it would vanish from view with it.
+  const waiting = opts.force ? [] : (deps.waiting?.(id) ?? []);
+  if (waiting.length) {
+    return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: 0, blocked: waiting, message: `Not archived: ${waiting.join('; ')}.` };
+  }
+
   await deps.stopClaude(id);
+  try {
+    deps.stopDev?.(id);
+  } catch {
+    /* not running */
+  }
+  const tips = (await deps.tips?.(s).catch(() => ({}))) ?? {};
 
   // 2. The conversation. Copied before anything is removed; a copy that fails
   //    stops the archive (nothing removed, nothing marked).
@@ -116,6 +162,12 @@ export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps): Pro
   } else {
     keptBecause = verdict.reason;
   }
+  let branchesDeleted: string[] = [];
+  let buildFolders: ArchiveRecord['buildFolders'];
+  if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s).catch(() => [])) ?? [];
+  else if (keptBecause !== "it is the repo's own checkout" && deps.clearBuildFolders) {
+    buildFolders = await deps.clearBuildFolders(s).catch(() => undefined);
+  }
 
   const all = promptsSince(entries, 0);
   const prompts = all.length > SUMMARY_PROMPTS ? [...all.slice(0, SUMMARY_PROMPTS / 2), ...all.slice(-SUMMARY_PROMPTS / 2)] : all;
@@ -136,10 +188,14 @@ export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps): Pro
       prs: deps.prs?.(id) ?? [],
       jiraKey: s.jiraKey ?? null,
     },
+    ...(Object.keys(tips).length ? { tips } : {}),
+    ...(branchesDeleted.length ? { branchesDeleted } : {}),
+    ...(buildFolders && buildFolders.folders ? { buildFolders } : {}),
   };
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(record, null, 2));
 
   await deps.setArchived(s);
+  if (deps.summarize) void writeArchiveSummary(id, deps.summarize, root).catch(() => {});
   return {
     ok: true,
     worktreeRemoved,
@@ -147,6 +203,41 @@ export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps): Pro
     transcripts: copied.length,
     message: worktreeRemoved ? 'Archived; worktree removed, conversation kept' : `Archived; worktree kept (${keptBecause})`,
   };
+}
+
+/** Ask for the written summary and store it in the record (background, after archiving). */
+export async function writeArchiveSummary(id: string, summarize: (rec: ArchiveRecord) => Promise<string | null>, root = archiveRoot()): Promise<string | null> {
+  const rec = readArchive(id, root);
+  if (!rec || rec.summary.written) return rec?.summary.written ?? null;
+  const text = (await summarize(rec))?.trim() || null;
+  if (!text) return null;
+  const now = readArchive(id, root); // re-read: it may have changed meanwhile
+  if (!now) return null;
+  now.summary.written = text;
+  writeArchiveRecord(now, root);
+  return text;
+}
+
+export function writeArchiveRecord(rec: ArchiveRecord, root = archiveRoot()): void {
+  const file = path.join(archiveDirFor(rec.sessionId, root), 'archive.json');
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(rec, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+/** An archived transcript's text, compressed or not (null: gone). */
+export function readArchivedTranscript(id: string, file: string, root = archiveRoot()): string | null {
+  const plain = path.join(archiveDirFor(id, root), 'transcripts', file);
+  try {
+    return fs.readFileSync(plain, 'utf8');
+  } catch {
+    /* compressed, or gone */
+  }
+  try {
+    return zlib.gunzipSync(fs.readFileSync(`${plain}.gz`)).toString('utf8');
+  } catch {
+    return null;
+  }
 }
 
 /** The archive record, or null (never archived with a copy, or unreadable). */
@@ -179,11 +270,12 @@ export function restoreArchivedTranscripts(s: WorktreeSession, root = archiveRoo
   const dest = path.join(projectsRoot, encodeProjectDir(cwd));
   let n = 0;
   for (const t of rec.transcripts) {
-    const from = path.join(archiveDirFor(id, root), 'transcripts', t.file);
     const to = path.join(dest, t.file);
-    if (fs.existsSync(to) || !fs.existsSync(from)) continue;
+    if (fs.existsSync(to)) continue;
+    const text = readArchivedTranscript(id, t.file, root);
+    if (text === null) continue;
     fs.mkdirSync(dest, { recursive: true });
-    fs.copyFileSync(from, to);
+    fs.writeFileSync(to, text);
     n++;
   }
   return n;

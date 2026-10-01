@@ -38,6 +38,7 @@ import { mountAssistantRoutes } from './assistant-routes.js';
 import type { ActivityWire, DigestResponse, SessionWire } from './api-types.js';
 import { createActivityLog } from './activity.js';
 import { mountPrReplyRoutes } from './pr-reply-routes.js';
+import { applyArchiveRetention } from './archive-retention.js';
 import { draftCounts } from './pr-replies.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -398,6 +399,32 @@ export async function startWebServer(
   };
   sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
   const sleepTimer = lean ? null : setInterval(() => void sleepIdle(), SLEEP_EVERY_MS);
+
+  // Old archived conversations get compressed (archive-retention.ts): a few
+  // minutes after start, then daily.
+  const RETENTION_EVERY_MS = 24 * 3600_000;
+  const retentionSchedule = lean ? null : activity.schedule('archive', 'Archive upkeep', RETENTION_EVERY_MS);
+  const archiveUpkeep = () => {
+    retentionSchedule?.next(Date.now() + RETENTION_EVERY_MS);
+    const cfg = loadConfig()?.archive;
+    const run = activity.start('archive', 'Compressing old archived conversations');
+    try {
+      const r = applyArchiveRetention({ compressAfterDays: cfg?.compressAfterDays, dropAfterDays: cfg?.dropTranscriptsAfterDays });
+      const mb = Math.round(r.bytesSaved / 1e6);
+      run.done(
+        r.compressed.length || r.dropped.length
+          ? `${r.compressed.length} compressed${r.dropped.length ? `, ${r.dropped.length} conversations deleted (config)` : ''} · ${mb} MB freed`
+          : 'nothing old enough',
+      );
+    } catch (err) {
+      run.fail((err as Error).message);
+    }
+  };
+  const retentionFirst = lean ? null : setTimeout(archiveUpkeep, 3 * 60_000);
+  retentionFirst?.unref?.();
+  retentionSchedule?.next(Date.now() + 3 * 60_000);
+  const retentionTimer = lean ? null : setInterval(archiveUpkeep, RETENTION_EVERY_MS);
+  retentionTimer?.unref?.();
   sleepTimer?.unref?.();
 
   // "What did each session do today?" — read from what's on disk (see
