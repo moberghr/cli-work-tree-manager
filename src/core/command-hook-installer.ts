@@ -62,6 +62,32 @@ export function installCommandHook(opts: CommandHookOptions): Promise<void> {
   });
 }
 
+/**
+ * Install `install` and remove every `remove` (owner + event) in ONE write
+ * of settings.json — one install per hook used to be one atomic rename
+ * each, a burst Windows sometimes refused (EPERM while a Claude reads the
+ * file). Stale entries (their process gone) are pruned on the way.
+ */
+export function syncCommandHooks(install: CommandHookOptions[], remove: Array<{ owner: string; event: string }> = []): Promise<void> {
+  return editSettings((s) => {
+    if (!s.hooks) s.hooks = {};
+    for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
+    for (const opts of install) {
+      const list = (s.hooks[opts.event] ?? []) as HookEntry[];
+      const cleaned = list.filter((h) => !isStaleEntry(h) && !isOwnerEntry(h, opts.owner));
+      cleaned.push(tag({ hooks: [{ type: HOOK_TYPE, command: opts.command, timeout: opts.timeoutSec ?? 5 }] }, opts.owner));
+      s.hooks[opts.event] = cleaned;
+    }
+  });
+}
+
+/** Remove several owner + event entries in one write (signal handlers: synchronous). */
+export function removeCommandHooksSync(remove: Array<{ owner: string; event: string }>): void {
+  editSettingsSync((s) => {
+    for (const r of remove) removeOwnerEntries(s, r.owner, r.event);
+  });
+}
+
 export function removeCommandHook(owner: string, event: string): Promise<void> {
   return editSettings((s) => removeOwnerEntries(s, owner, event));
 }

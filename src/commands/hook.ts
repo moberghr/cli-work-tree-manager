@@ -40,7 +40,10 @@ export type HookEvent =
   | 'status-prompt'
   | 'status-stop'
   | 'status-notify'
-  | 'assistant-context';
+  | 'assistant-context'
+  /** One hook per turn edge: delivery + status + checkpoint (the full dashboard). */
+  | 'turn-start'
+  | 'turn-end';
 
 const STATUS_EVENTS = new Set<HookEvent>(['status-prompt', 'status-stop', 'status-notify']);
 
@@ -197,6 +200,8 @@ const HOOK_EVENTS = [
   'status-stop',
   'status-notify',
   'assistant-context',
+  'turn-start',
+  'turn-end',
 ] as const;
 
 /** `work hook <event>` without the yargs router (bin.ts's fast path). An
@@ -217,6 +222,49 @@ export const hookCommand: CommandModule = {
     }),
   handler: async (argv) => handleHook(argv.event as HookEvent),
 };
+
+export interface TurnHookIo {
+  write: (text: string) => void;
+  post: (route: string, cwd: string) => Promise<void>;
+}
+
+/**
+ * `turn-start` / `turn-end`: what three hooks did, in one process. Pending
+ * comments are written for Claude first (prompt-submit / stop output), then
+ * the checkpoint nudge and the status record run side by side.
+ */
+export async function runTurnHook(
+  start: boolean,
+  payload: HookPayload,
+  io: TurnHookIo = { write: (t) => void process.stdout.write(t), post: postToWeb },
+): Promise<void> {
+  const cwd = payload.cwd ?? process.cwd();
+  const result = computeHookOutput({ event: start ? 'prompt-submit' : 'stop', cwd }, claimForDelivery);
+  if (result?.sessionId) io.write(result.stdout);
+  await Promise.all([
+    io.post(start ? 'api/checkpoint/seal' : 'api/checkpoint', cwd),
+    recordStatus(start ? 'status-prompt' : 'status-stop', payload, cwd, io.post),
+  ]);
+}
+
+/** Record a status event for the cwd's session and nudge work web. No-op outside a work session. */
+async function recordStatus(
+  event: HookEvent,
+  payload: HookPayload,
+  cwd: string,
+  post: (route: string, cwd: string) => Promise<void> = postToWeb,
+): Promise<void> {
+  const session = findSessionForCwd(cwd);
+  const statusEvent = statusEventFor(event, payload);
+  if (!session || !statusEvent) return;
+  // Best-effort — never block Claude's turn on bookkeeping — but logged,
+  // so "why does the inbox not show this session?" has an answer.
+  const recorded = await bestEffortAsync(`record status ${event} for ${session.target}:${session.branch}`, async () => {
+    await recordStatusEvent(sessionIdFor(session), statusEvent);
+    return true;
+  });
+  if (recorded) await post('api/status-changed', cwd);
+}
 
 async function handleHook(event: HookEvent): Promise<void> {
   {
@@ -246,21 +294,20 @@ async function handleHook(event: HookEvent): Promise<void> {
       await postToWeb('api/checkpoint/seal', cwd);
       return;
     }
+    // One hook per turn edge (the full dashboard installs these): delivery,
+    // status and checkpoint in ONE process instead of three — each `work`
+    // start is a node boot, for every turn of every Claude on the machine.
+    // What Claude reads (pending comments) is written first; the
+    // bookkeeping runs after, side by side.
+    if (event === 'turn-start' || event === 'turn-end') {
+      await runTurnHook(event === 'turn-start', payload);
+      return;
+    }
     // Attention inbox: record the session's state, then nudge work web so
     // the dashboard (and desktop notification) updates immediately. Emits
     // nothing to Claude. Outside a work session it's a no-op.
     if (STATUS_EVENTS.has(event)) {
-      const session = findSessionForCwd(cwd);
-      const statusEvent = statusEventFor(event, payload);
-      if (!session || !statusEvent) return;
-      // Best-effort — never block Claude's turn on bookkeeping — but logged,
-      // so "why does the inbox not show this session?" has an answer.
-      const recorded = await bestEffortAsync(`record status ${event} for ${session.target}:${session.branch}`, async () => {
-        await recordStatusEvent(sessionIdFor(session), statusEvent);
-        return true;
-      });
-      if (!recorded) return;
-      await postToWeb('api/status-changed', cwd);
+      await recordStatus(event, payload, cwd);
       return;
     }
     // Claimed (= marked delivered) before printing: the process ends right

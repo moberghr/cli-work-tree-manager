@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { computeHookOutput } from '../../src/commands/hook.js';
+import { computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
+import { readStatus } from '../../src/core/session-status.js';
 import {
   clearCommentStoreCache,
   getCommentFileStore,
@@ -128,5 +129,36 @@ describe('computeHookOutput', () => {
     expect(
       computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] }),
     ).toBeNull();
+  });
+});
+
+describe('runTurnHook (one hook per turn edge)', () => {
+  it('turn-start: pending comments for Claude first, then the checkpoint seal and the status record', async () => {
+    const s = fakeSession();
+    saveHistory([s]);
+    markActive(s);
+    getCommentFileStore(sessionIdFor(s)).post({ body: 'fix this' });
+    const out: string[] = [];
+    const posts: string[] = [];
+    await runTurnHook(true, { cwd: s.paths[0], prompt: 'go on' }, { write: (t) => void out.push(t), post: async (r) => void posts.push(r) });
+    expect(out.join('')).toContain('fix this');
+    expect(posts.sort()).toEqual(['api/checkpoint/seal', 'api/status-changed']);
+    expect(readStatus(sessionIdFor(s))?.state).toBe('working');
+  });
+
+  it('turn-end: the stop delivery shape, a checkpoint and "done"; outside a session only the checkpoint nudge', async () => {
+    const s = fakeSession();
+    saveHistory([s]);
+    markActive(s);
+    getCommentFileStore(sessionIdFor(s)).post({ body: 'and the docs' });
+    const out: string[] = [];
+    const posts: string[] = [];
+    await runTurnHook(false, { cwd: s.paths[0] }, { write: (t) => void out.push(t), post: async (r) => void posts.push(r) });
+    expect(JSON.parse(out.join(''))).toMatchObject({ decision: 'block' });
+    expect(posts.sort()).toEqual(['api/checkpoint', 'api/status-changed']);
+    expect(readStatus(sessionIdFor(s))?.state).toBe('idle');
+    const elsewhere: string[] = [];
+    await runTurnHook(false, { cwd: path.join(tmpDir, 'not-a-session') }, { write: () => {}, post: async (r) => void elsewhere.push(r) });
+    expect(elsewhere).toEqual(['api/checkpoint']);
   });
 });

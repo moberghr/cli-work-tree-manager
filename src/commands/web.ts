@@ -2,8 +2,8 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../core/web-server.js';
 import {
-  installCommandHook,
-  removeCommandHookSync,
+  removeCommandHooksSync,
+  syncCommandHooks,
 } from '../core/command-hook-installer.js';
 import { openUrl } from '../utils/platform.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
@@ -22,6 +22,33 @@ import {
   writeWebDiscovery,
 } from '../core/web-discovery.js';
 import { bestEffort, swallow } from '../core/best-effort.js';
+
+/**
+ * The Claude hooks work web installs. Full dashboard: ONE hook per turn
+ * edge — `turn-start` (seal the checkpoint step, record "working", attach
+ * pending comments) and `turn-end` (checkpoint, record "done", deliver) —
+ * instead of three, each a `work` (node) start for every turn of every
+ * Claude on the machine; plus the permission-prompt Notification. Lean
+ * (`wd`): checkpoints only.
+ */
+export const FULL_HOOKS = [
+  { owner: 'web-turn', event: 'UserPromptSubmit', command: 'work hook turn-start', timeoutSec: 10 },
+  { owner: 'web-turn', event: 'Stop', command: 'work hook turn-end', timeoutSec: 10 },
+  { owner: 'web-status', event: 'Notification', command: 'work hook status-notify', timeoutSec: 5 },
+];
+export const LEAN_HOOKS = [
+  { owner: 'web-checkpoint', event: 'Stop', command: 'work hook checkpoint', timeoutSec: 5 },
+  { owner: 'web-checkpoint', event: 'UserPromptSubmit', command: 'work hook checkpoint-seal', timeoutSec: 5 },
+];
+/** The separate hooks of before (and lean's, which the full set replaces): removed. */
+export const LEGACY_HOOKS = [
+  { owner: 'web', event: 'UserPromptSubmit' },
+  { owner: 'web', event: 'Stop' },
+  { owner: 'web-status', event: 'UserPromptSubmit' },
+  { owner: 'web-status', event: 'Stop' },
+  { owner: 'web-checkpoint', event: 'UserPromptSubmit' },
+  { owner: 'web-checkpoint', event: 'Stop' },
+];
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -217,75 +244,18 @@ export const webCommand: CommandModule = {
       );
     }
 
-    // Install Claude hooks so any live Claude in a worktree we know
-    // about picks up pending review comments without the user having
-    // to type. Both are no-ops when nothing's pending. Removed cleanly
-    // on shutdown. Skipped in lean mode — a diff-only session doesn't
-    // need to mutate the user's ~/.claude/settings.json.
-    if (!lean) {
-      await Promise.all([
-        installCommandHook({
-          owner: 'web',
-          event: 'UserPromptSubmit',
-          command: 'work hook prompt-submit',
-          timeoutSec: 5,
-        }),
-        installCommandHook({
-          owner: 'web',
-          event: 'Stop',
-          command: 'work hook stop',
-          timeoutSec: 5,
-        }),
-        // Attention inbox: every Claude reports working / done / needs
-        // input, whichever terminal it runs in. Separate owner so the set
-        // is managed independently of comment delivery.
-        ...(
-          [
-            ['UserPromptSubmit', 'work hook status-prompt'],
-            ['Stop', 'work hook status-stop'],
-            ['Notification', 'work hook status-notify'],
-          ] as const
-        ).map(([event, command]) =>
-          installCommandHook({ owner: 'web-status', event, command, timeoutSec: 5 }),
-        ),
-      ]).catch(swallow('install Claude hooks (comments/status) in ~/.claude/settings.json'));
-    }
-
-    // Checkpoint-on-turn-end hook. Installed in BOTH lean and full mode —
-    // unlike comment delivery, meaningful per-turn checkpoints are the whole
-    // point of the `wd` diff view. Distinct owner so it's managed separately
-    // from the comment hooks. Fires `work hook checkpoint`, which nudges this
-    // server to snapshot the cwd's scope (a no-op when none matches).
-    await installCommandHook({
-      owner: 'web-checkpoint',
-      event: 'Stop',
-      command: 'work hook checkpoint',
-      timeoutSec: 5,
-    }).catch(swallow('install Claude checkpoint hook in ~/.claude/settings.json'));
-
-    // Seal-on-prompt hook — the instruction boundary. A new user prompt
-    // closes the current step so the work answering it opens a fresh one
-    // (one step per instruction, not per turn). Installed in BOTH modes, same
-    // owner as the Stop checkpoint hook above.
-    await installCommandHook({
-      owner: 'web-checkpoint',
-      event: 'UserPromptSubmit',
-      command: 'work hook checkpoint-seal',
-      timeoutSec: 5,
-    }).catch(swallow('install Claude checkpoint hook in ~/.claude/settings.json'));
+    // Claude hooks (one write of ~/.claude/settings.json, see HOOKS):
+    // the full dashboard puts delivery, status and checkpoints in one hook
+    // per turn edge; the lean `wd` server only needs the checkpoints.
+    await syncCommandHooks(lean ? LEAN_HOOKS : FULL_HOOKS, lean ? [] : LEGACY_HOOKS).catch(
+      swallow('install Claude hooks in ~/.claude/settings.json'),
+    );
 
     shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       clearWebDiscovery(process.pid);
-      if (!lean) {
-        bestEffort(`remove Claude hook web/UserPromptSubmit`, () => removeCommandHookSync('web', 'UserPromptSubmit'));
-        bestEffort(`remove Claude hook web/Stop`, () => removeCommandHookSync('web', 'Stop'));
-        for (const ev of ['UserPromptSubmit', 'Stop', 'Notification']) {
-          bestEffort(`remove Claude hook web-status/${ev}`, () => removeCommandHookSync('web-status', ev));
-        }
-      }
-      bestEffort(`remove Claude hook web-checkpoint/Stop`, () => removeCommandHookSync('web-checkpoint', 'Stop'));
-      bestEffort(`remove Claude hook web-checkpoint/UserPromptSubmit`, () => removeCommandHookSync('web-checkpoint', 'UserPromptSubmit'));
+      const ours = (lean ? LEAN_HOOKS : FULL_HOOKS).map(({ owner, event }) => ({ owner, event }));
+      bestEffort('remove Claude hooks', () => removeCommandHooksSync([...ours, ...LEGACY_HOOKS]));
       void handle.stop().finally(() => process.exit(0));
     };
     process.on('SIGINT', shutdown);

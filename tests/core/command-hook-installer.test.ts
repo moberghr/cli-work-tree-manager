@@ -7,6 +7,8 @@ import {
   installCommandHook,
   removeCommandHook,
   removeCommandHookSync,
+  removeCommandHooksSync,
+  syncCommandHooks,
 } from '../../src/core/command-hook-installer.js';
 
 let tmpDir: string;
@@ -106,5 +108,30 @@ describe('removeCommandHook', () => {
     await removeCommandHook('a', 'UserPromptSubmit');
     removeCommandHookSync('a', 'Stop');
     expect(read()).toEqual({ hooks: { Stop: [userHook] } });
+  });
+});
+
+describe('syncCommandHooks (work web, one write)', () => {
+  it('the full set replaces the old separate hooks, keeps the user’s own, and removes cleanly', async () => {
+    const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
+    write({ hooks: { UserPromptSubmit: [userHook] } });
+    // What an older work web left (three per event):
+    for (const [owner, event, command] of [
+      ['web', 'UserPromptSubmit', 'work hook prompt-submit'],
+      ['web-status', 'UserPromptSubmit', 'work hook status-prompt'],
+      ['web-checkpoint', 'UserPromptSubmit', 'work hook checkpoint-seal'],
+      ['web', 'Stop', 'work hook stop'],
+      ['web-status', 'Stop', 'work hook status-stop'],
+      ['web-checkpoint', 'Stop', 'work hook checkpoint'],
+    ]) await installCommandHook({ owner, event, command });
+    const writes = vi.spyOn(fs, 'renameSync');
+    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    expect(writes).toHaveBeenCalledTimes(1); // one write, not one per hook
+    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
+    expect(commands('Stop')).toEqual(['work hook turn-end']);
+    expect(commands('Notification')).toEqual(['work hook status-notify']);
+    removeCommandHooksSync([...FULL_HOOKS.map(({ owner, event }) => ({ owner, event })), ...LEGACY_HOOKS]);
+    expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
+    expect(read().hooks?.Stop).toBeUndefined();
   });
 });
