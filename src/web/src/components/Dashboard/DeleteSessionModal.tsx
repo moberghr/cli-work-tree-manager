@@ -108,7 +108,7 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
           onChange={(e) => setForce(e.target.checked)}
           disabled={busy}
         />{' '}
-        Force — discard uncommitted changes and unpushed commits
+        Force — discard uncommitted changes and unpushed commits, and stop its Claude even mid-turn (replies to post and undelivered notes go too)
       </label>
       {error && (
         <p className="wd-delete-error" role="alert">

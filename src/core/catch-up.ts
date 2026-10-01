@@ -80,7 +80,7 @@ const inflight = new Map<string, Promise<CatchUp | null>>();
 
 const transcriptKey = (s: WorktreeSession) =>
   listTranscripts(s)
-    .map((t) => `${t.file}:${t.size}`)
+    .map((t) => `${t.file}:${t.size}:${t.mtimeMs}`)
     .sort()
     .join('|');
 

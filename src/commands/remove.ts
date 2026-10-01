@@ -1,4 +1,6 @@
 import chalk from 'chalk';
+import { archiveWaiting } from '../core/session-archive-deps.js';
+import { sessionIdFor } from '../core/session-id.js';
 import { stopSessionPty } from '../core/pty-pool.js';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
@@ -41,6 +43,20 @@ export const removeCommand: CommandModule = {
       console.log(chalk.yellow(`Available: ${allNames.join(', ')}`));
       process.exitCode = 1;
       return;
+    }
+
+    // What removing would cut off — its Claude mid-turn or waiting on you,
+    // replies to post, notes not yet delivered — refuses it unless --force,
+    // as the dashboard's delete does.
+    const existing = findSession(loadHistory(), targetName, branchName);
+    if (existing && !force) {
+      const waiting = archiveWaiting(sessionIdFor(existing));
+      if (waiting.length) {
+        console.error(chalk.red(`Not removed: ${waiting.join('; ')}.`));
+        console.log(chalk.yellow(`Use 'work remove ${targetName} ${branchName} --force' to remove it anyway.`));
+        process.exitCode = 1;
+        return;
+      }
     }
 
     console.log(chalk.cyan(`Removing worktree: ${targetName}/${branchName}`));
