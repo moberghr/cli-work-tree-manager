@@ -1,5 +1,6 @@
 /**
- * PURE — shared by the server and the demo; keep it import-free.
+ * PURE — keep it import-free (it is the policy; stack-sessions.ts applies it
+ * to the session history, stack-sync.ts acts on it).
  *
  * Stacked sessions: one whose branch was made from another live session's
  * branch (a fork, or `work tree … --base feat/x`) is stacked on it — its
@@ -40,12 +41,27 @@ export function stackParent<T extends StackSubject>(s: T, all: readonly T[], eli
   return all.find((p) => p.id !== s.id && !p.archivedAt && p.target === s.target && p.branch === base && eligible(p)) ?? null;
 }
 
-/** Each session's parent, for a whole list at once (one pass). */
+/**
+ * Each session's parent, for a whole list at once. Sessions made from each
+ * other's branches (A from B's, B from A's — possible with `--base`) form a
+ * cycle, not a stack: none of them gets a parent, so nothing is brought back
+ * and forth between them.
+ */
 export function stackParents<T extends StackSubject>(all: readonly T[], eligible?: (p: T) => boolean): Map<string, T> {
   const out = new Map<string, T>();
   for (const s of all) {
     const p = stackParent(s, all, eligible);
     if (p) out.set(s.id, p);
+  }
+  for (const id of [...out.keys()]) {
+    const seen = new Set<string>([id]);
+    for (let at = out.get(id); at; at = out.get(at.id)) {
+      if (seen.has(at.id)) {
+        for (const c of seen) out.delete(c);
+        break;
+      }
+      seen.add(at.id);
+    }
   }
   return out;
 }

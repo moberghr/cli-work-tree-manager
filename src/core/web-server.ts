@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { sessionStacks, stackedOn } from './stack-sessions.js';
-import { syncStackChild } from './stack-sync.js';
+import { sessionStacks } from './stack-sessions.js';
+import { syncStacksAfterTurn } from './stack-sync.js';
 import { shownState } from './turn-activity.js';
 import { BehindCache } from './behind-main.js';
 import { mountUpdateRoutes } from './update-routes.js';
@@ -568,49 +568,25 @@ export async function startWebServer(
   const stackSyncing = new Set<string>();
   const syncStacksAfter = async (id: string) => {
     if (readStatus(id)?.state !== 'idle') return;
-    const history = loadHistory();
-    const config = loadConfig();
-    const stacks = sessionStacks(history, config);
-    const self = history.find((s) => sessionIdFor(s) === id);
-    const candidates = [...(self && stacks.parentOf.has(id) ? [self] : []), ...stackedOn(id, stacks, history)];
-    if (candidates.length === 0) return;
-    // Its turn may have committed: what the chips say about the stack is stale either way.
-    for (const c of candidates) behindCache.invalidate(sessionIdFor(c));
-    if (config?.stacks?.autoUpdate === false) return;
-    const run = activity.start('stacks', 'Updating stacked sessions');
-    let updated = 0;
-    for (const child of candidates) {
-      const childId = sessionIdFor(child);
-      const parent = stacks.parentOf.get(childId);
-      if (!parent || stackSyncing.has(childId)) continue;
-      stackSyncing.add(childId);
-      try {
-        const r = await syncStackChild(child, parent.branch, {
-          shownState,
-          tell: async (s, body) => {
-            const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ side: 'general', status: 'published', body }),
-            });
-            if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
-          },
+    const updated = await syncStacksAfterTurn(id, {
+      history: loadHistory,
+      config: loadConfig,
+      invalidate: (sid) => {
+        behindCache.invalidate(sid);
+        diffStats.invalidate(sid);
+      },
+      startRun: () => activity.start('stacks', 'Updating stacked sessions'),
+      busy: stackSyncing,
+      shownState,
+      tell: async (s, body) => {
+        const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ side: 'general', status: 'published', body }),
         });
-        if (r.updated) {
-          updated++;
-          run.note(`${child.branch}: ${r.commits} commit${r.commits === 1 ? '' : 's'} from ${parent.branch} (${r.how}); its Claude was told`, { sessionId: childId });
-          behindCache.invalidate(childId);
-          diffStats.invalidate(childId);
-        } else {
-          run.note(`${child.branch}: left as it is — ${r.why}`, { sessionId: childId, level: 'info' });
-        }
-      } catch (err) {
-        run.note(`${child.branch}: ${(err as Error).message}`, { sessionId: childId, level: 'warn' });
-      } finally {
-        stackSyncing.delete(childId);
-      }
-    }
-    run.done(updated ? `${updated} brought up to date` : 'nothing to bring in');
+        if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
+      },
+    });
     if (updated) broadcast('sessions-changed', { ts: Date.now() });
   };
 

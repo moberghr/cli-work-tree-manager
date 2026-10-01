@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { stackBase, stackChildCounts, stackParent, stackParents, type StackSubject } from '../../src/core/stack.js';
 import { sessionStacks } from '../../src/core/stack-sessions.js';
 import { BehindCache, behindMain, updateFromMain } from '../../src/core/behind-main.js';
-import { syncStackChild } from '../../src/core/stack-sync.js';
+import { syncStackChild, syncStacksAfterTurn } from '../../src/core/stack-sync.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const s = (id: string, branch: string, over: Partial<StackSubject> = {}): StackSubject => ({ id, target: 'api', branch, ...over });
@@ -134,7 +134,7 @@ describe('syncStackChild: the parent moved', () => {
   it('idle and clean: brought up to date, and its Claude told what changed', async () => {
     parentCommits('p.txt', 'more', 2);
     const tell = vi.fn(async () => {});
-    expect(await syncStackChild(child(), 'feat/p', { shownState: () => 'idle', tell })).toEqual({ updated: true, commits: 2, how: 'rebased on it' });
+    expect(await syncStackChild(child(), 'feat/p', { shownState: () => 'idle', tell })).toEqual({ updated: true, commits: 2, how: 'rebased on it', told: true });
     expect(git(childWt, 'rev-list', '--count', 'HEAD..feat/p')).toBe('0');
     expect(tell).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('brought up to date with feat/p'));
   });
@@ -180,5 +180,107 @@ describe('POST /api/sessions/:id/update-from-main on a stacked session', () => {
     mountUpdateRoutes(app, { broadcast: () => {} });
     const r = await app.request(`/api/sessions/${sessionIdFor(c)}/update-from-main`, { method: 'POST' });
     expect(await r.json()).toEqual({ results: [{ ok: true, repo: 'wt-child', how: 'rebase', base: 'feat/p', commits: 1 }] });
+  });
+});
+
+describe('review fixes', () => {
+  const now = new Date().toISOString();
+
+  it('sessions made from each other form a cycle, not a stack: none gets a parent', () => {
+    const all = [s('a', 'feat/a', { baseBranch: 'feat/b' }), s('b', 'feat/b', { baseBranch: 'feat/a' }), s('c', 'feat/c', { baseBranch: 'feat/x' }), s('x', 'feat/x')];
+    expect([...stackParents(all).keys()]).toEqual(['c']);
+  });
+
+  it('a group is all or nothing: when the second repo fails, the first is put back', async () => {
+    // A second repo, the same shape as the first (parent + child worktrees).
+    const repo2 = path.join(tmp, 'repo2');
+    fs.cpSync(path.join(fixture, 'repo'), repo2, { recursive: true });
+    const p2 = path.join(tmp, 'wt-parent2');
+    const c2 = path.join(tmp, 'wt-child2');
+    git(repo2, 'worktree', 'add', '-q', '-b', 'feat/p', p2);
+    git(repo2, 'worktree', 'add', '-q', '-b', 'feat/c', c2, 'feat/p');
+    parentCommits('p.txt', 'more');
+    fs.writeFileSync(path.join(p2, 'q.txt'), 'q\n');
+    git(p2, 'add', '.');
+    git(p2, 'commit', '-q', '-m', 'p2');
+    const before1 = git(childWt, 'rev-parse', 'HEAD');
+    const before2 = git(c2, 'rev-parse', 'HEAD');
+    const { defaultRunner } = await import('../../src/core/ship.js');
+    // The second repo's rebase fails for a reason merge-tree can't see (a hook, a disk).
+    const run: typeof defaultRunner = (cmd, args, cwd) =>
+      args.includes('rebase') && !args.includes('--abort') && args[1] === c2 ? Promise.resolve({ code: 1, stdout: '', stderr: 'error: disk full' }) : defaultRunner(cmd, args, cwd);
+    const group: WorktreeSession = { target: 'shop', branch: 'feat/c', isGroup: true, paths: [childWt, c2], createdAt: now, lastAccessedAt: now, baseBranches: { [childWt]: 'feat/p', [c2]: 'feat/p' } };
+    const tell = vi.fn(async () => {});
+    const r = await syncStackChild(group, 'feat/p', { run, shownState: () => 'idle', tell });
+    expect(r).toMatchObject({ updated: false, why: expect.stringContaining('the others were put back') });
+    expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before1);
+    expect(git(c2, 'rev-parse', 'HEAD')).toBe(before2);
+    expect(git(childWt, 'status', '--porcelain')).toBe('');
+    expect(tell).not.toHaveBeenCalled();
+  });
+
+  it("asks again right before changing anything: a turn that started while git looked isn't run over", async () => {
+    parentCommits('p.txt', 'more');
+    const before = git(childWt, 'rev-parse', 'HEAD');
+    const states: Array<'idle' | 'working'> = ['idle', 'working'];
+    const c: WorktreeSession = { target: 'api', branch: 'feat/c', isGroup: false, paths: [childWt], createdAt: now, lastAccessedAt: now, baseBranch: 'feat/p' };
+    expect(await syncStackChild(c, 'feat/p', { shownState: () => states.shift() ?? 'working', tell: async () => {} })).toEqual({ updated: false, why: 'its Claude is working' });
+    expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before);
+  });
+
+  it('a note that fails to post: still updated, and said so', async () => {
+    parentCommits('p.txt', 'more');
+    const c: WorktreeSession = { target: 'api', branch: 'feat/c', isGroup: false, paths: [childWt], createdAt: now, lastAccessedAt: now, baseBranch: 'feat/p' };
+    expect(await syncStackChild(c, 'feat/p', { shownState: () => 'idle', tell: async () => { throw new Error('work web gone'); } })).toMatchObject({ updated: true, told: false });
+  });
+
+  describe('syncStacksAfterTurn', () => {
+    const sessions = (): WorktreeSession[] => [
+      { target: 'api', branch: 'feat/p', isGroup: false, paths: [parentWt], createdAt: now, lastAccessedAt: now },
+      { target: 'api', branch: 'feat/c', isGroup: false, paths: [childWt], createdAt: now, lastAccessedAt: now, baseBranch: 'feat/p' },
+    ];
+    const deps = (over: Record<string, unknown> = {}) => {
+      const notes: string[] = [];
+      const invalidated: string[] = [];
+      return {
+        notes,
+        invalidated,
+        d: {
+          history: sessions,
+          config: () => ({ worktreesRoot: tmp, repos: { api: path.join(tmp, 'repo') }, groups: {}, copyFiles: [] }),
+          invalidate: (id: string) => void invalidated.push(id),
+          startRun: () => ({ note: (t: string) => void notes.push(t), done: () => {} }),
+          busy: new Set<string>(),
+          shownState: () => 'idle' as const,
+          tell: async () => {},
+          ...over,
+        },
+      };
+    };
+    const id = async (branch: string) => (await import('../../src/core/session-id.js')).sessionIdFor({ target: 'api', branch });
+
+    it("after the parent's turn: its children brought up to date, and noted", async () => {
+      parentCommits('p.txt', 'more');
+      const { d, notes, invalidated } = deps();
+      expect(await syncStacksAfterTurn(await id('feat/p'), d)).toBe(1);
+      expect(notes[0]).toContain('feat/c: 1 commit from feat/p (rebased on it); its Claude was told');
+      expect(invalidated).toContain(await id('feat/c'));
+    });
+
+    it("after the child's own turn too (its parent moved while it worked)", async () => {
+      parentCommits('p.txt', 'more');
+      expect(await syncStacksAfterTurn(await id('feat/c'), deps().d)).toBe(1);
+    });
+
+    it('turned off: the chips are refreshed, nothing is changed; one already being updated is skipped', async () => {
+      parentCommits('p.txt', 'more');
+      const before = git(childWt, 'rev-parse', 'HEAD');
+      const off = deps({ config: () => ({ worktreesRoot: tmp, repos: {}, groups: {}, copyFiles: [], stacks: { autoUpdate: false } }) });
+      expect(await syncStacksAfterTurn(await id('feat/p'), off.d)).toBe(0);
+      expect(off.invalidated).toEqual([await id('feat/c')]);
+      const busy = deps({ busy: new Set([await id('feat/c')]) });
+      expect(await syncStacksAfterTurn(await id('feat/p'), busy.d)).toBe(0);
+      expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before);
+    });
   });
 });

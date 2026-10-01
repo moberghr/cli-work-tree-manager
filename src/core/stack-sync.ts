@@ -1,7 +1,12 @@
 import { behindMain, updateFromMain, type Behind } from './behind-main.js';
+import { logSwallowed } from './best-effort.js';
+import type { WorkConfig } from './config.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
+import { sessionIdFor } from './session-id.js';
 import type { SessionStatus } from './session-status.js';
 import type { WorktreeSession } from './session-types.js';
+import { sessionStacks, stackedOn } from './stack-sessions.js';
+import type { RunHandle } from './activity.js';
 
 /**
  * Keep a stacked session (stack.ts) on top of its parent: when the parent's
@@ -21,13 +26,15 @@ export interface StackSyncDeps {
   tell: (s: WorktreeSession, body: string) => Promise<void>;
 }
 
-export type StackSyncResult = { updated: true; commits: number; how: string } | { updated: false; why: string };
+export type StackSyncResult = { updated: true; commits: number; how: string; told: boolean } | { updated: false; why: string };
+
+const busyWhy = (state: SessionStatus['state'] | null) =>
+  state === 'working' ? 'its Claude is working' : state === 'needs_input' ? 'its Claude is waiting for your answer' : null;
 
 export async function syncStackChild(child: WorktreeSession, parentBranch: string, deps: StackSyncDeps): Promise<StackSyncResult> {
   const run = deps.run ?? defaultRunner;
-  const state = deps.shownState(child);
-  if (state === 'working') return { updated: false, why: 'its Claude is working' };
-  if (state === 'needs_input') return { updated: false, why: 'its Claude is waiting for your answer' };
+  const busy = busyWhy(deps.shownState(child));
+  if (busy) return { updated: false, why: busy };
   const behind: Array<{ path: string; b: Behind }> = [];
   for (const p of child.paths) {
     const b = await behindMain(p, run, parentBranch);
@@ -35,23 +42,95 @@ export async function syncStackChild(child: WorktreeSession, parentBranch: strin
   }
   if (behind.length === 0) return { updated: false, why: `already on top of ${parentBranch}` };
   if (behind.some((x) => x.b.conflicts)) return { updated: false, why: `bringing in ${parentBranch} would conflict: left for you (Update from ${parentBranch})` };
-  // All or nothing: a dirty repo of a group would leave it half updated.
+  // Where each repo is now, to put a group back if a later repo fails.
+  const heads = new Map<string, string>();
   for (const { path: p } of behind) {
     const st = await run('git', ['-C', p, 'status', '--porcelain'], p);
     if (st.code !== 0 || st.stdout.trim()) return { updated: false, why: 'it has uncommitted changes' };
+    const head = await run('git', ['-C', p, 'rev-parse', 'HEAD'], p);
+    if (head.code !== 0) return { updated: false, why: `${p}: ${head.stderr.trim() || 'no HEAD'}` };
+    heads.set(p, head.stdout.trim());
   }
   let commits = 0;
   const hows = new Set<string>();
+  const done: string[] = [];
   for (const { path: p } of behind) {
-    const r = await updateFromMain(p, run, parentBranch);
-    if (!r.ok) return { updated: false, why: `${r.repo}: ${r.reason}` };
+    // A turn may have started while git looked: ask again right before each change.
+    const nowBusy = busyWhy(deps.shownState(child));
+    const r = nowBusy ? null : await updateFromMain(p, run, parentBranch);
+    if (!r || !r.ok) {
+      // All or nothing: put back the repos already brought in (they were clean, so nothing of anyone's is lost).
+      for (const q of done) await run('git', ['-C', q, 'reset', '--hard', '--quiet', heads.get(q)!], q);
+      return { updated: false, why: nowBusy ?? `${r!.repo}: ${(r as { reason: string }).reason}${done.length ? ' (the others were put back)' : ''}` };
+    }
+    done.push(p);
     commits = Math.max(commits, r.commits);
     if (r.how !== 'nothing') hows.add(r.how === 'rebase' ? 'rebased on it' : 'merged it in');
   }
   const how = [...hows].join(' / ');
-  await deps.tell(
-    child,
-    `Your branch was brought up to date with ${parentBranch} — the session this one is stacked on — ${commits} new commit${commits === 1 ? '' : 's'} (${how}). Files may have changed since you last read them; look again before editing them.`,
-  ).catch(() => {});
-  return { updated: true, commits, how };
+  let told = true;
+  await deps
+    .tell(
+      child,
+      `Your branch was brought up to date with ${parentBranch} — the session this one is stacked on — ${commits} new commit${commits === 1 ? '' : 's'} (${how}). Files may have changed since you last read them; look again before editing them.`,
+    )
+    .catch((err) => {
+      told = false;
+      logSwallowed(`telling ${child.branch} it was updated from ${parentBranch}`, err);
+    });
+  return { updated: true, commits, how, told };
+}
+
+export interface AfterTurnDeps extends StackSyncDeps {
+  history: () => WorktreeSession[];
+  config: () => WorkConfig | null;
+  /** Its turn may have committed: what the chips say about these sessions is stale. */
+  invalidate: (sessionId: string) => void;
+  /** An Activity run for the decisions (one per sweep that has anything to look at). */
+  startRun: () => Pick<RunHandle, 'note' | 'done'>;
+  /** Sessions being brought up to date right now (shared across calls: one at a time each). */
+  busy: Set<string>;
+}
+
+/**
+ * After a session's turn ended: the sessions stacked on it — and itself, when
+ * it is stacked and its parent moved while it worked — each brought up to
+ * date if it can be (syncStackChild). Returns how many were.
+ */
+export async function syncStacksAfterTurn(sessionId: string, deps: AfterTurnDeps): Promise<number> {
+  const history = deps.history();
+  const config = deps.config();
+  const stacks = sessionStacks(history, config);
+  const self = history.find((s) => sessionIdFor(s) === sessionId);
+  const candidates = [...(self && stacks.parentOf.has(sessionId) ? [self] : []), ...stackedOn(sessionId, stacks, history)];
+  if (candidates.length === 0) return 0;
+  for (const c of candidates) deps.invalidate(sessionIdFor(c));
+  if (config?.stacks?.autoUpdate === false) return 0;
+  const run = deps.startRun();
+  let updated = 0;
+  for (const child of candidates) {
+    const childId = sessionIdFor(child);
+    const parent = stacks.parentOf.get(childId);
+    if (!parent || deps.busy.has(childId)) continue;
+    deps.busy.add(childId);
+    try {
+      const r = await syncStackChild(child, parent.branch, deps);
+      if (r.updated) {
+        updated++;
+        deps.invalidate(childId);
+        run.note(
+          `${child.branch}: ${r.commits} commit${r.commits === 1 ? '' : 's'} from ${parent.branch} (${r.how})${r.told ? '; its Claude was told' : "; telling its Claude failed — it doesn't know yet"}`,
+          { sessionId: childId, ...(r.told ? {} : { level: 'warn' as const }) },
+        );
+      } else {
+        run.note(`${child.branch}: left as it is — ${r.why}`, { sessionId: childId });
+      }
+    } catch (err) {
+      run.note(`${child.branch}: ${(err as Error).message}`, { sessionId: childId, level: 'warn' });
+    } finally {
+      deps.busy.delete(childId);
+    }
+  }
+  run.done(updated ? `${updated} brought up to date` : 'nothing to bring in');
+  return updated;
 }
