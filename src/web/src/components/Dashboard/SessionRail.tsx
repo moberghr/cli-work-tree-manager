@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '../../api/client.js';
-import { ClaudesChip, PrChips } from './SessionBits.js';
+import { ClaudesChip, PrChips, otherBranchText } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
@@ -187,7 +187,10 @@ export function SessionRail({
           {visible.map((s) => {
             const kind = displayStatus(s);
             const isActive = s.id === activeSessionId;
-            const label = s.branch || s.target;
+            // Your name for it, when you gave one; else its branch.
+            const named = s.titleIsYours && !!s.title;
+            const label = named ? s.title! : s.branch || s.target;
+            const other = otherBranchText(s);
             const slot = statusSlot(s, kind);
             const stat = formatDiffStat(s);
             const prs = prsFor?.(s) ?? [];
@@ -260,7 +263,7 @@ export function SessionRail({
                     if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
                   }}
                   title={
-                    `${s.target} · ${s.branch}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
+                    `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
                     (summary ? ` — ${summary}` : '')
                   }
                 >
@@ -273,7 +276,7 @@ export function SessionRail({
                     <span className="wd-dash-rail-line wd-dash-rail-sub">
                       <span className="wd-dash-rail-summary">
                         {s.target}
-                        {summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
+                        {named ? ` · ${s.branch}` : summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
                       </span>
                       {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
                         <span

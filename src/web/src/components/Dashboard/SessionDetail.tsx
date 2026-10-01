@@ -3,7 +3,7 @@ import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, DiffStatChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
+import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip } from './DevChip.js';
@@ -88,6 +88,7 @@ export function SessionDetail({
           <span className="wd-session-detail-target">{session.target}</span>
           <span className="wd-session-detail-sep">·</span>
           <span className="wd-session-detail-branch">{session.branch}</span>
+          <OtherBranchChip session={session} />
           <SessionTitle session={session} />
         </h1>
         {archived && <span className="wd-archived-pill">archived</span>}

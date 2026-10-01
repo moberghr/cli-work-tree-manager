@@ -7,7 +7,7 @@ import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
 import { getCurrentBranch } from '../core/git.js';
 import { hasClaudeConversation } from '../core/claude-activity.js';
-import { findSession, forgetOtherBaseCheckoutEntries, loadHistory, recordLaunch, upsertSession } from '../core/history.js';
+import { findSession, forgetOtherBaseCheckoutEntries, loadHistory, recordLaunch, upsertSession, setSessionTitle } from '../core/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
@@ -69,6 +69,10 @@ export const treeCommand: CommandModule = {
       })
       .option('prompt-file', {
         describe: 'File containing the initial prompt (deleted after reading)',
+        type: 'string',
+      })
+      .option('name', {
+        describe: 'Name the session (shown instead of the branch; rename later with F2 in the dashboard)',
         type: 'string',
       })
       .option('jira-key', {
@@ -244,6 +248,7 @@ export const treeCommand: CommandModule = {
         pullLatestForBranch(repoPath, currentBranch);
       }
       await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
+      if (typeof argv.name === 'string' && argv.name.trim()) await setSessionTitle(targetName, currentBranch, argv.name);
       // One entry per checkout: drop the ones recorded when it was on another branch.
       const dropped = await forgetOtherBaseCheckoutEntries(targetName, currentBranch, repoPath);
       if (dropped.length) console.log(chalk.gray(`Replaced older entries for this checkout: ${dropped.join(', ')}`));
@@ -254,7 +259,7 @@ export const treeCommand: CommandModule = {
     }
 
     // Create/switch worktree via shared core logic
-    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull });
+    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull, name: argv.name as string | undefined });
     if (!result) {
       process.exitCode = 1;
       return;

@@ -1754,3 +1754,16 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-row-menu-item:hover,
 .wd-row-menu-item:focus-visible { background: var(--hover); outline: none; }
 .wd-row-menu-hint { color: var(--muted); font-size: 11px; font-family: inherit; }
+
+/* The branch a session's worktree is really on, when Claude (or you) switched it (OtherBranchChip). */
+.wd-other-branch {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warn-fg);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}

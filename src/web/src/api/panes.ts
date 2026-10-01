@@ -123,6 +123,8 @@ export interface CreateWorktreeRequest {
   jiraKey?: string;
   /** Start Claude with this as its first message. */
   prompt?: string;
+  /** A name for the session, shown instead of the branch. */
+  name?: string;
 }
 
 export interface CreateWorktreeResponse {

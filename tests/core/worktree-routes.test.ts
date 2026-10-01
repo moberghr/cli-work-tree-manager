@@ -108,6 +108,16 @@ describe('POST /api/worktrees with a first prompt', () => {
     expect(ensurePty).toHaveBeenCalledWith(newId(), { initialPrompt: 'Work on ABC-1: export' });
   });
 
+  it('a name given at creation is the session’s title; the branch stays its identity', async () => {
+    const res = await create(app, { target: 'repo', branch: 'feat/new', name: '  PDF generation speed ' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ sessionId: newId() });
+    expect(loadHistory().find((s) => s.branch === 'feat/new')).toMatchObject({ title: 'PDF generation speed' });
+    // Coming back to it without a name keeps the one it has.
+    await create(app, { target: 'repo', branch: 'feat/new' });
+    expect(loadHistory().find((s) => s.branch === 'feat/new')?.title).toBe('PDF generation speed');
+  });
+
   it('without a prompt it only creates the worktree (as before)', async () => {
     const res = await create(app, { target: 'repo', branch: 'feat/new' });
     const body = (await res.json()) as Record<string, unknown>;

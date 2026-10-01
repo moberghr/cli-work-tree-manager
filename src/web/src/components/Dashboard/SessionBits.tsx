@@ -193,3 +193,28 @@ export function StatusLine({ session }: { session: SessionSummary }) {
     </span>
   );
 }
+
+/**
+ * "on fix/terminal-encryption-key-nexo": the branch its worktree is really on,
+ * when that isn't the one the session started on (Claude switched, or you
+ * did). Ship and the PR watch follow the real one; this is so you see it too.
+ */
+export function otherBranchText(session: SessionSummary): string | null {
+  const other = session.onOtherBranch ?? [];
+  if (other.length === 0) return null;
+  const name = (b: string | null) => b ?? 'a detached HEAD';
+  return session.isGroup ? other.map((o) => `${o.repo} on ${name(o.branch)}`).join(', ') : `on ${name(other[0].branch)}`;
+}
+
+export function OtherBranchChip({ session }: { session: SessionSummary }) {
+  const text = otherBranchText(session);
+  if (!text) return null;
+  return (
+    <span
+      className="wd-other-branch"
+      title={`Started on ${session.branch}; its worktree is ${text} now. Ship, CI and the diffs use the branch that's checked out.`}
+    >
+      {text}
+    </span>
+  );
+}

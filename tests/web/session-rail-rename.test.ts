@@ -92,6 +92,19 @@ describe('SessionRail: renaming a session', () => {
     expect(container.textContent).toContain('renaming failed (500)');
   });
 
+  it('your name is the row’s label, with repo and branch beneath; an automatic one keeps the branch first', () => {
+    render();
+    const named = row('Rotate keys');
+    expect(named.querySelector('.wd-dash-rail-name')!.textContent).toBe('Rotate keys');
+    expect(named.querySelector('.wd-dash-rail-summary')!.textContent).toBe('api · fix/keys');
+    expect(row('feat/csv').querySelector('.wd-dash-rail-name')!.textContent).toBe('feat/csv');
+  });
+
+  it('a worktree on another branch says so in the row’s tooltip', () => {
+    act(() => root.render(createElement(SessionRail, { sessions: [session('c', 'tmp/encryption-keys', { onOtherBranch: [{ repo: 'api', branch: 'fix/terminal-encryption-key-nexo' }] })], activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    expect(row('tmp/encryption-keys').title).toContain('api · tmp/encryption-keys (on fix/terminal-encryption-key-nexo)');
+  });
+
   it('without onRename, no menu and F2 does nothing', () => {
     act(() => root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: 'a', onSelect: () => {}, onNewWorktree: () => {} })));
     act(() => void row('fix/keys').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));

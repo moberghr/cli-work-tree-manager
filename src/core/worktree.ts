@@ -4,7 +4,7 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { findSession, loadHistory, upsertSessionWithPort } from './history.js';
+import { findSession, loadHistory, upsertSessionWithPort, setSessionTitle } from './history.js';
 import { bestEffort } from './best-effort.js';
 import { readArchive, restoreArchivedTranscripts } from './session-archive.js';
 import { sessionIdFor } from './session-id.js';
@@ -392,6 +392,8 @@ export interface WorktreeSetupOptions {
    * another branch (archive.json `heads`). The folder keeps the session's name.
    */
   checkoutFor?: Record<string, string>;
+  /** Name the session (its title, shown instead of the branch); empty keeps what it has. */
+  name?: string;
 }
 
 /**
@@ -446,8 +448,10 @@ export async function setupWorktree(
   // Coming back to an archived session: put its conversation back where
   // Claude looks for it (only files that aren't there), so it continues.
   if (result) {
-    const session = findSession(loadHistory(), target.isGroup ? target.name : targetName, branchName);
+    const sessionTarget = target.isGroup ? target.name : targetName;
+    const session = findSession(loadHistory(), sessionTarget, branchName);
     if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
+    if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;
 }

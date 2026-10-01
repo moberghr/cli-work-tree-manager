@@ -73,13 +73,15 @@ export function mountWorktreeRoutes(
     jiraKey: z.string().optional(),
     /** Start Claude with this as its first message. */
     prompt: z.string().max(20_000).optional(),
+    /** Name the session (its title); the branch stays its identity. */
+    name: z.string().max(120).optional(),
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
   app.post(
     '/api/worktrees',
     zValidator('json', createSchema),
     async (c) => {
-      const { target, branch, base, jiraKey, prompt } = c.req.valid('json');
+      const { target, branch, base, jiraKey, prompt, name } = c.req.valid('json');
       const config = loadConfig();
       if (!config) return c.json({ error: 'no config' }, 400);
 
@@ -87,7 +89,7 @@ export function mountWorktreeRoutes(
         // Keep what core reports, so a failure says why (it used to go only
         // to the server's console: "setup failed" was all the UI got).
         const reports = collectingReporter();
-        const result = await withReporter(reports, () => setupWorktree(target, branch, config, base, jiraKey));
+        const result = await withReporter(reports, () => setupWorktree(target, branch, config, base, jiraKey, { name }));
         if (!result) {
           const why = reports.errors().map((e) => e.trim()).join(' ');
           return c.json({ error: why || 'setup failed (target not found?)' }, 400);

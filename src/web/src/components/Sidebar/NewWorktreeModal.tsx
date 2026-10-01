@@ -46,6 +46,7 @@ export function NewWorktreeModal({
   const [branch, setBranch] = useState(initial?.branch ?? '');
   const [base, setBase] = useState(initial?.base ?? '');
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
+  const [name, setName] = useState('');
   // Created, but Claude didn't start: say so here, then let them go on.
   const [createdNoStart, setCreatedNoStart] = useState<{ id: string; reason: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -96,6 +97,7 @@ export function NewWorktreeModal({
         base: base.trim() || undefined,
         jiraKey: initial?.jiraKey,
         prompt: prompt.trim() || undefined,
+        name: name.trim() || undefined,
       });
       if (res.startError) {
         setCreatedNoStart({ id: res.sessionId, reason: res.startError });
@@ -174,6 +176,17 @@ export function NewWorktreeModal({
               placeholder="feat/whatever"
               disabled={submitting}
               required
+            />
+          </label>
+          <label className="wd-modal-row">
+            <span>Name (optional)</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="shown instead of the branch, e.g. PDF generation speed"
+              maxLength={120}
+              disabled={submitting}
             />
           </label>
           <label className="wd-modal-row">

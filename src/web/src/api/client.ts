@@ -130,6 +130,8 @@ export interface SessionSummary {
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */
   title?: string | null;
+  /** Repos checked out on another branch than `branch` (null = detached). */
+  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   titleIsYours?: boolean;
   /** How full its Claude conversation is; null before the first reply. */
   context?: ContextUsage | null;
