@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CleanupApplyRequest, JiraDecision, JiraWatchState } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, JiraDecision, JiraWatchState } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -49,6 +49,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'replies-changed', data: { sessionId } });
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
   });
+  // "Catch me up": a canned summary (the demo runs no Claude).
+  const caughtUp = new Map<string, { text: string; at: string }>();
+  app.get('/api/sessions/:id/catch-up', (c) => c.json({ catchUp: caughtUp.get(c.req.param('id')) ?? null } satisfies CatchUpWire));
+  app.post('/api/sessions/:id/catch-up', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const v = { text: `You asked Claude to work on ${w.branch}; ${w.attention?.summary ?? 'it made a first pass'}. Nothing is waiting on you right now; next is reviewing the diff and opening a PR.`, at: new Date().toISOString() };
+    caughtUp.set(w.id, v);
+    return c.json({ catchUp: v } satisfies CatchUpWire);
+  });
+
   // Snoozes, in memory, by the real rules (snooze.ts).
   const snoozes = new Map<string, Snooze>();
   app.get('/api/sessions', (c) =>

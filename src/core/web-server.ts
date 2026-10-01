@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { mountCatchUpRoutes } from './catch-up-routes.js';
 import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -543,6 +544,14 @@ export async function startWebServer(
   // The Jira watch: newly assigned issues started in the right project
   // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
   const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean });
+
+  // "Catch me up" on a session (catch-up.ts): its change size from the stats cache.
+  mountCatchUpRoutes(app, {
+    facts: (id) => {
+      const d = diffStats.peek(id);
+      return d ? { diff: { files: d.files, added: d.added, removed: d.deleted } } : {};
+    },
+  });
 
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each
   // emits sessions-changed so the sidebar refreshes.

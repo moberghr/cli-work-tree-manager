@@ -528,6 +528,13 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
+// ---- catch me up (catch-up.ts) -------------------------------------------------------
+
+/** GET / POST /api/sessions/:id/catch-up */
+export interface CatchUpWire {
+  catchUp: { text: string; at: string } | null;
+}
+
 // ---- the Jira watch (jira-watch.ts) -----------------------------------------------
 
 /** What the Jira watch did with an issue assigned to you. */

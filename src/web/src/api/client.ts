@@ -576,6 +576,14 @@ export async function sendPromptToSession(sessionId: string, body: string): Prom
   if (!res.ok) throw new Error(`send failed (${res.status})`);
 }
 
+/** "Catch me up": a few sentences on where a session stands (written once per conversation growth). */
+export async function catchUpSession(sessionId: string): Promise<{ text: string; at: string }> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/catch-up`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as { catchUp?: { text: string; at: string } | null; error?: string };
+  if (!res.ok || !body.catchUp) throw new Error(body.error ?? `catching up failed (${res.status})`);
+  return body.catchUp;
+}
+
 /** The user opened a session that wanted attention — clear its unseen flag. */
 export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});
