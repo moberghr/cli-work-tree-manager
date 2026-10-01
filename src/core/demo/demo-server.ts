@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, JiraDecision, JiraWatchState, UpdateFromMainWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, UpdateFromMainWire } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -359,6 +359,19 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
 
   // -- worktree actions (simulated) -----------------------------------------
+  // Fork: a new demo session on the new branch, started with a canned summary.
+  app.post('/api/sessions/:id/fork', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    const branch = typeof body.branch === 'string' ? body.branch.trim() : '';
+    if (!branch || branch === w.branch) return c.json({ error: 'the fork needs a branch of its own' }, 400);
+    if (scenario.list().some((x) => x.target === w.target && x.branch === branch)) return c.json({ error: `${branch} already exists: pick another name` }, 409);
+    const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : `Forked from ${w.branch}: read the summary and wait for my instruction.`;
+    const s = scenario.create(w.target, branch, prompt);
+    return c.json({ sessionId: s.id, paths: s.paths, summarized: true } satisfies ForkWire);
+  });
+
   app.post('/api/worktrees', async (c) => {
     const body = await json(c);
     if (typeof body.target !== 'string' || !body.target) return c.json({ error: 'target is required' }, 400);

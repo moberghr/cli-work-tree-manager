@@ -16,6 +16,8 @@ export interface SessionMenuActions {
   remove: (s: SessionSummary) => void;
   snooze: (s: SessionSummary, choice: SnoozeFor) => void;
   unsnooze: (s: SessionSummary) => void;
+  /** Open the Fork dialog (a new branch from here, with a summary of the conversation). */
+  fork?: (s: SessionSummary) => void;
 }
 
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
@@ -40,6 +42,7 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
       : [
           { label: 'Open in terminal', run: () => a.openTerminal(s), separated: true },
           { label: 'Open in editor', run: () => a.openEditor(s) },
+          ...(a.fork ? [{ label: 'Fork…', hint: 'new branch from here', run: () => a.fork!(s) }] : []),
         ]),
     { label: 'Copy branch name', run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },
     { label: 'Delete…', run: () => a.remove(s), danger: true, separated: true },

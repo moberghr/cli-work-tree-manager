@@ -31,6 +31,7 @@ import { TerminalDeck } from '../components/Terminal/TerminalDeck.js';
 import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
+import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import {
   DEFAULT_ROUTE,
   initialHash,
@@ -125,6 +126,8 @@ export function DashboardApp() {
 
   // Session pending delete confirmation (card trash button / detail header).
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
+  // Session being forked (the Fork dialog).
+  const [forking, setForking] = useState<SessionSummary | null>(null);
   const { toast, show: showToast, hide: hideToast } = useToast();
   // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
   const sessionMenu = useCallback(
@@ -143,6 +146,7 @@ export function DashboardApp() {
             () => showToast({ text: "Couldn't copy to the clipboard", kind: 'error' }),
           ),
         remove: (x) => setDeleting(x),
+        fork: (x) => setForking(x),
         snooze: (x, choice) =>
           void snoozeSession(x, choice).then(
             () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
@@ -371,7 +375,7 @@ export function DashboardApp() {
     [navigate, route.sessionId, route.tab],
   );
 
-  const modalOpen = newOpen || deleting !== null;
+  const modalOpen = newOpen || deleting !== null || forking !== null;
 
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
@@ -669,6 +673,24 @@ export function DashboardApp() {
       )}
       <Toast toast={toast} onClose={hideToast} />
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
+      {forking && (
+        <ForkSessionModal
+          session={forking}
+          sessions={sessions}
+          onClose={() => setForking(null)}
+          onForked={(id, info) => {
+            const from = forking.title ?? forking.branch;
+            setForking(null);
+            refetch.trigger();
+            openSession(id, 'term');
+            showToast(
+              info.startError
+                ? { text: `Forked ${from}, but its Claude didn't start: ${info.startError}`, kind: 'error' }
+                : { text: `Forked ${from}${info.summarized ? ', with a summary of the conversation' : ''}` },
+            );
+          }}
+        />
+      )}
       {deleting && (
         <DeleteSessionModal
           session={deleting}

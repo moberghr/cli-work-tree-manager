@@ -11,15 +11,21 @@ import type { CatchUpWire } from './api-types.js';
  *   GET  /api/sessions/:id/catch-up  — the last summary, if the conversation hasn't grown (runs nothing)
  *   POST /api/sessions/:id/catch-up  — write one (an internal Claude, no tools)
  */
+/** The internal Claude that writes them (no tools). */
+export const askCatchUp = (prompt: string) => runClaude(prompt, 90_000);
+
+/** What the summary may say besides the conversation: its status, plus what the caller adds (the uncommitted size). */
+export function catchUpFacts(id: string, extra: CatchUpFacts = {}): CatchUpFacts {
+  const st = readStatus(id);
+  return { ...(st ? { status: `${st.state}${st.summary ? ` (${st.summary})` : ''}` } : {}), ...extra };
+}
+
 export function mountCatchUpRoutes(
   app: Hono,
   opts: { ask?: (prompt: string) => Promise<string | null>; facts?: (id: string) => CatchUpFacts } = {},
 ): void {
-  const ask = opts.ask ?? ((prompt: string) => runClaude(prompt, 90_000));
-  const facts = (id: string): CatchUpFacts => {
-    const st = readStatus(id);
-    return { ...(st ? { status: `${st.state}${st.summary ? ` (${st.summary})` : ''}` } : {}), ...(opts.facts?.(id) ?? {}) };
-  };
+  const ask = opts.ask ?? askCatchUp;
+  const facts = (id: string): CatchUpFacts => catchUpFacts(id, opts.facts?.(id));
 
   app.get('/api/sessions/:id/catch-up', (c) => {
     const s = findSession(c.req.param('id'));

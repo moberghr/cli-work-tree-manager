@@ -650,6 +650,13 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
 }
 
+// ---- fork a session ------------------------------------------------------
+
+/** A new branch from where the session is; its Claude starts with a summary of this conversation. Slow (the summary). */
+export function forkSession(sessionId: string, req: { branch: string; prompt?: string; name?: string }): Promise<import('../../../core/api-types.js').ForkWire> {
+  return sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/fork`, req);
+}
+
 // ---- the rail's pins and sections ----------------------------------------
 
 type RailLayout = import('../../../core/rail-layout.js').RailLayout;

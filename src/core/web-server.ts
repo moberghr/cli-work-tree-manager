@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import { BehindCache } from './behind-main.js';
 import { mountUpdateRoutes } from './update-routes.js';
-import { mountCatchUpRoutes } from './catch-up-routes.js';
+import { askCatchUp, catchUpFacts, mountCatchUpRoutes } from './catch-up-routes.js';
+import { catchUp } from './catch-up.js';
+import { defaultForkDeps, mountForkRoutes } from './fork-routes.js';
 import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -561,11 +563,18 @@ export async function startWebServer(
   });
 
   // "Catch me up" on a session (catch-up.ts): its change size from the stats cache.
-  mountCatchUpRoutes(app, {
-    facts: (id) => {
-      const d = diffStats.peek(id);
-      return d ? { diff: { files: d.files, added: d.added, removed: d.deleted } } : {};
-    },
+  const uncommittedFacts = (id: string) => {
+    const d = diffStats.peek(id);
+    return d ? { diff: { files: d.files, added: d.added, removed: d.deleted } } : {};
+  };
+  mountCatchUpRoutes(app, { facts: uncommittedFacts });
+  // Fork a session: a new branch from where it is, its Claude given a summary (fork.ts).
+  mountForkRoutes(app, {
+    broadcast,
+    deps: defaultForkDeps({
+      summarize: async (s) => (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s), uncommittedFacts(sessionIdFor(s)))))?.text ?? null,
+      uncommitted: (s) => diffStats.peek(sessionIdFor(s))?.files ?? 0,
+    }),
   });
 
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each

@@ -536,6 +536,16 @@ export interface SessionCi {
 /** GET /api/rail (and every rail write's answer): the rail's pins and sections. */
 export type { RailLayout, RailSection, RailPlace, PlacePatch } from './rail-layout.js';
 
+/** POST /api/sessions/:id/fork: the new session (fork.ts). */
+export interface ForkWire {
+  sessionId: string;
+  paths: string[];
+  /** Its Claude was given a summary of the original's conversation. */
+  summarized: boolean;
+  /** The worktree exists, but its Claude didn't start (the Terminal tab can). */
+  startError?: string;
+}
+
 export interface UpdateFromMainWire {
   results: Array<
     | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
