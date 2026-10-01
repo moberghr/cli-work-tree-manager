@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { archiveDirFor } from './session-archive.js';
+import { conversationDirFor } from './conversation-store.js';
 import { sessionIdFor } from './session-id.js';
 import { purgeSessionRows, tx } from './db.js';
 import { logSwallowed } from './best-effort.js';
@@ -36,9 +37,10 @@ import type { WorktreeSession } from './session-types.js';
 
 /** Per-session files that live outside the database. */
 export function sessionStatePaths(id: string): string[] {
-  // Its archive (kept conversation + summary) goes when the session is
-  // deleted for good; archiving keeps the session, so it stays then.
-  return [devLogFile(id), archiveDirFor(id)];
+  // Its archive (kept conversation + summary) and work's copy of its
+  // conversations go when the session is deleted for good; archiving keeps
+  // the session, so they stay then.
+  return [devLogFile(id), archiveDirFor(id), conversationDirFor(id)];
 }
 
 /** Before the session's rows go: stop its dev server (needs the dev_runs

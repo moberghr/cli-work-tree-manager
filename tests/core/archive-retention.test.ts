@@ -4,7 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyArchiveRetention } from '../../src/core/archive-retention.js';
 import { readArchive, readArchivedTranscript, type ArchiveRecord } from '../../src/core/session-archive.js';
-import { searchArchives } from '../../src/core/archive-search.js';
 import { clipToSentence, summaryPrompt, summarizeArchive } from '../../src/core/archive-summary.js';
 
 let root: string;
@@ -30,7 +29,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('applyArchiveRetention', () => {
-  it('compresses archives older than 30 days, losslessly; search still finds them', async () => {
+  it('compresses archives older than 30 days, losslessly (still readable)', async () => {
     archive('old', 45);
     archive('new', 3);
     const before = readArchivedTranscript('old', 'c.jsonl', root);
@@ -42,7 +41,6 @@ describe('applyArchiveRetention', () => {
     expect(readArchivedTranscript('old', 'c.jsonl', root)).toBe(before);
     expect(readArchive('old', root)?.compressedAt).toBeTruthy();
     expect(fs.existsSync(path.join(root, 'new', 'transcripts', 'c.jsonl'))).toBe(true);
-    expect((await searchArchives('encryption keys', root)).map((h) => h.sessionId).sort()).toEqual(['new', 'old']);
     expect(applyArchiveRetention({ now: NOW, root }).compressed).toEqual([]); // once
   });
 

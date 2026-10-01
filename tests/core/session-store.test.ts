@@ -54,7 +54,7 @@ function leftovers(id: string): string[] {
     return out;
   });
 }
-const ALL = (id: string) => [...TABLES, 'comments', `${id}.log`, id]; // id: its archive folder
+const ALL = (id: string) => [...TABLES, 'comments', `${id}.log`, id, id]; // id: its archive folder, then its kept conversations
 
 describe('session-store purge', () => {
   it('removeSession deletes every row and file the session owns, and nobody else\'s', async () => {

@@ -1,18 +1,11 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import type { ArchiveSearchHit } from './api-types.js';
 import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
-import { archiveRoot, readArchive, readArchivedTranscript } from './session-archive.js';
 
 /**
- * "What did we do about X?" over archived sessions: every word of the query
- * must appear in one message (yours or Claude's) of a kept conversation.
- * Reads the archive's transcript copies asynchronously, so a search doesn't
- * hold up the server (and its terminal relays).
+ * Matching a query in a Claude transcript: every word of the query must
+ * appear in one message (yours or Claude's). Used by the conversation search
+ * (conversation-store.ts) over kept and archived conversations.
  */
 
-const MAX_SESSIONS = 20;
-const SNIPPETS_PER_SESSION = 3;
 const SNIPPET_CHARS = 220;
 
 /** The readable text of one transcript line: your prompt, or Claude's text. */
@@ -38,58 +31,35 @@ export function snippet(text: string, words: string[]): string {
   return (start > 0 ? '…' : '') + cut + (start + SNIPPET_CHARS < flat.length ? '…' : '');
 }
 
-/**
- * The newest archives first, up to MAX_SESSIONS with a match. `isArchived`
- * says whether a session is archived NOW: Restore leaves its archive folder
- * in place, and a restored session is in the live list, not here.
- */
-export async function searchArchives(query: string, root = archiveRoot(), isArchived: (id: string) => boolean = () => true): Promise<ArchiveSearchHit[]> {
+/** A query's words, lower case, and as JSON writes them (`\` and `"` escaped) for the raw-line pre-filter. */
+export function queryWords(query: string): { words: string[]; jsonWords: string[] } {
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
-  if (words.length === 0) return [];
-  // The raw JSON line has `\` and `"` escaped: the pre-filter looks for each word as JSON writes it.
-  const jsonWords = words.map((w) => JSON.stringify(w).slice(1, -1));
-  let ids: string[];
-  try {
-    ids = (await fs.promises.readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
-  } catch {
-    return [];
-  }
-  const records = ids
-    .filter(isArchived)
-    .map((id) => ({ id, rec: readArchive(id, root) }))
-    .filter((x): x is { id: string; rec: NonNullable<ReturnType<typeof readArchive>> } => !!x.rec)
-    .sort((a, b) => b.rec.archivedAt.localeCompare(a.rec.archivedAt));
-  const hits: ArchiveSearchHit[] = [];
-  for (const { id, rec } of records) {
-    const snippets: ArchiveSearchHit['snippets'] = [];
-    const written = rec.summary.written;
-    if (written && words.every((w) => written.toLowerCase().includes(w))) {
-      snippets.push({ role: 'summary', text: snippet(written, words), at: rec.archivedAt });
+  return { words, jsonWords: words.map((w) => JSON.stringify(w).slice(1, -1)) };
+}
+
+/** Up to `max` messages of a transcript's text in which every word appears (yours or Claude's). */
+export function matchingLines(
+  raw: string,
+  words: string[],
+  jsonWords: string[],
+  max: number,
+): Array<{ role: 'you' | 'claude'; text: string; at: string | null }> {
+  const out: Array<{ role: 'you' | 'claude'; text: string; at: string | null }> = [];
+  if (max <= 0) return out;
+  for (const line of raw.split('\n')) {
+    if (out.length >= max) break;
+    if (!line) continue;
+    const lower = line.toLowerCase();
+    if (!jsonWords.every((w) => lower.includes(w))) continue; // cheap pre-filter on the raw JSON line
+    let e: TranscriptEntry;
+    try {
+      e = JSON.parse(line) as TranscriptEntry;
+    } catch {
+      continue;
     }
-    for (const t of rec.transcripts) {
-      if (snippets.length >= SNIPPETS_PER_SESSION) break;
-      // Compressed after a while (archive-retention.ts); gone once dropped.
-      const raw = readArchivedTranscript(id, t.file, root);
-      if (raw === null) continue;
-      await new Promise((r) => setImmediate(r)); // a big archive doesn't hold up the server
-      for (const line of raw.split('\n')) {
-        if (snippets.length >= SNIPPETS_PER_SESSION) break;
-        if (!line) continue;
-        const lower = line.toLowerCase();
-        if (!jsonWords.every((w) => lower.includes(w))) continue; // cheap pre-filter on the raw JSON line
-        let e: TranscriptEntry;
-        try {
-          e = JSON.parse(line) as TranscriptEntry;
-        } catch {
-          continue;
-        }
-        const m = entryText(e);
-        if (!m || !words.every((w) => m.text.toLowerCase().includes(w))) continue;
-        snippets.push({ role: m.role, text: snippet(m.text, words), at: typeof e.timestamp === 'string' ? e.timestamp : null });
-      }
-    }
-    if (snippets.length) hits.push({ sessionId: id, target: rec.target, branch: rec.branch, archivedAt: rec.archivedAt, worktreeRemoved: rec.worktreeRemoved, snippets });
-    if (hits.length >= MAX_SESSIONS) break;
+    const m = entryText(e);
+    if (!m || !words.every((w) => m.text.toLowerCase().includes(w))) continue;
+    out.push({ role: m.role, text: snippet(m.text, words), at: typeof e.timestamp === 'string' ? e.timestamp : null });
   }
-  return hits;
+  return out;
 }

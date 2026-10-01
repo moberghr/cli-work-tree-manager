@@ -1,10 +1,8 @@
 import type { Hono } from 'hono';
 import { cleanOrder } from './session-order.js';
 import { readSessionOrder, writeSessionOrder } from './session-order-store.js';
-import { searchArchives } from './archive-search.js';
-import { archiveRoot } from './session-archive.js';
+import { searchConversations } from './conversation-store.js';
 import { loadHistory } from './history.js';
-import { sessionIdFor } from './session-id.js';
 
 /**
  * The sessions list's manual order (drag to reorder):
@@ -15,12 +13,11 @@ import { sessionIdFor } from './session-id.js';
 export function mountSessionOrderRoutes(app: Hono, opts: { broadcast: (event: string, data: unknown) => void }): void {
   app.get('/api/session-order', (c) => c.json({ order: readSessionOrder() }));
 
-  // Search the conversations kept by archived sessions (read-only).
-  app.get('/api/archive/search', async (c) => {
+  // Search every session's kept conversation, live and archived (read-only).
+  app.get('/api/conversations/search', async (c) => {
     const q = (c.req.query('q') ?? '').trim();
     if (q.length < 2) return c.json({ hits: [] });
-    const archived = new Set(loadHistory().filter((s) => s.archivedAt).map(sessionIdFor));
-    return c.json({ hits: await searchArchives(q, archiveRoot(), (id) => archived.has(id)) });
+    return c.json({ hits: await searchConversations(q, { sessions: loadHistory() }) });
   });
 
   app.put('/api/session-order', async (c) => {

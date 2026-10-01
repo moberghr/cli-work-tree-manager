@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { searchArchives, setArchived, type ArchiveSearchHit, type SessionSummary } from '../../../api/client.js';
+import { searchConversations, setArchived, type ConversationHit, type SessionSummary } from '../../../api/client.js';
 import { openInTerminal } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
@@ -298,17 +298,19 @@ export function SessionsTab({
       ) : (
         <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
       )}
-      <ArchiveHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
+      <ConversationHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
     </div>
   );
 }
 
 /**
- * While searching: archived sessions whose kept conversation mentions it —
- * "what did we do about the encryption keys?" — with the matching lines.
+ * While searching: sessions whose conversation mentions it — "what did we do
+ * about the encryption keys?" — live ones and archived ones (Restore), with
+ * the matching lines. work keeps the conversations (conversation-store.ts),
+ * so this reaches back past Claude Code's own 30 days.
  */
-function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
-  const [hits, setHits] = useState<ArchiveSearchHit[]>([]);
+function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
+  const [hits, setHits] = useState<ConversationHit[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
   useEffect(() => {
     const q = query.trim();
@@ -318,7 +320,7 @@ function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) =>
     }
     let live = true;
     const t = setTimeout(() => {
-      void searchArchives(q).then((h) => live && setHits(h), () => live && setHits([]));
+      void searchConversations(q).then((h) => live && setHits(h), () => live && setHits([]));
     }, 300);
     return () => {
       live = false;
@@ -328,7 +330,7 @@ function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) =>
   if (hits.length === 0) return null;
   return (
     <section className="wd-session-group wd-archive-hits">
-      <h2 className="wd-session-group-title">In archived conversations ({hits.length})</h2>
+      <h2 className="wd-session-group-title">In conversations ({hits.length})</h2>
       <ul className="wd-archive-hit-list">
         {hits.map((h) => (
           <li key={h.sessionId} className="wd-archive-hit">
@@ -336,7 +338,14 @@ function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) =>
               <button type="button" className="wd-link-button" onClick={() => onOpen(h.sessionId)}>
                 {h.target} · {h.branch}
               </button>
-              <span className="wd-tab-header-muted"> archived {relativeTime(h.archivedAt)}{h.worktreeRemoved ? ' · folder removed' : ''}</span>
+              <span className="wd-tab-header-muted">
+                {h.archived && h.archivedAt
+                  ? ` archived ${relativeTime(h.archivedAt)}${h.worktreeRemoved ? ' · folder removed' : ''}`
+                  : h.lastAt
+                    ? ` ${relativeTime(h.lastAt)}`
+                    : ''}
+              </span>
+              {h.archived && (
               <button
                 type="button"
                 className="wd-row-action"
@@ -349,6 +358,7 @@ function ArchiveHits({ query, onOpen }: { query: string; onOpen: (id: string) =>
               >
                 {restoring === h.sessionId ? 'Restoring…' : 'Restore'}
               </button>
+              )}
             </div>
             {h.snippets.map((sn, i) => (
               <p key={i} className="wd-archive-hit-snippet">

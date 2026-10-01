@@ -29,7 +29,7 @@ import type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
-  ArchiveSearchHit,
+  ConversationHit,
   SessionArchiveInfo,
   SessionClaudes,
   SessionOverlap,
@@ -70,7 +70,7 @@ export type {
   SavedPrompt,
   SessionAttention,
   SessionCi,
-  ArchiveSearchHit,
+  ConversationHit,
   SessionArchiveInfo,
   SessionClaudes,
   SessionOverlap,
@@ -573,10 +573,10 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   if (!res.ok) throw new Error(`renaming failed (${res.status})`);
 }
 
-// ---- search in archived conversations ---------------------------------------
+// ---- search in kept conversations (live and archived) -----------------------
 
-export async function searchArchives(q: string): Promise<ArchiveSearchHit[]> {
-  const r = await getJson<{ hits?: ArchiveSearchHit[] }>(`/api/archive/search?q=${encodeURIComponent(q)}`);
+export async function searchConversations(q: string): Promise<ConversationHit[]> {
+  const r = await getJson<{ hits?: ConversationHit[] }>(`/api/conversations/search?q=${encodeURIComponent(q)}`);
   return r.hits ?? [];
 }
 

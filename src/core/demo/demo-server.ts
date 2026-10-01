@@ -214,8 +214,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ results: items.map((i) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted (simulated)' })), state: branchState() });
   });
 
-  // Search in archived conversations: the demo keeps none.
-  app.get('/api/archive/search', (c) => c.json({ hits: [] }));
+  // Search in kept conversations: the demo keeps none.
+  app.get('/api/conversations/search', (c) => c.json({ hits: [] }));
 
   // The sessions list's manual order, in memory.
   let sessionOrder: string[] = [];

@@ -41,6 +41,7 @@ import { recentProcessTable } from './process.js';
 import { throttleTrailing } from './throttle.js';
 import { mountPrReplyRoutes } from './pr-reply-routes.js';
 import { applyArchiveRetention } from './archive-retention.js';
+import { syncConversation, syncConversations } from './conversation-store.js';
 import { draftCounts } from './pr-replies.js';
 import { bestEffort } from './best-effort.js';
 import { loadManifest } from './checkpoint.js';
@@ -451,6 +452,48 @@ export async function startWebServer(
   retentionTimer?.unref?.();
   sleepTimer?.unref?.();
 
+  // work's own copy of every conversation (conversation-store.ts), so they
+  // stay searchable after Claude Code deletes its transcripts: each session
+  // after its turns (below, onStatusChanged), and all of them a minute after
+  // start and every 30 minutes.
+  const CONVERSATIONS_EVERY_MS = 30 * 60_000;
+  const conversationsSchedule = lean ? null : activity.schedule('conversations', 'Keep conversations', CONVERSATIONS_EVERY_MS);
+  let conversationsBusy = false;
+  const keepConversations = async () => {
+    conversationsSchedule?.next(Date.now() + CONVERSATIONS_EVERY_MS);
+    if (conversationsBusy) return;
+    conversationsBusy = true;
+    const run = activity.start('conversations', 'Copying new conversation lines');
+    try {
+      // An archived session's Claude is stopped: its archive has the rest.
+      const r = await syncConversations(loadHistory().filter((s) => !s.archivedAt));
+      run.done(r.files ? `${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.files} transcript${r.files === 1 ? '' : 's'} · ${Math.round(r.bytes / 1e3)} KB copied` : 'all up to date');
+    } catch (err) {
+      run.fail((err as Error).message);
+    } finally {
+      conversationsBusy = false;
+    }
+  };
+  const conversationsFirst = lean ? null : setTimeout(() => void keepConversations(), 60_000);
+  conversationsFirst?.unref?.();
+  conversationsSchedule?.next(Date.now() + 60_000);
+  const conversationsTimer = lean ? null : setInterval(() => void keepConversations(), CONVERSATIONS_EVERY_MS);
+  conversationsTimer?.unref?.();
+  // After a turn: that session only, a few seconds later (a turn's hooks
+  // come in bursts), one copy per session at a time.
+  const conversationSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+  const syncConversationSoon = (s: WorktreeSession) => {
+    const id = sessionIdFor(s);
+    if (lean || conversationSyncs.has(id)) return;
+    const t = setTimeout(() => {
+      void syncConversation(s)
+        .catch((err: Error) => report('detail', `[conversations] ${s.target}:${s.branch}: ${err.message}`))
+        .finally(() => conversationSyncs.delete(id));
+    }, 5_000);
+    t.unref?.();
+    conversationSyncs.set(id, t);
+  };
+
   // "What did each session do today?" — read from what's on disk (see
   // digest.ts); PR state from the watch's cache, no gh call here.
   const digest = createDigestSource({ diffStatFor: (id) => diffStats.peek(id), ciFor: (id) => prWatch.state(id) });
@@ -499,7 +542,10 @@ export async function startWebServer(
       // Make sure this session's turns are checkpointed ("last turn" diffs)
       // from its first hook on, not only once someone opens it.
       const session = findSession(id);
-      if (session) sessionScope(session);
+      if (session) {
+        sessionScope(session);
+        syncConversationSoon(session);
+      }
     },
   });
 
@@ -571,6 +617,9 @@ export async function startWebServer(
       if (decayTick) clearInterval(decayTick);
       stopPrWatch?.();
       if (sleepTimer) clearInterval(sleepTimer);
+      if (conversationsTimer) clearInterval(conversationsTimer);
+      if (conversationsFirst) clearTimeout(conversationsFirst);
+      for (const t of conversationSyncs.values()) clearTimeout(t);
       chatApi.stopAll();
       clearTimeout(sweepTimer);
       activityWatcher?.stop();

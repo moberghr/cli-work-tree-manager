@@ -15,6 +15,7 @@ description: Look up and act on the user's `work` worktree sessions — which se
 | …plus uncommitted `+N −M` and same-file overlaps | `work sessions --json --changes` (runs git in each live session: a few seconds) |
 | What each session did (your prompts, turns, status, PRs) | `work digest --json` (`--since today\|yesterday\|week\|<date>`); without `--json` it prints a Markdown standup note |
 | Which live sessions change the same files | `work overlaps --json` |
+| What a past or current session said about something ("what did we do about X?") | `work search <words> --json` (every session's conversation, live and archived, also older than Claude Code keeps) |
 | Which worktrees can go, and why | `work cleanup --json` (fetches origin first; `--no-fetch` to skip) |
 
 `work sessions --json` rows are the dashboard's rows plus a `view` block:

@@ -75,19 +75,6 @@ export interface SessionClaudes {
   duplicate: boolean;
 }
 
-// ---- search in archived conversations ---------------------------------------
-
-/** GET /api/archive/search?q= — an archived session whose conversation matches. */
-export interface ArchiveSearchHit {
-  sessionId: string;
-  target: string;
-  branch: string;
-  archivedAt: string;
-  worktreeRemoved: boolean;
-  /** 'summary': the written summary of what was done (archive-summary). */
-  snippets: Array<{ role: 'you' | 'claude' | 'summary'; text: string; at: string | null }>;
-}
-
 // ---- merged local branches (Clean up) ---------------------------------------
 
 export interface BranchCandidate {
@@ -530,7 +517,7 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive';
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -597,4 +584,18 @@ export interface PrReply {
   postedAt?: string;
   postedUrl?: string;
   resolved?: boolean;
+}
+
+/** GET /api/conversations/search: a session whose kept conversation mentions the query (conversation-store.ts). */
+export interface ConversationHit {
+  sessionId: string;
+  target: string;
+  branch: string;
+  /** Archived now (Restore brings it back). */
+  archived: boolean;
+  archivedAt: string | null;
+  worktreeRemoved: boolean;
+  /** When its conversation was last written (the newest transcript). */
+  lastAt: string | null;
+  snippets: Array<{ role: 'you' | 'claude' | 'summary'; text: string; at: string | null }>;
 }
