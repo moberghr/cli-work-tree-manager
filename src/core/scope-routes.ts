@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import spawn from 'cross-spawn';
+import { runGitAsync } from './git-tree-snapshot.js';
 import { computeDiff, computeRangeDiff } from './diff-pipeline.js';
 import { readContextLines } from './file-context.js';
 import { resolveRepoDiff, sessionBaseForPath } from './diff-scope.js';
@@ -118,16 +118,10 @@ export function mountScopeRoutes(
    *  edits with no session). */
   const CLAUDE_SESSION_MS = 5 * 60_000;
 
-  function workingTreeFingerprint(paths: string[]): string {
+  /** `git status` of each repo, off the event loop (it walks the whole tree). */
+  async function workingTreeFingerprint(paths: string[]): Promise<string> {
     const parts: string[] = [];
-    for (const p of paths) {
-      const r = spawn.sync(
-        'git',
-        ['status', '--porcelain', '--no-renames', '-z'],
-        { cwd: p, encoding: 'utf-8', windowsHide: true },
-      );
-      parts.push(r.stdout ?? '');
-    }
+    for (const p of paths) parts.push((await runGitAsync(p, { args: ['status', '--porcelain', '--no-renames', '-z'] })).stdout);
     return parts.join('\0|\0');
   }
 
@@ -295,7 +289,7 @@ export function mountScopeRoutes(
       // writing its transcript so the checkpoint maps to a finished turn,
       // then runs the cheap status-fingerprint gate before the expensive
       // snapshot pipeline.
-      const runSnapshot = () => {
+      const runSnapshot = async () => {
         snapshotTimers.delete(hash);
         const claudeMs = scope.paths.reduce(
           (m, p) => Math.max(m, getClaudeActivityMs(p)),
@@ -309,7 +303,7 @@ export function mountScopeRoutes(
           return;
         }
         try {
-          const fp = workingTreeFingerprint(scope.paths);
+          const fp = await workingTreeFingerprint(scope.paths);
           if (lastStatus.get(hash) === fp) return;
           lastStatus.set(hash, fp);
         } catch {
@@ -336,7 +330,7 @@ export function mountScopeRoutes(
       subscribeScope(hash, () => {
         const pending = snapshotTimers.get(hash);
         if (pending) clearTimeout(pending);
-        snapshotTimers.set(hash, setTimeout(runSnapshot, CHECKPOINT_SETTLE_MS));
+        snapshotTimers.set(hash, setTimeout(() => void runSnapshot(), CHECKPOINT_SETTLE_MS));
       });
     }
     return scope;

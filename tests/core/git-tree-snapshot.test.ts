@@ -5,7 +5,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import spawn from 'cross-spawn';
 import { git } from '../../src/core/git.js';
-import { writeTempTree } from '../../src/core/git-tree-snapshot.js';
+import { inRepoQueue, writeTempTree, writeTempTreeAsync } from '../../src/core/git-tree-snapshot.js';
 
 let repo: string;
 
@@ -179,5 +179,51 @@ describe('writeTempTree', () => {
     } finally {
       fs.rmSync(fresh, { recursive: true, force: true });
     }
+  });
+});
+
+describe('writeTempTreeAsync (checkpoints)', () => {
+  it('builds the same tree as the synchronous version, without blocking the event loop', async () => {
+    fs.writeFileSync(path.join(repo, 'edited.md'), 'after\n');
+    fs.writeFileSync(path.join(repo, 'new.md'), 'untracked\n');
+    fs.rmSync(path.join(repo, 'removed.md'));
+    const sync = writeTempTree(repo);
+    let ticks = 0;
+    const ticker = setInterval(() => ticks++, 1);
+    const async = await writeTempTreeAsync(repo);
+    clearInterval(ticker);
+    expect(async).toEqual(sync);
+    expect(ticks).toBeGreaterThan(0); // timers ran while git did
+    expect(await writeTempTreeAsync(repo, { includeWorkingTree: false })).toEqual(writeTempTree(repo, { includeWorkingTree: false }));
+  });
+
+  it('null for a folder that is not a repo', async () => {
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-repo-'));
+    try {
+      expect(await writeTempTreeAsync(plain)).toBeNull();
+    } finally {
+      fs.rmSync(plain, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('inRepoQueue', () => {
+  it('runs one job per repo at a time, in order; other repos run alongside; a failure does not stop the queue', async () => {
+    const log: string[] = [];
+    const job = (name: string, ms: number, fail = false) => async () => {
+      log.push(`${name}+`);
+      await new Promise((r) => setTimeout(r, ms));
+      log.push(`${name}-`);
+      if (fail) throw new Error(name);
+      return name;
+    };
+    const a1 = inRepoQueue('/r/a', job('a1', 30, true));
+    const a2 = inRepoQueue('/R/A', job('a2', 5)); // same repo, other case
+    const b1 = inRepoQueue('/r/b', job('b1', 5));
+    await expect(a1).rejects.toThrow('a1');
+    expect(await a2).toBe('a2');
+    expect(await b1).toBe('b1');
+    expect(log.indexOf('a1-')).toBeLessThan(log.indexOf('a2+'));
+    expect(log.indexOf('b1+')).toBeLessThan(log.indexOf('a1-'));
   });
 });

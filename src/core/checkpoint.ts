@@ -38,7 +38,7 @@ import os from 'node:os';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { atomicWriteFile, ensureFile, withFileLock } from './fs-safe.js';
-import { writeTempTree } from './git-tree-snapshot.js';
+import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
 
 export interface CheckpointEntry {
   /** Monotonic per-scope sequence id, starting at 0 for the initial
@@ -116,16 +116,18 @@ export function loadManifest(scopeHash: string): CheckpointManifest {
  * Internally uses a temp `GIT_INDEX_FILE` so the user's real index is
  * untouched. The temp file is unlinked on success and on most failures.
  */
-export function snapshotRepo(
+export async function snapshotRepo(
   repoRoot: string,
   scopeHash: string,
   id: number,
   includeWorkingTree = true,
-): string | null {
+): Promise<string | null> {
   // Build the tree (HEAD baseline, or full working tree) via the shared
   // temp-index helper — same dance `diff-pipeline.ts` uses to diff against
   // a checkpoint.
-  const tree = writeTempTree(repoRoot, { includeWorkingTree });
+  // Off the event loop, one per repo at a time (writeTempTreeAsync): this
+  // runs on every Claude turn of every session.
+  const tree = await writeTempTreeAsync(repoRoot, { includeWorkingTree });
   if (!tree) return null;
   const { treeSha, headSha } = tree;
 
@@ -147,21 +149,12 @@ export function snapshotRepo(
     GIT_COMMITTER_EMAIL: 'wd@local',
     GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
   };
-  const commit = spawn.sync('git', commitArgs, {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    env: commitEnv,
-    windowsHide: true,
-  });
+  const commit = await runGitAsync(repoRoot, { args: commitArgs, env: commitEnv });
   if (commit.status !== 0 || !commit.stdout) return null;
   const commitSha = commit.stdout.trim();
 
   const refName = `refs/wd/${scopeHash}/${id}`;
-  const updateRef = spawn.sync('git', ['update-ref', refName, commitSha], {
-    cwd: repoRoot,
-    encoding: 'utf-8',
-    windowsHide: true,
-  });
+  const updateRef = await runGitAsync(repoRoot, { args: ['update-ref', refName, commitSha] });
   if (updateRef.status !== 0) return null;
 
   return commitSha;
@@ -196,7 +189,7 @@ export async function takeCheckpoint(
   // triple, which has to be atomic across processes.
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
-  return withFileLock(file, () => {
+  return withFileLock(file, async () => {
     const manifest = loadManifest(scopeHash);
     const isFirst = manifest.entries.length === 0;
     const nextId = isFirst
@@ -208,7 +201,7 @@ export async function takeCheckpoint(
     // range. Every subsequent checkpoint captures the working tree.
     const captured: Record<string, string | null> = {};
     for (const repo of repos) {
-      captured[repo.name] = snapshotRepo(
+      captured[repo.name] = await snapshotRepo(
         repo.root,
         scopeHash,
         nextId,
@@ -316,7 +309,7 @@ export async function updateCheckpoint(
 ): Promise<UpdateCheckpointResult> {
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
-  return withFileLock(file, () => {
+  return withFileLock(file, async () => {
     const manifest = loadManifest(scopeHash);
     const entry = manifest.entries.find((e) => e.id === id);
     if (!entry) return { status: 'missing' as const };
@@ -345,7 +338,7 @@ export async function updateCheckpoint(
     // previous commit for this id).
     const captured: Record<string, string | null> = {};
     for (const repo of repos) {
-      captured[repo.name] = snapshotRepo(repo.root, scopeHash, id, true);
+      captured[repo.name] = await snapshotRepo(repo.root, scopeHash, id, true);
     }
     if (repos.some((r) => captured[r.name] === null)) {
       restoreRefs();
@@ -401,14 +394,14 @@ export async function resetBaseline(
 ): Promise<CheckpointEntry | null> {
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
-  return withFileLock(file, () => {
+  return withFileLock(file, async () => {
     const prevIds = loadManifest(scopeHash).entries.map((e) => e.id);
 
     // Fresh Initial baselines HEAD (includeWorkingTree=false). snapshotRepo
     // overwrites refs/wd/<hash>/0 in place.
     const captured: Record<string, string | null> = {};
     for (const repo of repos) {
-      captured[repo.name] = snapshotRepo(repo.root, scopeHash, 0, false);
+      captured[repo.name] = await snapshotRepo(repo.root, scopeHash, 0, false);
     }
 
     const delRef = (id: number) => {

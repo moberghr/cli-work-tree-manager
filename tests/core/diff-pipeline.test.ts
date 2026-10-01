@@ -125,13 +125,13 @@ describe('computeDiff mdContent', () => {
     expect(ts!.mdContent).toBeUndefined();
   });
 
-  it('range diff between two snapshots resolves markdown content from each side', () => {
+  it('range diff between two snapshots resolves markdown content from each side', async () => {
     write('README.md', '# v1\n');
     commit('init');
     write('README.md', '# v2\n');
-    const fromSha = snapshotRepo(tmpDir, 'rangetest', 0);
+    const fromSha = await snapshotRepo(tmpDir, 'rangetest', 0);
     write('README.md', '# v3\n');
-    const toSha = snapshotRepo(tmpDir, 'rangetest', 1);
+    const toSha = await snapshotRepo(tmpDir, 'rangetest', 1);
     expect(fromSha).toBeTruthy();
     expect(toSha).toBeTruthy();
 
@@ -221,14 +221,14 @@ describe('computeDiff mdContent', () => {
     expect(big!.mdContent?.after).toBeUndefined();
   });
 
-  it('does not synthesize phantom "added" entries for untracked files already in fromRef', () => {
+  it('does not synthesize phantom "added" entries for untracked files already in fromRef', async () => {
     // Long-standing untracked file captured by a checkpoint.
     // computeRangeDiff(checkpointSha → working) must not also synthesize
     // the file as "added" when its content is unchanged since the snapshot.
     write('seed.md', '# seed\n');
     commit('init');
     write('notes.md', '# my notes\n'); // never staged — untracked
-    const cpSha = snapshotRepo(tmpDir, 'phantom', 0);
+    const cpSha = await snapshotRepo(tmpDir, 'phantom', 0);
     expect(cpSha).toBeTruthy();
 
     write('seed.md', '# seed v2\n'); // modify a tracked file
@@ -243,12 +243,12 @@ describe('computeDiff mdContent', () => {
     expect(paths).not.toContain('notes.md');
   });
 
-  it('detects a rename (+ edit) across a checkpoint range as one renamed entry', () => {
+  it('detects a rename (+ edit) across a checkpoint range as one renamed entry', async () => {
     // -M on the diff-tree path must pair the deleted old path with the
     // added new path instead of rendering them as a separate add + delete.
     write('old.txt', 'line1\nline2\nline3\nline4\nline5\n');
     commit('init');
-    const cpSha = snapshotRepo(tmpDir, 'rename', 0);
+    const cpSha = await snapshotRepo(tmpDir, 'rename', 0);
     expect(cpSha).toBeTruthy();
 
     git(['mv', 'old.txt', 'new.txt'], tmpDir);

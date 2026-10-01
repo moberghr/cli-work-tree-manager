@@ -60,11 +60,11 @@ function writeFile(repo: string, rel: string, content: string) {
 }
 
 describe('snapshotRepo', () => {
-  it('captures the working tree as a commit reachable via refs/wd/<hash>/<id>', () => {
+  it('captures the working tree as a commit reachable via refs/wd/<hash>/<id>', async () => {
     writeFile(repoA, 'README.md', '# changed\n');
     writeFile(repoA, 'untracked.txt', 'new content\n');
 
-    const sha = snapshotRepo(repoA, 'abc123', 7);
+    const sha = await snapshotRepo(repoA, 'abc123', 7);
     expect(sha).toMatch(/^[0-9a-f]{40}$/);
 
     // Ref exists.
@@ -77,23 +77,23 @@ describe('snapshotRepo', () => {
     expect(ls.stdout).toContain('README.md');
   });
 
-  it('honours .gitignore (does not snapshot ignored files)', () => {
+  it('honours .gitignore (does not snapshot ignored files)', async () => {
     writeFile(repoA, '.gitignore', 'secret.txt\n');
     git(['add', '.'], repoA);
     git(['commit', '-m', 'gi', '--no-gpg-sign'], repoA);
     writeFile(repoA, 'secret.txt', 'shh');
 
-    const sha = snapshotRepo(repoA, 'h', 0);
+    const sha = await snapshotRepo(repoA, 'h', 0);
     const ls = git(['ls-tree', '-r', sha!], repoA);
     expect(ls.stdout).not.toContain('secret.txt');
   });
 
-  it('does not touch the real index', () => {
+  it('does not touch the real index', async () => {
     writeFile(repoA, 'staged.txt', 'staged\n');
     git(['add', 'staged.txt'], repoA);
     writeFile(repoA, 'unstaged.txt', 'unstaged\n');
 
-    snapshotRepo(repoA, 'h', 0);
+    await snapshotRepo(repoA, 'h', 0);
 
     // staged.txt is still the only file in the index.
     const status = git(['status', '--porcelain'], repoA).stdout;
