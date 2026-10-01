@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { RowMenu } from '../RowMenu.js';
 import {
   createTask,
   deleteTask,
@@ -28,6 +29,8 @@ export function TasksTab({ onPick }: Props) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
   const [draft, setDraft] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
 
   function refresh() {
     fetchTasks().then((r) => setTasks(r.tasks));
@@ -126,6 +129,10 @@ export function TasksTab({ onPick }: Props) {
             <li
               key={t.id}
               className={'wd-task-row' + (t.done ? ' wd-task-row-done' : '')}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ id: t.id, x: e.clientX, y: e.clientY });
+              }}
             >
               <input
                 type="checkbox"
@@ -133,7 +140,13 @@ export function TasksTab({ onPick }: Props) {
                 onChange={() => toggle(t)}
                 aria-label={t.done ? 'Mark not done' : 'Mark done'}
               />
-              <TaskText task={t} onSave={(text) => rename(t, text)} />
+              <TaskText
+                task={t}
+                editing={editingId === t.id}
+                onEdit={() => setEditingId(t.id)}
+                onDone={() => setEditingId(null)}
+                onSave={(text) => rename(t, text)}
+              />
               <button
                 type="button"
                 className="wd-btn-secondary wd-task-action"
@@ -155,6 +168,14 @@ export function TasksTab({ onPick }: Props) {
           ))}
         </ul>
       )}
+      {menu && (
+        <RowMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[{ label: 'Edit', hint: 'F2', run: () => setEditingId(menu.id) }]}
+        />
+      )}
     </div>
   );
 }
@@ -163,12 +184,28 @@ export function TasksTab({ onPick }: Props) {
  * The task's text; click it (or F2 / Enter on it) to edit in place. Enter
  * or leaving the field saves, Esc puts it back.
  */
-function TaskText({ task, onSave }: { task: TaskItem; onSave: (text: string) => void }) {
-  const [editing, setEditing] = useState(false);
+function TaskText({
+  task,
+  editing,
+  onEdit,
+  onDone,
+  onSave,
+}: {
+  task: TaskItem;
+  /** Editing it now (a click, F2, or right-click → Edit: the tab keeps which one). */
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
+  onSave: (text: string) => void;
+}) {
   const [draft, setDraft] = useState(task.text);
+  // Each time editing starts, from the task's current text.
+  useEffect(() => {
+    if (editing) setDraft(task.text);
+  }, [editing, task.text]);
   if (editing) {
     const done = (save: boolean) => {
-      setEditing(false);
+      onDone();
       if (save) onSave(draft);
     };
     return (
@@ -191,10 +228,7 @@ function TaskText({ task, onSave }: { task: TaskItem; onSave: (text: string) => 
       />
     );
   }
-  const start = () => {
-    setDraft(task.text);
-    setEditing(true);
-  };
+  const start = onEdit;
   return (
     <span
       className="wd-task-text"

@@ -63,6 +63,19 @@ describe('TasksTab: editing a task', () => {
     expect(textEl()!.textContent).toBe('old text');
   });
 
+  it('right-click → Edit edits it too', async () => {
+    const row = container.querySelector('.wd-task-row')!;
+    await act(async () => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })));
+    const item = container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+    expect(item.textContent).toContain('Edit');
+    await act(async () => item.click());
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(field()!.value).toBe('old text');
+    await act(async () => type(field()!, 'from the menu'));
+    await act(async () => key(field()!, 'Enter'));
+    expect(updateTask).toHaveBeenCalledWith(1, { text: 'from the menu' });
+  });
+
   it('F2 on the text starts editing; unchanged or empty text saves nothing', async () => {
     await act(async () => key(textEl()!, 'F2'));
     await act(async () => type(field()!, '   '));
