@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { forgetCatchUp } from './catch-up.js';
 import { archiveWaiting } from './session-archive-deps.js';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -142,61 +143,77 @@ export function mountWorktreeRoutes(
     force: z.boolean().optional(),
     sessionOnly: z.boolean().optional(),
   });
+  const deleting = new Map<string, Promise<{ body: Record<string, unknown>; status: number }>>();
   app.delete(
     '/api/sessions/:id/worktree',
     zValidator('json', removeSchema),
     async (c) => {
       const id = c.req.param('id');
-      const session = findSession(id);
-      if (!session) return c.json({ error: 'unknown session' }, 404);
-      const config = loadConfig();
-      if (!config) return c.json({ error: 'no config' }, 400);
-
-      const { force, sessionOnly } = c.req.valid('json');
-      // What deleting would cut off — its Claude mid-turn or waiting on you,
-      // replies to post, notes not yet delivered — refuses it unless forced,
-      // as archiving does. (A clean worktree used to be deleted with its
-      // Claude stopped mid-work: one click away with the bulk bar.)
-      if (!force) {
-        const waiting = archiveWaiting(id);
-        if (waiting.length) return c.json({ error: `Not deleted: ${waiting.join('; ')}.`, blocked: waiting }, 409);
+      // One delete per session at a time: a second (the row's own button
+      // while the bulk bar deletes it) gets the first one's answer instead
+      // of tearing down a worktree that is half gone.
+      const running = deleting.get(id);
+      if (running) {
+        const r = await running;
+        return c.json(r.body, r.status as 200);
       }
-      try {
-        const onDisk = session.paths.some((p) => fs.existsSync(p));
-        // A removal that will be refused (uncommitted or unpushed work,
-        // no force) must leave the agent working in there alone — decide
-        // BEFORE stopping anything, as `work remove` does.
-        if (!sessionOnly && onDisk && session.paths.some((p) => wouldRefuseRemoval(p, force ?? false))) {
-          return c.json({ error: REFUSED }, 409);
-        }
-
-        // Release our own handles on the tree first — a live Claude PTY
-        // (cwd inside the worktree) or an open directory watch blocks the
-        // delete on Windows.
-        await disposePty(id);
-        await disposeSessionWatcher(id);
-        opts.releaseScope?.(session.paths);
-
-        let worktreeRemoved = false;
-        if (!sessionOnly && onDisk) {
-          const ok = teardownWorktree(
-            session.target,
-            session.isGroup,
-            session.branch,
-            config,
-            force ?? false,
-          );
-          if (!ok) return c.json({ error: REFUSED }, 409);
-          worktreeRemoved = true;
-        }
-        await removeSession(session.target, session.branch);
-        opts.broadcast('sessions-changed', { ts: Date.now() });
-        return c.json({ ok: true, worktreeRemoved });
-      } catch (err) {
-        return c.json({ error: (err as Error).message }, 500);
-      }
+      const job = remove(id, c.req.valid('json')).finally(() => deleting.delete(id));
+      deleting.set(id, job);
+      const r = await job;
+      return c.json(r.body, r.status as 200);
     },
   );
+  async function remove(id: string, body: { force?: boolean; sessionOnly?: boolean }): Promise<{ body: Record<string, unknown>; status: number }> {
+    const session = findSession(id);
+    if (!session) return { body: { error: 'unknown session' }, status: 404 };
+    const config = loadConfig();
+    if (!config) return { body: { error: 'no config' }, status: 400 };
+
+    const { force, sessionOnly } = body;
+    // What deleting would cut off — its Claude mid-turn or waiting on you,
+    // replies to post, notes not yet delivered — refuses it unless forced,
+    // as archiving does. (A clean worktree used to be deleted with its
+    // Claude stopped mid-work: one click away with the bulk bar.)
+    if (!force) {
+      const waiting = archiveWaiting(id);
+      if (waiting.length) return { body: { error: `Not deleted: ${waiting.join('; ')}.`, blocked: waiting }, status: 409 };
+    }
+    try {
+      const onDisk = session.paths.some((p) => fs.existsSync(p));
+      // A removal that will be refused (uncommitted or unpushed work,
+      // no force) must leave the agent working in there alone — decide
+      // BEFORE stopping anything, as `work remove` does.
+      if (!sessionOnly && onDisk && session.paths.some((p) => wouldRefuseRemoval(p, force ?? false))) {
+        return { body: { error: REFUSED }, status: 409 };
+      }
+
+      // Release our own handles on the tree first — a live Claude PTY
+      // (cwd inside the worktree) or an open directory watch blocks the
+      // delete on Windows.
+      await disposePty(id);
+      await disposeSessionWatcher(id);
+      opts.releaseScope?.(session.paths);
+
+      let worktreeRemoved = false;
+      if (!sessionOnly && onDisk) {
+        const ok = teardownWorktree(
+          session.target,
+          session.isGroup,
+          session.branch,
+          config,
+          force ?? false,
+        );
+        if (!ok) return { body: { error: REFUSED }, status: 409 };
+        worktreeRemoved = true;
+      }
+      await removeSession(session.target, session.branch);
+      forgetCatchUp(id);
+      opts.broadcast('sessions-changed', { ts: Date.now() });
+      return { body: { ok: true, worktreeRemoved }, status: 200 };
+    } catch (err) {
+      return { body: { error: (err as Error).message }, status: 500 };
+    }
+  }
 
   // -- Sync (fetch + try to pull) ---------------------------------------
   app.post('/api/sessions/:id/sync', (c) => {

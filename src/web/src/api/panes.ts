@@ -186,15 +186,21 @@ export interface RemoveWorktreeOptions {
   sessionOnly?: boolean;
 }
 
-export function removeWorktree(
+/**
+ * Delete a session (and its worktree). Already gone — deleted a moment ago
+ * from another window, or by the bulk bar while its row's own Delete was
+ * asked — counts as deleted: that's what was wanted.
+ */
+export async function removeWorktree(
   sessionId: string,
   opts: RemoveWorktreeOptions = {},
-): Promise<{ ok: true; worktreeRemoved: boolean }> {
-  return postJson(
-    `/api/sessions/${encodeURIComponent(sessionId)}/worktree`,
-    opts,
-    'DELETE',
-  );
+): Promise<{ ok: true; worktreeRemoved: boolean; alreadyGone?: true }> {
+  try {
+    return await postJson(`/api/sessions/${encodeURIComponent(sessionId)}/worktree`, opts, 'DELETE');
+  } catch (err) {
+    if (err instanceof Error && /"error"\s*:\s*"unknown session"/.test(err.message)) return { ok: true, worktreeRemoved: false, alreadyGone: true };
+    throw err;
+  }
 }
 
 export interface SyncResult {

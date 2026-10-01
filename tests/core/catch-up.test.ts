@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { catchUp, catchUpPrompt, catchUpTimeline, cachedCatchUp } from '../../src/core/catch-up.js';
+import { catchUp, catchUpPrompt, catchUpTimeline, cachedCatchUp, forgetCatchUp } from '../../src/core/catch-up.js';
 import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/claude-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
@@ -75,6 +75,14 @@ describe('catchUp (writing and caching it)', () => {
     expect(cachedCatchUp(session)).toBeNull();
     await catchUp(session, ask, {}, NOW);
     expect(ask).toHaveBeenCalledTimes(2);
+  });
+
+  it('a deleted session’s summary goes with it', async () => {
+    await catchUp(session, async () => 'Summary.', {}, NOW);
+    expect(cachedCatchUp(session)).not.toBeNull();
+    const { sessionIdFor } = await import('../../src/core/session-id.js');
+    forgetCatchUp(sessionIdFor(session));
+    expect(cachedCatchUp(session)).toBeNull();
   });
 
   it('nothing in the last week, or no answer: null', async () => {

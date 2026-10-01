@@ -84,6 +84,11 @@ const transcriptKey = (s: WorktreeSession) =>
     .sort()
     .join('|');
 
+/** A deleted session's summary goes with it (a re-created one starts its own). */
+export function forgetCatchUp(sessionId: string): void {
+  cache.delete(sessionId);
+}
+
 /** The last summary, if the conversation hasn't grown since (no Claude run). */
 export function cachedCatchUp(s: WorktreeSession): CatchUp | null {
   const hit = cache.get(sessionIdFor(s));

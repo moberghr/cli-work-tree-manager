@@ -174,6 +174,16 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     );
   });
 
+  it('two deletes at once (the row while the bulk bar deletes it): one teardown, both told it went', async () => {
+    const [a, b] = await Promise.all([del({}), del({})]);
+    expect(a).toEqual({ status: 200, json: { ok: true, worktreeRemoved: true } });
+    expect(b).toEqual(a);
+    expect(disposePty).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    // Afterwards it is unknown, as before.
+    expect((await del({})).status).toBe(404);
+  });
+
   it('refuses a dirty worktree without force, keeping the session AND its running Claude', async () => {
     fs.writeFileSync(path.join(wtPath, 'wip.txt'), 'dirty\n');
     const r = await del({});
