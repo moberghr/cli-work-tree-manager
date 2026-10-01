@@ -85,6 +85,24 @@ describe('archiveSession', () => {
   });
 });
 
+describe('archiveSession and a snooze', () => {
+  it('archiving clears the session’s snooze (Restore brings it back as it is then)', async () => {
+    const { saveSnooze, readSnooze } = await import('../../src/core/snooze-store.js');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-snooze-'));
+    fs.mkdirSync(path.join(home, '.work'), { recursive: true });
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    try {
+      const id = sessionIdFor(session);
+      saveSnooze(id, { until: null, statusKey: 'x', at: new Date().toISOString() });
+      await archiveSession(session, deps());
+      expect(readSnooze(id)).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  });
+});
+
 describe('archiveSession: nothing starts its Claude meanwhile', () => {
   it('the session counts as being archived from stopping its Claude to the end, also when it fails', async () => {
     const id = sessionIdFor(session);

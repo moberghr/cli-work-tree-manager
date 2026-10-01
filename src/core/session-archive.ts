@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { clearSnooze } from './snooze-store.js';
 import { whileArchiving } from './archiving.js';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -213,6 +214,12 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(record, null, 2));
 
   await deps.setArchived(s);
+  // A snooze doesn't outlive the archive: Restore brings it back as it is now.
+  try {
+    clearSnooze(id);
+  } catch {
+    /* best effort */
+  }
   if (deps.summarize) void writeArchiveSummary(id, deps.summarize, root).catch(() => {});
   return {
     ok: true,

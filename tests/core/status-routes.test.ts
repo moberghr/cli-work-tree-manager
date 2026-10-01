@@ -66,6 +66,21 @@ describe('status routes', () => {
     expect(order).toEqual(['sessions-changed', 'bookkeeping']);
   });
 
+  it('a session snoozed for a while is not notified about; one snoozed until it changes is (this is the change)', async () => {
+    const id = sessionIdFor(session);
+    await recordStatusEvent(id, { kind: 'prompt', prompt: 'go' });
+    expect((await post(`/api/sessions/${id}/snooze`, { for: '2h' })).status).toBe(200);
+    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission to use Bash' });
+    await post('/api/status-changed', { cwd: wt });
+    expect(notifyDesktop).not.toHaveBeenCalled();
+    expect(runStatusHooks).toHaveBeenCalled(); // your own hooks always run
+    await recordStatusEvent(id, { kind: 'prompt', prompt: 'again' });
+    await post(`/api/sessions/${id}/snooze`, { for: 'change' });
+    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission to use Edit' });
+    await post('/api/status-changed', { cwd: wt });
+    expect(notifyDesktop).toHaveBeenCalledTimes(1);
+  });
+
   it('a nudge for a session entering needs_input notifies once and broadcasts', async () => {
     const id = sessionIdFor(session);
     await recordStatusEvent(id, { kind: 'prompt', prompt: 'go' });

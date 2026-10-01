@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { readStatus } from './session-status.js';
 import { snoozeActive, type Snooze } from './snooze.js';
 import { withLiveClaude } from './session-status.js';
 import path from 'node:path';
@@ -81,9 +82,12 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
     ...otherBranches(s),
   };
-  // Snoozed: only while it holds (a time not yet reached, or the status it was snoozed in).
+  // Snoozed: only while it holds (a time not yet reached, or the status it
+  // was snoozed in). "Its status" is what the hooks recorded — the same the
+  // snooze was taken against — not the shown one, which a live Claude's state
+  // file can override (that would end a snooze the moment it was set).
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
-  if (snooze && snoozeActive(snooze, wire)) wire.snoozed = { until: snooze.until };
+  if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads })) wire.snoozed = { until: snooze.until };
   return wire;
 }
 

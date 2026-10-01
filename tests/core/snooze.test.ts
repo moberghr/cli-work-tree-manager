@@ -82,6 +82,11 @@ describe('snooze routes and the session list', () => {
     expect(events).toContain('sessions-changed');
     const { readSnooze: read } = await import('../../src/core/snooze-store.js');
     expect(sessionWire(s, { snoozeFor: (x) => read(x) }).snoozed).toEqual({ until: null });
+    // A live Claude's state file can change what is SHOWN (here: working); the snooze holds until what the hooks recorded changes.
+    const live = { inTerminal: 1, inApp: 0, busy: true, duplicate: false, state: 'busy' as const, stateAt: Date.now() + 60_000 };
+    const shown = sessionWire(s, { snoozeFor: (x) => read(x), claudesFor: () => live, liveKnown: true, hostedLive: () => false });
+    expect(shown.attention?.state).toBe('working');
+    expect(shown.snoozed).toEqual({ until: null });
     await recordStatusEvent(id, { kind: 'prompt', prompt: 'more' }); // its status changed
     expect(sessionWire(s, { snoozeFor: (x) => read(x) }).snoozed).toBeUndefined();
     await app.request(`/api/sessions/${id}/snooze`, { method: 'DELETE' });

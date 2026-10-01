@@ -496,7 +496,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick }: RowPr
       </td>
       <td className="wd-st-col-status">
         <span className="wd-st-status" title={statusHint(kind)}>
-          <StatusIcon kind={kind} />
+          <StatusIcon kind={kind} muted={!!s.snoozed} />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
       </td>

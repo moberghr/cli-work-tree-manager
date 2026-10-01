@@ -244,7 +244,7 @@ export function SessionRail({
                   className={
                     'wd-dash-rail-item' +
                     (isActive ? ' wd-dash-rail-item-active' : '') +
-                    (kind === 'needs_input' || kind === 'done' || kind === 'review' ? ' wd-dash-rail-item-unseen' : '')
+                    ((kind === 'needs_input' || kind === 'done' || kind === 'review') && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
                   onContextMenu={(e) => {
@@ -269,7 +269,7 @@ export function SessionRail({
                     (summary ? ` — ${summary}` : '')
                   }
                 >
-                  <StatusIcon kind={kind} labelled />
+                  <StatusIcon kind={kind} labelled muted={!!s.snoozed} />
                   <span className="wd-dash-rail-lines">
                     <span className="wd-dash-rail-line">
                       <span className="wd-dash-rail-name">{label}</span>

@@ -10,12 +10,12 @@ import { DISPLAY_LABEL, DISPLAY_MEANING } from '../../state/session-display.js';
  * Keeps the dot's class names (`wd-rail-dot wd-rail-dot-<kind>`): views and
  * tests find a row's status by them.
  */
-export function StatusIcon({ kind, labelled = false }: { kind: DisplayKind; labelled?: boolean }) {
+export function StatusIcon({ kind, labelled = false, muted = false }: { kind: DisplayKind; labelled?: boolean; /** Snoozed: the shape, greyed. */ muted?: boolean }) {
   const a11y = labelled
     ? { role: 'img' as const, 'aria-label': DISPLAY_LABEL[kind], title: `${DISPLAY_LABEL[kind]}: ${DISPLAY_MEANING[kind]}` }
     : { 'aria-hidden': true as const };
   return (
-    <span className={`wd-rail-dot wd-rail-dot-${kind} wd-status-icon`} {...a11y}>
+    <span className={`wd-rail-dot wd-rail-dot-${kind} wd-status-icon${muted ? ' wd-status-icon-muted' : ''}`} {...a11y}>
       <svg viewBox="0 0 16 16" width="14" height="14" focusable="false">
         {GLYPH[kind]}
       </svg>
