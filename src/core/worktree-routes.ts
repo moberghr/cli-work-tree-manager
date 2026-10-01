@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { loadConfig } from './config.js';
-import { setupWorktree, teardownWorktree, wouldRefuseRemoval } from './worktree.js';
+import { setupWorktree, teardownWorktree, wouldRefuseRemoval, openBaseCheckout } from './worktree.js';
 import { removeSession } from './history.js';
 import {
   disposeSessionWatcher,
@@ -68,7 +68,8 @@ export function mountWorktreeRoutes(
   // -- Create ------------------------------------------------------------
   const createSchema = z.object({
     target: z.string().min(1),
-    branch: z.string().min(1),
+    /** Empty or left out: the repo's own checkout, on the branch it has (`work tree <repo>`). */
+    branch: z.string().optional(),
     base: z.string().optional(),
     jiraKey: z.string().optional(),
     /** Start Claude with this as its first message. */
@@ -81,18 +82,31 @@ export function mountWorktreeRoutes(
     '/api/worktrees',
     zValidator('json', createSchema),
     async (c) => {
-      const { target, branch, base, jiraKey, prompt, name } = c.req.valid('json');
+      const { target, base, jiraKey, prompt, name } = c.req.valid('json');
       const config = loadConfig();
       if (!config) return c.json({ error: 'no config' }, 400);
+      const wanted = c.req.valid('json').branch?.trim() ?? '';
+      if (!wanted && base?.trim()) return c.json({ error: 'a base needs a branch to fork (leave both empty to open the repo as it is)' }, 400);
 
       try {
-        // Keep what core reports, so a failure says why (it used to go only
-        // to the server's console: "setup failed" was all the UI got).
-        const reports = collectingReporter();
-        const result = await withReporter(reports, () => setupWorktree(target, branch, config, base, jiraKey, { name }));
-        if (!result) {
-          const why = reports.errors().map((e) => e.trim()).join(' ');
-          return c.json({ error: why || 'setup failed (target not found?)' }, 400);
+        let result: { launchDir: string; paths: string[] };
+        let branch = wanted;
+        if (!wanted) {
+          // No branch: the repo's own checkout, as `work tree <repo>` opens it.
+          const opened = await openBaseCheckout(target, config, { jiraKey, name });
+          if (!opened.ok) return c.json({ error: opened.error }, 400);
+          branch = opened.branch;
+          result = { launchDir: opened.repoPath, paths: [opened.repoPath] };
+        } else {
+          // Keep what core reports, so a failure says why (it used to go only
+          // to the server's console: "setup failed" was all the UI got).
+          const reports = collectingReporter();
+          const created = await withReporter(reports, () => setupWorktree(target, wanted, config, base, jiraKey, { name }));
+          if (!created) {
+            const why = reports.errors().map((e) => e.trim()).join(' ');
+            return c.json({ error: why || 'setup failed (target not found?)' }, 400);
+          }
+          result = created;
         }
         opts.broadcast('sessions-changed', { ts: Date.now() });
         // Re-derive the new session id so the client can route to it

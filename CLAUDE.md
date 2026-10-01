@@ -412,6 +412,8 @@ The dashboard's Diff tab has a **Last turn** scope next to Uncommitted / Since b
 
 ### Start from a ticket or PR
 
+The New worktree dialog's project field is a type-to-filter combobox (`ProjectPicker`: every word must match a name, a group's repos or a folder; ↑/↓, Enter, Escape). Its branch is optional for a repo: left empty, `POST /api/worktrees` opens the repo's own checkout on the branch it has — the same `openBaseCheckout` (`core/worktree.ts`) as `work tree <repo>` with no branch (pull, one session per checkout). A group still needs a branch, and a base needs one too.
+
 The New worktree dialog has a "Start Claude with" prompt, which Jira and PR picks pre-fill (`state/start-prompts.ts`: the issue key, summary and link; for a PR, failing checks or requested changes). With a prompt, `POST /api/worktrees` starts the session's Claude in the PTY host with it as the first message (`ensurePty(id, {initialPrompt})`) and the dashboard opens its terminal. § If the session's Claude is already running (the worktree existed), the prompt is queued as a published comment for its next turn, never typed into the terminal. A start that fails still returns the created worktree, with `startError`.
 
 ### The Ctrl+K assistant

@@ -4,7 +4,7 @@ import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { findSession, loadHistory, upsertSessionWithPort, setSessionTitle } from './history.js';
+import { findSession, loadHistory, upsertSession, upsertSessionWithPort, setSessionTitle, forgetOtherBaseCheckoutEntries } from './history.js';
 import { bestEffort } from './best-effort.js';
 import { readArchive, restoreArchivedTranscripts } from './session-archive.js';
 import { sessionIdFor } from './session-id.js';
@@ -753,4 +753,35 @@ export function teardownWorktree(
     report('warn', `No worktree found for branch '${branch}' in '${target}'.`);
     return false;
   }
+}
+
+/** What opening a repo's own checkout gave: the session it is, or why not. */
+export type BaseCheckoutResult = { ok: true; repoPath: string; branch: string; dropped: string[] } | { ok: false; error: string };
+
+/**
+ * Work on a repo's own checkout, on whatever branch it has (`work tree
+ * <repo>` with no branch, or the New worktree dialog with the branch left
+ * empty): no worktree, the session is the checkout itself. Pulls first
+ * (unless `pull: false`), and drops the entries recorded for this checkout
+ * when it was on another branch — one session per checkout. A group has no
+ * single checkout: it needs a branch.
+ */
+export async function openBaseCheckout(
+  targetName: string,
+  config: WorkConfig,
+  opts: { pull?: boolean; jiraKey?: string; name?: string } = {},
+): Promise<BaseCheckoutResult> {
+  const target = resolveProjectTarget(targetName, config);
+  if (!target) return { ok: false, error: `Project or group not found: ${targetName}` };
+  if (target.isGroup) return { ok: false, error: `${targetName} is a group: give it a branch (a group has no one checkout to open)` };
+  const repoPath = config.repos[targetName];
+  if (!repoPath) return { ok: false, error: `Repository path not configured for: ${targetName}` };
+  if (!fs.existsSync(repoPath)) return { ok: false, error: `Repository path does not exist: ${repoPath}` };
+  const branch = getCurrentBranch(repoPath) ?? '(detached)';
+  // Detached HEAD has no upstream to pull from — skip rather than warn.
+  if (opts.pull !== false && branch && branch !== '(detached)') pullLatestForBranch(repoPath, branch);
+  await upsertSession(targetName, false, branch, [repoPath], opts.jiraKey);
+  if (opts.name?.trim()) await setSessionTitle(targetName, branch, opts.name);
+  const dropped = await forgetOtherBaseCheckoutEntries(targetName, branch, repoPath);
+  return { ok: true, repoPath, branch, dropped };
 }

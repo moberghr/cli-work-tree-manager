@@ -3,11 +3,10 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
-import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
+import { openBaseCheckout, setupWorktree } from '../core/worktree.js';
 import { getAiTool } from '../core/ai-launcher.js';
-import { getCurrentBranch } from '../core/git.js';
 import { hasClaudeConversation } from '../core/claude-activity.js';
-import { findSession, forgetOtherBaseCheckoutEntries, loadHistory, recordLaunch, upsertSession, setSessionTitle } from '../core/history.js';
+import { findSession, loadHistory, recordLaunch } from '../core/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
@@ -227,31 +226,16 @@ export const treeCommand: CommandModule = {
         return;
       }
 
-      const repoPath = config.repos[targetName];
-      if (!repoPath) {
-        console.error(`Repository path not configured for: ${targetName}`);
-        process.exitCode = 1;
-        return;
-      }
-      if (!fs.existsSync(repoPath)) {
-        console.error(`Repository path does not exist: ${repoPath}`);
-        process.exitCode = 1;
-        return;
-      }
-
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
-      console.log(`Repo path: ${repoPath}`);
-
-      const currentBranch = getCurrentBranch(repoPath) ?? '(detached)';
-      // Detached HEAD has no upstream to pull from — skip rather than warn.
-      if (pull && currentBranch && currentBranch !== '(detached)') {
-        pullLatestForBranch(repoPath, currentBranch);
+      const opened = await openBaseCheckout(targetName, config, { pull, jiraKey, name: typeof argv.name === 'string' ? argv.name : undefined });
+      if (!opened.ok) {
+        console.error(opened.error);
+        process.exitCode = 1;
+        return;
       }
-      await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
-      if (typeof argv.name === 'string' && argv.name.trim()) await setSessionTitle(targetName, currentBranch, argv.name);
-      // One entry per checkout: drop the ones recorded when it was on another branch.
-      const dropped = await forgetOtherBaseCheckoutEntries(targetName, currentBranch, repoPath);
-      if (dropped.length) console.log(chalk.gray(`Replaced older entries for this checkout: ${dropped.join(', ')}`));
+      const { repoPath, branch: currentBranch } = opened;
+      console.log(`Repo path: ${repoPath}`);
+      if (opened.dropped.length) console.log(chalk.gray(`Replaced older entries for this checkout: ${opened.dropped.join(', ')}`));
 
       if (open) openVSCode(repoPath);
       if (!setupOnly) await launchTool(repoPath, undefined, { target: targetName, branch: currentBranch });

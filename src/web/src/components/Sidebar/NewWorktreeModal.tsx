@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ProjectPicker } from './ProjectPicker.js';
 import {
   createWorktree,
   fetchProjects,
@@ -80,12 +81,22 @@ export function NewWorktreeModal({
     if (!projects) return [] as ProjectSummary[];
     return [...projects.groups, ...projects.singles];
   }, [projects]);
+  const isGroup = !!projects?.groups.some((g) => g.name === target);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
-    if (!target.trim() || !branch.trim()) {
-      setError('Target and branch are both required.');
+    if (!target.trim()) {
+      setError('Pick a project.');
+      return;
+    }
+    // No branch: the project as it is, on its own checkout (`work tree <repo>`).
+    if (!branch.trim() && isGroup) {
+      setError(`${target} is a group: give it a branch (a group has no one checkout to open).`);
+      return;
+    }
+    if (!branch.trim() && base.trim()) {
+      setError('A base needs a branch to fork. Leave both empty to open the project as it is.');
       return;
     }
     setSubmitting(true);
@@ -140,31 +151,18 @@ export function NewWorktreeModal({
         <div className="wd-modal-body">
           <label className="wd-modal-row">
             <span>Project</span>
-            <select
-              ref={(el) => {
+            <ProjectPicker
+              projects={targetOptions}
+              value={target}
+              onChange={setTarget}
+              disabled={submitting}
+              inputRef={(el) => {
                 if (!initial?.target) firstFocusRef.current = el;
               }}
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              disabled={submitting}
-            >
-              {targetOptions.length === 0 && (
-                <option value="">(loading…)</option>
-              )}
-              {projects?.groups.map((g) => (
-                <option key={'g:' + g.name} value={g.name}>
-                  {g.name} (group)
-                </option>
-              ))}
-              {projects?.singles.map((s) => (
-                <option key={'s:' + s.name} value={s.name}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="wd-modal-row">
-            <span>Branch</span>
+            <span>Branch {isGroup ? '' : '(optional)'}</span>
             <input
               ref={(el) => {
                 if (initial?.target && !initial.branch)
@@ -173,9 +171,9 @@ export function NewWorktreeModal({
               type="text"
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
-              placeholder="feat/whatever"
+              placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
               disabled={submitting}
-              required
+              required={isGroup}
             />
           </label>
           <label className="wd-modal-row">

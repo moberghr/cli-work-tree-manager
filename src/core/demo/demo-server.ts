@@ -288,11 +288,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // -- worktree actions (simulated) -----------------------------------------
   app.post('/api/worktrees', async (c) => {
     const body = await json(c);
-    if (typeof body.target !== 'string' || typeof body.branch !== 'string' || !body.branch) {
-      return c.json({ error: 'target and branch are required' }, 400);
-    }
+    if (typeof body.target !== 'string' || !body.target) return c.json({ error: 'target is required' }, 400);
+    // No branch: the repo as it is (its default branch, in the demo).
+    const branch = typeof body.branch === 'string' && body.branch.trim() ? body.branch.trim() : 'main';
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
-    const s = scenario.create(body.target, body.branch, prompt);
+    const s = scenario.create(body.target, branch, prompt);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
   app.delete('/api/sessions/:id/worktree', (c) =>

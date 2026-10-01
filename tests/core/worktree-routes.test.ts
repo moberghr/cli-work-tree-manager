@@ -108,6 +108,21 @@ describe('POST /api/worktrees with a first prompt', () => {
     expect(ensurePty).toHaveBeenCalledWith(newId(), { initialPrompt: 'Work on ABC-1: export' });
   });
 
+  it('no branch: the repo’s own checkout, on the branch it has (as `work tree <repo>`), started with the prompt', async () => {
+    const res = await create(app, { target: 'repo', branch: '', prompt: 'look around', name: 'Main checkout' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; paths: string[]; started?: string };
+    const id = sessionIdFor({ target: 'repo', branch: 'main' });
+    expect(body).toMatchObject({ sessionId: id, paths: [repoDir], started: 'started' });
+    expect(loadHistory().find((s) => s.branch === 'main')).toMatchObject({ paths: [repoDir], title: 'Main checkout' });
+    expect(ensurePty).toHaveBeenCalledWith(id, { initialPrompt: 'look around' });
+  });
+
+  it('no branch but a base, or an unknown project: refused with why', async () => {
+    expect(await (await create(app, { target: 'repo', base: 'dev' })).json()).toMatchObject({ error: expect.stringContaining('a base needs a branch') });
+    expect(await (await create(app, { target: 'nope' })).json()).toMatchObject({ error: 'Project or group not found: nope' });
+  });
+
   it('a name given at creation is the session’s title; the branch stays its identity', async () => {
     const res = await create(app, { target: 'repo', branch: 'feat/new', name: '  PDF generation speed ' });
     expect(res.status).toBe(200);
