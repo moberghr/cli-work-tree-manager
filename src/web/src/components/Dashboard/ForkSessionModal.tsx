@@ -73,7 +73,8 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
           <p className="wd-fork-note">
             A new worktree from <code>{session.branch}</code>&apos;s last commit{session.isGroup ? ', in each repo' : ''}
             {uncommitted ? ` — its ${uncommitted} uncommitted file${uncommitted === 1 ? '' : 's'} stay here` : ''}. Its Claude starts with a summary of this
-            conversation; this session carries on as it is.
+            conversation; this session carries on as it is. The fork is stacked on this one: this branch&apos;s new commits are
+            brought into it (when it&apos;s idle and clean).
           </p>
           <label className="wd-modal-row">
             <span>New branch</span>

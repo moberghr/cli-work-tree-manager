@@ -4,16 +4,19 @@ import { sendPromptToSession, updateFromMain, type SessionSummary, type UpdateFr
 /** Fewer commits behind than this, and only a conflict is worth a word. */
 export const BEHIND_SHOWN_AT = 10;
 
-/** "↓ 34 behind origin/main" — for tooltips. Null when it isn't worth saying. */
+/** "↓ 34 behind origin/main" — for tooltips. Null when it isn't worth saying. A stacked
+ *  session's parent (stack.ts) is worth it from one commit: it's the work it builds on. */
 export function behindText(s: SessionSummary): string | null {
   const b = s.behind;
-  if (!b || (b.commits < BEHIND_SHOWN_AT && !b.conflicts)) return null;
+  if (!b || (b.commits < (b.stacked ? 1 : BEHIND_SHOWN_AT) && !b.conflicts)) return null;
   return `↓ ${b.commits} behind ${b.base}${b.conflicts ? ' · conflicts' : ''}`;
 }
 
 /** What Claude is told when updating hit conflicts. */
-export function resolvePrompt(base: string): string {
-  return `Bring this branch up to date with ${base}: fetch, then rebase on it if the branch was never pushed, or merge it in if it was. Resolve the conflicts, run the tests, and commit. If a conflict needs a decision from me, start a line with DECISION NEEDED: and ask.`;
+export function resolvePrompt(base: string, stacked = false): string {
+  return stacked
+    ? `Bring this branch up to date with ${base}, the branch this one is stacked on (a local branch: nothing to fetch): rebase on it if this branch was never pushed, or merge it in if it was. Resolve the conflicts, run the tests, and commit. If a conflict needs a decision from me, start a line with DECISION NEEDED: and ask.`
+    : `Bring this branch up to date with ${base}: fetch, then rebase on it if the branch was never pushed, or merge it in if it was. Resolve the conflicts, run the tests, and commit. If a conflict needs a decision from me, start a line with DECISION NEEDED: and ask.`;
 }
 
 /**
@@ -40,22 +43,32 @@ export function BehindChip({ session }: { session: SessionSummary }) {
       },
     );
   };
+  const stacked = !!session.behind?.stacked;
   const ask = (base: string) =>
-    void sendPromptToSession(session.id, resolvePrompt(base)).then(
+    void sendPromptToSession(session.id, resolvePrompt(base, stacked)).then(
       () => setOutcome({ text: 'Asked its Claude to update and resolve the conflicts.' }),
       (err: Error) => setOutcome({ text: err.message, error: true }),
     );
   return (
     <span className={'wd-behind' + (session.behind?.conflicts ? ' wd-behind-conflicts' : '')}>
       {text && (
-        <span className="wd-behind-text" title={`As of the last fetch. ${session.behind?.conflicts ? 'Merging it would conflict.' : ''}`}>
+        <span
+          className="wd-behind-text"
+          title={`${stacked ? `${session.behind?.base} is the session this one is stacked on.` : 'As of the last fetch.'} ${session.behind?.conflicts ? 'Merging it would conflict.' : ''}`}
+        >
           {session.behind?.conflicts ? '⚠ ' : ''}
           {text}
         </span>
       )}
       {text && (
-        <button type="button" className="wd-session-detail-btn" disabled={busy} onClick={run} title="Fetch, then rebase (a branch never pushed) or merge main in (a pushed one). Conflicts are aborted, not left in the worktree.">
-          {busy ? 'Updating…' : 'Update from main'}
+        <button
+          type="button"
+          className="wd-session-detail-btn"
+          disabled={busy}
+          onClick={run}
+          title={`${stacked ? 'Rebase on it' : 'Fetch, then rebase'} (a branch never pushed) or merge it in (a pushed one). Conflicts are aborted, not left in the worktree.`}
+        >
+          {busy ? 'Updating…' : stacked ? `Update from ${session.behind?.base}` : 'Update from main'}
         </button>
       )}
       {outcome && (

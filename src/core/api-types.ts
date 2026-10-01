@@ -332,8 +332,13 @@ export interface SessionWire {
   id: string;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
   snoozed?: { until: string | null };
-  /** Behind its main branch (behind-main.ts, as of the last fetch): absent when level or unknown. */
-  behind?: { base: string; commits: number; conflicts: boolean };
+  /** Behind its main branch (behind-main.ts, as of the last fetch) — or, when stacked, behind the
+   *  session it is stacked on (`stacked`, its local branch): absent when level or unknown. */
+  behind?: { base: string; commits: number; conflicts: boolean; stacked?: true };
+  /** The live session it is stacked on (stack.ts): made from that session's branch. */
+  stackedOn?: { id: string; branch: string; title?: string };
+  /** How many live sessions are stacked on this one. */
+  stackedChildren?: number;
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
@@ -591,7 +596,7 @@ export interface JiraWatchState {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch';
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch' | 'stacks';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

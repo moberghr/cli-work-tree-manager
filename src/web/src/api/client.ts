@@ -135,7 +135,11 @@ export interface SessionSummary {
   /** Snoozed out of the Inbox right now: until when, or null for "until it changes". */
   snoozed?: { until: string | null };
   /** Behind its main branch, as of the last fetch (absent when level). */
-  behind?: { base: string; commits: number; conflicts: boolean };
+  behind?: { base: string; commits: number; conflicts: boolean; stacked?: true };
+  /** The live session it is stacked on (stack.ts). */
+  stackedOn?: { id: string; branch: string; title?: string };
+  /** How many live sessions are stacked on this one. */
+  stackedChildren?: number;
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   titleIsYours?: boolean;

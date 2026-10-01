@@ -1938,3 +1938,6 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 /* Fork dialog (ForkSessionModal). */
 .wd-fork-note { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .wd-fork-busy { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+
+/* Where a session sits in a stack (StackChip). */
+.wd-stack { font-size: 12px; color: var(--muted); white-space: nowrap; }

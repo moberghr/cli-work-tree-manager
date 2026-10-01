@@ -1,0 +1,58 @@
+/**
+ * PURE — shared by the server and the demo; keep it import-free.
+ *
+ * Stacked sessions: one whose branch was made from another live session's
+ * branch (a fork, or `work tree … --base feat/x`) is stacked on it — its
+ * "main" is that branch until it merges. Nothing new is stored: the base a
+ * session was made from is already recorded (`baseBranch` / `baseBranches`).
+ * Behind and Update from (behind-main.ts) then measure against the parent,
+ * and the parent's new commits are brought in (stack-sync.ts).
+ */
+
+export interface StackSubject {
+  id: string;
+  target: string;
+  branch: string;
+  baseBranch?: string;
+  baseBranches?: Record<string, string>;
+  archivedAt?: string | null;
+}
+
+/** Branches that are a project's mainline, never a parent to stack on. */
+const LONG_LIVED = /^(main|master|dev|develop|development|staging|stage|production|prod|release|trunk)$/;
+
+/** The one branch it was made from (a group: the same in every repo), or null. */
+export function stackBase(s: Pick<StackSubject, 'baseBranch' | 'baseBranches'>): string | null {
+  const per = s.baseBranches ? [...new Set(Object.values(s.baseBranches))] : [];
+  const base = per.length === 1 ? per[0] : per.length === 0 ? (s.baseBranch ?? null) : null;
+  return base && !LONG_LIVED.test(base) && !/^origin\//.test(base) ? base : null;
+}
+
+/**
+ * The live session it is stacked on: same project, on the branch it was made
+ * from. `eligible` leaves out what can't be a parent (the server: a repo's
+ * own checkout, which a mainline-named base already excludes most of).
+ */
+export function stackParent<T extends StackSubject>(s: T, all: readonly T[], eligible: (p: T) => boolean = () => true): T | null {
+  if (s.archivedAt) return null;
+  const base = stackBase(s);
+  if (!base || base === s.branch) return null;
+  return all.find((p) => p.id !== s.id && !p.archivedAt && p.target === s.target && p.branch === base && eligible(p)) ?? null;
+}
+
+/** Each session's parent, for a whole list at once (one pass). */
+export function stackParents<T extends StackSubject>(all: readonly T[], eligible?: (p: T) => boolean): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const s of all) {
+    const p = stackParent(s, all, eligible);
+    if (p) out.set(s.id, p);
+  }
+  return out;
+}
+
+/** How many live sessions are stacked on each session. */
+export function stackChildCounts<T extends StackSubject>(parents: ReadonlyMap<string, T>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const p of parents.values()) out.set(p.id, (out.get(p.id) ?? 0) + 1);
+  return out;
+}

@@ -2,13 +2,17 @@ import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
 import { shownState } from './turn-activity.js';
 import { updateFromMain, type UpdateResult } from './behind-main.js';
+import { loadConfig } from './config.js';
+import { loadHistory } from './history.js';
+import { sessionStacks } from './stack-sessions.js';
 import type { CommandRunner } from './ship.js';
 import type { UpdateFromMainWire } from './api-types.js';
 
 /**
  * POST /api/sessions/:id/update-from-main — bring the session's branch(es) up
- * to date with origin/<main> (behind-main.ts). Not while its Claude is
- * working or waiting on you: the files would move under it.
+ * to date with origin/<main> (behind-main.ts) — or, when it is stacked on
+ * another session (stack.ts), with that session's branch. Not while its
+ * Claude is working or waiting on you: the files would move under it.
  */
 export function mountUpdateRoutes(
   app: Hono,
@@ -24,7 +28,8 @@ export function mountUpdateRoutes(
       return c.json({ error: `Not now: its Claude is ${state === 'working' ? 'working' : 'waiting for your answer'} (the files would change under it).` }, 409);
     }
     const results: UpdateResult[] = [];
-    for (const p of s.paths) results.push(await updateFromMain(p, opts.run));
+    const parent = sessionStacks(loadHistory(), loadConfig()).parentOf.get(id)?.branch;
+    for (const p of s.paths) results.push(await updateFromMain(p, opts.run, parent));
     opts.changed?.(id);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ results } satisfies UpdateFromMainWire);

@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import { sessionStacks, stackedOn } from './stack-sessions.js';
+import { syncStackChild } from './stack-sync.js';
+import { shownState } from './turn-activity.js';
 import { BehindCache } from './behind-main.js';
 import { mountUpdateRoutes } from './update-routes.js';
 import { askCatchUp, catchUpFacts, mountCatchUpRoutes } from './catch-up-routes.js';
@@ -300,13 +303,19 @@ export async function startWebServer(
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
       const snoozes = allSnoozes();
+      // Stacked sessions (stack.ts): behind and Update measure against the parent.
+      const stacks = sessionStacks(history, loadConfig());
       const sessions = history.map((s) =>
         sessionWire(s, {
           diffStatFor,
           claudesFor,
           liveKnown: !!table && table.size > 0,
           snoozeFor: (id) => snoozes.get(id) ?? null,
-          behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths) : null),
+          behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
+          stackFor: (id) => {
+            const p = stacks.parentOf.get(id);
+            return { parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null, children: stacks.children.get(id) ?? 0 };
+          },
           hostedLive: (id) => peekPty(id) || chatApi.running(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
@@ -553,6 +562,58 @@ export async function startWebServer(
   // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
   const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean });
 
+  // Stacked sessions (stack-sync.ts): after a turn ends, bring a parent's new
+  // commits into the idle, clean sessions stacked on it — and into this one,
+  // when it is itself stacked and its parent moved while it worked.
+  const stackSyncing = new Set<string>();
+  const syncStacksAfter = async (id: string) => {
+    if (readStatus(id)?.state !== 'idle') return;
+    const history = loadHistory();
+    const config = loadConfig();
+    const stacks = sessionStacks(history, config);
+    const self = history.find((s) => sessionIdFor(s) === id);
+    const candidates = [...(self && stacks.parentOf.has(id) ? [self] : []), ...stackedOn(id, stacks, history)];
+    if (candidates.length === 0) return;
+    // Its turn may have committed: what the chips say about the stack is stale either way.
+    for (const c of candidates) behindCache.invalidate(sessionIdFor(c));
+    if (config?.stacks?.autoUpdate === false) return;
+    const run = activity.start('stacks', 'Updating stacked sessions');
+    let updated = 0;
+    for (const child of candidates) {
+      const childId = sessionIdFor(child);
+      const parent = stacks.parentOf.get(childId);
+      if (!parent || stackSyncing.has(childId)) continue;
+      stackSyncing.add(childId);
+      try {
+        const r = await syncStackChild(child, parent.branch, {
+          shownState,
+          tell: async (s, body) => {
+            const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ side: 'general', status: 'published', body }),
+            });
+            if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
+          },
+        });
+        if (r.updated) {
+          updated++;
+          run.note(`${child.branch}: ${r.commits} commit${r.commits === 1 ? '' : 's'} from ${parent.branch} (${r.how}); its Claude was told`, { sessionId: childId });
+          behindCache.invalidate(childId);
+          diffStats.invalidate(childId);
+        } else {
+          run.note(`${child.branch}: left as it is — ${r.why}`, { sessionId: childId, level: 'info' });
+        }
+      } catch (err) {
+        run.note(`${child.branch}: ${(err as Error).message}`, { sessionId: childId, level: 'warn' });
+      } finally {
+        stackSyncing.delete(childId);
+      }
+    }
+    run.done(updated ? `${updated} brought up to date` : 'nothing to bring in');
+    if (updated) broadcast('sessions-changed', { ts: Date.now() });
+  };
+
   // Update from main (behind-main.ts): its numbers move, so look again.
   mountUpdateRoutes(app, {
     broadcast,
@@ -597,6 +658,7 @@ export async function startWebServer(
     broadcast,
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
+      if (!lean) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)
       // from its first hook on, not only once someone opens it.
       const session = findSession(id);

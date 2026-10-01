@@ -22,6 +22,8 @@ export interface WorkConfig {
   copyFiles: string[];
   /** The Jira watch (jira-watch.ts; turned on and off in the Jira tab): at most this many automatic starts a day (default 5). */
   jiraWatch?: { maxPerDay?: number };
+  /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
+  stacks?: { autoUpdate?: boolean };
   /**
    * AI tool command to launch in worktrees. May include extra args, e.g.
    * "claude" (default), "gemini", "codex", or "my-tool --some-flag".
@@ -185,6 +187,7 @@ export function loadConfig(): WorkConfig | null {
               : {}),
           }
         : undefined,
+      stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
         ? {
             autoArchive: parsed.prWatch.autoArchive !== false,

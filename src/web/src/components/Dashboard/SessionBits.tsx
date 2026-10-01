@@ -154,6 +154,34 @@ export function ClaudesChip({ session, compact }: { session: SessionSummary; com
   );
 }
 
+/**
+ * Where it sits in a stack (stack.ts): "⤷ on feat/x" — the session it was
+ * made from, whose new commits it takes in — and "2 stacked on this".
+ */
+export function StackChip({ session, onOpen }: { session: SessionSummary; onOpen?: (id: string) => void }) {
+  const parent = session.stackedOn;
+  const children = session.stackedChildren ?? 0;
+  if (!parent && !children) return null;
+  return (
+    <span className="wd-stack" title="Stacked sessions: one made from another session's branch builds on it, and takes in its new commits (when idle and clean).">
+      {parent && (
+        <span>
+          <span aria-hidden>⤷</span> on{' '}
+          {onOpen ? (
+            <button type="button" className="wd-overlap-link" onClick={() => onOpen(parent.id)}>
+              {parent.title ?? parent.branch}
+            </button>
+          ) : (
+            <span className="wd-overlap-name">{parent.title ?? parent.branch}</span>
+          )}
+        </span>
+      )}
+      {parent && children > 0 && ' · '}
+      {children > 0 && <span>{children} stacked on this</span>}
+    </span>
+  );
+}
+
 export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOpen?: (id: string) => void }) {
   const list = session.overlaps ?? [];
   if (list.length === 0) return null;

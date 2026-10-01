@@ -71,3 +71,26 @@ describe('describeUpdate', () => {
     expect(describeUpdate([{ ok: true, repo: 'api', how: 'nothing', base: 'origin/main', commits: 0 }]).text).toBe('Already up to date.');
   });
 });
+
+describe('stacked sessions', () => {
+  it("behind its parent: worth a word from one commit, and updated from it by name", async () => {
+    const s = session({ base: 'feat/p', commits: 1, conflicts: false, stacked: true });
+    expect(behindText(s)).toBe('↓ 1 behind feat/p');
+    api.updateFromMain.mockResolvedValue([{ ok: true, repo: 'api', how: 'rebase', base: 'feat/p', commits: 1 }]);
+    act(() => root.render(createElement(BehindChip, { session: s })));
+    await act(async () => button('Update from feat/p').click());
+    expect(container.textContent).toContain('api: rebased on feat/p (1 commit).');
+    expect(resolvePrompt('feat/p', true)).toContain('the branch this one is stacked on');
+  });
+
+  it('StackChip: the parent (click opens it) and how many are stacked on this one', async () => {
+    const { StackChip } = await import('../../src/web/src/components/Dashboard/SessionBits.js');
+    const onOpen = vi.fn();
+    act(() => root.render(createElement(StackChip, { session: { ...session(), stackedOn: { id: 'p1', branch: 'feat/p', title: 'Payments' }, stackedChildren: 2 }, onOpen })));
+    expect(container.textContent).toBe('⤷ on Payments · 2 stacked on this');
+    act(() => button('Payments').click());
+    expect(onOpen).toHaveBeenCalledWith('p1');
+    act(() => root.render(createElement(StackChip, { session: session(), onOpen })));
+    expect(container.textContent).toBe('');
+  });
+});

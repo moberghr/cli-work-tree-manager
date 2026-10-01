@@ -289,7 +289,7 @@ export function SessionRail({
             if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
           }}
           title={
-            `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
+            `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
             (summary ? ` — ${summary}` : '') +
             (index < 9 ? `\nAlt+${index + 1}` : '')
           }

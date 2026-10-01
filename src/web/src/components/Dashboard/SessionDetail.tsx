@@ -5,7 +5,7 @@ import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, PrChips, StatusLine } from './SessionBits.js';
+import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip } from './DevChip.js';
@@ -120,6 +120,7 @@ export function SessionDetail({
         <StatusLine session={session} />
         <DiffStatChip session={session} />
         <ClaudesChip session={session} />
+        <StackChip session={session} onOpen={onOpenSession} />
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ContextChip session={session} />
         <PrChips prs={prs} link />
