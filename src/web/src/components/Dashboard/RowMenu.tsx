@@ -14,7 +14,10 @@ export interface MenuItem {
 /**
  * A row's right-click menu (session rail, Tasks), at the pointer — kept
  * inside the window when opened near an edge. ↑/↓ move, Enter picks; closes
- * on a pick, Esc, a click elsewhere, the window losing focus or resizing.
+ * on a pick, Esc, Tab, a click elsewhere, the window losing focus or resizing.
+ *
+ * Focuses its first item once, on opening: the parent re-renders on every
+ * background refresh, and re-running that would snap ↑/↓ back to the top.
  */
 export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -26,13 +29,23 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
     const r = el.getBoundingClientRect();
     setPos({ left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)), top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) });
   }, [x, y]);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, []);
+  useEffect(() => {
+    const onClose = () => closeRef.current();
     const away = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
     const keys = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
+      // Tab would move focus behind the open menu: close it instead.
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        onClose();
+      }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       const buttons = [...(ref.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
       if (buttons.length === 0) return;
@@ -51,7 +64,7 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
       window.removeEventListener('blur', onClose);
       window.removeEventListener('resize', onClose);
     };
-  }, [onClose]);
+  }, []);
   return (
     <div ref={ref} className="wd-row-menu" role="menu" style={pos}>
       {items.map((it) => (

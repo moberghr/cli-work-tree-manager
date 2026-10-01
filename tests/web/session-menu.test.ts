@@ -82,6 +82,28 @@ describe('RowMenu', () => {
     expect(document.activeElement).toBe(one);
   });
 
+  it('a re-render (a background refresh) keeps where ↓ moved to; Tab closes it', () => {
+    const onClose = vi.fn();
+    const items = [{ label: 'One', run: () => {} }, { label: 'Two', run: () => {} }];
+    act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => onClose(), items })));
+    act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
+    const two = [...container.querySelectorAll<HTMLButtonElement>('button')][1];
+    expect(document.activeElement).toBe(two);
+    act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => onClose(), items: [...items] }))); // new closure, new items
+    expect(document.activeElement).toBe([...container.querySelectorAll<HTMLButtonElement>('button')][1]);
+    act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true })));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('F2 while a row menu is open does not start renaming the open session', () => {
+    act(() => root.render(createElement(SessionRail, { sessions: [session('a'), session('b')], activeSessionId: 'a', onSelect: () => {}, onNewWorktree: () => {}, onRename: async () => {}, menuFor: () => [] })));
+    const row = [...container.querySelectorAll('.wd-dash-rail-item')].find((r) => r.textContent?.includes('feat/b'))!;
+    act(() => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    (document.activeElement as HTMLElement | null)?.blur();
+    act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', cancelable: true })));
+    expect(container.querySelector('.wd-dash-rail-rename')).toBeNull();
+  });
+
   it('opened near the window’s edge, it moves back inside', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 160, height: 200, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
     act(() => root.render(createElement(RowMenu, { x: window.innerWidth - 10, y: window.innerHeight - 10, onClose: () => {}, items: [{ label: 'One', run: () => {} }] })));

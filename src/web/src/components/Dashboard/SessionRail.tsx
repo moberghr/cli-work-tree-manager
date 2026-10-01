@@ -103,7 +103,7 @@ export function SessionRail({
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"]')) return;
       e.preventDefault();
       searchRef.current?.focus();
     };
@@ -119,7 +119,7 @@ export function SessionRail({
       if (e.key !== 'F2' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"]')) return;
       e.preventDefault();
       setRenamingId(activeSessionId);
     };

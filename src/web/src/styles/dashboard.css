@@ -1839,7 +1839,7 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-project-picker-empty { padding: 4px 8px; font-size: 12px; color: var(--muted); }
 
 .wd-row-menu-item-danger { color: var(--del-fg); }
-.wd-row-menu-item-separated { border-top: 1px solid var(--border); margin-top: 3px; padding-top: 7px; border-radius: 0 0 4px 4px; }
+.wd-row-menu-item-separated { border-top: 1px solid var(--border); margin-top: 3px; padding-top: 7px; }
 
 /* A short message at the bottom of the window (Toast). */
 .wd-toast {
