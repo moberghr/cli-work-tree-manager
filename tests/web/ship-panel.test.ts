@@ -11,11 +11,16 @@ const h = vi.hoisted(() => ({
   ship: vi.fn(),
   setArchived: vi.fn(),
 }));
+/** The fake setArchived, through the in-flight store as the real one goes (archive-pending.ts). */
+const trackedSetArchived = vi.hoisted(() => async () => {
+  const { trackArchive } = await import('../../src/web/src/api/archive-pending.js');
+  return { setArchived: (id: string, archived: boolean) => trackArchive(id, archived, h.setArchived(id, archived)) };
+});
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
+  ...(await trackedSetArchived()),
   fetchShipPreflight: h.fetchShipPreflight,
   ship: h.ship,
-  setArchived: h.setArchived,
 }));
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 vi.mock('../../src/web/src/components/Diff/DiffView.js', () => ({ DiffView: () => null }));

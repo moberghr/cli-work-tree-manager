@@ -7,9 +7,14 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const h = vi.hoisted(() => ({ setArchived: vi.fn(), openInTerminal: vi.fn() }));
+/** The fake setArchived, through the in-flight store as the real one goes (archive-pending.ts). */
+const trackedSetArchived = vi.hoisted(() => async () => {
+  const { trackArchive } = await import('../../src/web/src/api/archive-pending.js');
+  return { setArchived: (id: string, archived: boolean) => trackArchive(id, archived, h.setArchived(id, archived)) };
+});
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
-  setArchived: h.setArchived,
+  ...(await trackedSetArchived()),
 }));
 vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/panes.js')>()),
