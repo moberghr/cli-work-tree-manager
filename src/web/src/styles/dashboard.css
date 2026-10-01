@@ -613,7 +613,17 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-task-text {
   flex: 1;
   font-size: 13px;
-  cursor: pointer;
+  cursor: text;
+}
+.wd-task-edit {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--accent, var(--border));
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 .wd-task-action {
   font-size: 11px;
@@ -1700,3 +1710,47 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-reply-actions .wd-link-button { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
 .wd-reply-actions .wd-link-button:hover { text-decoration: underline; }
 .wd-inbox-drafts { color: var(--review-fg); font-weight: 600; margin-left: 6px; }
+
+/* Renaming a session in the rail (F2 / right-click → Rename). */
+.wd-dash-rail-item-renaming { cursor: default; background: var(--current); }
+.wd-dash-rail-rename {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--fg);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* A row's right-click menu, at the pointer. */
+.wd-row-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.wd-row-menu-item {
+  appearance: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-row-menu-item:hover,
+.wd-row-menu-item:focus-visible { background: var(--hover); outline: none; }
+.wd-row-menu-hint { color: var(--muted); font-size: 11px; font-family: inherit; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { SessionSummary } from '../../api/client.js';
+import { renameSession, type SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
 import type { PrLookup } from '../../state/session-display.js';
 import { TopNav } from './TopNav.js';
@@ -122,6 +122,7 @@ export function DashboardLayout({
             onNewWorktree();
           }}
           prsFor={prsFor}
+          onRename={renameSession}
           order={sessionOrder}
           onReorder={onReorderSessions}
         />

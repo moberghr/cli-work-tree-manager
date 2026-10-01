@@ -30,6 +30,9 @@ interface Props {
   order?: string[];
   /** Set when rows can be dragged (or moved with Alt+↑/↓) into a new order. */
   onReorder?: (order: string[]) => void;
+  /** Set when sessions can be renamed here: F2, or right-click → Rename. An
+   *  empty title goes back to the automatic one. */
+  onRename?: (id: string, title: string) => Promise<void>;
 }
 
 /** Status → CSS modifier; the colors live in CSS. */
@@ -66,6 +69,7 @@ export function SessionRail({
   prsFor,
   order,
   onReorder,
+  onRename,
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
   const { current, older } = useMemo(() => railSessions(sessions, Date.now(), order ?? []), [sessions, order]);
@@ -74,6 +78,8 @@ export function SessionRail({
   const listRef = useRef<HTMLUListElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; before: boolean } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   // Every current session, plus older ones only on request — and the
   // selected one always stays visible. (A length cap here used to cut the
   // pinned selection off once there were 40+ current sessions, and took it
@@ -104,6 +110,22 @@ export function SessionRail({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // F2 renames the open session — not while typing somewhere (a terminal's
+  // input included) or with a dialog up.
+  useEffect(() => {
+    if (!onRename || !activeSessionId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      e.preventDefault();
+      setRenamingId(activeSessionId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onRename, activeSessionId]);
 
   const shownIds = visible.map((s) => s.id);
   const move = (id: string, beforeId: string | null) => {
@@ -170,6 +192,18 @@ export function SessionRail({
             const stat = formatDiffStat(s);
             const prs = prsFor?.(s) ?? [];
             const summary = s.attention?.summary;
+            if (onRename && renamingId === s.id) {
+              return (
+                <li key={s.id}>
+                  <RenameRow
+                    session={s}
+                    dot={<span className={dotClass(kind)} aria-hidden />}
+                    onDone={() => setRenamingId(null)}
+                    onSave={(title) => onRename(s.id, title)}
+                  />
+                </li>
+              );
+            }
             return (
               <li
                 key={s.id}
@@ -208,7 +242,17 @@ export function SessionRail({
                     (kind === 'needs_input' || kind === 'done' || kind === 'review' ? ' wd-dash-rail-item-unseen' : '')
                   }
                   onClick={() => onSelect(s.id)}
+                  onContextMenu={(e) => {
+                    if (!onRename) return;
+                    e.preventDefault();
+                    setMenu({ id: s.id, x: e.clientX, y: e.clientY });
+                  }}
                   onKeyDown={(e) => {
+                    if (onRename && e.key === 'F2') {
+                      e.preventDefault();
+                      setRenamingId(s.id);
+                      return;
+                    }
                     if (!canReorder || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
                     e.preventDefault();
                     const i = shownIds.indexOf(s.id);
@@ -273,6 +317,122 @@ export function SessionRail({
           )}
         </ul>
       )}
+      {menu && (
+        <RowMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[{ label: 'Rename', hint: 'F2', run: () => setRenamingId(menu.id) }]}
+        />
+      )}
     </aside>
+  );
+}
+
+/** A rail row being renamed: Enter saves, Esc or leaving it cancels. */
+function RenameRow({
+  session,
+  dot,
+  onSave,
+  onDone,
+}: {
+  session: SessionSummary;
+  dot: React.ReactNode;
+  onSave: (title: string) => Promise<void>;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState(session.titleIsYours ? (session.title ?? '') : '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = () => {
+    setSaving(true);
+    setError(null);
+    onSave(draft.trim()).then(onDone, (err: Error) => {
+      setSaving(false);
+      setError(err.message);
+    });
+  };
+  return (
+    <div className="wd-dash-rail-item wd-dash-rail-item-renaming">
+      {dot}
+      <span className="wd-dash-rail-lines">
+        <input
+          className="wd-dash-rail-rename"
+          autoFocus
+          value={draft}
+          disabled={saving}
+          placeholder={session.title ?? 'Name this session'}
+          aria-label={`Name for ${session.branch || session.target}`}
+          title={error ?? 'Enter to save, Esc to cancel; empty goes back to the automatic name'}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => !saving && onDone()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              save();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              onDone();
+            }
+          }}
+        />
+        <span className="wd-dash-rail-line wd-dash-rail-sub">
+          <span className="wd-dash-rail-summary">{error ? `⚠ ${error}` : `${session.target} · ${session.branch}`}</span>
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** A small right-click menu at the pointer; closes on a pick, Esc, or a click elsewhere. */
+function RowMenu({
+  x,
+  y,
+  items,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  items: Array<{ label: string; hint?: string; run: () => void }>;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('mousedown', away);
+    window.addEventListener('keydown', esc);
+    window.addEventListener('blur', onClose);
+    window.addEventListener('resize', onClose);
+    return () => {
+      window.removeEventListener('mousedown', away);
+      window.removeEventListener('keydown', esc);
+      window.removeEventListener('blur', onClose);
+      window.removeEventListener('resize', onClose);
+    };
+  }, [onClose]);
+  return (
+    <div ref={ref} className="wd-row-menu" role="menu" style={{ left: x, top: y }}>
+      {items.map((it) => (
+        <button
+          key={it.label}
+          type="button"
+          role="menuitem"
+          className="wd-row-menu-item"
+          onClick={() => {
+            onClose();
+            it.run();
+          }}
+        >
+          <span>{it.label}</span>
+          {it.hint && <kbd className="wd-row-menu-hint">{it.hint}</kbd>}
+        </button>
+      ))}
+    </div>
   );
 }

@@ -54,6 +54,15 @@ export function TasksTab({ onPick }: Props) {
     } catch { /* */ }
   }
 
+  async function rename(t: TaskItem, text: string) {
+    const next = text.trim();
+    if (!next || next === t.text) return;
+    try {
+      const r = await updateTask(t.id, { text: next });
+      setTasks(r.tasks);
+    } catch { /* */ }
+  }
+
   async function remove(id: number) {
     try {
       const r = await deleteTask(id);
@@ -124,13 +133,7 @@ export function TasksTab({ onPick }: Props) {
                 onChange={() => toggle(t)}
                 aria-label={t.done ? 'Mark not done' : 'Mark done'}
               />
-              <span
-                className="wd-task-text"
-                onClick={() => toggle(t)}
-                title={t.text}
-              >
-                {t.text}
-              </span>
+              <TaskText task={t} onSave={(text) => rename(t, text)} />
               <button
                 type="button"
                 className="wd-btn-secondary wd-task-action"
@@ -153,5 +156,60 @@ export function TasksTab({ onPick }: Props) {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * The task's text; click it (or F2 / Enter on it) to edit in place. Enter
+ * or leaving the field saves, Esc puts it back.
+ */
+function TaskText({ task, onSave }: { task: TaskItem; onSave: (text: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(task.text);
+  if (editing) {
+    const done = (save: boolean) => {
+      setEditing(false);
+      if (save) onSave(draft);
+    };
+    return (
+      <input
+        className="wd-task-edit"
+        aria-label="Task text"
+        value={draft}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => done(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            done(true);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            done(false);
+          }
+        }}
+      />
+    );
+  }
+  const start = () => {
+    setDraft(task.text);
+    setEditing(true);
+  };
+  return (
+    <span
+      className="wd-task-text"
+      role="button"
+      tabIndex={0}
+      onClick={start}
+      onKeyDown={(e) => {
+        if (e.key === 'F2' || e.key === 'Enter') {
+          e.preventDefault();
+          start();
+        }
+      }}
+      title="Click to edit"
+    >
+      {task.text}
+    </span>
   );
 }
