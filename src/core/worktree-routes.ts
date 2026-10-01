@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { loadConfig } from './config.js';
-import { setupWorktree, teardownWorktree, wouldRefuseRemoval, openBaseCheckout } from './worktree.js';
+import { teardownWorktree, wouldRefuseRemoval } from './worktree.js';
 import { removeSession } from './history.js';
 import {
   disposeSessionWatcher,
@@ -16,9 +16,10 @@ import {
 } from './web-state.js';
 import { disposePty, ensurePty, getWorkBin, peekPty, spawnSpecFor } from './pty-pool.js';
 import { getCommentFileStore } from './comment-file-store.js';
-import { collectingReporter, withReporter } from './report.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
+import { toBaseSpec } from './base-spec.js';
+import { createInProcess, type CreateWorktree } from './setup-child.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -26,6 +27,8 @@ export interface WorktreeMutOptions {
   startSession?: (sessionId: string, prompt: string) => Promise<StartOutcome>;
   /** Drop the session's diff scope (its watch and bookkeeping) before deleting it. */
   releaseScope?: (paths: string[]) => void;
+  /** How a worktree is made: work web runs it in a child process (setup-child.ts), so its git doesn't hold up the server. */
+  create?: CreateWorktree;
 }
 
 /** What happened to the first prompt of a created worktree. */
@@ -79,6 +82,7 @@ export function mountWorktreeRoutes(
     name: z.string().max(120).optional(),
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
+  const create = opts.create ?? createInProcess;
   app.post(
     '/api/worktrees',
     zValidator('json', createSchema),
@@ -90,25 +94,12 @@ export function mountWorktreeRoutes(
       if (!wanted && base?.trim()) return c.json({ error: 'a base needs a branch to fork (leave both empty to open the repo as it is)' }, 400);
 
       try {
-        let result: { launchDir: string; paths: string[] };
-        let branch = wanted;
-        if (!wanted) {
-          // No branch: the repo's own checkout, as `work tree <repo>` opens it.
-          const opened = await openBaseCheckout(target, config, { jiraKey, name });
-          if (!opened.ok) return c.json({ error: opened.error }, 400);
-          branch = opened.branch;
-          result = { launchDir: opened.repoPath, paths: [opened.repoPath] };
-        } else {
-          // Keep what core reports, so a failure says why (it used to go only
-          // to the server's console: "setup failed" was all the UI got).
-          const reports = collectingReporter();
-          const created = await withReporter(reports, () => setupWorktree(target, wanted, config, base, jiraKey, { name }));
-          if (!created) {
-            const why = reports.errors().map((e) => e.trim()).join(' ');
-            return c.json({ error: why || 'setup failed (target not found?)' }, 400);
-          }
-          result = created;
-        }
+        // No branch: the repo's own checkout, as `work tree <repo>` opens it.
+        // A failure says why (core's reports, or the child run's errors).
+        const made = await create({ target, branch: wanted || undefined, base: base?.trim() ? toBaseSpec(base.trim()) : undefined, jiraKey, name }, config);
+        if (!made.ok) return c.json({ error: made.error }, 400);
+        const branch = made.branch;
+        const result = { launchDir: made.launchDir, paths: made.paths };
         opts.broadcast('sessions-changed', { ts: Date.now() });
         // Re-derive the new session id so the client can route to it
         // immediately (it's just sha1(target:branch)).

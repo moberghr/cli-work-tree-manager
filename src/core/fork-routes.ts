@@ -7,14 +7,13 @@ import { forkSession, type ForkDeps } from './fork.js';
 import { checkedOutBranch } from './git-head.js';
 import { git } from './git.js';
 import { resolveProjectTarget } from './resolve.js';
-import { collectingReporter, withReporter } from './report.js';
+import { createInProcess, type CreateWorktree } from './setup-child.js';
 import { findSession, sessionIdFor } from './web-state.js';
-import { setupWorktree } from './worktree.js';
 import { startSessionWithPrompt } from './worktree-routes.js';
 import type { ForkWire } from './api-types.js';
 
 /** The real inputs of forkSession; `summarize` and `uncommitted` come from the server (catch-up, diff stats). */
-export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'> & Partial<ForkDeps>): ForkDeps {
+export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'> & Partial<ForkDeps> & { create?: CreateWorktree }): ForkDeps {
   return {
     config: loadConfig,
     repos: (target, config) => {
@@ -27,10 +26,8 @@ export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'
       ['refs/heads/', 'refs/remotes/origin/'].some((prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
     setup: async (target, branch, config, base, name) => {
-      // Keep what core reports, so a failure says why.
-      const reports = collectingReporter();
-      const created = await withReporter(reports, () => setupWorktree(target, branch, config, base, undefined, { name }));
-      return created ?? { error: reports.errors().map((e) => e.trim()).join(' ') || 'setup failed' };
+      const made = await (opts.create ?? createInProcess)({ target, branch, base, name }, config);
+      return made.ok ? { paths: made.paths } : { error: made.error };
     },
     start: startSessionWithPrompt,
     sessionIdFor,

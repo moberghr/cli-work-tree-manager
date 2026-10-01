@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { loadConfig } from './config.js';
 import { archiveSession, restoreArchivedTranscripts } from './session-archive.js';
 import { defaultArchiveDeps } from './session-archive-deps.js';
-import { setupWorktree } from './worktree.js';
+import { createInProcess, type CreateWorktree } from './setup-child.js';
 import {
   mergeSelected,
   runShipAction,
@@ -23,6 +23,8 @@ export interface ShipRoutesOptions {
   run?: CommandRunner;
   /** Let go of a session's folders before its worktree is removed (watchers, a chat). */
   release?: (sessionId: string) => Promise<void>;
+  /** How a removed worktree is made again on Restore (work web: in a child process, setup-child.ts). */
+  create?: CreateWorktree;
 }
 
 const ACTIONS = new Set<ShipAction>(['push', 'create-pr', 'merge']);
@@ -55,9 +57,9 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       ok = out.ok;
     } else if (session.paths.some((p) => !fs.existsSync(p))) {
       // Its worktree was removed on archive: recreate it from the branch
-      // (setupWorktree also puts the conversation back and un-archives it).
+      // (`work tree` / setupWorktree also puts the conversation back and un-archives it).
       const config = loadConfig();
-      ok = !!config && (await setupWorktree(session.target, session.branch, config)) !== null;
+      ok = !!config && (await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config)).ok;
     } else {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);

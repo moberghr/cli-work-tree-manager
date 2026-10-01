@@ -4,12 +4,11 @@ import type { Hono } from 'hono';
 import { loadConfig } from './config.js';
 import { loadHistory } from './history.js';
 import { sessionIdFor } from './session-id.js';
-import { setupWorktree } from './worktree.js';
+import { createInProcess, type CreateWorktree } from './setup-child.js';
 import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, type JiraIssue } from './jira.js';
 import { jiraPrompt } from './jira-prompt.js';
 import { runClaude } from './checkpoint-summary.js';
 import { startSessionWithPrompt } from './worktree-routes.js';
-import { collectingReporter, withReporter } from './report.js';
 import {
   branchFor,
   listDecisions,
@@ -69,7 +68,7 @@ export function watchTargets(cfg = loadConfig()): WatchTarget[] {
 
 export function mountJiraWatchRoutes(
   app: Hono,
-  opts: { broadcast: (event: string, data: unknown) => void; activity?: ActivityLog; lean?: boolean },
+  opts: { broadcast: (event: string, data: unknown) => void; activity?: ActivityLog; lean?: boolean; create?: CreateWorktree },
 ): { stop: () => void } {
   const changed = () => {
     opts.broadcast('jira-watch-changed', { ts: Date.now() });
@@ -80,9 +79,8 @@ export function mountJiraWatchRoutes(
   const start = async (target: string, branch: string, issue: JiraIssue, automatic: boolean): Promise<string> => {
     const config = loadConfig();
     if (!config) throw new Error('no work config');
-    const reports = collectingReporter();
-    const result = await withReporter(reports, () => setupWorktree(target, branch, config, undefined, issue.key, { name: `${issue.key} ${issue.summary}`.slice(0, 120) }));
-    if (!result) throw new Error(reports.errors().map((e) => e.trim()).join(' ') || `could not create ${branch} in ${target}`);
+    const made = await (opts.create ?? createInProcess)({ target, branch, jiraKey: issue.key, name: `${issue.key} ${issue.summary}`.slice(0, 120) }, config);
+    if (!made.ok) throw new Error(made.error || `could not create ${branch} in ${target}`);
     const id = sessionIdFor({ target, branch });
     // Normal permission mode, like every session the host starts: the issue is someone else's words.
     await startSessionWithPrompt(id, jiraPrompt(issue, { automatic }));

@@ -7,6 +7,7 @@ import { mountUpdateRoutes } from './update-routes.js';
 import { askCatchUp, catchUpFacts, mountCatchUpRoutes } from './catch-up-routes.js';
 import { catchUp } from './catch-up.js';
 import { defaultForkDeps, mountForkRoutes } from './fork-routes.js';
+import { createInChild, type CreateWorktree } from './setup-child.js';
 import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -65,7 +66,7 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
+import { detachPtyPool, disposePty, getWorkBin, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from './idle-sleep.js';
 import { loadConfig } from './config.js';
 import { readStatus } from './session-status.js';
@@ -274,6 +275,9 @@ export async function startWebServer(
   // broadcast once when values change — see diff-stat.ts.
   let diffStatBroadcast: NodeJS.Timeout | null = null;
   // Behind main, per session: slow refresh (main moves slowly), a broadcast when it changes.
+  // Making a worktree runs git synchronously: in a child `work tree --setup-only`,
+  // so a slow fetch doesn't hold up every request (setup-child.ts).
+  const makeWorktree: CreateWorktree = (req, config) => createInChild(getWorkBin())(req, config);
   const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
@@ -565,7 +569,7 @@ export async function startWebServer(
 
   // The Jira watch: newly assigned issues started in the right project
   // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
-  const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean });
+  const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean, create: makeWorktree });
 
   // Stacked sessions (stack-sync.ts): after a turn ends, bring a parent's new
   // commits into the idle, clean sessions stacked on it — and into this one,
@@ -614,6 +618,7 @@ export async function startWebServer(
   mountForkRoutes(app, {
     broadcast,
     deps: defaultForkDeps({
+      create: makeWorktree,
       summarize: async (s) => (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s), uncommittedFacts(sessionIdFor(s)))))?.text ?? null,
       uncommitted: (s) => diffStats.peek(sessionIdFor(s))?.files ?? 0,
     }),
@@ -621,7 +626,7 @@ export async function startWebServer(
 
   // Worktree mutations (create/remove/sync/rebase/open-editor). Each
   // emits sessions-changed so the sidebar refreshes.
-  mountWorktreeRoutes(app, { broadcast, releaseScope: (paths) => void scopeApi?.releaseSessionScope(paths, true) });
+  mountWorktreeRoutes(app, { broadcast, create: makeWorktree, releaseScope: (paths) => void scopeApi?.releaseSessionScope(paths, true) });
 
   // Ad-hoc scopes registered by `wd` invocations — gives the dashboard
   // an addressable URL per scope (/diff/<hash>, /review/<hash>) so we
@@ -658,7 +663,7 @@ export async function startWebServer(
     const s = findSession(id);
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
-  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession });
+  mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
 
   // The sessions list's manual order (drag to reorder).
   mountSessionOrderRoutes(app, { broadcast });
