@@ -39,12 +39,18 @@ export async function syncConversation(s: WorktreeSession, root = conversationRo
   for (const src of sources) {
     const dest = path.join(dir, path.basename(src.file));
     let have = 0;
+    let haveMtime = 0;
     try {
-      have = (await fs.promises.stat(dest)).size;
+      const st = await fs.promises.stat(dest);
+      [have, haveMtime] = [st.size, st.mtimeMs];
     } catch {
       /* not copied yet */
     }
-    if (have === src.size) continue;
+    if (have === src.size) {
+      // Complete; only its time may be off (a copy from before times were kept).
+      if (Math.abs(haveMtime - src.mtimeMs) > 1000) await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
+      continue;
+    }
     await fs.promises.mkdir(dir, { recursive: true });
     if (have > src.size) {
       // Smaller than our copy: the file was replaced. Copy it whole.
@@ -53,6 +59,9 @@ export async function syncConversation(s: WorktreeSession, root = conversationRo
     } else {
       out.bytes += await appendRange(src.file, dest, have, src.size);
     }
+    // The copy's time is the conversation's last write, not when we copied
+    // it: search orders by it, and shows it.
+    await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
     out.files++;
   }
   return out;

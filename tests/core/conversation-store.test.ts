@@ -52,6 +52,21 @@ describe('syncConversation', () => {
     expect(fs.readFileSync(path.join(conversationDirFor(sessionIdFor(s), root), 'c.jsonl'), 'utf8')).toBe(fs.readFileSync(src, 'utf8'));
   });
 
+  it("the copy carries the conversation's last write time, not the copy's", async () => {
+    const s = session('fix/time');
+    const src = path.join(tmp, 'c.jsonl');
+    fs.writeFileSync(src, prompt('one'));
+    const then = new Date(Date.UTC(2026, 5, 1));
+    fs.utimesSync(src, then, then);
+    await syncConversation(s, root, [source(src)]);
+    const copy = path.join(conversationDirFor(sessionIdFor(s), root), 'c.jsonl');
+    expect(fs.statSync(copy).mtimeMs).toBe(then.getTime());
+    // A complete copy whose time is off gets its time fixed, nothing recopied.
+    fs.utimesSync(copy, new Date(), new Date());
+    expect(await syncConversation(s, root, [source(src)])).toEqual({ files: 0, bytes: 0 });
+    expect(fs.statSync(copy).mtimeMs).toBe(then.getTime());
+  });
+
   it('two syncs at once write the same bytes once, not twice', async () => {
     const s = session('fix/race');
     const src = path.join(tmp, 'c.jsonl');
