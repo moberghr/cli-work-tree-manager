@@ -35,10 +35,15 @@ export function isInternalClaude(): boolean {
  * with whatever the user allows headless Claude to do. So: no tools at all
  * (`--tools ""`), and a neutral cwd so no project's .claude/settings.json —
  * its permissions or hooks — applies to the run.
+ *
+ * `--strict-mcp-config` with no `--mcp-config`: none of the user's MCP
+ * servers start — a text-only run has no use for them, and starting them
+ * cost seconds and memory on every checkpoint name. `model` picks a model
+ * (checkpoint names use a small one; they run once per changed turn).
  */
-export function internalClaudeSpawn(): { args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
+export function internalClaudeSpawn(opts: { model?: string } = {}): { args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
   return {
-    args: ['-p', '--tools', ''],
+    args: ['-p', '--tools', '', '--strict-mcp-config', ...(opts.model ? ['--model', opts.model] : [])],
     cwd: os.tmpdir(),
     env: { ...process.env, ...internalClaudeEnv() },
   };

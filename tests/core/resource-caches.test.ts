@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NAMES_MAX_AGE_MS, projectTranscripts } from '../../src/core/claude-activity.js';
 import { firstPromptOf } from '../../src/core/session-title.js';
 import { recentProcessTable } from '../../src/core/process.js';
-import { throttleTrailing } from '../../src/core/throttle.js';
+import { createSerialQueue, throttleTrailing } from '../../src/core/throttle.js';
 
 let dir: string;
 beforeEach(() => {
@@ -86,5 +86,24 @@ describe('throttleTrailing', () => {
     expect(calls).toEqual([0, 750]);
     t = 2000; f(); // a quiet window later: at once again
     expect(calls).toEqual([0, 750, 2000]);
+  });
+});
+
+describe('createSerialQueue', () => {
+  it('one job at a time, in order; a failure does not stop the next', async () => {
+    const run = createSerialQueue();
+    const log: string[] = [];
+    const job = (n: string, fail = false) => async () => {
+      log.push(`${n}+`);
+      await new Promise((r) => setTimeout(r, 5));
+      log.push(`${n}-`);
+      if (fail) throw new Error(n);
+      return n;
+    };
+    const a = run(job('a', true));
+    const b = run(job('b'));
+    await expect(a).rejects.toThrow('a');
+    expect(await b).toBe('b');
+    expect(log).toEqual(['a+', 'a-', 'b+', 'b-']);
   });
 });

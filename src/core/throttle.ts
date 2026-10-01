@@ -26,3 +26,17 @@ export function throttleTrailing(
     }, wait);
   };
 }
+
+/**
+ * Run jobs one at a time, in the order they came: `run(fn)` resolves with
+ * `fn`'s result once every earlier job finished. A failed job doesn't stop
+ * the queue.
+ */
+export function createSerialQueue(): <T>(fn: () => Promise<T>) => Promise<T> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>) => {
+    const run = tail.then(fn, fn);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
