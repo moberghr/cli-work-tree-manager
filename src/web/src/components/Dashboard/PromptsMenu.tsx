@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { sendPromptToSession } from '../../api/client.js';
 import type { PromptsResponse, SavedPrompt, SessionSummary } from '../../api/client.js';
 import { promptsForSession } from '../../../../core/saved-prompts.js';
 
@@ -15,16 +16,8 @@ async function fetchPrompts(): Promise<PromptsResponse> {
   return res.json() as Promise<PromptsResponse>;
 }
 
-/** Sent like a review comment: pushed to a terminal the dashboard owns, or
- *  delivered on the session's next turn — never typed over a prompt. */
-async function sendPrompt(sessionId: string, body: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/comments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ side: 'general', status: 'published', body }),
-  });
-  if (!res.ok) throw new Error(`send failed (${res.status})`);
-}
+/** Sent like a review comment (client.ts sendPromptToSession). */
+const sendPrompt = sendPromptToSession;
 
 /**
  * "Prompts ▾" in the session header: the saved one-click instructions that

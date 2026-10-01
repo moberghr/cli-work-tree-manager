@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BulkBar, type BulkActions } from './BulkBar.js';
+import { bulkSummary, runBulk } from '../../../state/bulk.js';
 import { StatusIcon } from '../StatusIcon.js';
 import { useArchivePending } from '../../../api/archive-pending.js';
-import { searchConversations, setArchived, type ConversationHit, type SessionSummary } from '../../../api/client.js';
-import { openInTerminal } from '../../../api/panes.js';
+import { searchConversations, sendPromptToSession, setArchived, snoozeSession, type ConversationHit, type SessionSummary } from '../../../api/client.js';
+import { openInTerminal, removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
   DISPLAY_LABEL,
@@ -30,7 +32,18 @@ interface Props {
   prsFor?: PrLookup;
   /** Open the Clean up view. */
   onCleanUp?: () => void;
+  /** The bulk bar's calls (tests swap them). */
+  bulk?: BulkActions;
 }
+
+/** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
+const defaultBulk: BulkActions = {
+  archive: (s) => setArchived(s.id, true, () => false),
+  restore: (s) => setArchived(s.id, false, () => false),
+  snooze: (s, choice) => snoozeSession(s, choice),
+  send: (s, text) => sendPromptToSession(s.id, text),
+  remove: (s) => removeWorktree(s.id, {}),
+};
 
 type Sort = 'recent' | 'name';
 type Filter = 'all' | StatusBucket;
@@ -71,7 +84,33 @@ export function SessionsTab({
   onDeleteSession,
   prsFor,
   onCleanUp,
+  bulk = defaultBulk,
 }: Props) {
+  // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkOutcome, setBulkOutcome] = useState<string | null>(null);
+  const toggle = (id: string, on: boolean) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const selected = sessions.filter((s) => picked.has(s.id));
+  const runBulkAction = (verb: string, act: (s: SessionSummary) => Promise<unknown>, which: SessionSummary[]) => {
+    const byId = new Map(which.map((s) => [s.id, s]));
+    setBulkOutcome(null);
+    setBulkBusy(`${verb} 0/${which.length}…`);
+    void runBulk([...byId.keys()], (id) => act(byId.get(id)!), {
+      onProgress: (done, total) => setBulkBusy(`${verb} ${done}/${total}…`),
+    }).then((results) => {
+      setBulkBusy(null);
+      setBulkOutcome(bulkSummary(verb, results, (id) => byId.get(id)?.branch ?? id));
+      // What worked is done with; what was refused stays ticked, to try again or look at.
+      setPicked(new Set(results.filter((r) => !r.ok).map((r) => r.id)));
+    });
+  };
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -137,6 +176,24 @@ export function SessionsTab({
     <table className="wd-session-table">
       <thead>
         <tr>
+          <th className="wd-st-col-pick">
+            <input
+              type="checkbox"
+              aria-label="Select all shown"
+              checked={list.length > 0 && list.every((s) => picked.has(s.id))}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setPicked((prev) => {
+                  const next = new Set(prev);
+                  for (const s of list) {
+                    if (on) next.add(s.id);
+                    else next.delete(s.id);
+                  }
+                  return next;
+                });
+              }}
+            />
+          </th>
           <th className="wd-st-col-status">Status</th>
           <th>Session</th>
           <th className="wd-st-col-summary">Summary</th>
@@ -154,6 +211,8 @@ export function SessionsTab({
             prs={prsFor?.(s) ?? []}
             onOpen={() => onOpenSession(s.id, defaultSubTab(s))}
             onDelete={() => onDeleteSession(s)}
+            picked={picked.has(s.id)}
+            onPick={(on) => toggle(s.id, on)}
           />
         ))}
       </tbody>
@@ -235,6 +294,17 @@ export function SessionsTab({
           </button>
         </div>
       </header>
+      {(picked.size > 0 || bulkBusy) && (
+        <BulkBar selected={selected} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} />
+      )}
+      {bulkOutcome && (
+        <p className="wd-bulk-outcome" role="status">
+          {bulkOutcome}{' '}
+          <button type="button" className="wd-link-button" onClick={() => setBulkOutcome(null)}>
+            OK
+          </button>
+        </p>
+      )}
       {filtered.length === 0 ? (
         <div className="wd-tab-empty">
           {sessions.length === 0
@@ -379,9 +449,11 @@ interface RowProps {
   prs: ReturnType<PrLookup>;
   onOpen: () => void;
   onDelete: () => void;
+  picked: boolean;
+  onPick: (on: boolean) => void;
 }
 
-function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
+function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick }: RowProps) {
   const kind = displayStatus(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
@@ -419,6 +491,9 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
         }
       }}
     >
+      <td className="wd-st-col-pick" onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`Select ${s.target} ${s.branch}`} />
+      </td>
       <td className="wd-st-col-status">
         <span className="wd-st-status" title={statusHint(kind)}>
           <StatusIcon kind={kind} />

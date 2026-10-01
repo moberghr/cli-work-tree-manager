@@ -564,6 +564,18 @@ export async function unsnoozeSession(sessionId: string): Promise<void> {
   if (!res.ok) throw new Error(`${res.status} unsnoozing`);
 }
 
+/** A prompt for a session's Claude, sent like a review comment: pushed into a
+ *  terminal the dashboard owns, or delivered on its next turn — never typed
+ *  over a prompt. (Prompts ▾, the bulk bar.) */
+export async function sendPromptToSession(sessionId: string, body: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ side: 'general', status: 'published', body }),
+  });
+  if (!res.ok) throw new Error(`send failed (${res.status})`);
+}
+
 /** The user opened a session that wanted attention — clear its unseen flag. */
 export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});

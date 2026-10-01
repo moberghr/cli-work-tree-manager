@@ -79,7 +79,7 @@ describe('Sessions table', () => {
     try { localStorage.setItem('work-web:sessions-grouping', 'none'); } catch { /* */ } // one table
     render();
     expect([...container.querySelectorAll('thead th')].map((th) => text(th))).toEqual([
-      'Status', 'Session', 'Summary', 'Changes', 'PR', 'Last active', 'Actions',
+      '', 'Status', 'Session', 'Summary', 'Changes', 'PR', 'Last active', 'Actions', // '': the select-all box
     ]);
     // Header counts agree with the inbox: blocked + done need you.
     expect(text(container.querySelector('h1'))).toContain('2 need you · 1 working · 0 idle · 1 stale');
@@ -163,7 +163,7 @@ describe('Sessions tab search', () => {
       setValue.call(box, 'work');
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const branches = () => rows().map((r) => r.querySelector('.wd-session-name, td:nth-child(2)')?.textContent ?? '');
+    const branches = () => rows().map((r) => r.querySelector('.wd-session-name, td:nth-child(3)')?.textContent ?? '');
     expect(rows()).toHaveLength(1);
     expect(branches()[0]).toContain('working');
     act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });

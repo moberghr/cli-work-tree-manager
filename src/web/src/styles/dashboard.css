@@ -1875,3 +1875,14 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 /* Snoozed (snooze.ts): the rail's slot, the Inbox's last section. */
 .wd-rail-slot-snoozed { color: var(--muted); font-style: italic; }
 .wd-inbox-snoozed { opacity: 0.8; }
+
+/* The Sessions table's ticked rows and the bar acting on them (BulkBar). */
+.wd-st-col-pick { width: 28px; text-align: center; }
+.wd-bulk-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 24px 8px; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--current); font-size: 12px; }
+.wd-bulk-count { font-weight: 600; margin-right: 6px; }
+.wd-bulk-busy { color: var(--muted); }
+.wd-bulk-send { display: flex; flex: 1; gap: 6px; align-items: flex-start; }
+.wd-bulk-send textarea { flex: 1; font: inherit; font-size: 12px; min-width: 240px; }
+.wd-bulk-confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--del-fg); }
+.wd-bulk-delete { color: var(--del-fg); }
+.wd-bulk-outcome { margin: 0 24px 8px; font-size: 12px; }
