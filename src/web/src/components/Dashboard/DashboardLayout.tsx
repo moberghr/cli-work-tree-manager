@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { PlacePatch, RailLayout, RailSection } from '../../../../core/rail-layout.js';
+import type { PlacePatch, RailLayout, SectionOp } from '../../../../core/rail-layout.js';
 import type { MenuItem } from './RowMenu.js';
 import { renameSession, type SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
@@ -36,7 +36,7 @@ interface Props {
   sessionMenu?: (s: SessionSummary) => MenuItem[];
   railLayout?: RailLayout;
   onPlaceSession?: (id: string, patch: PlacePatch) => void;
-  onRailSections?: (sections: RailSection[]) => Promise<void>;
+  onRailSections?: (op: SectionOp) => Promise<void>;
   children: ReactNode;
 }
 

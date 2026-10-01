@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
-import { fetchRailLayout, placeSession, saveRailSections } from '../api/client.js';
-import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type RailSection } from '../../../core/rail-layout.js';
+import { changeRailSections, fetchRailLayout, placeSession } from '../api/client.js';
+import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail-layout.js';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
@@ -302,9 +302,9 @@ export function DashboardApp() {
       void placeSession(id, patch).then(setRailLayout, (err: Error) => showToast({ text: err.message, kind: 'error' })),
     [showToast],
   );
-  const saveSections = useCallback(
-    (sections: RailSection[]) =>
-      saveRailSections(sections).then(setRailLayout, (err: Error) => {
+  const changeSections = useCallback(
+    (op: SectionOp) =>
+      changeRailSections(op).then(setRailLayout, (err: Error) => {
         showToast({ text: err.message, kind: 'error' });
         throw err;
       }),
@@ -637,7 +637,7 @@ export function DashboardApp() {
         sessionMenu={sessionMenu}
         railLayout={railLayout}
         onPlaceSession={placeInRail}
-        onRailSections={saveSections}
+        onRailSections={changeSections}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}

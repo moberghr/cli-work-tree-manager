@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import {
   applyPlacePatch,
+  applySectionOp,
   cleanPlacePatch,
+  cleanSectionOp,
   cleanSections,
   groupRail,
   placeForGroup,
@@ -41,6 +43,13 @@ describe('groupRail', () => {
     ]);
   });
 
+  it('everything placed: an empty Other stays (somewhere to drag a row out of its section or pin)', () => {
+    expect(keys(groupRail(list('a'), { sections: [], places: { a: { pinned: true } } }))).toEqual([
+      ['pinned', 'Pinned', ['a']],
+      ['rest', 'Other', []],
+    ]);
+  });
+
   it('dropping into a group: what that means for the place', () => {
     expect(placeForGroup({ key: 'pinned' })).toEqual({ pinned: true });
     expect(placeForGroup({ key: 'section:x', sectionId: 'x' })).toEqual({ pinned: false, section: 'x' });
@@ -73,6 +82,30 @@ describe('places and sections: validation', () => {
   });
 });
 
+describe('section changes (one at a time, to the list as it is)', () => {
+  const two = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }];
+  it('add, rename, move (an edge is a no-op), remove', () => {
+    expect(applySectionOp(two, { op: 'add', id: 'z', name: 'Z' })).toEqual({ ok: true, sections: [...two, { id: 'z', name: 'Z' }] });
+    expect(applySectionOp(two, { op: 'rename', id: 'y', name: 'Why' })).toEqual({ ok: true, sections: [two[0], { id: 'y', name: 'Why' }] });
+    expect(applySectionOp(two, { op: 'move', id: 'y', by: -1 })).toEqual({ ok: true, sections: [two[1], two[0]] });
+    expect(applySectionOp(two, { op: 'move', id: 'x', by: -1 })).toEqual({ ok: true, sections: two });
+    expect(applySectionOp(two, { op: 'remove', id: 'x' })).toEqual({ ok: true, sections: [two[1]] });
+  });
+  it('refused: one another window removed, a duplicate, too many', () => {
+    expect(applySectionOp(two, { op: 'rename', id: 'gone', name: 'n' })).toMatchObject({ ok: false, error: expect.stringContaining('no such section') });
+    expect(applySectionOp(two, { op: 'add', id: 'x', name: 'n' })).toMatchObject({ ok: false });
+    const full = Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, name: 'n' }));
+    expect(applySectionOp(full, { op: 'add', id: 'new', name: 'n' })).toMatchObject({ ok: false, error: 'at most 30 sections' });
+  });
+  it('validation', () => {
+    expect(cleanSectionOp({ op: 'add', id: 'a', name: '  A ' })).toEqual({ op: 'add', id: 'a', name: 'A' });
+    expect(cleanSectionOp({ op: 'add', id: 'a', name: ' ' })).toBeNull();
+    expect(cleanSectionOp({ op: 'move', id: 'a', by: 2 })).toBeNull();
+    expect(cleanSectionOp({ op: 'drop', id: 'a' })).toBeNull();
+    expect(cleanSectionOp({ op: 'remove', id: 'a b' })).toBeNull();
+  });
+});
+
 describe('the rail routes (state.db)', () => {
   const now = new Date().toISOString();
   const a = { target: 'api', branch: 'feat/a', isGroup: false, paths: ['/wt/a'], createdAt: now, lastAccessedAt: now };
@@ -82,29 +115,32 @@ describe('the rail routes (state.db)', () => {
     const events: string[] = [];
     const app = new Hono();
     mountRailRoutes(app, { broadcast: (e) => void events.push(e) });
-    const put = (path: string, body: unknown) => app.request(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return { app, put, events };
+    const send = (method: string) => (path: string, body: unknown) => app.request(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { app, put: send('PUT'), post: send('POST'), events };
   };
 
   it('pin, sections, moving in and out; every window told; removing a section leaves its sessions in the rest', async () => {
-    const { app, put, events } = setup();
+    const { app, put, post, events } = setup();
     expect(await (await app.request('/api/rail')).json()).toEqual({ sections: [], places: {} });
     const ida = sessionIdFor(a);
     const idb = sessionIdFor(b);
 
     expect((await put(`/api/sessions/${ida}/rail`, { pinned: true })).status).toBe(200);
     expect((await put(`/api/sessions/${idb}/rail`, { section: 'x' })).status).toBe(409); // no such section yet
-    expect((await put('/api/rail/sections', { sections: [{ id: 'x', name: 'Client X' }] })).status).toBe(200);
+    expect((await post('/api/rail/sections', { op: 'add', id: 'x', name: 'Client X' })).status).toBe(200);
     const r = await put(`/api/sessions/${idb}/rail`, { section: 'x' });
     expect(await r.json()).toEqual({ sections: [{ id: 'x', name: 'Client X' }], places: { [ida]: { pinned: true }, [idb]: { section: 'x' } } });
     expect(events).toEqual(['rail-changed', 'rail-changed', 'rail-changed']);
 
-    await put('/api/rail/sections', { sections: [] });
+    // Two windows: one renames a section the other has just removed — refused, not resurrected.
+    await post('/api/rail/sections', { op: 'remove', id: 'x' });
     expect(readRailLayout()).toEqual({ sections: [], places: { [ida]: { pinned: true } } });
+    expect((await post('/api/rail/sections', { op: 'rename', id: 'x', name: 'Client X2' })).status).toBe(409);
+    expect(readRailLayout().sections).toEqual([]);
 
     expect((await put('/api/sessions/nope/rail', { pinned: true })).status).toBe(404);
     expect((await put(`/api/sessions/${ida}/rail`, { pinned: 'yes' })).status).toBe(400);
-    expect((await put('/api/rail/sections', { sections: [{ id: 'x', name: '' }] })).status).toBe(400);
+    expect((await post('/api/rail/sections', { op: 'add', id: 'x', name: '' })).status).toBe(400);
   });
 
   it("a session's place goes with it (a re-created session starts unpinned)", async () => {

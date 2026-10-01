@@ -665,8 +665,9 @@ export function fetchRailLayout(): Promise<RailLayout> {
   return getJson<RailLayout>('/api/rail');
 }
 
-export function saveRailSections(sections: import('../../../core/rail-layout.js').RailSection[]): Promise<RailLayout> {
-  return sendJson('PUT', '/api/rail/sections', { sections });
+/** One change to your sections, applied to the list as it is on the server. */
+export function changeRailSections(op: import('../../../core/rail-layout.js').SectionOp): Promise<RailLayout> {
+  return sendJson('POST', '/api/rail/sections', op);
 }
 
 /** Pin / unpin, or move into (`section: id`) or out of (`null`) a section. */

@@ -529,14 +529,14 @@ export interface SessionCi {
   }>;
 }
 
-/** What work does in the background (core/activity.ts), for the Activity panel. */
-// ---- behind main (behind-main.ts) -------------------------------------------------
+// ---- the rail's pins and sections (rail-layout.ts) -------------------------------
 
-/** POST /api/sessions/:id/update-from-main: per repo. */
-/** GET /api/rail (and every rail write's answer): the rail's pins and sections. */
-export type { RailLayout, RailSection, RailPlace, PlacePatch } from './rail-layout.js';
+/** GET /api/rail (and every rail write's answer). */
+export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
 
-/** POST /api/sessions/:id/fork: the new session (fork.ts). */
+// ---- fork (fork.ts) ---------------------------------------------------------------
+
+/** POST /api/sessions/:id/fork: the new session. */
 export interface ForkWire {
   sessionId: string;
   paths: string[];
@@ -546,6 +546,9 @@ export interface ForkWire {
   startError?: string;
 }
 
+// ---- behind main (behind-main.ts) -------------------------------------------------
+
+/** POST /api/sessions/:id/update-from-main: per repo. */
 export interface UpdateFromMainWire {
   results: Array<
     | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
@@ -587,6 +590,7 @@ export interface JiraWatchState {
   nextRunAt: string | null;
 }
 
+/** What work does in the background (core/activity.ts), for the Activity panel. */
 export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */

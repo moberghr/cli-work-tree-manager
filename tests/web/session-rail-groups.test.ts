@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
-import type { RailLayout } from '../../src/core/rail-layout.js';
+import type { RailLayout, SectionOp } from '../../src/core/rail-layout.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { railMenuItems } from '../../src/web/src/state/rail-menu.js';
 import { railGroups } from '../../src/web/src/state/session-display.js';
@@ -45,7 +45,8 @@ function render(over: Partial<Parameters<typeof SessionRail>[0]> = {}) {
     onNewWorktree: () => {},
     layout: LAYOUT,
     onPlace: vi.fn(),
-    onSections: vi.fn(async () => {}),
+    onSections: vi.fn(async (_op: SectionOp) => {}),
+    onReorder: vi.fn(),
     ...over,
   };
   act(() => root.render(createElement(SessionRail, props)));
@@ -110,9 +111,9 @@ describe('the rail in groups', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
-    const sections = vi.mocked(p.onSections!).mock.calls[0][0];
-    expect(sections.map((s) => s.name)).toEqual(['Client X', 'Waiting', 'Hotfixes']);
-    expect(p.onPlace).toHaveBeenLastCalledWith('a', { pinned: false, section: sections[2].id });
+    const op = p.onSections.mock.calls[0][0];
+    expect(op).toMatchObject({ op: 'add', name: 'Hotfixes' }); // one change, not the whole list
+    expect(p.onPlace).toHaveBeenLastCalledWith('a', { pinned: false, section: op.id });
   });
 
   it('dragging a row onto a heading moves it into that group', () => {
@@ -123,16 +124,55 @@ describe('the rail in groups', () => {
     expect(h.className).toContain('wd-dash-rail-group-drop');
     drag(h, 'drop');
     expect(p.onPlace).toHaveBeenCalledWith('a', { pinned: false, section: 'x' });
+    expect(p.onReorder).not.toHaveBeenCalled(); // a heading has no place among rows
+  });
+
+  it('dragging a row onto a row of another group: into that group, and in front of that row', () => {
+    const p = render();
+    drag(row('feat/a').parentElement!, 'dragstart');
+    const target = row('feat/b').parentElement!; // in Client X
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    const ev = (type: string) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
+      Object.defineProperty(e, 'clientY', { value: 5 });
+      act(() => { target.dispatchEvent(e); });
+    };
+    ev('dragover');
+    ev('drop');
+    expect(p.onPlace).toHaveBeenCalledWith('a', { pinned: false, section: 'x' });
+    expect(p.onReorder).toHaveBeenCalledWith(['c', 'old', 'a', 'b', 'd']);
+  });
+
+  it('a row dropped in its own group only moves (no place change)', () => {
+    const p = render();
+    drag(row('feat/d').parentElement!, 'dragstart');
+    const target = row('feat/a').parentElement!;
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    for (const type of ['dragover', 'drop']) {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
+      Object.defineProperty(e, 'clientY', { value: 5 });
+      act(() => { target.dispatchEvent(e); });
+    }
+    expect(p.onPlace).not.toHaveBeenCalled();
+    expect(p.onReorder).toHaveBeenCalledWith(['c', 'old', 'b', 'd', 'a']);
+  });
+
+  it('with every row placed, Other stays, empty, as somewhere to drag a row out of its section', () => {
+    render({ sessions: [session('a'), session('b')], layout: { sections: [{ id: 'x', name: 'Client X' }], places: { a: { section: 'x' }, b: { pinned: true } } } });
+    expect(shown()).toEqual(['# Pinned', 'feat/b', '# Client X', 'feat/a', '# Other']);
+    expect(container.textContent).toContain('Drag a session here to unpin it or take it out of its section.');
   });
 
   it("a section's menu: rename, reorder, remove (its sessions stay, in the rest)", () => {
     const p = render();
     rightClick(heading('Client X'));
     act(() => menuItem('Move down')!.click());
-    expect(p.onSections).toHaveBeenLastCalledWith([{ id: 'y', name: 'Waiting' }, { id: 'x', name: 'Client X' }]);
+    expect(p.onSections).toHaveBeenLastCalledWith({ op: 'move', id: 'x', by: 1 });
     rightClick(heading('Client X'));
     act(() => menuItem('Remove section')!.click());
-    expect(p.onSections).toHaveBeenLastCalledWith([{ id: 'y', name: 'Waiting' }]);
+    expect(p.onSections).toHaveBeenLastCalledWith({ op: 'remove', id: 'x' });
   });
 
   it('Alt+1…9 opens the rows as shown, pinned first — a terminal included, not while typing in a field', () => {

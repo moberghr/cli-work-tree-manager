@@ -11,7 +11,7 @@ import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire,
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
-import { applyPlacePatch, cleanPlacePatch, cleanSections, type RailLayout } from '../rail-layout.js';
+import { applyPlacePatch, applySectionOp, cleanPlacePatch, cleanSectionOp, type RailLayout } from '../rail-layout.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
 
@@ -273,9 +273,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   let rail: RailLayout = { sections: [], places: {} };
   const railChanged = () => broadcast({ event: 'rail-changed', data: { ts: Date.now() } });
   app.get('/api/rail', (c) => c.json(rail));
-  app.put('/api/rail/sections', async (c) => {
-    const sections = cleanSections((await json(c)).sections);
-    if (!sections) return c.json({ error: 'sections must be a list of {id, name} (at most 30, names not empty)' }, 400);
+  app.post('/api/rail/sections', async (c) => {
+    const op = cleanSectionOp(await json(c));
+    if (!op) return c.json({ error: 'expected {op: add|rename|move|remove, id, name?, by?}' }, 400);
+    const r = applySectionOp(rail.sections, op);
+    if (!r.ok) return c.json({ error: r.error }, 409);
+    const sections = r.sections;
     const known = new Set(sections.map((s) => s.id));
     const places: RailLayout['places'] = {};
     for (const [id, p] of Object.entries(rail.places)) {

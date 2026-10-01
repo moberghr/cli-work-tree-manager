@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { behindText } from './BehindChip.js';
 import { RowMenu, type MenuItem } from './RowMenu.js';
-import { EMPTY_RAIL_LAYOUT, MAX_SECTION_NAME, placeForGroup, type PlacePatch, type RailGroup, type RailLayout, type RailSection } from '../../../../core/rail-layout.js';
+import { EMPTY_RAIL_LAYOUT, MAX_SECTION_NAME, placeForGroup, type PlacePatch, type RailGroup, type RailLayout, type SectionOp } from '../../../../core/rail-layout.js';
 import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
@@ -44,8 +44,8 @@ interface Props {
   layout?: RailLayout;
   /** Set when rows can be pinned or moved into sections (menu, or a drag into another group). */
   onPlace?: (id: string, patch: PlacePatch) => void;
-  /** Set when sections can be added, renamed, reordered, removed. */
-  onSections?: (sections: RailSection[]) => Promise<void>;
+  /** Set when sections can be added, renamed, reordered, removed (one change at a time, applied by the server). */
+  onSections?: (op: SectionOp) => Promise<void>;
 }
 
 /** Right-hand status slot: the one thing worth saying about this row. The
@@ -200,23 +200,15 @@ export function SessionRail({
     setDrop(null);
   };
 
-  const sections = layout.sections;
   const saveSectionName = async (name: string) => {
     const n = naming;
     if (!n || !onSections || !name) return;
-    if (n.kind === 'rename') return onSections(sections.map((x) => (x.id === n.sectionId ? { ...x, name } : x)));
+    if (n.kind === 'rename') return onSections({ op: 'rename', id: n.sectionId, name });
     const id = newSectionId();
-    await onSections([...sections, { id, name }]);
+    await onSections({ op: 'add', id, name });
     if (n.sessionId) onPlace?.(n.sessionId, { pinned: false, section: id });
   };
-  const moveSection = (id: string, by: -1 | 1) => {
-    const i = sections.findIndex((x) => x.id === id);
-    const j = i + by;
-    if (i < 0 || j < 0 || j >= sections.length || !onSections) return;
-    const next = [...sections];
-    [next[i], next[j]] = [next[j], next[i]];
-    void onSections(next);
-  };
+  const moveSection = (id: string, by: -1 | 1) => void onSections?.({ op: 'move', id, by }).catch(() => {});
 
   const renderRow = (s: SessionSummary, index: number) => {
     const kind = displayStatus(s);
@@ -431,9 +423,9 @@ export function SessionRail({
                   </li>
                 )),
               ...rows.map((s) => renderRow(s, index++)),
-              !folded && g.sectionId && g.sessions.length === 0 && (
+              !folded && g.sessions.length === 0 && (
                 <li key={`e:${g.key}`} className="wd-dash-rail-group-empty">
-                  Drag a session here, or right-click one → Move to “{g.title}”.
+                  {g.sectionId ? `Drag a session here, or right-click one → Move to “${g.title}”.` : 'Drag a session here to unpin it or take it out of its section.'}
                 </li>
               ),
             ];
@@ -494,7 +486,7 @@ export function SessionRail({
               hint: 'its sessions stay',
               danger: true,
               separated: true,
-              run: () => void onSections?.(sections.filter((x) => x.id !== sectionMenu.id)),
+              run: () => void onSections?.({ op: 'remove', id: sectionMenu.id }).catch(() => {}),
             },
           ]}
         />

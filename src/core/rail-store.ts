@@ -1,5 +1,5 @@
 import { json, tx, withDb, type Db } from './db.js';
-import { applyPlacePatch, asRailPlace, cleanSections, type PlacePatch, type RailLayout, type RailPlace, type RailSection } from './rail-layout.js';
+import { applyPlacePatch, applySectionOp, asRailPlace, cleanSections, type PlacePatch, type RailLayout, type RailPlace, type RailSection, type SectionOp } from './rail-layout.js';
 
 /**
  * The rail's pins and sections in state.db (rail-layout.ts has the rules):
@@ -24,18 +24,31 @@ export function readRailLayout(): RailLayout {
   });
 }
 
-/** Replace the section list (add, rename, reorder, remove). Sessions in a removed section go back to the rest. */
-export function saveRailSections(sections: RailSection[]): RailLayout {
-  tx((d) => {
-    d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(SECTIONS_KEY, JSON.stringify(sections));
-    const known = new Set(sections.map((s) => s.id));
-    for (const r of d.prepare('SELECT session_id, data FROM rail_place').all() as Array<{ session_id: string; data: string }>) {
-      const p = asRailPlace(json.parse(r.data));
-      if (!p?.section || known.has(p.section)) continue;
-      writePlace(d, r.session_id, applyPlacePatch(p, { section: null }));
-    }
+/** One change to the sections, against the list as it is now (rail-layout.ts SectionOp). */
+export function changeRailSections(op: SectionOp): PlaceResult {
+  const error = tx((d) => {
+    const r = applySectionOp(readSections(d), op);
+    if (!r.ok) return r.error;
+    writeSections(d, r.sections);
+    return null;
   });
+  return error ? { ok: false, error } : { ok: true, layout: readRailLayout() };
+}
+
+/** Replace the section list. Sessions in a removed section go back to the rest. */
+export function saveRailSections(sections: RailSection[]): RailLayout {
+  tx((d) => writeSections(d, sections));
   return readRailLayout();
+}
+
+function writeSections(d: Db, sections: RailSection[]): void {
+  d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(SECTIONS_KEY, JSON.stringify(sections));
+  const known = new Set(sections.map((s) => s.id));
+  for (const r of d.prepare('SELECT session_id, data FROM rail_place').all() as Array<{ session_id: string; data: string }>) {
+    const p = asRailPlace(json.parse(r.data));
+    if (!p?.section || known.has(p.section)) continue;
+    writePlace(d, r.session_id, applyPlacePatch(p, { section: null }));
+  }
 }
 
 export type PlaceResult = { ok: true; layout: RailLayout } | { ok: false; error: string };
