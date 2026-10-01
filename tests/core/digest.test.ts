@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDigest, digestSession, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
+import { buildDigest, digestSession, promptEntries, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
@@ -122,5 +122,23 @@ describe('buildDigest', () => {
       T0,
     );
     expect(rows.map((r) => r.sessionId)).toEqual(['late', 'archived', 'early']);
+  });
+});
+
+describe('promptEntries', () => {
+  it('keeps only your prompts (uuid, time, text), and the digest reads the same from them', () => {
+    const big = 'x'.repeat(100_000);
+    const entries = [
+      { type: 'user', uuid: 'u1', timestamp: '2026-09-30T09:00:00Z', message: { role: 'user', content: 'Fix the login redirect' } },
+      { type: 'assistant', timestamp: '2026-09-30T09:00:01Z', message: { content: [{ type: 'text', text: big }] } },
+      { type: 'user', timestamp: '2026-09-30T09:00:02Z', message: { content: [{ type: 'tool_result', content: big }] } },
+      { type: 'user', uuid: 'u2', timestamp: '2026-09-30T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Now add a test' }] } },
+    ] as unknown as TranscriptEntry[];
+    const slim = promptEntries(entries);
+    expect(slim).toHaveLength(2);
+    expect(JSON.stringify(slim).length).toBeLessThan(400); // not the 200 KB of tool output
+    const since = Date.parse('2026-09-30T00:00:00Z');
+    expect(promptsSince([slim], since)).toEqual(promptsSince([entries], since));
+    expect(promptsSince([slim, slim], since)).toHaveLength(2); // still deduped by uuid
   });
 });

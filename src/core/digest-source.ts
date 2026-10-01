@@ -6,7 +6,7 @@ import { listTranscripts } from './context-usage.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
 import { loadManifest } from './checkpoint.js';
 import { scopeHashForPaths } from './scope-manager.js';
-import { buildDigest } from './digest.js';
+import { buildDigest, promptEntries } from './digest.js';
 import type { DiffStat, DigestResponse, SessionCi } from './api-types.js';
 
 /**
@@ -34,10 +34,27 @@ export interface DigestSource {
   collect(sinceMs?: number): Promise<DigestResponse>;
 }
 
+/** Sessions read at once: each can mean reading up to 64 MB of transcript. */
+const READ_CONCURRENCY = 3;
+
+/** `fn` over `items`, at most `limit` at a time, results in order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (let i = next++; i < items.length; i = next++) out[i] = await fn(items[i]);
+    }),
+  );
+  return out;
+}
+
 /**
- * A digest source that keeps transcripts it already parsed, by file
- * identity (path, size, mtime): changing the window re-reads only what
- * changed since. The CLI makes one per run; work web keeps one.
+ * A digest source that keeps what it already read of each transcript — its
+ * prompts only (promptEntries) — by file identity (path, size, mtime):
+ * changing the window re-reads only what changed since, and the cache holds
+ * just the files of the last digest. The CLI makes one per run; work web
+ * keeps one.
  */
 export function createDigestSource(deps: DigestDeps = {}): DigestSource {
   const now = deps.now ?? Date.now;
@@ -47,10 +64,10 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
       const t0 = now();
       const sinceMs = digestWindow(asked, t0);
       const next = new Map<string, { sinceMs: number; win: TranscriptWindow }>();
-      const inputs = await Promise.all(
-        loadHistory()
-          .filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs)
-          .map(async (s) => {
+      const inputs = await mapLimit(
+        loadHistory().filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs),
+        READ_CONCURRENCY,
+        async (s) => {
             const id = sessionIdFor(s);
             const status = readStatus(id);
             const attention = status ? effectiveStatus(status, readSessionActivity(s).lastActivity ?? 0) : null;
@@ -61,7 +78,7 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
               const key = `${t.file}:${t.size}:${t.mtimeMs}`;
               const hit = cache.get(key);
               const reuse = !!hit && hit.sinceMs <= sinceMs;
-              const win = reuse ? hit.win : await readTranscriptSince(t.file, sinceMs);
+              const win = reuse ? hit.win : slim(await readTranscriptSince(t.file, sinceMs));
               next.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win });
               transcripts.push(win.entries);
               if (win.partial) partial = true;
@@ -80,7 +97,7 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
               diffStat: deps.diffStatFor?.(id) ?? null,
               ci: (await deps.ciFor?.(id)) ?? null,
             };
-          }),
+        },
       );
       cache = next;
       return {
@@ -90,4 +107,9 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
       };
     },
   };
+}
+
+/** A read window reduced to the prompts the digest uses. */
+function slim(win: TranscriptWindow): TranscriptWindow {
+  return { ...win, entries: promptEntries(win.entries) };
 }

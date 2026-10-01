@@ -44,6 +44,27 @@ function clip(text: string): string {
 /** Your prompts after `sinceMs`, oldest first. The same entry seen twice
  *  (by its uuid, else time + text) counts once; typing "commit" three times
  *  is three prompts. */
+/**
+ * Of a transcript's entries, only what the digest reads — your prompts —
+ * reduced to their uuid, time and text. A day's transcripts hold tool
+ * output too (megabytes per session); the digest kept all of it parsed in
+ * memory for every session in the window, for the sake of a few lines.
+ */
+export function promptEntries(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const out: TranscriptEntry[] = [];
+  for (const e of entries) {
+    const text = promptText(e);
+    if (!text) continue;
+    out.push({
+      type: 'user',
+      ...(typeof e.uuid === 'string' ? { uuid: e.uuid } : {}),
+      ...(typeof e.timestamp === 'string' ? { timestamp: e.timestamp } : {}),
+      message: { role: 'user', content: text },
+    } as TranscriptEntry);
+  }
+  return out;
+}
+
 export function promptsSince(transcripts: TranscriptEntry[][], sinceMs: number): Array<{ ts: string; text: string }> {
   const out: Array<{ ts: string; text: string }> = [];
   const seen = new Set<string>();
