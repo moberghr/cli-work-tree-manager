@@ -83,7 +83,9 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     const ctx = await until(context, (c) => !!c && c.lean === false, 'the full server');
     expect(ctx.pid).not.toBe(lean.pid);
     expect(ctx.pid).toBe(full.pid);
-    await until(workHooks, (n) => n >= 5, "the full server's Claude hooks in settings.json");
+    // The full set (one hook per turn edge + Notification), lean's checkpoint hooks replaced.
+    await until(workHooks, (n) => n === 3, "the full server's Claude hooks in settings.json");
+    expect(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf-8')).toContain('work hook turn-end');
 
     const stop = spawnSync(process.execPath, [BIN, 'web', '--stop'], { env, encoding: 'utf-8', timeout: 30_000 });
     expect(stop.status).toBe(0);
