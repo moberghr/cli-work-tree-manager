@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { BehindCache } from './behind-main.js';
+import { mountUpdateRoutes } from './update-routes.js';
 import { mountCatchUpRoutes } from './catch-up-routes.js';
 import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
@@ -265,6 +267,8 @@ export async function startWebServer(
   // `+N −M` per row, computed in the background (never inline) and
   // broadcast once when values change — see diff-stat.ts.
   let diffStatBroadcast: NodeJS.Timeout | null = null;
+  // Behind main, per session: slow refresh (main moves slowly), a broadcast when it changes.
+  const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
       if (diffStatBroadcast) return;
@@ -299,6 +303,7 @@ export async function startWebServer(
           claudesFor,
           liveKnown: !!table && table.size > 0,
           snoozeFor: (id) => snoozes.get(id) ?? null,
+          behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths) : null),
           hostedLive: (id) => peekPty(id) || chatApi.running(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
@@ -544,6 +549,15 @@ export async function startWebServer(
   // The Jira watch: newly assigned issues started in the right project
   // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
   const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean });
+
+  // Update from main (behind-main.ts): its numbers move, so look again.
+  mountUpdateRoutes(app, {
+    broadcast,
+    changed: (id) => {
+      behindCache.invalidate(id);
+      diffStats.invalidate(id);
+    },
+  });
 
   // "Catch me up" on a session (catch-up.ts): its change size from the stats cache.
   mountCatchUpRoutes(app, {

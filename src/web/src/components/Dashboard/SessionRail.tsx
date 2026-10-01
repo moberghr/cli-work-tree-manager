@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { behindText } from './BehindChip.js';
 import { RowMenu, type MenuItem } from './RowMenu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
@@ -193,6 +194,7 @@ export function SessionRail({
             const named = s.titleIsYours && !!s.title;
             const label = named ? s.title! : s.branch || s.target;
             const other = otherBranchText(s);
+            const behind = behindText(s);
             const slot = statusSlot(s, kind);
             const stat = formatDiffStat(s);
             const prs = prsFor?.(s) ?? [];
@@ -265,7 +267,7 @@ export function SessionRail({
                     if (e.key === 'ArrowDown' && i < shownIds.length - 1) move(s.id, shownIds[i + 2] ?? null);
                   }}
                   title={
-                    `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
+                    `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
                     (summary ? ` — ${summary}` : '')
                   }
                 >

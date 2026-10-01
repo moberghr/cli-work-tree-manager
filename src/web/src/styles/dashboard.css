@@ -1896,3 +1896,10 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-bulk-hidden { color: var(--muted); }
 /* The header wraps only to make room for a catch-up summary. */
 .wd-session-detail-header:has(.wd-catch-up) { flex-wrap: wrap; }
+
+/* Behind main (BehindChip): how far, Update from main, the outcome. */
+.wd-behind { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.wd-behind-text { color: var(--warn-fg); white-space: nowrap; }
+.wd-behind-conflicts .wd-behind-text { color: var(--del-fg); }
+.wd-behind-outcome { font-size: 11px; color: var(--muted); }
+.wd-behind-outcome .wd-link-button { margin-left: 6px; }

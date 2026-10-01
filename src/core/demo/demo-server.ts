@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, JiraDecision, JiraWatchState } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, JiraDecision, JiraWatchState, UpdateFromMainWire } from '../api-types.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
@@ -49,6 +49,13 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'replies-changed', data: { sessionId } });
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
   });
+  // Update from main: nothing to update in the demo.
+  app.post('/api/sessions/:id/update-from-main', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    return c.json({ results: [{ ok: true, repo: w.target, how: 'nothing', base: 'origin/main', commits: 0 }] } satisfies UpdateFromMainWire);
+  });
+
   // "Catch me up": a canned summary (the demo runs no Claude).
   const caughtUp = new Map<string, { text: string; at: string }>();
   app.get('/api/sessions/:id/catch-up', (c) => c.json({ catchUp: caughtUp.get(c.req.param('id')) ?? null } satisfies CatchUpWire));

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BehindChip } from './BehindChip.js';
 import { CatchUpButton } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
@@ -95,6 +96,7 @@ export function SessionDetail({
         {archived && <span className="wd-archived-pill">archived</span>}
         <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
         <CatchUpButton key={`catch-${session.id}`} session={session} />
+        <BehindChip key={`behind-${session.id}`} session={session} />
         <PromptsMenu session={session} />
         <button
           type="button"

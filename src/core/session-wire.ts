@@ -39,6 +39,8 @@ export interface SessionWireOptions {
   hostedLive?: (id: string) => boolean;
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
   snoozeFor?: (id: string) => Snooze | null;
+  /** How far behind main it is (behind-main.ts's cache). */
+  behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean } | null;
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -88,6 +90,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   // file can override (that would end a snooze the moment it was set).
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
   if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads })) wire.snoozed = { until: snooze.until };
+  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
+  if (behind && behind.commits > 0) wire.behind = behind;
   return wire;
 }
 

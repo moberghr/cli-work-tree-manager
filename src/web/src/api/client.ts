@@ -4,6 +4,7 @@ import type {
   CommentStatus,
   CommentSide,
 } from '../../../core/comment-types.js';
+import type { UpdateFromMainWire } from '../../../core/api-types.js';
 import type { SnoozeFor } from '../../../core/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import type {
@@ -133,6 +134,8 @@ export interface SessionSummary {
   title?: string | null;
   /** Snoozed out of the Inbox right now: until when, or null for "until it changes". */
   snoozed?: { until: string | null };
+  /** Behind its main branch, as of the last fetch (absent when level). */
+  behind?: { base: string; commits: number; conflicts: boolean };
   /** Repos checked out on another branch than `branch` (null = detached). */
   onOtherBranch?: Array<{ repo: string; branch: string | null }>;
   titleIsYours?: boolean;
@@ -574,6 +577,16 @@ export async function sendPromptToSession(sessionId: string, body: string): Prom
     body: JSON.stringify({ side: 'general', status: 'published', body }),
   });
   if (!res.ok) throw new Error(`send failed (${res.status})`);
+}
+
+export type UpdateFromMainResult = UpdateFromMainWire['results'][number];
+
+/** Fetch, then rebase (never pushed) or merge main in (pushed); conflicts aborted. One result per repo. */
+export async function updateFromMain(sessionId: string): Promise<UpdateFromMainResult[]> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/update-from-main`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as Partial<UpdateFromMainWire> & { error?: string };
+  if (!res.ok || !body.results) throw new Error(body.error ?? `update failed (${res.status})`);
+  return body.results;
 }
 
 /** "Catch me up": a few sentences on where a session stands (written once per conversation growth). */

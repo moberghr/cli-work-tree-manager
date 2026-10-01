@@ -332,6 +332,8 @@ export interface SessionWire {
   id: string;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
   snoozed?: { until: string | null };
+  /** Behind its main branch (behind-main.ts, as of the last fetch): absent when level or unknown. */
+  behind?: { base: string; commits: number; conflicts: boolean };
   target: string;
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
@@ -528,6 +530,16 @@ export interface SessionCi {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
+// ---- behind main (behind-main.ts) -------------------------------------------------
+
+/** POST /api/sessions/:id/update-from-main: per repo. */
+export interface UpdateFromMainWire {
+  results: Array<
+    | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
+    | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string }
+  >;
+}
+
 // ---- catch me up (catch-up.ts) -------------------------------------------------------
 
 /** GET / POST /api/sessions/:id/catch-up */
