@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RowMenu } from './RowMenu.js';
+import { RowMenu, type MenuItem } from './RowMenu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
 import { ClaudesChip, PrChips, otherBranchText } from './SessionBits.js';
@@ -34,6 +34,8 @@ interface Props {
   /** Set when sessions can be renamed here: F2, or right-click → Rename. An
    *  empty title goes back to the automatic one. */
   onRename?: (id: string, title: string) => Promise<void>;
+  /** A row's right-click menu after Rename: archive, open, copy, delete… (the app builds it). */
+  menuFor?: (s: SessionSummary) => MenuItem[];
 }
 
 /** Right-hand status slot: the one thing worth saying about this row. The
@@ -67,6 +69,7 @@ export function SessionRail({
   order,
   onReorder,
   onRename,
+  menuFor,
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
   const { current, older } = useMemo(() => railSessions(sessions, Date.now(), order ?? []), [sessions, order]);
@@ -243,7 +246,7 @@ export function SessionRail({
                   }
                   onClick={() => onSelect(s.id)}
                   onContextMenu={(e) => {
-                    if (!onRename) return;
+                    if (!onRename && !menuFor) return;
                     e.preventDefault();
                     setMenu({ id: s.id, x: e.clientX, y: e.clientY });
                   }}
@@ -322,7 +325,13 @@ export function SessionRail({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[{ label: 'Rename', hint: 'F2', run: () => setRenamingId(menu.id) }]}
+          items={[
+            ...(onRename ? [{ label: 'Rename', hint: 'F2', run: () => setRenamingId(menu.id) }] : []),
+            ...(() => {
+              const s = sessions.find((x) => x.id === menu.id);
+              return s && menuFor ? menuFor(s) : [];
+            })(),
+          ]}
         />
       )}
     </aside>

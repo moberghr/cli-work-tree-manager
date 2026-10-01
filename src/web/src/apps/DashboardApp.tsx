@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary } from '../api/client.js';
+import { Toast, useToast } from '../components/Dashboard/Toast.js';
+import { sessionMenuItems } from '../state/session-menu.js';
+import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareInbox, needsAttention, wantsYou } from '../../../core/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
-import { fetchPrs, type PrInfo } from '../api/panes.js';
+import { fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
 import { defaultSubTab, isArchived, prsForSession, prsKnownFrom, railSessions, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
@@ -117,6 +119,27 @@ export function DashboardApp() {
 
   // Session pending delete confirmation (card trash button / detail header).
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
+  const { toast, show: showToast, hide: hideToast } = useToast();
+  // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
+  const sessionMenu = useCallback(
+    (s: SessionSummary) =>
+      sessionMenuItems(s, {
+        setArchived: (x, archived) =>
+          void setArchived(x.id, archived).then(
+            () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
+            (err: Error) => showToast({ text: err.message, kind: 'error' }),
+          ),
+        openTerminal: (x) => void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),
+        openEditor: (x) => void openInEditor(x.id).catch((err: Error) => showToast({ text: `Couldn't open the editor: ${err.message}`, kind: 'error' })),
+        copyBranch: (x) =>
+          void navigator.clipboard.writeText(x.branch).then(
+            () => showToast({ text: `Copied ${x.branch}` }),
+            () => showToast({ text: "Couldn't copy to the clipboard", kind: 'error' }),
+          ),
+        remove: (x) => setDeleting(x),
+      }),
+    [showToast],
+  );
 
   // Sync route ↔ URL hash. Listen to back/forward; push when we navigate.
   useEffect(() => {
@@ -576,6 +599,7 @@ export function DashboardApp() {
         onSelectSession={hopTo}
         sessionOrder={sessionOrder}
         onReorderSessions={reorderSessions}
+        sessionMenu={sessionMenu}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}
@@ -609,6 +633,7 @@ export function DashboardApp() {
           }}
         />
       )}
+      <Toast toast={toast} onClose={hideToast} />
       {deleting && (
         <DeleteSessionModal
           session={deleting}

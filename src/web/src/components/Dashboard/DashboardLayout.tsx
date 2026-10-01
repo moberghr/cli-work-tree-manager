@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { MenuItem } from './RowMenu.js';
 import { renameSession, type SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';
 import type { PrLookup } from '../../state/session-display.js';
@@ -30,6 +31,8 @@ interface Props {
   /** The rail's drag order (session ids, top first) and what a drag sets. */
   sessionOrder?: string[];
   onReorderSessions?: (order: string[]) => void;
+  /** A rail row's right-click menu after Rename. */
+  sessionMenu?: (s: SessionSummary) => MenuItem[];
   children: ReactNode;
 }
 
@@ -62,6 +65,7 @@ export function DashboardLayout({
   activity,
   sessionOrder,
   onReorderSessions,
+  sessionMenu,
   children,
 }: Props) {
   // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
@@ -123,6 +127,7 @@ export function DashboardLayout({
           }}
           prsFor={prsFor}
           onRename={renameSession}
+          menuFor={sessionMenu}
           order={sessionOrder}
           onReorder={onReorderSessions}
         />
