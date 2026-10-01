@@ -292,6 +292,12 @@ export function DashboardApp() {
     void saveSessionOrder(order).catch(() => void fetchSessionOrder().then(setSessionOrder, () => {}));
   }, []);
 
+  // The rail's rows as it shows them, for j/k.
+  const railShownRef = useRef<string[]>([]);
+  const onRailShownChange = useCallback((ids: string[]) => {
+    railShownRef.current = ids;
+  }, []);
+
   // The rail's pins and sections: every window's (state.db), applied as the server answers.
   const [railLayout, setRailLayout] = useState<RailLayout>(EMPTY_RAIL_LAYOUT);
   useEffect(() => {
@@ -438,12 +444,16 @@ export function DashboardApp() {
         }
         return;
       }
-      // j / k — move down/up through the rail, in the order it shows them:
-      // pinned, your sections, the rest — the current sessions, plus the
-      // older ones it keeps visible (pinned, selected). (Walking all sessions
-      // by recency jumped to rows the rail doesn't show, archived ones included.)
+      // j / k — move down/up through the rail, in the order it shows them
+      // (the rail reports its rows: older ones unfolded, headings folded, a
+      // search); before it has, the same grouping it starts with. (Walking
+      // all sessions by recency jumped to rows the rail doesn't show.)
       if (e.key === 'j' || e.key === 'k') {
-        const sorted = railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId }).groups.flatMap((g) => g.sessions);
+        const byId = new Map(sessions.map((s) => [s.id, s]));
+        const shown = railShownRef.current.map((id) => byId.get(id)).filter((s): s is SessionSummary => !!s);
+        const sorted = shown.length
+          ? shown
+          : railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId }).groups.flatMap((g) => g.sessions);
         if (sorted.length === 0) return;
         const currentIdx = route.sessionId
           ? sorted.findIndex((s) => s.id === route.sessionId)
@@ -638,6 +648,7 @@ export function DashboardApp() {
         railLayout={railLayout}
         onPlaceSession={placeInRail}
         onRailSections={changeSections}
+        onRailShownChange={onRailShownChange}
         onHome={goHome}
         onNewWorktree={() => openNew(null)}
         inboxCount={inboxCount}

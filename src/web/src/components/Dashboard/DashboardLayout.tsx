@@ -37,6 +37,7 @@ interface Props {
   railLayout?: RailLayout;
   onPlaceSession?: (id: string, patch: PlacePatch) => void;
   onRailSections?: (op: SectionOp) => Promise<void>;
+  onRailShownChange?: (ids: string[]) => void;
   children: ReactNode;
 }
 
@@ -73,6 +74,7 @@ export function DashboardLayout({
   railLayout,
   onPlaceSession,
   onRailSections,
+  onRailShownChange,
   children,
 }: Props) {
   // Narrow layouts (≤ 720 px, see dashboard.css) show the rail as an
@@ -138,6 +140,7 @@ export function DashboardLayout({
           layout={railLayout}
           onPlace={onPlaceSession}
           onSections={onRailSections}
+          onShownChange={onRailShownChange}
           order={sessionOrder}
           onReorder={onReorderSessions}
         />

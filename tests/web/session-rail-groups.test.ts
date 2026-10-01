@@ -202,6 +202,19 @@ describe('the rail in groups', () => {
   });
 });
 
+describe('the rows as shown (j/k walk them)', () => {
+  it('reported on every change: older ones unfolded, a heading folded', () => {
+    const more = [...SESSIONS, session('old2', old)];
+    const onShownChange = vi.fn();
+    render({ sessions: more, onShownChange });
+    expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd']);
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-older')].find((b) => b.textContent?.includes('older'))!.click());
+    expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd', 'old2']);
+    act(() => heading('Client X').click());
+    expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'a', 'd', 'old2']);
+  });
+});
+
 describe('the pure parts', () => {
   it('railMenuItems: Unpin for a pinned one; out of its own section instead of into it', () => {
     const labels = (id: string) => railMenuItems(session(id), LAYOUT, { place: () => {}, newSection: () => {} }).map((m) => m.label);

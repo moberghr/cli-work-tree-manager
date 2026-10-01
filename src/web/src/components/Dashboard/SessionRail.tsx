@@ -46,6 +46,9 @@ interface Props {
   onPlace?: (id: string, patch: PlacePatch) => void;
   /** Set when sections can be added, renamed, reordered, removed (one change at a time, applied by the server). */
   onSections?: (op: SectionOp) => Promise<void>;
+  /** The rows as shown, top to bottom (older ones unfolded, headings folded,
+   *  a search), whenever that changes — so j/k walk what's on screen. */
+  onShownChange?: (ids: string[]) => void;
 }
 
 /** Right-hand status slot: the one thing worth saying about this row. The
@@ -89,6 +92,7 @@ export function SessionRail({
   layout = EMPTY_RAIL_LAYOUT,
   onPlace,
   onSections,
+  onShownChange,
 }: Props) {
   const [showOlder, setShowOlder] = useState(false);
   const [query, setQuery] = useState('');
@@ -187,6 +191,10 @@ export function SessionRail({
   }, [onRename, activeSessionId]);
 
   const shownIds = visible.map((s) => s.id);
+  const shownKey = shownIds.join(',');
+  useEffect(() => {
+    onShownChange?.(shownKey ? shownKey.split(',') : []);
+  }, [shownKey, onShownChange]);
   const move = (id: string, beforeId: string | null) => {
     if (canReorder) onReorder?.(moveSession(shownIds, id, beforeId, order ?? []));
   };
