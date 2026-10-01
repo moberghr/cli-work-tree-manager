@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { StatusIcon } from './StatusIcon.js';
 import { DISPLAY_LABEL, DISPLAY_MEANING, LEGEND_KINDS } from '../../state/session-display.js';
 
 /**
@@ -36,19 +37,19 @@ export function StatusLegend() {
         className="wd-dash-rail-new wd-legend-toggle"
         aria-expanded={!!open}
         aria-controls="wd-legend-panel"
-        title="What the colours mean"
-        aria-label="What the colours mean"
+        title="What the icons mean"
+        aria-label="What the icons mean"
         onClick={toggle}
       >
         ?
       </button>
       {open && (
-        <div id="wd-legend-panel" className="wd-legend-panel" role="dialog" aria-label="What the colours mean" style={{ top: open.top, left: open.left }}>
-          <h3 className="wd-legend-title">What the colours mean</h3>
+        <div id="wd-legend-panel" className="wd-legend-panel" role="dialog" aria-label="What the icons mean" style={{ top: open.top, left: open.left }}>
+          <h3 className="wd-legend-title">What the icons mean</h3>
           <ul className="wd-legend-list">
             {LEGEND_KINDS.map((k) => (
               <li key={k} className="wd-legend-row">
-                <span className={`wd-rail-dot wd-rail-dot-${k}`} aria-hidden />
+                <StatusIcon kind={k} />
                 <span className="wd-legend-name">{DISPLAY_LABEL[k]}</span>
                 <span className="wd-legend-meaning">{DISPLAY_MEANING[k]}</span>
               </li>
@@ -57,7 +58,7 @@ export function StatusLegend() {
           <h3 className="wd-legend-title">On a row</h3>
           <ul className="wd-legend-list wd-legend-marks">
             <li><b>Bold</b> — it wants you (needs input, done, review comments). The Inbox lists these in order; <kbd>n</kbd> jumps to the next.</li>
-            <li><span className="wd-rail-slot-needs">◆ 4m</span> waiting that long for you · <span className="wd-rail-slot-done">● 4m</span> finished that long ago · <span className="wd-rail-slot-review">💬 2</span> unresolved review comments</li>
+            <li>On the right: <span className="wd-rail-slot-needs">4m</span> waiting that long for you · <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-review">2</span> unresolved review comments</li>
             <li><span className="wd-pr-chip">#212</span> an open pull request (click to open it)</li>
             <li><span className="wd-legend-overlap">⚠</span> another session changes the same files</li>
           </ul>

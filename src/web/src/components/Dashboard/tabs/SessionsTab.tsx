@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { StatusIcon } from '../StatusIcon.js';
 import { useArchivePending } from '../../../api/archive-pending.js';
 import { searchConversations, setArchived, type ConversationHit, type SessionSummary } from '../../../api/client.js';
 import { openInTerminal } from '../../../api/panes.js';
@@ -420,7 +421,7 @@ function SessionRow({ session: s, prs, onOpen, onDelete }: RowProps) {
     >
       <td className="wd-st-col-status">
         <span className="wd-st-status" title={statusHint(kind)}>
-          <span className={`wd-rail-dot wd-rail-dot-${kind}`} aria-hidden />
+          <StatusIcon kind={kind} />
           <span className="wd-st-label">{DISPLAY_LABEL[kind]}</span>
         </span>
       </td>

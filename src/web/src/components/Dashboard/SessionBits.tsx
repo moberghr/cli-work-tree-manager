@@ -1,4 +1,5 @@
 import type { SessionSummary } from '../../api/client.js';
+import { StatusIcon } from './StatusIcon.js';
 import type { PrInfo } from '../../api/panes.js';
 import {
   DISPLAY_LABEL,
@@ -185,7 +186,7 @@ export function StatusLine({ session }: { session: SessionSummary }) {
   const since = a ? relativeTime(a.since) : relativeTime(lastActiveAt(session));
   return (
     <span className={`wd-status-line wd-status-line-${kind}`} title={statusHint(kind)}>
-      <span className={`wd-rail-dot wd-rail-dot-${kind}`} aria-hidden />
+      <StatusIcon kind={kind} />
       <span className="wd-status-label">{DISPLAY_LABEL[kind]}</span>
       {since && <span className="wd-status-since"> · {since}</span>}
       {a?.stale && <span className="wd-status-since" title="No activity for 15 minutes"> (quiet)</span>}

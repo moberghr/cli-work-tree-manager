@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
 import { ClaudesChip, PrChips, otherBranchText } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
-  DISPLAY_MEANING,
   displayStatus,
   formatDiffStat,
   railSessions,
@@ -35,18 +35,14 @@ interface Props {
   onRename?: (id: string, title: string) => Promise<void>;
 }
 
-/** Status → CSS modifier; the colors live in CSS. */
-export function dotClass(kind: DisplayKind): string {
-  return `wd-rail-dot wd-rail-dot-${kind}`;
-}
-
-/** Right-hand status slot: the one thing worth saying about this row. */
+/** Right-hand status slot: the one thing worth saying about this row. The
+ *  status icon on the left says what it is; this says how long, or how many. */
 function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
   const since = s.attention?.since ?? s.lastAccessedAt;
-  if (kind === 'needs_input') return { text: `◆ ${relativeTime(since)}`, cls: 'wd-rail-slot-needs' };
-  if (kind === 'done') return { text: `● ${relativeTime(since)}`, cls: 'wd-rail-slot-done' };
+  if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
+  if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
-  if (kind === 'review') return { text: `💬 ${s.openReviewThreads}`, cls: 'wd-rail-slot-review' };
+  if (kind === 'review') return { text: String(s.openReviewThreads), cls: 'wd-rail-slot-review' };
   return { text: relativeTime(lastActiveAt(s)), cls: '' };
 }
 
@@ -200,7 +196,7 @@ export function SessionRail({
                 <li key={s.id}>
                   <RenameRow
                     session={s}
-                    dot={<span className={dotClass(kind)} aria-hidden />}
+                    dot={<StatusIcon kind={kind} />}
                     onDone={() => setRenamingId(null)}
                     onSave={(title) => onRename(s.id, title)}
                   />
@@ -267,7 +263,7 @@ export function SessionRail({
                     (summary ? ` — ${summary}` : '')
                   }
                 >
-                  <span className={dotClass(kind)} aria-label={DISPLAY_LABEL[kind]} role="img" title={`${DISPLAY_LABEL[kind]}: ${DISPLAY_MEANING[kind]}`} />
+                  <StatusIcon kind={kind} labelled />
                   <span className="wd-dash-rail-lines">
                     <span className="wd-dash-rail-line">
                       <span className="wd-dash-rail-name">{label}</span>

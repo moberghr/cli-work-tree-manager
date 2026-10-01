@@ -280,6 +280,32 @@
 .wd-rail-dot-stale   { background: #6e7681; }   /* grey */
 @media (prefers-reduced-motion: reduce) { .wd-rail-dot-working { animation: none; } }
 
+/* The status as an icon (StatusIcon): same colours, drawn in currentColor. */
+.wd-rail-dot.wd-status-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  margin-top: 1px;
+  background: none;
+  box-shadow: none;
+  animation: none;
+  display: inline-flex;
+  color: #6e7681;
+}
+.wd-status-icon svg { display: block; }
+.wd-status-icon.wd-rail-dot-needs_input { color: var(--del-fg); }
+.wd-status-icon.wd-rail-dot-done        { color: var(--accent); }
+.wd-status-icon.wd-rail-dot-working     { color: var(--add-fg); }
+.wd-status-icon.wd-rail-dot-active      { color: var(--add-fg); }
+.wd-status-icon.wd-rail-dot-open        { color: #d29922; }
+.wd-status-icon.wd-rail-dot-review      { color: var(--review-fg); }
+.wd-status-icon.wd-rail-dot-stale       { color: #6e7681; opacity: 0.7; }
+.wd-status-spin { transform-origin: 8px 8px; animation: wd-status-spin 1s linear infinite; }
+@keyframes wd-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .wd-status-spin { animation: none; } }
+/* A selected rail row's background: the glyph cut out of a filled icon matches it. */
+.wd-dash-rail-item-active .wd-status-icon { --status-icon-cut: var(--current); }
+
 /* PR badge: #123 + checks glyph, colored by checks state. */
 .wd-pr-chip {
   flex-shrink: 0;

@@ -222,7 +222,7 @@ describe('SessionRail with attention', () => {
     const item = container.querySelector('.wd-dash-rail-item')!;
     expect(item.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-review');
     expect(item.querySelector('.wd-rail-dot')!.getAttribute('aria-label')).toBe('Review comments');
-    expect(text(item.querySelector('.wd-rail-slot-review'))).toBe('💬 2');
+    expect(text(item.querySelector('.wd-rail-slot-review'))).toBe('2'); // the icon says what it counts
   });
 
   it('keeps an old selected session visible even with 40+ current ones', () => {
