@@ -68,12 +68,12 @@ function deferred<T>() {
 }
 
 describe('Open in terminal button', () => {
-  it('sits in the session header, ahead of Prompts, Ship, Archive and Delete', () => {
+  it('sits in the session header, ahead of Catch me up, Prompts, Ship, Archive and Delete', () => {
     const button = render();
     expect(button().textContent).toBe('Open in terminal ↗');
     const header = button().closest('.wd-session-detail-header')!;
     const order = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim());
-    expect(order.slice(-5)).toEqual(['Open in terminal ↗', 'Prompts ▾', 'Ship ▾', 'Archive', 'Delete']);
+    expect(order.slice(-6)).toEqual(['Open in terminal ↗', expect.stringContaining('atch me up'), 'Prompts ▾', 'Ship ▾', 'Archive', 'Delete']);
   });
 
   it('opens the session, showing a busy state until the request settles', async () => {
