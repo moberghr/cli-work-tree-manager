@@ -52,7 +52,7 @@ The highest-impact rules. Full standards in `.claude/rules/`.
 - **Data layer:** session state in SQLite at `~/.work/state.db` (`src/core/db.ts`, transactions); `config.json` and discovery files stay JSON
 - **Build tool:** tsup (ESM, node22 target — the supported floor; dev/CI on Node 24); dev via tsx
 - **Test stack:** Vitest (`tests/` mirrors `src/`)
-- **Hosting:** npm package. CI: `.github/workflows/ci.yml` (typecheck + test + build on push/PR). Release: publishing a GitHub Release whose tag matches `package.json` (`vX.Y.Z`) runs `release.yml` → npm via Trusted Publishing (OIDC, no token) + Homebrew tap bump. Never `npm publish` locally.
+- **Hosting:** npm package, plus the desktop app (Velopack installers on the same GitHub Release, see Desktop app). CI: `.github/workflows/ci.yml` (typecheck + test + build on push/PR). Release: publishing a GitHub Release whose tag matches `package.json` (`vX.Y.Z`) runs `release.yml` → npm via Trusted Publishing (OIDC, no token) + Homebrew tap bump. Never `npm publish` locally.
 
 ---
 
@@ -441,6 +441,17 @@ Stored at `~/.work/config.json`. Schema in `core/config.ts`:
 ### Build
 
 tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
+
+### Desktop app (`desktop/`, Velopack)
+
+The Tauri app shows work web in its own window (`desktop/src-tauri/src/main.rs`): it finds the running work web or starts one, and follows it across restarts. It ships through **Velopack** on the same GitHub Release as npm (`vX.Y.Z`; the `desktop` job of `release.yml` runs `desktop/scripts/velopack.mjs` on Windows, macOS arm64 and Linux), modeled on bearing:
+- **The CLI ships inside the package** (`cli/` next to the executable, staged by `desktop/scripts/stage-cli.mjs`): the npm package's files, its production `node_modules` (native modules built on that OS, other platforms' prebuilds dropped), and the Node that built them (CI pins it exactly). One delta updates both; a CLI that could drift from its app is a bug.
+- **It runs from a copy, never the install folder** (`runtime.rs`): an update replaces the install folder, and on Windows Velopack stops what runs from it — work web and the PTY host that owns every Claude. The app copies `cli/` to `~/.work/runtime/<version>/` (temp name, then rename), writes `~/.work/runtime/current`, and starts work web from there; old copies go once nothing runs from them (Windows: a folder with an open file can't be renamed) beyond the newest two.
+- **`work` / `wd` on PATH**: launchers in `~/.work/bin` run `runtime/current`; that folder is APPENDED to the user's PATH (`path_setup.rs`: Windows HKCU registry, raw/unexpanded, + WM_SETTINGCHANGE, at install, update and every start, removed on uninstall; macOS/Linux a marked profile line), so an npm-installed `work` stays first. Claude hooks stay `work hook …` through PATH.
+- **Updates** (`updates.rs`): GitHub Releases (`GithubSource`), a minute after start and every 6 h; downloaded, applied by Velopack on the next start. The first run also registers the Claude plugin (the package's postinstall, in the background).
+- A dev build (no `cli/`) and `WORK_DESKTOP_CLI=path` run the `work` on PATH instead.
+
+§ The pack id `WorkDesktop` and bundle id `hr.moberg.work-desktop` are permanent: changing either orphans every installed copy.
 
 ### Color Forcing
 

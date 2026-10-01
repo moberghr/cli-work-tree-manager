@@ -1,18 +1,29 @@
 // No console window next to the app in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! Spike: the work web dashboard in its own window.
+//! The work web dashboard in its own window.
 //!
 //! The window shows a local "Starting…" page, finds the running work web
 //! (`~/.work/web.url`, checked with GET /api/context), starts one in the
 //! background when there is none (`work web --no-open`), then navigates to
 //! it. Everything else is the same SPA the browser gets.
 //!
+//! Installed through Velopack, the app carries its own `work` CLI: it runs
+//! from a copy under `~/.work/runtime` (runtime.rs), `work` / `wd` on PATH
+//! point at it (path_setup.rs), and updates come from GitHub Releases
+//! (updates.rs). A dev build has no bundled CLI and runs the `work` on PATH,
+//! as does `WORK_DESKTOP_CLI=path`.
+//!
 //! `WORK_DESKTOP_URL` points it at a specific server instead (the latency
 //! script uses a throwaway one).
 
+mod path_setup;
+mod runtime;
+mod updates;
+
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -39,7 +50,17 @@ fn recorded_pid() -> Option<u32> {
     std::fs::read_to_string(work_dir()?.join("web.pid")).ok()?.trim().parse().ok()
 }
 
+/// Is a process with this pid running? (`kill -0`.)
+#[cfg(not(windows))]
+fn pid_alive(pid: u32) -> bool {
+    match Command::new("kill").args(["-0", &pid.to_string()]).stdin(Stdio::null()).stderr(Stdio::null()).status() {
+        Ok(s) => s.success(),
+        Err(_) => true, // can't tell: assume it runs, never start a second one blind
+    }
+}
+
 /// Is a process with this pid running? (tasklist, no console window.)
+#[cfg(windows)]
 fn pid_alive(pid: u32) -> bool {
     let mut cmd = Command::new("tasklist");
     cmd.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]).stdin(Stdio::null()).stderr(Stdio::null());
@@ -81,11 +102,42 @@ fn responds(url: &str) -> bool {
     matches!(s.read(&mut head), Ok(n) if n >= 12 && head[..n].starts_with(b"HTTP/1.1 200"))
 }
 
-fn start_work_web() -> std::io::Result<()> {
-    let mut cmd = Command::new("cmd");
-    // Constant argv: nothing user-supplied reaches the shell.
-    cmd.args(["/C", "work", "web", "--no-open"])
-        .stdin(Stdio::null())
+/// `work web --no-open`, from the bundled CLI's copy when there is one, else
+/// the `work` on PATH.
+fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
+    let mut cmd = match rt {
+        Some(rt) => {
+            let mut c = Command::new(&rt.node);
+            c.arg(&rt.entry).args(["web", "--no-open"]);
+            // Its PTY host and Claudes find `work` (the hooks run `work hook …`)
+            // even before a new PATH reached this session: the launchers go
+            // at the end, as on the user's PATH.
+            if let (Some(path), Some(bin)) = (std::env::var_os("PATH"), work_dir().map(|d| d.join("bin"))) {
+                let mut dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
+                if !dirs.contains(&bin) {
+                    dirs.push(bin);
+                }
+                if let Ok(joined) = std::env::join_paths(dirs) {
+                    c.env("PATH", joined);
+                }
+            }
+            c
+        }
+        #[cfg(windows)]
+        None => {
+            let mut c = Command::new("cmd");
+            // Constant argv: nothing user-supplied reaches the shell.
+            c.args(["/C", "work", "web", "--no-open"]);
+            c
+        }
+        #[cfg(not(windows))]
+        None => {
+            let mut c = Command::new("work");
+            c.args(["web", "--no-open"]);
+            c
+        }
+    };
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     #[cfg(windows)]
@@ -97,7 +149,7 @@ fn start_work_web() -> std::io::Result<()> {
     cmd.spawn().map(|_| ())
 }
 
-fn find_or_start_web() -> Result<String, String> {
+fn find_or_start_web(rt: Option<&runtime::Runtime>) -> Result<String, String> {
     if let Ok(url) = std::env::var("WORK_DESKTOP_URL") {
         return Ok(url);
     }
@@ -123,9 +175,12 @@ fn find_or_start_web() -> Result<String, String> {
         }
     }
     log("no work web answering: starting one");
-    start_work_web().map_err(|e| {
+    start_work_web(rt).map_err(|e| {
         log(&format!("could not start work web: {e}"));
-        format!("Could not run <code>work web</code>: {e}. Is <code>work</code> on PATH?")
+        match rt {
+            Some(rt) => format!("Could not run the bundled <code>work web</code> ({}): {e}", rt.node.display()),
+            None => format!("Could not run <code>work web</code>: {e}. Is <code>work</code> on PATH?"),
+        }
     })?;
     let deadline = Instant::now() + Duration::from_secs(25);
     while Instant::now() < deadline {
@@ -156,9 +211,56 @@ fn open_in_browser(url: &Url) {
     }
 }
 
+/// Register the Claude Code plugin (the `work` npm package's postinstall),
+/// in the background: it may take a minute, and failing is fine.
+fn register_plugin(rt: &runtime::Runtime) {
+    let script = rt.entry.parent().and_then(|d| d.parent()).map(|d| d.join("scripts").join("postinstall.mjs"));
+    let Some(script) = script.filter(|s| s.is_file()) else { return };
+    let mut cmd = Command::new(&rt.node);
+    cmd.arg(script).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    if let Err(e) = cmd.spawn() {
+        log(&format!("could not register the Claude Code plugin: {e}"));
+    }
+}
+
 fn main() {
+    // Velopack first: an install, update or uninstall runs the app with a
+    // hook argument, and this handles it and exits (Windows), or applies a
+    // downloaded update and restarts.
+    let first_run = Cell::new(false);
+    let bin_dir = work_dir().map(|d| d.join("bin"));
+    let mut app = velopack::VelopackApp::build().on_first_run(|_| first_run.set(true));
+    #[cfg(windows)]
+    {
+        let (a, b, c) = (bin_dir.clone(), bin_dir.clone(), bin_dir.clone());
+        app = app
+            .on_after_install_fast_callback(move |_| {
+                if let Some(d) = a {
+                    path_setup::add(&d);
+                }
+            })
+            .on_after_update_fast_callback(move |_| {
+                if let Some(d) = b {
+                    path_setup::add(&d);
+                }
+            })
+            .on_before_uninstall_fast_callback(move |_| {
+                if let Some(d) = c {
+                    path_setup::remove(&d);
+                }
+            });
+    }
+    app.run();
+    let first_run = first_run.get();
+    updates::spawn(log);
+
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("work")
                 .inner_size(1480.0, 940.0)
@@ -186,8 +288,34 @@ fn main() {
                 }
             }
             let window = builder.build()?;
+            let bin_dir = bin_dir.clone();
             thread::spawn(move || {
-                let mut current = match find_or_start_web() {
+                // The bundled CLI's copy (after an update this copies the new
+                // one: a few seconds), the launchers, and PATH.
+                let rt = match work_dir() {
+                    Some(dir) => {
+                        let _ = window.eval("document.getElementById('msg') && (document.getElementById('msg').textContent = 'Setting up work…');");
+                        match runtime::prepare(&dir) {
+                            Ok(rt) => rt,
+                            Err(e) => {
+                                log(&format!("bundled CLI: {e}"));
+                                None
+                            }
+                        }
+                    }
+                    None => None,
+                };
+                if let Some(rt) = &rt {
+                    log(&format!("bundled CLI {} at {}", rt.version, rt.node.display()));
+                    if let Some(bin) = &bin_dir {
+                        path_setup::add(bin);
+                    }
+                    if first_run {
+                        register_plugin(rt);
+                    }
+                }
+                let rt = rt.as_ref();
+                let mut current = match find_or_start_web(rt) {
                     Ok(u) => u,
                     Err(msg) => {
                         let js = format!("document.getElementById('msg').innerHTML = {:?};", msg);
@@ -218,7 +346,7 @@ fn main() {
                     }
                     misses = 0;
                     log(&format!("{current} stopped answering"));
-                    let next = match find_or_start_web() {
+                    let next = match find_or_start_web(rt) {
                         Ok(n) => n,
                         Err(e) => {
                             log(&format!("no work web yet: {e}"));
