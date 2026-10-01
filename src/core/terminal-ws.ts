@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import { sessionStatusView } from './turn-activity.js';
 import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -8,7 +9,7 @@ import { loadHistory } from './history.js';
 import { refuseReason } from './local-origin.js';
 import { findSession } from './web-state.js';
 import { readSessionActivity } from './claude-activity.js';
-import { effectiveStatus, readStatus } from './session-status.js';
+import { readStatus } from './session-status.js';
 import type { TerminalElsewhere } from './api-types.js';
 
 const TERMINAL_PATH = /^\/ws\/sessions\/([^/]+)\/terminal(?:\?(.*))?$/;
@@ -68,7 +69,7 @@ async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | 
   if (!session) return null;
   const activity = readSessionActivity(session);
   const raw = readStatus(sessionId);
-  const status = raw ? effectiveStatus(raw, activity.lastActivity ?? 0) : null;
+  const status = raw ? sessionStatusView(raw, session, activity.lastActivity ?? 0) : null;
   const hostPids = ptyPids();
   const runningOutside = (claudesBySession(readLiveClaudes(), loadHistory()).get(sessionId) ?? []).filter((c) => !hostPids.has(c.pid));
   return claudeElsewhere({

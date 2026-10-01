@@ -1,4 +1,5 @@
 import { peekPty } from './pty-pool.js';
+import { sessionStatusView } from './turn-activity.js';
 import {
   readSessionActivity,
   type ActivityState,
@@ -6,7 +7,7 @@ import {
 import { getCommentFileStore } from './comment-file-store.js';
 import { readPendingForSession } from './pending-delivery.js';
 import type { WorktreeSession } from './history.js';
-import { effectiveStatus, readStatus, type EffectiveStatus } from './session-status.js';
+import { readStatus, type EffectiveStatus } from './session-status.js';
 
 export type { PtyStatus } from './api-types.js';
 import type { PtyStatus } from './api-types.js';
@@ -61,6 +62,6 @@ export function readSessionMeta(
     lastActivity: activity.lastActivity,
     activityState: activity.state,
     pendingForClaudeCount: pending,
-    attention: status ? effectiveStatus(status, activity.lastActivity ?? 0) : null,
+    attention: status ? sessionStatusView(status, session, activity.lastActivity ?? 0) : null,
   };
 }

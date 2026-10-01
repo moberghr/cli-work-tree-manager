@@ -1,5 +1,5 @@
 import { json, tx, withDb, type Db } from './db.js';
-import { contentBlocks, readTranscriptTail } from './transcript.js';
+import { contentBlocks, readTranscriptTail, type TranscriptEntry } from './transcript.js';
 
 /**
  * Per-session agent status, driven by Claude Code's own hooks (installed by
@@ -34,6 +34,10 @@ export interface SessionStatus {
   /** While needs_input on a permission prompt: the tool call it is about
    *  (from the transcript), so the inbox can show it and answer it. */
   request?: PermissionRequest;
+  /** When the last turn ended (the Stop hook). `since` doesn't move on an
+   *  idle → idle stop, and `updatedAt` moves on seen and on the idle nudge;
+   *  this is what transcript activity is compared with (effectiveStatus). */
+  turnEndedAt?: string;
 }
 
 export type StatusEvent =
@@ -82,8 +86,8 @@ export function applyStatusEvent(
       return enter('working', oneLine(event.prompt), true);
     case 'stop': {
       const ask = event.lastMessage?.match(DECISION_RE);
-      if (ask) return enter('needs_input', oneLine(ask[1]) ?? 'Claude needs a decision', false);
-      return enter('idle', oneLine(event.lastMessage), false);
+      if (ask) return { ...enter('needs_input', oneLine(ask[1]) ?? 'Claude needs a decision', false), turnEndedAt: ts };
+      return { ...enter('idle', oneLine(event.lastMessage), false), turnEndedAt: ts };
     }
     case 'notification': {
       if (event.message && NEEDS_INPUT_RE.test(event.message)) {
@@ -122,6 +126,9 @@ export function effectiveStatus(
   status: SessionStatus,
   lastActivityMs: number,
   now: number = Date.now(),
+  /** The newest transcript entry that is a turn's work (yours or Claude's:
+   *  `lastTurnEntryMs`), when the caller read it; 0 = unknown. */
+  lastTurnEntryMs = 0,
 ): EffectiveStatus {
   const last = Math.max(lastActivityMs, Date.parse(status.updatedAt) || 0);
   if (status.state === 'working' && now - last > STALE_WORKING_MS) {
@@ -134,7 +141,40 @@ export function effectiveStatus(
   if (status.state === 'needs_input' && lastActivityMs > since + ANSWERED_AFTER_MS) {
     return { ...status, state: 'working', seen: true, stale: false };
   }
+  // Some turns fire no prompt hook: a `!` shell command and Claude's turn on
+  // its output, or any turn while work's hooks were being reinstalled (a work
+  // web restart). The session read "idle" while it worked. A message in its
+  // transcript after the last turn ended is the tell; quiet for 15 min, it
+  // decays like a working status.
+  if (
+    status.state === 'idle' &&
+    lastTurnEntryMs > idleFrom(status) + ANSWERED_AFTER_MS &&
+    now - lastTurnEntryMs <= STALE_WORKING_MS
+  ) {
+    return { ...status, state: 'working', seen: true, stale: false };
+  }
   return { ...status, stale: false };
+}
+
+/** When an idle session's last turn ended: the Stop hook's time, else (a row from before it was kept) `since`. */
+export function idleFrom(status: SessionStatus): number {
+  return Date.parse(status.turnEndedAt ?? '') || Date.parse(status.since) || 0;
+}
+
+/**
+ * The newest entry that is a turn's work: your prompt or `!` command and its
+ * output, Claude's message or tool call, a tool's result. Not what Claude
+ * Code writes around a turn (durations, hook summaries, away summaries, PR
+ * links, titles), nor meta lines. Pure; 0 when there is none.
+ */
+export function lastTurnEntryMs(entries: TranscriptEntry[]): number {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if ((e.type !== 'user' && e.type !== 'assistant') || e.isMeta === true) continue;
+    const ms = Date.parse(typeof e.timestamp === 'string' ? e.timestamp : '');
+    if (ms) return ms;
+  }
+  return 0;
 }
 
 // ---- persistence ----------------------------------------------------------

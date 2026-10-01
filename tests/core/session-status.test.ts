@@ -12,6 +12,7 @@ import {
   applyStatusEvent,
   effectiveStatus,
   lastAssistantText,
+  lastTurnEntryMs,
   markSeen,
   notifyKindForTransition,
   oneLine,
@@ -125,6 +126,44 @@ describe('effectiveStatus', () => {
     const s = base('needs_input');
     expect(effectiveStatus(s, T0.getTime() + ANSWERED_AFTER_MS + 500).state).toBe('working');
     expect(effectiveStatus(s, T0.getTime() + 1000).state).toBe('needs_input');
+  });
+
+  it('an idle session with a message in its transcript after its turn ended is working (a `!` command fires no prompt hook)', () => {
+    // The turn ended at T0; then an idle → idle stop keeps `since` but moves turnEndedAt.
+    const ended = applyStatusEvent(applyStatusEvent(null, { kind: 'stop' }, at(0)), { kind: 'stop' }, at(100));
+    expect(ended).toMatchObject({ since: at(0).toISOString(), turnEndedAt: at(100).toISOString() });
+    const now = at(200).getTime();
+    expect(effectiveStatus(ended, now, now, at(150).getTime())).toMatchObject({ state: 'working', seen: true, stale: false });
+    // Before the last turn ended (Claude's final message precedes the Stop hook): idle.
+    expect(effectiveStatus(ended, now, now, at(99).getTime()).state).toBe('idle');
+    // Unknown (the caller didn't read it), or quiet for 15 min: idle.
+    expect(effectiveStatus(ended, now, now, 0).state).toBe('idle');
+    expect(effectiveStatus(ended, now, at(150).getTime() + STALE_WORKING_MS + 1000, at(150).getTime()).state).toBe('idle');
+    // A row from before turnEndedAt: compared with since.
+    const old: SessionStatus = { state: 'idle', since: at(0).toISOString(), seen: true, updatedAt: at(0).toISOString() };
+    expect(effectiveStatus(old, now, now, at(10).getTime()).state).toBe('working');
+  });
+
+  it('a stop that asks for a decision records when the turn ended too', () => {
+    expect(applyStatusEvent(null, { kind: 'stop', lastMessage: 'DECISION NEEDED: which one?' }, at(5)).turnEndedAt).toBe(at(5).toISOString());
+  });
+});
+
+describe('lastTurnEntryMs', () => {
+  it("the newest message of a turn: prompts, `!` commands and output, Claude's messages, tool results — not what Claude Code writes around a turn", () => {
+    const entries = [
+      { type: 'user', timestamp: '2026-10-01T08:40:36Z', message: { content: '<bash-input>dotnet publish</bash-input>' } },
+      { type: 'user', timestamp: '2026-10-01T08:41:25Z', message: { content: '<bash-stdout>Build succeeded</bash-stdout>' } },
+      { type: 'assistant', timestamp: '2026-10-01T08:42:22Z', message: { content: [{ type: 'text', text: 'done' }] } },
+      { type: 'system', subtype: 'stop_hook_summary', timestamp: '2026-10-01T08:42:23Z' },
+      { type: 'system', subtype: 'turn_duration', timestamp: '2026-10-01T08:42:23Z' },
+      { type: 'user', isMeta: true, timestamp: '2026-10-01T08:45:00Z', message: { content: 'meta' } },
+      { type: 'pr-link', timestamp: '2026-10-01T08:46:00Z' },
+      { type: 'system', subtype: 'away_summary', timestamp: '2026-10-01T08:49:45Z' },
+      { type: 'summary', summary: 'title, no timestamp' },
+    ];
+    expect(lastTurnEntryMs(entries)).toBe(Date.parse('2026-10-01T08:42:22Z'));
+    expect(lastTurnEntryMs([{ type: 'system', timestamp: '2026-10-01T08:42:23Z' }])).toBe(0);
   });
 });
 

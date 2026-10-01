@@ -1,6 +1,7 @@
 import { loadHistory } from './history.js';
+import { sessionStatusView } from './turn-activity.js';
 import { sessionIdFor } from './session-id.js';
-import { effectiveStatus, readStatus } from './session-status.js';
+import { readStatus } from './session-status.js';
 import { readSessionActivity } from './claude-activity.js';
 import { listTranscripts } from './context-usage.js';
 import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
@@ -70,7 +71,7 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
         async (s) => {
             const id = sessionIdFor(s);
             const status = readStatus(id);
-            const attention = status ? effectiveStatus(status, readSessionActivity(s).lastActivity ?? 0) : null;
+            const attention = status ? sessionStatusView(status, s, readSessionActivity(s).lastActivity ?? 0) : null;
             const transcripts: TranscriptEntry[][] = [];
             let partial = false;
             for (const t of listTranscripts(s)) {
