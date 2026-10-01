@@ -1,5 +1,4 @@
-import path from 'node:path';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { createFsWatcher, type FsWatcher } from './fs-watcher.js';
 import { findSessionById, loadHistory, type WorktreeSession } from './history.js';
 import { sessionIdFor } from './session-id.js';
 
@@ -12,19 +11,21 @@ export function findSession(sessionId: string): WorktreeSession | null {
 }
 
 interface WatcherEntry {
-  watcher: FSWatcher;
+  watcher: FsWatcher;
   subscribers: Set<() => void>;
-  debounce: NodeJS.Timeout | null;
 }
 
 const sessionWatchers = new Map<string, WatcherEntry>();
 const DEBOUNCE_MS = 150;
 
 /**
- * Subscribe to filesystem changes for a session's worktree(s). chokidar is
+ * Subscribe to filesystem changes for a session's worktree(s). The watch is
  * started on first subscriber and stopped when the last one leaves —
  * reference-counted so the cost stays proportional to what's actually being
- * viewed in the browser.
+ * viewed in the browser. It is the shared fs-watcher: dependency and build
+ * folders (node_modules, bin/obj, dist, …) are left out, and on Windows and
+ * macOS it is one recursive OS watch per root. A chokidar watch over the
+ * whole worktree used to open one watch per folder, node_modules included.
  *
  * Returns an unsubscribe function. Safe to call multiple times.
  */
@@ -37,33 +38,19 @@ export function subscribeSession(
 
   let entry = sessionWatchers.get(sessionId);
   if (!entry) {
-    const roots = session.paths;
-    const watcher = chokidar.watch(roots, {
-      ignored: (filePath) => {
-        for (const r of roots) {
-          const rel = path.relative(r, filePath).replace(/\\/g, '/');
-          if (rel === '.git' || rel.startsWith('.git/')) return true;
-        }
-        return false;
-      },
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 20 },
-    });
+    const subscribers = new Set<() => void>();
     const newEntry: WatcherEntry = {
-      watcher,
-      subscribers: new Set(),
-      debounce: null,
+      subscribers,
+      watcher: createFsWatcher({
+        roots: session.paths,
+        debounceMs: DEBOUNCE_MS,
+        onChange: () => {
+          for (const cb of subscribers) {
+            try { cb(); } catch { /* swallow */ }
+          }
+        },
+      }),
     };
-    watcher.on('all', () => {
-      if (newEntry.debounce) clearTimeout(newEntry.debounce);
-      newEntry.debounce = setTimeout(() => {
-        newEntry.debounce = null;
-        for (const cb of newEntry.subscribers) {
-          try { cb(); } catch { /* swallow */ }
-        }
-      }, DEBOUNCE_MS);
-    });
     sessionWatchers.set(sessionId, newEntry);
     entry = newEntry;
   }
@@ -76,8 +63,7 @@ export function subscribeSession(
     released = true;
     entry!.subscribers.delete(onChange);
     if (entry!.subscribers.size === 0) {
-      if (entry!.debounce) clearTimeout(entry!.debounce);
-      entry!.watcher.close().catch(() => { /* */ });
+      entry!.watcher.stop();
       if (sessionWatchers.get(sessionId) === entry) {
         sessionWatchers.delete(sessionId);
       }
@@ -95,16 +81,12 @@ export async function disposeSessionWatcher(sessionId: string): Promise<void> {
   const entry = sessionWatchers.get(sessionId);
   if (!entry) return;
   sessionWatchers.delete(sessionId);
-  if (entry.debounce) clearTimeout(entry.debounce);
   entry.subscribers.clear();
-  await entry.watcher.close().catch(() => { /* */ });
+  entry.watcher.stop();
 }
 
 /** Stop every active session watcher. Called on server shutdown. */
 export function disposeAllWatchers(): void {
-  for (const [, entry] of sessionWatchers) {
-    if (entry.debounce) clearTimeout(entry.debounce);
-    entry.watcher.close().catch(() => { /* */ });
-  }
+  for (const [, entry] of sessionWatchers) entry.watcher.stop();
   sessionWatchers.clear();
 }
