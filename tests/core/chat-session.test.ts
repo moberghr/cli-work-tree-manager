@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_HISTORY_BYTES, ChatSession, type ChatEvent } from '../../src/core/chat-session.js';
-import { killTree, runAll } from '../functional/fixtures/processes.js';
+import { isAlive, killTree, runAll } from '../functional/fixtures/processes.js';
 
 const FAKE = path.join(__dirname, 'fixtures', 'fake-claude-stream.cjs');
 
@@ -20,11 +20,15 @@ beforeEach(() => {
 afterEach(async () => {
   await runAll([
     ...chats.splice(0).map((c) => () => c.stop()),
-    () => {
-      const pids = fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean) : [];
-      for (const p of pids) killTree(Number(p));
+    async () => {
+      const pids = fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : [];
+      for (const p of pids) killTree(p);
+      // The fake runs with this folder as its cwd: on Windows the folder can't
+      // go until it has exited (a flake under load: EPERM in cleanup).
+      const end = Date.now() + 5_000;
+      while (pids.some(isAlive) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
     },
-    () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
   ]);
   delete process.env.FAKE_CLAUDE_PIDS;
 });
