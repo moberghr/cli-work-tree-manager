@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { claudeProjectsRoot, encodeProjectDir } from './claude-activity.js';
+import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from './claude-activity.js';
 import { readTranscriptTail, type TranscriptEntry } from './transcript.js';
 import type { ContextUsage } from './api-types.js';
 import type { WorktreeSession } from './session-types.js';
@@ -58,25 +58,7 @@ export function latestTranscript(session: WorktreeSession): TranscriptFile | nul
 export function listTranscripts(session: WorktreeSession): TranscriptFile[] {
   const dirs = session.isGroup ? [...new Set(session.paths.map((p) => path.dirname(p)))] : session.paths;
   const out: TranscriptFile[] = [];
-  for (const d of dirs) {
-    const projectDir = path.join(claudeProjectsRoot(), encodeProjectDir(d));
-    let names: string[];
-    try {
-      names = fs.readdirSync(projectDir);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      if (!name.endsWith('.jsonl')) continue;
-      try {
-        const file = path.join(projectDir, name);
-        const st = fs.statSync(file);
-        out.push({ file, mtimeMs: st.mtimeMs, size: st.size });
-      } catch {
-        /* vanished */
-      }
-    }
-  }
+  for (const d of dirs) out.push(...projectTranscripts(path.join(claudeProjectsRoot(), encodeProjectDir(d))));
   return out;
 }
 

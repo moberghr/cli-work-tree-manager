@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 
 /**
  * Process lifecycle rules for the long-lived pieces (work web, the PTY
@@ -47,30 +47,66 @@ export function processName(pid: number): string | null {
   }
 }
 
+let recentTable: { at: number; table: Map<number, string> } | null = null;
+let refreshingTable: Promise<void> | null = null;
+
+/**
+ * The process table as of at most `maxAgeMs` ago, without waiting: a stale
+ * or missing one starts a background refresh (one at a time) and the last
+ * one is returned — null before the first is in. For views that refresh
+ * often (the session list); a decision that must be right now (is a Claude
+ * already running, before starting one?) uses processTable().
+ */
+export function recentProcessTable(maxAgeMs: number, now = Date.now()): Map<number, string> | null {
+  if (!recentTable || now - recentTable.at >= maxAgeMs) {
+    refreshingTable ??= processTableAsync()
+      // An empty table is a failed or timed-out listing (there is always at
+      // least this process): keep the last good one, and try again next time.
+      .then((table) => void (table.size > 0 && (recentTable = { at: Date.now(), table })))
+      .finally(() => void (refreshingTable = null));
+  }
+  return recentTable?.table ?? null;
+}
+
+/** processTable(), without blocking the event loop. */
+export function processTableAsync(): Promise<Map<number, string>> {
+  return new Promise((resolve) => {
+    const win = process.platform === 'win32';
+    const [cmd, args] = win ? ['tasklist', ['/FO', 'CSV', '/NH']] : ['ps', ['-A', '-o', 'pid=,comm=']];
+    execFile(cmd, args as string[], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 }, (_err, stdout) => {
+      resolve(parseProcessTable(stdout ?? '', win));
+    });
+  });
+}
+
+function parseProcessTable(stdout: string, win: boolean): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    if (win) {
+      const m = /^"([^"]+)","(\d+)"/.exec(line);
+      if (m) out.set(Number(m[2]), m[1]);
+    } else {
+      const m = /^\s*(\d+)\s+(.+)$/.exec(line);
+      if (m) out.set(Number(m[1]), m[2].trim().split('/').pop()!);
+    }
+  }
+  return out;
+}
+
 /**
  * Every running process's executable name, by pid, in ONE call (tasklist /
  * ps) — for checking many remembered pids at once. Empty if it can't be read.
  */
 export function processTable(): Map<number, string> {
-  const out = new Map<number, string>();
   try {
-    if (process.platform === 'win32') {
-      const r = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
-      for (const line of (r.stdout ?? '').split(/\r?\n/)) {
-        const m = /^"([^"]+)","(\d+)"/.exec(line);
-        if (m) out.set(Number(m[2]), m[1]);
-      }
-      return out;
-    }
-    const r = spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
-    for (const line of (r.stdout ?? '').split('\n')) {
-      const m = /^\s*(\d+)\s+(.+)$/.exec(line);
-      if (m) out.set(Number(m[1]), m[2].trim().split('/').pop()!);
-    }
+    const win = process.platform === 'win32';
+    const r = win
+      ? spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 })
+      : spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
+    return parseProcessTable(r.stdout ?? '', win);
   } catch {
-    /* unreadable: nothing is known to be alive */
+    return new Map(); // unreadable: nothing is known to be alive
   }
-  return out;
 }
 
 /** When this machine last booted (ms since epoch, ±1 s). */

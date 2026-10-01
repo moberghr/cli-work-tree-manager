@@ -14,23 +14,61 @@ export function encodeProjectDir(p: string): string {
   return path.resolve(p).replace(/[^A-Za-z0-9]/g, '-');
 }
 
-function latestJsonlMtimeMs(projectDir: string): number {
-  let entries: string[];
+export interface ProjectFile {
+  file: string;
+  mtimeMs: number;
+  size: number;
+}
+
+/** A folder's transcript names, and when and at which folder mtime they were read. */
+const listings = new Map<string, { at: number; dirMtimeMs: number; names: string[] }>();
+/** The longest a folder's names are reused while its mtime says unchanged:
+ *  NTFS doesn't always update a folder's mtime at once when a file is added. */
+export const NAMES_MAX_AGE_MS = 2000;
+
+/**
+ * The transcripts in a Claude project folder (name, mtime, size). The
+ * folder's names are read again when the folder changed (its mtime) or are
+ * NAMES_MAX_AGE_MS old: one stat instead of a directory read for the three
+ * readers each session-list build has per session (activity, name, context
+ * use). Each file is stat'ed every time, so sizes and times are exact.
+ * Bounded by the folders there are.
+ */
+export function projectTranscripts(projectDir: string, now = Date.now()): ProjectFile[] {
+  let dirMtimeMs: number;
   try {
-    entries = fs.readdirSync(projectDir);
+    dirMtimeMs = fs.statSync(projectDir).mtimeMs;
   } catch {
-    return 0;
+    listings.delete(projectDir);
+    return []; // no conversation here yet
   }
-  let latest = 0;
-  for (const name of entries) {
-    if (!name.endsWith('.jsonl')) continue;
+  let hit = listings.get(projectDir);
+  if (!hit || hit.dirMtimeMs !== dirMtimeMs || now - hit.at >= NAMES_MAX_AGE_MS) {
+    let names: string[] = [];
     try {
-      const stat = fs.statSync(path.join(projectDir, name));
-      if (stat.mtimeMs > latest) latest = stat.mtimeMs;
+      names = fs.readdirSync(projectDir).filter((n) => n.endsWith('.jsonl'));
     } catch {
-      /* ignore unreadable entries */
+      /* gone meanwhile */
+    }
+    hit = { at: now, dirMtimeMs, names };
+    listings.set(projectDir, hit);
+  }
+  const files: ProjectFile[] = [];
+  for (const name of hit.names) {
+    try {
+      const file = path.join(projectDir, name);
+      const st = fs.statSync(file);
+      files.push({ file, mtimeMs: st.mtimeMs, size: st.size });
+    } catch {
+      /* vanished */
     }
   }
+  return files;
+}
+
+function latestJsonlMtimeMs(projectDir: string): number {
+  let latest = 0;
+  for (const f of projectTranscripts(projectDir)) if (f.mtimeMs > latest) latest = f.mtimeMs;
   return latest;
 }
 

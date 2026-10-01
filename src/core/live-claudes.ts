@@ -53,7 +53,7 @@ export function parseLiveClaude(raw: unknown): LiveClaude | null {
 const CLAUDE_EXE = /^(claude|node)(\.exe)?$/i;
 
 /** Keep the ones whose pid is a live Claude started since this boot. */
-export function aliveOnly(list: LiveClaude[], table: Map<number, string>, bootMs: number): LiveClaude[] {
+export function aliveOnly(list: LiveClaude[], table: ReadonlyMap<number, string>, bootMs: number): LiveClaude[] {
   return list.filter((c) => {
     const name = table.get(c.pid);
     if (!name || !CLAUDE_EXE.test(name)) return false;
@@ -101,9 +101,14 @@ export function claudeSessionsDir(): string {
   return path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'sessions');
 }
 
-/** The running Claudes (cached for a few seconds: this lists every process). */
-export function readLiveClaudes(dir = claudeSessionsDir(), now = Date.now()): LiveClaude[] {
-  if (cache && now - cache.at < TTL_MS && dir === claudeSessionsDir()) return cache.list;
+/**
+ * The running Claudes (cached for a few seconds: this lists every process).
+ * With `table`, a process table the caller already has (the session list's
+ * background one): read against it, and neither read nor written to the
+ * cache — the guard against a second Claude keeps its own, synchronous view.
+ */
+export function readLiveClaudes(dir = claudeSessionsDir(), now = Date.now(), table?: ReadonlyMap<number, string>): LiveClaude[] {
+  if (!table && cache && now - cache.at < TTL_MS && dir === claudeSessionsDir()) return cache.list;
   let names: string[];
   try {
     names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n));
@@ -119,7 +124,7 @@ export function readLiveClaudes(dir = claudeSessionsDir(), now = Date.now()): Li
       /* half-written or not ours: skip */
     }
   }
-  const list = parsed.length ? aliveOnly(parsed, processTable(), bootTime()) : [];
-  cache = { at: now, list };
+  const list = parsed.length ? aliveOnly(parsed, table ?? processTable(), bootTime()) : [];
+  if (!table) cache = { at: now, list };
   return list;
 }

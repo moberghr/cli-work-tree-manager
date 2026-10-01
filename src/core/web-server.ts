@@ -37,6 +37,8 @@ import { mountCleanupRoutes } from './cleanup-routes.js';
 import { mountAssistantRoutes } from './assistant-routes.js';
 import type { ActivityWire, DigestResponse, SessionWire } from './api-types.js';
 import { createActivityLog } from './activity.js';
+import { recentProcessTable } from './process.js';
+import { throttleTrailing } from './throttle.js';
 import { mountPrReplyRoutes } from './pr-reply-routes.js';
 import { applyArchiveRetention } from './archive-retention.js';
 import { draftCounts } from './pr-replies.js';
@@ -143,9 +145,20 @@ export async function startWebServer(
   // cache, and a short TTL covers time-based changes (activity decay).
   let sessionsCache: { at: number; body: unknown } | null = null;
   const SESSIONS_TTL_MS = 5_000;
+  // `sessions-changed` makes every window refetch the whole list, and it
+  // fires on every transcript write anywhere: at most one per
+  // SESSIONS_EVENT_MS reaches the windows (the first at once, the last of
+  // a burst at the end), so ten working Claudes don't mean a rebuild every
+  // 250 ms per window. The cache is dropped right away either way.
+  const SESSIONS_EVENT_MS = 750;
+  const emit = (event: string, data: unknown) => {
+    for (const cb of sseListeners) cb({ event, data });
+  };
+  const sessionsChanged = throttleTrailing(() => emit('sessions-changed', { ts: Date.now() }), SESSIONS_EVENT_MS);
   const broadcast = (event: string, data: unknown) => {
     sessionsCache = null;
-    for (const cb of sseListeners) cb({ event, data });
+    if (event === 'sessions-changed') sessionsChanged();
+    else emit(event, data);
   };
 
   // What work does in the background, and what it decided (activity.ts):
@@ -253,7 +266,10 @@ export async function startWebServer(
       // none of that folder's activity; every running Claude (your terminal
       // tabs included) goes to the entry that owns its folder.
       const shadow = shadowedSessions(history, branchCheckedOut);
-      const running = claudesBySession(readLiveClaudes(), history.filter((s) => !shadow.has(sessionIdFor(s))));
+      // A process table refreshed in the background: listing every process
+      // synchronously (tasklist) on each build blocked the server.
+      const table = recentProcessTable(5_000) ?? undefined;
+      const running = claudesBySession(readLiveClaudes(undefined, undefined, table), history.filter((s) => !shadow.has(sessionIdFor(s))));
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
       const drafts = draftCounts();

@@ -25,8 +25,11 @@ export function firstPromptOf(file: string): string | null {
     return null;
   }
   const hit = cache.get(file);
-  // The start of a file doesn't change as it grows, unless it was replaced (smaller).
-  if (hit && hit.title !== null && size >= hit.size) return hit.title;
+  // The start of a file doesn't change as it grows, unless it was replaced
+  // (smaller). "No prompt in it" holds as long as the file is the same, or
+  // its whole head was read already: re-reading 256 KB of every such
+  // transcript on every session-list build cost the most of all.
+  if (hit && size >= hit.size && (hit.title !== null || size === hit.size || hit.size >= HEAD_BYTES)) return hit.title;
   let text = '';
   try {
     const fd = fs.openSync(file, 'r');
