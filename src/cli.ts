@@ -28,6 +28,11 @@ import { overlapsCommand } from './commands/overlaps.js';
 import { searchCommand } from './commands/search.js';
 import { prCommand } from './commands/pr.js';
 import { forkCommand } from './commands/fork.js';
+import { snoozeCommand } from './commands/snooze.js';
+import { pinCommand } from './commands/pin.js';
+import { sectionCommand } from './commands/section.js';
+import { catchupCommand } from './commands/catchup.js';
+import { updateCommand } from './commands/update.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -113,6 +118,11 @@ export function run(argv: string[]) {
     .command(treeCommand)
     .command(removeCommand)
     .command(forkCommand)
+    .command(updateCommand)
+    .command(catchupCommand)
+    .command(snoozeCommand)
+    .command(pinCommand)
+    .command(sectionCommand)
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)

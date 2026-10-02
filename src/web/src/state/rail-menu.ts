@@ -27,7 +27,4 @@ export function railMenuItems(
   return items;
 }
 
-/** A short random id for a new section (ids only need to be unique among yours). */
-export function newSectionId(): string {
-  return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-}
+export { newSectionId } from '../../../core/rail-layout.js';

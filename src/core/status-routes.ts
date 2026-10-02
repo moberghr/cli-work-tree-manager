@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { snoozeActive, snoozeFor } from './snooze.js';
-import { clearSnooze, readSnooze, saveSnooze } from './snooze-store.js';
+import { snoozeActive } from './snooze.js';
+import { clearSnooze, cleanSnoozeRequest, readSnooze, requestSnooze } from './snooze-store.js';
 import type { Hono } from 'hono';
 import { loadConfig } from './config.js';
 import { findSessionForCwd } from './pending-delivery.js';
@@ -104,18 +104,17 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
   // Snooze: out of the Inbox for a while, or until its status changes (snooze.ts).
   app.post('/api/sessions/:id/snooze', async (c) => {
     const id = c.req.param('id');
-    const body = (await c.req.json().catch(() => null)) as { for?: unknown; openReviewThreads?: unknown } | null;
-    const choice = body?.for;
-    if (choice !== '2h' && choice !== 'tomorrow' && choice !== 'change') return c.json({ error: "for: '2h', 'tomorrow' or 'change'" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { openReviewThreads?: unknown } | null;
+    const req = cleanSnoozeRequest(body);
+    if (!req) return c.json({ error: "for: '2h', 'tomorrow' or 'change', or until: a time" }, 400);
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
     // "Until it changes" compares against what the dashboard shows now (review threads come from the PR watch).
-    const status = readStatus(id);
     const threads = typeof body?.openReviewThreads === 'number' ? body.openReviewThreads : 0;
-    const snooze = snoozeFor(choice, { attention: status, openReviewThreads: threads });
-    saveSnooze(id, snooze);
+    const r = requestSnooze(id, req, threads);
+    if (!r.ok) return c.json({ error: r.error }, 400);
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return c.json({ ok: true, snooze });
+    return c.json({ ok: true, snooze: r.snooze });
   });
   app.delete('/api/sessions/:id/snooze', (c) => {
     clearSnooze(c.req.param('id'));

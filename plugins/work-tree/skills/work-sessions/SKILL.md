@@ -17,6 +17,7 @@ description: Look up and act on the user's `work` worktree sessions — which se
 | Which live sessions change the same files | `work overlaps --json` |
 | What a past or current session said about something ("what did we do about X?") | `work search <words> --json` (every session's conversation, live and archived, also older than Claude Code keeps) |
 | Which worktrees can go, and why | `work cleanup --json` (fetches origin first; `--no-fetch` to skip) |
+| Where a session stands, in a few sentences | `work catchup [<alias> <branch>]` (an internal Claude reads its last week; default: the session for this folder) |
 
 `work sessions --json` rows are the dashboard's rows plus a `view` block:
 - `view.label` is the status the user sees ("Needs your input", "Working", "Done", "Idle", "Stale"), and `view.age` is `now | week | older`.
@@ -24,6 +25,11 @@ description: Look up and act on the user's `work` worktree sessions — which se
 - `context.used / context.window` is how full that session's conversation is.
 
 ## Acting (changes things — ask the user first)
+
+Session actions, each defaulting to the session for the current folder (or `<alias> <branch>`):
+- `work snooze [--for 2h|tomorrow|change] [--until 14:00|fri|+3h|2026-10-03] [--off]` — out of the user's Inbox for a while.
+- `work pin [--off]`, `work section --to <name> | --none | --list` — the dashboard rail's pins and sections.
+- `work update` — bring the branch up to date: from main, from the session it is stacked on, or onto main once that one merged. Refused while a Claude works in it.
 
 `work cleanup --json` returns candidates with `verdict` and `suggested`:
 

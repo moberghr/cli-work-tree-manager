@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -86,6 +86,12 @@ CREATE TABLE IF NOT EXISTS session_snooze (session_id TEXT PRIMARY KEY, data TEX
 -- Where a session sits in the rail: pinned, or under one of your sections (rail-layout.ts). (v6)
 CREATE TABLE IF NOT EXISTS rail_place (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
+-- Your notes on a session (session-notes.ts), what it waits on (session-blocks.ts),
+-- and the Jira worklogs written for its days of work (jira-worklog.ts). (v7)
+CREATE TABLE IF NOT EXISTS session_notes (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_blocks (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS worklogs (session_id TEXT NOT NULL, day TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, day));
+
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
 INSERT OR IGNORE INTO meta (key, value) VALUES ('rev:sessions', '0'), ('rev:tasks', '0');
@@ -100,6 +106,24 @@ CREATE TRIGGER IF NOT EXISTS tasks_rev_d AFTER DELETE ON tasks BEGIN UPDATE meta
 -- (work web busy, restarting, or started after the hook ran). (v3)
 CREATE TRIGGER IF NOT EXISTS status_rev_i AFTER INSERT ON session_status BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
 CREATE TRIGGER IF NOT EXISTS status_rev_u AFTER UPDATE ON session_status BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+-- What the CLI changes (work snooze / pin / section / note / block) reaches an
+-- open dashboard the same way: snoozes, notes and blocks are on the sessions
+-- list; the rail's pins and sections have a counter of their own. (v7)
+INSERT OR IGNORE INTO meta (key, value) VALUES ('rev:rail', '0');
+CREATE TRIGGER IF NOT EXISTS snooze_rev_i AFTER INSERT ON session_snooze BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS snooze_rev_u AFTER UPDATE ON session_snooze BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS snooze_rev_d AFTER DELETE ON session_snooze BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS notes_rev_i AFTER INSERT ON session_notes BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS notes_rev_u AFTER UPDATE ON session_notes BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS notes_rev_d AFTER DELETE ON session_notes BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS blocks_rev_i AFTER INSERT ON session_blocks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS blocks_rev_u AFTER UPDATE ON session_blocks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS blocks_rev_d AFTER DELETE ON session_blocks BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:sessions'; END;
+CREATE TRIGGER IF NOT EXISTS rail_rev_i AFTER INSERT ON rail_place BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
+CREATE TRIGGER IF NOT EXISTS rail_rev_u AFTER UPDATE ON rail_place BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
+CREATE TRIGGER IF NOT EXISTS rail_rev_d AFTER DELETE ON rail_place BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
+CREATE TRIGGER IF NOT EXISTS rail_sections_rev_i AFTER INSERT ON meta WHEN NEW.key = 'ui:rail-sections' BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
+CREATE TRIGGER IF NOT EXISTS rail_sections_rev_u AFTER UPDATE ON meta WHEN NEW.key = 'ui:rail-sections' BEGIN UPDATE meta SET value = value + 1 WHERE key = 'rev:rail'; END;
 `;
 
 export function dbPath(): string {
@@ -212,7 +236,7 @@ export function closeDb(): void {
 
 /** Change counter for `sessions` or `tasks` — bumps on every write by any
  *  process. */
-export function revision(table: 'sessions' | 'tasks'): number {
+export function revision(table: 'sessions' | 'tasks' | 'rail'): number {
   return withDb((d) => {
     const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(`rev:${table}`) as { value: string } | undefined;
     return row ? Number(row.value) : 0;
@@ -221,7 +245,7 @@ export function revision(table: 'sessions' | 'tasks'): number {
 
 /** Every row a session owns, outside `sessions` itself. */
 export function purgeSessionRows(d: Db, sessionId: string): void {
-  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'session_snooze', 'rail_place']) {
+  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'worklogs']) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }
   d.prepare('DELETE FROM comments WHERE store = ?').run(sessionId);

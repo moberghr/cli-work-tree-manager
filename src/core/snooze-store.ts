@@ -1,5 +1,6 @@
 import { json, withDb } from './db.js';
-import type { Snooze } from './snooze.js';
+import { snoozeFor, snoozeUntil, type Snooze } from './snooze.js';
+import { readStatus } from './session-status.js';
 
 /** Snoozes, one per session, in state.db `session_snooze` (gone with the session: purgeSessionRows). */
 
@@ -31,4 +32,28 @@ export function saveSnooze(sessionId: string, snooze: Snooze): void {
 
 export function clearSnooze(sessionId: string): boolean {
   return withDb((d) => d.prepare('DELETE FROM session_snooze WHERE session_id = ?').run(sessionId).changes > 0);
+}
+
+/** A snooze asked for: one of the choices, or until a time. */
+export type SnoozeRequest = { for: '2h' | 'tomorrow' | 'change' } | { until: string };
+
+/** Validate a request body as one; null when it isn't. */
+export function cleanSnoozeRequest(raw: unknown): SnoozeRequest | null {
+  const o = raw as Record<string, unknown> | null;
+  if (!o || typeof o !== 'object') return null;
+  if (o.for === '2h' || o.for === 'tomorrow' || o.for === 'change') return { for: o.for };
+  if (typeof o.until === 'string' && o.until) return { until: o.until };
+  return null;
+}
+
+/**
+ * Snooze a session — the dashboard's menu and `work snooze` both. "Until it
+ * changes" is taken against the status the hooks recorded (and the review
+ * threads the caller knows of), as the check that ends it compares.
+ */
+export function requestSnooze(sessionId: string, req: SnoozeRequest, openReviewThreads = 0, now = new Date()): { ok: true; snooze: Snooze } | { ok: false; error: string } {
+  const snooze = 'until' in req ? snoozeUntil(req.until, now) : snoozeFor(req.for, { attention: readStatus(sessionId), openReviewThreads }, now);
+  if (!snooze) return { ok: false, error: 'not a time to snooze until: give one in the next 30 days' };
+  saveSnooze(sessionId, snooze);
+  return { ok: true, snooze };
 }

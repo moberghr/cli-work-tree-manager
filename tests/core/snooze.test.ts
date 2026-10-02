@@ -96,3 +96,28 @@ describe('snooze routes and the session list', () => {
     expect(readSnooze(id)).toBeNull();
   });
 });
+
+describe('a time of your choosing', () => {
+  it('parseWhen: 14:00 (today or tomorrow), fri / "fri 14:00", +3h, a date', async () => {
+    const { parseWhen } = await import('../../src/core/snooze.js');
+    const now = new Date(2026, 9, 1, 15, 0); // Thu 1 Oct 2026, 15:00 local
+    expect(parseWhen('16:30', now)).toEqual(new Date(2026, 9, 1, 16, 30));
+    expect(parseWhen('14:00', now)).toEqual(new Date(2026, 9, 2, 14, 0)); // passed today: tomorrow
+    expect(parseWhen('fri', now)).toEqual(new Date(2026, 9, 2, 9, 0));
+    expect(parseWhen('thu 10:15', now)).toEqual(new Date(2026, 9, 8, 10, 15)); // the coming Thursday, not today
+    expect(parseWhen('+3h', now)).toEqual(new Date(2026, 9, 1, 18, 0));
+    expect(parseWhen('2026-10-05', now)).toEqual(new Date(2026, 9, 5, 9, 0));
+    expect(parseWhen('2026-10-05 17:45', now)).toEqual(new Date(2026, 9, 5, 17, 45));
+    expect(parseWhen('someday', now)).toBeNull();
+    expect(parseWhen('25:00', now)).toBeNull();
+  });
+
+  it('snoozeUntil: in the next 30 days only', async () => {
+    const { snoozeUntil } = await import('../../src/core/snooze.js');
+    const now = new Date('2026-10-01T12:00:00Z');
+    expect(snoozeUntil('2026-10-02T09:00:00Z', now)).toMatchObject({ until: '2026-10-02T09:00:00.000Z' });
+    expect(snoozeUntil('2026-10-01T11:00:00Z', now)).toBeNull();
+    expect(snoozeUntil('2026-12-01T09:00:00Z', now)).toBeNull();
+    expect(snoozeUntil('nope', now)).toBeNull();
+  });
+});

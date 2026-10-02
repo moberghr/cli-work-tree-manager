@@ -192,11 +192,14 @@ export async function startWebServer(
   // show up live: every write bumps a change counter in state.db (db.ts
   // triggers), and polling two counters once a second is cheaper than the
   // file watches it replaces.
-  let seenRev = { sessions: revision('sessions'), tasks: revision('tasks') };
+  const revs = () => ({ sessions: revision('sessions'), tasks: revision('tasks'), rail: revision('rail') });
+  let seenRev = revs();
   const revPoll = setInterval(() => {
-    const now = bestEffort('poll state.db revisions', () => ({ sessions: revision('sessions'), tasks: revision('tasks') }), seenRev) ?? seenRev;
+    const now = bestEffort('poll state.db revisions', revs, seenRev) ?? seenRev;
     if (now.sessions !== seenRev.sessions) broadcast('sessions-changed', { ts: Date.now() });
     if (now.tasks !== seenRev.tasks) broadcast('tasks-changed', { ts: Date.now() });
+    // Pins and sections changed by another process (`work pin`, `work section`).
+    if (now.rail !== seenRev.rail) broadcast('rail-changed', { ts: Date.now() });
     seenRev = now;
   }, 1000);
   revPoll.unref?.();
