@@ -600,12 +600,12 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
               title={
                 s.archive
                   ? s.archive.worktreeRemoved
-                    ? 'Worktree removed; its branch and the conversation are kept. Restore recreates it.'
+                    ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.`
                     : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}`
                   : 'Archived'
               }
             >
-              {s.archive?.worktreeRemoved ? 'archived · folder removed' : 'archived'}
+              {s.archive?.worktreeRemoved ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}` : 'archived'}
             </span>
           )}
         </span>

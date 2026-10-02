@@ -12,6 +12,7 @@ import { shownState } from './turn-activity.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { teardownWorktree } from './worktree.js';
 import type { ArchiveDeps, ArchivedPr } from './session-archive.js';
+import { archiveRefFor, dropSaved, saveUncommitted, type SavedUncommitted } from './archive-uncommitted.js';
 import { readPendingForSession } from './pending-delivery.js';
 import { listReplies } from './pr-replies.js';
 import { stopDev } from './dev-server.js';
@@ -64,7 +65,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       await disposePty(id);
       await opts.release?.(id);
     },
-    removable: async (s) => {
+    removable: async (s, { uncommittedSaved = false } = {}) => {
       const cfg = loadConfig();
       if (!cfg) return { ok: false, reason: 'no work config to check it against' };
       const repos = Object.values(cfg.repos).map(normPath);
@@ -77,7 +78,30 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
         archivedAt: null, lastActiveMs: 0, aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
       };
       const c = await examineWorktree(cs, { baseCheckouts: () => Object.values(cfg.repos), run });
-      return { ok: c.verdict === 'merged' || c.verdict === 'gone', reason: c.reason };
+      // Uncommitted files that were saved don't keep it; commits not in the
+      // main branch still do (nothing else has them).
+      const savedAway = uncommittedSaved && c.verdict === 'dirty' && c.repos.every((r) => !r.exists || r.merged !== null);
+      return { ok: c.verdict === 'merged' || c.verdict === 'gone' || savedAway, reason: c.reason };
+    },
+    saveUncommitted: async (s, dir, stamp) => {
+      const id = sessionIdFor(s);
+      const saved: Record<string, SavedUncommitted> = {};
+      for (const [alias, repo] of repoPaths(s, loadConfig())) {
+        const wt = worktreeOf(s, repo);
+        // A repo's own checkout is never removed, so nothing of it needs saving.
+        if (!wt || !fs.existsSync(wt) || normPath(wt) === normPath(repo)) continue;
+        const r = await saveUncommitted(wt, alias, archiveRefFor(id, alias, stamp), dir, `${alias}-${stamp}`);
+        if ('error' in r) return { saved, error: r.error };
+        if ('saved' in r) saved[alias] = r.saved;
+      }
+      return { saved, error: null };
+    },
+    dropSaved: async (s, saved, dir) => {
+      const cfg = loadConfig();
+      for (const [alias, u] of Object.entries(saved)) {
+        const repo = cfg?.repos[alias];
+        if (repo) await dropSaved(repo, u, dir);
+      }
     },
     removeWorktree: async (s) => {
       if (s.paths.every((p) => !fs.existsSync(p))) return true;

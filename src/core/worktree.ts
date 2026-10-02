@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { restoreArchivedUncommitted } from './archive-restore.js';
 import path from 'node:path';
 import { debug } from './logger.js';
 import type { WorkConfig } from './config.js';
@@ -451,6 +452,8 @@ export async function setupWorktree(
     const sessionTarget = target.isGroup ? target.name : targetName;
     const session = findSession(loadHistory(), sessionTarget, branchName);
     if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
+    // And the uncommitted work archiving saved when it removed the worktree.
+    if (session) await restoreArchivedUncommitted(session, config).catch((err: Error) => report('warn', `couldn't put back its uncommitted changes: ${err.message}`));
     if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;

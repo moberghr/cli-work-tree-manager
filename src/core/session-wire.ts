@@ -131,6 +131,12 @@ export function reviewThreadsOf(ci: { repos: Array<{ pr: { state: string } | nul
   return (ci?.repos ?? []).reduce((n, r) => n + (r.pr?.state === 'OPEN' ? (r.openThreads ?? 0) : 0), 0);
 }
 
+/** Saved uncommitted files a Restore hasn't put back yet. */
+function savedFiles(saved: Record<string, { files: number; restoredAt?: string; restoreError?: string }> | undefined): { savedUncommitted?: number } {
+  const n = Object.values(saved ?? {}).filter((u) => !u.restoredAt && !u.restoreError).reduce((sum, u) => sum + u.files, 0);
+  return n ? { savedUncommitted: n } : {};
+}
+
 function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
   const rec = readArchive(id);
   if (!rec) return {};
@@ -143,6 +149,7 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
       lastSummary: rec.summary.lastSummary,
       ...(rec.summary.written ? { written: rec.summary.written } : {}),
       ...(rec.buildFolders ? { buildFolders: rec.buildFolders } : {}),
+      ...savedFiles(rec.uncommitted),
     },
   };
 }

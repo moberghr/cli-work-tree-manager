@@ -217,7 +217,11 @@ describe('PR watch', () => {
       const activity = createActivityLog();
       const kept = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState], ON, false, null, { activity });
       await kept.watch.tick();
-      expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: a PR is merged, but kept: 2 uncommitted files');
+      // Uncommitted files no longer keep it: the archive saves them for Restore, and says so.
+      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({ level: 'action', text: 'api feat/x: archived: every PR merged; 2 uncommitted files saved, put back on Restore (the conversation is kept)' });
+      const ahead = harness([{ ...repo('api', merged(), false), localSha: 'aaa', ahead: 1 } as RepoShipState], ON, false, null, { activity });
+      await ahead.watch.tick();
+      expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: a PR is merged, but kept: api: PR merged, but 1 unpushed commit');
       const gone = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null, { activity });
       await gone.watch.tick();
       expect(activity.snapshot().recent[0].notes[0]).toMatchObject({ level: 'action', text: expect.stringContaining('archived: every PR merged') });
@@ -248,14 +252,13 @@ describe('PR watch', () => {
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
-  it('a merged PR with work left in its worktree says what work — not "not all merged yet" (reported)', () => {
+  it('merged at the checked-out commit with files left uncommitted: archived (they are saved); commits beyond the merge say what (reported)', () => {
     // fix/pdf-generation-speed: PR merged at the checked-out commit, three files left uncommitted.
     const repoState = { ...repo('straumur-backend', merged(), false), localSha: 'aaa', dirtyFiles: 3 } as RepoShipState;
     repoState.pr = { ...repoState.pr!, headSha: 'aaa' };
-    expect(autoArchiveVerdict({ repos: [repoState] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({
-      archive: false,
-      why: 'straumur-backend: PR merged, but 3 uncommitted files',
-    });
+    expect(autoArchiveVerdict({ repos: [repoState] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({ archive: true });
+    const other = { ...repoState, localSha: 'bbb' } as RepoShipState;
+    expect(autoArchiveVerdict({ repos: [other] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: expect.stringContaining('a commit checked out that the PR didn’t merge') });
     const ahead = { ...repoState, dirtyFiles: 0, ahead: 2 } as RepoShipState;
     expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: 'straumur-backend: PR merged, but 2 unpushed commits' });
   });
@@ -280,10 +283,13 @@ describe('PR watch', () => {
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
 
-  it('uncommitted files keep it from auto-archiving', async () => {
-    const h = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState]);
+  it('uncommitted files don’t keep it from auto-archiving (the archive saves them); unpushed commits do', async () => {
+    const h = harness([{ ...repo('api', merged(), false), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState]);
     await h.watch.tick();
-    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(h.deps.archive).toHaveBeenCalled();
+    const ahead = harness([{ ...repo('api', merged(), false), localSha: 'aaa', ahead: 1 } as RepoShipState]);
+    await ahead.watch.tick();
+    expect(ahead.deps.archive).not.toHaveBeenCalled();
   });
 
   it('does not archive when gh gives no merge time', async () => {

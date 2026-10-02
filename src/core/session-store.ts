@@ -6,6 +6,7 @@ import { purgeSessionRows, tx } from './db.js';
 import { logSwallowed } from './best-effort.js';
 import { devLogFile, stopDev } from './dev-server.js';
 import { clearCheckpoints } from './checkpoint.js';
+import { dropSessionSaves } from './archive-uncommitted.js';
 import { scopeHashForPaths } from './scope-manager.js';
 import { loadConfig } from './config.js';
 import type { WorktreeSession } from './session-types.js';
@@ -58,12 +59,14 @@ export function stopSessionDevServer(id: string): void {
  * (from the base checkouts: the worktree may already be gone) and the
  * manifest. Best-effort, logged.
  */
-export function clearSessionCheckpoints(s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths'>): void {
+export function clearSessionCheckpoints(s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths'> & { branch?: string }): void {
   try {
     const cfg = loadConfig();
     const aliases = s.isGroup ? (cfg?.groups[s.target] ?? []) : [s.target];
     const roots = aliases.map((a) => cfg?.repos[a]).filter((r): r is string => !!r && fs.existsSync(r));
     clearCheckpoints(scopeHashForPaths(s.paths), roots);
+    // Uncommitted work an archive saved (archive-uncommitted.ts): its refs go like the checkpoints'.
+    if (s.branch !== undefined) for (const r of roots) dropSessionSaves(r, sessionIdFor({ target: s.target, branch: s.branch }));
   } catch (err) {
     logSwallowed(`clear checkpoints of ${s.target}`, err);
   }

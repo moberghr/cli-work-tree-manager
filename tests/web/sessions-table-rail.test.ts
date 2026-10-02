@@ -74,6 +74,17 @@ describe('the rail in the Sessions table', () => {
     expect(groups).toEqual([['Pinned', ['feat/a']], ['Client X', ['feat/b']], ['Other', ['feat/c']], ['Archived', ['feat/d']]]);
   });
 
+  it('an archived session whose uncommitted files were saved says so (Restore puts them back)', () => {
+    localStorage.setItem('work-web:sessions-show-archived', '1');
+    act(() => root.unmount());
+    root = createRoot(container);
+    const archived = { ...session('d'), archivedAt: now, archive: { worktreeRemoved: true, keptBecause: null, promptCount: 0, prompts: [], lastSummary: null, savedUncommitted: 3 } } as SessionSummary;
+    act(() => root.render(createElement(SessionsTab, { sessions: [archived], onOpenSession: () => {}, onNewWorktree: () => {}, onDeleteSession: () => {} })));
+    const pill = container.querySelector('.wd-archived-pill')!;
+    expect(pill.textContent).toBe('archived · folder removed · 3 changes saved');
+    expect(pill.getAttribute('title')).toContain('and 3 uncommitted files. Restore recreates it and puts them back.');
+  });
+
   it('the bulk bar pins them, or moves them into a section', async () => {
     for (const id of ['b', 'c']) act(() => container.querySelector<HTMLInputElement>(`input[aria-label="Select api feat/${id}"]`)!.click());
     const railBtn = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Rail ▾')!;

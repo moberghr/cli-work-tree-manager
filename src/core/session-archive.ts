@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { isSavedUncommitted, type SavedUncommitted } from './archive-uncommitted.js';
 import { logSwallowed } from './best-effort.js';
 import { clearSnooze } from './snooze-store.js';
 import { whileArchiving } from './archiving.js';
@@ -75,6 +76,10 @@ export interface ArchiveRecord {
   branchesDeleted?: string[];
   /** Build output cleared from a kept worktree. */
   buildFolders?: { folders: number; bytes: number };
+  /** Uncommitted work saved because the worktree was removed (repo alias → where it is): Restore puts it back (archive-uncommitted.ts). */
+  uncommitted?: Record<string, SavedUncommitted>;
+  /** Saved work an earlier Restore couldn't put back, carried over when archived again (still in its ref and patch). */
+  unrestored?: SavedUncommitted[];
   /** When the transcripts were compressed / deleted for retention (ISO). */
   compressedAt?: string;
   transcriptsDroppedAt?: string;
@@ -82,8 +87,13 @@ export interface ArchiveRecord {
 
 export interface ArchiveDeps {
   stopClaude: (id: string) => Promise<void>;
-  /** Would removing its worktree lose anything? (cleanup's verdict) */
-  removable: (s: WorktreeSession) => Promise<{ ok: boolean; reason: string }>;
+  /** Would removing its worktree lose anything? (cleanup's verdict). With
+   *  `uncommittedSaved`, uncommitted files don't count: they were saved. */
+  removable: (s: WorktreeSession, opts?: { uncommittedSaved?: boolean }) => Promise<{ ok: boolean; reason: string }>;
+  /** Save each repo's uncommitted work (archive-uncommitted.ts) before the worktree may go. */
+  saveUncommitted?: (s: WorktreeSession, archiveDir: string, stamp: number) => Promise<{ saved: Record<string, SavedUncommitted>; error: string | null }>;
+  /** Drop saves that weren't needed (the worktree stayed). */
+  dropSaved?: (s: WorktreeSession, saved: Record<string, SavedUncommitted>, archiveDir: string) => Promise<void>;
   removeWorktree: (s: WorktreeSession) => Promise<boolean>;
   setArchived: (s: WorktreeSession) => Promise<boolean>;
   /** The session's transcript files. */
@@ -187,16 +197,34 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: copied.length, message: `Not archived: could not copy its conversation (${(err as Error).message}).` };
   }
 
-  // 3–4. The folder goes only if nothing would be lost.
-  const verdict = await deps.removable(s);
+  // 3. Uncommitted work is saved (a snapshot commit + a patch), so it
+  //    doesn't keep the worktree: Restore puts it back. A save that fails
+  //    keeps the worktree, as before.
+  const saving = deps.saveUncommitted ? await deps.saveUncommitted(s, dir, now()).catch((err: Error) => ({ saved: {}, error: err.message })) : { saved: {}, error: null };
+  let saved: Record<string, SavedUncommitted> = saving.error ? {} : saving.saved;
+  if (saving.error) await deps.dropSaved?.(s, saving.saved, dir).catch(() => {});
+
+  // 4. The folder goes only if nothing would be lost.
+  const verdict = await deps.removable(s, { uncommittedSaved: !saving.error });
   let worktreeRemoved = false;
   let keptBecause: string | null = null;
   if (verdict.ok) {
     worktreeRemoved = await deps.removeWorktree(s);
     if (!worktreeRemoved) keptBecause = 'git refused to remove the worktree';
   } else {
-    keptBecause = verdict.reason;
+    keptBecause = saving.error && !verdict.reason.includes(saving.error) ? `${verdict.reason} (${saving.error})` : verdict.reason;
   }
+  // Kept: the changes are still in it, so the saves aren't needed.
+  if (!worktreeRemoved && Object.keys(saved).length) {
+    await deps.dropSaved?.(s, saved, dir).catch(() => {});
+    saved = {};
+  }
+  // Work an earlier Restore couldn't put back stays known (its ref and patch are still there).
+  const earlier = readArchive(id, root);
+  const unrestored = [
+    ...(earlier?.unrestored ?? []),
+    ...Object.values(earlier?.uncommitted ?? {}).filter((u) => !u.restoredAt),
+  ];
   let branchesDeleted: string[] = [];
   let buildFolders: ArchiveRecord['buildFolders'];
   if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s, heads).catch(() => [])) ?? [];
@@ -227,6 +255,8 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     ...(Object.keys(heads).length ? { heads } : {}),
     ...(branchesDeleted.length ? { branchesDeleted } : {}),
     ...(buildFolders && buildFolders.folders ? { buildFolders } : {}),
+    ...(Object.keys(saved).length ? { uncommitted: saved } : {}),
+    ...(unrestored.length ? { unrestored } : {}),
   };
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(record, null, 2));
 
@@ -243,9 +273,13 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     worktreeRemoved,
     keptBecause,
     transcripts: copied.length,
-    message: worktreeRemoved ? 'Archived; worktree removed, conversation kept' : `Archived; worktree kept (${keptBecause})`,
+    message: worktreeRemoved
+      ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}`
+      : `Archived; worktree kept (${keptBecause})`,
   };
 }
+
+const savedFiles = (saved: Record<string, SavedUncommitted>): number => Object.values(saved).reduce((n, u) => n + u.files, 0);
 
 /** Ask for the written summary and store it in the record (background, after archiving). */
 export async function writeArchiveSummary(id: string, summarize: (rec: ArchiveRecord) => Promise<string | null>, root = archiveRoot()): Promise<string | null> {
@@ -286,10 +320,26 @@ export function readArchivedTranscript(id: string, file: string, root = archiveR
 export function readArchive(id: string, root = archiveRoot()): ArchiveRecord | null {
   try {
     const raw: unknown = JSON.parse(fs.readFileSync(path.join(archiveDirFor(id, root), 'archive.json'), 'utf8'));
-    return isArchiveRecord(raw) ? raw : null;
+    return isArchiveRecord(raw) ? withValidSaves(raw) : null;
   } catch {
     return null;
   }
+}
+
+/** Saved work comes back only in its known shape (stored JSON); anything else is dropped from the record read. */
+function withValidSaves(r: ArchiveRecord): ArchiveRecord {
+  const out = { ...r };
+  if (r.uncommitted !== undefined) {
+    const valid = typeof r.uncommitted === 'object' && r.uncommitted ? Object.entries(r.uncommitted).filter(([, v]) => isSavedUncommitted(v)) : [];
+    if (valid.length) out.uncommitted = Object.fromEntries(valid);
+    else delete out.uncommitted;
+  }
+  if (r.unrestored !== undefined) {
+    const valid = Array.isArray(r.unrestored) ? r.unrestored.filter(isSavedUncommitted) : [];
+    if (valid.length) out.unrestored = valid;
+    else delete out.unrestored;
+  }
+  return out;
 }
 
 function isArchiveRecord(x: unknown): x is ArchiveRecord {

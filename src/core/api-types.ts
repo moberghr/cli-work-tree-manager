@@ -63,6 +63,8 @@ export interface SessionArchiveInfo {
   written?: string | null;
   /** Build output cleared from its kept worktree. */
   buildFolders?: { folders: number; bytes: number };
+  /** Uncommitted files saved when its worktree was removed, waiting for Restore to put them back. */
+  savedUncommitted?: number;
 }
 
 /** A session's running Claudes: in your terminal, or run by the app. */

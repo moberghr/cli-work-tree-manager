@@ -96,8 +96,9 @@ export function ciFixMessage(failing: Array<{ repo: string; number: number; chec
 }
 
 /**
- * Archive once the session's work is merged: every repo done, nothing
- * uncommitted anywhere, and at least one merged PR that is THIS work.
+ * Archive once the session's work is merged: every repo done — or merged
+ * with only uncommitted files left, which the archive saves for Restore —
+ * and at least one merged PR that is THIS work.
  *
  * "This work": it was merged after the user last entered the session, or
  * its head is exactly the commit the worktree has checked out and the
@@ -117,10 +118,19 @@ export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSess
   return autoArchiveVerdict(pre, session, now)?.archive === true;
 }
 
-/** What keeps a repo whose PR merged from being done (ship.ts repoDone): work after the merge. */
+/**
+ * A repo the archive may take: done (ship.ts repoDone), or merged at the
+ * checked-out commit with only uncommitted files left — archiving saves
+ * those and Restore puts them back (archive-uncommitted.ts).
+ */
+function archivable(r: ShipPreflight['repos'][number]): boolean {
+  if (r.done) return true;
+  return r.pr?.state === 'MERGED' && !r.ahead && (!r.localSha || !r.pr.headSha || r.localSha === r.pr.headSha);
+}
+
+/** What keeps a merged repo from being archived: work after the merge that only lives in commits. */
 function workBeyondMerge(r: ShipPreflight['repos'][number]): string | null {
   const parts: string[] = [];
-  if (r.dirtyFiles > 0) parts.push(`${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'}`);
   if (r.ahead) parts.push(`${r.ahead} unpushed commit${r.ahead === 1 ? '' : 's'}`);
   if (r.localSha && r.pr?.headSha && r.localSha !== r.pr.headSha) parts.push('a commit checked out that the PR didn’t merge');
   return parts.length ? `${r.name}: PR merged, but ${parts.join(' and ')}` : null;
@@ -140,13 +150,12 @@ export function autoArchiveVerdict(
   if (merged.length === 0) return null;
   // A merged repo isn't done while there is work beyond the merge (repoDone):
   // say which, rather than "not merged" about a merged PR.
-  const beyond = pre.repos.filter((r) => !r.done && r.pr?.state === 'MERGED');
+  const beyond = pre.repos.filter((r) => !archivable(r) && r.pr?.state === 'MERGED');
   const why = beyond.map(workBeyondMerge).filter((w): w is string => !!w);
   if (why.length) return { archive: false, why: why.join('; ') };
-  const open = pre.repos.filter((r) => !r.done);
+  const open = pre.repos.filter((r) => !archivable(r));
   if (open.length) return { archive: false, why: `not all merged yet (${open.map((r) => r.name).join(', ')})` };
-  const dirty = pre.repos.reduce((n, r) => n + r.dirtyFiles, 0);
-  if (dirty > 0) return { archive: false, why: `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` };
+  // Uncommitted files don't hold it: archiving saves them for Restore.
   const entered = Date.parse(session.lastAccessedAt);
   let waiting = false;
   for (const r of merged) {
@@ -317,7 +326,13 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       else if (verdict?.archive) {
         try {
           await deps.archive(id);
-          note('archived: every PR merged, nothing uncommitted (the conversation is kept)', 'action');
+          const dirty = pre.repos.reduce((n, r) => n + (r.dirtyFiles || 0), 0);
+          note(
+            dirty
+              ? `archived: every PR merged; ${dirty} uncommitted file${dirty === 1 ? '' : 's'} saved, put back on Restore (the conversation is kept)`
+              : 'archived: every PR merged, nothing uncommitted (the conversation is kept)',
+            'action',
+          );
         } catch (err) {
           note(`every PR merged, but archiving failed: ${(err as Error).message}`, 'warn');
         }
