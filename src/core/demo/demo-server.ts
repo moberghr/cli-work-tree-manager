@@ -432,6 +432,23 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/chat/interrupt', (c) => c.json({ ok: true }));
   app.post('/api/sessions/:id/chat/permissions/:pid', (c) => c.json({ error: 'no such prompt (already answered?)' }, 404));
 
+  // Driving a session from outside (session-control-routes.ts): a message is a published comment, as for real.
+  app.post('/api/sessions/:id/send', async (c) => {
+    const id = c.req.param('id');
+    const store = scenario.comments(id);
+    if (!store) return notFound(c);
+    const body = await json(c);
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) return c.json({ error: 'the message is empty' }, 400);
+    const comment = store.post({ side: 'general', status: 'published', body: text });
+    scenario.replyLater(id, comment.id);
+    broadcast({ event: 'comments-changed', data: { sessionId: id, id: comment.id } });
+    return c.json({ how: 'typed', sentAt: new Date(scenario.clockMs()).toISOString() });
+  });
+  app.post('/api/sessions/:id/agent/start', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'running' }) : notFound(c)));
+  app.post('/api/sessions/:id/agent/stop', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'stopped' }) : notFound(c)));
+  app.get('/api/sessions/:id/screen', (c) => (scenario.comments(c.req.param('id')) ? c.json({ text: scenario.screen(c.req.param('id')) }) : notFound(c)));
+
   app.post('/api/sessions/:id/answer', async (c) => {
     const body = (await c.req.json().catch(() => null)) as Partial<AnswerRequest> | null;
     if (!body || (body.answer !== 'allow' && body.answer !== 'deny')) return c.json({ error: 'answer must be allow or deny' }, 400);

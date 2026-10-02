@@ -166,3 +166,28 @@ export async function askWorkWeb<T>(route: string, timeoutMs = 3000): Promise<T 
     return null;
   }
 }
+
+export type WorkWebAnswer<T> = { ok: true; body: T } | { ok: false; status: number; error: string } | { ok: false; status: 0; error: string };
+
+/**
+ * Call a route of the running work web (what only it can do: type into a
+ * terminal it owns, start a Claude in the PTY host). Unlike askWorkWeb, a
+ * refusal comes back with its reason, and "no work web" is its own answer
+ * (status 0), so the caller can say how to start one.
+ */
+export async function callWorkWeb<T>(method: 'GET' | 'POST', route: string, body?: unknown, timeoutMs = 15_000): Promise<WorkWebAnswer<T>> {
+  const url = readWebUrl();
+  if (!url) return { ok: false, status: 0, error: 'work web is not running (start it with `work web`, or open the desktop app)' };
+  try {
+    const res = await fetch(`${url}${route.replace(/^\//, '')}`, {
+      method,
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(body !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+    });
+    const json = (await res.json().catch(() => null)) as (T & { error?: unknown }) | null;
+    if (res.ok && json) return { ok: true, body: json };
+    return { ok: false, status: res.status, error: typeof json?.error === 'string' ? json.error : `work web answered ${res.status}` };
+  } catch (err) {
+    return { ok: false, status: 0, error: `work web did not answer (${(err as Error).message})` };
+  }
+}

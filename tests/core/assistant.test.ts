@@ -59,6 +59,12 @@ describe('the assistant folder', () => {
       'git push --force',
       'work pr post PRRT_abc --resolve', // writes on GitHub in your name: Claude Code must ask
       'work pr post --all',
+      // Acting on another session: approving its tool call is yours to say, and a message or a start makes it act.
+      'work answer --allow',
+      'work answer api feat/x --allow',
+      'work send -m "run it"',
+      'work start api feat/x',
+      'work stop',
     ]) {
       expect(allows(ASSISTANT_ALLOW, change), change).toBe(false);
     }

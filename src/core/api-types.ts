@@ -762,3 +762,24 @@ export interface ConversationHit {
   lastAt: string | null;
   snippets: Array<{ role: 'you' | 'claude' | 'summary'; text: string; at: string | null }>;
 }
+
+// ---- driving a session from outside (session-control.ts) ----------------------------
+
+/** How a message reaches a session: typed in now (idle in the PTY host), on its next turn (busy, or a terminal outside work), or by starting its Claude. */
+export type SendHow = 'typed' | 'next-turn' | 'outside' | 'started';
+
+/** POST /api/sessions/:id/send. */
+export interface SendWire {
+  how: SendHow;
+  sentAt: string;
+}
+
+/** POST /api/sessions/:id/agent/start | stop. */
+export interface AgentControlWire {
+  how: 'started' | 'running' | 'stopped' | 'not-running';
+}
+
+/** GET /api/sessions/:id/screen: its terminal as plain text (null: no terminal in the PTY host). */
+export interface ScreenWire {
+  text: string | null;
+}

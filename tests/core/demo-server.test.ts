@@ -54,6 +54,19 @@ describe('demo server', () => {
     expect(list.find((s) => s.target === 'shop')?.isGroup).toBe(true);
   });
 
+  it('drives a session like work web: send queues a published note, start / stop / screen answer in the same shapes', async () => {
+    const s = await byBranch('fix/login-redirect');
+    const sent = await send('POST', `/api/sessions/${s.id}/send`, { text: 'Run the tests' });
+    expect(await sent.json()).toMatchObject({ how: 'typed', sentAt: new Date(clock).toISOString() });
+    const comments = (await get<{ comments: Array<{ body: string; status: string }> }>(`/api/sessions/${s.id}/comments`)).comments;
+    expect(comments.find((c) => c.body === 'Run the tests')).toMatchObject({ status: 'published' });
+    expect((await send('POST', `/api/sessions/${s.id}/send`, { text: '  ' })).status).toBe(400);
+    expect(await (await send('POST', `/api/sessions/${s.id}/agent/start`, {})).json()).toEqual({ how: 'running' });
+    expect(await (await send('POST', `/api/sessions/${s.id}/agent/stop`, {})).json()).toEqual({ how: 'stopped' });
+    expect(typeof (await get<{ text: string }>(`/api/sessions/${s.id}/screen`)).text).toBe('string');
+    expect((await send('POST', '/api/sessions/nope/send', { text: 'x' })).status).toBe(404);
+  });
+
   it('serves the SPA shell for dashboard routes', async () => {
     const res = await fetch(server.url + 's/abc/diff');
     expect(await res.text()).toContain('<div id="root">');

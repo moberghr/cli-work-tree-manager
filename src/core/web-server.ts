@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { mountSessionControlRoutes } from './session-control-routes.js';
 import os from 'node:os';
 import { defaultRunner } from './ship.js';
 import type { NotifyEvent } from './api-types.js';
@@ -425,6 +426,9 @@ export async function startWebServer(
 
   // Per-session comments (file-backed). Emits comments-changed via broadcast.
   mountSessionCommentRoutes(app, { broadcast });
+
+  // Driving a session from outside its terminal: send, start, stop, its screen (`work send` …).
+  mountSessionControlRoutes(app, { broadcast });
 
   // Revert an uncommitted file/hunk and tell Claude (posts via the comment
   // route above, so it's delivered like any review note).

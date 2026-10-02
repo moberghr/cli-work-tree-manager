@@ -36,6 +36,13 @@ import { updateCommand } from './commands/update.js';
 import { noteCommand } from './commands/note.js';
 import { blockCommand } from './commands/block.js';
 import { timeCommand } from './commands/time.js';
+import { readCommand } from './commands/read.js';
+import { screenCommand } from './commands/screen.js';
+import { sendCommand } from './commands/send.js';
+import { waitCommand } from './commands/wait.js';
+import { startCommand } from './commands/start.js';
+import { stopCommand } from './commands/stop.js';
+import { answerCommand } from './commands/answer.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -129,6 +136,13 @@ export function run(argv: string[]) {
     .command(noteCommand)
     .command(blockCommand)
     .command(timeCommand)
+    .command(readCommand)
+    .command(screenCommand)
+    .command(sendCommand)
+    .command(waitCommand)
+    .command(startCommand)
+    .command(stopCommand)
+    .command(answerCommand)
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)
