@@ -543,7 +543,27 @@ export interface SessionCi {
     done: boolean;
     /** Unresolved review threads waiting on the author (open PRs). */
     openThreads?: number;
+    /** Those threads (the PR watch's last read). */
+    threads?: OpenReviewThread[];
   }>;
+}
+
+/** An unresolved review thread waiting on you (the PR watch's last read). */
+export interface OpenReviewThread {
+  threadId: string;
+  repo: string;
+  prNumber: number;
+  url: string;
+  where: string | null;
+  reviewer: string;
+  excerpt: string;
+}
+
+/** GET /api/sessions/:id/replies: the threads handed to its Claude and its drafts, and the open threads that have no draft. */
+export interface RepliesWire {
+  replies: PrReply[];
+  /** Unresolved threads with no reply drafted: nothing to post yet (ask its Claude, or answer on GitHub). */
+  waiting: OpenReviewThread[];
 }
 
 // ---- the rail's pins and sections (rail-layout.ts) -------------------------------

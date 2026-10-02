@@ -28,7 +28,7 @@ export function mountDemoReplies(app: Hono, scenario: DemoScenario, emit: (sessi
   const list = (id: string) => byId.get(id) ?? [];
   const find = (id: string, thread: string) => list(id).find((r) => r.threadId === thread);
 
-  app.get('/api/sessions/:id/replies', (c) => c.json({ replies: list(c.req.param('id')) }));
+  app.get('/api/sessions/:id/replies', (c) => c.json({ replies: list(c.req.param('id')), waiting: [] }));
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
     const r = find(c.req.param('id'), c.req.param('thread'));
     const b = (await c.req.json().catch(() => ({}))) as { body?: unknown };

@@ -6,11 +6,13 @@ import {
   fetchReviewFeedback,
   newFeedback,
   openThreadCount,
+  openThreadsOf,
   parseReviewFeedback,
   reviewMessage,
   subAgentHint,
   type ReviewFeedback,
 } from '../../src/core/pr-review.js';
+import { threadsWithoutDraft } from '../../src/core/pr-reply-routes.js';
 
 const c = (id: string, author: string, body = `body ${id}`, association = 'COLLABORATOR') => ({ id, author, association, body, url: `https://gh/${id}`, createdAt: '2026-09-29T10:00:00Z' });
 const fb = (over: Partial<ReviewFeedback> = {}): ReviewFeedback => ({ viewer: 'me', threads: [], reviews: [], comments: [], ...over });
@@ -134,6 +136,19 @@ describe('newFeedback', () => {
         }),
       ),
     ).toBe(1);
+  });
+
+  it('lists those threads: where, who started it, what they said, a link to the latest word', () => {
+    const data = fb({
+      threads: [
+        { id: 'PRRT_open1', isResolved: false, isOutdated: false, path: 'src/a.ts', line: 53, comments: [c('1', 'copilot', 'Invalidates only once'), c('2', 'dana', 'still?')] },
+        { id: 'PRRT_mine', isResolved: false, isOutdated: false, path: null, line: null, comments: [c('3', 'x'), c('4', 'me')] },
+      ],
+    });
+    expect(openThreadsOf(data)).toEqual([{ threadId: 'PRRT_open1', url: 'https://gh/2', where: 'src/a.ts:53', reviewer: 'copilot', excerpt: 'Invalidates only once' }]);
+    const reply = (threadId: string, status: 'sent' | 'draft') => ({ threadId, status }) as never;
+    const open = [{ threadId: 'A' }, { threadId: 'B' }] as never[];
+    expect(threadsWithoutDraft(open, [reply('A', 'draft'), reply('B', 'sent')]).map((t: { threadId: string }) => t.threadId)).toEqual(['B']);
   });
 });
 

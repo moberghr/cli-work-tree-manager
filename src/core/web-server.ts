@@ -576,7 +576,11 @@ export async function startWebServer(
   });
 
   // Replies to PR review threads: Claude drafts, posted on your yes (pr-replies.ts).
-  mountPrReplyRoutes(app, { broadcast, activity });
+  mountPrReplyRoutes(app, {
+    broadcast,
+    activity,
+    openThreads: (id) => (prWatch.state(id)?.repos ?? []).filter((r) => r.pr?.state === 'OPEN').flatMap((r) => r.threads ?? []),
+  });
 
   // Clean up view: which worktrees can go (scan), and removing them.
   mountCleanupRoutes(app, { broadcast, activity });

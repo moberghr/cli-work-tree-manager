@@ -203,10 +203,27 @@ export function newFeedback(fb: ReviewFeedback, scope: string, seen: SeenStore, 
 
 /** Unresolved threads waiting on someone other than you. */
 export function openThreadCount(fb: ReviewFeedback): number {
-  return fb.threads.filter((t) => {
-    const last = t.comments[t.comments.length - 1];
-    return !t.isResolved && last && last.author.toLowerCase() !== fb.viewer.toLowerCase();
-  }).length;
+  return openThreadsOf(fb).length;
+}
+
+/** The same threads, as the dashboard lists them: where, who, what they said (the first comment), a link to the latest. */
+export function openThreadsOf(fb: ReviewFeedback): Array<{ threadId: string; url: string; where: string | null; reviewer: string; excerpt: string }> {
+  return fb.threads
+    .filter((t) => {
+      const last = t.comments[t.comments.length - 1];
+      return !t.isResolved && last && last.author.toLowerCase() !== fb.viewer.toLowerCase();
+    })
+    .map((t) => {
+      const first = t.comments[0];
+      const last = t.comments[t.comments.length - 1];
+      return {
+        threadId: t.id,
+        url: last.url,
+        where: t.path ? `${t.path}${t.line ? `:${t.line}` : ''}` : null,
+        reviewer: first.author,
+        excerpt: first.body.slice(0, 400),
+      };
+    });
 }
 
 /** One line of reviewer text, safe to put inside the reminder block Claude

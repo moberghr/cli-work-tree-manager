@@ -215,8 +215,8 @@ async function getJson<T>(path: string): Promise<T> {
 type PrReply = import('../../../core/api-types.js').PrReply;
 
 /** Review threads handed to the session's Claude, and the replies it drafted. */
-export function fetchReplies(sessionId: string): Promise<PrReply[]> {
-  return getJson<{ replies: PrReply[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => r.replies);
+export function fetchReplies(sessionId: string): Promise<import('../../../core/api-types.js').RepliesWire> {
+  return getJson<import('../../../core/api-types.js').RepliesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => ({ replies: r.replies, waiting: r.waiting ?? [] }));
 }
 
 async function sendJson<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {

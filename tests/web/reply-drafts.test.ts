@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { PrReply } from '../../src/core/api-types.js';
+import type { OpenReviewThread, PrReply } from '../../src/core/api-types.js';
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 import { ReplyDrafts, type ReplyApi } from '../../src/web/src/components/Dashboard/ReplyDrafts.js';
@@ -28,11 +28,12 @@ const reply = (threadId: string, over: Partial<PrReply> = {}): PrReply => ({
   status: 'draft', draft: 'Fixed in abc1234: now a const.', sentAt: '2026-09-30T10:00:00Z', ...over,
 });
 
-function fakeApi(list: PrReply[]): ReplyApi & { calls: string[] } {
+function fakeApi(list: PrReply[], waiting: OpenReviewThread[] = []): ReplyApi & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    list: vi.fn(async () => list),
+    list: vi.fn(async () => ({ replies: list, waiting })),
+    ask: vi.fn(async (_s, body) => void calls.push(`ask ${body}`)),
     edit: vi.fn(async (_s, t, b) => void calls.push(`edit ${t} ${b}`)),
     discard: vi.fn(async (_s, t) => void calls.push(`discard ${t}`)),
     post: vi.fn(async (_s, t, b, resolve) => {
@@ -43,10 +44,10 @@ function fakeApi(list: PrReply[]): ReplyApi & { calls: string[] } {
 }
 
 describe('ReplyDrafts', () => {
-  it("shows the reviewer's comment and Claude's draft, and counts threads still being worked on", async () => {
+  it("shows the reviewer's comment and Claude's draft", async () => {
     act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a'), reply('PRRT_b', { status: 'sent', draft: null })]) })));
     await flush();
-    expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post · Claude is still on 1 more');
+    expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post');
     expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('Why not a const?');
     expect(container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!.value).toBe('Fixed in abc1234: now a const.');
   });
@@ -79,9 +80,25 @@ describe('ReplyDrafts', () => {
 });
 
 describe('ReplyDrafts with nothing to post', () => {
-  it('shows nothing while Claude is still working on the threads (the CI strip already names them)', async () => {
+  it('nothing open and nothing drafted: nothing shows', async () => {
     act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a', { status: 'sent', draft: null })]) })));
     await flush();
     expect(container.querySelector('.wd-replies')).toBeNull();
+  });
+
+  it('an open thread with no draft is listed — the comment, a link, Ask Claude to reply (reported: a count and nothing to see)', async () => {
+    const open: OpenReviewThread = { threadId: 'PRRT_kwDOfront1', repo: 'straumur-frontend-ai', prNumber: 1927, url: 'https://gh/1927#r1', where: 'payfac-admin/src/pages/inventory/inventory.mutations.ts:53', reviewer: 'copilot-pull-request-reviewer', excerpt: 'This invalidates the queries only once…' };
+    const api = fakeApi([reply('PRRT_kwDOfront1', { status: 'sent', draft: null })], [open]);
+    act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api })));
+    await flush();
+    expect(container.querySelector('.wd-replies-title')!.textContent).toBe('💬 1 unresolved review thread with no reply yet');
+    expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('This invalidates the queries only once…');
+    expect(container.textContent).toContain('handed to Claude, no draft yet');
+    expect(container.querySelector<HTMLAnchorElement>('.wd-reply-where')!.href).toBe('https://gh/1927#r1');
+    await act(async () => button('Ask Claude to reply').click());
+    expect(api.calls[0]).toContain('[thread PRRT_kwDOfront1]');
+    expect(api.calls[0]).toContain('work pr reply PRRT_kwDOfront1');
+    expect(api.calls[0]).toContain("Don't post it.");
+    expect(button('Asked — the draft will show here').disabled).toBe(true);
   });
 });

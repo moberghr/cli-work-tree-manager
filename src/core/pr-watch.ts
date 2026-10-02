@@ -1,7 +1,7 @@
 import type { WorktreeSession } from './session-types.js';
-import type { SessionCi, ShipPreflight } from './api-types.js';
+import type { SessionCi, ShipPreflight, OpenReviewThread } from './api-types.js';
 import { DECISION_MARKER } from './attention.js';
-import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore } from './pr-review.js';
+import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore, openThreadsOf } from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from './activity.js';
 import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
 
@@ -253,6 +253,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
     const feedbackSeen = staged(id);
     const threads = new Map<string, number>();
+    const threadList = new Map<string, OpenReviewThread[]>();
     // Review text is other people's writing; a session running with
     // permission checks off would act on it unreviewed. Count threads for the
     // strip, but don't hand it over.
@@ -271,9 +272,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
           const was = states.get(id)?.repos.find((p) => p.name === r.name);
           if (was?.pr?.number === r.pr.number && was.openThreads !== undefined) threads.set(r.name, was.openThreads);
+          if (was?.pr?.number === r.pr.number && was.threads) threadList.set(r.name, was.threads);
           continue;
         }
         threads.set(r.name, openThreadCount(fb));
+        const prNumber = r.pr.number;
+        threadList.set(r.name, openThreadsOf(fb).map((t) => ({ ...t, repo: r.name, prNumber })));
         if (act && deliverReviews) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, { trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS });
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
@@ -287,6 +291,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         pr: r.pr,
         done: r.done,
         ...(threads.has(r.name) ? { openThreads: threads.get(r.name)! } : {}),
+        ...(threadList.get(r.name)?.length ? { threads: threadList.get(r.name)! } : {}),
       })),
     };
     const before = JSON.stringify(states.get(id)?.repos);

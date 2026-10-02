@@ -134,6 +134,8 @@ describe('PR watch', () => {
     feedback.mockResolvedValue(null);
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+    // …and the threads themselves, for the replies panel.
+    expect(h.watch.state('s1')?.repos[0].threads).toEqual([{ threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix' }]);
   });
 
   describe('GitHub calls', () => {
@@ -266,7 +268,7 @@ describe('PR watch', () => {
   it('merged work isn’t held up by replies to post or notes for Claude: archived, and the note says what was kept (reported)', async () => {
     const activity = createActivityLog();
     const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['2 replies to post on review threads'], activity });
-    h.deps.archive = vi.fn(async () => '2 reply drafts');
+    h.deps.archive = vi.fn(async () => '2 reply drafts') as never;
     await h.watch.tick();
     expect(h.deps.archive).toHaveBeenCalled();
     expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: archived: every PR merged; 2 reply drafts kept for Restore (the conversation is kept)');

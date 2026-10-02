@@ -3,7 +3,13 @@ import { findSession } from './web-state.js';
 import { discardReply, listReplies, MAX_REPLY_CHARS, postReply, saveDraft, THREAD_ID } from './pr-replies.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { ActivityLog } from './activity.js';
-import type { PrReply } from './api-types.js';
+import type { OpenReviewThread, PrReply, RepliesWire } from './api-types.js';
+
+/** Open threads that have no draft to post: the panel lists them, so a count is never all you see. */
+export function threadsWithoutDraft(open: OpenReviewThread[], replies: PrReply[]): OpenReviewThread[] {
+  const drafted = new Set(replies.filter((r) => r.status === 'draft').map((r) => r.threadId));
+  return open.filter((t) => !drafted.has(t.threadId));
+}
 
 /**
  * Replies to PR review threads (pr-replies.ts), for the session header:
@@ -19,7 +25,13 @@ import type { PrReply } from './api-types.js';
  */
 export function mountPrReplyRoutes(
   app: Hono,
-  opts: { broadcast: (event: string, data: unknown) => void; run?: CommandRunner; activity?: ActivityLog },
+  opts: {
+    broadcast: (event: string, data: unknown) => void;
+    run?: CommandRunner;
+    activity?: ActivityLog;
+    /** The session's unresolved review threads (the PR watch's last read). */
+    openThreads?: (sessionId: string) => OpenReviewThread[];
+  },
 ): void {
   const run = opts.run ?? defaultRunner;
   const changed = (sessionId: string) => {
@@ -30,8 +42,10 @@ export function mountPrReplyRoutes(
     ((await c.req.json().catch(() => null)) ?? {}) as { body?: unknown; resolve?: unknown; sessionId?: unknown };
 
   app.get('/api/sessions/:id/replies', (c) => {
-    if (!findSession(c.req.param('id'))) return c.json({ error: 'unknown session' }, 404);
-    return c.json({ replies: listReplies(c.req.param('id')) satisfies PrReply[] });
+    const id = c.req.param('id');
+    if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const replies = listReplies(id);
+    return c.json({ replies, waiting: threadsWithoutDraft(opts.openThreads?.(id) ?? [], replies) } satisfies RepliesWire);
   });
 
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
