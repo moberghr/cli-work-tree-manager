@@ -179,6 +179,17 @@ describe('ship routes', () => {
     expect(archivedAt()).toBeTruthy();
   });
 
+  it('Ship’s merge archives even with a reply draft waiting — the merge decides it, and the draft is kept', async () => {
+    const id = sessionIdFor(session);
+    rememberSent(id, [{ threadId: 'PRRT_abcdef', repo: 'api', prNumber: 5, url: 'u', where: null, reviewer: 'r', excerpt: 'e' }]);
+    saveDraft(id, 'PRRT_abcdef', 'Fixed in abc');
+    const res = await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos: [{ name: 'api', headSha: SHA }] });
+    expect(await res.json()).toMatchObject({ archived: true, allDone: true });
+    expect(archivedAt()).toBeTruthy();
+    const { listReplies } = await import('../../src/core/pr-replies.js');
+    expect(listReplies(id).find((r) => r.threadId === 'PRRT_abcdef')).toMatchObject({ status: 'draft', draft: 'Fixed in abc' });
+  });
+
   it('names a session, and an empty name goes back to the automatic one', async () => {
     const id = sessionIdFor(session);
     expect((await post(app(), `/api/sessions/${id}/title`, { title: '  Key rotation ' })).status).toBe(200);

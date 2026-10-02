@@ -10,6 +10,7 @@ import { saveConfig, type WorkConfig } from '../../src/core/config.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { rememberSent, saveDraft } from '../../src/core/pr-replies.js';
 import { recordStatusEvent } from '../../src/core/session-status.js';
+import { archiveSession } from '../../src/core/session-archive.js';
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -124,6 +125,40 @@ describe('archive deps (real git)', () => {
     const r = await setupWorktree('api', 'feat/start', config, undefined, undefined, { pull: false });
     expect(r?.paths).toEqual([wt]);
     expect(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/merged');
+  });
+
+  describe('uncommitted work through a real archive and Restore (end to end)', () => {
+    const deps = () => ({ ...defaultArchiveDeps(), stopClaude: async () => {}, transcripts: () => [] });
+
+    it('merged + dirty: saved, the worktree removed, and Restore puts the files back', async () => {
+      const made = await setupWorktree('api', 'feat/merged', config, undefined, undefined, { pull: false });
+      const wt = made!.paths[0];
+      fs.writeFileSync(path.join(wt, 'a'), 'edited');
+      fs.writeFileSync(path.join(wt, 'Harness.cs'), 'class Harness {}');
+      const s = loadHistory().find((x) => x.branch === 'feat/merged' && x.paths[0] === wt)!;
+
+      const out = await archiveSession(s, deps(), { merged: true });
+      expect(out).toMatchObject({ ok: true, worktreeRemoved: true, message: expect.stringContaining('2 uncommitted files saved for Restore') });
+      expect(fs.existsSync(wt)).toBe(false);
+      expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toContain(sessionIdFor(s));
+
+      await setupWorktree('api', 'feat/merged', config, undefined, undefined, { pull: false });
+      expect(fs.readFileSync(path.join(wt, 'a'), 'utf8')).toBe('edited');
+      expect(fs.readFileSync(path.join(wt, 'Harness.cs'), 'utf8')).toBe('class Harness {}');
+      expect(git(wt, 'diff', '--cached', '--name-only')).toBe(''); // back unstaged
+      expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toBe(''); // the ref went once they were back
+    });
+
+    it('commits not in main still keep the worktree: nothing saved, nothing left behind', async () => {
+      const made = await setupWorktree('api', 'feat/squashed', config, undefined, undefined, { pull: false });
+      const wt = made!.paths[0];
+      fs.writeFileSync(path.join(wt, 'a'), 'edited');
+      const s = loadHistory().find((x) => x.branch === 'feat/squashed' && x.paths[0] === wt)!;
+      const out = await archiveSession(s, deps(), { merged: true });
+      expect(out).toMatchObject({ ok: true, worktreeRemoved: false, keptBecause: expect.stringContaining('commits not in the main branch') });
+      expect(fs.readFileSync(path.join(wt, 'a'), 'utf8')).toBe('edited');
+      expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toBe('');
+    });
   });
 
   it('says what would be left unfinished', async () => {

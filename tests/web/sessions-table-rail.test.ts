@@ -83,6 +83,9 @@ describe('the rail in the Sessions table', () => {
     const pill = container.querySelector('.wd-archived-pill')!;
     expect(pill.textContent).toBe('archived · folder removed · 3 changes saved');
     expect(pill.getAttribute('title')).toContain('and 3 uncommitted files. Restore recreates it and puts them back.');
+    // What waited in it when a merged session was archived.
+    act(() => root.render(createElement(SessionsTab, { sessions: [{ ...archived, archive: { ...archived.archive!, kept: '2 reply drafts' } }], onOpenSession: () => {}, onNewWorktree: () => {}, onDeleteSession: () => {} })));
+    expect(container.querySelector('.wd-archived-pill')!.getAttribute('title')).toContain('Also kept: 2 reply drafts.');
   });
 
   it('the bulk bar pins them, or moves them into a section', async () => {

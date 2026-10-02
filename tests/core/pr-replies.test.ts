@@ -122,6 +122,22 @@ describe('reply routes', () => {
   const send = (a: Hono, method: string, url: string, body?: unknown) =>
     a.request(url, { method, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 
+  it('GET also lists the open threads that have no draft (`waiting`), from the PR watch', async () => {
+    session.paths = [home];
+    saveHistory([session]);
+    const id = sessionIdFor(session);
+    rememberSent(id, [thread(T1), thread(T2)]);
+    saveDraft(id, T1, 'Fixed');
+    const open = [T1, T2].map((threadId) => ({ threadId, repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'r', excerpt: 'e' }));
+    const a = new Hono();
+    mountPrReplyRoutes(a, { broadcast: () => {}, openThreads: (sid) => (sid === id ? open : []) });
+    const body = (await (await a.request(`/api/sessions/${id}/replies`)).json()) as { waiting: Array<{ threadId: string }> };
+    expect(body.waiting.map((t) => t.threadId)).toEqual([T2]); // T1 has a draft to post
+    const none = new Hono();
+    mountPrReplyRoutes(none, { broadcast: () => {} });
+    expect(((await (await none.request(`/api/sessions/${id}/replies`)).json()) as { waiting: unknown[] }).waiting).toEqual([]);
+  });
+
   it('list, edit, post and discard; unknown sessions and bad thread ids are refused', async () => {
     session.paths = [home];
     saveHistory([session]);
