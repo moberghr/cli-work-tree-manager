@@ -112,6 +112,20 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     prs: opts.prs,
     lastSummary: (id) => readStatus(id)?.summary ?? null,
     waiting: archiveWaiting,
+    working: (id) => {
+      const session = loadHistory().find((x) => sessionIdFor(x) === id);
+      return (session ? shownState(session) : readStatus(id)?.state) === 'working';
+    },
+    kept: (id) => {
+      const st = readStatus(id);
+      return {
+        replyDrafts: listReplies(id)
+          .filter((r) => r.status === 'draft')
+          .map((r) => ({ threadId: r.threadId, url: r.url, reviewer: r.reviewer, draft: r.draft ?? '' })),
+        notes: readPendingForSession(id).map((c) => ({ id: c.id, text: c.body })),
+        ...(st?.state === 'needs_input' && st.summary ? { askingYou: st.summary } : {}),
+      };
+    },
     stopDev: (id) => void stopDev(id),
     heads: (s) => {
       const out: Record<string, string> = {};

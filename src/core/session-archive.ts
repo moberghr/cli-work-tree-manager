@@ -78,11 +78,22 @@ export interface ArchiveRecord {
   buildFolders?: { folders: number; bytes: number };
   /** Uncommitted work saved because the worktree was removed (repo alias → where it is): Restore puts it back (archive-uncommitted.ts). */
   uncommitted?: Record<string, SavedUncommitted>;
+  /** What was still waiting in it when archived (a merged session isn't held up by these): they stay in
+   *  state.db with the session, so Restore brings them back — drafts in the header, notes delivered on
+   *  its next turn. Listed here so the archive says what it holds. */
+  kept?: ArchiveKept;
   /** Saved work an earlier Restore couldn't put back, carried over when archived again (still in its ref and patch). */
   unrestored?: SavedUncommitted[];
   /** When the transcripts were compressed / deleted for retention (ISO). */
   compressedAt?: string;
   transcriptsDroppedAt?: string;
+}
+
+export interface ArchiveKept {
+  replyDrafts: Array<{ threadId: string; url: string; reviewer: string; draft: string }>;
+  notes: Array<{ id: string; text: string }>;
+  /** Its Claude was waiting for your answer: what it asked. */
+  askingYou?: string;
 }
 
 export interface ArchiveDeps {
@@ -102,6 +113,10 @@ export interface ArchiveDeps {
   lastSummary?: (id: string) => string | null;
   /** What archiving now would leave behind unfinished (empty: nothing). */
   waiting?: (id: string) => string[];
+  /** Its Claude is in the middle of a turn (stopping it would cut the turn off). */
+  working?: (id: string) => boolean;
+  /** What waits in it, to list in the record (drafts, notes, a question). */
+  kept?: (id: string) => ArchiveKept;
   stopDev?: (id: string) => void;
   /** Repos checked out on another branch than the session's (alias → branch). */
   heads?: (s: WorktreeSession) => Record<string, string>;
@@ -125,6 +140,8 @@ export interface ArchiveOutcome {
   message: string;
   /** Not archived: these were waiting (archive with force to go ahead). */
   blocked?: string[];
+  /** What waited in it and was kept with it ("2 reply drafts, 1 note for its Claude"). */
+  kept?: string;
 }
 
 /** Most prompts kept in the summary: the first ones (what it was about) and the latest. */
@@ -142,7 +159,18 @@ export function onArchived(listener: (s: WorktreeSession) => void | Promise<unkn
   return () => afterArchive.delete(listener);
 }
 
-export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean } = {}): Promise<ArchiveOutcome> {
+/**
+ * `merged`: the session's PR merged (the PR watch, Ship). That decides it:
+ * reply drafts, undelivered notes and a question for you don't hold it up —
+ * they stay with the session and are listed in the record — and only a
+ * Claude in the middle of a turn does (the caller tries again later).
+ */
+export interface ArchiveOptions {
+  force?: boolean;
+  merged?: boolean;
+}
+
+export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
   // Nothing starts its Claude again while this runs (archiving.ts).
   const out = await whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
   if (out.ok) for (const l of afterArchive) {
@@ -154,14 +182,14 @@ export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts
   return out;
 }
 
-async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean }): Promise<ArchiveOutcome> {
+async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: ArchiveOptions): Promise<ArchiveOutcome> {
   const id = sessionIdFor(s);
   const root = deps.archiveRoot ?? archiveRoot();
   const dir = archiveDirFor(id, root);
   const now = deps.now ?? Date.now;
 
   // 0. Work still waiting in it would vanish from view with it.
-  const waiting = opts.force ? [] : (deps.waiting?.(id) ?? []);
+  const waiting = opts.force ? [] : opts.merged ? (deps.working?.(id) ? ['its Claude is working'] : []) : (deps.waiting?.(id) ?? []);
   if (waiting.length) {
     return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: 0, blocked: waiting, message: `Not archived: ${waiting.join('; ')}.` };
   }
@@ -219,6 +247,8 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     await deps.dropSaved?.(s, saved, dir).catch(() => {});
     saved = {};
   }
+  // What waits in it (kept with the session in state.db), listed in the record.
+  const kept = deps.kept?.(id);
   // Work an earlier Restore couldn't put back stays known (its ref and patch are still there).
   const earlier = readArchive(id, root);
   const unrestored = [
@@ -257,6 +287,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     ...(buildFolders && buildFolders.folders ? { buildFolders } : {}),
     ...(Object.keys(saved).length ? { uncommitted: saved } : {}),
     ...(unrestored.length ? { unrestored } : {}),
+    ...(keptAny(kept) ? { kept } : {}),
   };
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(record, null, 2));
 
@@ -273,13 +304,26 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force
     worktreeRemoved,
     keptBecause,
     transcripts: copied.length,
-    message: worktreeRemoved
-      ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}`
-      : `Archived; worktree kept (${keptBecause})`,
+    message:
+      (worktreeRemoved
+        ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}`
+        : `Archived; worktree kept (${keptBecause})`) + (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : ''),
+    ...(keptList(kept) ? { kept: keptList(kept) } : {}),
   };
 }
 
 const savedFiles = (saved: Record<string, SavedUncommitted>): number => Object.values(saved).reduce((n, u) => n + u.files, 0);
+const keptAny = (k: ArchiveKept | undefined): k is ArchiveKept => !!k && (k.replyDrafts.length > 0 || k.notes.length > 0 || !!k.askingYou);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** "2 reply drafts, 1 note for its Claude, its question to you" (empty: nothing kept). */
+export function keptList(k: ArchiveKept | undefined): string {
+  if (!keptAny(k)) return '';
+  return [
+    ...(k.replyDrafts.length ? [plural(k.replyDrafts.length, 'reply draft', 'reply drafts')] : []),
+    ...(k.notes.length ? [plural(k.notes.length, 'note for its Claude', 'notes for its Claude')] : []),
+    ...(k.askingYou ? ['its question to you'] : []),
+  ].join(', ');
+}
 
 /** Ask for the written summary and store it in the record (background, after archiving). */
 export async function writeArchiveSummary(id: string, summarize: (rec: ArchiveRecord) => Promise<string | null>, root = archiveRoot()): Promise<string | null> {

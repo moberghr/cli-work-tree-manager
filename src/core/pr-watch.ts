@@ -34,7 +34,8 @@ export interface PrWatchDeps {
   /** Sessions worth checking (recent, not archived). */
   sessions: () => Array<{ id: string; session: WorktreeSession }>;
   preflight: (session: WorktreeSession) => Promise<ShipPreflight>;
-  archive: (id: string) => Promise<void>;
+  /** Archive merged work (archiveSession `merged`); resolves to what it kept that was waiting in it ("2 reply drafts"), if anything. */
+  archive: (id: string) => Promise<string | void>;
   /** Leave the session's Claude a (published) review note. */
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
@@ -43,11 +44,12 @@ export interface PrWatchDeps {
   rememberThreads?: (sessionId: string, threads: Array<{ threadId: string; repo: string; prNumber: number; url: string; where: string | null; reviewer: string; excerpt: string }>) => void;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
-  /** What archiving it now would leave unfinished (replies to post, undelivered notes): auto-archive waits. */
+  /** What archiving it now would leave unfinished (replies to post, undelivered notes). Merged work
+   *  doesn't wait for these — the archive keeps them — so this is only reported. */
   waiting?: (sessionId: string) => string[];
   /** After a note: start the session's Claude if it isn't running, so it works on it now. */
   wake?: (sessionId: string) => Promise<WakeResult>;
-  /** Its Claude is working or waiting for you: never archived then. */
+  /** Its Claude is in the middle of a turn: not archived until the turn ends. */
   busy?: (sessionId: string) => boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
@@ -320,17 +322,18 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     }
     if (opts.autoArchive) {
       const verdict = autoArchiveVerdict(pre, session, now());
-      const waiting = verdict?.archive ? (deps.waiting?.(id) ?? []) : [];
-      if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude is done');
-      else if (verdict?.archive && waiting.length) note(`every PR merged; archiving once nothing waits in it (${waiting.join('; ')})`);
+      // Merged work decides it: drafts, notes and questions are kept with
+      // the archive, not waited for. Only a turn in progress is.
+      if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude finishes this turn');
       else if (verdict?.archive) {
         try {
-          await deps.archive(id);
+          const keptWhat = await deps.archive(id);
           const dirty = pre.repos.reduce((n, r) => n + (r.dirtyFiles || 0), 0);
+          const kept = keptWhat ? `; ${keptWhat} kept for Restore` : '';
           note(
             dirty
-              ? `archived: every PR merged; ${dirty} uncommitted file${dirty === 1 ? '' : 's'} saved, put back on Restore (the conversation is kept)`
-              : 'archived: every PR merged, nothing uncommitted (the conversation is kept)',
+              ? `archived: every PR merged; ${dirty} uncommitted file${dirty === 1 ? '' : 's'} saved, put back on Restore${kept} (the conversation is kept)`
+              : `archived: every PR merged${kept || ', nothing uncommitted'} (the conversation is kept)`,
             'action',
           );
         } catch (err) {

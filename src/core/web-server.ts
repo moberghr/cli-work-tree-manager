@@ -452,8 +452,11 @@ export async function startWebServer(
     archive: async (id) => {
       const s = findSession(id);
       if (!s || s.archivedAt) return;
-      await archiveSession(s, defaultArchiveDeps({ release: releaseSession }));
+      // The PR merged: nothing waiting in it holds it up — the archive keeps it.
+      const out = await archiveSession(s, defaultArchiveDeps({ release: releaseSession }), { merged: true });
       broadcast('sessions-changed', { ts: Date.now() });
+      if (!out.ok) throw new Error(out.message);
+      return out.kept;
     },
   });
   const stopPrWatch = lean ? null : prWatch.start(180_000);

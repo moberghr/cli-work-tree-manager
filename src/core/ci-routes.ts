@@ -58,7 +58,7 @@ export function mountCiRoutes(
   app: Hono,
   opts: {
     broadcast: (event: string, data: unknown) => void;
-    archive: (id: string) => Promise<void>;
+    archive: (id: string) => Promise<string | void>;
     activity?: ActivityLog;
   },
 ): PrWatch {
@@ -80,10 +80,8 @@ export function mountCiRoutes(
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),
-    busy: (id) => {
-      const st = readStatus(id)?.state;
-      return st === 'working' || st === 'needs_input';
-    },
+    // Mid-turn only: a question for you doesn't hold merged work back (the archive keeps it).
+    busy: (id) => readStatus(id)?.state === 'working',
     archive: opts.archive,
     tell: async (id, body) => {
       const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {

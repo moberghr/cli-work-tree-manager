@@ -65,6 +65,8 @@ export interface SessionArchiveInfo {
   buildFolders?: { folders: number; bytes: number };
   /** Uncommitted files saved when its worktree was removed, waiting for Restore to put them back. */
   savedUncommitted?: number;
+  /** What was waiting in it when archived, kept with it ("2 reply drafts, 1 note for its Claude"). */
+  kept?: string;
 }
 
 /** A session's running Claudes: in your terminal, or run by the app. */

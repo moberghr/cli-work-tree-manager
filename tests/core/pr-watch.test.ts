@@ -263,18 +263,21 @@ describe('PR watch', () => {
     expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: 'straumur-backend: PR merged, but 2 unpushed commits' });
   });
 
-  it('waits to auto-archive while replies to post or notes for Claude are waiting, and says so', async () => {
+  it('merged work isn’t held up by replies to post or notes for Claude: archived, and the note says what was kept (reported)', async () => {
     const activity = createActivityLog();
-    const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['1 reply to post on review threads'], activity });
+    const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['2 replies to post on review threads'], activity });
+    h.deps.archive = vi.fn(async () => '2 reply drafts');
     await h.watch.tick();
-    expect(h.deps.archive).not.toHaveBeenCalled();
-    expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: every PR merged; archiving once nothing waits in it (1 reply to post on review threads)');
+    expect(h.deps.archive).toHaveBeenCalled();
+    expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: archived: every PR merged; 2 reply drafts kept for Restore (the conversation is kept)');
   });
 
-  it('never archives while its Claude is working or waiting for you', async () => {
-    const h = harness([repo('api', merged(), true)], ON, false, null, { busy: () => true });
+  it('never archives while its Claude is in the middle of a turn', async () => {
+    const activity = createActivityLog();
+    const h = harness([repo('api', merged(), true)], ON, false, null, { busy: () => true, activity });
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(activity.snapshot().recent[0].notes[0].text).toContain('archiving once its Claude finishes this turn');
   });
 
   it('a reused branch name: an old merged PR with another head never archives the new work', async () => {

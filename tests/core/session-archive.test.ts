@@ -52,6 +52,25 @@ const deps = (over: Partial<ArchiveDeps> = {}): ArchiveDeps & { calls: string[] 
   };
 };
 
+describe('archiving merged work: nothing waiting in it holds it up, and nothing is lost', () => {
+  const kept = { replyDrafts: [{ threadId: 'PRRT_1', url: 'https://x/1', reviewer: 'copilot', draft: 'Intentional: …' }], notes: [{ id: 'c1', text: 'Fix the CI' }], askingYou: 'Squash or merge?' };
+
+  it('drafts, notes and a question are kept and listed (archived anyway); a turn in progress still waits', async () => {
+    const d = deps({ waiting: () => ['1 reply to post on review threads'], working: () => false, kept: () => kept });
+    const out = await archiveSession(session, d, { merged: true });
+    expect(out).toMatchObject({ ok: true, kept: '1 reply draft, 1 note for its Claude, its question to you', message: expect.stringContaining('; kept for Restore: 1 reply draft, 1 note for its Claude, its question to you') });
+    expect(readArchive(sessionIdFor(session), root)?.kept).toEqual(kept);
+
+    const busy = deps({ working: () => true });
+    expect(await archiveSession({ ...session, branch: 'fix/other' }, busy, { merged: true })).toMatchObject({ ok: false, blocked: ['its Claude is working'] });
+  });
+
+  it('without `merged`, waiting things still hold a plain Archive (it asks first)', async () => {
+    const out = await archiveSession(session, deps({ waiting: () => ['1 reply to post on review threads'], kept: () => kept }));
+    expect(out).toMatchObject({ ok: false, blocked: ['1 reply to post on review threads'] });
+  });
+});
+
 describe('archiveSession', () => {
   it('keeps the conversation and a summary, removes a worktree that would lose nothing, marks it archived', async () => {
     const d = deps();

@@ -47,12 +47,12 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
-  const archive = async (id: string, archived: boolean, force = false): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
+  const archive = async (id: string, archived: boolean, force = false, merged = false): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
     const session = findSession(id);
     if (!session) return { ok: false };
     let ok: boolean;
     if (archived) {
-      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force });
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force, merged });
       if (out.blocked) return { ok: false, blocked: out.blocked, message: out.message };
       ok = out.ok;
     } else if (session.paths.some((p) => !fs.existsSync(p))) {
@@ -117,7 +117,8 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     opts.onRepoChanged?.(id);
     let archived = false;
     if (outcome.mergedAny && outcome.allDone) {
-      archived = (await archive(id, true)).ok; // not when something still waits in it
+      // Merged: drafts and notes are kept with the archive, not waited for (a turn in progress is).
+      archived = (await archive(id, true, false, true)).ok;
     } else {
       opts.broadcast('sessions-changed', { ts: Date.now() });
     }

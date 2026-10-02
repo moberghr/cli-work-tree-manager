@@ -10,7 +10,7 @@ import { readContextUsage } from './context-usage.js';
 import { bestEffort } from './best-effort.js';
 import type { WorktreeSession } from './history.js';
 import type { DiffStat, SessionArchiveInfo, SessionAttention, SessionClaudes, SessionWire, BlockerWire } from './api-types.js';
-import { readArchive } from './session-archive.js';
+import { keptList, readArchive } from './session-archive.js';
 import { sessionTitle } from './session-title.js';
 
 /**
@@ -150,6 +150,7 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
       ...(rec.summary.written ? { written: rec.summary.written } : {}),
       ...(rec.buildFolders ? { buildFolders: rec.buildFolders } : {}),
       ...savedFiles(rec.uncommitted),
+      ...(keptList(rec.kept) ? { kept: keptList(rec.kept) } : {}),
     },
   };
 }
