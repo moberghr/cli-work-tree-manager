@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { Hono } from 'hono';
 import { mergedParent, type StackSubject } from '../../src/core/stack.js';
 import { retargetIsClean, retargetOntoMain } from '../../src/core/stack-retarget.js';
-import { syncStacksAfterTurn } from '../../src/core/stack-sync.js';
+import { ontoMainPrompt, retargetChildrenOf, syncStacksAfterTurn } from '../../src/core/stack-sync.js';
 import { saveConfig } from '../../src/core/config.js';
 import { findSession, loadHistory, saveHistory } from '../../src/core/history.js';
 import { archiveDirFor, writeArchiveRecord, type ArchiveRecord } from '../../src/core/session-archive.js';
@@ -183,6 +183,72 @@ describe('where it left the parent (the review: a parent rewritten before it mer
     expect(findSession(loadHistory(), 'shop', 'feat/g')?.baseBranches).toBeUndefined();
     await setSessionBase('shop', 'feat/g', { '/w/a': 'main', '/w/b': 'master' });
     expect(findSession(loadHistory(), 'shop', 'feat/g')).toMatchObject({ baseBranch: 'main', baseBranches: { '/w/a': 'main', '/w/b': 'master' } });
+  });
+});
+
+describe('when the parent is archived (not only after the child’s next turn)', () => {
+  const deps = (over: Record<string, unknown> = {}) => {
+    const notes: string[] = [];
+    return {
+      notes,
+      d: {
+        history: loadHistory,
+        config: () => ({ worktreesRoot: tmp, repos: { api: clone }, groups: {}, copyFiles: [] }),
+        invalidate: () => {},
+        startRun: () => ({ note: (t: string) => void notes.push(t), done: () => {} }),
+        busy: new Set<string>(),
+        shownState: () => 'idle' as const,
+        tell: vi.fn(async () => {}),
+        ...over,
+      },
+    };
+  };
+  const archivedParent = (tip: string) => {
+    const parent: WorktreeSession = { target: 'api', branch: 'feat/p', isGroup: false, paths: [parentWt], createdAt: now, lastAccessedAt: now, archivedAt: now };
+    saveHistory([parent, child()]);
+    fs.mkdirSync(archiveDirFor(sessionIdFor(parent)), { recursive: true });
+    writeArchiveRecord({
+      sessionId: sessionIdFor(parent), target: 'api', branch: 'feat/p', isGroup: false, paths: [parentWt], archivedAt: now, worktreeRemoved: true, keptBecause: null, transcripts: [],
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [{ repo: 'api', number: 12, url: 'https://x/12', state: 'MERGED' }], jiraKey: null },
+      tips: { api: tip },
+    });
+    return parent;
+  };
+
+  it('its children move onto main at once', async () => {
+    const parent = archivedParent(squashMergeParent());
+    const { d, notes } = deps();
+    expect(await retargetChildrenOf(sessionIdFor(parent), d)).toBe(1);
+    expect(notes[0]).toContain('feat/c: moved onto main (its parent merged and was archived)');
+    expect(git(childWt, 'log', '--format=%s', 'origin/main..HEAD')).toBe('c1');
+  });
+
+  it('rewritten before it merged, branch gone: the child’s Claude is asked to do it — once', async () => {
+    fs.writeFileSync(path.join(parentWt, 'p.txt'), 'p2 (reviewed)\n');
+    git(parentWt, 'commit', '-q', '-a', '--amend', '-m', 'p2 reviewed');
+    git(clone, 'merge', '-q', '--squash', 'feat/p');
+    git(clone, 'commit', '-q', '-m', 'Parent work (#12)');
+    git(clone, 'push', '-q', 'origin', 'main');
+    const tip = git(parentWt, 'rev-parse', 'HEAD');
+    git(clone, 'worktree', 'remove', '--force', parentWt);
+    git(clone, 'branch', '-q', '-D', 'feat/p');
+    const parent = archivedParent(tip);
+    const { d, notes } = deps();
+    expect(await retargetChildrenOf(sessionIdFor(parent), d)).toBe(0);
+    expect(d.tell).toHaveBeenCalledWith(expect.anything(), ontoMainPrompt('feat/p'));
+    expect(notes[0]).toContain('its Claude was asked to move this branch onto main');
+    await retargetChildrenOf(sessionIdFor(parent), d);
+    expect(d.tell).toHaveBeenCalledTimes(1); // asked once per parent tip
+    // The button says so too, and offers to hand it over.
+    const r = await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }));
+    expect(r.results[0]).toMatchObject({ ok: false, handOff: true, base: 'origin/main' });
+  });
+
+  it('turned off (stacks.autoUpdate: false): nothing', async () => {
+    const parent = archivedParent(squashMergeParent());
+    const { d } = deps({ config: () => ({ worktreesRoot: tmp, repos: { api: clone }, groups: {}, copyFiles: [], stacks: { autoUpdate: false } }) });
+    expect(await retargetChildrenOf(sessionIdFor(parent), d)).toBe(0);
+    expect(git(childWt, 'log', '--format=%s', 'origin/main..HEAD')).not.toBe('c1');
   });
 });
 

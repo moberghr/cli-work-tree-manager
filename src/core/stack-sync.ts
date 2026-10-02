@@ -6,7 +6,7 @@ import { sessionIdFor } from './session-id.js';
 import type { SessionStatus } from './session-status.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionStacks, stackedOn } from './stack-sessions.js';
-import { parentTipFor, retargetIsClean, retargetOntoMain } from './stack-retarget.js';
+import { parentTipFor, retargetBlocker, retargetIsClean, retargetOntoMain } from './stack-retarget.js';
 import { setSessionBase } from './history.js';
 import type { RunHandle } from './activity.js';
 
@@ -102,6 +102,15 @@ export async function retargetIfMerged(
   for (const p of child.paths) {
     const tip = tips.get(p);
     if (!tip) return { updated: false, why: `${parent.branch} merged, but its tip is unknown here: Move onto main by hand` };
+    const blocker = await retargetBlocker(p, { branch: parent.branch, tip }, run);
+    if (blocker?.handOff) {
+      // Git alone can't tell its own commits from the parent's old ones: its Claude can (once per parent tip).
+      const key = `${sessionIdFor(child)}:${tip}`;
+      if (handedOff.has(key)) return { updated: false, why: `${parent.branch} was rewritten before it merged; its Claude was already asked to move it onto main` };
+      handedOff.add(key);
+      await deps.tell(child, ontoMainPrompt(parent.branch)).catch((err) => logSwallowed(`asking ${child.branch} to move onto main`, err));
+      return { updated: false, why: `${parent.branch} was rewritten before it merged: its Claude was asked to move this branch onto main` };
+    }
     if (!(await retargetIsClean(p, { branch: parent.branch, tip }, run))) {
       return { updated: false, why: `${parent.branch} merged; moving onto main isn't sure to go cleanly (a conflict, uncommitted changes, a rewritten parent, or an old git): left for you` };
     }
@@ -119,6 +128,49 @@ export async function retargetIfMerged(
       logSwallowed(`telling ${child.branch} it moved onto main`, err);
     });
   return { updated: true, commits: r.results.reduce((n, x) => n + (x.ok ? x.commits : 0), 0), how: `moved onto ${main}`, told };
+}
+
+/** Rewritten parents already handed to a child's Claude (child id : parent tip), so it is asked once. */
+const handedOff = new Set<string>();
+
+/** What a child's Claude is asked when git alone can't move it onto main. */
+export function ontoMainPrompt(parentBranch: string): string {
+  return `${parentBranch} — the branch this one was stacked on — has merged into main, but it was rebased or amended before it merged, so git can't tell this branch's own commits from ${parentBranch}'s old ones. Move this branch onto origin/main keeping only this branch's own work (git rebase --onto origin/main <the commit this branch started from>, dropping ${parentBranch}'s commits; if this branch was already pushed, merge origin/main in instead). Run the tests and commit. If it isn't clear which commits are this branch's, start a line with DECISION NEEDED: and ask.`;
+}
+
+/**
+ * A session was archived: those stacked on it that are now stacked on a
+ * merged session move onto main, by the same rules as after their own turn
+ * (idle, clean, goes cleanly; a rewritten parent goes to their Claude).
+ */
+export async function retargetChildrenOf(parentId: string, deps: Omit<AfterTurnDeps, 'busy'> & { busy: Set<string> }): Promise<number> {
+  const history = deps.history();
+  const config = deps.config();
+  if (config?.stacks?.autoUpdate === false) return 0;
+  const stacks = sessionStacks(history, config);
+  const children = history.filter((s) => stacks.mergedParentOf.get(sessionIdFor(s))?.id === parentId);
+  if (children.length === 0) return 0;
+  const run = deps.startRun();
+  let moved = 0;
+  for (const child of children) {
+    const id = sessionIdFor(child);
+    if (deps.busy.has(id)) continue;
+    deps.busy.add(id);
+    try {
+      const r = await retargetIfMerged(child, stacks.mergedParentOf.get(id)!, config, deps);
+      if (r.updated) {
+        moved++;
+        deps.invalidate(id);
+        run.note(`${child.branch}: ${r.how} (its parent merged and was archived)${r.told ? '; its Claude was told' : ' — telling its Claude failed'}`, { sessionId: id, ...(r.told ? {} : { level: 'warn' as const }) });
+      } else run.note(`${child.branch}: left as it is — ${r.why}`, { sessionId: id });
+    } catch (err) {
+      run.note(`${child.branch}: ${(err as Error).message}`, { sessionId: id, level: 'warn' });
+    } finally {
+      deps.busy.delete(id);
+    }
+  }
+  run.done(moved ? `${moved} moved onto main` : 'none could move by itself');
+  return moved;
 }
 
 export interface AfterTurnDeps extends StackSyncDeps {

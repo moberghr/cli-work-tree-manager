@@ -122,9 +122,26 @@ const SUMMARY_PROMPTS = 40;
 export const archiveRoot = (): string => path.join(getConfigDir(), 'archive');
 export const archiveDirFor = (id: string, root = archiveRoot()): string => path.join(root, id);
 
+/** Told after each archive that went through (work web: stacked sessions move onto main). */
+const afterArchive = new Set<(s: WorktreeSession) => void>();
+
+/** Listen for archives (every path: the button, Ship, the PR watch, cleanup); returns the unsubscribe. */
+export function onArchived(listener: (s: WorktreeSession) => void): () => void {
+  afterArchive.add(listener);
+  return () => afterArchive.delete(listener);
+}
+
 export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean } = {}): Promise<ArchiveOutcome> {
   // Nothing starts its Claude again while this runs (archiving.ts).
-  return whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
+  const out = await whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
+  if (out.ok) for (const l of afterArchive) {
+    try {
+      l(s);
+    } catch {
+      /* a listener's trouble isn't the archive's */
+    }
+  }
+  return out;
 }
 
 async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: { force?: boolean }): Promise<ArchiveOutcome> {

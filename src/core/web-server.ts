@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { sessionStacks } from './stack-sessions.js';
-import { syncStacksAfterTurn } from './stack-sync.js';
+import { retargetChildrenOf, syncStacksAfterTurn } from './stack-sync.js';
+import { logSwallowed } from './best-effort.js';
 import { shownState } from './turn-activity.js';
 import { BehindCache } from './behind-main.js';
 import { mountUpdateRoutes } from './update-routes.js';
@@ -35,7 +36,7 @@ import { mountShipRoutes } from './ship-routes.js';
 import { mountChatRoutes } from './chat-routes.js';
 import { mountSessionOrderRoutes } from './session-order-routes.js';
 import { mountRailRoutes } from './rail-routes.js';
-import { archiveSession } from './session-archive.js';
+import { archiveSession, onArchived } from './session-archive.js';
 import { defaultArchiveDeps } from './session-archive-deps.js';
 import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
@@ -578,29 +579,39 @@ export async function startWebServer(
   // commits into the idle, clean sessions stacked on it — and into this one,
   // when it is itself stacked and its parent moved while it worked.
   const stackSyncing = new Set<string>();
+  const stackDeps = {
+    history: loadHistory,
+    config: loadConfig,
+    invalidate: (sid: string) => {
+      behindCache.invalidate(sid);
+      diffStats.invalidate(sid);
+    },
+    startRun: () => activity.start('stacks', 'Updating stacked sessions'),
+    busy: stackSyncing,
+    shownState,
+    tell: async (s: WorktreeSession, body: string) => {
+      const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ side: 'general', status: 'published', body }),
+      });
+      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
+    },
+  };
   const syncStacksAfter = async (id: string) => {
     if (readStatus(id)?.state !== 'idle') return;
-    const updated = await syncStacksAfterTurn(id, {
-      history: loadHistory,
-      config: loadConfig,
-      invalidate: (sid) => {
-        behindCache.invalidate(sid);
-        diffStats.invalidate(sid);
-      },
-      startRun: () => activity.start('stacks', 'Updating stacked sessions'),
-      busy: stackSyncing,
-      shownState,
-      tell: async (s, body) => {
-        const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ side: 'general', status: 'published', body }),
-        });
-        if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
-      },
-    });
+    const updated = await syncStacksAfterTurn(id, stackDeps);
     if (updated) broadcast('sessions-changed', { ts: Date.now() });
   };
+  // A session archived (merged): the sessions stacked on it move onto main —
+  // not only after their own next turn, which may never come.
+  const offArchived = lean
+    ? () => {}
+    : onArchived((s) => {
+        void retargetChildrenOf(sessionIdFor(s), stackDeps)
+          .then((n) => n && broadcast('sessions-changed', { ts: Date.now() }))
+          .catch((err) => logSwallowed('moving stacked sessions onto main', err));
+      });
 
   // Update from main (behind-main.ts): its numbers move, so look again.
   mountUpdateRoutes(app, {
@@ -726,6 +737,7 @@ export async function startWebServer(
     port: handle.port,
     stop: async () => {
       clearInterval(revPoll);
+      offArchived();
       loop.stop();
       jiraWatch.stop();
       if (decayTick) clearInterval(decayTick);

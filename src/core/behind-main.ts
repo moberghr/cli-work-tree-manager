@@ -132,7 +132,7 @@ export class BehindCache {
 
 export type UpdateResult =
   | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
-  | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string };
+  | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string; handOff?: boolean };
 
 /**
  * Bring one repo's branch up to date with origin/<main>: fetch, then rebase

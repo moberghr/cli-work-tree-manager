@@ -97,6 +97,10 @@ describe('stacked sessions', () => {
 });
 
 describe('a stacked session whose parent merged', () => {
+  it("a parent rewritten before it merged: offered to its Claude, not left as an error", () => {
+    expect(describeUpdate([{ ok: false, repo: 'api', reason: "feat/p was rewritten …: ask its Claude to move it onto main", base: 'origin/main', handOff: true }])).toMatchObject({ conflictBase: 'origin/main', error: true });
+  });
+
   it('says so, and Move onto main reports what happened (a conflict can go to Claude)', async () => {
     const s = { ...session(), stackParentMerged: { id: 'p1', branch: 'feat/p' } };
     api.retargetSession.mockResolvedValue([{ ok: false, repo: 'api', reason: 'moving onto origin/main conflicts', conflicts: true, base: 'origin/main' }]);

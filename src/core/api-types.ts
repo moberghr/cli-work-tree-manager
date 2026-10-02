@@ -574,7 +574,7 @@ export interface ForkWire {
 export interface UpdateFromMainWire {
   results: Array<
     | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
-    | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string }
+    | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string; /** Not for a button: hand it to the session's Claude. */ handOff?: boolean }
   >;
 }
 

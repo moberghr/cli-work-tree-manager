@@ -75,9 +75,23 @@ describe('archiveSession', () => {
     expect(readArchive(sessionIdFor(session), root)?.keptBecause).toBe('3 uncommitted files');
   });
 
+  it('every archive that went through is told to its listeners (work web: stacked sessions move onto main); one that failed is not', async () => {
+    const { onArchived } = await import('../../src/core/session-archive.js');
+    const seen: string[] = [];
+    const off = onArchived((s) => void seen.push(s.branch));
+    await archiveSession(session, deps());
+    expect(seen).toEqual([session.branch]);
+    off();
+  });
+
   it('archives nothing when the conversation cannot be copied', async () => {
+    const { onArchived } = await import('../../src/core/session-archive.js');
+    const seen: string[] = [];
+    const off = onArchived((s) => void seen.push(s.branch));
     const d = deps({ transcripts: () => [path.join(tmp, 'missing.jsonl')] });
     const out = await archiveSession(session, d);
+    off();
+    expect(seen).toEqual([]);
     expect(out.ok).toBe(false);
     expect(d.calls).not.toContain('remove');
     expect(d.calls).not.toContain('archived');
