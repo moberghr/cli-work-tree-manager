@@ -69,6 +69,14 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 20 * 60_000, status: idle(20 * 60_000) }, now)).not.toBeNull();
   });
 
+  it('opening a finished session (seen) or an idle nudge moves updatedAt, not the turn’s end: not "elsewhere" (reported)', () => {
+    // tmp/dispute-email-check: its turn ended yesterday, you opened it a minute ago.
+    const opened = { state: 'idle' as const, updatedAt: new Date(now - 60_000).toISOString(), endedAt: new Date(now - 20 * 3_600_000).toISOString() };
+    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 20 * 3_600_000, status: opened }, now)).toBeNull();
+    // A Stop ten minutes ago still counts.
+    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 10 * 60_000, status: { ...opened, endedAt: new Date(now - 10 * 60_000).toISOString() } }, now)).not.toBeNull();
+  });
+
   it('quiet long enough is unknown, so the tab may spawn; a host PTY never counts as elsewhere', () => {
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - ELSEWHERE_ACTIVE_MS - 1, status: null }, now)).toBeNull();
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 2 * 3_600_000, status: idle(ELSEWHERE_IDLE_MS + 1) }, now)).toBeNull();

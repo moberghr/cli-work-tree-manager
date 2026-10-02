@@ -28,8 +28,11 @@ export interface ElsewhereInput {
   hasPty: boolean;
   /** Claude's last transcript write (ms since epoch), or null. */
   lastActivityMs: number | null;
-  /** The session's effective hook status, or null. */
-  status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string } | null;
+  /** The session's effective hook status, or null. `endedAt`: when its last
+   *  turn ended (the Stop) — not `updatedAt`, which also moves when you open
+   *  the session (seen) or on Claude Code's idle nudge, neither a sign that a
+   *  Claude is still open somewhere. */
+  status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string; endedAt?: string } | null;
   /** Claudes running for this session outside the PTY host, known for sure
    *  from Claude Code's own process files (live-claudes.ts). */
   runningOutside?: Array<{ busy: boolean }>;
@@ -55,7 +58,7 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS;
   const s = i.status;
   const blockedOrWorking = !!s && (s.state === 'needs_input' || s.state === 'working');
-  const justFinished = !!s && s.state === 'idle' && now - (Date.parse(s.updatedAt) || 0) < ELSEWHERE_IDLE_MS;
+  const justFinished = !!s && s.state === 'idle' && now - (Date.parse(s.endedAt ?? s.updatedAt) || 0) < ELSEWHERE_IDLE_MS;
   if (!active && !blockedOrWorking && !justFinished) return null;
   return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: s?.state ?? null };
 }
@@ -75,7 +78,8 @@ async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | 
   return claudeElsewhere({
     hasPty: peekPty(sessionId),
     lastActivityMs: activity.lastActivity,
-    status: status ? { state: status.state, updatedAt: status.updatedAt } : null,
+    // The turn's end: the Stop's own time, else when it went idle (a record from before turnEndedAt).
+    status: status ? { state: status.state, updatedAt: status.updatedAt, endedAt: raw?.turnEndedAt ?? status.since } : null,
     runningOutside,
   });
 }
