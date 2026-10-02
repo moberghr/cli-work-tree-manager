@@ -117,6 +117,15 @@ export function shouldAutoArchive(pre: ShipPreflight, session: Pick<WorktreeSess
   return autoArchiveVerdict(pre, session, now)?.archive === true;
 }
 
+/** What keeps a repo whose PR merged from being done (ship.ts repoDone): work after the merge. */
+function workBeyondMerge(r: ShipPreflight['repos'][number]): string | null {
+  const parts: string[] = [];
+  if (r.dirtyFiles > 0) parts.push(`${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'}`);
+  if (r.ahead) parts.push(`${r.ahead} unpushed commit${r.ahead === 1 ? '' : 's'}`);
+  if (r.localSha && r.pr?.headSha && r.localSha !== r.pr.headSha) parts.push('a commit checked out that the PR didn’t merge');
+  return parts.length ? `${r.name}: PR merged, but ${parts.join(' and ')}` : null;
+}
+
 /**
  * The same rule, with its reason, for the Activity panel: null when no PR
  * of the session is merged (nothing to decide), else whether it archives
@@ -129,6 +138,11 @@ export function autoArchiveVerdict(
 ): { archive: true } | { archive: false; why: string } | null {
   const merged = pre.repos.filter((r) => r.pr?.state === 'MERGED');
   if (merged.length === 0) return null;
+  // A merged repo isn't done while there is work beyond the merge (repoDone):
+  // say which, rather than "not merged" about a merged PR.
+  const beyond = pre.repos.filter((r) => !r.done && r.pr?.state === 'MERGED');
+  const why = beyond.map(workBeyondMerge).filter((w): w is string => !!w);
+  if (why.length) return { archive: false, why: why.join('; ') };
   const open = pre.repos.filter((r) => !r.done);
   if (open.length) return { archive: false, why: `not all merged yet (${open.map((r) => r.name).join(', ')})` };
   const dirty = pre.repos.reduce((n, r) => n + r.dirtyFiles, 0);

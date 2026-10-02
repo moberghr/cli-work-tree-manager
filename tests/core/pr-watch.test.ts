@@ -248,6 +248,18 @@ describe('PR watch', () => {
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
+  it('a merged PR with work left in its worktree says what work — not "not all merged yet" (reported)', () => {
+    // fix/pdf-generation-speed: PR merged at the checked-out commit, three files left uncommitted.
+    const repoState = { ...repo('straumur-backend', merged(), false), localSha: 'aaa', dirtyFiles: 3 } as RepoShipState;
+    repoState.pr = { ...repoState.pr!, headSha: 'aaa' };
+    expect(autoArchiveVerdict({ repos: [repoState] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({
+      archive: false,
+      why: 'straumur-backend: PR merged, but 3 uncommitted files',
+    });
+    const ahead = { ...repoState, dirtyFiles: 0, ahead: 2 } as RepoShipState;
+    expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: 'straumur-backend: PR merged, but 2 unpushed commits' });
+  });
+
   it('waits to auto-archive while replies to post or notes for Claude are waiting, and says so', async () => {
     const activity = createActivityLog();
     const h = harness([repo('api', merged(), true)], ON, false, null, { waiting: () => ['1 reply to post on review threads'], activity });
