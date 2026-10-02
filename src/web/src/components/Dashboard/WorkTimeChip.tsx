@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchWorkTime, type SessionSummary, type WorkTime } from '../../api/client.js';
+import { fetchWorklog, fetchWorkTime, logWorklog, type SessionSummary, type WorkTime } from '../../api/client.js';
 import { dayKey, formatWorked, worklogTime } from '../../../../core/work-time-view.js';
 
 /** Look again at most this often while the session is open (it reads transcripts). */
@@ -72,6 +72,7 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
       );
   };
   return (
+    <span className="wd-work-time-wrap">
     <button
       type="button"
       className="wd-work-time"
@@ -86,5 +87,62 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
     >
       <span aria-hidden>⏱</span> {copied === 'ok' ? 'Copied' : copied === 'failed' ? "Couldn't copy" : formatWorked(time.workedMs)}
     </button>
+    {line && session.jiraKey && <LogToJira sessionId={session.id} day={line.day} jiraKey={session.jiraKey} />}
+    </span>
+  );
+}
+
+/**
+ * "→ Jira": write the latest day's work to the session's Jira issue as a
+ * worklog (core/jira-worklog.ts), when config `jiraWorklog` is set up. What
+ * is already logged for that day isn't logged again; the rest is.
+ */
+function LogToJira({ sessionId, day, jiraKey }: { sessionId: string; day: string; jiraKey: string }) {
+  const [state, setState] = useState<{ configured: boolean; logged: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ text: string; error?: boolean } | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchWorklog(sessionId).then(
+      (w) => live && setState({ configured: w.configured, logged: w.logged[day] ?? 0 }),
+      () => live && setState(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [sessionId, day]);
+  if (!state?.configured) return null;
+  const log = () => {
+    setBusy(true);
+    setResult(null);
+    logWorklog(sessionId, day).then(
+      (r) => {
+        setBusy(false);
+        setState({ configured: true, logged: r.total });
+        setResult({ text: r.text });
+      },
+      (err: Error) => {
+        setBusy(false);
+        setResult({ text: err.message, error: true });
+      },
+    );
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="wd-work-time-jira"
+        disabled={busy}
+        onClick={log}
+        title={`Write ${weekday(day, Date.now()) === 'Today' ? "today's" : `${day}'s`} work to ${jiraKey} as a worklog${state.logged ? ` (${worklogTime(state.logged * 1000)} logged already: only what was added since)` : ''}`}
+      >
+        {busy ? 'Logging…' : state.logged ? `→ ${jiraKey} ✓` : `→ ${jiraKey}`}
+      </button>
+      {result && (
+        <span className={'wd-work-time-result' + (result.error ? ' wd-tab-error' : '')} role="status">
+          {result.text}
+        </span>
+      )}
+    </>
   );
 }

@@ -24,6 +24,8 @@ export interface WorkConfig {
   jiraWatch?: { maxPerDay?: number };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
+  /** Writing session time to Jira as worklogs (jira-worklog.ts): the site, your email, and the API token (from the env var `tokenEnv`, default JIRA_API_TOKEN, or `token`). */
+  jiraWorklog?: { site: string; email: string; tokenEnv?: string; token?: string };
   /**
    * AI tool command to launch in worktrees. May include extra args, e.g.
    * "claude" (default), "gemini", "codex", or "my-tool --some-flag".
@@ -188,6 +190,15 @@ export function loadConfig(): WorkConfig | null {
           }
         : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
+      jiraWorklog:
+        parsed.jiraWorklog && typeof parsed.jiraWorklog === 'object' && typeof parsed.jiraWorklog.site === 'string' && typeof parsed.jiraWorklog.email === 'string'
+          ? {
+              site: parsed.jiraWorklog.site,
+              email: parsed.jiraWorklog.email,
+              ...(typeof parsed.jiraWorklog.tokenEnv === 'string' ? { tokenEnv: parsed.jiraWorklog.tokenEnv } : {}),
+              ...(typeof parsed.jiraWorklog.token === 'string' ? { token: parsed.jiraWorklog.token } : {}),
+            }
+          : undefined,
       prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
         ? {
             autoArchive: parsed.prWatch.autoArchive !== false,

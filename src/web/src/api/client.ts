@@ -706,6 +706,16 @@ export function fetchWorkTime(sessionId: string): Promise<WorkTime> {
   return getJson<WorkTime>(`/api/sessions/${encodeURIComponent(sessionId)}/time`);
 }
 
+/** Can it write Jira worklogs, to which issue, what was logged per day. */
+export function fetchWorklog(sessionId: string): Promise<import('../../../core/api-types.js').WorklogWire> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/worklog`);
+}
+
+/** Log a day's work (default: the latest) to its Jira issue: what isn't logged yet. */
+export function logWorklog(sessionId: string, day?: string): Promise<{ ok: true; logged: number; total: number; text: string }> {
+  return sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/worklog`, day ? { day } : {});
+}
+
 // ---- fork a session ------------------------------------------------------
 
 /** A new branch from where the session is; its Claude starts with a summary of this conversation. Slow (the summary). */

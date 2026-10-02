@@ -17,6 +17,7 @@ import { updateCommand } from '../../src/commands/update.js';
 import { catchupCommand } from '../../src/commands/catchup.js';
 import { noteCommand } from '../../src/commands/note.js';
 import { blockCommand } from '../../src/commands/block.js';
+import { timeCommand } from '../../src/commands/time.js';
 import { readBlock } from '../../src/core/session-blocks.js';
 import { readNote } from '../../src/core/session-notes.js';
 
@@ -57,7 +58,7 @@ afterEach(() => {
   fs.rmSync(homeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand, blockCommand } as never;
+const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand, blockCommand, timeCommand } as never;
 const run = async (_file: string, name: string, argv: Record<string, unknown> = {}) => {
   await COMMANDS[name].handler({ _: [name], ...argv });
 };
@@ -147,5 +148,19 @@ describe('work block', () => {
     process.exitCode = 0;
     await run('block', 'blockCommand', { off: true });
     expect(readBlock(id)).toBeNull();
+  });
+});
+
+describe('work time', () => {
+  it("one session's days; --all for the week; --log needs Jira set up (and says how)", async () => {
+    out.length = 0;
+    await run('time', 'timeCommand', {});
+    expect(out[0]).toContain('repo · feat/x: about <1m of Claude work over 0 prompts');
+    out.length = 0;
+    await run('time', 'timeCommand', { all: true, days: 7 });
+    expect(out.join('\n')).toContain('No Claude work in the last 7 days');
+    await run('time', 'timeCommand', { log: true });
+    expect(errors.join('\n')).toContain('Jira worklogs are not set up');
+    expect(process.exitCode).toBe(1);
   });
 });

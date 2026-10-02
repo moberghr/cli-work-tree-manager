@@ -1984,3 +1984,9 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-timeline-pr-merged .wd-timeline-icon, .wd-timeline-turn .wd-timeline-icon { color: var(--status-added-fg, var(--accent)); }
 .wd-timeline-sha { margin-left: 6px; font-size: 11px; color: var(--muted); }
 .wd-timeline-repo { color: var(--muted); }
+
+/* Log to Jira (WorkTimeChip). */
+.wd-work-time-wrap { display: inline-flex; align-items: baseline; gap: 6px; }
+.wd-work-time-jira { appearance: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer; }
+.wd-work-time-jira:hover { color: var(--fg); border-color: var(--fg); }
+.wd-work-time-result { font-size: 11px; color: var(--muted); }

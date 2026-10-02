@@ -7,10 +7,12 @@ import { dayKey } from '../../src/core/work-time-view.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const api = vi.hoisted(() => ({ fetchWorkTime: vi.fn() }));
+const api = vi.hoisted(() => ({ fetchWorkTime: vi.fn(), fetchWorklog: vi.fn(), logWorklog: vi.fn() }));
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
   fetchWorkTime: (id: string) => api.fetchWorkTime(id),
+  fetchWorklog: (id: string) => api.fetchWorklog(id),
+  logWorklog: (id: string, day?: string) => api.logWorklog(id, day),
 }));
 const { WorkTimeChip, worklogLine } = await import('../../src/web/src/components/Dashboard/WorkTimeChip.js');
 
@@ -23,6 +25,8 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   api.fetchWorkTime.mockReset().mockResolvedValue(time);
+  api.fetchWorklog.mockReset().mockResolvedValue({ configured: false, issueKey: null, logged: {} });
+  api.logWorklog.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -91,5 +95,23 @@ describe('WorkTimeChip', () => {
     api.fetchWorkTime.mockResolvedValue({ ...time, workedMs: 20_000 });
     await act(async () => root.render(createElement(WorkTimeChip, { session: session() })));
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('Log to Jira', () => {
+  it('only when set up and the session has a Jira issue; logs the latest day; says what it did', async () => {
+    api.fetchWorklog.mockResolvedValue({ configured: true, issueKey: 'PAY-12', logged: {} });
+    api.logWorklog.mockResolvedValue({ ok: true, logged: 3600, total: 3600, text: '1h logged on PAY-12 for today' });
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ jiraKey: 'PAY-12' }) })));
+    const btn = [...container.querySelectorAll('button')].find((b) => b.textContent === '→ PAY-12')!;
+    await act(async () => btn.click());
+    expect(api.logWorklog).toHaveBeenCalledWith('s1', today);
+    expect(container.textContent).toContain('1h logged on PAY-12 for today');
+    expect(container.textContent).toContain('→ PAY-12 ✓');
+  });
+
+  it('not set up: no button', async () => {
+    await act(async () => root.render(createElement(WorkTimeChip, { session: session({ jiraKey: 'PAY-12' }) })));
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.startsWith('→'))).toBe(false);
   });
 });

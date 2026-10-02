@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, TimelineWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, TimelineWire, WorklogWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
 import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
@@ -89,6 +89,21 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     else blocks.delete(id);
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
     return c.json({ ok: true });
+  });
+
+  // Jira worklogs, simulated: set up, and a log is remembered (in memory).
+  const worklogs = new Map<string, Record<string, number>>();
+  app.get('/api/sessions/:id/worklog', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    return w ? c.json({ configured: true, issueKey: w.jiraKey ?? null, logged: worklogs.get(w.id) ?? {} } satisfies WorklogWire) : notFound(c);
+  });
+  app.post('/api/sessions/:id/worklog', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    if (!w.jiraKey) return c.json({ error: 'this session has no Jira issue' }, 409);
+    const day = dayKey(scenario.clockMs());
+    worklogs.set(w.id, { ...(worklogs.get(w.id) ?? {}), [day]: 3600 });
+    return c.json({ ok: true, logged: 3600, total: 3600, text: `1h logged on ${w.jiraKey} for ${day}` });
   });
 
   // A session's timeline: built by the real buildTimeline from what the demo has.

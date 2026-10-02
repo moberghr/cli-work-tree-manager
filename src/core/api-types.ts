@@ -588,6 +588,13 @@ export interface WorkTimeWire {
   lastAt: string | null;
 }
 
+/** GET /api/sessions/:id/worklog: can it write Jira worklogs, to which issue, and what was logged per day (seconds). */
+export interface WorklogWire {
+  configured: boolean;
+  issueKey: string | null;
+  logged: Record<string, number>;
+}
+
 // ---- fork (fork.ts) ---------------------------------------------------------------
 
 /** POST /api/sessions/:id/fork: the new session. */
