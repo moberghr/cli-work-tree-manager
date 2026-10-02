@@ -3,8 +3,7 @@ import type { CommandModule } from 'yargs';
 import { askCatchUp, catchUpFacts } from '../core/catch-up-routes.js';
 import { catchUp } from '../core/catch-up.js';
 import { forkSession } from '../core/fork.js';
-import { defaultForkDeps } from '../core/fork-routes.js';
-import { git } from '../core/git.js';
+import { defaultForkDeps, uncommittedFiles } from '../core/fork-routes.js';
 import { findSession, loadHistory } from '../core/history.js';
 import { findSessionForCwd } from '../core/pending-delivery.js';
 import { sessionIdFor } from '../core/session-id.js';
@@ -55,7 +54,7 @@ export const forkCommand: CommandModule = {
           console.log(chalk.gray('Writing a summary of the conversation…'));
           return (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s))))?.text ?? null;
         },
-        uncommitted: (s) => s.paths.reduce((n, p) => n + git(['status', '--porcelain'], p).stdout.split('\n').filter((l) => l.trim()).length, 0),
+        uncommitted: uncommittedFiles,
         // Attaching starts it with the prompt (below); otherwise the host starts it now.
         start: async (id, prompt) => {
           firstPrompt = prompt;

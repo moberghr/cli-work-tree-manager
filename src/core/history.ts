@@ -253,13 +253,20 @@ export async function setSessionTitle(target: string, branch: string, title: str
   });
 }
 
-/** Record the branch it is now based on (a stacked session moved onto main): one base for every repo. */
-export async function setSessionBase(target: string, branch: string, base: string): Promise<boolean> {
+/**
+ * Record the branches it is now based on (a stacked session moved onto
+ * main): by checkout path. One name for every repo is `baseBranch` alone;
+ * repos with different mainlines (main and master) keep `baseBranches` too.
+ */
+export async function setSessionBase(target: string, branch: string, bases: Record<string, string>): Promise<boolean> {
+  const names = [...new Set(Object.values(bases))];
+  if (names.length === 0) return false;
   return tx((d) => {
     const s = getRow(d, target, branch);
     if (!s) return false;
-    s.baseBranch = base;
-    delete s.baseBranches;
+    s.baseBranch = names[0];
+    if (names.length === 1) delete s.baseBranches;
+    else s.baseBranches = { ...bases };
     putRow(d, s);
     return true;
   });

@@ -102,17 +102,18 @@ export async function retargetIfMerged(
   for (const p of child.paths) {
     const tip = tips.get(p);
     if (!tip) return { updated: false, why: `${parent.branch} merged, but its tip is unknown here: Move onto main by hand` };
-    if (!(await retargetIsClean(p, tip, run))) return { updated: false, why: `${parent.branch} merged; moving onto main would conflict (or has uncommitted changes): left for you` };
+    if (!(await retargetIsClean(p, { branch: parent.branch, tip }, run))) {
+      return { updated: false, why: `${parent.branch} merged; moving onto main isn't sure to go cleanly (a conflict, uncommitted changes, a rewritten parent, or an old git): left for you` };
+    }
   }
-  const nowBusy = busyWhy(deps.shownState(child));
-  if (nowBusy) return { updated: false, why: nowBusy };
-  const r = await retargetOntoMain(child, async (p) => tips.get(p) ?? null, run);
+  // Asked again right before each repo is changed (a turn may have started while git looked).
+  const r = await retargetOntoMain(child, async (p) => ({ branch: parent.branch, tip: tips.get(p) ?? null }), run, () => busyWhy(deps.shownState(child)));
   if (!r.ok) return { updated: false, why: r.results.filter((x) => !x.ok).map((x) => `${x.repo}: ${(x as { reason: string }).reason}`).pop() ?? 'failed' };
-  const main = (r.base ?? 'origin/main').replace(/^origin\//, '');
-  await setSessionBase(child.target, child.branch, main);
+  await setSessionBase(child.target, child.branch, r.bases ?? {});
+  const main = [...new Set(Object.values(r.bases ?? {}))].join(' / ') || 'main';
   let told = true;
   await deps
-    .tell(child, `${parent.branch} — the branch this one was stacked on — has merged, so this branch was moved onto ${r.base ?? 'main'} (only its own commits kept on top). Files may have changed since you last read them; look again before editing them.`)
+    .tell(child, `${parent.branch} — the branch this one was stacked on — has merged, so this branch was moved onto ${main} (only its own commits kept on top). Files may have changed since you last read them; look again before editing them.`)
     .catch((err) => {
       told = false;
       logSwallowed(`telling ${child.branch} it moved onto main`, err);

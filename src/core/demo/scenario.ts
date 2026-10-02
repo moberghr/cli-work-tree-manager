@@ -1,7 +1,7 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { findOverlaps } from '../overlap.js';
-import { stackChildCounts, stackParents } from '../stack.js';
+import { mergedParent, stackChildCounts, stackParents } from '../stack.js';
 import { buildDigest } from '../digest.js';
 import { cleanupVerdict } from '../cleanup-verdict.js';
 import { createPresence, type Presence } from '../presence.js';
@@ -407,6 +407,20 @@ export class DemoScenario {
       claudeScreen('Add a PDF variant of the invoice export', ['● Read(src/invoices/export.ts)', '● Write(src/invoices/pdf.ts)', '', '● PDF layout drafted; waiting for the CSV columns to settle.']),
       95,
     ).baseBranch = 'feat/invoice-export';
+    // A parent that merged (archived), and the session still stacked on it: Move onto main.
+    const taxes = this.add(
+      'api', 'feat/tax-rates',
+      [{ name: 'api', published: true, pr: { number: 205, url: 'https://github.com/example/api/pull/205', state: 'MERGED', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'tax0001aa' } }],
+      null, claudeScreen('', []), 60 * 26,
+    );
+    taxes.archivedAt = this.iso(60 * 20);
+    this.add(
+      'api', 'feat/tax-report',
+      [{ name: 'api' }],
+      { state: 'idle', seen: true, summary: 'Tax report endpoint ready; built on the tax rates branch.', minutesAgo: 60 * 3 },
+      claudeScreen('Add a tax report on top of the new rates', ['● Write(src/tax/report.ts)', '', '● Tax report endpoint ready; built on the tax rates branch.']),
+      60 * 3,
+    ).baseBranch = 'feat/tax-rates';
 
     this.tasks = [
       { id: this.nextTaskId++, text: 'Rate-limit the public invoices API', done: false, createdAt: this.iso(300) },
@@ -629,6 +643,9 @@ export class DemoScenario {
         w.behind = { base: p.branch, commits: 2, conflicts: false, stacked: true };
       }
       if (children.get(w.id)) w.stackedChildren = children.get(w.id);
+      // Its parent merged and was archived: "Move onto main".
+      const merged = p ? null : mergedParent(w, wires, undefined, (x) => this.sessions.get(x.id)?.repos.some((r) => r.pr?.state === 'MERGED') ?? false);
+      if (merged) w.stackParentMerged = { id: merged.id, branch: merged.branch };
     }
     for (const w of wires) {
       const o = overlaps.get(w.id);
@@ -991,6 +1008,15 @@ export class DemoScenario {
     this.cleanupState = { ...this.cleanupState, results, candidates: this.cleanupState.candidates.filter((c) => !ok.has(c.sessionId)) };
     this.changed();
     return this.cleanupState;
+  }
+
+  /** Move onto main (simulated): it is based on main now, so no longer stacked. */
+  retarget(id: string): boolean {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    s.baseBranch = 'main';
+    this.changed();
+    return true;
   }
 
   create(target: string, branch: string, prompt?: string, baseBranch?: string): SessionWire {

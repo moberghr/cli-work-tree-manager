@@ -46,6 +46,10 @@ describe('forkPrompt', () => {
     expect(p.indexOf('my words')).toBeGreaterThan(p.indexOf('</summary>'));
   });
 
+  it("uncommitted unknown (git couldn't tell): says nothing about how many", () => {
+    expect(forkPrompt(parent, { branch: 'b', paths: ['/wt/b'], from: 'feat/x' }, null, undefined, null)).toContain('any uncommitted changes there stayed behind');
+  });
+
   it('basesText: one branch, or each repo’s', () => {
     expect(basesText({ default: 'feat/x', perRepo: {} })).toBe('feat/x');
     expect(basesText({ perRepo: { be: 'feat/y', fe: 'feat/y' } })).toBe('feat/y');

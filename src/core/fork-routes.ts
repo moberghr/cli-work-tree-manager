@@ -5,12 +5,24 @@ import { z } from 'zod';
 import { loadConfig } from './config.js';
 import { forkSession, type ForkDeps } from './fork.js';
 import { checkedOutBranch } from './git-head.js';
-import { git } from './git.js';
+import { getStatusChecked, git } from './git.js';
+import type { WorktreeSession } from './session-types.js';
 import { resolveProjectTarget } from './resolve.js';
 import { createInProcess, type CreateWorktree } from './setup-child.js';
 import { findSession, sessionIdFor } from './web-state.js';
 import { startSessionWithPrompt } from './worktree-routes.js';
 import type { ForkWire } from './api-types.js';
+
+/** Uncommitted files across its repos (git status); null when git couldn't tell for one of them. */
+export function uncommittedFiles(s: Pick<WorktreeSession, 'paths'>): number | null {
+  let n = 0;
+  for (const p of s.paths) {
+    const st = getStatusChecked(p);
+    if (st === null) return null;
+    n += st.split('\n').filter((l) => l.trim()).length;
+  }
+  return n;
+}
 
 /** The real inputs of forkSession; `summarize` and `uncommitted` come from the server (catch-up, diff stats). */
 export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'> & Partial<ForkDeps> & { create?: CreateWorktree }): ForkDeps {

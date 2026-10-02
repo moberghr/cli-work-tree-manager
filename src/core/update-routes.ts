@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
 import { shownState } from './turn-activity.js';
@@ -30,7 +31,15 @@ export function mountUpdateRoutes(
     }
     const results: UpdateResult[] = [];
     const parent = sessionStacks(loadHistory(), loadConfig()).parentOf.get(id)?.branch;
-    for (const p of s.paths) results.push(await updateFromMain(p, opts.run, parent));
+    for (const p of s.paths) {
+      // Asked again right before each repo is changed: a turn may have started while git fetched.
+      const st = shownState(s);
+      if (st === 'working' || st === 'needs_input') {
+        results.push({ ok: false, repo: path.basename(p), reason: `its Claude started ${st === 'working' ? 'working' : 'waiting for your answer'}: stopped here` });
+        break;
+      }
+      results.push(await updateFromMain(p, opts.run, parent));
+    }
     opts.changed?.(id);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ results } satisfies UpdateFromMainWire);
@@ -49,9 +58,18 @@ export function mountUpdateRoutes(
     const config = loadConfig();
     const parent = sessionStacks(loadHistory(), config).mergedParentOf.get(id);
     if (!parent) return c.json({ error: 'it is not stacked on a merged session' }, 409);
-    const r = await retargetOntoMain(s, (repo) => parentTipFor(repo, parent, config, opts.run), opts.run);
+    const r = await retargetOntoMain(
+      s,
+      async (repo) => ({ branch: parent.branch, tip: await parentTipFor(repo, parent, config, opts.run) }),
+      opts.run,
+      // Asked again right before each repo is changed: a turn may have started while git fetched.
+      () => {
+        const st = shownState(s);
+        return st === 'working' || st === 'needs_input' ? `its Claude started ${st === 'working' ? 'working' : 'waiting for your answer'}: stopped` : null;
+      },
+    );
     // On main now: no longer stacked on anything.
-    if (r.ok && r.base) await setSessionBase(s.target, s.branch, r.base.replace(/^origin\//, ''));
+    if (r.ok && r.bases) await setSessionBase(s.target, s.branch, r.bases);
     opts.changed?.(id);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ results: r.results } satisfies UpdateFromMainWire);

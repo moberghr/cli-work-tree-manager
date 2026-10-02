@@ -85,9 +85,9 @@ const child = (): WorktreeSession => ({ target: 'api', branch: 'feat/c', isGroup
 describe('retargetOntoMain', () => {
   it("a squash-merged parent: only the child's own commit is replayed onto main", async () => {
     const tip = squashMergeParent();
-    expect(await retargetIsClean(childWt, tip)).toBe(true);
-    const r = await retargetOntoMain(child(), async () => tip);
-    expect(r).toMatchObject({ ok: true, base: 'origin/main', results: [{ ok: true, how: 'rebase' }] });
+    expect(await retargetIsClean(childWt, { branch: 'feat/p', tip })).toBe(true);
+    const r = await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }));
+    expect(r).toMatchObject({ ok: true, bases: { [childWt]: 'main' }, results: [{ ok: true, how: 'rebase' }] });
     expect(git(childWt, 'log', '--format=%s', 'origin/main..HEAD')).toBe('c1');
     expect(git(childWt, 'rev-list', '--count', 'HEAD..origin/main')).toBe('0');
     expect(fs.readFileSync(path.join(childWt, 'p.txt'), 'utf8')).toBe('p2\n');
@@ -102,12 +102,72 @@ describe('retargetOntoMain', () => {
     git(clone, 'push', '-q', 'origin', 'main');
     git(childWt, 'fetch', '-q', 'origin');
     const before = git(childWt, 'rev-parse', 'HEAD');
-    expect(await retargetIsClean(childWt, tip)).toBe(false);
-    expect(await retargetOntoMain(child(), async () => tip)).toMatchObject({ ok: false, results: [{ ok: false, conflicts: true }] });
+    expect(await retargetIsClean(childWt, { branch: 'feat/p', tip })).toBe(false);
+    expect(await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }))).toMatchObject({ ok: false, results: [{ ok: false, conflicts: true }] });
     expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before);
     expect(git(childWt, 'status', '--porcelain')).toBe('');
     fs.writeFileSync(path.join(childWt, 'wip.txt'), 'wip');
-    expect(await retargetOntoMain(child(), async () => tip)).toMatchObject({ ok: false, results: [{ reason: expect.stringContaining('uncommitted') }] });
+    expect(await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }))).toMatchObject({ ok: false, results: [{ reason: expect.stringContaining('uncommitted') }] });
+  });
+});
+
+describe('where it left the parent (the review: a parent rewritten before it merged)', () => {
+  it('the parent amended after the child branched, then squash-merged: git --fork-point still finds it; only the child is replayed', async () => {
+    // Review feedback on the parent: its last commit amended after the child was made from it.
+    fs.writeFileSync(path.join(parentWt, 'p.txt'), 'p2 (reviewed)\n');
+    git(parentWt, 'commit', '-q', '-a', '--amend', '-m', 'p2 reviewed');
+    git(clone, 'merge', '-q', '--squash', 'feat/p');
+    git(clone, 'commit', '-q', '-m', 'Parent work (#12)');
+    git(clone, 'push', '-q', 'origin', 'main');
+    const tip = git(parentWt, 'rev-parse', 'HEAD'); // the branch stays: a squash-merged one isn't deleted
+    const r = await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }));
+    expect(r.ok).toBe(true);
+    expect(git(childWt, 'log', '--format=%s', 'origin/main..HEAD')).toBe('c1'); // not the old p1/p2 again
+    expect(fs.readFileSync(path.join(childWt, 'p.txt'), 'utf8')).toBe('p2 (reviewed)\n');
+  });
+
+  it("rewritten and its branch gone (only the archive's tip, which the child isn't built on): refused, nothing changed", async () => {
+    fs.writeFileSync(path.join(parentWt, 'p.txt'), 'p2 (reviewed)\n');
+    git(parentWt, 'commit', '-q', '-a', '--amend', '-m', 'p2 reviewed');
+    git(clone, 'merge', '-q', '--squash', 'feat/p');
+    git(clone, 'commit', '-q', '-m', 'Parent work (#12)');
+    git(clone, 'push', '-q', 'origin', 'main');
+    const tip = git(parentWt, 'rev-parse', 'HEAD');
+    git(clone, 'worktree', 'remove', '--force', parentWt);
+    git(clone, 'branch', '-q', '-D', 'feat/p');
+    const before = git(childWt, 'rev-parse', 'HEAD');
+    expect(await retargetIsClean(childWt, { branch: 'feat/p', tip })).toBe(false);
+    expect(await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }))).toMatchObject({ ok: false, results: [{ reason: expect.stringContaining('was rewritten') }] });
+    expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before);
+  });
+
+  it('a real merge (the parent is in main): a plain rebase, the parent dropped by itself', async () => {
+    git(clone, 'merge', '-q', '--no-ff', '--no-edit', 'feat/p');
+    git(clone, 'push', '-q', 'origin', 'main');
+    const tip = git(parentWt, 'rev-parse', 'HEAD');
+    git(clone, 'worktree', 'remove', '--force', parentWt);
+    git(clone, 'branch', '-q', '-D', 'feat/p');
+    expect(await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }))).toMatchObject({ ok: true });
+    expect(git(childWt, 'log', '--format=%s', 'origin/main..HEAD')).toBe('c1');
+  });
+
+  it('stops when told to right before changing a repo (a turn started)', async () => {
+    const tip = squashMergeParent();
+    const before = git(childWt, 'rev-parse', 'HEAD');
+    const r = await retargetOntoMain(child(), async () => ({ branch: 'feat/p', tip }), undefined, () => 'its Claude started working: stopped');
+    expect(r).toMatchObject({ ok: false, results: [{ reason: 'its Claude started working: stopped' }] });
+    expect(git(childWt, 'rev-parse', 'HEAD')).toBe(before);
+  });
+
+  it('the recorded base: one mainline name, or each repo its own (main and master)', async () => {
+    const { setSessionBase } = await import('../../src/core/history.js');
+    const g: WorktreeSession = { target: 'shop', branch: 'feat/g', isGroup: true, paths: ['/w/a', '/w/b'], createdAt: now, lastAccessedAt: now, baseBranches: { '/w/a': 'feat/x', '/w/b': 'feat/x' } };
+    saveHistory([g]);
+    await setSessionBase('shop', 'feat/g', { '/w/a': 'main', '/w/b': 'main' });
+    expect(findSession(loadHistory(), 'shop', 'feat/g')).toMatchObject({ baseBranch: 'main' });
+    expect(findSession(loadHistory(), 'shop', 'feat/g')?.baseBranches).toBeUndefined();
+    await setSessionBase('shop', 'feat/g', { '/w/a': 'main', '/w/b': 'master' });
+    expect(findSession(loadHistory(), 'shop', 'feat/g')).toMatchObject({ baseBranch: 'main', baseBranches: { '/w/a': 'main', '/w/b': 'master' } });
   });
 });
 
@@ -163,7 +223,7 @@ describe('the merged parent, end to end (archive record → route → no longer 
     });
     expect(n).toBe(1);
     expect(notes[0]).toContain('feat/c: moved onto main (feat/p merged); its Claude was told');
-    expect(tell).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('has merged, so this branch was moved onto origin/main'));
+    expect(tell).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('has merged, so this branch was moved onto main'));
     expect(findSession(loadHistory(), 'api', 'feat/c')?.baseBranch).toBe('main');
   });
 });

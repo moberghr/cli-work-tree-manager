@@ -66,12 +66,17 @@ export function forkPrompt(
   fork: { branch: string; paths: string[]; from: string },
   summary: string | null,
   prompt: string | undefined,
-  leftBehind = 0,
+  /** Uncommitted files in the original (they don't come along); null: unknown. */
+  leftBehind: number | null = 0,
 ): string {
   const where = (paths: string[]) => paths.join(', ');
   return [
     `This session is a fork of "${parent.target} · ${parent.branch}" (${where(parent.paths)}): branch ${fork.branch}, started from the last commit of ${fork.from}` +
-      (leftBehind ? ` — its ${leftBehind} uncommitted file${leftBehind === 1 ? '' : 's'} stayed behind there.` : '.'),
+      (leftBehind === null
+        ? ' — any uncommitted changes there stayed behind.'
+        : leftBehind
+          ? ` — its ${leftBehind} uncommitted file${leftBehind === 1 ? '' : 's'} stayed behind there.`
+          : '.'),
     `Work only in this worktree (${where(fork.paths)}); don't change files in the original's folder.`,
     '',
     summary
@@ -96,8 +101,8 @@ export interface ForkDeps {
   summarize: (parent: WorktreeSession) => Promise<string | null>;
   start: (sessionId: string, prompt: string) => Promise<unknown>;
   sessionIdFor: (s: { target: string; branch: string }) => string;
-  /** Uncommitted files in the parent (they don't come along). */
-  uncommitted: (parent: WorktreeSession) => number;
+  /** Uncommitted files in the parent (they don't come along); null when git couldn't tell. */
+  uncommitted: (parent: WorktreeSession) => number | null;
 }
 
 export type ForkResult =

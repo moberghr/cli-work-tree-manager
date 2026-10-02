@@ -152,6 +152,15 @@ describe('demo server', () => {
     expect((await byBranch(`${login.branch}-2`)).stackedOn).toMatchObject({ id: login.id });
   });
 
+  it('shows a session whose parent merged, and Move onto main takes it off the stack', async () => {
+    const list = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
+    const report = (await list()).find((s) => s.branch === 'feat/tax-report')!;
+    expect(report.stackParentMerged).toMatchObject({ branch: 'feat/tax-rates' });
+    expect((await send('POST', `/api/sessions/${report.id}/retarget`)).status).toBe(200);
+    expect((await list()).find((s) => s.branch === 'feat/tax-report')!.stackParentMerged).toBeUndefined();
+    expect((await send('POST', `/api/sessions/${report.id}/retarget`)).status).toBe(409);
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

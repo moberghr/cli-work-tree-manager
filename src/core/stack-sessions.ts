@@ -3,12 +3,30 @@ import type { WorkConfig } from './config.js';
 import { sessionIdFor } from './session-id.js';
 import type { WorktreeSession } from './session-types.js';
 import { mergedParent, stackChildCounts, stackParents } from './stack.js';
-import { readArchive } from './session-archive.js';
+import fs from 'node:fs';
+import { archiveDirFor, readArchive } from './session-archive.js';
 
-/** Its archive says it merged: a merged PR, or its branch deleted as merged into main. */
+const mergedCache = new Map<string, { key: string; merged: boolean }>();
+
+/**
+ * Its archive says it merged: a merged PR, or its branch deleted as merged
+ * into main. Read once per change of archive.json (a stat, not a parse, on
+ * every /api/sessions build).
+ */
 function archivedAsMerged(id: string): boolean {
+  let key: string;
+  try {
+    const st = fs.statSync(path.join(archiveDirFor(id), 'archive.json'));
+    key = `${st.size}:${st.mtimeMs}`;
+  } catch {
+    return false;
+  }
+  const hit = mergedCache.get(id);
+  if (hit?.key === key) return hit.merged;
   const a = readArchive(id);
-  return !!a && (a.summary.prs.some((p) => p.state === 'MERGED') || (a.branchesDeleted?.length ?? 0) > 0);
+  const merged = !!a && (a.summary.prs.some((p) => p.state === 'MERGED') || (a.branchesDeleted?.length ?? 0) > 0);
+  mergedCache.set(id, { key, merged });
+  return merged;
 }
 
 export type StackedSession = WorktreeSession & { id: string };
