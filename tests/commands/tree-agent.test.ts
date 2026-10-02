@@ -1,0 +1,49 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/** `work tree --no-host`: the direct launch runs the session's own agent, and asks that agent whether it can resume. */
+
+vi.mock('../../src/utils/platform.js', async (orig) => ({ ...(await orig<typeof import('../../src/utils/platform.js')>()), launchAi: vi.fn() }));
+const { launchAi } = await import('../../src/utils/platform.js');
+const { git } = await import('../../src/core/git.js');
+const { saveConfig } = await import('../../src/core/config.js');
+const { loadHistory, saveHistory } = await import('../../src/core/history.js');
+const { treeCommand } = await import('../../src/commands/tree.js');
+
+let home: string;
+let repo: string;
+beforeEach(() => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'tree-agent-'));
+  vi.spyOn(os, 'homedir').mockReturnValue(home);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  repo = path.join(home, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  git(['init', '-b', 'main'], repo);
+  git(['config', 'user.email', 't@t.t'], repo);
+  git(['config', 'user.name', 'T'], repo);
+  fs.writeFileSync(path.join(repo, 'README.md'), '# x');
+  git(['add', '.'], repo);
+  git(['commit', '-m', 'init', '--no-gpg-sign'], repo);
+  saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [] });
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  process.exitCode = 0;
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+});
+
+const tree = () => (treeCommand.handler as Function)({ _: [], target: 'api', branch: 'feat/x', host: false, pull: false, unsafe: false, fresh: false });
+
+describe('work tree --no-host', () => {
+  it('a new session runs the default agent; coming back, it runs the one it was created with', async () => {
+    await tree();
+    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'claude' }), expect.objectContaining({ resume: false }), expect.anything());
+    // The session was made with opencode (as if the default had been opencode then).
+    saveHistory(loadHistory().map((s) => ({ ...s, agent: 'opencode' })));
+    await tree();
+    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'opencode' }), expect.objectContaining({ resume: false }), expect.anything());
+  });
+});

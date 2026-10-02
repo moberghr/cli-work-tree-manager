@@ -1,9 +1,9 @@
 import fs from 'node:fs';
+import { agentById } from './agents/index.js';
 import { loadConfig } from './config.js';
 import { PtySession } from '../tui/session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from './fs-safe.js';
 import { dbPtySessions, type PtySessionsStore } from './pty-sessions-file.js';
-import { hasClaudeConversation } from './claude-activity.js';
 import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from './best-effort.js';
 
@@ -75,7 +75,8 @@ export interface RegistryDeps {
   /** The env variable names to keep for a restore (default: config `hostEnv`). */
   keepEnvNames?: () => string[];
   spawner?: PtySpawner;
-  hasConversation?: (cwd: string) => boolean;
+  /** Its agent can resume a conversation in this folder (default: the agent's own check, agents/). */
+  hasConversation?: (cwd: string, tool: string) => boolean;
   /** Where the restore list lives. Default: state.db. */
   sessions?: PtySessionsStore;
   /** Keep the restore list in this JSON file instead (tests, which must
@@ -116,7 +117,7 @@ export function fileSessionsStore(file: string): PtySessionsStore {
 export class PtyRegistry {
   private readonly entries = new Map<string, Entry>();
   private readonly spawner: PtySpawner;
-  private readonly hasConversation: (cwd: string) => boolean;
+  private readonly hasConversation: (cwd: string, tool: string) => boolean;
   private readonly store: PtySessionsStore;
   private readonly cwdExists: (cwd: string) => boolean;
   private readonly keepEnvNames: () => string[];
@@ -125,7 +126,7 @@ export class PtyRegistry {
 
   constructor(deps: RegistryDeps = {}) {
     this.spawner = deps.spawner ?? defaultSpawner;
-    this.hasConversation = deps.hasConversation ?? hasClaudeConversation;
+    this.hasConversation = deps.hasConversation ?? ((cwd, tool) => agentById(tool).launch.canResume(cwd));
     this.store = deps.sessions ?? (deps.sessionsPath ? fileSessionsStore(deps.sessionsPath) : dbPtySessions);
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
     this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
@@ -159,7 +160,7 @@ export class PtyRegistry {
       rows,
       // `--continue` hard-errors in a directory Claude never ran in;
       // `--fresh` opts out even when one exists.
-      resume: !spec.fresh && this.hasConversation(spec.cwd),
+      resume: !spec.fresh && this.hasConversation(spec.cwd, spec.tool.cmd),
     });
     const entry: Entry = {
       id,

@@ -1,11 +1,10 @@
 import fs from 'node:fs';
+import { agentFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree.js';
-import { getAiTool } from '../core/ai-launcher.js';
-import { hasClaudeConversation } from '../core/claude-activity.js';
 import { findSession, loadHistory, recordLaunch } from '../core/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
@@ -139,7 +138,7 @@ export const treeCommand: CommandModule = {
       if (viaHost) {
         const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
         if (session) {
-          // The host decides --continue itself (same hasClaudeConversation
+          // The host decides --continue itself (the agent's own canResume
           // gate); `fresh` and the prompt ride along on the first spawn.
           process.exitCode = await attachSession(session, {
             unsafe,
@@ -151,8 +150,10 @@ export const treeCommand: CommandModule = {
         }
         console.log(chalk.yellow('Session not found in history — launching directly instead of via the PTY host.'));
       }
-      const tool = getAiTool(config);
-      const resume = !fresh && hasClaudeConversation(dir);
+      // The session's agent: what to run, and whether it can resume here.
+      const agent = agentFor(config, findSession(loadHistory(), sessionKey.target, sessionKey.branch));
+      const tool = agent.launch.tool(config);
+      const resume = !fresh && agent.launch.canResume(dir);
       if (resume) {
         console.log(
           chalk.gray(

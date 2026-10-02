@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentFor } from '../../src/core/agents/index.js';
+import { agentById, agentFor } from '../../src/core/agents/index.js';
 import { claudeAgent, claudeEntries } from '../../src/core/agents/claude.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
@@ -70,11 +70,38 @@ describe('claudeAgent.conversation.read (transcript files)', () => {
 });
 
 describe('agentFor', () => {
-  it('Claude Code by default; another tool has a name and no capabilities yet', () => {
+  it('Claude Code by default; another tool is a plain agent: it starts, nothing else', () => {
     expect(agentFor(null)).toBe(claudeAgent);
     expect(agentFor({ aiCommand: 'claude --model opus' })).toBe(claudeAgent);
     const other = agentFor({ aiCommand: 'opencode' });
-    expect(other).toEqual({ id: 'opencode', name: 'opencode' });
+    expect(other).toMatchObject({ id: 'opencode', name: 'opencode' });
     expect(other.conversation).toBeUndefined();
+  });
+
+  it('a session runs the agent it was created with, whatever the default is now', () => {
+    expect(agentFor({ aiCommand: 'claude' }, { agent: 'opencode' }).id).toBe('opencode');
+    expect(agentFor({ aiCommand: 'opencode' }, { agent: 'claude' })).toBe(claudeAgent);
+    expect(agentFor({ aiCommand: 'opencode' }, {}).id).toBe('opencode'); // from before: the default
+    expect(agentById('claude')).toBe(claudeAgent);
+  });
+});
+
+describe('launch', () => {
+  it('Claude: the configured command when it is Claude, plain claude otherwise; drops a parent session’s variables', () => {
+    expect(claudeAgent.launch.tool({ aiCommand: 'claude --model opus' })).toMatchObject({ cmd: 'claude', baseArgs: ['--model', 'opus'], resumeFlag: '--continue' });
+    expect(claudeAgent.launch.tool({ aiCommand: 'opencode' })).toMatchObject({ cmd: 'claude', baseArgs: [] }); // the assistant runs Claude whatever the default
+    const env = claudeAgent.launch.cleanEnv({ CLAUDECODE: '1', PATH: '/bin' });
+    expect(env).toEqual({ PATH: '/bin' });
+  });
+
+  it('a plain agent: its preset flags (or the configured ones), never a resume, the env as it is', () => {
+    const op = agentById('opencode');
+    expect(op.launch.tool(null)).toMatchObject({ cmd: 'opencode', resumeFlag: '--continue', promptFlag: '--prompt' });
+    expect(op.launch.tool({ aiCommand: 'opencode --verbose' })).toMatchObject({ baseArgs: ['--verbose'] });
+    expect(op.launch.tool({ aiCommand: 'claude' }).cmd).toBe('opencode'); // the session's agent, not the default's command
+    expect(op.launch.canResume('/anywhere')).toBe(false);
+    const g = { target: 'shop', branch: 'b', isGroup: true, paths: ['/wt/shop/b/api', '/wt/shop/b/web'], createdAt: '', lastAccessedAt: '' } as WorktreeSession;
+    expect(op.launch.resumeLaunch(g)).toEqual({ launchPath: path.dirname('/wt/shop/b/api'), hasConversation: false });
+    expect(op.launch.cleanEnv({ CLAUDECODE: '1' })).toEqual({ CLAUDECODE: '1' });
   });
 });

@@ -64,6 +64,10 @@ describe('readContextUsage', () => {
   const append = (e: TranscriptEntry) => fs.appendFileSync(file, JSON.stringify(e) + '\n');
 
   it("reads the session's transcript, and follows it as it grows", () => {
+    // The transcript exists before the first read (as Claude Code creates it): the folder
+    // listing is cached briefly, and a file born between two reads in the same mtime tick
+    // could be missed under load — that's the listing cache's business, not this test's.
+    fs.writeFileSync(file, '');
     expect(readContextUsage(session())).toBeNull(); // no reply yet
     append(reply({ input_tokens: 1000 }));
     expect(readContextUsage(session())?.used).toBe(1000);

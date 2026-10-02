@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { agentFor } from './agents/index.js';
+import { claudeAgent } from './agents/claude.js';
 import { statusFromOutput, type PtyOutput } from './output-status.js';
 import type { SessionAttention } from './api-types.js';
 import type { HostBeat } from './host-health.js';
@@ -11,7 +13,6 @@ import { dbPtySessions } from './pty-sessions-file.js';
 import { ensureFile, withFileLock } from './fs-safe.js';
 import { forgetPersistedSession } from './pty-sessions-file.js';
 import { loadConfig } from './config.js';
-import { getAiTool } from './ai-launcher.js';
 import { ensureHost, findHost, PtyHostClient, findHostPatient, PtyHostVersionError } from './pty-host-client.js';
 import { logSwallowed, swallow } from './best-effort.js';
 import { ASSISTANT_ID, prepareAssistantDir } from './assistant.js';
@@ -150,7 +151,8 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   const first = session.paths[0];
   if (!first) return null;
   const cwd = session.isGroup ? path.dirname(first) : first;
-  return { cwd, tool: getAiTool(loadConfig() ?? {}), port: session.port };
+  const config = loadConfig();
+  return { cwd, tool: agentFor(config, session).launch.tool(config), port: session.port };
 }
 
 /**
@@ -171,7 +173,7 @@ export async function ensurePty(
   if (refused) throw new Error(refused);
   const base =
     sessionId === ASSISTANT_ID
-      ? { cwd: prepareAssistantDir(), tool: getAiTool(loadConfig() ?? {}) }
+      ? { cwd: prepareAssistantDir(), tool: claudeAgent.launch.tool(loadConfig()) }
       : session
         ? spawnSpecFor(session)
         : null;

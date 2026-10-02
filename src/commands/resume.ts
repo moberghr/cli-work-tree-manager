@@ -1,11 +1,11 @@
 import fs from 'node:fs';
+import { agentFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, recordLaunch, upsertSession } from '../core/history.js';
-import { effectiveLastAccessedAt, resolveResumeLaunch } from '../core/claude-activity.js';
-import { getAiTool } from '../core/ai-launcher.js';
+import { effectiveLastAccessedAt } from '../core/claude-activity.js';
 import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
 
@@ -64,11 +64,11 @@ export const resumeCommand: CommandModule = {
     // group root, or a sub-repo the user worked in. `--continue` errors out
     // ("No conversation found to continue") when launched somewhere with no
     // transcript, so fall back to a fresh session in that case.
-    const { launchPath, hasConversation } = resolveResumeLaunch(choice);
+    const { launchPath, hasConversation } = agentFor(config, choice).launch.resumeLaunch(choice);
 
     await upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
 
-    const tool = getAiTool(config);
+    const tool = agentFor(config, choice).launch.tool(config);
     console.log(chalk.cyan(`Resuming in: ${launchPath}`));
     if (!hasConversation) {
       console.log(

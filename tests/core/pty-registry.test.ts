@@ -202,6 +202,21 @@ describe('PtyRegistry launch options', () => {
   });
 });
 
+describe('resume is the agent’s call, by the tool it was spawned with', () => {
+  it('asks with the folder and the tool; an agent work has no adapter for never resumes', () => {
+    const asked = vi.fn((_cwd: string, _tool: string) => true);
+    const reg = new PtyRegistry({ spawner, hasConversation: asked, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(asked).toHaveBeenCalledWith('/x', 'claude');
+    expect(spawned[0].spec.resume).toBe(true);
+
+    // The default check: opencode has no adapter, so no --continue, whatever is on disk.
+    const plain = new PtyRegistry({ spawner, sessionsPath, cwdExists: () => true });
+    plain.spawn('b', { cwd: '/y', tool: { ...tool, cmd: 'opencode' } });
+    expect(spawned[1].spec.resume).toBe(false);
+  });
+});
+
 describe('variables a restore keeps (config hostEnv)', () => {
   const withNames = (names: string[], hasConversation: () => boolean = () => false) =>
     new PtyRegistry({ spawner, hasConversation, sessionsPath, cwdExists: () => true, keepEnvNames: () => names });

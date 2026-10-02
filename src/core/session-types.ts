@@ -29,6 +29,10 @@ export interface WorktreeSession {
   /** The AI tool was last launched with `--unsafe` (skip-permissions).
    *  Untrusted text (PR review comments) is never auto-delivered to it. */
   launchedUnsafe?: boolean;
+  /** The agent it runs (`claude`, `codex`, …: agents/), recorded when it was
+   *  created, so changing the default (config `aiCommand`) doesn't change
+   *  what an existing session runs. Absent: from before; the default. */
+  agent?: string;
   /** The name you gave it (the dashboard's rename); otherwise it is named
    *  after its first prompt (session-title.ts). */
   title?: string;

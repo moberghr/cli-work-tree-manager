@@ -75,6 +75,21 @@ afterEach(() => {
   process.exitCode = undefined;
 });
 
+describe('the session’s own agent', () => {
+  it('work resume / work recent launch the agent a session was created with — no --continue for one work has no adapter for', async () => {
+    seedConfig();
+    const session = makeSession({ agent: 'opencode' });
+    seedHistory([session]);
+    seedTranscript(worktreePath); // a Claude transcript says nothing about opencode
+    vi.mocked(select).mockResolvedValueOnce(session);
+    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
+    vi.mocked(select).mockResolvedValueOnce(session);
+    await (recentCommand.handler as Function)({ count: 10, unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
+  });
+});
+
 describe('resume updates lastAccessedAt', () => {
   it('updates lastAccessedAt when resuming', async () => {
     seedConfig();

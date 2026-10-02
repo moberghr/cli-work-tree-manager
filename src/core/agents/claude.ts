@@ -1,4 +1,7 @@
 import { listTranscripts } from '../context-usage.js';
+import { getAiTool } from '../ai-launcher.js';
+import { hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.js';
+import { withoutParentSession } from '../claude-env.js';
 import { promptText } from '../digest.js';
 import { describeToolUse } from '../permission-request.js';
 import { readTranscriptTail } from '../transcript.js';
@@ -45,6 +48,13 @@ export function claudeEntries(entries: TranscriptEntry[]): ConversationEntry[] {
 export const claudeAgent: AgentAdapter = {
   id: 'claude',
   name: 'Claude Code',
+  launch: {
+    // The configured command when it is Claude (`claude --model opus`); plain `claude` otherwise.
+    tool: (config) => getAiTool(config && getAiTool(config).cmd === 'claude' ? config : {}),
+    canResume: hasClaudeConversation,
+    resumeLaunch: resolveResumeLaunch,
+    cleanEnv: (env) => withoutParentSession(env),
+  },
   conversation: {
     read(session, { last }) {
       const files = listTranscripts(session).sort((a, b) => b.mtimeMs - a.mtimeMs);

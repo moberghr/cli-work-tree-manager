@@ -133,6 +133,19 @@ describe('findSession', () => {
   });
 });
 
+describe('the agent a session runs', () => {
+  it('is recorded when it is created (the default then), and kept when the default changes', async () => {
+    await upsertSession('api', false, 'feat/a', ['/tmp/a']);
+    expect(findSession(loadHistory(), 'api', 'feat/a')?.agent).toBe('claude');
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.work', 'config.json'), JSON.stringify({ worktreesRoot: '/w', repos: {}, groups: {}, copyFiles: [], aiCommand: 'opencode' }));
+    await upsertSession('api', false, 'feat/a', ['/tmp/a']); // coming back to it
+    expect(findSession(loadHistory(), 'api', 'feat/a')?.agent).toBe('claude');
+    await upsertSessionWithPort('api', false, 'feat/b', ['/tmp/b'], {});
+    expect(findSession(loadHistory(), 'api', 'feat/b')?.agent).toBe('opencode');
+  });
+});
+
 describe('upsertSession', () => {
   it('creates a new session', async () => {
     await upsertSession('api', false, 'feature/test', ['/tmp/wt']);

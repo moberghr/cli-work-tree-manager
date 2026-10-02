@@ -1,10 +1,10 @@
 import pty, { type IPty } from 'node-pty';
+import { agentById } from '../core/agents/index.js';
 import crossSpawn from 'cross-spawn';
 import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../core/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
-import { withoutParentSession } from '../core/claude-env.js';
 import childProcess from 'node:child_process';
 
 type Fork = typeof childProcess.fork;
@@ -128,9 +128,9 @@ export class PtySession {
       throw new Error('PtySession requires either a custom command or aiOptions');
     }
 
-    // A session of its own: never another Claude's child (claude-env.ts).
+    // A session of its own: never another agent's child (its adapter knows what a parent sets).
     const env: Record<string, string> = Object.fromEntries(
-      Object.entries(withoutParentSession(aiOptions?.env ?? process.env)).filter(
+      Object.entries(agentById(aiOptions?.tool.cmd ?? 'claude').launch.cleanEnv(aiOptions?.env ?? process.env)).filter(
         (e): e is [string, string] => e[1] != null,
       ),
     );
