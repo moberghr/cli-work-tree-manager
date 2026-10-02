@@ -92,6 +92,19 @@ describe('the branch is optional for a repo', () => {
     expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ target: 'jobly', branch: '' }));
   });
 
+  it('the Create button works with no branch: a project is all it needs (reported: stayed disabled)', async () => {
+    await open({ initial: { target: 'timesheet' } });
+    const create = container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(create.disabled).toBe(false);
+    await act(async () => create.click());
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ target: 'timesheet', branch: '' }));
+  });
+
+  it('the Create button waits for a project (a blank one is none)', async () => {
+    await open({ initial: { target: '  ' } });
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
   it('a group still needs one; and a base needs a branch', async () => {
     await open({ initial: { target: 'straumur' } });
     await submit();

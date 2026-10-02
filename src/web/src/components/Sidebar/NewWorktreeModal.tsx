@@ -240,7 +240,9 @@ export function NewWorktreeModal({
             <button
               type="submit"
               className="wd-btn-primary"
-              disabled={submitting || !target || !branch}
+              // Only a project is needed: an empty branch opens a repo as it is,
+              // and submit explains the cases that do need one (a group, a base).
+              disabled={submitting || !target.trim()}
             >
               {submitting ? 'Creating…' : prompt.trim() ? 'Create & start' : 'Create'}
             </button>
