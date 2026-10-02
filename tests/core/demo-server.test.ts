@@ -178,6 +178,12 @@ describe('demo server', () => {
     expect((await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions.find((s) => s.id === one.id)!.blockedBy).toBeUndefined();
   });
 
+  it('a timeline for a session, by the real builder', async () => {
+    const s = (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions[0];
+    const t = await get<{ events: Array<{ kind: string }> }>(`/api/sessions/${s.id}/timeline`);
+    expect(t.events.map((e) => e.kind)).toEqual(expect.arrayContaining(['created', 'commit']));
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

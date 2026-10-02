@@ -547,6 +547,15 @@ export interface SessionCi {
 /** GET /api/rail (and every rail write's answer). */
 export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
 
+// ---- a session's timeline (timeline.ts) ---------------------------------------------
+
+export type { TimelineEvent, TimelineKind } from './timeline.js';
+
+/** GET /api/sessions/:id/timeline: newest first. */
+export interface TimelineWire {
+  events: import('./timeline.js').TimelineEvent[];
+}
+
 // ---- blocked by (session-blocks.ts) -------------------------------------------------
 
 /** One thing a session waits on. */

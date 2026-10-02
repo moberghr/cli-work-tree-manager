@@ -669,6 +669,12 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
 }
 
+// ---- a session's timeline ---------------------------------------------------
+
+export async function fetchTimeline(sessionId: string): Promise<import('../../../core/timeline.js').TimelineEvent[]> {
+  return (await getJson<{ events: import('../../../core/timeline.js').TimelineEvent[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/timeline`)).events;
+}
+
 // ---- blocked by ----------------------------------------------------------
 
 /** Wait on another session (its id) or a pull request (its URL). */

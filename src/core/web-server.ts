@@ -15,6 +15,7 @@ import { createInChild, oneAtATime, type CreateWorktree } from './setup-child.js
 import { allSnoozes } from './snooze-store.js';
 import { sessionsWithNotes } from './session-notes.js';
 import { mountNoteRoutes } from './note-routes.js';
+import { mountTimelineRoutes } from './timeline-routes.js';
 import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from './session-blocks.js';
 import { mountBlockRoutes } from './block-routes.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
@@ -685,6 +686,8 @@ export async function startWebServer(
     return d ? { diff: { files: d.files, added: d.added, removed: d.deleted } } : {};
   };
   mountCatchUpRoutes(app, { facts: uncommittedFacts });
+  // A session's history on one line (timeline.ts).
+  mountTimelineRoutes(app, { ci: (id) => prWatch.state(id) });
   // Fork a session: a new branch from where it is, its Claude given a summary (fork.ts).
   mountForkRoutes(app, {
     broadcast,

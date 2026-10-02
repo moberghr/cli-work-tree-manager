@@ -122,7 +122,7 @@ describe('architecture boundaries', () => {
 
   it('the browser SPA reaches into src/core only for the shared comment types', () => {
     // Shared wire types + pure logic: one definition for server and SPA.
-    const allowed = new Set(['src/core/comment-types.js', 'src/core/attention.js', 'src/core/api-types.js', 'src/core/diff-parse.js', 'src/core/saved-prompts.js', 'src/core/digest-view.js', 'src/core/session-view.js', 'src/core/chat-view.js', 'src/core/session-order.js', 'src/core/jira-board.js', 'src/core/jira-prompt.js', 'src/core/snooze.js', 'src/core/rail-layout.js', 'src/core/work-time-view.js', 'src/core/blocks.js']);
+    const allowed = new Set(['src/core/comment-types.js', 'src/core/attention.js', 'src/core/api-types.js', 'src/core/diff-parse.js', 'src/core/saved-prompts.js', 'src/core/digest-view.js', 'src/core/session-view.js', 'src/core/chat-view.js', 'src/core/session-order.js', 'src/core/jira-board.js', 'src/core/jira-prompt.js', 'src/core/snooze.js', 'src/core/rail-layout.js', 'src/core/work-time-view.js', 'src/core/blocks.js', 'src/core/timeline.js']);
     expect(
       violations(
         (f, s) =>
@@ -137,7 +137,7 @@ describe('architecture boundaries', () => {
   it('core modules the SPA may import are pure (no imports at all)', () => {
     // Anything in the SPA allowlist above gets bundled for the browser, so
     // it must not reach Node — keep them dependency-free.
-    for (const rel of ['src/core/comment-types.ts', 'src/core/attention.ts', 'src/core/api-types.ts', 'src/core/diff-parse.ts', 'src/core/saved-prompts.ts', 'src/core/digest-view.ts', 'src/core/session-view.ts', 'src/core/chat-view.ts', 'src/core/session-order.ts', 'src/core/jira-board.ts', 'src/core/jira-prompt.ts', 'src/core/snooze.ts', 'src/core/rail-layout.ts', 'src/core/work-time-view.ts', 'src/core/blocks.ts']) {
+    for (const rel of ['src/core/comment-types.ts', 'src/core/attention.ts', 'src/core/api-types.ts', 'src/core/diff-parse.ts', 'src/core/saved-prompts.ts', 'src/core/digest-view.ts', 'src/core/session-view.ts', 'src/core/chat-view.ts', 'src/core/session-order.ts', 'src/core/jira-board.ts', 'src/core/jira-prompt.ts', 'src/core/snooze.ts', 'src/core/rail-layout.ts', 'src/core/work-time-view.ts', 'src/core/blocks.ts', 'src/core/timeline.ts']) {
       const f = files.find((x) => x.rel === rel);
       expect(f, rel).toBeDefined();
       expect(f!.imports.filter((s) => !s.startsWith('.')), rel).toEqual([]);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { TimelineView } from './TimelineView.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
@@ -175,6 +176,11 @@ export function SessionDetail({
           badge={session.commentCount}
           onClick={() => onSelectSubTab('comments')}
         />
+        <SubTabButton
+          label="Timeline"
+          active={subTab === 'timeline'}
+          onClick={() => onSelectSubTab('timeline')}
+        />
       </nav>
       <div className="wd-session-subtab-body">
         {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
@@ -188,6 +194,7 @@ export function SessionDetail({
           ))}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
         {subTab === 'chat' && <ChatView sessionId={session.id} />}
+        {subTab === 'timeline' && <TimelineView session={session} />}
       </div>
     </div>
   );

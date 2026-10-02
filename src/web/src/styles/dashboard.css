@@ -1969,3 +1969,18 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-blocked-item { white-space: nowrap; }
 .wd-blocked-drop { appearance: none; background: none; border: 0; padding: 0 2px; margin-left: 2px; font: inherit; color: var(--muted); cursor: pointer; }
 .wd-blocked-drop:hover { color: var(--fg); }
+
+/* The Timeline tab (TimelineView): a session's history on one line. */
+.wd-timeline { padding: 12px 16px; overflow: auto; }
+.wd-timeline-day + .wd-timeline-day { margin-top: 14px; }
+.wd-timeline-day-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.wd-timeline-list { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--border); }
+.wd-timeline-event { display: grid; grid-template-columns: 52px 18px 64px 1fr; align-items: baseline; gap: 4px; padding: 3px 0 3px 10px; font-size: 13px; }
+.wd-timeline-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.wd-timeline-icon { color: var(--muted); text-align: center; }
+.wd-timeline-kind { color: var(--muted); font-size: 12px; }
+.wd-timeline-text { min-width: 0; overflow-wrap: anywhere; }
+.wd-timeline-prompt .wd-timeline-text { font-weight: 500; }
+.wd-timeline-pr-merged .wd-timeline-icon, .wd-timeline-turn .wd-timeline-icon { color: var(--status-added-fg, var(--accent)); }
+.wd-timeline-sha { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.wd-timeline-repo { color: var(--muted); }

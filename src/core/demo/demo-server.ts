@@ -7,13 +7,14 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, TimelineWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
 import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
 import { applyPlacePatch, applySectionOp, cleanPlacePatch, cleanSectionOp, type RailLayout } from '../rail-layout.js';
 import { prUrl } from '../blocks.js';
+import { buildTimeline } from '../timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
 
@@ -88,6 +89,23 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     else blocks.delete(id);
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
     return c.json({ ok: true });
+  });
+
+  // A session's timeline: built by the real buildTimeline from what the demo has.
+  app.get('/api/sessions/:id/timeline', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const t = scenario.clockMs();
+    const iso = (minAgo: number) => new Date(t - minAgo * 60_000).toISOString();
+    const events = buildTimeline({
+      createdAt: w.createdAt,
+      archivedAt: w.archivedAt,
+      prompts: w.attention?.summary ? [{ ts: iso(50), text: w.attention.summary }] : [],
+      checkpoints: (scenario.checkpoints(w.id) ?? []).map((e) => ({ id: e.id, ts: e.ts, label: e.label })),
+      commits: [{ repo: w.target, sha: 'c0ffee1', at: iso(30), subject: `Work on ${w.branch}` }],
+      prs: [],
+    });
+    return c.json({ events } satisfies TimelineWire);
   });
 
   // Your notes on a session, in memory.
