@@ -33,6 +33,8 @@ export interface SessionWireOptions {
   reviewThreadsFor?: (id: string) => number;
   /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
   replyDraftsFor?: (id: string) => number;
+  /** You have notes on it (session-notes.ts). */
+  hasNote?: (id: string) => boolean;
   /** The running Claudes were read against a real process list, so "none" means none. */
   liveKnown?: boolean;
   /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
@@ -98,6 +100,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.parent) wire.stackedOn = stack.parent;
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
+  if (opts.hasNote?.(id)) wire.hasNote = true;
   return wire;
 }
 

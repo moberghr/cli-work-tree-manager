@@ -140,6 +140,8 @@ export interface SessionSummary {
   stackedOn?: { id: string; branch: string; title?: string };
   /** How many live sessions are stacked on this one. */
   stackedChildren?: number;
+  /** You have notes on it. */
+  hasNote?: boolean;
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
   /** Repos checked out on another branch than `branch` (null = detached). */
@@ -663,6 +665,16 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
     body: JSON.stringify({ order }),
   });
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
+}
+
+// ---- your notes on a session ----------------------------------------------
+
+export async function fetchNote(sessionId: string): Promise<{ text: string; updatedAt: string } | null> {
+  return (await getJson<{ note: { text: string; updatedAt: string } | null }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`)).note;
+}
+
+export async function saveNote(sessionId: string, text: string): Promise<void> {
+  await sendJson('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/note`, { text });
 }
 
 // ---- time per session ----------------------------------------------------

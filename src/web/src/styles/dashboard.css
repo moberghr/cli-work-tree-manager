@@ -1953,3 +1953,13 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 /* Sessions table: the row's place in the rail (📌, or its section). */
 .wd-st-rail { margin-left: 6px; padding: 0 6px; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; white-space: nowrap; }
 .wd-st-rail-pin { border: 0; padding: 0; }
+
+/* Your notes on a session (SessionNotes). */
+.wd-notes-chip { appearance: none; background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.wd-notes-chip:hover, .wd-notes-chip-open { color: var(--fg); }
+.wd-notes { margin: 0 16px 8px; display: flex; flex-direction: column; gap: 4px; }
+.wd-notes-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 8px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.wd-notes-text:focus { outline: none; border-color: var(--accent); }
+.wd-notes-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.wd-notes-status { flex: 1; color: var(--muted); }
+.wd-dash-rail-note { font-size: 11px; }

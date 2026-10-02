@@ -10,6 +10,8 @@ import { catchUp } from './catch-up.js';
 import { defaultForkDeps, mountForkRoutes } from './fork-routes.js';
 import { createInChild, oneAtATime, type CreateWorktree } from './setup-child.js';
 import { allSnoozes } from './snooze-store.js';
+import { sessionsWithNotes } from './session-notes.js';
+import { mountNoteRoutes } from './note-routes.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
 import path from 'node:path';
@@ -311,6 +313,7 @@ export async function startWebServer(
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
       const snoozes = allSnoozes();
+      const noted = sessionsWithNotes();
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
       const sessions = history.map((s) =>
@@ -333,6 +336,7 @@ export async function startWebServer(
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
           replyDraftsFor: (id) => drafts.get(id) ?? 0,
+          hasNote: (id) => noted.has(id),
         }),
       );
       // Sessions changing the same files — from the same background cache
@@ -684,6 +688,8 @@ export async function startWebServer(
   mountSessionOrderRoutes(app, { broadcast });
   // The rail's pins and sections.
   mountRailRoutes(app, { broadcast });
+  // Your notes on a session.
+  mountNoteRoutes(app, { broadcast });
 
   // A session's Claude as a chat: headless, instead of the terminal (spike).
   let selfUrl = '';

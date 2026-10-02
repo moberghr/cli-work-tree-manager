@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
 import { CatchUpButton } from './CatchUp.js';
@@ -76,6 +77,9 @@ export function SessionDetail({
   const shipOpen = shipFor === session.id;
   const setShipOpen = (open: boolean) => setShipFor(open ? session.id : null);
   const archived = isArchived(session);
+  // Notes open for THIS session (they close when the detail switches to another).
+  const [notesFor, setNotesFor] = useState<string | null>(null);
+  const notesOpen = notesFor === session.id;
   return (
     <div className="wd-session-detail">
       <header className="wd-session-detail-header">
@@ -128,10 +132,12 @@ export function SessionDetail({
         <ContextChip session={session} />
         <PrChips prs={prs} link />
         <DevChip sessionId={session.id} />
+        <NotesChip session={session} open={notesOpen} onToggle={() => setNotesFor(notesOpen ? null : session.id)} />
         {!session.attention && (
           <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>
         )}
       </div>
+      {notesOpen && <SessionNotes key={session.id} session={session} onClose={() => setNotesFor(null)} />}
       <CiStrip sessionId={session.id} isGroup={session.isGroup} />
       <ReplyDrafts sessionId={session.id} />
       {shipOpen && (

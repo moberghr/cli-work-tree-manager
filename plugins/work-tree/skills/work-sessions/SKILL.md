@@ -17,6 +17,7 @@ description: Look up and act on the user's `work` worktree sessions — which se
 | Which live sessions change the same files | `work overlaps --json` |
 | What a past or current session said about something ("what did we do about X?") | `work search <words> --json` (every session's conversation, live and archived, also older than Claude Code keeps) |
 | Which worktrees can go, and why | `work cleanup --json` (fetches origin first; `--no-fetch` to skip) |
+| The user's own notes on a session (decisions, what's next) | `work note [<alias> <branch>]` (prints them; they are the user's — don't change them unless asked) |
 | Where a session stands, in a few sentences | `work catchup [<alias> <branch>]` (an internal Claude reads its last week; default: the session for this folder) |
 
 `work sessions --json` rows are the dashboard's rows plus a `view` block:

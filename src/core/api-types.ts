@@ -341,6 +341,8 @@ export interface SessionWire {
   stackedOn?: { id: string; branch: string; title?: string };
   /** How many live sessions are stacked on this one. */
   stackedChildren?: number;
+  /** You have notes on it (session-notes.ts; GET /api/sessions/:id/note). */
+  hasNote?: boolean;
   /** It was stacked on a session that merged and is archived: it should move onto main (POST …/retarget). */
   stackParentMerged?: { id: string; branch: string };
   target: string;
@@ -542,6 +544,13 @@ export interface SessionCi {
 
 /** GET /api/rail (and every rail write's answer). */
 export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
+
+// ---- your notes on a session (session-notes.ts) ------------------------------------
+
+/** GET / PUT /api/sessions/:id/note */
+export interface NoteWire {
+  note: { text: string; updatedAt: string } | null;
+}
 
 // ---- time per session (work-time.ts) ---------------------------------------------
 

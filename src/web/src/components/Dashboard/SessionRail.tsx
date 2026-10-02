@@ -324,6 +324,11 @@ export function SessionRail({
                 </span>
               )}
               <PrChips prs={prs} />
+              {s.hasNote && (
+                <span className="wd-dash-rail-note" title="You have notes on it" aria-label="has notes">
+                  📝
+                </span>
+              )}
               <ClaudesChip session={s} compact />
             </span>
           </span>

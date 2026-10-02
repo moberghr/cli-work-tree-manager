@@ -15,6 +15,8 @@ import { pinCommand } from '../../src/commands/pin.js';
 import { sectionCommand } from '../../src/commands/section.js';
 import { updateCommand } from '../../src/commands/update.js';
 import { catchupCommand } from '../../src/commands/catchup.js';
+import { noteCommand } from '../../src/commands/note.js';
+import { readNote } from '../../src/core/session-notes.js';
 
 /** `work snooze | pin | section | update | catchup`: the dashboard's session actions, from a terminal. */
 
@@ -53,7 +55,7 @@ afterEach(() => {
   fs.rmSync(homeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand } as never;
+const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand } as never;
 const run = async (_file: string, name: string, argv: Record<string, unknown> = {}) => {
   await COMMANDS[name].handler({ _: [name], ...argv });
 };
@@ -112,5 +114,21 @@ describe('work update / work catchup', () => {
     await run('catchup', 'catchupCommand', {});
     expect(errors.join('\n')).toContain('Nothing to go on');
     expect(process.exitCode).toBe(1);
+  });
+});
+
+describe('work note', () => {
+  it('append, print, set, clear', async () => {
+    await run('note', 'noteCommand', { append: 'first' });
+    await run('note', 'noteCommand', { append: 'second' });
+    out.length = 0;
+    await run('note', 'noteCommand', {});
+    expect(out.join('
+')).toBe('first
+second');
+    await run('note', 'noteCommand', { set: 'replaced' });
+    expect(readNote(id)?.text).toBe('replaced');
+    await run('note', 'noteCommand', { clear: true });
+    expect(readNote(id)).toBeNull();
   });
 });

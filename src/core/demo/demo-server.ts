@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
 import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
@@ -60,6 +60,23 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // "Catch me up": a canned summary (the demo runs no Claude).
   const caughtUp = new Map<string, { text: string; at: string }>();
+  // Your notes on a session, in memory.
+  const notes = new Map<string, { text: string; updatedAt: string }>();
+  app.get('/api/sessions/:id/note', (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    return w ? c.json({ note: notes.get(w.id) ?? null } satisfies NoteWire) : notFound(c);
+  });
+  app.put('/api/sessions/:id/note', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    if (typeof body.text !== 'string') return c.json({ error: 'expected {text}' }, 400);
+    if (body.text.trim()) notes.set(w.id, { text: body.text.slice(0, 20_000), updatedAt: new Date(scenario.clockMs()).toISOString() });
+    else notes.delete(w.id);
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
+    return c.json({ note: notes.get(w.id) ?? null } satisfies NoteWire);
+  });
+
   // Time worked: a believable figure from the session's id (the demo keeps no transcripts).
   app.get('/api/sessions/:id/time', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
@@ -87,7 +104,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
       sessions: scenario.list().map((w) => {
         const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
         const z = snoozes.get(w.id);
-        return z && snoozeActive(z, out) ? { ...out, snoozed: { until: z.until } } : out;
+        const noted = notes.has(w.id) ? { ...out, hasNote: true } : out;
+        return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
       }),
     }),
   );
