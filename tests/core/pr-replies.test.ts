@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { discardReply, draftCounts, listReplies, postDrafts, postReply, rememberSent, saveDraft } from '../../src/core/pr-replies.js';
-import { mountPrReplyRoutes } from '../../src/core/pr-reply-routes.js';
+import { mountPrReplyRoutes, openThreadsOfCi } from '../../src/core/pr-reply-routes.js';
 import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { withDb, purgeSessionRows } from '../../src/core/db.js';
@@ -121,6 +121,19 @@ describe('reply routes', () => {
   }
   const send = (a: Hono, method: string, url: string, body?: unknown) =>
     a.request(url, { method, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+
+  it('the open threads, from the PR watch’s state: open PRs only (a merged PR’s threads don’t wait on you)', () => {
+    const t = (threadId: string) => ({ threadId, repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'r', excerpt: 'e' });
+    const pr = (state: string) => ({ number: 7, url: 'u', state, isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a' }) as never;
+    expect(
+      openThreadsOfCi({ checkedAt: '', repos: [
+        { name: 'web', pr: pr('OPEN'), done: false, threads: [t('PRRT_a')] },
+        { name: 'api', pr: pr('MERGED'), done: true, threads: [t('PRRT_b')] },
+        { name: 'docs', pr: null, done: true },
+      ] }).map((x) => x.threadId),
+    ).toEqual(['PRRT_a']);
+    expect(openThreadsOfCi(null)).toEqual([]);
+  });
 
   it('GET also lists the open threads that have no draft (`waiting`), from the PR watch', async () => {
     session.paths = [home];

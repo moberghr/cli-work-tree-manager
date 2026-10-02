@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../src/core/history.js';
-import { defaultArchiveDeps } from '../../src/core/session-archive-deps.js';
-import { archiveSession, readArchive } from '../../src/core/session-archive.js';
+import { archiveMergedSession, defaultArchiveDeps } from '../../src/core/session-archive-deps.js';
+import { archiveSession, readArchive, type ArchiveDeps } from '../../src/core/session-archive.js';
+import { midTurn } from '../../src/core/ci-routes.js';
+import { recordStatusEvent } from '../../src/core/session-status.js';
 import { saveHistory } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { listReplies, rememberSent, saveDraft } from '../../src/core/pr-replies.js';
@@ -40,6 +42,45 @@ describe('archiving merged work keeps what waited in it (reported: tmp/dispute-e
     expect(listReplies(id).filter((r) => r.status === 'draft')).toHaveLength(1);
     expect(readPendingForSession(id).map((c) => c.body)).toEqual(['Rerun the tests']);
     expect(readArchive(id)?.kept?.replyDrafts[0].draft).toBe('Intentional: the store address is the fallback.');
+  });
+});
+
+describe("the PR watch's archive and busy (web-server wires these as they are)", () => {
+  const fake = (over: Partial<ArchiveDeps> = {}): ArchiveDeps => ({
+    stopClaude: async () => {},
+    removable: async () => ({ ok: false, reason: "it is the repo's own checkout" }),
+    removeWorktree: async () => true,
+    setArchived: async () => true,
+    transcripts: () => [],
+    waiting: () => ['1 reply to post on review threads'],
+    working: () => false,
+    kept: () => ({ replyDrafts: [{ threadId: 'PRRT_kwDOx1', url: 'u', reviewer: 'r', draft: 'd' }], notes: [] }),
+    ...over,
+  });
+
+  it('archives merged work with what waited in it, says what was kept, and tells the dashboard', async () => {
+    const s = { ...session([repo]), branch: 'feat/merged-x' };
+    saveHistory([s]);
+    const changed = vi.fn();
+    expect(await archiveMergedSession(sessionIdFor(s), fake(), changed)).toBe('1 reply draft');
+    expect(changed).toHaveBeenCalled();
+  });
+
+  it('a turn in progress: throws (the watch notes it and tries again); an unknown or archived session: nothing', async () => {
+    const s = { ...session([repo]), branch: 'feat/busy' };
+    saveHistory([s, { ...s, branch: 'feat/old', archivedAt: '2026-10-01T00:00:00Z' }]);
+    await expect(archiveMergedSession(sessionIdFor(s), fake({ working: () => true }))).rejects.toThrow('its Claude is working');
+    expect(await archiveMergedSession('nope', fake())).toBeUndefined();
+    expect(await archiveMergedSession(sessionIdFor({ target: 'api', branch: 'feat/old' }), fake())).toBeUndefined();
+  });
+
+  it('busy means mid-turn only: a question for you doesn’t hold merged work back', async () => {
+    const id = 'midturn1';
+    await recordStatusEvent(id, { kind: 'prompt' });
+    expect(midTurn(id)).toBe(true);
+    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission' });
+    expect(midTurn(id)).toBe(false);
+    expect(midTurn('never-seen')).toBe(false);
   });
 });
 

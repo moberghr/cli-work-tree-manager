@@ -84,6 +84,15 @@ describe('saving and putting back uncommitted work (real git)', () => {
     expect(() => git(repo, 'rev-parse', '--verify', '--quiet', ref)).toThrow(); // the ref went once it was back
   });
 
+  it('changes over the size cap aren’t kept: an error (the worktree stays), and no ref or patch left behind', async () => {
+    makeWork(wt);
+    const ref = archiveRefFor('sess1', 'api', 9);
+    const r = await saveUncommitted(wt, 'api', ref, archiveDir, 'api-9', 10); // a 10-byte cap
+    expect(r).toMatchObject({ error: expect.stringContaining('too large to keep') });
+    expect(() => git(repo, 'rev-parse', '--verify', '--quiet', ref)).toThrow();
+    expect(fs.existsSync(path.join(archiveDir, 'uncommitted', 'api-9.patch'))).toBe(false);
+  });
+
   it('a clean worktree has nothing to save', async () => {
     expect(await saveUncommitted(wt, 'api', archiveRefFor('sess1', 'api', 1), archiveDir)).toEqual({ clean: true });
   });

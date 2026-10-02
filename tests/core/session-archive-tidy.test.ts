@@ -149,6 +149,46 @@ describe('archive deps (real git)', () => {
       expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toBe(''); // the ref went once they were back
     });
 
+    it('a group: each repo’s changes saved on its own, and each put back in its own folder', async () => {
+      // A second repo, `web`, with feat/merged merged into its main too.
+      const webOrigin = path.join(home, 'web.git');
+      const web = path.join(home, 'web');
+      git(home, 'init', '-q', '--bare', '-b', 'main', webOrigin);
+      git(home, 'clone', '-q', webOrigin, web);
+      fs.writeFileSync(path.join(web, 'w'), 'w');
+      git(web, 'add', 'w');
+      git(web, 'commit', '-q', '-m', 'w');
+      git(web, 'push', '-q', '-u', 'origin', 'main');
+      git(web, 'remote', 'set-head', 'origin', 'main');
+      git(web, 'checkout', '-q', '-b', 'feat/merged');
+      fs.writeFileSync(path.join(web, 'page'), 'page');
+      git(web, 'add', '.');
+      git(web, 'commit', '-q', '-m', 'page');
+      git(web, 'checkout', '-q', 'main');
+      git(web, 'merge', '-q', '--no-ff', '-m', 'merge', 'feat/merged');
+      git(web, 'push', '-q', 'origin', 'main');
+      const group = { ...config, repos: { api: repo, web }, groups: { shop: ['api', 'web'] } } as WorkConfig;
+      saveConfig(group);
+
+      const made = await setupWorktree('shop', 'feat/merged', group, undefined, undefined, { pull: false });
+      const [apiWt, webWt] = ['repo', 'web'].map((n) => made!.paths.find((p) => path.basename(p) === n)!);
+      fs.writeFileSync(path.join(apiWt, 'a'), 'api edit');
+      fs.writeFileSync(path.join(webWt, 'w'), 'web edit');
+      fs.writeFileSync(path.join(webWt, 'new.css'), 'body {}');
+      const s = loadHistory().find((x) => x.target === 'shop')!;
+
+      const out = await archiveSession(s, deps(), { merged: true });
+      expect(out).toMatchObject({ ok: true, worktreeRemoved: true, message: expect.stringContaining('3 uncommitted files saved') });
+      const rec = (await import('../../src/core/session-archive.js')).readArchive(sessionIdFor(s));
+      expect(Object.keys(rec!.uncommitted!).sort()).toEqual(['api', 'web']);
+
+      await setupWorktree('shop', 'feat/merged', group, undefined, undefined, { pull: false });
+      expect(fs.readFileSync(path.join(apiWt, 'a'), 'utf8')).toBe('api edit');
+      expect(fs.readFileSync(path.join(webWt, 'w'), 'utf8')).toBe('web edit');
+      expect(fs.readFileSync(path.join(webWt, 'new.css'), 'utf8')).toBe('body {}');
+      expect(fs.existsSync(path.join(apiWt, 'new.css'))).toBe(false); // not mixed up between repos
+    });
+
     it('commits not in main still keep the worktree: nothing saved, nothing left behind', async () => {
       const made = await setupWorktree('api', 'feat/squashed', config, undefined, undefined, { pull: false });
       const wt = made!.paths[0];

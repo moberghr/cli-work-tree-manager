@@ -45,7 +45,7 @@ import { mountChatRoutes } from './chat-routes.js';
 import { mountSessionOrderRoutes } from './session-order-routes.js';
 import { mountRailRoutes } from './rail-routes.js';
 import { archiveSession, onArchived } from './session-archive.js';
-import { defaultArchiveDeps } from './session-archive-deps.js';
+import { defaultArchiveDeps, archiveMergedSession } from './session-archive-deps.js';
 import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
 import { sessionIdFor } from './session-id.js';
@@ -61,7 +61,7 @@ import type { ActivityWire, DigestResponse, SessionWire } from './api-types.js';
 import { createActivityLog } from './activity.js';
 import { recentProcessTable } from './process.js';
 import { throttleTrailing } from './throttle.js';
-import { mountPrReplyRoutes } from './pr-reply-routes.js';
+import { mountPrReplyRoutes, openThreadsOfCi } from './pr-reply-routes.js';
 import { applyArchiveRetention } from './archive-retention.js';
 import { syncConversation, syncConversations } from './conversation-store.js';
 import { draftCounts } from './pr-replies.js';
@@ -449,15 +449,8 @@ export async function startWebServer(
       broadcast('sessions-changed', { ts: Date.now() });
     },
     activity,
-    archive: async (id) => {
-      const s = findSession(id);
-      if (!s || s.archivedAt) return;
-      // The PR merged: nothing waiting in it holds it up — the archive keeps it.
-      const out = await archiveSession(s, defaultArchiveDeps({ release: releaseSession }), { merged: true });
-      broadcast('sessions-changed', { ts: Date.now() });
-      if (!out.ok) throw new Error(out.message);
-      return out.kept;
-    },
+    // The PR merged: nothing waiting in it holds it up — the archive keeps it.
+    archive: (id) => archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession }), () => broadcast('sessions-changed', { ts: Date.now() })),
   });
   const stopPrWatch = lean ? null : prWatch.start(180_000);
 
@@ -579,7 +572,7 @@ export async function startWebServer(
   mountPrReplyRoutes(app, {
     broadcast,
     activity,
-    openThreads: (id) => (prWatch.state(id)?.repos ?? []).filter((r) => r.pr?.state === 'OPEN').flatMap((r) => r.threads ?? []),
+    openThreads: (id) => openThreadsOfCi(prWatch.state(id)),
   });
 
   // Clean up view: which worktrees can go (scan), and removing them.

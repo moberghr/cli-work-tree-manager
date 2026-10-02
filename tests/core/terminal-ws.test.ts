@@ -20,7 +20,7 @@ vi.mock('../../src/core/pty-pool.js', () => ({
   peekPty: () => false,
 }));
 
-import { attachTerminalWs, claudeElsewhere, ELSEWHERE_ACTIVE_MS, ELSEWHERE_IDLE_MS } from '../../src/core/terminal-ws.js';
+import { attachTerminalWs, claudeElsewhere, elsewhereStatus, ELSEWHERE_ACTIVE_MS, ELSEWHERE_IDLE_MS } from '../../src/core/terminal-ws.js';
 import type { TerminalElsewhere } from '../../src/core/api-types.js';
 let elsewhere: TerminalElsewhere | null = null;
 
@@ -75,6 +75,13 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 20 * 3_600_000, status: opened }, now)).toBeNull();
     // A Stop ten minutes ago still counts.
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 10 * 60_000, status: { ...opened, endedAt: new Date(now - 10 * 60_000).toISOString() } }, now)).not.toBeNull();
+  });
+
+  it('the status it is given: the Stop’s own time, else when it went idle — never updatedAt alone', () => {
+    const shown = { state: 'idle' as const, updatedAt: '2026-10-02T07:57:01Z', since: '2026-10-01T07:59:03Z' };
+    expect(elsewhereStatus({ turnEndedAt: '2026-10-01T08:00:00Z' }, shown)).toEqual({ state: 'idle', updatedAt: shown.updatedAt, endedAt: '2026-10-01T08:00:00Z' });
+    expect(elsewhereStatus({}, shown)?.endedAt).toBe(shown.since); // a record from before turnEndedAt
+    expect(elsewhereStatus(null, null)).toBeNull();
   });
 
   it('quiet long enough is unknown, so the tab may spawn; a host PTY never counts as elsewhere', () => {

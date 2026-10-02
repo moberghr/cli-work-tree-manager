@@ -3,7 +3,12 @@ import { findSession } from './web-state.js';
 import { discardReply, listReplies, MAX_REPLY_CHARS, postReply, saveDraft, THREAD_ID } from './pr-replies.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { ActivityLog } from './activity.js';
-import type { OpenReviewThread, PrReply, RepliesWire } from './api-types.js';
+import type { OpenReviewThread, PrReply, RepliesWire, SessionCi } from './api-types.js';
+
+/** A session's unresolved review threads from the PR watch's state: open PRs only (a merged PR's threads don't wait on you). */
+export function openThreadsOfCi(ci: SessionCi | null | undefined): OpenReviewThread[] {
+  return (ci?.repos ?? []).filter((r) => r.pr?.state === 'OPEN').flatMap((r) => r.threads ?? []);
+}
 
 /** Open threads that have no draft to post: the panel lists them, so a count is never all you see. */
 export function threadsWithoutDraft(open: OpenReviewThread[], replies: PrReply[]): OpenReviewThread[] {

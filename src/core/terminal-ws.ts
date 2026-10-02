@@ -63,6 +63,19 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: s?.state ?? null };
 }
 
+/**
+ * The status `claudeElsewhere` judges by: the shown state, and when the
+ * turn ended — the Stop's own time (`turnEndedAt` on the stored record),
+ * else when it went idle (`since`; a record from before turnEndedAt).
+ * Never `updatedAt` alone: opening the session (seen) moves it.
+ */
+export function elsewhereStatus(
+  raw: { turnEndedAt?: string } | null,
+  shown: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string; since: string } | null,
+): ElsewhereInput['status'] {
+  return shown ? { state: shown.state, updatedAt: shown.updatedAt, endedAt: raw?.turnEndedAt ?? shown.since } : null;
+}
+
 async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | null> {
   // Which Claudes the host runs must be current: right after a work web
   // restart the pool's list is still empty, and the host's own Claude would
@@ -78,8 +91,7 @@ async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | 
   return claudeElsewhere({
     hasPty: peekPty(sessionId),
     lastActivityMs: activity.lastActivity,
-    // The turn's end: the Stop's own time, else when it went idle (a record from before turnEndedAt).
-    status: status ? { state: status.state, updatedAt: status.updatedAt, endedAt: raw?.turnEndedAt ?? status.since } : null,
+    status: elsewhereStatus(raw, status),
     runningOutside,
   });
 }

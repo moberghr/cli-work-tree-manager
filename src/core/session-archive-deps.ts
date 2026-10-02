@@ -11,7 +11,7 @@ import { readStatus } from './session-status.js';
 import { shownState } from './turn-activity.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { teardownWorktree } from './worktree.js';
-import type { ArchiveDeps, ArchivedPr } from './session-archive.js';
+import { archiveSession, type ArchiveDeps, type ArchivedPr } from './session-archive.js';
 import { archiveRefFor, dropSaved, saveUncommitted, type SavedUncommitted } from './archive-uncommitted.js';
 import { readPendingForSession } from './pending-delivery.js';
 import { listReplies } from './pr-replies.js';
@@ -41,6 +41,21 @@ export function archiveWaiting(id: string): string[] {
   if (st === 'working') out.push('its Claude is working');
   if (st === 'needs_input') out.push('its Claude is waiting for your answer');
   return out;
+}
+
+/**
+ * The PR watch's archive of merged work (its `archive` dep): `merged`, so
+ * nothing waiting in it holds it up. Resolves to what it kept that was
+ * waiting ("2 reply drafts"), for the Activity note; throws when it didn't
+ * archive (a turn in progress), so the watch notes it and tries again.
+ */
+export async function archiveMergedSession(id: string, deps: ArchiveDeps, onChanged: () => void = () => {}): Promise<string | undefined> {
+  const s = loadHistory().find((x) => sessionIdFor(x) === id);
+  if (!s || s.archivedAt) return undefined;
+  const out = await archiveSession(s, deps, { merged: true });
+  onChanged();
+  if (!out.ok) throw new Error(out.message);
+  return out.kept;
 }
 
 export interface ArchiveDepsOptions {

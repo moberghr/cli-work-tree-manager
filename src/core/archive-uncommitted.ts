@@ -49,7 +49,7 @@ const COMMIT_ENV = {
 };
 
 /** Save `worktree`'s uncommitted work under `ref` and as `<archiveDir>/uncommitted/<patchName>.patch`. */
-export async function saveUncommitted(worktree: string, repo: string, ref: string, archiveDir: string, patchName = repo): Promise<SaveResult> {
+export async function saveUncommitted(worktree: string, repo: string, ref: string, archiveDir: string, patchName = repo, maxBytes = MAX_SAVED_PATCH_BYTES): Promise<SaveResult> {
   const status = await runGitAsync(worktree, { args: ['status', '--porcelain', '--untracked-files=all'] });
   if (status.status !== 0) return { error: `git can't read ${repo}` };
   const files = status.stdout.split('\n').filter((l) => l.trim()).length;
@@ -74,7 +74,7 @@ export async function saveUncommitted(worktree: string, repo: string, ref: strin
     fs.rmSync(patchPath, { force: true });
     return { error: `git couldn't write ${repo}'s changes as a patch` };
   }
-  if (size > MAX_SAVED_PATCH_BYTES) {
+  if (size > maxBytes) {
     fs.rmSync(patchPath, { force: true });
     return { error: `${repo}'s uncommitted changes are too large to keep (${Math.round(size / 1024 / 1024)} MB)` };
   }

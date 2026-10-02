@@ -54,6 +54,11 @@ async function wakeForNote(id: string): Promise<WakeResult> {
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
 
+/** The PR watch's `busy`: its Claude is in the middle of a turn. A question for you doesn't hold merged work back (the archive keeps it). */
+export function midTurn(id: string): boolean {
+  return readStatus(id)?.state === 'working';
+}
+
 export function mountCiRoutes(
   app: Hono,
   opts: {
@@ -80,8 +85,7 @@ export function mountCiRoutes(
     reviewFeedback: (repoPath, n) => fetchReviewFeedback(repoPath, n, defaultRunner),
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),
-    // Mid-turn only: a question for you doesn't hold merged work back (the archive keeps it).
-    busy: (id) => readStatus(id)?.state === 'working',
+    busy: midTurn,
     archive: opts.archive,
     tell: async (id, body) => {
       const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
