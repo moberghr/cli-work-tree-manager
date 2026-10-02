@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { LatencyMeter } from '../../state/keystroke-latency.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -68,6 +69,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   // "Start it here" (only offered when nothing is known to run): reconnect
   // with ?force=1 once.
   const force = useRef(false);
+  // How long a keystroke takes to come back (median), once measured.
+  const [latency, setLatency] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
@@ -199,9 +202,19 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
 
     // Binary frames = PTY output; text frames = control JSON.
     let exited = false;
+    const meter = new LatencyMeter();
+    let shownAt = 0;
     ws.addEventListener('message', (e) => {
       if (e.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(e.data));
+        // The echo of a key sent (keystroke-latency.ts); shown at most every half second.
+        if (meter.output(performance.now()) !== null) {
+          const now = performance.now();
+          if (now - shownAt > 500) {
+            shownAt = now;
+            setLatency(meter.median());
+          }
+        }
         return;
       }
       if (typeof e.data !== 'string') return;
@@ -264,8 +277,10 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     // in source order, but only ever after the WebSocket exists.
     function sendInput(data: string): void {
       if (exited) return;
-      if (ready) ws.send(JSON.stringify({ type: 'input', data }));
-      else pendingInput.push(data);
+      if (ready) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+        meter.keySent(performance.now());
+      } else pendingInput.push(data);
     }
 
     // A drag fires the observer every frame; only tell the server when the
@@ -375,6 +390,14 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       )}
       <div className="wd-pty-frame" style={elsewhere ? { display: 'none' } : undefined}>
         <div ref={hostRef} className="wd-pty-host" />
+        {latency !== null && (
+          <span
+            className={'wd-pty-latency' + (latency > 100 ? ' wd-pty-latency-slow' : '')}
+            title="A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20"
+          >
+            ⌁ {Math.round(latency)} ms
+          </span>
+        )}
         {phase !== 'ready' && !elsewhere && (
           <div className="wd-pty-connecting" role="status">
             {phase === 'starting' ? 'Starting Claude — resuming the conversation…' : 'Connecting…'}

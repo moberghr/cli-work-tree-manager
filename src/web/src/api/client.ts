@@ -669,6 +669,12 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
 }
 
+// ---- the PTY host's heartbeat ----------------------------------------------
+
+export function fetchHostHealth(): Promise<import('../../../core/host-health.js').HostHealth> {
+  return getJson('/api/pty-host/health');
+}
+
 // ---- a session's timeline ---------------------------------------------------
 
 export async function fetchTimeline(sessionId: string): Promise<import('../../../core/timeline.js').TimelineEvent[]> {

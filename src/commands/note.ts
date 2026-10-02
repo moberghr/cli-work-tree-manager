@@ -45,6 +45,11 @@ export const noteCommand: CommandModule = {
       saveNote(id, text);
       console.log(chalk.green(`Saved the notes on ${name}.`));
     } else if (typeof argv.append === 'string') {
+      if ((readNote(id)?.text.length ?? 0) + argv.append.length + 1 > MAX_NOTE_CHARS) {
+        console.error(chalk.red(`At most ${MAX_NOTE_CHARS} characters in all: that would make it longer.`));
+        process.exitCode = 1;
+        return;
+      }
       appendNote(id, argv.append);
       console.log(chalk.green(`Added to the notes on ${name}.`));
     } else {

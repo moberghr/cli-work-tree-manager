@@ -1,4 +1,6 @@
 import path from 'node:path';
+import type { HostBeat } from './host-health.js';
+import { PtyHostBusyError } from './pty-host-client.js';
 import { noClaudeBecause } from './archiving.js';
 import { findSession, sessionIdFor } from './web-state.js';
 import type { WorktreeSession } from './history.js';
@@ -29,6 +31,13 @@ let live = new Set<string>();
 /** The pids of those PTYs' processes (the Claudes the app runs). */
 let livePids = new Set<number>();
 let refreshTimer: NodeJS.Timeout | null = null;
+/** The heartbeat (host-health.ts): each list request is one. */
+const beat: HostBeat = { known: false, lastOkAt: null, latencyMs: null, lastError: null };
+
+/** How the host answered lately (for GET /api/pty-host/health). */
+export function hostBeat(): HostBeat {
+  return { ...beat };
+}
 const REFRESH_MS = 2000;
 
 /** Called by `work web` at startup with the resolved `work` binary path,
@@ -56,18 +65,27 @@ async function getClient(spawnIfMissing: boolean): Promise<PtyHostClient | null>
 }
 
 async function refresh(): Promise<void> {
+  const t0 = Date.now();
   try {
     const c = await getClient(false);
     if (!c) {
+      beat.known = false;
       live = new Set();
       livePids = new Set();
       return;
     }
+    beat.known = true;
     const ptys = await c.list();
+    beat.lastOkAt = Date.now();
+    beat.latencyMs = beat.lastOkAt - t0;
+    beat.lastError = null;
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
-  } catch {
+  } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.
+    // A busy host is still a host (it is there, just not answering).
+    beat.known = beat.known || err instanceof PtyHostBusyError;
+    beat.lastError = (err as Error).message;
     client = null;
     live = new Set();
     livePids = new Set();

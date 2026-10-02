@@ -47,6 +47,22 @@ export function allBlocks(): Map<string, SessionBlock> {
 export function addBlocker(sessionId: string, ref: BlockRef, now = new Date()): { ok: true; block: SessionBlock } | { ok: false; error: string } {
   if (ref.kind === 'session' && ref.id === sessionId) return { ok: false, error: 'a session cannot wait on itself' };
   return tx((d) => {
+    // Waiting on one that (perhaps through others) waits on this one: neither would ever be let go.
+    if (ref.kind === 'session') {
+      const waitsOn = (id: string): string[] => {
+        const row = d.prepare('SELECT data FROM session_blocks WHERE session_id = ?').get(id) as { data: string } | undefined;
+        const b = row ? asBlock(json.parse(row.data)) : null;
+        return (b?.by ?? []).flatMap((x) => (x.kind === 'session' ? [x.id] : []));
+      };
+      const seen = new Set<string>();
+      for (let todo = [ref.id]; todo.length; ) {
+        const id = todo.pop()!;
+        if (id === sessionId) return { ok: false as const, error: `${ref.label} already waits on this one: they would wait on each other for ever` };
+        if (seen.has(id)) continue;
+        seen.add(id);
+        todo.push(...waitsOn(id));
+      }
+    }
     const row = d.prepare('SELECT data FROM session_blocks WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
     const prev = row ? asBlock(json.parse(row.data)) : null;
     const by = (prev?.by ?? []).filter((b) => blockKey(b) !== blockKey(ref));
@@ -111,7 +127,10 @@ export async function sweepBlocks(deps: UnblockDeps): Promise<string[]> {
       }
     }
     if (block.by.every((b) => blockerDone(b, deps.sessionGone))) {
-      removeBlocker(sessionId);
+      // Only what this look found done: a blocker added meanwhile stays (and
+      // the session with it), until a look finds that one done too.
+      for (const b of block.by) removeBlocker(sessionId, blockKey(b));
+      if (readBlock(sessionId)) continue;
       out.push(sessionId);
       await deps.unblocked(sessionId, block.by).catch(() => undefined);
     }

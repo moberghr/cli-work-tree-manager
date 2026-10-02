@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
-import { changeRailSections, fetchRailLayout, placeSession } from '../api/client.js';
+import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } from '../api/client.js';
+import type { HostHealth } from '../../../core/host-health.js';
+import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
 import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail-layout.js';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
@@ -222,6 +224,7 @@ export function DashboardApp() {
     events: {
       'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),
       'rail-changed': () => void fetchRailLayout().then(setRailLayout, () => {}),
+      'host-health': (data) => setHostHealth(data as HostHealth),
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
       notify: (data) =>
@@ -304,6 +307,12 @@ export function DashboardApp() {
   const railShownRef = useRef<string[]>([]);
   const onRailShownChange = useCallback((ids: string[]) => {
     railShownRef.current = ids;
+  }, []);
+
+  // How the PTY host is doing (host-health.ts): a warning when it's slow or not answering.
+  const [hostHealth, setHostHealth] = useState<HostHealth | null>(null);
+  useEffect(() => {
+    void fetchHostHealth().then(setHostHealth, () => {});
   }, []);
 
   // The rail's pins and sections: every window's (state.db), applied as the server answers.
@@ -691,6 +700,7 @@ export function DashboardApp() {
           }}
         />
       )}
+      <HostHealthBanner health={hostHealth} />
       <Toast toast={toast} onClose={hideToast} />
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
       {blocking && (

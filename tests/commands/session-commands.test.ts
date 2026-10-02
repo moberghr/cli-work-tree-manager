@@ -126,9 +126,7 @@ describe('work note', () => {
     await run('note', 'noteCommand', { append: 'second' });
     out.length = 0;
     await run('note', 'noteCommand', {});
-    expect(out.join('
-')).toBe('first
-second');
+    expect(out.join('\n')).toBe('first\nsecond');
     await run('note', 'noteCommand', { set: 'replaced' });
     expect(readNote(id)?.text).toBe('replaced');
     await run('note', 'noteCommand', { clear: true });

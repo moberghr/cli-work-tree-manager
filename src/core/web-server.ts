@@ -75,7 +75,8 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, getWorkBin, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
+import { detachPtyPool, disposePty, getWorkBin, hostBeat, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
+import { hostHealth, type HostHealth } from './host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from './idle-sleep.js';
 import { loadConfig } from './config.js';
 import { readStatus } from './session-status.js';
@@ -624,6 +625,10 @@ export async function startWebServer(
   // "Blocked by" (session-blocks.ts): a session waiting on another's work, or
   // on a PR, is let go when that is done — told to you and to its Claude.
   const BLOCKS_EVERY_MS = 3 * 60_000;
+  // Set once the status routes are mounted (below); they own presence.
+  let statusNotify: { notify: (event: NotifyEvent, sessionName: string) => void } | null = null;
+  // GitHub's limit spent (gh says so): no more PR questions until then.
+  let ghRestUntil = 0;
   const blocksSchedule = lean ? null : activity.schedule('blocks', 'Waiting on other work', BLOCKS_EVERY_MS);
   let blocksBusy = false;
   const sweepBlocksNow = async () => {
@@ -638,7 +643,13 @@ export async function startWebServer(
         blocks: allBlocks,
         sessionGone: (id) => !live.has(id),
         prState: async (url) => {
+          if (Date.now() < ghRestUntil) return null;
           const r = await defaultRunner('gh', ['pr', 'view', url, '--json', 'state', '-q', '.state'], os.tmpdir());
+          if (r.code !== 0 && /rate limit/i.test(r.stderr)) {
+            ghRestUntil = Date.now() + 10 * 60_000; // as the PR watch rests
+            run.note('GitHub API limit reached: resting 10 minutes', { level: 'warn' });
+            return null;
+          }
           const st = r.code === 0 ? r.stdout.trim() : '';
           return st === 'OPEN' || st === 'MERGED' || st === 'CLOSED' ? st : null;
         },
@@ -646,7 +657,10 @@ export async function startWebServer(
           const s = history.find((x) => sessionIdFor(x) === id);
           const name = s ? `${s.target} · ${s.branch}` : id;
           run.note(`${name}: no longer waiting (${done.map((b) => b.label).join(', ')})`, { sessionId: id });
-          broadcast('notify', { sessionId: id, kind: 'idle', title: `Unblocked — ${name}`, body: `What it waited on is done: ${done.map((b) => b.label).join(', ')}` } satisfies NotifyEvent);
+          const event = { sessionId: id, kind: 'unblocked', title: `Unblocked — ${name}`, body: `What it waited on is done: ${done.map((b) => b.label).join(', ')}` } satisfies NotifyEvent;
+          // Like every notification: by presence (a tab looking at it, the browser's, or the desktop's).
+          if (statusNotify) statusNotify.notify(event, name);
+          else broadcast('notify', event);
           if (s) await stackDeps.tell(s, unblockedPrompt(done)).catch((err) => logSwallowed(`telling ${name} it is unblocked`, err));
         },
       });
@@ -715,7 +729,7 @@ export async function startWebServer(
 
   // Attention inbox: hook nudges + mark-seen. A status change usually means
   // a turn touched files, so the row's +N −M refreshes too.
-  mountStatusRoutes(app, {
+  statusNotify = mountStatusRoutes(app, {
     broadcast,
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
@@ -746,6 +760,19 @@ export async function startWebServer(
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
+  app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
+  let lastHostState = hostHealth(hostBeat()).state;
+  const hostTick = lean
+    ? null
+    : setInterval(() => {
+        const h = hostHealth(hostBeat());
+        if (h.state === lastHostState) return;
+        lastHostState = h.state;
+        broadcast('host-health', h);
+        if (h.state === 'unresponsive') report('warn', `[web] PTY host not answering: ${h.error ?? 'no reply'}`);
+      }, 5_000);
+  hostTick?.unref?.();
   // What a session waits on (and a look straight away: the blocker may be done already).
   mountBlockRoutes(app, { broadcast, changed: () => void sweepBlocksNow() });
 
@@ -803,6 +830,7 @@ export async function startWebServer(
       clearInterval(revPoll);
       offArchived();
       if (blocksTimer) clearInterval(blocksTimer);
+      if (hostTick) clearInterval(hostTick);
       loop.stop();
       jiraWatch.stop();
       if (decayTick) clearInterval(decayTick);

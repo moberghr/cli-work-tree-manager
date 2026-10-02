@@ -62,6 +62,35 @@ describe('the store and the sweep', () => {
     expect(readBlock(ida)).toBeNull();
   });
 
+  it('a blocker added while the sweep looks stays — and so does the session’s wait', async () => {
+    addBlocker(ida, { kind: 'pr', url: PR, label: 'api#12', state: 'OPEN' });
+    const unblocked = vi.fn(async () => {});
+    const freed = await sweepBlocks({
+      blocks: allBlocks,
+      sessionGone: () => false,
+      // While gh is asked about another PR, a new blocker comes in.
+      prState: async () => {
+        addBlocker(ida, { kind: 'pr', url: 'https://github.com/acme/web/pull/3', label: 'web#3' });
+        return 'MERGED';
+      },
+      unblocked,
+    });
+    expect(freed).toEqual([]);
+    expect(unblocked).not.toHaveBeenCalled();
+    expect(readBlock(ida)?.by.map((x) => x.label)).toEqual(['web#3']);
+    removeBlocker(ida);
+  });
+
+  it('two sessions cannot wait on each other (directly or through others)', () => {
+    const idc = 'ccc';
+    expect(addBlocker(ida, { kind: 'session', id: idb, label: 'feat/b' })).toMatchObject({ ok: true });
+    expect(addBlocker(idb, { kind: 'session', id: ida, label: 'feat/a' })).toMatchObject({ ok: false, error: expect.stringContaining('wait on each other') });
+    expect(addBlocker(idb, { kind: 'session', id: idc, label: 'c' })).toMatchObject({ ok: true });
+    expect(addBlocker(idc, { kind: 'session', id: ida, label: 'feat/a' })).toMatchObject({ ok: false }); // a → b → c → a
+    removeBlocker(ida);
+    removeBlocker(idb);
+  });
+
   it('routes: a live session or a PR URL; refusals; deleted with the session', async () => {
     saveHistory([a, b]);
     const changed = vi.fn();

@@ -58,6 +58,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/stack.ts', // pure: which session is stacked on which
       'src/core/blocks.ts', // pure: what a session waits on
       'src/core/timeline.ts', // pure: a session's history on one line
+      'src/core/host-health.ts', // pure: how the PTY host is doing
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

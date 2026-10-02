@@ -93,6 +93,21 @@ describe('status routes', () => {
     expect((await post(`/api/sessions/${id}/snooze`, { for: 'forever' })).status).toBe(400);
   });
 
+  it('other notifications (an unblocked session) go by presence too: nothing for a tab looking at it', async () => {
+    const order: string[] = [];
+    const { createPresence } = await import('../../src/core/presence.js');
+    const presence = createPresence();
+    const a = new Hono();
+    const { notify } = mountStatusRoutes(a, { broadcast: (e) => void order.push(e), presence });
+    const id = sessionIdFor(session);
+    notify({ sessionId: id, kind: 'unblocked', title: 'Unblocked — x' }, 'x');
+    expect(order).toEqual(['notify']); // nobody looking: told
+    presence.report({ tabId: 't1', sessionId: id, visible: true, focused: true, canNotify: true });
+    order.length = 0;
+    notify({ sessionId: id, kind: 'unblocked', title: 'Unblocked — x' }, 'x');
+    expect(order).toEqual([]);
+  });
+
   it('a nudge for a session entering needs_input notifies once and broadcasts', async () => {
     const id = sessionIdFor(session);
     await recordStatusEvent(id, { kind: 'prompt', prompt: 'go' });

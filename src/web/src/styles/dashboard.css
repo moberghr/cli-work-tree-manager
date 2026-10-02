@@ -1990,3 +1990,11 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-work-time-jira { appearance: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer; }
 .wd-work-time-jira:hover { color: var(--fg); border-color: var(--fg); }
 .wd-work-time-result { font-size: 11px; color: var(--muted); }
+
+/* The PTY host's heartbeat (HostHealthBanner): only when it's slow or not answering. */
+.wd-host-health { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 50; max-width: min(720px, calc(100vw - 32px)); padding: 6px 12px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); }
+.wd-host-health-unresponsive { border-color: var(--status-deleted-fg); }
+/* A keystroke's round trip (PtyView). */
+.wd-pty-frame { position: relative; }
+.wd-pty-latency { position: absolute; right: 8px; bottom: 6px; padding: 0 6px; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; opacity: 0.75; pointer-events: auto; }
+.wd-pty-latency-slow { color: #b45309; opacity: 1; }

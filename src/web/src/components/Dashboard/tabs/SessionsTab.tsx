@@ -127,7 +127,8 @@ export function SessionsTab({
   // Its group in the rail, by the rail's own rule (pinned wins; a removed section is none).
   const railGroupOf = useMemo(() => {
     const m = new Map<string, RailGroup<SessionSummary>>();
-    for (const g of groupRail(sessions, rail)) for (const s of g.sessions) m.set(s.id, g);
+    // As the rail: archived sessions are in none of its groups.
+    for (const g of groupRail(sessions.filter((s) => !isArchived(s)), rail)) for (const s of g.sessions) m.set(s.id, g);
     return m;
   }, [sessions, rail]);
   const inRail = (s: SessionSummary): boolean => {
@@ -198,7 +199,12 @@ export function SessionsTab({
     [filtered, grouping, sort],
   );
   // Grouped as the rail is: Pinned, your sections, Other.
-  const railGroups = useMemo(() => (grouping === 'section' ? groupRail(filtered, rail).filter((g) => g.sessions.length > 0) : null), [filtered, grouping, rail]);
+  const railGroups = useMemo(() => {
+    if (grouping !== 'section') return null;
+    const groups = groupRail(filtered.filter((s) => !isArchived(s)), rail).filter((g) => g.sessions.length > 0);
+    const archived = filtered.filter((s) => isArchived(s));
+    return archived.length ? [...groups, { key: 'archived', title: 'Archived', sessions: archived }] : groups;
+  }, [filtered, grouping, rail]);
   const ages = useMemo(() => {
     if (grouping !== 'age') return null;
     const by: Record<AgeBucket, SessionSummary[]> = { now: [], week: [], older: [] };

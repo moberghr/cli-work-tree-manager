@@ -50,11 +50,17 @@ const DIALOG_REFUSALS = {
  * Status itself lives in ~/.work/status/ (written by the hook process), so a
  * missed nudge only delays the dashboard until its next refresh.
  */
-export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
+export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notify: (event: NotifyEvent, sessionName: string) => void } {
   // Guards against a nudge replayed for the same write (e.g. two hooks
   // racing) notifying twice: remember the last status write we acted on.
   const lastNotified = new Map<string, string>();
   const presence = opts.presence ?? createPresence();
+  /** Where a notification goes follows presence: nothing for a tab looking at it, the browser's, else the desktop's. */
+  const notify = (event: NotifyEvent, sessionName: string) => {
+    const route = presence.route(event.sessionId);
+    if (route !== 'none') opts.broadcast('notify', event);
+    if (route === 'os') notifyDesktop(sessionName, event.kind, { enabled: loadConfig()?.notifications === true });
+  };
 
   app.post('/api/status-changed', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { cwd?: unknown };
@@ -178,4 +184,5 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): void {
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true, status });
   });
+  return { notify };
 }

@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, TimelineWire, WorklogWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, HostHealth, TimelineWire, WorklogWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
 import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
@@ -90,6 +90,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
     return c.json({ ok: true });
   });
+
+  // The PTY host's heartbeat: the demo's never stalls.
+  app.get('/api/pty-host/health', (c) => c.json({ state: 'ok', latencyMs: 4, quietMs: 1000, error: null } satisfies HostHealth));
 
   // Jira worklogs, simulated: set up, and a log is remembered (in memory).
   const worklogs = new Map<string, Record<string, number>>();

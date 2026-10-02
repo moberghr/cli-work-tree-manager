@@ -512,7 +512,7 @@ export interface PresenceReport {
 /** SSE `notify` — a session wants the user and nobody is looking at it. */
 export interface NotifyEvent {
   sessionId: string;
-  kind: 'idle' | 'needs_input';
+  kind: 'idle' | 'needs_input' | 'unblocked';
   title: string;
   body?: string;
 }
@@ -546,6 +546,10 @@ export interface SessionCi {
 
 /** GET /api/rail (and every rail write's answer). */
 export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
+
+// ---- the PTY host's heartbeat (host-health.ts) ----------------------------------------
+
+export type { HostHealth, HostState } from './host-health.js';
 
 // ---- a session's timeline (timeline.ts) ---------------------------------------------
 

@@ -62,6 +62,18 @@ describe('the rail in the Sessions table', () => {
     expect([...container.querySelectorAll('.wd-session-group-name')].map((n) => n.textContent)).toEqual(['Pinned', 'Client X', 'Other']);
   });
 
+  it('an archived session isn’t in the rail’s groups (as in the rail): it has an Archived group of its own', () => {
+    localStorage.setItem('work-web:sessions-show-archived', '1');
+    act(() => root.unmount());
+    root = createRoot(container);
+    const archived = { ...session('d'), archivedAt: now } as SessionSummary;
+    const layout: RailLayout = { ...LAYOUT, places: { ...LAYOUT.places, d: { pinned: true } } };
+    act(() => root.render(createElement(SessionsTab, { sessions: [...SESSIONS, archived], onOpenSession: () => {}, onNewWorktree: () => {}, onDeleteSession: () => {}, layout })));
+    select('Group', 'section');
+    const groups = [...container.querySelectorAll('.wd-session-group')].map((g) => [g.querySelector('.wd-session-group-name')!.textContent, [...g.querySelectorAll('.wd-st-branch')].map((b) => b.textContent)]);
+    expect(groups).toEqual([['Pinned', ['feat/a']], ['Client X', ['feat/b']], ['Other', ['feat/c']], ['Archived', ['feat/d']]]);
+  });
+
   it('the bulk bar pins them, or moves them into a section', async () => {
     for (const id of ['b', 'c']) act(() => container.querySelector<HTMLInputElement>(`input[aria-label="Select api feat/${id}"]`)!.click());
     const railBtn = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Rail ▾')!;
