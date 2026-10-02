@@ -143,7 +143,7 @@ export function mountWorktreeRoutes(
     force: z.boolean().optional(),
     sessionOnly: z.boolean().optional(),
   });
-  const deleting = new Map<string, Promise<{ body: Record<string, unknown>; status: number }>>();
+  const deleting = new Map<string, { key: string; job: Promise<{ body: Record<string, unknown>; status: number }> }>();
   app.delete(
     '/api/sessions/:id/worktree',
     zValidator('json', removeSchema),
@@ -152,13 +152,17 @@ export function mountWorktreeRoutes(
       // One delete per session at a time: a second (the row's own button
       // while the bulk bar deletes it) gets the first one's answer instead
       // of tearing down a worktree that is half gone.
+      const asked = c.req.valid('json');
+      const key = `${!!asked.force}:${!!asked.sessionOnly}`;
       const running = deleting.get(id);
       if (running) {
-        const r = await running;
+        // Another kind of delete (forced, session only) isn't what the running one does.
+        if (running.key !== key) return c.json({ error: 'A delete of this session is already running; try again once it is done.' }, 409);
+        const r = await running.job;
         return c.json(r.body, r.status as 200);
       }
-      const job = remove(id, c.req.valid('json')).finally(() => deleting.delete(id));
-      deleting.set(id, job);
+      const job = remove(id, asked).finally(() => deleting.delete(id));
+      deleting.set(id, { key, job });
       const r = await job;
       return c.json(r.body, r.status as 200);
     },

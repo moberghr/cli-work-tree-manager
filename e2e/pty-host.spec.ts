@@ -140,7 +140,7 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   const sections = page.locator('.wd-inbox-section h2');
   await expect(sections).toHaveText([/Needs your input \(1\)/, /Done — not looked at yet \(1\)/, /Working \(1\)/]);
   await expect(page.locator('.wd-inbox-rank-0 .wd-inbox-row')).toContainText('Claude needs your permission to use Bash');
-  await expect(page.locator('.wd-inbox-rank-2 .wd-inbox-row')).toContainText('Refactor the ledger');
+  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-row')).toContainText('Refactor the ledger');
   // Badge + browser tab title count the two that want you.
   await expect(page.locator('.wd-dash-tab-badge')).toHaveText('2');
   await expect(page).toHaveTitle('(2) work');

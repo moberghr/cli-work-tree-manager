@@ -5,6 +5,8 @@ import type { WorkConfig } from './config.js';
 import { findSession, loadHistory } from './history.js';
 import { openBaseCheckout, setupWorktree } from './worktree.js';
 import { collectingReporter, withReporter } from './report.js';
+import { resolveProjectTarget } from './resolve.js';
+import { defaultRunner } from './ship.js';
 
 /**
  * Creating a worktree runs git synchronously (fetch, pull, worktree add):
@@ -27,16 +29,33 @@ export interface CreateRequest {
 export type CreateResult = { ok: true; branch: string; launchDir: string; paths: string[] } | { ok: false; error: string };
 export type CreateWorktree = (req: CreateRequest, config: WorkConfig) => Promise<CreateResult>;
 
-/** `--base` flags for a base spec (`--base dev`, `--base backend=dev`). Pure. */
+/**
+ * A request the child's command line could misread: a project or branch
+ * starting with `-` would be taken for a flag (`--unsafe` as a branch opened
+ * the base checkout instead). Git refuses such branch names anyway. Pure.
+ */
+export function invalidRequest(req: CreateRequest): string | null {
+  if (req.target.startsWith('-')) return `not a project: ${req.target}`;
+  if (req.branch?.startsWith('-')) return `${req.branch} is not a valid branch name (it can't start with "-")`;
+  for (const [alias, b] of Object.entries(req.base?.perRepo ?? {})) if (alias.startsWith('-') || b.startsWith('-')) return `not a valid base: ${alias}=${b}`;
+  if (req.base?.default?.startsWith('-')) return `not a valid base: ${req.base.default}`;
+  return null;
+}
+
+/** `--base` flags for a base spec (`--base=dev`, `--base=backend=dev`). Pure. */
 export function baseArgs(spec: BaseSpec | undefined): string[] {
   if (!spec) return [];
   const out: string[] = [];
-  if (spec.default) out.push('--base', spec.default);
-  for (const [alias, b] of Object.entries(spec.perRepo)) out.push('--base', `${alias}=${b}`);
+  if (spec.default) out.push(`--base=${spec.default}`);
+  for (const [alias, b] of Object.entries(spec.perRepo)) out.push(`--base=${alias}=${b}`);
   return out;
 }
 
-/** The argv of the child `work tree` run (after node and the bin). Pure. */
+/**
+ * The argv of the child `work tree` run (after node and the bin). Values go
+ * as `--flag=value`: a name like `--unsafe` given as `--name --unsafe` would
+ * be read as a flag of its own (and the name lost). Pure.
+ */
 export function childArgs(req: CreateRequest): string[] {
   return [
     'tree',
@@ -44,9 +63,34 @@ export function childArgs(req: CreateRequest): string[] {
     ...(req.branch ? [req.branch] : []),
     '--setup-only',
     ...baseArgs(req.base),
-    ...(req.jiraKey ? ['--jira-key', req.jiraKey] : []),
-    ...(req.name?.trim() ? ['--name', req.name.trim()] : []),
+    ...(req.jiraKey ? [`--jira-key=${req.jiraKey}`] : []),
+    ...(req.name?.trim() ? [`--name=${req.name.trim()}`] : []),
   ];
+}
+
+/**
+ * One creation at a time per project: they fetch, pull and add worktrees in
+ * the same repos (git's own locks would turn two at once into a failure),
+ * and a double-clicked create of the same branch gets the first one's answer.
+ */
+export function oneAtATime(create: CreateWorktree): CreateWorktree {
+  const queues = new Map<string, Promise<unknown>>();
+  const same = new Map<string, Promise<CreateResult>>();
+  return (req, config) => {
+    const key = `${req.target}\0${req.branch ?? ''}`;
+    const running = same.get(key);
+    if (running) return running;
+    const before = queues.get(req.target) ?? Promise.resolve();
+    const job = before.then(() => create(req, config));
+    const tail = job.catch(() => undefined);
+    queues.set(req.target, tail);
+    same.set(key, job);
+    void tail.then(() => {
+      if (same.get(key) === job) same.delete(key);
+      if (queues.get(req.target) === tail) queues.delete(req.target);
+    });
+    return job;
+  };
 }
 
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -71,6 +115,8 @@ function resultFromHistory(req: CreateRequest, config: WorkConfig): CreateResult
 export function createInChild(workBin: string, opts: { node?: string; execArgv?: string[]; timeoutMs?: number } = {}): CreateWorktree {
   return (req, config) =>
     new Promise((resolve) => {
+      const invalid = invalidRequest(req);
+      if (invalid) return resolve({ ok: false, error: invalid });
       // This process's node flags too: under tsx (dev) they are what loads a .ts entry
       // (but not a debugger's, whose port is taken).
       const child = crossSpawn(opts.node ?? process.execPath, [...(opts.execArgv ?? process.execArgv).filter((f) => !/^--inspect/.test(f)), workBin, ...childArgs(req)], {
@@ -81,7 +127,11 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
       let stderr = '';
       child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));
       child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
-      const timer = setTimeout(() => child.kill(), opts.timeoutMs ?? 5 * 60_000);
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, opts.timeoutMs ?? 5 * 60_000);
       let settled = false;
       const done = (r: CreateResult) => {
         if (settled) return;
@@ -91,6 +141,14 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
       };
       child.on('error', (err) => done({ ok: false, error: `could not run work: ${err.message}` }));
       child.on('close', (code) => {
+        if (timedOut) {
+          // Killed from outside, its own rollback never ran: drop what a
+          // half-made `git worktree add` registered, so a retry can make it.
+          void pruneWorktrees(req.target, config).finally(() =>
+            done({ ok: false, error: 'setting it up took too long (stopped; run it again, or `work tree` it from a terminal to see why)' }),
+          );
+          return;
+        }
         if (code === 0) return done(resultFromHistory(req, config));
         // Its errors, as the CLI printed them (the reporter sends errors to stderr).
         const why = (stderr || stdout).replace(ANSI, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(' ');
@@ -99,8 +157,19 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
     });
 }
 
+/** `git worktree prune` in each repo of the project (best effort). */
+async function pruneWorktrees(target: string, config: WorkConfig): Promise<void> {
+  const t = resolveProjectTarget(target, config);
+  for (const alias of t?.repoAliases ?? []) {
+    const repo = config.repos[alias];
+    if (repo) await defaultRunner('git', ['-C', repo, 'worktree', 'prune'], repo).catch(() => undefined);
+  }
+}
+
 /** In process (the CLI, tests): the same core calls `work tree` makes. */
 export const createInProcess: CreateWorktree = async (req, config) => {
+  const invalid = invalidRequest(req);
+  if (invalid) return { ok: false, error: invalid };
   if (!req.branch) {
     const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name });
     return opened.ok ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] } : { ok: false, error: opened.error };

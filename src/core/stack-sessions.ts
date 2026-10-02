@@ -26,6 +26,7 @@ function archivedAsMerged(id: string): boolean {
   const a = readArchive(id);
   const merged = !!a && (a.summary.prs.some((p) => p.state === 'MERGED') || (a.branchesDeleted?.length ?? 0) > 0);
   mergedCache.set(id, { key, merged });
+  while (mergedCache.size > 1000) mergedCache.delete(mergedCache.keys().next().value!);
   return merged;
 }
 

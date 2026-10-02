@@ -184,6 +184,12 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect((await del({})).status).toBe(404);
   });
 
+  it("another kind of delete while one runs (session only during a full one) is refused, not answered with the other's outcome", async () => {
+    const [full, onlyForget] = await Promise.all([del({}), del({ sessionOnly: true })]);
+    expect(full.status).toBe(200);
+    expect(onlyForget).toMatchObject({ status: 409, json: { error: expect.stringContaining('already running') } });
+  });
+
   it('refuses a dirty worktree without force, keeping the session AND its running Claude', async () => {
     fs.writeFileSync(path.join(wtPath, 'wip.txt'), 'dirty\n');
     const r = await del({});

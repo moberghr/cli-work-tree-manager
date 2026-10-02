@@ -29,7 +29,9 @@ export async function parentTipFor(
   const tips = readArchive(parent.id)?.tips ?? {};
   if (!parent.isGroup) return tips[parent.target] ?? Object.values(tips)[0] ?? null;
   // A group's repos: the alias whose checkout folder this is.
-  const alias = Object.entries(config?.repos ?? {}).find(([a, p]) => path.basename(p) === path.basename(repo) && a in tips)?.[0];
+  // (Only the group's own: another project's repo may have the same folder name.)
+  const own = config?.groups[parent.target] ?? [];
+  const alias = own.find((a) => a in tips && !!config?.repos[a] && path.basename(config.repos[a]) === path.basename(repo));
   return alias ? tips[alias] : null;
 }
 
@@ -57,6 +59,10 @@ interface Plan extends Fork {
  * fork point (a plain rebase); otherwise git's --fork-point (the parent
  * branch's reflog remembers where it was, even rewritten); otherwise the tip,
  * when the branch is built on it. Else it can't tell, and says so.
+ * (--fork-point is a reflog heuristic: git documents that an unrelated
+ * reflog entry can mislead it. A fork point from it is still one the child
+ * is built on, so at worst a commit too few or too many of the parent's
+ * comes along — and a conflict is aborted, never left.)
  */
 export async function forkPoint(repo: string, parent: { branch: string; tip: string }, main: string, run: CommandRunner = defaultRunner): Promise<Fork | { error: string }> {
   const git = (...args: string[]) => run('git', ['-C', repo, ...args], repo);

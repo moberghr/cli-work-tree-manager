@@ -111,6 +111,21 @@ describe('retargetOntoMain', () => {
   });
 });
 
+describe('parentTipFor', () => {
+  it("a group's repo: the tip of the group's own repo of that folder name, not another project's", async () => {
+    const { parentTipFor } = await import('../../src/core/stack-retarget.js');
+    const parent = { id: 'pid', branch: 'gone/branch', target: 'shop', isGroup: true };
+    fs.mkdirSync(archiveDirFor('pid'), { recursive: true });
+    writeArchiveRecord({
+      sessionId: 'pid', target: 'shop', branch: 'gone/branch', isGroup: true, paths: [], archivedAt: now, worktreeRemoved: true, keptBecause: null, transcripts: [],
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      tips: { 'other-web': 'aaaa', 'shop-web': 'bbbb' },
+    });
+    const config = { worktreesRoot: '/w', repos: { 'other-web': '/src/a/web', 'shop-web': '/src/b/web' }, groups: { shop: ['shop-web'] }, copyFiles: [] };
+    expect(await parentTipFor(path.join(tmp, 'wt', 'web'), parent, config)).toBe('bbbb');
+  });
+});
+
 describe('where it left the parent (the review: a parent rewritten before it merged)', () => {
   it('the parent amended after the child branched, then squash-merged: git --fork-point still finds it; only the child is replayed', async () => {
     // Review feedback on the parent: its last commit amended after the child was made from it.

@@ -74,6 +74,8 @@ interface DemoSession {
   transcript: string[];
   /** The branch it was made from (a fork: the parent session's), for stacks. */
   baseBranch?: string;
+  /** Archived with its worktree removed (merged and clean, as a real archive does): nothing left to clean up. */
+  worktreeRemoved?: boolean;
 }
 
 export type DemoEvent = { event: string; data: unknown };
@@ -414,6 +416,7 @@ export class DemoScenario {
       null, claudeScreen('', []), 60 * 26,
     );
     taxes.archivedAt = this.iso(60 * 20);
+    taxes.worktreeRemoved = true;
     this.add(
       'api', 'feat/tax-report',
       [{ name: 'api' }],
@@ -971,6 +974,7 @@ export class DemoScenario {
     const now = this.now();
     const candidates: CleanupCandidate[] = [];
     for (const s of this.sessions.values()) {
+      if (s.worktreeRemoved) continue;
       const lastActiveMs = Math.max(Date.parse(s.lastAccessedAt), s.attention ? Date.parse(s.attention.updatedAt) : 0);
       const repos = s.repos.map((r) => {
         const own = parseGitDiff(r.sinceBranch).length > 0 && r.pr?.state !== 'MERGED';

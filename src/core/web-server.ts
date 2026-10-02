@@ -7,7 +7,7 @@ import { mountUpdateRoutes } from './update-routes.js';
 import { askCatchUp, catchUpFacts, mountCatchUpRoutes } from './catch-up-routes.js';
 import { catchUp } from './catch-up.js';
 import { defaultForkDeps, mountForkRoutes } from './fork-routes.js';
-import { createInChild, type CreateWorktree } from './setup-child.js';
+import { createInChild, oneAtATime, type CreateWorktree } from './setup-child.js';
 import { allSnoozes } from './snooze-store.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
@@ -277,7 +277,7 @@ export async function startWebServer(
   // Behind main, per session: slow refresh (main moves slowly), a broadcast when it changes.
   // Making a worktree runs git synchronously: in a child `work tree --setup-only`,
   // so a slow fetch doesn't hold up every request (setup-child.ts).
-  const makeWorktree: CreateWorktree = (req, config) => createInChild(getWorkBin())(req, config);
+  const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config));
   const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
@@ -620,7 +620,8 @@ export async function startWebServer(
     deps: defaultForkDeps({
       create: makeWorktree,
       summarize: async (s) => (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s), uncommittedFacts(sessionIdFor(s)))))?.text ?? null,
-      uncommitted: (s) => diffStats.peek(sessionIdFor(s))?.files ?? 0,
+      // Not computed yet: unknown (the prompt then says nothing about how many), never a made-up 0.
+      uncommitted: (s) => diffStats.peek(sessionIdFor(s))?.files ?? null,
     }),
   });
 
