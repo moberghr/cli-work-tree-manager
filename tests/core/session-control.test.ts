@@ -3,11 +3,11 @@ import { parseDuration, pendingRequest, sendHowText, sendToSession, waitForTurn,
 
 /** Driving a session from outside its terminal: the policy (session-control.ts), with its I/O faked. */
 
-const deps = (over: Partial<SendDeps> = {}): SendDeps & { posted: string[] } => {
+const deps = (over: Partial<SendDeps> = {}, delivered: 'typed' | 'next-turn' | null = null): SendDeps & { posted: string[] } => {
   const posted: string[] = [];
   return {
     posted,
-    post: vi.fn(async (_id: string, body: string) => void posted.push(body)),
+    post: vi.fn(async (_id: string, body: string) => (posted.push(body), delivered)),
     hostRuns: () => false,
     runningOutside: () => false,
     start: vi.fn(async () => true),
@@ -20,11 +20,13 @@ const deps = (over: Partial<SendDeps> = {}): SendDeps & { posted: string[] } => 
 const NOW = () => new Date('2026-10-02T09:00:00Z');
 
 describe('sendToSession', () => {
-  it('idle in the PTY host: queued as a note and typed in; busy there: on its next turn', async () => {
-    const d = deps({ hostRuns: () => true });
+  it('in the PTY host: says what the comment route did — typed in, or left for the end of the turn (reviewed: not a second look at the state)', async () => {
+    const d = deps({ hostRuns: () => true, state: () => 'working' }, 'typed'); // the route typed it; the state read after says otherwise
     expect(await sendToSession('s', '  Run the tests  ', d, { now: NOW })).toEqual({ ok: true, how: 'typed', sentAt: '2026-10-02T09:00:00.000Z' });
     expect(d.posted).toEqual(['Run the tests']);
-    expect(await sendToSession('s', 'x', deps({ hostRuns: () => true, state: () => 'working' }))).toMatchObject({ how: 'next-turn' });
+    expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, 'next-turn'))).toMatchObject({ how: 'next-turn' });
+    // The host runs it but the route typed nothing (it had nothing pending to nudge): its next turn.
+    expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, null))).toMatchObject({ how: 'next-turn' });
   });
 
   it('running in a terminal outside work: queued for its next turn there, nothing started', async () => {

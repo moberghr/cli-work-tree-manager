@@ -254,6 +254,15 @@ describe('PR watch', () => {
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
+  it('a group: every repo that holds it is named — one merged with work left must not hide one not merged at all (reviewed)', () => {
+    const api = { ...repo('api', merged(), false), localSha: 'aaa', ahead: 2 } as RepoShipState;
+    const web = { ...repo('web', pr(), false), localSha: 'bbb' } as RepoShipState;
+    expect(autoArchiveVerdict({ repos: [api, web] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({
+      archive: false,
+      why: 'api: PR merged, but 2 unpushed commits; not all merged yet (web)',
+    });
+  });
+
   it('merged at the checked-out commit with files left uncommitted: archived (they are saved); commits beyond the merge say what (reported)', () => {
     // fix/pdf-generation-speed: PR merged at the checked-out commit, three files left uncommitted.
     const repoState = { ...repo('straumur-backend', merged(), false), localSha: 'aaa', dirtyFiles: 3 } as RepoShipState;

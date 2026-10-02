@@ -52,8 +52,10 @@ export function mountSessionCommentRoutes(
         // comments to stdin. The Stop / UserPromptSubmit hooks already
         // cover the cases where Claude is mid-turn or the user types; this
         // closes the "idle in our PTY, user not typing" case.
-        void deliverViaOwnedPty(id, comment.author);
-        return c.json({ comment, comments: store.snapshot() });
+        // A draft goes nowhere yet (it reaches Claude when the review is submitted).
+        const delivery = comment.status === 'published' ? ownedPtyDelivery(id, comment.author) : null;
+        if (delivery === 'typed') void typeAndSubmit(id, NOTE_NUDGE).catch(() => false);
+        return c.json({ comment, comments: store.snapshot(), delivery });
       } catch (err) {
         return c.json({ error: (err as Error).message }, 400);
       }
@@ -137,12 +139,22 @@ export function mountSessionCommentRoutes(
  * never spawns a PTY (`peekPty` / `writeToPty` don't).
  */
 async function deliverViaOwnedPty(sessionId: string, author: string): Promise<void> {
-  if (author !== 'user') return;
-  if (!peekPty(sessionId)) return;
-  if (readPendingForSession(sessionId).length === 0) return;
-  const st = readStatus(sessionId)?.state;
-  if (st === 'working') return;
+  if (ownedPtyDelivery(sessionId, author) !== 'typed') return;
   await typeAndSubmit(sessionId, NOTE_NUDGE).catch(() => false);
+}
+
+/**
+ * What deliverViaOwnedPty will do with a note just posted, decided now (the
+ * typing itself follows in the background): typed into an idle Claude the
+ * PTY host runs, left for the end of the turn when it is working, or null
+ * (no host terminal: the prompt hook hands it over on its next turn). The
+ * comment route answers with it, so a sender is told what happened.
+ */
+export function ownedPtyDelivery(sessionId: string, author: string): 'typed' | 'next-turn' | null {
+  if (author !== 'user') return null;
+  if (!peekPty(sessionId)) return null;
+  if (readPendingForSession(sessionId).length === 0) return null;
+  return readStatus(sessionId)?.state === 'working' ? 'next-turn' : 'typed';
 }
 
 /** Between the text and Enter: Claude Code takes a burst of input as a paste. */

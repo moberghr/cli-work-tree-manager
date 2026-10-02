@@ -16,7 +16,7 @@ export const readCommand: CommandModule = {
   handler: (argv) => {
     const s = sessionFromArgs(argv);
     if (!s) return;
-    const agent = agentFor(loadConfig());
+    const agent = agentFor(loadConfig(), s);
     if (!agent.conversation) {
       console.error(chalk.red(`work can't read ${agent.name}'s conversations yet.`));
       process.exitCode = 1;
@@ -24,6 +24,8 @@ export const readCommand: CommandModule = {
     }
     const last = Math.max(1, Math.min(500, Math.floor(Number(argv.last) || 20)));
     const entries = agent.conversation.read(s, { last });
+    // On stderr either way: an agent parsing the JSON reads it too.
+    if (entries.length) console.error(chalk.gray(`${s.target} · ${s.branch} — ${READ_AS_DATA}`));
     if (argv.json) {
       process.stdout.write(JSON.stringify(entries, null, 2) + '\n');
       return;
@@ -32,7 +34,6 @@ export const readCommand: CommandModule = {
       console.error(chalk.yellow(`No conversation found for ${s.target} · ${s.branch}.`));
       return;
     }
-    console.error(chalk.gray(`${s.target} · ${s.branch} — ${READ_AS_DATA}`));
     console.log(formatConversation(entries, agent.name));
   },
 };

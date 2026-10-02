@@ -6,7 +6,9 @@ import type { WorktreeSession } from '../../src/core/history.js';
 import { archiveMergedSession, defaultArchiveDeps } from '../../src/core/session-archive-deps.js';
 import { archiveSession, readArchive, type ArchiveDeps } from '../../src/core/session-archive.js';
 import { midTurn } from '../../src/core/ci-routes.js';
-import { recordStatusEvent } from '../../src/core/session-status.js';
+import { readStatus, recordStatusEvent } from '../../src/core/session-status.js';
+
+const readStatusState = (id: string) => readStatus(id)?.state;
 import { saveHistory } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import { listReplies, rememberSent, saveDraft } from '../../src/core/pr-replies.js';
@@ -69,18 +71,36 @@ describe("the PR watch's archive and busy (web-server wires these as they are)",
   it('a turn in progress: throws (the watch notes it and tries again); an unknown or archived session: nothing', async () => {
     const s = { ...session([repo]), branch: 'feat/busy' };
     saveHistory([s, { ...s, branch: 'feat/old', archivedAt: '2026-10-01T00:00:00Z' }]);
-    await expect(archiveMergedSession(sessionIdFor(s), fake({ working: () => true }))).rejects.toThrow('its Claude is working');
+    await expect(archiveMergedSession(sessionIdFor(s), fake({ working: () => true }))).rejects.toThrow('in the middle of a turn');
     expect(await archiveMergedSession('nope', fake())).toBeUndefined();
     expect(await archiveMergedSession(sessionIdFor({ target: 'api', branch: 'feat/old' }), fake())).toBeUndefined();
   });
 
-  it('busy means mid-turn only: a question for you doesn’t hold merged work back', async () => {
+  it('busy means mid-turn: working, or at a permission dialog mid-turn — not a finished turn’s question (reviewed)', async () => {
     const id = 'midturn1';
     await recordStatusEvent(id, { kind: 'prompt' });
     expect(midTurn(id)).toBe(true);
-    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission' });
+    // A permission prompt mid-turn: stopping its Claude now would lose the pending tool call.
+    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission', request: { tool: 'Bash', detail: 'git push' } });
+    expect(midTurn(id)).toBe(true);
+    // A finished turn that asks you something (DECISION NEEDED): the turn is over.
+    await recordStatusEvent(id, { kind: 'stop', lastMessage: 'DECISION NEEDED: squash or merge?' });
+    expect(readStatusState(id)).toBe('needs_input');
+    expect(midTurn(id)).toBe(false);
+    await recordStatusEvent(id, { kind: 'stop', lastMessage: 'Done.' });
     expect(midTurn(id)).toBe(false);
     expect(midTurn('never-seen')).toBe(false);
+  });
+
+  it('the archive’s own wait sees it the same: a permission dialog mid-turn holds merged work back', async () => {
+    const s = { ...session([repo]), branch: 'feat/dialog' };
+    saveHistory([s]);
+    const sid = sessionIdFor(s);
+    await recordStatusEvent(sid, { kind: 'prompt' });
+    await recordStatusEvent(sid, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission', request: { tool: 'Bash', detail: 'npm test' } });
+    expect(defaultArchiveDeps().working!(sid)).toBe(true);
+    await recordStatusEvent(sid, { kind: 'stop', lastMessage: 'Done.' });
+    expect(defaultArchiveDeps().working!(sid)).toBe(false);
   });
 });
 

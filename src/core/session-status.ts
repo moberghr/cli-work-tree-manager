@@ -302,6 +302,22 @@ export function recordStatusEvent(
   }));
 }
 
+/**
+ * Its Claude is in the middle of a turn: working, or stopped mid-turn at a
+ * dialog for you (a permission prompt, a question) — a needs-input state
+ * entered after the last turn ended. A finished turn that asks you something
+ * (DECISION NEEDED, recorded by the Stop) is not: its turn is over. Stopping
+ * a Claude mid-turn cuts the turn off (a pending tool call is lost), so the
+ * merged-work archive waits for this, and only this.
+ */
+export function turnInProgress(s: Pick<SessionStatus, 'state' | 'since' | 'turnEndedAt'> | null): boolean {
+  if (!s) return false;
+  if (s.state === 'working') return true;
+  if (s.state !== 'needs_input') return false;
+  const ended = s.turnEndedAt ? Date.parse(s.turnEndedAt) : NaN;
+  return !(ended >= Date.parse(s.since));
+}
+
 /** The user looked at it (opened it in the dashboard). */
 export async function markSeen(sessionId: string): Promise<SessionStatus | null> {
   const { next } = await updateStatus(sessionId, (prev) =>

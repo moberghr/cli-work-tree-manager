@@ -40,6 +40,8 @@ function realDeps(app: Hono): ControlDeps {
         body: JSON.stringify({ side: 'general', status: 'published', body }),
       });
       if (!res.ok) throw new Error(`queueing the message failed (${res.status})`);
+      const delivery = ((await res.json().catch(() => null)) as { delivery?: unknown } | null)?.delivery;
+      return delivery === 'typed' || delivery === 'next-turn' ? delivery : null;
     },
     hostRuns: peekPty,
     runningOutside: outside,

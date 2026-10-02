@@ -62,7 +62,7 @@ describe('archiving merged work: nothing waiting in it holds it up, and nothing 
     expect(readArchive(sessionIdFor(session), root)?.kept).toEqual(kept);
 
     const busy = deps({ working: () => true });
-    expect(await archiveSession({ ...session, branch: 'fix/other' }, busy, { merged: true })).toMatchObject({ ok: false, blocked: ['its Claude is working'] });
+    expect(await archiveSession({ ...session, branch: 'fix/other' }, busy, { merged: true })).toMatchObject({ ok: false, blocked: ['its Claude is in the middle of a turn'] });
   });
 
   it('without `merged`, waiting things still hold a plain Archive (it asks first)', async () => {

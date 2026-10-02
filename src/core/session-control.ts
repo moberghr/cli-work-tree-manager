@@ -18,8 +18,8 @@ export const MAX_SEND_CHARS = 20_000;
 export type { SendHow } from './api-types.js';
 
 export interface SendDeps {
-  /** Queue it as a published comment (the comment route, which also types it into an idle host Claude). */
-  post: (id: string, body: string) => Promise<void>;
+  /** Queue it as a published comment (the comment route), resolving to what that route did with it: typed into an idle host Claude, left for the end of its turn, or null (no host terminal). */
+  post: (id: string, body: string) => Promise<'typed' | 'next-turn' | null>;
   /** Its Claude runs in the PTY host. */
   hostRuns: (id: string) => boolean;
   /** Its Claude runs in a terminal outside work (seen in Claude Code's process files). */
@@ -45,8 +45,10 @@ export async function sendToSession(id: string, text: string, deps: SendDeps, op
     return { ok: false, status: 409, error: 'its Claude runs with permission checks off (--unsafe), so it would act on this without asking you; send with --force if you mean it' };
   }
   const sentAt = (opts.now?.() ?? new Date()).toISOString();
-  await deps.post(id, body);
-  if (deps.hostRuns(id)) return { ok: true, how: deps.state(id) === 'working' ? 'next-turn' : 'typed', sentAt };
+  // What the comment route did, as it decided it — not a second look at the state.
+  const delivered = await deps.post(id, body);
+  if (delivered) return { ok: true, how: delivered, sentAt };
+  if (deps.hostRuns(id)) return { ok: true, how: 'next-turn', sentAt };
   if (deps.runningOutside(id)) return { ok: true, how: 'outside', sentAt };
   if (!(await deps.start(id))) return { ok: false, status: 502, error: 'queued, but its Claude could not be started: it gets it when you open the session' };
   return { ok: true, how: 'started', sentAt };

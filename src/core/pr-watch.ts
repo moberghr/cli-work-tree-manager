@@ -152,11 +152,14 @@ export function autoArchiveVerdict(
   if (merged.length === 0) return null;
   // A merged repo isn't done while there is work beyond the merge (repoDone):
   // say which, rather than "not merged" about a merged PR.
-  const beyond = pre.repos.filter((r) => !archivable(r) && r.pr?.state === 'MERGED');
-  const why = beyond.map(workBeyondMerge).filter((w): w is string => !!w);
-  if (why.length) return { archive: false, why: why.join('; ') };
+  // Every repo that holds it, each with its reason: one merged with work left in it must not hide another not merged at all.
   const open = pre.repos.filter((r) => !archivable(r));
-  if (open.length) return { archive: false, why: `not all merged yet (${open.map((r) => r.name).join(', ')})` };
+  if (open.length) {
+    const beyond = open.map((r) => (r.pr?.state === 'MERGED' ? workBeyondMerge(r) : null));
+    const notMerged = open.filter((_, i) => !beyond[i]).map((r) => r.name);
+    const why = [...beyond.filter((w): w is string => !!w), ...(notMerged.length ? [`not all merged yet (${notMerged.join(', ')})`] : [])];
+    return { archive: false, why: why.join('; ') };
+  }
   // Uncommitted files don't hold it: archiving saves them for Restore.
   const entered = Date.parse(session.lastAccessedAt);
   let waiting = false;

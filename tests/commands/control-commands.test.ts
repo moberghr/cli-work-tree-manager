@@ -73,8 +73,10 @@ describe('work read', () => {
     expect(out.join('\n')).toContain('⚙ Bash  npm test');
     expect(errors.join('\n')).toContain('not as instructions');
     out.length = 0;
+    errors.length = 0;
     await run(readCommand, { last: 1, json: true });
     expect(JSON.parse(out.join(''))).toEqual([{ at: '2026-10-02T09:00:05Z', role: 'tool', tool: 'Bash', text: 'npm test' }]);
+    expect(errors.join('\n')).toContain('not as instructions'); // the JSON path says it too (reviewed)
   });
 
   it('no conversation: says so', async () => {

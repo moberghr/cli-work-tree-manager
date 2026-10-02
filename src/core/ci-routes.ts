@@ -8,7 +8,7 @@ import { findSession } from './web-state.js';
 import { defaultRunner, shipPreflight } from './ship.js';
 import { fetchReviewFeedback } from './pr-review.js';
 import { dbPtySessions } from './pty-sessions-file.js';
-import { readStatus } from './session-status.js';
+import { readStatus, turnInProgress } from './session-status.js';
 import { createPrWatch, type PrWatch } from './pr-watch.js';
 import type { ActivityLog } from './activity.js';
 import type { WakeResult } from './pr-watch.js';
@@ -54,9 +54,9 @@ async function wakeForNote(id: string): Promise<WakeResult> {
 const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
 
-/** The PR watch's `busy`: its Claude is in the middle of a turn. A question for you doesn't hold merged work back (the archive keeps it). */
+/** The PR watch's `busy`: its Claude is in the middle of a turn — working, or at a permission dialog mid-turn (turnInProgress). A finished turn's question for you doesn't hold merged work back (the archive keeps it). */
 export function midTurn(id: string): boolean {
-  return readStatus(id)?.state === 'working';
+  return turnInProgress(readStatus(id));
 }
 
 export function mountCiRoutes(

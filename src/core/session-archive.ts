@@ -189,7 +189,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   const now = deps.now ?? Date.now;
 
   // 0. Work still waiting in it would vanish from view with it.
-  const waiting = opts.force ? [] : opts.merged ? (deps.working?.(id) ? ['its Claude is working'] : []) : (deps.waiting?.(id) ?? []);
+  const waiting = opts.force ? [] : opts.merged ? (deps.working?.(id) ? ['its Claude is in the middle of a turn'] : []) : (deps.waiting?.(id) ?? []);
   if (waiting.length) {
     return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: 0, blocked: waiting, message: `Not archived: ${waiting.join('; ')}.` };
   }

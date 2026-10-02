@@ -55,7 +55,7 @@ export const sendCommand: CommandModule = {
       process.exitCode = 2;
       return;
     }
-    const agent = agentFor(loadConfig());
+    const agent = agentFor(loadConfig(), s);
     const reply = (agent.conversation?.read(s, { last: 60 }) ?? []).filter((e) => e.at > r.body.sentAt);
     console.error(chalk.gray(`${done.status.state === 'needs_input' ? 'It is waiting for you' : 'Its turn ended'} — ${READ_AS_DATA}`));
     if (reply.length) console.log(formatConversation(reply, agent.name));

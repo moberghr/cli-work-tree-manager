@@ -7,7 +7,7 @@ import { examineWorktree, normPath, type CleanupSession } from './cleanup.js';
 import { loadHistory, setSessionArchived, type WorktreeSession } from './history.js';
 import { disposePty } from './pty-pool.js';
 import { sessionIdFor } from './session-id.js';
-import { readStatus } from './session-status.js';
+import { readStatus, turnInProgress } from './session-status.js';
 import { shownState } from './turn-activity.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import { teardownWorktree } from './worktree.js';
@@ -127,9 +127,10 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     prs: opts.prs,
     lastSummary: (id) => readStatus(id)?.summary ?? null,
     waiting: archiveWaiting,
+    // Mid-turn: working as the dashboard shows it, or at a dialog mid-turn (turnInProgress).
     working: (id) => {
       const session = loadHistory().find((x) => sessionIdFor(x) === id);
-      return (session ? shownState(session) : readStatus(id)?.state) === 'working';
+      return (session ? shownState(session) : readStatus(id)?.state) === 'working' || turnInProgress(readStatus(id));
     },
     kept: (id) => {
       const st = readStatus(id);

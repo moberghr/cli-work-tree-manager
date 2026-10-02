@@ -74,10 +74,23 @@ describe('submit-review', () => {
   });
 });
 
+describe('what the route did with a note (`delivery`, which `work send` reports)', () => {
+  it('typed into an idle host Claude; nothing for a draft or a Claude’s own reply', async () => {
+    const res = await post('/api/sessions/s1/comments', { side: 'general', body: 'run the tests', status: 'published' });
+    expect(((await res.json()) as { delivery: string | null }).delivery).toBe('typed');
+    await vi.waitFor(() => expect(pty.writes).toEqual([NOTE_NUDGE, '\r']), { timeout: 2000 });
+    const draft = await post('/api/sessions/s1/comments', { side: 'general', body: 'later', status: 'draft' });
+    expect(((await draft.json()) as { delivery: string | null }).delivery).toBeNull();
+    const own = await post('/api/sessions/s1/comments', { side: 'general', body: 'done', status: 'published', author: 'claude' });
+    expect(((await own.json()) as { delivery: string | null }).delivery).toBeNull();
+  });
+});
+
 describe('a Claude mid-turn', () => {
   it('gets nothing typed: the Stop hook delivers at the end of its turn', async () => {
     await recordStatusEvent('s1', { kind: 'prompt' }); // working
-    await post('/api/sessions/s1/comments', { side: 'general', body: 'also check the logs', status: 'published' });
+    const res = await post('/api/sessions/s1/comments', { side: 'general', body: 'also check the logs', status: 'published' });
+    expect(((await res.json()) as { delivery: string | null }).delivery).toBe('next-turn');
     await new Promise((r) => setTimeout(r, 400));
     expect(pty.writes).toEqual([]);
     expect(readPendingForSession('s1').map((c) => c.body)).toEqual(['also check the logs']);

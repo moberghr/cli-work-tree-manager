@@ -12,7 +12,7 @@ const id = sessionIdFor(s);
 function app(over: Partial<ControlDeps> = {}) {
   const events: string[] = [];
   const deps: Partial<ControlDeps> = {
-    post: vi.fn(async () => {}),
+    post: vi.fn(async () => null),
     hostRuns: () => false,
     runningOutside: () => false,
     start: vi.fn(async () => true),
@@ -33,7 +33,7 @@ const post = (a: Hono, url: string, body: unknown = {}) => a.request(url, { meth
 describe('POST /api/sessions/:id/send', () => {
   it('queues the message, says how it went, and tells the dashboard', async () => {
     saveHistory([s]);
-    const { a, deps, events } = app({ hostRuns: () => true });
+    const { a, deps, events } = app({ hostRuns: () => true, post: vi.fn(async () => 'typed' as const) });
     const res = await post(a, `/api/sessions/${id}/send`, { text: 'Run the tests' });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ how: 'typed', sentAt: expect.any(String) });
