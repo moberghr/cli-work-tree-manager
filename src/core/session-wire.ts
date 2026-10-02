@@ -9,7 +9,7 @@ import { sessionIdFor } from './web-state.js';
 import { readContextUsage } from './context-usage.js';
 import { bestEffort } from './best-effort.js';
 import type { WorktreeSession } from './history.js';
-import type { DiffStat, SessionArchiveInfo, SessionClaudes, SessionWire, BlockerWire } from './api-types.js';
+import type { DiffStat, SessionArchiveInfo, SessionAttention, SessionClaudes, SessionWire, BlockerWire } from './api-types.js';
 import { readArchive } from './session-archive.js';
 import { sessionTitle } from './session-title.js';
 
@@ -41,6 +41,8 @@ export interface SessionWireOptions {
   liveKnown?: boolean;
   /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
   hostedLive?: (id: string) => boolean;
+  /** A status read from its terminal output, for a tool with no hooks (output-status.ts). */
+  outputStatusFor?: (id: string) => SessionAttention | null;
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
   snoozeFor?: (id: string) => Snooze | null;
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
@@ -81,7 +83,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     // Claude Code's own state file over what the hooks recorded, when newer.
     attention: meta.attention && !shadowed && opts.claudesFor
       ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
-      : meta.attention,
+      : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,

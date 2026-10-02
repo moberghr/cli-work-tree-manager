@@ -49,16 +49,36 @@ export interface SpawnSpec {
 }
 
 /** One entry of the host's restore list: how to respawn a session. The
- *  spec as launched, minus `env` (never persisted: it can hold secrets). */
+ *  spec as launched, minus `env` (never persisted: it can hold secrets) —
+ *  except the variables config `hostEnv` names (`keptEnv`), which a restore
+ *  after a reboot puts back over the host's own environment. */
 export interface PersistedPty extends SpawnSpec {
   startedAt: string;
+  keptEnv?: Record<string, string>;
+}
+
+/** Names that look like secrets: never kept on disk, whatever `hostEnv` says. */
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE|(^|_)KEY($|_)|API_?KEY/i;
+
+/** The variables of `env` to keep for a restore: the ones named, that exist, and don't look like secrets. Pure. */
+export function keepEnv(env: Record<string, string> | undefined, names: readonly string[]): Record<string, string> | undefined {
+  if (!env) return undefined;
+  const kept = Object.fromEntries(names.filter((n) => !SECRET_NAME.test(n) && typeof env[n] === 'string').map((n) => [n, env[n]]));
+  return Object.keys(kept).length ? kept : undefined;
 }
 export type PersistedPtys = Record<string, PersistedPty>;
 
 /** Shape check for a restore-list entry read back from storage. */
 export function isPersistedPty(x: unknown): x is PersistedPty {
   const e = x as PersistedPty | null;
-  return !!e && typeof e === 'object' && typeof e.cwd === 'string' && !!e.tool && typeof e.tool === 'object';
+  return (
+    !!e &&
+    typeof e === 'object' &&
+    typeof e.cwd === 'string' &&
+    !!e.tool &&
+    typeof e.tool === 'object' &&
+    (e.keptEnv === undefined || (!!e.keptEnv && typeof e.keptEnv === 'object' && Object.values(e.keptEnv).every((v) => typeof v === 'string')))
+  );
 }
 
 export interface PtyInfo {
@@ -77,6 +97,8 @@ export interface PtyInfo {
   clients?: number;
   /** When the PTY last printed anything (ISO). Additive, like clients. */
   lastOutputAt?: string;
+  /** The tool's binary (`claude`, `opencode`…). Additive, like clients. */
+  tool?: string;
 }
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →

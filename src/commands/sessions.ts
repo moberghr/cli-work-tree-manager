@@ -5,7 +5,8 @@ import { sessionWire, lastActiveMs } from '../core/session-wire.js';
 import { AGE_LABEL, DISPLAY_LABEL, ageBucket, displayStatus, type AgeBucket, type DisplayKind } from '../core/session-view.js';
 import { scanChanges } from '../core/overlap-scan.js';
 import { timeAgo } from '../utils/format.js';
-import { livePtyIds } from './shared/live-ptys.js';
+import { livePtys } from './shared/live-ptys.js';
+import { statusFromOutput } from '../core/output-status.js';
 import type { SessionWire } from '../core/api-types.js';
 
 /** A `work sessions --json` row: the dashboard's row, plus what it shows
@@ -44,11 +45,14 @@ export const sessionsCommand: CommandModule = {
     const target = argv.target as string | undefined;
     const all = argv.all as boolean;
     const history = loadHistory().filter((s) => !target || s.target === target);
-    const live = await livePtyIds();
+    const live = await livePtys();
+    const now = Date.now();
     const changes = argv.changes ? await scanChanges(history) : null;
     const wires = history.map((s) => {
       const w = sessionWire(s, {
-        ...(live ? { ptyLive: (id: string) => live.has(id) } : {}),
+        ...(live
+          ? { ptyLive: (id: string) => live.has(id), outputStatusFor: (id: string) => { const p = live.get(id); return p ? statusFromOutput(p, now) : null; } }
+          : {}),
         ...(changes ? { diffStatFor: (id: string) => changes.stats.get(id) ?? null } : {}),
       });
       const o = changes?.overlaps.get(w.id);

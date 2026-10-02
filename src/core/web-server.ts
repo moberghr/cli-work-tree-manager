@@ -75,7 +75,7 @@ import { revision } from './db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from './scope-manager.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, getWorkBin, hostBeat, initPtyPool, listHostPtys, peekPty, ptyPids } from './pty-pool.js';
+import { detachPtyPool, disposePty, getWorkBin, hostBeat, initPtyPool, listHostPtys, outputStatus, peekPty, ptyPids } from './pty-pool.js';
 import { hostHealth, type HostHealth } from './host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from './idle-sleep.js';
 import { loadConfig } from './config.js';
@@ -342,6 +342,7 @@ export async function startWebServer(
             };
           },
           hostedLive: (id) => peekPty(id) || chatApi.running(id),
+          outputStatusFor: (id) => outputStatus(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
           replyDraftsFor: (id) => drafts.get(id) ?? 0,

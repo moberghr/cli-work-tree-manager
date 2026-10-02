@@ -24,6 +24,8 @@ export interface WorkConfig {
   jiraWatch?: { maxPerDay?: number };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
+  /** Environment variable names to keep for a session restored after a reboot (the launching shell's values; secret-looking names are never kept). */
+  hostEnv?: string[];
   /** Writing session time to Jira as worklogs (jira-worklog.ts): the site, your email, and the API token (from the env var `tokenEnv`, default JIRA_API_TOKEN, or `token`). */
   jiraWorklog?: { site: string; email: string; tokenEnv?: string; token?: string };
   /**
@@ -190,6 +192,7 @@ export function loadConfig(): WorkConfig | null {
           }
         : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
+      hostEnv: Array.isArray(parsed.hostEnv) ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) : undefined,
       jiraWorklog:
         parsed.jiraWorklog && typeof parsed.jiraWorklog === 'object' && typeof parsed.jiraWorklog.site === 'string' && typeof parsed.jiraWorklog.email === 'string'
           ? {

@@ -311,6 +311,10 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 **Heartbeat and latency.** The pool's 2 s list request is the host's heartbeat (`hostBeat`, `core/pty-pool.ts`). `core/host-health.ts` (pure) reads it as ok, slow (an answer over 1.5 s) or not answering (none for 11 s; a busy host counts as a host). `GET /api/pty-host/health` serves it, a `host-health` broadcast goes out when it changes, and the dashboard shows `HostHealthBanner` only when it isn't ok, pointing at `work pty-host --restart`. The Terminal tab measures a keystroke's way to the screen and back (`LatencyMeter`: key sent → next output, the median of the last 20) and shows "⌁ 12 ms" in its corner, amber from 100 ms. That's where to look first when typing feels slow.
 
+**The environment of a restored session.** A restore spawns with the host's environment, not the launching shell's: `env` is one-shot and never stored (it can hold secrets). Config `hostEnv` (`["JAVA_HOME", "PATH"]`) names variables to keep: their values from the shell that started the session go into its restore-list entry (`keptEnv`, `keepEnv` in `pty-host-protocol.ts`), and a restore — or a respawn without a shell, from the Terminal tab — runs with the host's environment plus those. Names that look like secrets (`*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*KEY*`, …) are never kept, whatever the config says.
+
+**Status for a tool with no hooks.** For a session whose PTY runs another tool (`aiCommand`, e.g. opencode; `PtyInfo.tool`, additive), nothing reports turns, so `statusFromOutput` (`core/output-status.ts`, pure) reads one from the host's `lastOutputAt`: working while it printed in the last 10 s, idle after (seen — output can't tell a finished turn from a question). It applies only when no hook status exists, in `/api/sessions` (the pool's refresh) and `work sessions`.
+
 § A probe that times out is a BUSY host, never a missing one: `findHost` retries with a longer timeout, then throws `PtyHostBusyError`, and every "should I start one?" path treats that as running (a second host restores every session again).
 § WHEN changing the host wire format, bump `PROTOCOL_VERSION` (now 2: the restore list moved into state.db; a v2 host adopts a `pty-sessions.json` written by a v1 host that outlived the upgrade — `adoptLegacyRestoreList`) — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
 § WHEN spawning into a PTY, let `resolvePtyCommand` (`tui/session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
@@ -501,6 +505,7 @@ Stored at `~/.work/config.json`. Schema in `core/config.ts`:
 - `repos` — map of alias → repo path
 - `groups` — map of group name → array of repo aliases
 - `copyFiles` — glob patterns for files to copy into new worktrees (e.g., local dev settings)
+- `hostEnv` — environment variable names a restored PTY-host session keeps from the shell that started it (secret-looking names never)
 
 ### Build
 

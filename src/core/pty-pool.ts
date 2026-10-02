@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { statusFromOutput, type PtyOutput } from './output-status.js';
+import type { SessionAttention } from './api-types.js';
 import type { HostBeat } from './host-health.js';
 import { PtyHostBusyError } from './pty-host-client.js';
 import { noClaudeBecause } from './archiving.js';
@@ -30,6 +32,8 @@ let client: PtyHostClient | null = null;
 let live = new Set<string>();
 /** The pids of those PTYs' processes (the Claudes the app runs). */
 let livePids = new Set<number>();
+/** Each live PTY's tool and last output (for output-status.ts). */
+let outputs = new Map<string, PtyOutput>();
 let refreshTimer: NodeJS.Timeout | null = null;
 /** The heartbeat (host-health.ts): each list request is one. */
 const beat: HostBeat = { known: false, lastOkAt: null, latencyMs: null, lastError: null };
@@ -72,6 +76,7 @@ async function refresh(): Promise<void> {
       beat.known = false;
       live = new Set();
       livePids = new Set();
+      outputs = new Map();
       return;
     }
     beat.known = true;
@@ -81,6 +86,7 @@ async function refresh(): Promise<void> {
     beat.lastError = null;
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
+    outputs = new Map(ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt }]));
   } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.
     // A busy host is still a host (it is there, just not answering).
@@ -89,6 +95,7 @@ async function refresh(): Promise<void> {
     client = null;
     live = new Set();
     livePids = new Set();
+    outputs = new Map();
   }
 }
 
@@ -200,6 +207,12 @@ export async function listHostPtys(): Promise<PtyInfo[]> {
 /** Pids of the Claudes running in the PTY host (from the refresh cache). */
 export function ptyPids(): ReadonlySet<number> {
   return livePids;
+}
+
+/** A status from its terminal output, for a session whose tool has no hooks (output-status.ts); null for Claude or no PTY. */
+export function outputStatus(sessionId: string, now = Date.now()): SessionAttention | null {
+  const o = outputs.get(sessionId);
+  return o ? statusFromOutput(o, now) : null;
 }
 
 export function peekPty(sessionId: string): boolean {

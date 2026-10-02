@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PtyRegistry, type PtyLike, type PtySpawner } from '../../src/core/pty-registry.js';
 import type { AiToolSpec } from '../../src/core/ai-launcher.js';
+import { isPersistedPty, keepEnv } from '../../src/core/pty-host-protocol.js';
 
 const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--continue' } as unknown as AiToolSpec;
 
@@ -198,6 +199,54 @@ describe('PtyRegistry launch options', () => {
     expect(spawned[1].spec).toMatchObject({ unsafe: true, resume: true });
     expect(spawned[1].spec.initialPrompt).toBeUndefined();
     expect(spawned[1].spec.env).toBeUndefined();
+  });
+});
+
+describe('variables a restore keeps (config hostEnv)', () => {
+  const withNames = (names: string[], hasConversation: () => boolean = () => false) =>
+    new PtyRegistry({ spawner, hasConversation, sessionsPath, cwdExists: () => true, keepEnvNames: () => names });
+
+  it('keeps the named ones from the launching shell — never secret-looking ones — and a restore puts them back', async () => {
+    const first = withNames(['JAVA_HOME', 'GITHUB_TOKEN', 'API_KEY', 'MISSING']);
+    first.spawn('a', { cwd: '/x', tool, env: { JAVA_HOME: '/jdk21', GITHUB_TOKEN: 't', API_KEY: 'k', OTHER: 'o' } });
+    await first.flush();
+    expect(readSaved().a.keptEnv).toEqual({ JAVA_HOME: '/jdk21' });
+    expect(fs.readFileSync(sessionsPath, 'utf-8')).not.toMatch(/"t"|"k"|OTHER/);
+
+    first.disposeAllKeepingState();
+    const second = withNames([], () => true);
+    await second.restore();
+    expect(spawned[1].spec.env).toMatchObject({ JAVA_HOME: '/jdk21' });
+    expect(spawned[1].spec.env?.PATH ?? spawned[1].spec.env?.Path).toBeDefined(); // over the host's own
+    await second.flush();
+    expect(readSaved().a.keptEnv).toEqual({ JAVA_HOME: '/jdk21' }); // still kept for the next one
+  });
+
+  it('lists each PTY with its tool (for a status from output when it has no hooks)', () => {
+    const reg = withNames([]);
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(reg.get('a')?.tool).toBe('claude');
+  });
+
+  it('a respawn without a shell (the Terminal tab) runs with what was kept', () => {
+    const reg = withNames(['JAVA_HOME']);
+    reg.spawn('a', { cwd: '/x', tool, env: { JAVA_HOME: '/jdk21' } });
+    spawned[0].pty.exit(0);
+    reg.spawn('a', { cwd: '/x', tool });
+    expect(spawned[1].spec.env).toMatchObject({ JAVA_HOME: '/jdk21' });
+  });
+
+  it('nothing named, nothing kept: the env stays one-shot', async () => {
+    const reg = withNames([]);
+    reg.spawn('a', { cwd: '/x', tool, env: { JAVA_HOME: '/jdk21' } });
+    await reg.flush();
+    expect(readSaved().a).not.toHaveProperty('keptEnv');
+  });
+
+  it('a restore list entry with a malformed keptEnv is not respawned', () => {
+    expect(isPersistedPty({ cwd: '/x', tool, startedAt: '', keptEnv: { A: 1 } })).toBe(false);
+    expect(isPersistedPty({ cwd: '/x', tool, startedAt: '', keptEnv: { A: '1' } })).toBe(true);
+    expect(keepEnv(undefined, ['A'])).toBeUndefined();
   });
 });
 

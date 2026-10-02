@@ -1,9 +1,10 @@
 import fs from 'node:fs';
+import { loadConfig } from './config.js';
 import { PtySession } from '../tui/session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from './fs-safe.js';
 import { dbPtySessions, type PtySessionsStore } from './pty-sessions-file.js';
 import { hasClaudeConversation } from './claude-activity.js';
-import { isPersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
+import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { logSwallowed, swallow } from './best-effort.js';
 
 const REPLAY_MAX = 256 * 1024;
@@ -55,7 +56,7 @@ export const defaultSpawner: PtySpawner = (spec) =>
 
 interface Entry {
   id: string;
-  spec: SpawnSpec;
+  spec: Omit<PersistedPty, 'startedAt'>;
   pty: PtyLike;
   cols: number;
   rows: number;
@@ -71,6 +72,8 @@ interface Entry {
 }
 
 export interface RegistryDeps {
+  /** The env variable names to keep for a restore (default: config `hostEnv`). */
+  keepEnvNames?: () => string[];
   spawner?: PtySpawner;
   hasConversation?: (cwd: string) => boolean;
   /** Where the restore list lives. Default: state.db. */
@@ -116,6 +119,7 @@ export class PtyRegistry {
   private readonly hasConversation: (cwd: string) => boolean;
   private readonly store: PtySessionsStore;
   private readonly cwdExists: (cwd: string) => boolean;
+  private readonly keepEnvNames: () => string[];
   /** Serializes persistence writes inside this process. */
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -124,6 +128,7 @@ export class PtyRegistry {
     this.hasConversation = deps.hasConversation ?? hasClaudeConversation;
     this.store = deps.sessions ?? (deps.sessionsPath ? fileSessionsStore(deps.sessionsPath) : dbPtySessions);
     this.cwdExists = deps.cwdExists ?? ((p) => fs.existsSync(p));
+    this.keepEnvNames = deps.keepEnvNames ?? (() => loadConfig()?.hostEnv ?? []);
   }
 
   list(): PtyInfo[] {
@@ -136,9 +141,15 @@ export class PtyRegistry {
   }
 
   /** Spawn unless a live PTY already exists for `id` (idempotent). */
-  spawn(id: string, spec: SpawnSpec, restored = false): PtyInfo {
+  spawn(id: string, spec: SpawnSpec & { keptEnv?: Record<string, string> }, restored = false): PtyInfo {
     const existing = this.entries.get(id);
     if (existing && !existing.pty.exited) return this.info(existing);
+
+    // A spawn from a shell keeps the variables config `hostEnv` names; a
+    // restore — or a respawn without a shell (the Terminal tab) — runs with
+    // the host's environment plus what its session kept.
+    const kept = spec.env ? keepEnv(spec.env, this.keepEnvNames()) : (spec.keptEnv ?? existing?.spec.keptEnv);
+    if (!spec.env && kept) spec = { ...spec, env: { ...(process.env as Record<string, string>), ...kept } };
 
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;
@@ -153,8 +164,10 @@ export class PtyRegistry {
     const entry: Entry = {
       id,
       // Only what a restore may reuse: env/prompt/fresh are one-shot (and
-      // env can hold secrets), so they never reach pty-sessions.json.
-      spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port, unsafe: spec.unsafe },
+      // env can hold secrets), so they never reach pty-sessions.json — but
+      // the variables config `hostEnv` names do (keepEnv), so a restore after
+      // a reboot gets the JAVA_HOME / PATH it was started with.
+      spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port, unsafe: spec.unsafe, ...(kept ? { keptEnv: kept } : {}) },
       pty,
       cols,
       rows,
@@ -333,6 +346,7 @@ export class PtyRegistry {
       restored: e.restored,
       clients: e.subscribers.size,
       lastOutputAt: new Date(e.lastOutputAt).toISOString(),
+      tool: e.spec.tool.cmd,
     };
   }
 
