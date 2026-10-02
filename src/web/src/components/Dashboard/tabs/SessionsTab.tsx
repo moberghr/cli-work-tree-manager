@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail-layout.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
 import { StatusIcon } from '../StatusIcon.js';
 import { useArchivePending } from '../../../api/archive-pending.js';
-import { searchConversations, sendPromptToSession, setArchived, snoozeSession, type ConversationHit, type SessionSummary } from '../../../api/client.js';
+import { placeSession, searchConversations, sendPromptToSession, setArchived, snoozeSession, type ConversationHit, type SessionSummary } from '../../../api/client.js';
 import { openInTerminal, removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
@@ -34,6 +35,8 @@ interface Props {
   onCleanUp?: () => void;
   /** The bulk bar's calls (tests swap them). */
   bulk?: BulkActions;
+  /** The rail's pins and sections: shown on the rows, a filter and a grouping, and the bulk bar's Pin / Move to. */
+  layout?: RailLayout;
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
@@ -43,11 +46,14 @@ export const defaultBulk: BulkActions = {
   snooze: (s, choice) => snoozeSession(s, choice),
   send: (s, text) => sendPromptToSession(s.id, text),
   remove: (s) => removeWorktree(s.id, {}),
+  place: (s, patch) => placeSession(s.id, patch),
 };
 
 type Sort = 'recent' | 'name';
 type Filter = 'all' | StatusBucket;
-type Grouping = 'age' | 'project' | 'none';
+type Grouping = 'age' | 'project' | 'section' | 'none';
+/** The rail filter: everything, the pinned, one section (its id), or in none. */
+type RailFilter = 'any' | 'pinned' | 'none' | `section:${string}`;
 
 const GROUPING_KEY = 'work-web:sessions-grouping';
 const ARCHIVED_KEY = 'work-web:sessions-show-archived';
@@ -78,6 +84,7 @@ const FILTER_LABEL: Record<Filter, string> = {
  * grouping and "show archived" choices persist in localStorage.
  */
 export function SessionsTab({
+  layout,
   sessions,
   onOpenSession,
   onNewWorktree,
@@ -115,11 +122,26 @@ export function SessionsTab({
   };
   const [sort, setSort] = useState<Sort>('recent');
   const [filter, setFilter] = useState<Filter>('all');
+  const [railFilter, setRailFilter] = useState<RailFilter>('any');
+  const rail = layout ?? EMPTY_RAIL_LAYOUT;
+  // Its group in the rail, by the rail's own rule (pinned wins; a removed section is none).
+  const railGroupOf = useMemo(() => {
+    const m = new Map<string, RailGroup<SessionSummary>>();
+    for (const g of groupRail(sessions, rail)) for (const s of g.sessions) m.set(s.id, g);
+    return m;
+  }, [sessions, rail]);
+  const inRail = (s: SessionSummary): boolean => {
+    if (railFilter === 'any') return true;
+    const g = railGroupOf.get(s.id);
+    if (railFilter === 'pinned') return g?.key === 'pinned';
+    if (railFilter === 'none') return !g || g.key === 'rest';
+    return g?.key === railFilter;
+  };
   const [query, setQuery] = useState('');
   const [grouping, setGroupingState] = useState<Grouping>(() => {
     try {
       const v = localStorage.getItem(GROUPING_KEY);
-      return v === 'project' || v === 'none' ? v : 'age';
+      return v === 'project' || v === 'none' || v === 'section' ? v : 'age';
     } catch {
       return 'age';
     }
@@ -148,7 +170,7 @@ export function SessionsTab({
   const filtered = useMemo(() => {
     const pool = showArchived ? sessions : live;
     const matched = pool.filter(
-      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && sessionMatches(s, query),
+      (s) => (filter === 'all' || statusBucket(displayStatus(s)) === filter) && inRail(s) && sessionMatches(s, query),
     );
     return [...matched].sort((a, b) => {
       if (sort === 'name') {
@@ -158,7 +180,7 @@ export function SessionsTab({
       }
       return lastActiveAt(b).localeCompare(lastActiveAt(a));
     });
-  }, [sessions, live, showArchived, sort, filter, query]);
+  }, [sessions, live, showArchived, sort, filter, query, railFilter, railGroupOf]);
 
   const selected = filtered.filter((s) => picked.has(s.id));
   const hiddenTicked = tickedAll.length - selected.length;
@@ -175,12 +197,19 @@ export function SessionsTab({
         : null,
     [filtered, grouping, sort],
   );
+  // Grouped as the rail is: Pinned, your sections, Other.
+  const railGroups = useMemo(() => (grouping === 'section' ? groupRail(filtered, rail).filter((g) => g.sessions.length > 0) : null), [filtered, grouping, rail]);
   const ages = useMemo(() => {
     if (grouping !== 'age') return null;
     const by: Record<AgeBucket, SessionSummary[]> = { now: [], week: [], older: [] };
     for (const s of filtered) by[ageBucket(s)].push(s);
     return (Object.keys(by) as AgeBucket[]).map((k) => ({ key: k, sessions: by[k] })).filter((g) => g.sessions.length > 0);
   }, [filtered, grouping]);
+
+  const railTagFor = (s: SessionSummary): string | null => {
+    const g = railGroupOf.get(s.id);
+    return g?.key === 'pinned' ? '📌' : g?.sectionId ? g.title : null;
+  };
 
   const renderTable = (list: SessionSummary[]) => (
     <table className="wd-session-table">
@@ -223,6 +252,7 @@ export function SessionsTab({
             onDelete={() => onDeleteSession(s)}
             picked={picked.has(s.id)}
             onPick={(on) => toggle(s.id, on)}
+            railTag={railTagFor(s)}
           />
         ))}
       </tbody>
@@ -261,6 +291,21 @@ export function SessionsTab({
               ))}
             </select>
           </label>
+          {(rail.sections.length > 0 || Object.keys(rail.places).length > 0) && (
+            <label>
+              Rail{' '}
+              <select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
+                <option value="any">any</option>
+                <option value="pinned">pinned</option>
+                {rail.sections.map((sec) => (
+                  <option key={sec.id} value={`section:${sec.id}`}>
+                    {sec.name}
+                  </option>
+                ))}
+                <option value="none">in no section</option>
+              </select>
+            </label>
+          )}
           <label>
             Group{' '}
             <select
@@ -269,6 +314,7 @@ export function SessionsTab({
             >
               <option value="age">age</option>
               <option value="project">project</option>
+              <option value="section">rail section</option>
               <option value="none">none</option>
             </select>
           </label>
@@ -305,7 +351,7 @@ export function SessionsTab({
         </div>
       </header>
       {(selected.length > 0 || bulkBusy) && (
-        <BulkBar selected={selected} hidden={hiddenTicked} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} />
+        <BulkBar selected={selected} hidden={hiddenTicked} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} sections={rail.sections} />
       )}
       {bulkOutcome && (
         <p className="wd-bulk-outcome" role="status">
@@ -320,6 +366,18 @@ export function SessionsTab({
           {sessions.length === 0
             ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
             : 'No sessions match the current filter.'}
+        </div>
+      ) : railGroups ? (
+        <div className="wd-session-groups">
+          {railGroups.map((g) => (
+            <section key={g.key} className="wd-session-group">
+              <h2 className="wd-session-group-header">
+                <span className="wd-session-group-name">{g.title ?? 'Not in a section'}</span>
+                <span className="wd-tab-header-muted">({g.sessions.length})</span>
+              </h2>
+              {renderTable(g.sessions)}
+            </section>
+          ))}
         </div>
       ) : ages ? (
         <div className="wd-session-groups">
@@ -455,6 +513,8 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
 }
 
 interface RowProps {
+  /** 📌, or its rail section's name. */
+  railTag?: string | null;
   session: SessionSummary;
   prs: ReturnType<PrLookup>;
   onOpen: () => void;
@@ -463,7 +523,7 @@ interface RowProps {
   onPick: (on: boolean) => void;
 }
 
-function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick }: RowProps) {
+function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag }: RowProps) {
   const kind = displayStatus(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
@@ -513,6 +573,11 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick }: RowPr
       <td className="wd-st-session">
         <span className="wd-st-branch" title={s.branch}>{s.branch || '(base)'}</span>
         {s.title && <span className="wd-st-title" title={s.title}>{s.title}</span>}
+        {railTag && (
+          <span className={'wd-st-rail' + (railTag === '📌' ? ' wd-st-rail-pin' : '')} title={railTag === '📌' ? 'Pinned in the rail' : `In the rail's “${railTag}” section`}>
+            {railTag}
+          </span>
+        )}
         <span className="wd-st-target">
           {s.target}
           {s.isGroup && (

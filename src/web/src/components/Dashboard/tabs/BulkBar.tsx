@@ -3,6 +3,7 @@ import type { SessionSummary } from '../../../api/client.js';
 import type { SnoozeChoice, SnoozeFor } from '../../../../../core/snooze.js';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
+import type { PlacePatch, RailSection } from '../../../../../core/rail-layout.js';
 
 /** What the bulk bar can do; each returns a promise per session (the same calls as the one-session buttons). */
 export interface BulkActions {
@@ -11,6 +12,8 @@ export interface BulkActions {
   snooze: (s: SessionSummary, choice: SnoozeChoice) => Promise<unknown>;
   send: (s: SessionSummary, text: string) => Promise<unknown>;
   remove: (s: SessionSummary) => Promise<unknown>;
+  /** Pin / unpin, or move into (or out of) a rail section. */
+  place?: (s: SessionSummary, patch: PlacePatch) => Promise<unknown>;
 }
 
 /**
@@ -26,6 +29,7 @@ export function BulkBar({
   onRun,
   onClear,
   busy,
+  sections = [],
 }: {
   selected: SessionSummary[];
   /** Ticked, but hidden by the filter: left out. */
@@ -35,11 +39,14 @@ export function BulkBar({
   onRun: (verb: string, act: (s: SessionSummary) => Promise<unknown>, which: SessionSummary[]) => void;
   onClear: () => void;
   busy: string | null;
+  /** The rail's sections, for Move to. */
+  sections?: RailSection[];
 }) {
   const [mode, setMode] = useState<null | 'send' | 'delete'>(null);
   const [text, setText] = useState('');
   const [snoozeAt, setSnoozeAt] = useState<{ x: number; y: number } | null>(null);
   const [until, setUntil] = useState(false);
+  const [moveAt, setMoveAt] = useState<{ x: number; y: number } | null>(null);
   const live = selected.filter((s) => !s.archivedAt);
   const archived = selected.filter((s) => !!s.archivedAt);
   return (
@@ -120,6 +127,19 @@ export function BulkBar({
               Send a prompt…
             </button>
           )}
+          {live.length > 0 && actions.place && (
+            <button
+              type="button"
+              className="wd-btn-secondary"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setMoveAt({ x: r.left, y: r.bottom + 2 });
+              }}
+              title="Pin them, or put them under one of the rail's sections"
+            >
+              Rail ▾
+            </button>
+          )}
           <button type="button" className="wd-btn-secondary wd-bulk-delete" onClick={() => setMode('delete')}>
             Delete…
           </button>
@@ -142,6 +162,23 @@ export function BulkBar({
           )
             .map(([label, choice]) => ({ label, run: () => onRun('Snoozed', (s) => actions.snooze(s, choice), live) }))
             .concat([{ label: 'Until…', run: () => setUntil(true) }])}
+        />
+      )}
+      {moveAt && actions.place && (
+        <RowMenu
+          x={moveAt.x}
+          y={moveAt.y}
+          onClose={() => setMoveAt(null)}
+          items={[
+            { label: `Pin ${live.length}`, run: () => onRun('Pinned', (s) => actions.place!(s, { pinned: true }), live) },
+            { label: `Unpin ${live.length}`, run: () => onRun('Unpinned', (s) => actions.place!(s, { pinned: false }), live) },
+            ...sections.map((sec, i) => ({
+              label: `Move to “${sec.name}”`,
+              run: () => onRun(`Moved to “${sec.name}”`, (s) => actions.place!(s, { pinned: false, section: sec.id }), live),
+              ...(i === 0 ? { separated: true } : {}),
+            })),
+            ...(sections.length ? [{ label: 'Out of their section', run: () => onRun('Took out of their section', (s) => actions.place!(s, { section: null }), live) }] : []),
+          ]}
         />
       )}
       {until && (

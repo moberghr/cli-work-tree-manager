@@ -601,6 +601,7 @@ export function DashboardApp() {
             onDeleteSession={setDeleting}
             onCleanUp={() => goTab('cleanup')}
             prsFor={prsFor}
+            layout={railLayout}
           />
         );
         break;
