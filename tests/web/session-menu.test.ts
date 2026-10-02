@@ -141,3 +141,13 @@ describe('Toast', () => {
     vi.useRealTimers();
   });
 });
+
+describe('Snooze until…', () => {
+  it('the menu offers it when the app can open the dialog', () => {
+    const a = { ...actions(), snoozeUntil: vi.fn() };
+    const item = sessionMenuItems(session('s1'), a).find((i) => i.label === 'Snooze until…');
+    item!.run();
+    expect(a.snoozeUntil).toHaveBeenCalled();
+    expect(sessionMenuItems(session('s1'), actions()).some((i) => i.label === 'Snooze until…')).toBe(false);
+  });
+});

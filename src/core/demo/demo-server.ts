@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { snoozeActive, snoozeFor, type Snooze } from '../snooze.js';
+import { snoozeActive, snoozeFor, snoozeUntil, type Snooze } from '../snooze.js';
 import { streamSSE } from 'hono/streaming';
 import { WebSocketServer } from 'ws';
 import { launch, type DiffServerHandle } from '../local-server.js';
@@ -95,8 +95,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const body = await json(c);
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);
-    if (body.for !== '2h' && body.for !== 'tomorrow' && body.for !== 'change') return c.json({ error: "for: '2h', 'tomorrow' or 'change'" }, 400);
-    const z = snoozeFor(body.for, w);
+    let z: Snooze | null;
+    if (typeof body.until === 'string') z = snoozeUntil(body.until, new Date(scenario.clockMs()));
+    else if (body.for === '2h' || body.for === 'tomorrow' || body.for === 'change') z = snoozeFor(body.for, w);
+    else return c.json({ error: "for: '2h', 'tomorrow' or 'change', or until: a time" }, 400);
+    if (!z) return c.json({ error: 'not a time to snooze until: give one in the next 30 days' }, 400);
     snoozes.set(w.id, z);
     return c.json({ ok: true, snooze: z });
   });

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
 import { snoozeLabel } from '../../../../../core/snooze.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
@@ -137,6 +138,7 @@ export function InboxTab({
   }, [sessions]);
   const [snoozeMenu, setSnoozeMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
   const [snoozeError, setSnoozeError] = useState<string | null>(null);
+  const [untilFor, setUntilFor] = useState<SessionSummary | null>(null);
   const runSnooze = (fn: () => Promise<unknown>) => {
     setSnoozeError(null);
     fn().catch((err: Error) => setSnoozeError(err.message));
@@ -328,7 +330,18 @@ export function InboxTab({
             { label: '2 hours', run: () => runSnooze(() => snoozeSession(snoozeMenu.s, '2h')) },
             { label: 'Until tomorrow 9:00', run: () => runSnooze(() => snoozeSession(snoozeMenu.s, 'tomorrow')) },
             { label: 'Until it changes', run: () => runSnooze(() => snoozeSession(snoozeMenu.s, 'change')) },
+            { label: 'Until…', run: () => setUntilFor(snoozeMenu.s) },
           ]}
+        />
+      )}
+      {untilFor && (
+        <SnoozeUntilDialog
+          onClose={() => setUntilFor(null)}
+          onPick={(until) => {
+            const x = untilFor;
+            setUntilFor(null);
+            runSnooze(() => snoozeSession(x, { until }));
+          }}
         />
       )}
       <StaleSuggestions sessions={sessions} prsFor={prsFor} prsKnown={prsKnown} onOpen={(id) => onOpenSession(id, 'diff')} onArchive={onArchive} />

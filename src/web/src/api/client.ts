@@ -5,7 +5,7 @@ import type {
   CommentSide,
 } from '../../../core/comment-types.js';
 import type { UpdateFromMainWire } from '../../../core/api-types.js';
-import type { SnoozeFor } from '../../../core/snooze.js';
+import type { SnoozeChoice } from '../../../core/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import type {
   ActivityState,
@@ -564,8 +564,9 @@ export function reportAssistantView(view: AssistantView): Promise<{ ok: true }> 
 }
 
 /** Out of the Inbox for 2 hours, until tomorrow 9:00, or until its status changes (snooze.ts). */
-export function snoozeSession(s: Pick<SessionSummary, 'id' | 'openReviewThreads'>, choice: SnoozeFor): Promise<{ ok: true }> {
-  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { for: choice, openReviewThreads: s.openReviewThreads ?? 0 });
+export function snoozeSession(s: Pick<SessionSummary, 'id' | 'openReviewThreads'>, choice: SnoozeChoice): Promise<{ ok: true }> {
+  const what = typeof choice === 'string' ? { for: choice } : { until: choice.until };
+  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { ...what, openReviewThreads: s.openReviewThreads ?? 0 });
 }
 
 export async function unsnoozeSession(sessionId: string): Promise<void> {

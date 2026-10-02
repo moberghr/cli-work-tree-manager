@@ -161,6 +161,13 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${report.id}/retarget`)).status).toBe(409);
   });
 
+  it('snoozes until a time too', async () => {
+    const s = (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions[0];
+    const until = new Date(clock + 3 * 3600_000).toISOString();
+    expect((await send('POST', `/api/sessions/${s.id}/snooze`, { until })).status).toBe(200);
+    expect((await send('POST', `/api/sessions/${s.id}/snooze`, { until: 'nope' })).status).toBe(400);
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

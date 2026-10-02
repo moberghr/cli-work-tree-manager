@@ -242,6 +242,11 @@ export class DemoScenario {
   readonly sessions = new Map<string, DemoSession>();
   private readonly listeners = new Set<(e: DemoEvent) => void>();
   private readonly now: () => number;
+
+  /** The scenario's clock (simulated time), for the demo server's checks. */
+  clockMs(): number {
+    return this.now();
+  }
   private readonly started: number;
   private readonly speed: number;
   private script: ScriptStep[] = [];

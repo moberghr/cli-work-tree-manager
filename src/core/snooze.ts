@@ -13,6 +13,8 @@
  */
 
 export type SnoozeFor = '2h' | 'tomorrow' | 'change';
+/** One of the choices, or until a time (ISO). */
+export type SnoozeChoice = SnoozeFor | { until: string };
 
 export interface Snooze {
   /** Until then (ISO); null for "until it changes". */

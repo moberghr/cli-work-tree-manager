@@ -81,6 +81,18 @@ describe('status routes', () => {
     expect(notifyDesktop).toHaveBeenCalledTimes(1);
   });
 
+  it('until a time of your choosing; a time that is none (past, too far, not a date) is refused', async () => {
+    const id = sessionIdFor(session);
+    const at = new Date(Date.now() + 5 * 3600_000).toISOString();
+    const r = await post(`/api/sessions/${id}/snooze`, { until: at });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { snooze: { until: string } }).snooze.until).toBe(at);
+    for (const bad of [new Date(Date.now() - 1000).toISOString(), new Date(Date.now() + 40 * 86_400_000).toISOString(), 'soon']) {
+      expect((await post(`/api/sessions/${id}/snooze`, { until: bad })).status).toBe(400);
+    }
+    expect((await post(`/api/sessions/${id}/snooze`, { for: 'forever' })).status).toBe(400);
+  });
+
   it('a nudge for a session entering needs_input notifies once and broadcasts', async () => {
     const id = sessionIdFor(session);
     await recordStatusEvent(id, { kind: 'prompt', prompt: 'go' });

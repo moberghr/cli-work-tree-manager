@@ -58,7 +58,7 @@ describe('snooze in the inbox', () => {
     act(() => root.render(createElement(InboxTab, { sessions: [s], onOpenSession: () => {} })));
     await act(async () => button('Snooze').click());
     const items = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual(['2 hours', 'Until tomorrow 9:00', 'Until it changes']);
+    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual(['2 hours', 'Until tomorrow 9:00', 'Until it changes', 'Until…']);
     await act(async () => items[1].click());
     expect(api.snoozeSession).toHaveBeenCalledWith(s, 'tomorrow');
   });

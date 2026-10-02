@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import type { SessionSummary } from '../../../api/client.js';
-import type { SnoozeFor } from '../../../../../core/snooze.js';
+import type { SnoozeChoice, SnoozeFor } from '../../../../../core/snooze.js';
+import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
 
 /** What the bulk bar can do; each returns a promise per session (the same calls as the one-session buttons). */
 export interface BulkActions {
   archive: (s: SessionSummary) => Promise<unknown>;
   restore: (s: SessionSummary) => Promise<unknown>;
-  snooze: (s: SessionSummary, choice: SnoozeFor) => Promise<unknown>;
+  snooze: (s: SessionSummary, choice: SnoozeChoice) => Promise<unknown>;
   send: (s: SessionSummary, text: string) => Promise<unknown>;
   remove: (s: SessionSummary) => Promise<unknown>;
 }
@@ -38,6 +39,7 @@ export function BulkBar({
   const [mode, setMode] = useState<null | 'send' | 'delete'>(null);
   const [text, setText] = useState('');
   const [snoozeAt, setSnoozeAt] = useState<{ x: number; y: number } | null>(null);
+  const [until, setUntil] = useState(false);
   const live = selected.filter((s) => !s.archivedAt);
   const archived = selected.filter((s) => !!s.archivedAt);
   return (
@@ -137,7 +139,19 @@ export function BulkBar({
               ['Until tomorrow 9:00', 'tomorrow'],
               ['Until it changes', 'change'],
             ] as Array<[string, SnoozeFor]>
-          ).map(([label, choice]) => ({ label, run: () => onRun('Snoozed', (s) => actions.snooze(s, choice), live) }))}
+          )
+            .map(([label, choice]) => ({ label, run: () => onRun('Snoozed', (s) => actions.snooze(s, choice), live) }))
+            .concat([{ label: 'Until…', run: () => setUntil(true) }])}
+        />
+      )}
+      {until && (
+        <SnoozeUntilDialog
+          count={live.length}
+          onClose={() => setUntil(false)}
+          onPick={(at) => {
+            setUntil(false);
+            onRun('Snoozed', (s) => actions.snooze(s, { until: at }), live);
+          }}
         />
       )}
     </div>

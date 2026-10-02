@@ -15,6 +15,8 @@ export interface SessionMenuActions {
   copyBranch: (s: SessionSummary) => void;
   remove: (s: SessionSummary) => void;
   snooze: (s: SessionSummary, choice: SnoozeFor) => void;
+  /** Open "Snooze until…" (a time of your choosing). */
+  snoozeUntil?: (s: SessionSummary) => void;
   unsnooze: (s: SessionSummary) => void;
   /** Open the Fork dialog (a new branch from here, with a summary of the conversation). */
   fork?: (s: SessionSummary) => void;
@@ -35,6 +37,7 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
             { label: 'Snooze 2 hours', run: () => a.snooze(s, '2h'), separated: true },
             { label: 'Snooze until tomorrow 9:00', run: () => a.snooze(s, 'tomorrow') },
             { label: 'Snooze until it changes', run: () => a.snooze(s, 'change') },
+            ...(a.snoozeUntil ? [{ label: 'Snooze until…', run: () => a.snoozeUntil!(s) }] : []),
           ]),
     // An archived one's Claude is stopped and its folder may be gone: Restore first.
     ...(archived
