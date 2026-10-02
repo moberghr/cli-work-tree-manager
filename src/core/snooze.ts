@@ -66,7 +66,13 @@ const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 export function parseWhen(text: string, now = new Date()): Date | null {
   const t = text.trim().toLowerCase();
   const rel = /^\+(\d+)\s*([hmd])$/.exec(t);
-  if (rel) return new Date(now.getTime() + Number(rel[1]) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[rel[2] as 'm' | 'h' | 'd']);
+  if (rel && rel[2] === 'd') {
+    // Days: the same clock time that many days on (across a DST change too, unlike 24 h steps).
+    const d = new Date(now);
+    d.setDate(d.getDate() + Number(rel[1]));
+    return d;
+  }
+  if (rel) return new Date(now.getTime() + Number(rel[1]) * (rel[2] === 'h' ? 3_600_000 : 60_000));
   const clock = (h: string, m: string | undefined, base: Date) => {
     const d = new Date(base);
     d.setHours(Number(h), Number(m ?? 0), 0, 0);

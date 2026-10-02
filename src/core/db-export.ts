@@ -10,6 +10,12 @@ import { dbPath, withDb } from './db.js';
  *   <dir>/history.json, status/<id>.json, comments/<store>.json,
  *   comments/<id>.delivered.json, pty-sessions.json, pr-watch/<id>.json,
  *   dev/<id>.json, tasks.json
+ *
+ * plus newer-state.json: what has no file of its own in that layout (it came
+ * after the move to SQLite) — PR reply drafts, the Jira watch, snoozes, the
+ * rail's order, pins and sections, notes, blocks, worklogs — so an export
+ * still holds everything, for reading or by hand. A downgrade to the JSON
+ * files has none of those features to read it with.
  */
 
 export interface StateSummary {
@@ -19,7 +25,15 @@ export interface StateSummary {
   counts: Record<string, number>;
 }
 
-const TABLES = ['sessions', 'session_status', 'comments', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'tasks'];
+const TABLES = [
+  'sessions', 'session_status', 'comments', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'tasks',
+  'jira_watch', 'session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'worklogs',
+];
+
+/** Per-session tables of the newer features (session_id + data). */
+const NEWER_BY_SESSION = ['session_snooze', 'rail_place', 'session_notes', 'session_blocks'];
+/** meta rows that are state, not counters. */
+const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch'];
 
 export function stateSummary(): StateSummary {
   return withDb((d) => {
@@ -78,6 +92,19 @@ export function exportLegacyState(dir: string): string[] {
     const tasks = all('SELECT data FROM tasks ORDER BY id').map((r) => parse(String(r.data)));
     const maxId = Math.max(0, ...tasks.map((t) => (t as { id?: number } | null)?.id ?? 0));
     put('tasks.json', { nextId: next ? Number(next.value) : maxId + 1, tasks });
+
+    const newer: Record<string, unknown> = {};
+    for (const t of NEWER_BY_SESSION) newer[t] = Object.fromEntries(all(`SELECT session_id, data FROM ${t}`).map((r) => [r.session_id, parse(String(r.data))]));
+    newer.pr_replies = all('SELECT session_id, thread_id, data FROM pr_replies').map((r) => ({ session_id: r.session_id, thread_id: r.thread_id, ...((parse(String(r.data)) as object | null) ?? {}) }));
+    newer.jira_watch = Object.fromEntries(all('SELECT issue_key, data FROM jira_watch').map((r) => [r.issue_key, parse(String(r.data))]));
+    newer.worklogs = all('SELECT session_id, day, data FROM worklogs').map((r) => ({ session_id: r.session_id, day: r.day, ...((parse(String(r.data)) as object | null) ?? {}) }));
+    newer.meta = Object.fromEntries(
+      NEWER_META.flatMap((k) => {
+        const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(k) as { value: string } | undefined;
+        return row ? [[k, parse(row.value) ?? row.value]] : [];
+      }),
+    );
+    put('newer-state.json', newer);
   });
   return written;
 }

@@ -3,7 +3,7 @@ import type { Argv } from 'yargs';
 import { loadConfig } from '../../core/config.js';
 import { findSession, loadHistory, type WorktreeSession } from '../../core/history.js';
 import { findSessionForCwd } from '../../core/pending-delivery.js';
-import { baseCheckoutSession } from '../attach.js';
+import { baseCheckoutSession } from '../../core/session-resolve.js';
 
 /**
  * Which session a command acts on, as `work attach` reads it: `<target>

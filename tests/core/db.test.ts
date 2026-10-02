@@ -131,6 +131,28 @@ describe('first open imports the JSON state', () => {
 });
 
 describe('work state --export', () => {
+  it('also writes what came after the JSON files (newer-state.json): snoozes, the rail, notes, blocks', async () => {
+    const { saveSnooze } = await import('../../src/core/snooze-store.js');
+    const { placeSession, saveRailSections } = await import('../../src/core/rail-store.js');
+    const { saveNote } = await import('../../src/core/session-notes.js');
+    const { addBlocker } = await import('../../src/core/session-blocks.js');
+    const { exportLegacyState, stateSummary } = await import('../../src/core/db-export.js');
+    saveSnooze('s1', { until: null, statusKey: 'k', at: '2026-10-01T00:00:00Z' });
+    saveRailSections([{ id: 'x', name: 'Client X' }]);
+    placeSession('s1', { section: 'x' });
+    saveNote('s1', 'my note');
+    addBlocker('s1', { kind: 'pr', url: 'https://github.com/a/b/pull/1', label: 'b#1' });
+    expect(stateSummary().counts).toMatchObject({ session_snooze: 1, rail_place: 1, session_notes: 1, session_blocks: 1 });
+    const out = path.join(home, 'export-newer');
+    exportLegacyState(out);
+    const newer = JSON.parse(fs.readFileSync(path.join(out, 'newer-state.json'), 'utf-8'));
+    expect(newer.session_snooze.s1).toMatchObject({ statusKey: 'k' });
+    expect(newer.rail_place.s1).toEqual({ section: 'x' });
+    expect(newer.meta['ui:rail-sections']).toEqual([{ id: 'x', name: 'Client X' }]);
+    expect(newer.session_notes.s1).toMatchObject({ text: 'my note' });
+    expect(newer.session_blocks.s1.by).toHaveLength(1);
+  });
+
   it('writes the old JSON layout, and importing that gives back the same state', async () => {
     legacyTree();
     await addTask('added after the move');

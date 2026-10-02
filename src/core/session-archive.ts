@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { logSwallowed } from './best-effort.js';
 import { clearSnooze } from './snooze-store.js';
 import { whileArchiving } from './archiving.js';
 import path from 'node:path';
@@ -123,10 +124,10 @@ export const archiveRoot = (): string => path.join(getConfigDir(), 'archive');
 export const archiveDirFor = (id: string, root = archiveRoot()): string => path.join(root, id);
 
 /** Told after each archive that went through (work web: stacked sessions move onto main). */
-const afterArchive = new Set<(s: WorktreeSession) => void>();
+const afterArchive = new Set<(s: WorktreeSession) => void | Promise<unknown>>();
 
-/** Listen for archives (every path: the button, Ship, the PR watch, cleanup); returns the unsubscribe. */
-export function onArchived(listener: (s: WorktreeSession) => void): () => void {
+/** Listen for archives (every path: the button, Ship, the PR watch, cleanup); returns the unsubscribe. A listener may be async: its failure is logged, never the archive's. */
+export function onArchived(listener: (s: WorktreeSession) => void | Promise<unknown>): () => void {
   afterArchive.add(listener);
   return () => afterArchive.delete(listener);
 }
@@ -135,11 +136,10 @@ export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts
   // Nothing starts its Claude again while this runs (archiving.ts).
   const out = await whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
   if (out.ok) for (const l of afterArchive) {
-    try {
-      l(s);
-    } catch {
-      /* a listener's trouble isn't the archive's */
-    }
+    // Sync throws and async rejections alike: a listener's trouble isn't the archive's.
+    void Promise.resolve()
+      .then(() => l(s))
+      .catch((err) => logSwallowed('after archiving', err));
   }
   return out;
 }

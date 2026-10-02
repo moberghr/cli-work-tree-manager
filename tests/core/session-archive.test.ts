@@ -80,8 +80,24 @@ describe('archiveSession', () => {
     const seen: string[] = [];
     const off = onArchived((s) => void seen.push(s.branch));
     await archiveSession(session, deps());
+    await new Promise((r) => setTimeout(r, 0));
     expect(seen).toEqual([session.branch]);
     off();
+  });
+
+  it("a listener that fails — thrown or rejected — is not the archive's failure", async () => {
+    const { onArchived } = await import('../../src/core/session-archive.js');
+    const offA = onArchived(() => {
+      throw new Error('sync');
+    });
+    const offB = onArchived(async () => {
+      throw new Error('async');
+    });
+    const out = await archiveSession(session, deps());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(out.ok).toBe(true);
+    offA();
+    offB();
   });
 
   it('archives nothing when the conversation cannot be copied', async () => {

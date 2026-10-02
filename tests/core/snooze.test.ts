@@ -106,6 +106,9 @@ describe('a time of your choosing', () => {
     expect(parseWhen('fri', now)).toEqual(new Date(2026, 9, 2, 9, 0));
     expect(parseWhen('thu 10:15', now)).toEqual(new Date(2026, 9, 8, 10, 15)); // the coming Thursday, not today
     expect(parseWhen('+3h', now)).toEqual(new Date(2026, 9, 1, 18, 0));
+    expect(parseWhen('+2d', now)).toEqual(new Date(2026, 9, 3, 15, 0));
+    // Days are calendar days: the same clock time across a DST change (24 h steps drift an hour).
+    expect(parseWhen('+1d', new Date(2026, 2, 28, 10, 0))).toEqual(new Date(2026, 2, 29, 10, 0));
     expect(parseWhen('2026-10-05', now)).toEqual(new Date(2026, 9, 5, 9, 0));
     expect(parseWhen('2026-10-05 17:45', now)).toEqual(new Date(2026, 9, 5, 17, 45));
     expect(parseWhen('someday', now)).toBeNull();
