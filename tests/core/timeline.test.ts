@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { buildTimeline } from '../../src/core/timeline.js';
 import { sessionTimeline } from '../../src/core/timeline-source.js';
@@ -72,6 +72,16 @@ describe('sessionTimeline (real git, a transcript on disk)', () => {
     expect(t.filter((e) => e.kind === 'commit').map((e) => e.text)).toEqual(['Add b']);
     expect(t.find((e) => e.kind === 'prompt')?.text).toBe('Add the b file');
     expect(t.at(-1)?.kind).toBe('created');
+  });
+
+  it('with no origin/HEAD, only the commits since the session began — not the branch’s history', async () => {
+    const run = vi.fn(async (_cmd: string, args: string[]) =>
+      args.includes('merge-base') ? { code: 1, stdout: '', stderr: '' } : { code: 0, stdout: '', stderr: '' },
+    );
+    await sessionTimeline(session, { run: run as never });
+    const log = run.mock.calls.find(([, args]) => args.includes('log'))![1];
+    expect(log).toContain(`--since=${session.createdAt}`);
+    expect(log).not.toContain('-n');
   });
 
   it('the route: 404 for an unknown session; the PR watch’s PRs included', async () => {

@@ -248,6 +248,11 @@ describe('variables a restore keeps (config hostEnv)', () => {
     expect(isPersistedPty({ cwd: '/x', tool, startedAt: '', keptEnv: { A: '1' } })).toBe(true);
     expect(keepEnv(undefined, ['A'])).toBeUndefined();
   });
+
+  it('secret-looking names and values are never kept (reviewed gaps)', () => {
+    const env = { DB_PASS: 'p', DATABASE_URL: 'x', CONNECTION_STRING: 'x', GH_PAT: 'x', NPM_AUTH: 'x', SENTRY_DSN: 'x', SSH_KEY_PATH: 'x', MY_HOST: 'https://u:pw@h/db', JAVA_HOME: '/jdk', PATH: '/bin', GOPATH: '/go' };
+    expect(keepEnv(env, Object.keys(env))).toEqual({ JAVA_HOME: '/jdk', PATH: '/bin', GOPATH: '/go' });
+  });
 });
 
 describe('attaching to a PTY that already exited (reviewed bug)', () => {

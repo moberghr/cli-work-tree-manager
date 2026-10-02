@@ -21,10 +21,12 @@ const DAYS = 30;
 const MAX_TRANSCRIPT_BYTES = 8 << 20;
 const MAX_COMMITS = 100;
 
-async function commitsOf(repo: string, run: CommandRunner): Promise<TimelineInput['commits']> {
+async function commitsOf(repo: string, since: string, run: CommandRunner): Promise<TimelineInput['commits']> {
   const git = (...args: string[]) => run('git', ['-C', repo, ...args], repo);
   const base = (await git('merge-base', 'HEAD', 'origin/HEAD')).stdout.trim();
-  const range = base ? [`${base}..HEAD`] : ['-n', '20', 'HEAD'];
+  // No origin/HEAD to measure from: only commits made since the session began,
+  // not the branch's whole history (other people's work on a long-lived branch).
+  const range = base ? [`${base}..HEAD`] : [`--since=${since}`, 'HEAD'];
   const log = await git('log', `--max-count=${MAX_COMMITS}`, '--format=%H%x09%aI%x09%s', ...range);
   if (log.code !== 0) return [];
   return log.stdout
@@ -48,7 +50,7 @@ export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi
       /* gone or unreadable: the rest still tells the story */
     }
   }
-  const commits = s.archivedAt ? [] : (await Promise.all(s.paths.map((p) => commitsOf(p, run).catch(() => [])))).flat();
+  const commits = s.archivedAt ? [] : (await Promise.all(s.paths.map((p) => commitsOf(p, s.createdAt, run).catch(() => [])))).flat();
   const prs = (deps.ci?.repos ?? [])
     .filter((r) => r.pr)
     .map((r) => ({ repo: r.name, number: r.pr!.number, url: r.pr!.url, state: r.pr!.state, ...(r.pr!.mergedAt ? { mergedAt: r.pr!.mergedAt } : {}) }));

@@ -39,6 +39,21 @@ describe('logWorkDay', () => {
     expect(await logWorkDay('s1', 'PAY-12', '2026-10-01', 80 * 60_000, post)).toMatchObject({ ok: true, logged: 1800, total: 5400 });
     expect(loggedDays('s1')['2026-10-01']).toMatchObject({ issueKey: 'PAY-12', seconds: 5400, ids: ['w1', 'w1'] });
   });
+  it('two calls at once (another tab, `work time --log`): only one posts; a failed post lets go of the day', async () => {
+    let release!: (id: string) => void;
+    const post = vi.fn(() => new Promise<string>((r) => (release = r)));
+    const first = logWorkDay('s3', 'PAY-12', '2026-10-01', 60 * 60_000, post);
+    expect(await logWorkDay('s3', 'PAY-12', '2026-10-01', 60 * 60_000, post)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('being logged') });
+    release('w9');
+    expect(await first).toMatchObject({ ok: true, logged: 3600 });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(loggedDays('s3')['2026-10-01']).toEqual({ issueKey: 'PAY-12', seconds: 3600, ids: ['w9'], at: expect.any(String) });
+    // A claim left by a call that died mid-post holds for two minutes only.
+    const later = new Date(Date.now() + 3 * 60_000);
+    await logWorkDay('s4', 'PAY-12', '2026-10-01', 60 * 60_000, async () => { throw new Error('down'); });
+    expect(await logWorkDay('s4', 'PAY-12', '2026-10-01', 60 * 60_000, async () => 'w1', later)).toMatchObject({ ok: true });
+  });
+
   it('refused: a bad key, no work; Jira’s refusal is reported and nothing recorded', async () => {
     expect(await logWorkDay('s2', 'nope', '2026-10-01', 3600_000, vi.fn())).toMatchObject({ ok: false, status: 400 });
     expect(await logWorkDay('s2', 'PAY-1', '2026-10-01', 10_000, vi.fn())).toMatchObject({ ok: false, status: 409 });

@@ -57,13 +57,17 @@ export interface PersistedPty extends SpawnSpec {
   keptEnv?: Record<string, string>;
 }
 
-/** Names that look like secrets: never kept on disk, whatever `hostEnv` says. */
-const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE|(^|_)KEY($|_)|API_?KEY/i;
+/** Names that look like secrets (or carry them, as a connection string does): never kept on disk, whatever `hostEnv` says. */
+const SECRET_NAME = /TOKEN|SECRET|PASS|PWD|CREDENTIAL|PRIVATE|KEY|AUTH|BEARER|COOKIE|SESSION|CERT|SIGN|SALT|(^|_)PAT($|_)|DSN|CONN|DATABASE_URL|_URI$|_URL$/i;
+/** Values that carry a password whatever their name: `scheme://user:pass@host`. */
+const SECRET_VALUE = /:\/\/[^/\s:@]+:[^/\s@]+@/;
 
-/** The variables of `env` to keep for a restore: the ones named, that exist, and don't look like secrets. Pure. */
+/** The variables of `env` to keep for a restore: the ones named, that exist, and look like neither a secret nor a URL with a password in it. Pure. */
 export function keepEnv(env: Record<string, string> | undefined, names: readonly string[]): Record<string, string> | undefined {
   if (!env) return undefined;
-  const kept = Object.fromEntries(names.filter((n) => !SECRET_NAME.test(n) && typeof env[n] === 'string').map((n) => [n, env[n]]));
+  const kept = Object.fromEntries(
+    names.filter((n) => !SECRET_NAME.test(n) && typeof env[n] === 'string' && !SECRET_VALUE.test(env[n])).map((n) => [n, env[n]]),
+  );
   return Object.keys(kept).length ? kept : undefined;
 }
 export type PersistedPtys = Record<string, PersistedPty>;

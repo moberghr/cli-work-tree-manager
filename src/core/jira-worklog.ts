@@ -1,4 +1,4 @@
-import { json, tx, withDb } from './db.js';
+import { json, tx, withDb, type Db } from './db.js';
 import type { WorkConfig } from './config.js';
 import { worklogTime } from './work-time-view.js';
 
@@ -46,6 +46,21 @@ export interface LoggedDay {
   seconds: number;
   ids: string[];
   at: string;
+  /** A call is posting this day to Jira until then (the claim, logWorkDay). */
+  postingUntil?: string;
+}
+
+/** How long a claim holds: past it, a call that died mid-post no longer blocks the day. */
+const CLAIM_MS = 2 * 60_000;
+
+function readDay(db: Db, sessionId: string, day: string): LoggedDay | null {
+  const r = db.prepare('SELECT data FROM worklogs WHERE session_id = ? AND day = ?').get(sessionId, day) as { data: string } | undefined;
+  const v = r ? (json.parse(r.data) as LoggedDay | null) : null;
+  return v && typeof v.seconds === 'number' && typeof v.issueKey === 'string' && Array.isArray(v.ids) ? v : null;
+}
+
+function writeDay(db: Db, sessionId: string, day: string, v: LoggedDay): void {
+  db.prepare('INSERT OR REPLACE INTO worklogs (session_id, day, data) VALUES (?, ?, ?)').run(sessionId, day, JSON.stringify(v));
 }
 
 export function loggedDays(sessionId: string): Record<string, LoggedDay> {
@@ -76,10 +91,23 @@ export async function logWorkDay(
   if (!isIssueKey(issueKey)) return { ok: false, status: 400, error: `not a Jira issue key: ${issueKey}` };
   if (ms < 60_000) return { ok: false, status: 409, error: 'no work that day to log' };
   const total = quarterSeconds(ms);
-  const prev = loggedDays(sessionId)[day];
-  const already = prev && prev.issueKey === issueKey ? prev.seconds : 0;
-  const more = total - already;
+  // Claim the day before posting (a tx can't span the await): a second call
+  // — another tab, `work time --log` beside the dashboard — sees the claim
+  // and refuses instead of posting the same time to Jira again.
+  const claim = tx((db) => {
+    const prev = readDay(db, sessionId, day);
+    if (prev?.postingUntil && Date.parse(prev.postingUntil) > now.getTime()) return { busy: true as const };
+    const already = prev && prev.issueKey === issueKey ? prev.seconds : 0;
+    const more = total - already;
+    if (more <= 0) return { already, more };
+    const held: LoggedDay = { ...(prev ?? { issueKey, seconds: 0, ids: [], at: now.toISOString() }), postingUntil: new Date(now.getTime() + CLAIM_MS).toISOString() };
+    writeDay(db, sessionId, day, held);
+    return { prev, already, more };
+  });
+  if ('busy' in claim) return { ok: false, status: 409, error: `already being logged for ${day}` };
+  const { already, more } = claim;
   if (more <= 0) return { ok: false, status: 409, error: `already logged (${worklogTime(already * 1000)} on ${day})` };
+  const prev = claim.prev;
   const [y, m, d] = day.split('-').map(Number);
   const started = new Date(y, m - 1, d, 9, 0, 0);
   let id: string;
@@ -90,12 +118,14 @@ export async function logWorkDay(
       comment: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Logged from work (Claude Code session time)' }] }] },
     });
   } catch (err) {
+    // Let go of the claim: the day is as it was.
+    tx((db) => {
+      if (prev) writeDay(db, sessionId, day, prev);
+      else db.prepare('DELETE FROM worklogs WHERE session_id = ? AND day = ?').run(sessionId, day);
+    });
     return { ok: false, status: 502, error: `Jira refused it: ${(err as Error).message}` };
   }
-  tx((db) => {
-    const next: LoggedDay = { issueKey, seconds: already + more, ids: [...(prev?.issueKey === issueKey ? prev.ids : []), id], at: now.toISOString() };
-    db.prepare('INSERT OR REPLACE INTO worklogs (session_id, day, data) VALUES (?, ?, ?)').run(sessionId, day, JSON.stringify(next));
-  });
+  tx((db) => writeDay(db, sessionId, day, { issueKey, seconds: already + more, ids: [...(prev?.issueKey === issueKey ? prev.ids : []), id], at: now.toISOString() }));
   return { ok: true, logged: more, total: already + more, text: `${worklogTime(more * 1000)} logged on ${issueKey} for ${day}` };
 }
 
