@@ -3,14 +3,18 @@
  *
  * The order you gave the sessions list by dragging (stored in state.db,
  * session-order-store.ts). Sessions you haven't placed — a new worktree —
- * come first, in their usual order: they're what you're starting on.
+ * come first, the newest first: they're what you're starting on. (By
+ * project name, as before, a session made a minute ago landed below an
+ * older one of a project that sorts earlier.) Creation time doesn't move,
+ * so this order doesn't shuffle either.
  */
 
-/** `list` in your order: unplaced first (as given), then by position. */
-export function applyManualOrder<T extends { id: string }>(list: readonly T[], order: readonly string[]): T[] {
+/** `list` in your order: unplaced first (newest created first; as given when they have no time), then by position. */
+export function applyManualOrder<T extends { id: string; createdAt?: string }>(list: readonly T[], order: readonly string[]): T[] {
   if (order.length === 0) return [...list];
   const pos = new Map(order.map((id, i) => [id, i]));
-  const unplaced = list.filter((s) => !pos.has(s.id));
+  // A stable sort: ties (no time, the same time) keep the order given.
+  const unplaced = list.filter((s) => !pos.has(s.id)).sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   const placed = list.filter((s) => pos.has(s.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!);
   return [...unplaced, ...placed];
 }
