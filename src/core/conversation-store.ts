@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { getConfigDir } from './config.js';
-import { listTranscripts } from './context-usage.js';
+import { getConfigDir, loadConfig } from './config.js';
+import { agentFor } from './agents/index.js';
 import { sessionIdFor } from './session-id.js';
 import { archiveRoot, readArchive, readArchivedTranscript } from './session-archive.js';
 import { matchingLines, queryWords, snippet } from './archive-search.js';
@@ -33,7 +33,7 @@ export interface SyncResult {
 }
 
 /** Bring a session's copy up to date with its transcripts. */
-export async function syncConversation(s: WorktreeSession, root = conversationRoot(), sources = listTranscripts(s)): Promise<SyncResult> {
+export async function syncConversation(s: WorktreeSession, root = conversationRoot(), sources = agentFor(loadConfig(), s).conversation?.files(s) ?? []): Promise<SyncResult> {
   const dir = conversationDirFor(sessionIdFor(s), root);
   const out: SyncResult = { files: 0, bytes: 0 };
   for (const src of sources) {
@@ -163,7 +163,9 @@ export async function searchConversations(
     const stored = storedTranscripts(conversationDirFor(id, root));
     const rec = readArchive(id, archive);
     const lastMs = Math.max(0, ...stored.map((t) => t.mtimeMs), rec ? Date.parse(rec.archivedAt) || 0 : 0);
-    return { s, id, stored, rec, lastMs };
+    // Its lines read as its agent writes them; none when work can't read that agent's conversations.
+    const entries = agentFor(loadConfig(), s).conversation?.entries ?? (() => []);
+    return { s, id, stored, rec, lastMs, entries };
   });
   candidates.sort((a, b) => b.lastMs - a.lastMs);
   const hits: ConversationHit[] = [];
@@ -189,7 +191,7 @@ export async function searchConversations(
         if (raw === null) continue;
         readAny = true;
         await new Promise((r) => setImmediate(r)); // a big history doesn't hold up the server
-        snippets.push(...matchingLines(raw, words, jsonWords, SNIPPETS_PER_SESSION - snippets.length));
+        snippets.push(...matchingLines(raw, words, jsonWords, SNIPPETS_PER_SESSION - snippets.length, c.entries));
       }
       if (readAny) break;
     }

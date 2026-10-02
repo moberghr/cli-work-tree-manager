@@ -1,24 +1,20 @@
-import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
+import type { ConversationEntry } from './agents/types.js';
 
 /**
- * Matching a query in a Claude transcript: every word of the query must
- * appear in one message (yours or Claude's). Used by the conversation search
- * (conversation-store.ts) over kept and archived conversations.
+ * Matching a query in a conversation: every word of the query must appear
+ * in one message (yours or its agent's). Used by the conversation search
+ * (conversation-store.ts) over kept and archived conversations; the lines
+ * are read through the session's agent (agents/: `entries`).
  */
 
 const SNIPPET_CHARS = 220;
 
-/** The readable text of one transcript line: your prompt, or Claude's text. */
-export function entryText(e: TranscriptEntry): { role: 'you' | 'claude'; text: string } | null {
-  if (e.isMeta === true || e.isSidechain === true) return null;
-  if (e.type !== 'user' && e.type !== 'assistant') return null;
-  const text = contentBlocks(e)
-    .filter((b) => b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text as string)
-    .join('\n')
-    .trim();
+/** A readable message: your prompt, or the agent's text — not tool calls, results, a subagent's lines or tagged echoes. */
+export function messageOf(e: ConversationEntry): { role: 'you' | 'claude'; text: string } | null {
+  if (e.sidechain || (e.role !== 'you' && e.role !== 'agent')) return null;
+  const text = e.text.trim();
   if (!text || text.startsWith('<')) return null; // tagged command echoes, reminders
-  return { role: e.type === 'user' ? 'you' : 'claude', text };
+  return { role: e.role === 'you' ? 'you' : 'claude', text };
 }
 
 /** The part of `text` around the first query word, one line. */
@@ -43,6 +39,7 @@ export function matchingLines(
   words: string[],
   jsonWords: string[],
   max: number,
+  entries: (lines: readonly unknown[]) => ConversationEntry[],
 ): Array<{ role: 'you' | 'claude'; text: string; at: string | null }> {
   const out: Array<{ role: 'you' | 'claude'; text: string; at: string | null }> = [];
   if (max <= 0) return out;
@@ -51,15 +48,18 @@ export function matchingLines(
     if (!line) continue;
     const lower = line.toLowerCase();
     if (!jsonWords.every((w) => lower.includes(w))) continue; // cheap pre-filter on the raw JSON line
-    let e: TranscriptEntry;
+    let parsed: unknown;
     try {
-      e = JSON.parse(line) as TranscriptEntry;
+      parsed = JSON.parse(line);
     } catch {
       continue;
     }
-    const m = entryText(e);
-    if (!m || !words.every((w) => m.text.toLowerCase().includes(w))) continue;
-    out.push({ role: m.role, text: snippet(m.text, words), at: typeof e.timestamp === 'string' ? e.timestamp : null });
+    for (const e of entries([parsed])) {
+      const m = messageOf(e);
+      if (!m || !words.every((w) => m.text.toLowerCase().includes(w))) continue;
+      out.push({ role: m.role, text: snippet(m.text, words), at: e.at || null });
+      break; // one hit per line
+    }
   }
   return out;
 }

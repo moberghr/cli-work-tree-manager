@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDigest, digestSession, promptEntries, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
@@ -23,7 +24,7 @@ describe('promptsSince', () => {
       you(14, '[Request interrupted by user for tool use]'),
       you(5, 'Add the CSV export', { uuid: 'u5' }), // the same entry, seen again (another tail read)
     ];
-    expect(promptsSince([t], T0)).toEqual([
+    expect(promptsSince([claudeEntries(t)], T0)).toEqual([
       { ts: at(5), text: 'Add the CSV export' },
       { ts: at(12), text: 'Also quote commas' },
     ]);
@@ -31,13 +32,13 @@ describe('promptsSince', () => {
 
   it('typing the same thing three times is three prompts', () => {
     const t = [you(1, 'commit', { uuid: 'a' }), you(2, 'run the tests', { uuid: 'b' }), you(3, 'commit', { uuid: 'c' }), you(4, 'commit')];
-    expect(promptsSince([t], T0).map((p) => p.text)).toEqual(['commit', 'run the tests', 'commit', 'commit']);
+    expect(promptsSince([claudeEntries(t)], T0).map((p) => p.text)).toEqual(['commit', 'run the tests', 'commit', 'commit']);
   });
 
   it('merges several conversations by time and clips long prompts', () => {
     const a = [you(20, 'second')];
     const b = [you(10, 'first'), you(30, 'x'.repeat(500))];
-    const p = promptsSince([a, b], T0);
+    const p = promptsSince([claudeEntries(a), claudeEntries(b)], T0);
     expect(p.map((x) => x.text.slice(0, 6))).toEqual(['first', 'second', 'xxxxxx']);
     expect(p[2].text).toHaveLength(240);
   });
@@ -69,7 +70,7 @@ describe('digestSession', () => {
   });
 
   it('is left out when nothing happened in the window', () => {
-    expect(digestSession(input({ transcripts: [[you(-5, 'old')]], checkpoints: [{ id: 1, ts: at(-5) }] }), T0)).toBeNull();
+    expect(digestSession(input({ transcripts: [claudeEntries([you(-5, 'old')])], checkpoints: [{ id: 1, ts: at(-5) }] }), T0)).toBeNull();
   });
 
   it('leaves out the size-only names a turn gets when Claude was unavailable', () => {
@@ -84,8 +85,8 @@ describe('digestSession', () => {
   });
 
   it('says when a transcript was too large to read back to the window', () => {
-    expect(digestSession(input({ transcripts: [[you(1, 'x')]], transcriptsPartial: true }), T0)?.partial).toBe(true);
-    expect(digestSession(input({ transcripts: [[you(1, 'x')]] }), T0)?.partial).toBeUndefined();
+    expect(digestSession(input({ transcripts: [claudeEntries([you(1, 'x')])], transcriptsPartial: true }), T0)?.partial).toBe(true);
+    expect(digestSession(input({ transcripts: [claudeEntries([you(1, 'x')])] }), T0)?.partial).toBeUndefined();
   });
 
   it('a PR merged in the window counts, even without prompts; lists every PR', () => {
@@ -103,7 +104,7 @@ describe('digestSession', () => {
 
   it(`keeps the last ${MAX_PROMPTS} prompts and says how many came before`, () => {
     const t = Array.from({ length: MAX_PROMPTS + 3 }, (_, i) => you(i + 1, `prompt ${i}`));
-    const d = digestSession(input({ transcripts: [t] }), T0)!;
+    const d = digestSession(input({ transcripts: [claudeEntries(t)] }), T0)!;
     expect(d.prompts).toHaveLength(MAX_PROMPTS);
     expect(d.prompts[0].text).toBe('prompt 3');
     expect(d.morePrompts).toBe(3);
@@ -114,9 +115,9 @@ describe('buildDigest', () => {
   it('only sessions that did something, most recent first', () => {
     const rows = buildDigest(
       [
-        input({ sessionId: 'early', transcripts: [[you(5, 'a')]] }),
+        input({ sessionId: 'early', transcripts: [claudeEntries([you(5, 'a')])] }),
         input({ sessionId: 'quiet' }),
-        input({ sessionId: 'late', transcripts: [[you(50, 'b')]] }),
+        input({ sessionId: 'late', transcripts: [claudeEntries([you(50, 'b')])] }),
         input({ sessionId: 'archived', archivedAt: at(30) }),
       ],
       T0,
@@ -134,11 +135,11 @@ describe('promptEntries', () => {
       { type: 'user', timestamp: '2026-09-30T09:00:02Z', message: { content: [{ type: 'tool_result', content: big }] } },
       { type: 'user', uuid: 'u2', timestamp: '2026-09-30T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Now add a test' }] } },
     ] as unknown as TranscriptEntry[];
-    const slim = promptEntries(entries);
+    const slim = promptEntries(claudeEntries(entries));
     expect(slim).toHaveLength(2);
     expect(JSON.stringify(slim).length).toBeLessThan(400); // not the 200 KB of tool output
     const since = Date.parse('2026-09-30T00:00:00Z');
-    expect(promptsSince([slim], since)).toEqual(promptsSince([entries], since));
+    expect(promptsSince([slim], since)).toEqual(promptsSince([claudeEntries(entries)], since));
     expect(promptsSince([slim, slim], since)).toHaveLength(2); // still deduped by uuid
   });
 });

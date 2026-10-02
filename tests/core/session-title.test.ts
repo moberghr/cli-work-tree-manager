@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const files = vi.hoisted(() => ({ list: [] as Array<{ file: string; mtimeMs: number; size: number }> }));
-vi.mock('../../src/core/context-usage.js', () => ({ listTranscripts: () => files.list }));
+// Claude's transcript list (the Claude adapter's files): these files.
+vi.mock('../../src/core/agents/claude-files.js', () => ({ listTranscripts: () => files.list, latestTranscript: () => files.list[0] ?? null }));
 
 import { firstPromptOf, sessionTitle, titleText } from '../../src/core/session-title.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 
 let tmp: string;
 const line = (o: object) => JSON.stringify(o) + '\n';
@@ -49,9 +51,9 @@ describe('sessionTitle', () => {
 
   it('reads a prompt from the start of the file only once', () => {
     const f = write('a.jsonl', ['First thing'], 1);
-    expect(firstPromptOf(f)).toBe('First thing');
+    expect(firstPromptOf(f, claudeEntries)).toBe('First thing');
     fs.appendFileSync(f, line({ type: 'user', uuid: 'x', timestamp: '2026-09-09T00:00:00Z', message: { content: 'appended' } }));
-    expect(firstPromptOf(f)).toBe('First thing');
+    expect(firstPromptOf(f, claudeEntries)).toBe('First thing');
   });
 });
 

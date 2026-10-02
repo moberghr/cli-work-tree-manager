@@ -5,12 +5,14 @@ import { clearSnooze } from './snooze-store.js';
 import { whileArchiving } from './archiving.js';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { getConfigDir } from './config.js';
+import { getConfigDir, loadConfig } from './config.js';
 import { claudeProjectsRoot, encodeProjectDir } from './claude-activity.js';
 import { promptsSince } from './digest.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
-import { readTranscriptTail, type TranscriptEntry } from './transcript.js';
+import { readTranscriptTail } from './transcript.js';
+import { agentFor } from './agents/index.js';
+import type { ConversationEntry } from './agents/types.js';
 
 /**
  * Archiving a session: out of the way, its disk space back, its history kept.
@@ -212,14 +214,16 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   // 2. The conversation. Copied before anything is removed; a copy that fails
   //    stops the archive (nothing removed, nothing marked).
   const copied: ArchiveRecord['transcripts'] = [];
-  const entries: TranscriptEntry[][] = [];
+  // Read as its agent writes them (none when work can't read that agent's conversations).
+  const toEntries = agentFor(loadConfig(), s).conversation?.entries ?? (() => []);
+  const entries: ConversationEntry[][] = [];
   try {
     fs.mkdirSync(path.join(dir, 'transcripts'), { recursive: true });
     for (const file of deps.transcripts(s)) {
       const name = path.basename(file);
       fs.copyFileSync(file, path.join(dir, 'transcripts', name));
       copied.push({ file: name, projectDir: path.basename(path.dirname(file)) });
-      entries.push(readTranscriptTail(file, 64 * 1024 * 1024));
+      entries.push(toEntries(readTranscriptTail(file, 64 * 1024 * 1024)));
     }
   } catch (err) {
     return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: copied.length, message: `Not archived: could not copy its conversation (${(err as Error).message}).` };

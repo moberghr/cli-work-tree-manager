@@ -3,8 +3,10 @@ import { sessionStatusView } from './turn-activity.js';
 import { sessionIdFor } from './session-id.js';
 import { readStatus } from './session-status.js';
 import { readSessionActivity } from './claude-activity.js';
-import { listTranscripts } from './context-usage.js';
-import { readTranscriptSince, type TranscriptEntry, type TranscriptWindow } from './transcript.js';
+import { readTranscriptSince } from './transcript.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import { loadManifest } from './checkpoint.js';
 import { scopeHashForPaths } from './scope-manager.js';
 import { buildDigest, promptEntries } from './digest.js';
@@ -60,12 +62,12 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
  */
 export function createDigestSource(deps: DigestDeps = {}): DigestSource {
   const now = deps.now ?? Date.now;
-  let cache = new Map<string, { sinceMs: number; win: TranscriptWindow; steps: WorkStep[] }>();
+  let cache = new Map<string, { sinceMs: number; win: PromptWindow; steps: WorkStep[] }>();
   return {
     async collect(asked) {
       const t0 = now();
       const sinceMs = digestWindow(asked, t0);
-      const next = new Map<string, { sinceMs: number; win: TranscriptWindow; steps: WorkStep[] }>();
+      const next = new Map<string, { sinceMs: number; win: PromptWindow; steps: WorkStep[] }>();
       const inputs = await mapLimit(
         loadHistory().filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs),
         READ_CONCURRENCY,
@@ -73,18 +75,21 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
             const id = sessionIdFor(s);
             const status = readStatus(id);
             const attention = status ? sessionStatusView(status, s, readSessionActivity(s).lastActivity ?? 0) : null;
-            const transcripts: TranscriptEntry[][] = [];
+            const transcripts: ConversationEntry[][] = [];
             const work: WorkStep[][] = [];
             let partial = false;
-            for (const t of listTranscripts(s)) {
+            // Its conversations, as its agent keeps them (none when work can't read them).
+            const conv = agentFor(loadConfig(), s).conversation;
+            for (const t of conv?.files(s) ?? []) {
               if (t.mtimeMs < sinceMs) continue;
               const key = `${t.file}:${t.size}:${t.mtimeMs}`;
               const hit = cache.get(key);
               const reuse = !!hit && hit.sinceMs <= sinceMs;
-              // Claude's work steps come from the whole read, before it is slimmed to prompts.
+              // The agent's work steps come from the whole read, before it is slimmed to prompts.
               const read = reuse ? null : await readTranscriptSince(t.file, sinceMs);
-              const win = reuse ? hit.win : slim(read!);
-              const steps = reuse ? hit.steps : workSteps(read!.entries).steps;
+              const all = read ? conv!.entries(read.entries) : [];
+              const win = reuse ? hit.win : { entries: promptEntries(all), partial: read!.partial };
+              const steps = reuse ? hit.steps : workSteps(all).steps;
               next.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win, steps });
               transcripts.push(win.entries);
               work.push(steps);
@@ -117,7 +122,8 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
   };
 }
 
-/** A read window reduced to the prompts the digest uses. */
-function slim(win: TranscriptWindow): TranscriptWindow {
-  return { ...win, entries: promptEntries(win.entries) };
+/** A read window reduced to the prompts the digest uses (whether the file's start was left unread). */
+interface PromptWindow {
+  entries: ConversationEntry[];
+  partial: boolean;
 }

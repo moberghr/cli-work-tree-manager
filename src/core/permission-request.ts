@@ -11,27 +11,9 @@ export type { PermissionRequest } from './api-types.js';
  * shows next to Allow / Deny, so you approve the command, not the tool.
  */
 
-const MAX_DETAIL = 400;
-
-function str(input: unknown, key: string): string | undefined {
-  const v = (input as Record<string, unknown> | null)?.[key];
-  return typeof v === 'string' && v.trim() ? v : undefined;
-}
-
-/** The part of a tool call a person needs to judge it. */
-export function describeToolUse(tool: string, input: unknown): string {
-  const detail =
-    (tool === 'Bash' || tool === 'PowerShell' ? str(input, 'command') : undefined) ??
-    str(input, 'file_path') ??
-    str(input, 'notebook_path') ??
-    str(input, 'url') ??
-    str(input, 'query') ??
-    str(input, 'pattern') ??
-    str(input, 'description') ??
-    (input && typeof input === 'object' ? JSON.stringify(input) : '');
-  const flat = detail.replace(/\s*\r?\n\s*/g, ' ⏎ ').trim();
-  return flat.length > MAX_DETAIL ? flat.slice(0, MAX_DETAIL - 1) + '…' : flat;
-}
+// The part of a tool call a person needs to judge it: claude-entries.ts (one reader of Claude's lines).
+export { describeToolUse } from './agents/claude-entries.js';
+import { describeToolUse } from './agents/claude-entries.js';
 
 /**
  * The tool call Claude is waiting on, or null. With parallel calls Claude

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentById, agentFor } from '../../src/core/agents/index.js';
 import { claudeAgent, claudeEntries } from '../../src/core/agents/claude.js';
+import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude-entries.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
@@ -13,24 +14,49 @@ import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
 const user = (at: string, content: unknown, extra: object = {}) => ({ type: 'user', timestamp: at, message: { role: 'user', content }, ...extra }) as TranscriptEntry;
 const assistant = (at: string, content: unknown, extra: object = {}) => ({ type: 'assistant', timestamp: at, message: { role: 'assistant', content }, ...extra }) as TranscriptEntry;
 
-describe('claudeEntries (pure)', () => {
-  it('your prompts, its text, its tool calls — not tool results, echoes, meta or subagent lines', () => {
+describe('claudeEntries (pure): every line of a Claude transcript, in work’s own terms', () => {
+  it('your prompts, its text and tool calls, tool results, the rest as `other` — subagent lines marked, ids kept', () => {
     const out = claudeEntries([
-      user('2026-10-02T09:00:00Z', 'Add the CSV export'),
+      user('2026-10-02T09:00:00Z', 'Add the CSV export', { uuid: 'u1' }),
       user('2026-10-02T09:00:01Z', '<command-name>/clear</command-name>'),
       assistant('2026-10-02T09:00:02Z', [{ type: 'text', text: 'On it.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }]),
       user('2026-10-02T09:00:03Z', [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }]),
       assistant('2026-10-02T09:00:04Z', [{ type: 'text', text: 'subagent work' }], { isSidechain: true }),
-      assistant('2026-10-02T09:00:05Z', [{ type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: 'src/export.ts' } }]),
-      assistant('2026-10-02T09:00:06Z', [{ type: 'text', text: 'Done: export added.' }]),
+      assistant('2026-10-02T09:00:05Z', [{ type: 'thinking', thinking: '…' }]),
+      { type: 'system', timestamp: '2026-10-02T09:00:06Z' } as TranscriptEntry,
     ]);
     expect(out).toEqual([
-      { at: '2026-10-02T09:00:00Z', role: 'you', text: 'Add the CSV export' },
+      { at: '2026-10-02T09:00:00Z', id: 'u1', role: 'you', text: 'Add the CSV export' },
+      { at: '2026-10-02T09:00:01Z', role: 'other', text: '' }, // an echo: not something you typed
       { at: '2026-10-02T09:00:02Z', role: 'agent', text: 'On it.' },
       { at: '2026-10-02T09:00:02Z', role: 'tool', tool: 'Bash', text: 'npm test' },
-      { at: '2026-10-02T09:00:05Z', role: 'tool', tool: 'Edit', text: 'src/export.ts' },
-      { at: '2026-10-02T09:00:06Z', role: 'agent', text: 'Done: export added.' },
+      { at: '2026-10-02T09:00:03Z', role: 'tool-result', text: '' },
+      { at: '2026-10-02T09:00:04Z', sidechain: true, role: 'agent', text: 'subagent work' },
+      { at: '2026-10-02T09:00:05Z', role: 'agent', text: '' }, // only thinking: still its line (work time)
+      { at: '2026-10-02T09:00:06Z', role: 'other', text: '' },
     ]);
+  });
+
+  it('an agent message carries its usage (prompt with the cache, and the reply) and its model; the window by model or size', () => {
+    const [e] = claudeEntries([
+      { type: 'assistant', timestamp: 't', message: { model: 'claude-opus-5-5[1m]', usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5, output_tokens: 7 }, content: [{ type: 'text', text: 'ok' }] } } as TranscriptEntry,
+    ]);
+    expect(e).toMatchObject({ role: 'agent', usage: { prompt: 1015, reply: 7 }, model: 'claude-opus-5-5[1m]' });
+    expect(claudeContextWindow('claude-opus-5-5[1m]', 10)).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow('claude-sonnet-5', 250_000)).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow('claude-sonnet-5', 10)).toBe(DEFAULT_WINDOW);
+  });
+
+  it('a line with no time is kept with `at: ""` (search and context usage read it)', () => {
+    expect(claudeEntries([{ type: 'assistant', message: { content: [{ type: 'text', text: 'no time' }] } } as TranscriptEntry])).toEqual([{ at: '', role: 'agent', text: 'no time' }]);
+    expect(claudeEntries([null, 'x', 3])).toEqual([]); // not lines
+  });
+});
+
+describe('the Claude adapter’s files and entries', () => {
+  it('are its transcripts and its line mapping', () => {
+    expect(claudeAgent.conversation!.entries).toBe(claudeEntries);
+    expect(claudeAgent.conversation!.contextWindow).toBe(claudeContextWindow);
   });
 });
 

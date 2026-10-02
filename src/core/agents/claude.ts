@@ -1,49 +1,27 @@
-import { listTranscripts } from '../context-usage.js';
+import { listTranscripts } from './claude-files.js';
 import { getAiTool } from '../ai-launcher.js';
 import { hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.js';
 import { withoutParentSession } from '../claude-env.js';
-import { promptText } from '../digest.js';
-import { describeToolUse } from '../permission-request.js';
 import { readTranscriptTail } from '../transcript.js';
-import { contentBlocks, type TranscriptEntry } from '../transcript-entry.js';
+import { claudeContextWindow, claudeEntries } from './claude-entries.js';
 import type { AgentAdapter, ConversationEntry } from './types.js';
+
+export { claudeEntries } from './claude-entries.js';
 
 /**
  * Claude Code as an agent (types.ts): its conversations are the JSONL
- * transcripts under ~/.claude/projects/<folder>/. Read from the end — the
- * newest transcripts, a tail of each — since only the last few messages
- * are asked for and a transcript runs to many megabytes of tool output.
+ * transcripts under ~/.claude/projects/<folder>/ (claude-entries.ts reads
+ * their lines). Reading the latest messages reads from the end — the newest
+ * transcripts, a tail of each — since a transcript runs to many megabytes of
+ * tool output.
  */
 
-/** How much of each transcript's end is read, and how many transcripts at most. */
+/** How much of each transcript's end `read` takes, and how many transcripts at most. */
 const TAIL_BYTES = 4 * 1024 * 1024;
 const MAX_FILES = 3;
 
-/** A transcript's entries as conversation entries: your prompts, Claude's text, its tool calls. Pure. */
-export function claudeEntries(entries: TranscriptEntry[]): ConversationEntry[] {
-  const out: ConversationEntry[] = [];
-  for (const e of entries) {
-    const at = typeof e.timestamp === 'string' ? e.timestamp : '';
-    if (!at || e.isSidechain === true) continue;
-    const prompt = promptText(e);
-    if (prompt) {
-      out.push({ at, role: 'you', text: prompt });
-      continue;
-    }
-    if (e.type !== 'assistant' || e.isMeta === true) continue;
-    const blocks = contentBlocks(e);
-    const text = blocks
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
-    if (text) out.push({ at, role: 'agent', text });
-    for (const b of blocks) {
-      if (b.type === 'tool_use' && typeof b.name === 'string') out.push({ at, role: 'tool', tool: b.name, text: describeToolUse(b.name, b.input) });
-    }
-  }
-  return out;
-}
+/** What `read` shows: your prompts, its messages, its tool calls — not results, empty lines or a subagent's. */
+const shown = (e: ConversationEntry) => !e.sidechain && (e.role === 'you' || e.role === 'tool' || (e.role === 'agent' && e.text !== ''));
 
 export const claudeAgent: AgentAdapter = {
   id: 'claude',
@@ -51,16 +29,19 @@ export const claudeAgent: AgentAdapter = {
   launch: {
     // The configured command when it is Claude (`claude --model opus`); plain `claude` otherwise.
     tool: (config) => getAiTool(config && getAiTool(config).cmd === 'claude' ? config : {}),
-    canResume: hasClaudeConversation,
-    resumeLaunch: resolveResumeLaunch,
+    canResume: (cwd) => hasClaudeConversation(cwd),
+    resumeLaunch: (s) => resolveResumeLaunch(s),
     cleanEnv: (env) => withoutParentSession(env),
   },
   conversation: {
+    files: (s) => listTranscripts(s),
+    entries: claudeEntries,
+    contextWindow: claudeContextWindow,
     read(session, { last }) {
       const files = listTranscripts(session).sort((a, b) => b.mtimeMs - a.mtimeMs);
       const got: ConversationEntry[] = [];
       for (const f of files.slice(0, MAX_FILES)) {
-        got.push(...claudeEntries(readTranscriptTail(f.file, TAIL_BYTES)));
+        got.push(...claudeEntries(readTranscriptTail(f.file, TAIL_BYTES)).filter(shown));
         if (got.length >= last) break; // the newest file had enough
       }
       return got.sort((a, b) => a.at.localeCompare(b.at)).slice(-last);

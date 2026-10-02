@@ -9,10 +9,13 @@ import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import { digestSession, type DigestInput } from '../../src/core/digest.js';
 import { digestMarkdown } from '../../src/core/digest-view.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const T0 = Date.parse('2026-09-30T09:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
+/** Claude's lines as its adapter reads them. */
+const cl = (lines: TranscriptEntry[]) => claudeEntries(lines);
 const you = (min: number, text = 'do it'): TranscriptEntry => ({ type: 'user', timestamp: at(min), message: { role: 'user', content: text } });
 const claude = (min: number): TranscriptEntry => ({ type: 'assistant', timestamp: at(min), message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } });
 const toolResult = (min: number): TranscriptEntry => ({ type: 'user', timestamp: at(min), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't' }] } });
@@ -20,30 +23,30 @@ const toolResult = (min: number): TranscriptEntry => ({ type: 'user', timestamp:
 describe('workSteps', () => {
   it("counts the time up to each of Claude's lines (its replies, tool results) — not yours", () => {
     // You ask at 0; Claude works 0→2 (reply), a tool runs 2→5; you read for 20 minutes; ask again; Claude 25→26.
-    const { steps } = workSteps([you(0), claude(2), toolResult(5), claude(6), you(26), claude(27)]);
+    const { steps } = workSteps(cl([you(0), claude(2), toolResult(5), claude(6), you(26), claude(27)]));
     expect(workedBetween(steps)).toBe((2 + 3 + 1 + 1) * 60_000);
   });
 
   it('a step counts for at most 15 minutes (a permission prompt left all afternoon is no work)', () => {
-    const { steps } = workSteps([you(0), claude(1), toolResult(180)]);
+    const { steps } = workSteps(cl([you(0), claude(1), toolResult(180)]));
     expect(workedBetween(steps)).toBe(60_000 + STEP_CAP_MS);
   });
 
   it('continues across reads of one file, and never counts backwards (lines a little out of order)', () => {
-    const a = workSteps([you(0), claude(3)]);
-    const b = workSteps([claude(2), claude(5)], a.lastMs);
+    const a = workSteps(cl([you(0), claude(3)]));
+    const b = workSteps(cl([claude(2), claude(5)]), a.lastMs);
     expect(workedBetween([...a.steps, ...b.steps])).toBe((3 + 2) * 60_000); // 2 is before 3: nothing; 3→5
   });
 
   it('two transcripts working at the same time count that time once', () => {
-    const a = workSteps([you(0), claude(10)]).steps; // 0→10
-    const b = workSteps([you(5), claude(15)]).steps; // 5→15, overlapping 5→10
+    const a = workSteps(cl([you(0), claude(10)])).steps; // 0→10
+    const b = workSteps(cl([you(5), claude(15)])).steps; // 5→15, overlapping 5→10
     expect(workedBetween(mergeSteps([...a, ...b]))).toBe(15 * 60_000);
-    expect(workedBetween(mergeSteps([...a, ...workSteps([you(20), claude(22)]).steps]))).toBe(12 * 60_000);
+    expect(workedBetween(mergeSteps([...a, ...workSteps(cl([you(20), claude(22)])).steps]))).toBe(12 * 60_000);
   });
 
   it('per window and per day', () => {
-    const { steps } = workSteps([you(0), claude(10), you(60 * 24), claude(60 * 24 + 5)]);
+    const { steps } = workSteps(cl([you(0), claude(10), you(60 * 24), claude(60 * 24 + 5)]));
     expect(workedBetween(steps, T0 + 60 * 60_000)).toBe(5 * 60_000);
     expect(workedByDay(steps)).toEqual([
       { day: dayKey(T0 + (60 * 24 + 5) * 60_000), ms: 5 * 60_000 },
@@ -136,8 +139,8 @@ describe('the digest', () => {
   it('says how long its Claude worked in the window, per session and in all', () => {
     const input: DigestInput = {
       sessionId: 's1', target: 'api', branch: 'feat/x', isGroup: false, lastAccessedAt: at(0), archivedAt: null, status: null,
-      transcripts: [[you(0)]], checkpoints: [], diffStat: null, ci: null,
-      work: [workSteps([you(0), claude(10), you(50), claude(75)]).steps], // 10m, then 25m capped at 15
+      transcripts: [cl([you(0)])], checkpoints: [], diffStat: null, ci: null,
+      work: [workSteps(cl([you(0), claude(10), you(50), claude(75)])).steps], // 10m, then 25m capped at 15
     };
     const row = digestSession(input, T0)!;
     expect(row.workedMs).toBe((10 + 15) * 60_000);

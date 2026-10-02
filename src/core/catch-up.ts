@@ -1,8 +1,9 @@
-import { entryText } from './archive-search.js';
-import { listTranscripts } from './context-usage.js';
+import { messageOf } from './archive-search.js';
 import { readTranscriptSince } from './transcript.js';
 import { sessionIdFor } from './session-id.js';
-import type { TranscriptEntry } from './transcript-entry.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
 
 /**
@@ -28,12 +29,12 @@ export interface TimelineItem {
  * message before the next one (its intermediate notes are noise here).
  * Newest kept when it is long. Pure.
  */
-export function catchUpTimeline(entries: TranscriptEntry[], sinceMs: number): TimelineItem[] {
+export function catchUpTimeline(entries: ConversationEntry[], sinceMs: number): TimelineItem[] {
   const out: TimelineItem[] = [];
   for (const e of entries) {
-    const at = typeof e.timestamp === 'string' ? e.timestamp : null;
+    const at = e.at || null;
     if (at && Date.parse(at) < sinceMs) continue;
-    const m = entryText(e);
+    const m = messageOf(e);
     if (!m) continue;
     const text = m.text.length > MAX_MESSAGE_CHARS ? m.text.slice(0, MAX_MESSAGE_CHARS) + '…' : m.text;
     const last = out[out.length - 1];
@@ -78,8 +79,10 @@ export interface CatchUp {
 const cache = new Map<string, { key: string; value: CatchUp }>();
 const inflight = new Map<string, Promise<CatchUp | null>>();
 
+/** The session's conversation, through its agent (none when work can't read its conversations). */
+const conversationOf = (s: WorktreeSession) => agentFor(loadConfig(), s).conversation;
 const transcriptKey = (s: WorktreeSession) =>
-  listTranscripts(s)
+  (conversationOf(s)?.files(s) ?? [])
     .map((t) => `${t.file}:${t.size}:${t.mtimeMs}`)
     .sort()
     .join('|');
@@ -110,9 +113,10 @@ export function catchUp(
   const job = (async () => {
     const since = now - CATCH_UP_DAYS * 24 * 3600_000;
     const key = transcriptKey(s);
-    const entries: TranscriptEntry[] = [];
-    for (const t of listTranscripts(s).filter((x) => x.mtimeMs >= since).sort((a, b) => a.mtimeMs - b.mtimeMs)) {
-      entries.push(...(await readTranscriptSince(t.file, since)).entries);
+    const conv = conversationOf(s);
+    const entries: ConversationEntry[] = [];
+    for (const t of (conv?.files(s) ?? []).filter((x) => x.mtimeMs >= since).sort((a, b) => a.mtimeMs - b.mtimeMs)) {
+      entries.push(...conv!.entries((await readTranscriptSince(t.file, since)).entries));
     }
     const timeline = catchUpTimeline(entries, since);
     if (timeline.length === 0) return null;

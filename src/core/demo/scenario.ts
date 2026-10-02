@@ -834,10 +834,10 @@ export class DemoScenario {
         s.transcript
           .filter((l) => l.startsWith('> ') && l.length > 2)
           .map((l, i) => ({
-            type: 'user',
+            role: 'you' as const,
             // The first prompt started the session; later ones came as you went.
-            timestamp: i === 0 ? s.createdAt : s.attention?.since ?? s.lastAccessedAt,
-            message: { content: l.slice(2) },
+            at: i === 0 ? s.createdAt : s.attention?.since ?? s.lastAccessedAt,
+            text: l.slice(2),
           })),
       ],
       checkpoints: this.checkpoints(s.id) ?? [],

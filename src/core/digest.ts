@@ -1,4 +1,4 @@
-import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
+import type { ConversationEntry } from './agents/types.js';
 import { workedBetween, type WorkStep } from './work-time.js';
 import type { DiffStat, DigestSession, SessionCi } from './api-types.js';
 
@@ -13,29 +13,9 @@ import type { DiffStat, DigestSession, SessionCi } from './api-types.js';
 export const MAX_PROMPTS = 12;
 const MAX_PROMPT_CHARS = 240;
 
-/** Text Claude Code writes as a "user" entry that you didn't type: slash
- *  command echoes, the local-command caveat, subagent task notifications,
- *  the "[Request interrupted by user]" marker. */
-const NOT_TYPED = /^\s*(<command-name>|<command-message>|<local-command-|<system-reminder>|<bash-|<task-notification>|\[Request interrupted|Caveat: )/;
-
 /** What `checkpoint-summary.ts` names a turn when Claude was unavailable:
  *  "3 files · +52 −8" or "no changes". A size, not what the turn did. */
 export const HEURISTIC_LABEL_RE = /^(\d+ files? · \+\d+ −\d+|no changes)$/;
-
-/** The text you typed, when this entry is one of your prompts (not a tool result, echo or subagent line). */
-export function promptText(e: TranscriptEntry): string | null {
-  if (e.type !== 'user' || e.isSidechain === true || e.isMeta === true) return null;
-  const blocks = contentBlocks(e);
-  // A tool result is Claude's own loop, not you.
-  if (blocks.some((b) => b.type === 'tool_result')) return null;
-  const text = blocks
-    .filter((b) => b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
-  if (!text || NOT_TYPED.test(text)) return null;
-  return text;
-}
 
 /** One line of at most MAX_PROMPT_CHARS. */
 function clip(text: string): string {
@@ -43,41 +23,29 @@ function clip(text: string): string {
   return line.length > MAX_PROMPT_CHARS ? line.slice(0, MAX_PROMPT_CHARS - 1).trimEnd() + '…' : line;
 }
 
-/** Your prompts after `sinceMs`, oldest first. The same entry seen twice
- *  (by its uuid, else time + text) counts once; typing "commit" three times
- *  is three prompts. */
 /**
- * Of a transcript's entries, only what the digest reads — your prompts —
- * reduced to their uuid, time and text. A day's transcripts hold tool
- * output too (megabytes per session); the digest kept all of it parsed in
- * memory for every session in the window, for the sake of a few lines.
+ * Of a conversation's entries, only what the digest reads — your prompts.
+ * A day's conversations hold tool output too (megabytes per session); the
+ * digest kept all of it in memory for every session in the window, for the
+ * sake of a few lines.
  */
-export function promptEntries(entries: TranscriptEntry[]): TranscriptEntry[] {
-  const out: TranscriptEntry[] = [];
-  for (const e of entries) {
-    const text = promptText(e);
-    if (!text) continue;
-    out.push({
-      type: 'user',
-      ...(typeof e.uuid === 'string' ? { uuid: e.uuid } : {}),
-      ...(typeof e.timestamp === 'string' ? { timestamp: e.timestamp } : {}),
-      message: { role: 'user', content: text },
-    } as TranscriptEntry);
-  }
-  return out;
+export function promptEntries(entries: readonly ConversationEntry[]): ConversationEntry[] {
+  return entries.filter((e) => e.role === 'you' && !e.sidechain && e.text !== '');
 }
 
-export function promptsSince(transcripts: TranscriptEntry[][], sinceMs: number): Array<{ ts: string; text: string }> {
+/** Your prompts after `sinceMs`, oldest first. The same entry seen twice
+ *  (by its id, else time + text) counts once; typing "commit" three times
+ *  is three prompts. */
+export function promptsSince(transcripts: readonly (readonly ConversationEntry[])[], sinceMs: number): Array<{ ts: string; text: string }> {
   const out: Array<{ ts: string; text: string }> = [];
   const seen = new Set<string>();
   for (const entries of transcripts) {
     for (const e of entries) {
-      const ts = typeof e.timestamp === 'string' ? Date.parse(e.timestamp) : NaN;
+      const ts = Date.parse(e.at);
       if (!(ts >= sinceMs)) continue;
-      const text = promptText(e);
-      if (!text) continue;
-      const line = clip(text);
-      const key = typeof e.uuid === 'string' && e.uuid ? e.uuid : `${ts}|${line}`;
+      if (e.role !== 'you' || e.sidechain || !e.text) continue;
+      const line = clip(e.text);
+      const key = e.id ? e.id : `${ts}|${line}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ ts: new Date(ts).toISOString(), text: line });
@@ -95,7 +63,7 @@ export interface DigestInput {
   archivedAt: string | null;
   status: { state: 'working' | 'needs_input' | 'idle'; summary?: string; updatedAt: string } | null;
   /** Entries of the transcripts written to since the window opened. */
-  transcripts: TranscriptEntry[][];
+  transcripts: ConversationEntry[][];
   /** A transcript was too large to read back to the window's start. */
   transcriptsPartial?: boolean;
   /** Claude's work steps in those transcripts (work-time.ts). */

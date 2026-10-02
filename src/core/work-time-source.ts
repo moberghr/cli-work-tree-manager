@@ -1,7 +1,7 @@
 import fs from 'node:fs';
-import { listTranscripts } from './context-usage.js';
-import { promptText } from './digest.js';
-import type { TranscriptEntry } from './transcript-entry.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
 import { mergeSteps, workedBetween, workedByDay, workSteps, type WorkStep } from './work-time.js';
 import type { WorkTimeWire } from './api-types.js';
@@ -43,7 +43,7 @@ async function readHead(fh: fs.promises.FileHandle, size: number): Promise<strin
 }
 
 /** Read what was appended to `file` since `st` (or all of it), line by line. */
-async function readOn(file: string, size: number, mtimeMs: number, st: FileState | undefined): Promise<FileState> {
+async function readOn(file: string, size: number, mtimeMs: number, st: FileState | undefined, toEntries: (lines: readonly unknown[]) => ConversationEntry[]): Promise<FileState> {
   const fh = await fs.promises.open(file, 'r');
   try {
     const head = await readHead(fh, size);
@@ -67,23 +67,24 @@ async function readOn(file: string, size: number, mtimeMs: number, st: FileState
       const whole = data.subarray(0, cut).toString('utf8');
       carry = data.subarray(cut + 1);
       state.offset += cut + 1;
-      const entries: TranscriptEntry[] = [];
+      const lines: unknown[] = [];
       for (const line of whole.split('\n')) {
         if (!line.trim()) continue;
         try {
-          entries.push(JSON.parse(line) as TranscriptEntry);
+          lines.push(JSON.parse(line));
         } catch {
           /* a torn or foreign line: skip it */
         }
       }
+      const entries = toEntries(lines);
       const r = workSteps(entries, state.lastMs);
       state.steps.push(...r.steps);
       state.lastMs = r.lastMs;
       if (state.firstMs === null) {
-        const first = entries.find((e) => typeof e.timestamp === 'string');
-        if (first) state.firstMs = Date.parse(first.timestamp as string);
+        const first = entries.find((e) => Number.isFinite(Date.parse(e.at)));
+        if (first) state.firstMs = Date.parse(first.at);
       }
-      state.prompts += entries.filter((e) => promptText(e) !== null).length;
+      state.prompts += entries.filter((e) => e.role === 'you' && !e.sidechain).length;
       // Let the server breathe between megabytes.
       await new Promise((r2) => setImmediate(r2));
     }
@@ -99,11 +100,12 @@ export async function sessionWorkTime(s: WorktreeSession, now = Date.now()): Pro
   let prompts = 0;
   let firstMs: number | null = null;
   let lastMs: number | null = null;
-  for (const t of listTranscripts(s)) {
+  const conv = agentFor(loadConfig(), s).conversation;
+  for (const t of conv?.files(s) ?? []) {
     let st = files.get(t.file);
     if (!st || st.offset !== t.size || st.mtimeMs !== t.mtimeMs) {
       try {
-        st = await readOn(t.file, t.size, t.mtimeMs, st);
+        st = await readOn(t.file, t.size, t.mtimeMs, st, conv!.entries);
       } catch {
         continue; // gone or unreadable: count what can be read
       }

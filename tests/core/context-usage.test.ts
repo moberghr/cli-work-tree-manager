@@ -3,9 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { contextUsageFrom, readContextUsage, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/context-usage.js';
+import { claudeContextWindow, claudeEntries } from '../../src/core/agents/claude-entries.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import type { TranscriptEntry } from '../../src/core/transcript.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
+
+/** Claude's lines read as Claude's adapter reads them, then the usage. */
+const usageOf = (lines: TranscriptEntry[]) => contextUsageFrom(claudeEntries(lines), claudeContextWindow);
 
 const reply = (usage: Record<string, number>, extra: Partial<TranscriptEntry> = {}): TranscriptEntry => ({
   type: 'assistant',
@@ -15,7 +19,7 @@ const reply = (usage: Record<string, number>, extra: Partial<TranscriptEntry> = 
 
 describe('contextUsageFrom', () => {
   it("is the newest reply's prompt (input + cache reads + cache writes) plus its output", () => {
-    const u = contextUsageFrom([
+    const u = usageOf([
       reply({ input_tokens: 10, cache_read_input_tokens: 1000, output_tokens: 5 }),
       { type: 'user', message: { content: 'next' } },
       reply({ input_tokens: 20, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 2_000, output_tokens: 300 }),
@@ -24,18 +28,18 @@ describe('contextUsageFrom', () => {
   });
 
   it("skips subagent turns (they have their own context) and entries without usage", () => {
-    const u = contextUsageFrom([
+    const u = usageOf([
       reply({ input_tokens: 40_000 }),
       reply({ input_tokens: 190_000 }, { isSidechain: true }),
       { type: 'assistant', message: { content: 'no usage' } },
     ]);
     expect(u?.used).toBe(40_000);
-    expect(contextUsageFrom([{ type: 'user', message: { content: 'hi' } }])).toBeNull();
+    expect(usageOf([{ type: 'user', message: { content: 'hi' } }])).toBeNull();
   });
 
   it('recognises the 1M-token window', () => {
-    expect(contextUsageFrom([reply({ input_tokens: 300_000 })])?.window).toBe(LARGE_WINDOW);
-    const m = contextUsageFrom([{ type: 'assistant', message: { model: 'claude-opus-5-5[1m]', usage: { input_tokens: 5 } } }]);
+    expect(usageOf([reply({ input_tokens: 300_000 })])?.window).toBe(LARGE_WINDOW);
+    const m = usageOf([{ type: 'assistant', message: { model: 'claude-opus-5-5[1m]', usage: { input_tokens: 5 } } }]);
     expect(m?.window).toBe(LARGE_WINDOW);
   });
 });

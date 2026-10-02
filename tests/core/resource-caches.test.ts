@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NAMES_MAX_AGE_MS, projectTranscripts } from '../../src/core/claude-activity.js';
 import { firstPromptOf } from '../../src/core/session-title.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 import { recentProcessTable } from '../../src/core/process.js';
 import { createSerialQueue, throttleTrailing } from '../../src/core/throttle.js';
 
@@ -53,12 +54,12 @@ describe('firstPromptOf', () => {
   it('remembers "no prompt in it" while the file is unchanged', () => {
     const f = path.join(dir, 't.jsonl');
     fs.writeFileSync(f, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } }) + '\n');
-    expect(firstPromptOf(f)).toBeNull();
+    expect(firstPromptOf(f, claudeEntries)).toBeNull();
     const open = vi.spyOn(fs, 'openSync');
-    expect(firstPromptOf(f)).toBeNull();
+    expect(firstPromptOf(f, claudeEntries)).toBeNull();
     expect(open).not.toHaveBeenCalled();
     fs.appendFileSync(f, JSON.stringify({ type: 'user', uuid: 'u1', timestamp: '2026-09-30T10:00:00Z', message: { role: 'user', content: 'Fix the login redirect' } }) + '\n');
-    expect(firstPromptOf(f)).toBe('Fix the login redirect'); // it grew: read again
+    expect(firstPromptOf(f, claudeEntries)).toBe('Fix the login redirect'); // it grew: read again
   });
 });
 

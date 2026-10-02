@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { loadManifest } from './checkpoint.js';
-import { listTranscripts } from './context-usage.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import { promptsSince } from './digest.js';
 import { scopeHashForPaths } from './scope-manager.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { WorktreeSession } from './session-types.js';
 import { buildTimeline, type TimelineEvent, type TimelineInput } from './timeline.js';
-import { readTranscriptSince, type TranscriptEntry } from './transcript.js';
+import { readTranscriptSince } from './transcript.js';
 import type { SessionCi } from './api-types.js';
 
 /**
@@ -41,11 +43,12 @@ async function commitsOf(repo: string, since: string, run: CommandRunner): Promi
 export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi | null; run?: CommandRunner; now?: number } = {}): Promise<TimelineEvent[]> {
   const run = deps.run ?? defaultRunner;
   const since = Math.max(Date.parse(s.createdAt) || 0, (deps.now ?? Date.now()) - DAYS * 86_400_000);
-  const transcripts: TranscriptEntry[][] = [];
-  for (const t of listTranscripts(s)) {
+  const transcripts: ConversationEntry[][] = [];
+  const conv = agentFor(loadConfig(), s).conversation;
+  for (const t of conv?.files(s) ?? []) {
     if (t.mtimeMs < since) continue;
     try {
-      transcripts.push((await readTranscriptSince(t.file, since, { maxBytes: MAX_TRANSCRIPT_BYTES })).entries);
+      transcripts.push(conv!.entries((await readTranscriptSince(t.file, since, { maxBytes: MAX_TRANSCRIPT_BYTES })).entries));
     } catch {
       /* gone or unreadable: the rest still tells the story */
     }

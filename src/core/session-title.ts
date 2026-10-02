@@ -1,8 +1,9 @@
 import fs from 'node:fs';
-import { listTranscripts } from './context-usage.js';
 import { promptsSince } from './digest.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
-import type { TranscriptEntry } from './transcript-entry.js';
 
 /**
  * A human name for a session, beside its branch: the name you gave it, or
@@ -16,8 +17,8 @@ const TITLE_CHARS = 80;
 const HEAD_BYTES = 256 * 1024;
 const cache = new Map<string, { size: number; title: string | null }>();
 
-/** The first prompt in a transcript file (read from its start). */
-export function firstPromptOf(file: string): string | null {
+/** The first prompt in a conversation file (read from its start), its lines read by `toEntries` (the agent's). */
+export function firstPromptOf(file: string, toEntries: (lines: readonly unknown[]) => ConversationEntry[]): string | null {
   let size: number;
   try {
     size = fs.statSync(file).size;
@@ -43,15 +44,15 @@ export function firstPromptOf(file: string): string | null {
   } catch {
     return null;
   }
-  const entries: TranscriptEntry[] = [];
+  const lines: unknown[] = [];
   for (const line of text.split('\n')) {
     try {
-      entries.push(JSON.parse(line) as TranscriptEntry);
+      lines.push(JSON.parse(line));
     } catch {
       /* the last, cut-off line */
     }
   }
-  const first = promptsSince([entries], 0)[0]?.text ?? null;
+  const first = promptsSince([toEntries(lines)], 0)[0]?.text ?? null;
   const readable = first ? titleText(first) : null;
   const title = readable ? clip(readable) : null;
   cache.set(file, { size, title });
@@ -76,9 +77,10 @@ export function titleText(prompt: string): string | null {
 /** The session's name: yours, else its first prompt, else its Jira key. */
 export function sessionTitle(s: WorktreeSession, fallbackPrompt?: string | null): string | null {
   if (s.title?.trim()) return s.title.trim();
-  const oldestFirst = listTranscripts(s).sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const conv = agentFor(loadConfig(), s).conversation;
+  const oldestFirst = (conv?.files(s) ?? []).sort((a, b) => a.mtimeMs - b.mtimeMs);
   for (const t of oldestFirst) {
-    const p = firstPromptOf(t.file);
+    const p = firstPromptOf(t.file, conv!.entries);
     if (p) return p;
   }
   const fallback = fallbackPrompt ? titleText(fallbackPrompt) : null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { matchingLines, queryWords, snippet } from '../../src/core/archive-search.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 
 const line = (o: object) => JSON.stringify(o);
 
@@ -14,12 +15,12 @@ describe('matchingLines', () => {
       'not json encryption keys',
     ].join('\n');
     const { words, jsonWords } = queryWords('encryption keys');
-    expect(matchingLines(raw, words, jsonWords, 5)).toEqual([
+    expect(matchingLines(raw, words, jsonWords, 5, claudeEntries)).toEqual([
       { role: 'you', text: 'Rotate the encryption keys', at: 't1' },
       { role: 'claude', text: 'Encryption KEYS rotated.', at: null },
     ]);
-    expect(matchingLines(raw, words, jsonWords, 1)).toHaveLength(1);
-    expect(matchingLines(raw, words, jsonWords, 0)).toEqual([]);
+    expect(matchingLines(raw, words, jsonWords, 1, claudeEntries)).toHaveLength(1);
+    expect(matchingLines(raw, words, jsonWords, 0, claudeEntries)).toEqual([]);
   });
 
   it('query words as JSON writes them, for the raw-line pre-filter', () => {

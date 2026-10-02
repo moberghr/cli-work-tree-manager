@@ -1,4 +1,4 @@
-import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
+import type { ConversationEntry } from './agents/types.js';
 import { dayKey } from './work-time-view.js';
 
 /**
@@ -16,13 +16,12 @@ export const STEP_CAP_MS = 15 * 60_000;
 /** One step of Claude's: when it ended (ms) and how long it counted for. */
 export type WorkStep = readonly [endMs: number, ms: number];
 
-/** Claude's own line: its message, or a tool's result coming back to it.
+/** The agent's own line: its message or tool call, or a tool's result coming back to it.
  *  A subagent's lines count too (unlike the digest's prompts): its work is
- *  Claude's work, and the steps of one file never overlap, so nothing is
+ *  the agent's work, and the steps of one file never overlap, so nothing is
  *  counted twice. */
-function isClaudes(e: TranscriptEntry): boolean {
-  if (e.type === 'assistant') return true;
-  return e.type === 'user' && contentBlocks(e).some((b) => b.type === 'tool_result');
+function isAgents(e: ConversationEntry): boolean {
+  return e.role === 'agent' || e.role === 'tool' || e.role === 'tool-result';
 }
 
 /**
@@ -30,13 +29,13 @@ function isClaudes(e: TranscriptEntry): boolean {
  * time of the line before them, when they continue a file already read.
  * Returns the steps and the time of the last line, to continue from.
  */
-export function workSteps(entries: readonly TranscriptEntry[], prevMs: number | null = null): { steps: WorkStep[]; lastMs: number | null } {
+export function workSteps(entries: readonly ConversationEntry[], prevMs: number | null = null): { steps: WorkStep[]; lastMs: number | null } {
   const steps: WorkStep[] = [];
   let prev = prevMs;
   for (const e of entries) {
-    const ts = typeof e.timestamp === 'string' ? Date.parse(e.timestamp) : NaN;
+    const ts = Date.parse(e.at);
     if (!Number.isFinite(ts)) continue;
-    if (prev !== null && isClaudes(e)) {
+    if (prev !== null && isAgents(e)) {
       const gap = ts - prev;
       if (gap > 0) steps.push([ts, Math.min(gap, STEP_CAP_MS)]);
     }

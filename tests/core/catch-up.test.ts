@@ -7,6 +7,7 @@ import { catchUp, catchUpPrompt, catchUpTimeline, cachedCatchUp, forgetCatchUp }
 import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/claude-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 
 const day = 24 * 3600_000;
 const NOW = Date.parse('2026-10-01T12:00:00Z');
@@ -17,14 +18,14 @@ const claude = (text: string, msAgo: number): TranscriptEntry => ({ type: 'assis
 describe('catchUpTimeline', () => {
   it("your prompts and Claude's last message before each; nothing older than the window; tool noise skipped", () => {
     const t = catchUpTimeline(
-      [
+      claudeEntries([
         you('very old', 9 * day),
         you('Speed up the PDF job', 3 * day),
         claude('Looking at the query…', 3 * day - 1000),
         { type: 'assistant', timestamp: at(3 * day - 2000), message: { content: [{ type: 'tool_use', name: 'Bash', input: {} }] } },
         claude('Done: the query is 1.6s faster. Shall I open a PR?', 3 * day - 3000),
         { type: 'user', isMeta: true, timestamp: at(2 * day), message: { content: 'meta' } },
-      ],
+      ]),
       NOW - 7 * day,
     );
     expect(t.map((x) => [x.who, x.text])).toEqual([
@@ -35,7 +36,7 @@ describe('catchUpTimeline', () => {
 
   it('keeps the newest when the conversation is long', () => {
     const entries = Array.from({ length: 60 }, (_, i) => (i % 2 ? claude(`answer ${i} ${'x'.repeat(900)}`, 60_000 * (60 - i)) : you(`ask ${i}`, 60_000 * (60 - i))));
-    const t = catchUpTimeline(entries, NOW - day);
+    const t = catchUpTimeline(claudeEntries(entries), NOW - day);
     expect(t.length).toBeLessThan(60);
     expect(t.at(-1)!.text).toContain('answer 59');
   });

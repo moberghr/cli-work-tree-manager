@@ -1,7 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from './claude-activity.js';
-import { readTranscriptTail, type TranscriptEntry } from './transcript.js';
+import { readTranscriptTail } from './transcript.js';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
+import type { ConversationEntry } from './agents/types.js';
 import type { ContextUsage } from './api-types.js';
 import type { WorktreeSession } from './session-types.js';
 
@@ -16,65 +16,41 @@ export type { ContextUsage } from './api-types.js';
  * worse before that — the dashboard shows when to start fresh.
  */
 
-/** Claude's standard window; the 1M-token variants are recognised by a
- *  `[1m]` model id or by usage that no 200k window could hold. */
-export const DEFAULT_WINDOW = 200_000;
-export const LARGE_WINDOW = 1_000_000;
+export { DEFAULT_WINDOW, LARGE_WINDOW } from './agents/claude-entries.js';
 
-const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
-
-/** From transcript entries (oldest first): the newest main-thread usage. */
-export function contextUsageFrom(entries: TranscriptEntry[]): ContextUsage | null {
+/** From conversation entries (oldest first): the newest main-thread usage, in the agent's window (`window`). */
+export function contextUsageFrom(entries: readonly ConversationEntry[], window: (model: string | undefined, used: number) => number): ContextUsage | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     // Subagent (Task) turns run in their own context.
-    if (e.type !== 'assistant' || e.isSidechain === true) continue;
-    const u = e.message?.usage;
-    if (!u || typeof u !== 'object') continue;
-    const used =
-      num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens) + num(u.output_tokens);
+    if (e.role !== 'agent' || e.sidechain || !e.usage) continue;
+    const used = e.usage.prompt + e.usage.reply;
     if (used === 0) continue;
-    const model = typeof e.message?.model === 'string' ? e.message.model : undefined;
-    const window = (model && /\[1m\]/i.test(model)) || used > DEFAULT_WINDOW ? LARGE_WINDOW : DEFAULT_WINDOW;
-    return { used, window, ...(model ? { model } : {}) };
+    return { used, window: window(e.model, used), ...(e.model ? { model: e.model } : {}) };
   }
   return null;
 }
 
-export interface TranscriptFile {
-  file: string;
-  mtimeMs: number;
-  size: number;
-}
-
-/** The newest transcript Claude wrote for this session (group: its root). */
-export function latestTranscript(session: WorktreeSession): TranscriptFile | null {
-  let best: TranscriptFile | null = null;
-  for (const t of listTranscripts(session)) if (!best || t.mtimeMs > best.mtimeMs) best = t;
-  return best;
-}
-
-/** Every transcript of this session's conversations (group: its root). */
-export function listTranscripts(session: WorktreeSession): TranscriptFile[] {
-  const dirs = session.isGroup ? [...new Set(session.paths.map((p) => path.dirname(p)))] : session.paths;
-  const out: TranscriptFile[] = [];
-  for (const d of dirs) out.push(...projectTranscripts(path.join(claudeProjectsRoot(), encodeProjectDir(d))));
-  return out;
-}
+// Claude Code's transcript files, for the callers that still read Claude's own records (chat, turn activity): agents/claude-files.ts.
+export { latestTranscript, listTranscripts } from './agents/claude-files.js';
+export type { ConversationFile as TranscriptFile } from './agents/types.js';
 
 /** Only the tail is read — a usage line is always near the end. */
 const USAGE_TAIL_BYTES = 64 * 1024;
 const cache = new Map<string, { key: string; usage: ContextUsage | null }>();
 
-/** The session's context usage now; re-reads a transcript only after it changed. */
+/** The session's context usage now, through its agent; re-reads a conversation only after it changed. Null when work can't read its agent's conversations. */
 export function readContextUsage(session: WorktreeSession): ContextUsage | null {
-  const t = latestTranscript(session);
+  const conv = agentFor(loadConfig(), session).conversation;
+  if (!conv) return null;
+  let t: { file: string; size: number; mtimeMs: number } | null = null;
+  for (const f of conv.files(session)) if (!t || f.mtimeMs > t.mtimeMs) t = f;
   if (!t) return null;
   const key = `${t.file}:${t.size}:${t.mtimeMs}`;
   const id = session.paths.join('|');
   const hit = cache.get(id);
   if (hit?.key === key) return hit.usage;
-  const usage = contextUsageFrom(readTranscriptTail(t.file, USAGE_TAIL_BYTES));
+  const usage = contextUsageFrom(conv.entries(readTranscriptTail(t.file, USAGE_TAIL_BYTES)), conv.contextWindow);
   cache.set(id, { key, usage });
   return usage;
 }
