@@ -142,6 +142,8 @@ export interface SessionSummary {
   stackedChildren?: number;
   /** You have notes on it. */
   hasNote?: boolean;
+  /** What it waits on that isn't done yet: out of the Inbox meanwhile. */
+  blockedBy?: import('../../../core/api-types.js').BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
   /** Repos checked out on another branch than `branch` (null = detached). */
@@ -665,6 +667,18 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
     body: JSON.stringify({ order }),
   });
   if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
+}
+
+// ---- blocked by ----------------------------------------------------------
+
+/** Wait on another session (its id) or a pull request (its URL). */
+export async function addBlocker(sessionId: string, ref: { kind: 'session'; id: string } | { kind: 'pr'; url: string }): Promise<void> {
+  await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/blocks`, ref);
+}
+
+/** Stop waiting on one thing (its key), or on everything. */
+export async function removeBlocker(sessionId: string, key?: string): Promise<void> {
+  await sendJson('DELETE', `/api/sessions/${encodeURIComponent(sessionId)}/blocks${key ? `?key=${encodeURIComponent(key)}` : ''}`);
 }
 
 // ---- your notes on a session ----------------------------------------------

@@ -9,7 +9,7 @@ import { sessionIdFor } from './web-state.js';
 import { readContextUsage } from './context-usage.js';
 import { bestEffort } from './best-effort.js';
 import type { WorktreeSession } from './history.js';
-import type { DiffStat, SessionArchiveInfo, SessionClaudes, SessionWire } from './api-types.js';
+import type { DiffStat, SessionArchiveInfo, SessionClaudes, SessionWire, BlockerWire } from './api-types.js';
 import { readArchive } from './session-archive.js';
 import { sessionTitle } from './session-title.js';
 
@@ -35,6 +35,8 @@ export interface SessionWireOptions {
   replyDraftsFor?: (id: string) => number;
   /** You have notes on it (session-notes.ts). */
   hasNote?: (id: string) => boolean;
+  /** What it waits on that isn't done yet (session-blocks.ts). */
+  blockedByFor?: (id: string) => BlockerWire[];
   /** The running Claudes were read against a real process list, so "none" means none. */
   liveKnown?: boolean;
   /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
@@ -101,6 +103,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
+  if (blockers.length) wire.blockedBy = blockers;
   return wire;
 }
 

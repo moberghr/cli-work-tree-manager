@@ -168,6 +168,16 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${s.id}/snooze`, { until: 'nope' })).status).toBe(400);
   });
 
+  it('a session waiting on another leaves the Inbox ranks (blockedBy on the row); stopping clears it', async () => {
+    const [one, two] = (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
+    expect((await send('POST', `/api/sessions/${one.id}/blocks`, { kind: 'session', id: two.id })).status).toBe(200);
+    expect((await send('POST', `/api/sessions/${one.id}/blocks`, { kind: 'pr', url: 'nope' })).status).toBe(400);
+    const row = (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions.find((s) => s.id === one.id)!;
+    expect(row.blockedBy).toEqual([expect.objectContaining({ kind: 'session', sessionId: two.id })]);
+    await send('DELETE', `/api/sessions/${one.id}/blocks`);
+    expect((await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions.find((s) => s.id === one.id)!.blockedBy).toBeUndefined();
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

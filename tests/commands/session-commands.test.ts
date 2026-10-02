@@ -16,6 +16,8 @@ import { sectionCommand } from '../../src/commands/section.js';
 import { updateCommand } from '../../src/commands/update.js';
 import { catchupCommand } from '../../src/commands/catchup.js';
 import { noteCommand } from '../../src/commands/note.js';
+import { blockCommand } from '../../src/commands/block.js';
+import { readBlock } from '../../src/core/session-blocks.js';
 import { readNote } from '../../src/core/session-notes.js';
 
 /** `work snooze | pin | section | update | catchup`: the dashboard's session actions, from a terminal. */
@@ -55,7 +57,7 @@ afterEach(() => {
   fs.rmSync(homeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand } as never;
+const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand, blockCommand } as never;
 const run = async (_file: string, name: string, argv: Record<string, unknown> = {}) => {
   await COMMANDS[name].handler({ _: [name], ...argv });
 };
@@ -130,5 +132,20 @@ second');
     expect(readNote(id)?.text).toBe('replaced');
     await run('note', 'noteCommand', { clear: true });
     expect(readNote(id)).toBeNull();
+  });
+});
+
+describe('work block', () => {
+  it('waits on a PR (a bad URL refused), lists it, --off', async () => {
+    await run('block', 'blockCommand', { pr: 'https://github.com/acme/api/pull/12' });
+    expect(readBlock(id)?.by).toEqual([expect.objectContaining({ kind: 'pr', label: 'api#12' })]);
+    out.length = 0;
+    await run('block', 'blockCommand', {});
+    expect(out.join(' ')).toContain('api#12');
+    await run('block', 'blockCommand', { pr: 'nope' });
+    expect(errors.join(' ')).toContain('Not a GitHub pull request URL');
+    process.exitCode = 0;
+    await run('block', 'blockCommand', { off: true });
+    expect(readBlock(id)).toBeNull();
   });
 });

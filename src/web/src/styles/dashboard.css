@@ -1963,3 +1963,9 @@ a.wd-pr-chip:hover { border-color: var(--accent); color: var(--fg); }
 .wd-notes-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .wd-notes-status { flex: 1; color: var(--muted); }
 .wd-dash-rail-note { font-size: 11px; }
+
+/* Blocked by (BlockedByChip): what a session waits on. */
+.wd-blocked { font-size: 12px; color: var(--muted); }
+.wd-blocked-item { white-space: nowrap; }
+.wd-blocked-drop { appearance: none; background: none; border: 0; padding: 0 2px; margin-left: 2px; font: inherit; color: var(--muted); cursor: pointer; }
+.wd-blocked-drop:hover { color: var(--fg); }

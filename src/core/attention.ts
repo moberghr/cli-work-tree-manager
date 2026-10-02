@@ -55,6 +55,8 @@ export interface InboxSubject {
   snoozed?: unknown;
   /** Unresolved review threads on its open PRs whose last word isn't yours. */
   openReviewThreads?: number;
+  /** What it waits on that isn't done yet (session-blocks.ts): out of the Inbox meanwhile. */
+  blockedBy?: readonly unknown[];
 }
 
 /**
@@ -67,10 +69,13 @@ export interface InboxSubject {
  *   3 working
  *   4 quiet
  *   5 no status, no review comments
+ *   6 snoozed
+ *   7 waiting on other work (blocked by) — unless its Claude asks you something
  */
 export function inboxRank(s: InboxSubject): number {
   if (s.snoozed) return 6;
   const a = s.attention;
+  if (s.blockedBy?.length && a?.state !== 'needs_input') return 7;
   if (a?.state === 'needs_input') return 0;
   if (a?.state === 'idle' && !a.seen) return 1;
   if (a?.state !== 'working' && (s.openReviewThreads ?? 0) > 0) return 2;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
@@ -127,6 +128,7 @@ export function SessionDetail({
         <DiffStatChip session={session} />
         <ClaudesChip session={session} />
         <StackChip session={session} onOpen={onOpenSession} />
+        <BlockedByChip session={session} onOpen={onOpenSession} />
         <WorkTimeChip session={session} />
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ContextChip session={session} />

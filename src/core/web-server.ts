@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import { defaultRunner } from './ship.js';
+import type { NotifyEvent } from './api-types.js';
 import { sessionStacks } from './stack-sessions.js';
 import { retargetChildrenOf, syncStacksAfterTurn } from './stack-sync.js';
 import { logSwallowed } from './best-effort.js';
@@ -12,6 +15,8 @@ import { createInChild, oneAtATime, type CreateWorktree } from './setup-child.js
 import { allSnoozes } from './snooze-store.js';
 import { sessionsWithNotes } from './session-notes.js';
 import { mountNoteRoutes } from './note-routes.js';
+import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from './session-blocks.js';
+import { mountBlockRoutes } from './block-routes.js';
 import { mountJiraWatchRoutes } from './jira-watch-routes.js';
 import { describeStall, watchLoop } from './loop-watch.js';
 import path from 'node:path';
@@ -314,6 +319,8 @@ export async function startWebServer(
       const drafts = draftCounts();
       const snoozes = allSnoozes();
       const noted = sessionsWithNotes();
+      const blocks = allBlocks();
+      const live = new Set(history.filter((x) => !x.archivedAt).map((x) => sessionIdFor(x)));
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
       const sessions = history.map((s) =>
@@ -337,6 +344,10 @@ export async function startWebServer(
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
           replyDraftsFor: (id) => drafts.get(id) ?? 0,
           hasNote: (id) => noted.has(id),
+          blockedByFor: (id) =>
+            (blocks.get(id)?.by ?? [])
+              .filter((b) => !blockerDone(b, (x) => !live.has(x)))
+              .map((b) => ({ key: blockKey(b), kind: b.kind, label: b.label, ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }) })),
         }),
       );
       // Sessions changing the same files — from the same background cache
@@ -609,12 +620,54 @@ export async function startWebServer(
   };
   // A session archived (merged): the sessions stacked on it move onto main —
   // not only after their own next turn, which may never come.
+  // "Blocked by" (session-blocks.ts): a session waiting on another's work, or
+  // on a PR, is let go when that is done — told to you and to its Claude.
+  const BLOCKS_EVERY_MS = 3 * 60_000;
+  const blocksSchedule = lean ? null : activity.schedule('blocks', 'Waiting on other work', BLOCKS_EVERY_MS);
+  let blocksBusy = false;
+  const sweepBlocksNow = async () => {
+    blocksSchedule?.next(Date.now() + BLOCKS_EVERY_MS);
+    if (blocksBusy || allBlocks().size === 0) return;
+    blocksBusy = true;
+    const run = activity.start('blocks', 'Checking what sessions wait on');
+    try {
+      const history = loadHistory();
+      const live = new Set(history.filter((x) => !x.archivedAt).map((x) => sessionIdFor(x)));
+      const freed = await sweepBlocks({
+        blocks: allBlocks,
+        sessionGone: (id) => !live.has(id),
+        prState: async (url) => {
+          const r = await defaultRunner('gh', ['pr', 'view', url, '--json', 'state', '-q', '.state'], os.tmpdir());
+          const st = r.code === 0 ? r.stdout.trim() : '';
+          return st === 'OPEN' || st === 'MERGED' || st === 'CLOSED' ? st : null;
+        },
+        unblocked: async (id, done) => {
+          const s = history.find((x) => sessionIdFor(x) === id);
+          const name = s ? `${s.target} · ${s.branch}` : id;
+          run.note(`${name}: no longer waiting (${done.map((b) => b.label).join(', ')})`, { sessionId: id });
+          broadcast('notify', { sessionId: id, kind: 'idle', title: `Unblocked — ${name}`, body: `What it waited on is done: ${done.map((b) => b.label).join(', ')}` } satisfies NotifyEvent);
+          if (s) await stackDeps.tell(s, unblockedPrompt(done)).catch((err) => logSwallowed(`telling ${name} it is unblocked`, err));
+        },
+      });
+      run.done(freed.length ? `${freed.length} unblocked` : 'still waiting');
+      if (freed.length) broadcast('sessions-changed', { ts: Date.now() });
+    } catch (err) {
+      run.fail((err as Error).message);
+    } finally {
+      blocksBusy = false;
+    }
+  };
+  const blocksTimer = lean ? null : setInterval(() => void sweepBlocksNow(), BLOCKS_EVERY_MS);
+  blocksTimer?.unref?.();
+
   const offArchived = lean
     ? () => {}
     : onArchived((s) => {
         void retargetChildrenOf(sessionIdFor(s), stackDeps)
           .then((n) => n && broadcast('sessions-changed', { ts: Date.now() }))
           .catch((err) => logSwallowed('moving stacked sessions onto main', err));
+        // A session others wait on is done.
+        void sweepBlocksNow();
       });
 
   // Update from main (behind-main.ts): its numbers move, so look again.
@@ -690,6 +743,8 @@ export async function startWebServer(
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  // What a session waits on (and a look straight away: the blocker may be done already).
+  mountBlockRoutes(app, { broadcast, changed: () => void sweepBlocksNow() });
 
   // A session's Claude as a chat: headless, instead of the terminal (spike).
   let selfUrl = '';
@@ -744,6 +799,7 @@ export async function startWebServer(
     stop: async () => {
       clearInterval(revPoll);
       offArchived();
+      if (blocksTimer) clearInterval(blocksTimer);
       loop.stop();
       jiraWatch.stop();
       if (decayTick) clearInterval(decayTick);

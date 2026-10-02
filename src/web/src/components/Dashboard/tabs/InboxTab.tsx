@@ -4,7 +4,7 @@ import { RowMenu } from '../RowMenu.js';
 import { snoozeLabel } from '../../../../../core/snooze.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, type SessionSummary, snoozeSession, unsnoozeSession } from '../../../api/client.js';
-import { isArchived, lastActiveAt, staleSuggestions, type PrLookup } from '../../../state/session-display.js';
+import { defaultSubTab, isArchived, lastActiveAt, staleSuggestions, type PrLookup } from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/attention.js';
@@ -115,16 +115,21 @@ export function InboxTab({
       }),
     );
   };
-  const { bySection, quiet, tracked, snoozed } = useMemo(() => {
+  const { bySection, quiet, tracked, snoozed, waiting } = useMemo(() => {
     const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
     const bySection = new Map<number, SessionSummary[]>();
     const snoozed: SessionSummary[] = [];
+    const waiting: SessionSummary[] = [];
     let quiet = 0;
     let tracked = 0;
     for (const s of sorted) {
       const rank = inboxRank(s);
       if (rank === 6) {
         snoozed.push(s);
+        continue;
+      }
+      if (rank === 7) {
+        waiting.push(s);
         continue;
       }
       if (s.attention || rank === 2) tracked++;
@@ -134,7 +139,7 @@ export function InboxTab({
       }
       bySection.set(rank, [...(bySection.get(rank) ?? []), s]);
     }
-    return { bySection, quiet, tracked, snoozed };
+    return { bySection, quiet, tracked, snoozed, waiting };
   }, [sessions]);
   const [snoozeMenu, setSnoozeMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
   const [snoozeError, setSnoozeError] = useState<string | null>(null);
@@ -293,6 +298,25 @@ export function InboxTab({
         ))
       )}
       {snoozeError && <div className="wd-tab-empty wd-tab-error">{snoozeError}</div>}
+      {waiting.length > 0 && (
+        <section className="wd-inbox-section wd-inbox-waiting">
+          <h2 className="wd-inbox-section-title" title="Waiting on other work (Blocked by…): out of the Inbox until it is done, then you are told">
+            Waiting on others <span className="wd-tab-header-muted">({waiting.length})</span>
+          </h2>
+          <ul className="wd-inbox-list">
+            {waiting.map((s) => (
+              <li key={s.id} className="wd-inbox-item">
+                <button type="button" className="wd-inbox-row" onClick={() => onOpenSession(s.id, defaultSubTab(s))}>
+                  <span className="wd-inbox-name">
+                    <span className="wd-inbox-target">{s.target}</span> {s.title && s.titleIsYours ? s.title : s.branch}
+                  </span>
+                  <span className="wd-inbox-since">waits on {(s.blockedBy ?? []).map((b) => b.label).join(', ')}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {snoozed.length > 0 && (
         <section className="wd-inbox-section wd-inbox-snoozed">
           <h2 className="wd-inbox-section-title" title="Snoozed: out of the Inbox and its count until then, or until their status changes">

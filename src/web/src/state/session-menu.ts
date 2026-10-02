@@ -17,6 +17,8 @@ export interface SessionMenuActions {
   snooze: (s: SessionSummary, choice: SnoozeFor) => void;
   /** Open "Snooze until…" (a time of your choosing). */
   snoozeUntil?: (s: SessionSummary) => void;
+  /** Open "Blocked by…" (another session, or a PR, it waits on). */
+  blockBy?: (s: SessionSummary) => void;
   unsnooze: (s: SessionSummary) => void;
   /** Open the Fork dialog (a new branch from here, with a summary of the conversation). */
   fork?: (s: SessionSummary) => void;
@@ -38,6 +40,7 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
             { label: 'Snooze until tomorrow 9:00', run: () => a.snooze(s, 'tomorrow') },
             { label: 'Snooze until it changes', run: () => a.snooze(s, 'change') },
             ...(a.snoozeUntil ? [{ label: 'Snooze until…', run: () => a.snoozeUntil!(s) }] : []),
+            ...(a.blockBy ? [{ label: s.blockedBy?.length ? 'Waiting on more…' : 'Blocked by…', run: () => a.blockBy!(s) }] : []),
           ]),
     // An archived one's Claude is stopped and its folder may be gone: Restore first.
     ...(archived

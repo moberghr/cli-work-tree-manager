@@ -34,6 +34,7 @@ import { sectionCommand } from './commands/section.js';
 import { catchupCommand } from './commands/catchup.js';
 import { updateCommand } from './commands/update.js';
 import { noteCommand } from './commands/note.js';
+import { blockCommand } from './commands/block.js';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
 
@@ -125,6 +126,7 @@ export function run(argv: string[]) {
     .command(pinCommand)
     .command(sectionCommand)
     .command(noteCommand)
+    .command(blockCommand)
     .command(listCommand)
     .command(statusCommand)
     .command(recentCommand)

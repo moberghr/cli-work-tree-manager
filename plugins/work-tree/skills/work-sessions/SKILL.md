@@ -30,6 +30,7 @@ description: Look up and act on the user's `work` worktree sessions — which se
 Session actions, each defaulting to the session for the current folder (or `<alias> <branch>`):
 - `work snooze [--for 2h|tomorrow|change] [--until 14:00|fri|+3h|2026-10-03] [--off]` — out of the user's Inbox for a while.
 - `work pin [--off]`, `work section --to <name> | --none | --list` — the dashboard rail's pins and sections.
+- `work block --on <alias> --on-branch <branch> | --pr <url> | --off` — the session waits on other work (out of the Inbox until it is done).
 - `work update` — bring the branch up to date: from main, from the session it is stacked on, or onto main once that one merged. Refused while a Claude works in it.
 
 `work cleanup --json` returns candidates with `verdict` and `suggested`:

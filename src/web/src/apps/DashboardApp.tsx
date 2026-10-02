@@ -33,6 +33,7 @@ import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
+import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
 import {
   DEFAULT_ROUTE,
   initialHash,
@@ -131,6 +132,8 @@ export function DashboardApp() {
   const [forking, setForking] = useState<SessionSummary | null>(null);
   // Session being snoozed until a time of your choosing.
   const [snoozingUntil, setSnoozingUntil] = useState<SessionSummary | null>(null);
+  // Session being marked as waiting on other work.
+  const [blocking, setBlocking] = useState<SessionSummary | null>(null);
   const { toast, show: showToast, hide: hideToast } = useToast();
   // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
   const sessionMenu = useCallback(
@@ -157,6 +160,7 @@ export function DashboardApp() {
           ),
         unsnooze: (x) => void unsnoozeSession(x.id).catch((err: Error) => showToast({ text: err.message, kind: 'error' })),
         snoozeUntil: (x) => setSnoozingUntil(x),
+        blockBy: (x) => setBlocking(x),
       }),
     [showToast],
   );
@@ -385,7 +389,7 @@ export function DashboardApp() {
     [navigate, route.sessionId, route.tab],
   );
 
-  const modalOpen = newOpen || deleting !== null || forking !== null || snoozingUntil !== null;
+  const modalOpen = newOpen || deleting !== null || forking !== null || snoozingUntil !== null || blocking !== null;
 
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
@@ -689,6 +693,18 @@ export function DashboardApp() {
       )}
       <Toast toast={toast} onClose={hideToast} />
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
+      {blocking && (
+        <BlockedByDialog
+          session={blocking}
+          sessions={sessions}
+          onClose={() => setBlocking(null)}
+          onDone={(what) => {
+            const x = blocking;
+            setBlocking(null);
+            showToast({ text: `${x.title ?? x.branch} waits on ${what}` });
+          }}
+        />
+      )}
       {snoozingUntil && (
         <SnoozeUntilDialog
           onClose={() => setSnoozingUntil(null)}

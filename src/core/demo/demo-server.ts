@@ -7,12 +7,13 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
+import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../api-types.js';
 import { dayKey } from '../work-time-view.js';
 import { DEFAULT_PROMPTS } from '../saved-prompts.js';
 import { buildStamp } from '../build-stamp.js';
 import { cleanOrder } from '../session-order.js';
 import { applyPlacePatch, applySectionOp, cleanPlacePatch, cleanSectionOp, type RailLayout } from '../rail-layout.js';
+import { prUrl } from '../blocks.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
 
@@ -60,6 +61,35 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // "Catch me up": a canned summary (the demo runs no Claude).
   const caughtUp = new Map<string, { text: string; at: string }>();
+  // What a session waits on, in memory (a demo PR never merges; a session blocker is done when archived).
+  const blocks = new Map<string, BlockerWire[]>();
+  app.post('/api/sessions/:id/blocks', async (c) => {
+    const w = scenario.list().find((x) => x.id === c.req.param('id'));
+    if (!w) return notFound(c);
+    const body = await json(c);
+    let ref: BlockerWire | null = null;
+    if (body.kind === 'session' && typeof body.id === 'string') {
+      const other = scenario.list().find((x) => x.id === body.id && !x.archivedAt);
+      if (other && other.id !== w.id) ref = { key: `session:${other.id}`, kind: 'session', label: other.title ?? other.branch, sessionId: other.id };
+    } else if (body.kind === 'pr' && typeof body.url === 'string') {
+      const pr = prUrl(body.url);
+      if (pr) ref = { key: `pr:${pr.url}`, kind: 'pr', label: pr.label, url: pr.url, state: 'OPEN' };
+    }
+    if (!ref) return c.json({ error: "expected {kind: 'session', id} of a live session, or {kind: 'pr', url} of a GitHub pull request" }, 400);
+    blocks.set(w.id, [...(blocks.get(w.id) ?? []).filter((b) => b.key !== ref!.key), ref]);
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
+    return c.json({ ok: true });
+  });
+  app.delete('/api/sessions/:id/blocks', (c) => {
+    const key = c.req.query('key');
+    const id = c.req.param('id');
+    const left = key ? (blocks.get(id) ?? []).filter((b) => b.key !== key) : [];
+    if (left.length) blocks.set(id, left);
+    else blocks.delete(id);
+    broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
+    return c.json({ ok: true });
+  });
+
   // Your notes on a session, in memory.
   const notes = new Map<string, { text: string; updatedAt: string }>();
   app.get('/api/sessions/:id/note', (c) => {
@@ -104,7 +134,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
       sessions: scenario.list().map((w) => {
         const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
         const z = snoozes.get(w.id);
-        const noted = notes.has(w.id) ? { ...out, hasNote: true } : out;
+        const waiting = (blocks.get(w.id) ?? []).filter((b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt));
+        const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
+        const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
         return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
       }),
     }),

@@ -343,6 +343,8 @@ export interface SessionWire {
   stackedChildren?: number;
   /** You have notes on it (session-notes.ts; GET /api/sessions/:id/note). */
   hasNote?: boolean;
+  /** What it waits on that isn't done yet (session-blocks.ts): out of the Inbox meanwhile. */
+  blockedBy?: BlockerWire[];
   /** It was stacked on a session that merged and is archived: it should move onto main (POST …/retarget). */
   stackParentMerged?: { id: string; branch: string };
   target: string;
@@ -545,6 +547,18 @@ export interface SessionCi {
 /** GET /api/rail (and every rail write's answer). */
 export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
 
+// ---- blocked by (session-blocks.ts) -------------------------------------------------
+
+/** One thing a session waits on. */
+export interface BlockerWire {
+  key: string;
+  kind: 'session' | 'pr';
+  label: string;
+  sessionId?: string;
+  url?: string;
+  state?: 'OPEN' | 'MERGED' | 'CLOSED';
+}
+
 // ---- your notes on a session (session-notes.ts) ------------------------------------
 
 /** GET / PUT /api/sessions/:id/note */
@@ -622,7 +636,7 @@ export interface JiraWatchState {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch' | 'stacks';
+export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch' | 'stacks' | 'blocks';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
