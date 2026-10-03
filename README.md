@@ -374,48 +374,16 @@ All session state (history, status, review comments, restore list, tasks) lives 
 
 ## Architecture
 
-```
-bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,sync,
-wd-bin.ts → forwards argv to `diff`     web,attach,pty-host,config,init,todo,run,broadcast,diff,hook}.ts
-                                       │
-                                       ▼
-                                  core/worktree/worktree.ts          ← high-level setup / teardown
-                                  ├── core/git/git.ts           ← git wrapper
-                                  ├── core/worktree/copy-files.ts    ← glob-based file copying
-                                  ├── core/worktree/resolve.ts       ← group vs single-repo dispatch
-                                  ├── core/sessions/history.ts       ← session tracking
-                                  ├── core/tasks.ts         ← local task persistence
-                                  ├── core/pr/pr.ts            ← GitHub PR fetching (gh)
-                                  ├── core/jira/jira.ts          ← Jira issue fetching (acli)
-                                  ├── core/sessions/fleet.ts         ← run/broadcast session selection
-                                  ├── core/comments/broadcast.ts     ← queue a prompt to live sessions
-                                  ├── core/status/notifier.ts      ← desktop notifications
-                                  ├── core/status/status-hooks.ts  ← user shell hooks on status change
-                                  └── core/worktree/port-allocator.ts← deterministic free-port pick
+Three kinds of process: the `work` CLI, the `work web` dashboard server (one
+per user), and the PTY host that owns every agent's terminal, so agents
+survive dashboard restarts and reboots. All logic lives in `src/core/`,
+grouped by feature; the CLI (`src/commands/`) and the HTTP server
+(`src/server/`) are thin front-ends over it. Session state is one SQLite
+database, `~/.work/state.db`.
 
-                                  Diff / review stack       ← `wd` + `work web`
-                                  ├── diff-pipeline.ts      ← computeDiff(): git diff + untracked + lcov
-                                  ├── diff-parse.ts         ← unified-diff parser
-                                  ├── checkpoint.ts         ← per-scope working-tree snapshots
-                                  ├── lcov.ts               ← coverage parsing (cached)
-                                  ├── diff-server.ts        ← shared Hono server (chokidar + SSE)
-                                  ├── comment-*.ts          ← review comment model + file store
-                                  ├── scope-manager.ts      ← in-memory scope registry
-                                  └── static-renderer.ts    ← self-contained HTML (`wd --static`)
-
-                                  web/src/                  ← React SPA (Vite → dist/web/)
-                                  ├── apps/ReviewApp.tsx    ← single-scope view (wd / wd -c)
-                                  ├── apps/DashboardApp.tsx ← multi-session view (work web)
-                                  └── components/           ← Diff/, Review/, Sidebar/, Terminal/
-
-                                  server/web-server.ts        ← `work web` dashboard (Hono + SSE + WS)
-                                  ├── scope-routes / panes-routes / worktree-routes / *-comment-routes
-                                  ├── pty-pool.ts           ← per-session Claude PTY pool
-                                  └── command-hook-installer.ts ← UserPromptSubmit/Stop hooks
-
-                                  core/pty/pty-host.ts          ← PTY host: owns every Claude PTY (survives restarts)
-                                  core/pty/pty-session.ts            ← node-pty + @xterm/headless (used by the PTY host)
-```
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has the overview: processes,
+source layout, state, the agent interface, one turn end to end, the security
+model. The decisions behind it are in [docs/adr/](docs/adr/README.md).
 
 ### Design principles
 
@@ -453,32 +421,13 @@ Completions are dynamic — branch names come from the worktree directory listin
 ## Development
 
 ```bash
-npm run build                                      # Bundle with tsup → dist/bin.js
-npm run dev                                        # Run directly via tsx (no build)
-npm test                                           # Run all tests with vitest
-npm run test:watch                                 # Watch mode
-npx vitest run tests/core/resolve.test.ts          # Single test file
+npm ci && npm run build && npm link   # `work` and `wd` from this checkout
+npm run typecheck && npm run lint && npm test
 ```
 
-After building, `work` is available globally via `npm link`. Rebuild after source changes.
-
-### Project layout
-
-```
-work-tree/
-├── src/
-│   ├── bin.ts                  # Entry point (chalk forcing, shebang)
-│   ├── cli.ts                  # yargs router
-│   ├── commands/               # CLI command handlers
-│   ├── core/                   # Shared operations (worktree, git, history, diff, web, …)
-│   ├── web/                    # React SPA — diff/review UI + work web dashboard (Vite → dist/web/)
-│   ├── tui/                    # PTY session wrapper (node-pty + headless xterm)
-│   ├── completions/            # Dynamic tab-completion handler
-│   └── utils/
-├── tests/                      # vitest suites
-├── tsup.config.ts
-└── package.json
-```
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the checks, where code goes, and
+how releases work; [CHANGELOG.md](CHANGELOG.md) for what changed;
+[SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ---
 
