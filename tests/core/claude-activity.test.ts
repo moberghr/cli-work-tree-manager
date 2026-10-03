@@ -4,12 +4,12 @@ import path from 'node:path';
 import os from 'node:os';
 import {
   claudeProjectsRoot,
-  effectiveLastAccessedAt,
   getClaudeActivityMs,
   hasClaudeConversation,
-  readSessionActivity,
   resolveResumeLaunch,
 } from '../../src/core/claude-activity.js';
+// A Claude session's activity: its transcripts, read through the Claude adapter.
+import { effectiveLastAccessedAt, readSessionActivity } from '../../src/core/session-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
 let tmpDir: string;

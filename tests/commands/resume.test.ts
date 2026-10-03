@@ -76,16 +76,22 @@ afterEach(() => {
 });
 
 describe('the session’s own agent', () => {
-  it('work resume / work recent launch the agent a session was created with — no --continue for one work has no adapter for', async () => {
-    seedConfig();
-    const session = makeSession({ agent: 'opencode' });
-    seedHistory([session]);
-    seedTranscript(worktreePath); // a Claude transcript says nothing about opencode
-    vi.mocked(select).mockResolvedValueOnce(session);
+  it('work resume / work recent launch the agent a session was created with; one with no adapter never gets --continue', async () => {
+    vi.mocked(launchAi).mockClear();
+    // The default is now opencode; this session was created with Claude.
+    saveConfig({ worktreesRoot: '/tmp/wt', repos: { api: '/repos/api' }, groups: {}, copyFiles: [], aiCommand: 'opencode' });
+    const claudes = makeSession({ agent: 'claude' });
+    seedHistory([claudes]);
+    seedTranscript(worktreePath);
+    vi.mocked(select).mockResolvedValueOnce(claudes);
     await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
-    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
-    vi.mocked(select).mockResolvedValueOnce(session);
-    await (recentCommand.handler as Function)({ count: 10, unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, undefined);
+    // One from before (nothing recorded) follows the default: opencode, and no --continue (a Claude transcript says nothing about it).
+    const old = makeSession();
+    seedHistory([old]);
+    vi.mocked(select).mockResolvedValueOnce(old);
+    await (recentCommand.handler as Function)({ count: 10, resume: true, unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenCalledTimes(2);
     expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
   });
 });

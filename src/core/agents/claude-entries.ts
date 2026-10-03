@@ -51,18 +51,40 @@ export function describeToolUse(tool: string, input: unknown): string {
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
 
+/**
+ * A slash command you typed between turns (`/model`, `/clear`, `/exit`,
+ * `/compact`) and its output: written as user lines, but no turn — Claude
+ * doesn't work on them. A `!` command (`<bash-input>`) and a background
+ * task's result (`<task-notification>`) are turns.
+ */
+function isCommandEcho(e: TranscriptEntry): boolean {
+  const text = contentBlocks(e)
+    .map((b) => (typeof b.text === 'string' ? b.text : ''))
+    .join('')
+    .trimStart();
+  return /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/.test(text);
+}
+
+/** Claude Code's own lines: meta, a compaction summary, one shown only in the transcript view. */
+const isMetaLine = (e: TranscriptEntry) => e.isMeta === true || e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true;
+
 /** One transcript line's entries: each line gives at least one. One with no time keeps `at: ''` (search and context usage read it; what counts time skips it). */
 function lineEntries(e: TranscriptEntry): ConversationEntry[] {
   const at = typeof e.timestamp === 'string' ? e.timestamp : '';
+  const meta = isMetaLine(e);
   const base = {
     at,
     ...(typeof e.uuid === 'string' && e.uuid ? { id: e.uuid } : {}),
     ...(e.isSidechain === true ? { sidechain: true as const } : {}),
+    ...(meta ? { meta: true as const } : {}),
   };
-  const prompt = promptText(e);
+  // A compaction summary is written as a user line, but you didn't type it.
+  const prompt = meta ? null : promptText(e);
   if (prompt) return [{ ...base, role: 'you', text: prompt }];
   const blocks = contentBlocks(e);
   if (e.type === 'user' && blocks.some((b) => b.type === 'tool_result')) return [{ ...base, role: 'tool-result', text: '' }];
+  // Any other line of yours that isn't a slash command's echo is a turn's work: a `!` command, its output, a task's result.
+  if (e.type === 'user') return [{ ...base, role: 'other', text: '', ...(!meta && !isCommandEcho(e) ? { turn: true as const } : {}) }];
   if (e.type !== 'assistant') return [{ ...base, role: 'other', text: '' }];
 
   const out: ConversationEntry[] = [];
@@ -78,7 +100,7 @@ function lineEntries(e: TranscriptEntry): ConversationEntry[] {
       : null;
   const model = typeof e.message?.model === 'string' ? e.message.model : undefined;
   // A meta line (Claude Code's own) is Claude's line for work time, but no message of its.
-  out.push({ ...base, role: 'agent', text: e.isMeta === true ? '' : text, ...(usage && usage.prompt + usage.reply > 0 ? { usage } : {}), ...(model ? { model } : {}) });
+  out.push({ ...base, role: 'agent', text: meta ? '' : text, ...(usage && usage.prompt + usage.reply > 0 ? { usage } : {}), ...(model ? { model } : {}) });
   for (const b of blocks) {
     if (b.type === 'tool_use' && typeof b.name === 'string') out.push({ ...base, role: 'tool', tool: b.name, text: describeToolUse(b.name, b.input) });
   }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { loadConfig, type WorkConfig } from './config.js';
 import { loadHistory, removeSession } from './history.js';
 import { sessionIdFor } from './session-id.js';
-import { readSessionActivity } from './claude-activity.js';
+import { readSessionActivity } from './session-activity.js';
 import { readStatus } from './session-status.js';
 import { disposePty } from './pty-pool.js';
 import { teardownWorktree } from './worktree.js';

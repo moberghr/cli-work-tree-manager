@@ -2,15 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from './config.js';
 import { getConfigDir, loadConfig } from './config.js';
-import { getAiTool } from './ai-launcher.js';
+import { agentToRecord } from './agents/index.js';
 
-/** The agent a new session runs: the configured tool's binary (`claude` by default). */
-function defaultAgentId(): string {
-  return getAiTool(loadConfig() ?? {}).cmd;
-}
+/** The agent a new session records: the configured one when work has an adapter for it (agents/). */
+const recordAgent = (): { agent?: string } => {
+  const agent = agentToRecord(loadConfig());
+  return agent ? { agent } : {};
+};
 import { json, purgeSessionRows, tx, withDb, type Db } from './db.js';
 import { sessionIdFor } from './session-id.js';
-import { effectiveLastAccessedAt } from './claude-activity.js';
+import { effectiveLastAccessedAt } from './session-activity.js';
 import { allocateFreePort } from './port-allocator.js';
 import { removeSessionFiles, stopSessionDevServer, clearSessionCheckpoints } from './session-store.js';
 
@@ -129,7 +130,7 @@ export async function upsertSession(
         paths,
         createdAt: now,
         lastAccessedAt: now,
-        agent: defaultAgentId(),
+        ...recordAgent(),
       };
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
@@ -183,7 +184,7 @@ export async function upsertSessionWithPort(
       putRow(d, existing);
       return existing.port;
     }
-    const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now, agent: defaultAgentId() };
+    const session: WorktreeSession = { target, isGroup, branch, paths, createdAt: now, lastAccessedAt: now, ...recordAgent() };
     if (jiraKey) session.jiraKey = jiraKey;
     if (baseBranch) session.baseBranch = baseBranch;
     if (hasPerRepo) session.baseBranches = baseBranches;

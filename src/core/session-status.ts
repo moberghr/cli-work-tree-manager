@@ -1,5 +1,6 @@
 import { json, tx, withDb, type Db } from './db.js';
 import { contentBlocks, readTranscriptTail, type TranscriptEntry } from './transcript.js';
+import type { ConversationEntry } from './agents/types.js';
 
 /**
  * Per-session agent status, driven by Claude Code's own hooks (installed by
@@ -219,34 +220,21 @@ export function idleFrom(status: SessionStatus): number {
 
 /**
  * The newest entry that is a turn's work: your prompt or `!` command and its
- * output, Claude's message or tool call, a tool's result. Not what Claude
- * Code writes around a turn (durations, hook summaries, away summaries, PR
- * links, titles), nor meta lines. Pure; 0 when there is none.
+ * output, the agent's message or tool call, a tool's result, a background
+ * task's result. Not what the agent writes around a turn (durations, hook
+ * summaries, away summaries, PR links, titles), slash commands, compaction
+ * or meta lines (the agent's mapping marks those: `meta`, no `turn`). Pure;
+ * 0 when there is none.
  */
-export function lastTurnEntryMs(entries: TranscriptEntry[]): number {
+export function lastTurnEntryMs(entries: readonly ConversationEntry[]): number {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
-    if ((e.type !== 'user' && e.type !== 'assistant') || e.isMeta === true) continue;
-    if (e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true) continue;
-    if (e.type === 'user' && isCommandEcho(e)) continue;
-    const ms = Date.parse(typeof e.timestamp === 'string' ? e.timestamp : '');
+    if (e.meta) continue;
+    if (e.role === 'other' && !e.turn) continue;
+    const ms = Date.parse(e.at);
     if (ms) return ms;
   }
   return 0;
-}
-
-/**
- * A slash command you typed between turns (`/model`, `/clear`, `/exit`,
- * `/compact`) and its output: written as user lines, but no turn — Claude
- * doesn't work on them. A `!` command (`<bash-input>`) and a background
- * task's result (`<task-notification>`) are turns, and stay.
- */
-function isCommandEcho(e: TranscriptEntry): boolean {
-  const text = contentBlocks(e)
-    .map((b) => (typeof b.text === 'string' ? b.text : ''))
-    .join('')
-    .trimStart();
-  return /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/.test(text);
 }
 
 // ---- persistence ----------------------------------------------------------

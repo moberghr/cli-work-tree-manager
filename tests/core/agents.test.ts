@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentById, agentFor } from '../../src/core/agents/index.js';
+import { agentById, agentFor, agentToRecord, isKnownAgent } from '../../src/core/agents/index.js';
 import { claudeAgent, claudeEntries } from '../../src/core/agents/claude.js';
 import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude-entries.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
@@ -45,6 +45,25 @@ describe('claudeEntries (pure): every line of a Claude transcript, in work’s o
     expect(claudeContextWindow('claude-opus-5-5[1m]', 10)).toBe(LARGE_WINDOW);
     expect(claudeContextWindow('claude-sonnet-5', 250_000)).toBe(LARGE_WINDOW);
     expect(claudeContextWindow('claude-sonnet-5', 10)).toBe(DEFAULT_WINDOW);
+  });
+
+  it('marks Claude Code’s own lines (`meta`) and the user lines that are still a turn’s work (`turn`)', () => {
+    const out = claudeEntries([
+      user('t1', '<bash-input>dotnet publish</bash-input>'),
+      user('t2', '<task-notification>agent finished</task-notification>'),
+      user('t3', '<command-name>/model</command-name>'),
+      user('t4', 'This session is being continued from a previous conversation…', { isCompactSummary: true }),
+      user('t5', 'meta', { isMeta: true }),
+      assistant('t6', [{ type: 'text', text: 'Claude Code’s own note' }], { isMeta: true }),
+    ]);
+    expect(out).toEqual([
+      { at: 't1', role: 'other', text: '', turn: true }, // a `!` command
+      { at: 't2', role: 'other', text: '', turn: true }, // a background task's result
+      { at: 't3', role: 'other', text: '' }, // a slash command: no turn
+      { at: 't4', meta: true, role: 'other', text: '' }, // compaction: not your prompt (it was one, wrongly, in the digest and search)
+      { at: 't5', meta: true, role: 'other', text: '' },
+      { at: 't6', meta: true, role: 'agent', text: '' }, // still Claude's line for work time, no message
+    ]);
   });
 
   it('a line with no time is kept with `at: ""` (search and context usage read it)', () => {
@@ -104,10 +123,16 @@ describe('agentFor', () => {
     expect(other.conversation).toBeUndefined();
   });
 
-  it('a session runs the agent it was created with, whatever the default is now', () => {
-    expect(agentFor({ aiCommand: 'claude' }, { agent: 'opencode' }).id).toBe('opencode');
+  it('a session runs the agent it was created with, whatever the default is now — when work has an adapter for it', () => {
     expect(agentFor({ aiCommand: 'opencode' }, { agent: 'claude' })).toBe(claudeAgent);
     expect(agentFor({ aiCommand: 'opencode' }, {}).id).toBe('opencode'); // from before: the default
+    // An unknown command isn't pinned: the session follows aiCommand as it is
+    // (a wrapper `node my-agent.js` recorded as `node` would come back as a bare node).
+    expect(agentFor({ aiCommand: 'claude' }, { agent: 'node' })).toBe(claudeAgent);
+    expect(agentToRecord({ aiCommand: 'claude --model opus' })).toBe('claude');
+    expect(agentToRecord({ aiCommand: 'node my-agent.js' })).toBeUndefined();
+    expect(isKnownAgent('claude')).toBe(true);
+    expect(isKnownAgent('opencode')).toBe(false);
     expect(agentById('claude')).toBe(claudeAgent);
   });
 });

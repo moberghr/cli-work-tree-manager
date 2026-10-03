@@ -141,8 +141,9 @@ describe('the agent a session runs', () => {
     fs.writeFileSync(path.join(tmpDir, '.work', 'config.json'), JSON.stringify({ worktreesRoot: '/w', repos: {}, groups: {}, copyFiles: [], aiCommand: 'opencode' }));
     await upsertSession('api', false, 'feat/a', ['/tmp/a']); // coming back to it
     expect(findSession(loadHistory(), 'api', 'feat/a')?.agent).toBe('claude');
+    // A tool work has no adapter for isn't recorded: the session follows aiCommand.
     await upsertSessionWithPort('api', false, 'feat/b', ['/tmp/b'], {});
-    expect(findSession(loadHistory(), 'api', 'feat/b')?.agent).toBe('opencode');
+    expect(findSession(loadHistory(), 'api', 'feat/b')).not.toHaveProperty('agent');
   });
 });
 

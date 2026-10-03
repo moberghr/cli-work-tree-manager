@@ -9,6 +9,14 @@ export type { AgentAdapter, AgentLaunch, ConversationEntry } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
 
+/** The agents work has an adapter for, by binary name. */
+const ADAPTERS: ReadonlyMap<string, AgentAdapter> = new Map([[claudeAgent.id, claudeAgent]]);
+
+/** work has an adapter for this agent (it can be recorded on a session and read). */
+export function isKnownAgent(id: string | undefined): id is string {
+  return !!id && ADAPTERS.has(id);
+}
+
 /**
  * An agent work has no adapter for (opencode, or whatever `aiCommand`
  * names): it starts — the binary, its preset flags — but nothing else is
@@ -31,14 +39,22 @@ function plainAgent(id: string): AgentAdapter {
 
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */
 export function agentById(id: string): AgentAdapter {
-  return id === 'claude' ? claudeAgent : plainAgent(id);
+  return ADAPTERS.get(id) ?? plainAgent(id);
+}
+
+/** The agent a new session records: the configured one, when work has an adapter for it (undefined: it follows `aiCommand`). */
+export function agentToRecord(config: ToolConfig): string | undefined {
+  const cmd = getAiTool(config ?? {}).cmd;
+  return isKnownAgent(cmd) ? cmd : undefined;
 }
 
 /**
  * The agent a session runs: the one it recorded when it was created
- * (`WorktreeSession.agent`), else the configured default (`aiCommand`,
- * Claude Code when unset). Without a session: the default.
+ * (`WorktreeSession.agent`, an agent work has an adapter for), else the
+ * configured default (`aiCommand`, Claude Code when unset). An unknown
+ * command is never pinned: a session follows `aiCommand` as it is (a wrapper
+ * like `node my-agent.js` would otherwise come back as a bare `node`).
  */
 export function agentFor(config: ToolConfig, session?: Pick<WorktreeSession, 'agent'> | null): AgentAdapter {
-  return agentById(session?.agent ?? getAiTool(config ?? {}).cmd);
+  return agentById(isKnownAgent(session?.agent) ? session.agent : getAiTool(config ?? {}).cmd);
 }

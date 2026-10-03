@@ -21,6 +21,7 @@ import {
   recordStatusEvent,
   type SessionStatus,
 } from '../../src/core/session-status.js';
+import { claudeEntries } from '../../src/core/agents/claude-entries.js';
 import { attentionRank, compareAttention, compareInbox, inboxRank, needsAttention, wantsYou } from '../../src/core/attention.js';
 
 const T0 = new Date('2026-09-28T10:00:00Z');
@@ -195,13 +196,13 @@ describe('lastTurnEntryMs', () => {
       { type: 'system', subtype: 'away_summary', timestamp: '2026-10-01T08:49:45Z' },
       { type: 'summary', summary: 'title, no timestamp' },
     ];
-    expect(lastTurnEntryMs(entries)).toBe(Date.parse('2026-10-01T08:42:22Z'));
-    expect(lastTurnEntryMs([{ type: 'system', timestamp: '2026-10-01T08:42:23Z' }])).toBe(0);
+    expect(lastTurnEntryMs(claudeEntries(entries))).toBe(Date.parse('2026-10-01T08:42:22Z'));
+    expect(lastTurnEntryMs(claudeEntries([{ type: 'system', timestamp: '2026-10-01T08:42:23Z' }]))).toBe(0);
   });
 
   it('slash commands and compaction are no turn; a background task’s result is', () => {
     const turn = { type: 'assistant', timestamp: '2026-10-01T08:42:22Z', message: { content: [{ type: 'text', text: 'done' }] } };
-    const after = (content: string, extra: object = {}) => lastTurnEntryMs([turn, { type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content }, ...extra }]);
+    const after = (content: string, extra: object = {}) => lastTurnEntryMs(claudeEntries([turn, { type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content }, ...extra }]));
     expect(after('<command-name>/model</command-name>')).toBe(Date.parse(turn.timestamp));
     expect(after('<local-command-stdout>Set model to opus</local-command-stdout>')).toBe(Date.parse(turn.timestamp));
     expect(after('This session is being continued…', { isCompactSummary: true })).toBe(Date.parse(turn.timestamp));

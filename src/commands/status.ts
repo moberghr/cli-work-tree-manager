@@ -8,7 +8,7 @@ import {
   prunePersistedStaleEntries,
   type WorktreeSession,
 } from '../core/history.js';
-import { effectiveLastAccessedAt } from '../core/claude-activity.js';
+import { effectiveLastAccessedAt } from '../core/session-activity.js';
 import {
   getStatus,
   getUnpushedCommits,

@@ -10,6 +10,9 @@ import { sessionTimeline } from '../../src/core/timeline-source.js';
 import { cachedCatchUp, catchUp } from '../../src/core/catch-up.js';
 import { searchConversations, syncConversation } from '../../src/core/conversation-store.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
+import { readSessionActivity } from '../../src/core/session-activity.js';
+import { saveConfig } from '../../src/core/config.js';
+import { sessionStatusView } from '../../src/core/turn-activity.js';
 
 /**
  * Every reader of a session's conversation asks the session's agent
@@ -62,7 +65,9 @@ describe('the session’s agent decides what its conversation is', () => {
   });
 
   it('a session running an agent work can’t read: none of it, even with Claude’s files in its folder', async () => {
-    const s = session('opencode');
+    // The configured agent is opencode (work has no adapter for it, so the session follows aiCommand).
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: {}, copyFiles: [], aiCommand: 'opencode' });
+    const s = session();
     expect(readContextUsage(s)).toBeNull();
     expect(sessionTitle(s)).toBeNull();
     expect(await sessionWorkTime(s)).toMatchObject({ prompts: 0, workedMs: 0 });
@@ -74,5 +79,13 @@ describe('the session’s agent decides what its conversation is', () => {
     const root = path.join(home, '.work', 'conversations');
     expect(await syncConversation(s, root)).toEqual({ files: 0, bytes: 0 });
     expect(await searchConversations('CSV export', { sessions: [s], root, archive: path.join(home, 'archive') })).toEqual([]);
+    // Nor its activity, nor "a turn's message after the turn ended" (turn activity).
+    expect(readSessionActivity(s)).toEqual({ lastActivity: null, state: 'stale' });
+    const idle = { state: 'idle' as const, seen: true, since: new Date(Date.now() - 3600_000).toISOString(), updatedAt: new Date(Date.now() - 3600_000).toISOString(), turnEndedAt: new Date(Date.now() - 3600_000).toISOString() };
+    expect(sessionStatusView(idle, s, Date.now()).state).toBe('idle');
+    // …while a session created with Claude keeps reading its transcript: a reply after the turn ended reads as working.
+    const claudes = session('claude');
+    expect(readSessionActivity(claudes).lastActivity).toBeGreaterThan(0);
+    expect(sessionStatusView(idle, claudes, Date.now()).state).toBe('working');
   });
 });

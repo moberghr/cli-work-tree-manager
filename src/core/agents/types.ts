@@ -33,6 +33,10 @@ export interface ConversationEntry {
   usage?: { prompt: number; reply: number };
   /** On an agent message: the model that wrote it. */
   model?: string;
+  /** The agent's own bookkeeping (a meta line, a compaction summary): no message of yours or its, and no turn's work. */
+  meta?: true;
+  /** An `other` line that is still part of a turn's work: a shell command you ran through it and its output, a background task's result. */
+  turn?: true;
 }
 
 /** A file of an agent's conversations. */

@@ -1,5 +1,5 @@
 import type { CommandModule } from 'yargs';
-import { readSessionActivity } from '../core/claude-activity.js';
+import { readSessionActivity } from '../core/session-activity.js';
 import {
   findSessionForCwd,
   formatPendingForPrompt,

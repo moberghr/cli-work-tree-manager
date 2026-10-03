@@ -29,7 +29,8 @@ vi.mock('../../src/core/web-state.js', () => ({
   findSession: (id: string) => sessions[id] ?? null,
   sessionIdFor: (x: { target: string; branch: string }) => `${x.target}:${x.branch}`,
 }));
-vi.mock('../../src/core/config.js', () => ({ loadConfig: () => ({}), getConfigDir: () => os.tmpdir() }));
+const cfg = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+vi.mock('../../src/core/config.js', () => ({ loadConfig: () => cfg.value, getConfigDir: () => os.tmpdir() }));
 vi.mock('../../src/core/ai-launcher.js', () => ({ getAiTool: (c?: { aiCommand?: string }) => ({ cmd: (c?.aiCommand ?? 'claude').split(' ')[0], baseArgs: [] }) }));
 vi.mock('../../src/core/pty-host-client.js', () => ({
   ensureHost: (...a: unknown[]) => ensureHost(...(a as [])),
@@ -92,7 +93,13 @@ describe('spawnSpecFor', () => {
   it('runs the agent the session was created with, not whatever the default is now', async () => {
     const pool = await freshPool();
     expect(pool.spawnSpecFor(sessions.single as never)?.tool.cmd).toBe('claude');
-    expect(pool.spawnSpecFor({ ...sessions.single, agent: 'opencode' } as never)?.tool.cmd).toBe('opencode');
+    try {
+      cfg.value = { aiCommand: 'opencode' };
+      expect(pool.spawnSpecFor({ ...sessions.single, agent: 'claude' } as never)?.tool.cmd).toBe('claude'); // recorded
+      expect(pool.spawnSpecFor(sessions.single as never)?.tool.cmd).toBe('opencode'); // from before: the default
+    } finally {
+      cfg.value = {};
+    }
   });
 });
 

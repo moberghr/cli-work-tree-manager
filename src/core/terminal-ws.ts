@@ -8,7 +8,7 @@ import { claudesBySession, readLiveClaudes } from './live-claudes.js';
 import { loadHistory } from './history.js';
 import { refuseReason } from './local-origin.js';
 import { findSession } from './web-state.js';
-import { readSessionActivity } from './claude-activity.js';
+import { readSessionActivity } from './session-activity.js';
 import { readStatus } from './session-status.js';
 import type { TerminalElsewhere } from './api-types.js';
 

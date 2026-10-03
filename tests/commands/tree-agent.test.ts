@@ -38,11 +38,16 @@ afterEach(() => {
 const tree = () => (treeCommand.handler as Function)({ _: [], target: 'api', branch: 'feat/x', host: false, pull: false, unsafe: false, fresh: false });
 
 describe('work tree --no-host', () => {
-  it('a new session runs the default agent; coming back, it runs the one it was created with', async () => {
+  it('a new session runs the default agent; coming back after the default changed, it runs the one it was created with', async () => {
     await tree();
     expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'claude' }), expect.objectContaining({ resume: false }), expect.anything());
-    // The session was made with opencode (as if the default had been opencode then).
-    saveHistory(loadHistory().map((s) => ({ ...s, agent: 'opencode' })));
+    expect(loadHistory()[0].agent).toBe('claude');
+    // The default changes to a tool work has no adapter for.
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [], aiCommand: 'opencode' });
+    await tree();
+    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'claude' }), expect.anything(), expect.anything());
+    // A session from before (nothing recorded) follows the default.
+    saveHistory(loadHistory().map(({ agent: _a, ...s }) => s));
     await tree();
     expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'opencode' }), expect.objectContaining({ resume: false }), expect.anything());
   });

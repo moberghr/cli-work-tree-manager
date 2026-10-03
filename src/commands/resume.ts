@@ -5,7 +5,7 @@ import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/config.js';
 import { loadHistory, getRecentSessions, recordLaunch, upsertSession } from '../core/history.js';
-import { effectiveLastAccessedAt } from '../core/claude-activity.js';
+import { effectiveLastAccessedAt } from '../core/session-activity.js';
 import { launchAi } from '../utils/platform.js';
 import { timeAgo } from '../utils/format.js';
 

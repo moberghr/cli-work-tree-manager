@@ -2,7 +2,7 @@ import { loadHistory } from './history.js';
 import { sessionStatusView } from './turn-activity.js';
 import { sessionIdFor } from './session-id.js';
 import { readStatus } from './session-status.js';
-import { readSessionActivity } from './claude-activity.js';
+import { readSessionActivity } from './session-activity.js';
 import { readTranscriptSince } from './transcript.js';
 import { agentFor } from './agents/index.js';
 import { loadConfig } from './config.js';
