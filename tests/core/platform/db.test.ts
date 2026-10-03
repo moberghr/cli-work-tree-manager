@@ -230,6 +230,9 @@ describe('an old PTY host that outlived the upgrade', () => {
     // session started after the upgrade, having forgotten the first one.
     const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' };
     write('pty-sessions.json', { later: { cwd: '/wt/later', tool, startedAt: 't2' }, junk: 1 });
+    // Written after the import — dated so, not left to the clock (the same millisecond reads as "not newer").
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(path.join(work, 'pty-sessions.json'), later, later);
 
     const { adoptLegacyRestoreList } = await import('../../../src/core/pty/pty-sessions-file.js');
     expect(adoptLegacyRestoreList()).toBe(1);

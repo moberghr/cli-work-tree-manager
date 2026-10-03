@@ -4,7 +4,7 @@
  * worktree under a temp HOME and `app.request()` so no port is bound.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,7 +29,7 @@ let tmpHome: string;
 let repoDir: string;
 let wtPath: string;
 let app: Hono;
-let broadcast: ReturnType<typeof vi.fn>;
+let broadcast: Mock<(event: string, data: unknown) => void>;
 
 const BRANCH = 'feat/x';
 
@@ -58,7 +58,7 @@ beforeEach(async () => {
   expect(createSingleWorktree(repoDir, wtPath, BRANCH, config)).toBe(true);
   await upsertSession('repo', false, BRANCH, [wtPath]);
 
-  broadcast = vi.fn();
+  broadcast = vi.fn<(event: string, data: unknown) => void>();
   app = new Hono();
   mountWorktreeRoutes(app, { broadcast });
   disposePty.mockClear();
