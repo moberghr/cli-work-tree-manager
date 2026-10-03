@@ -44,7 +44,7 @@ afterEach(() => {
 
 const run = async (force = false) => {
   const { removeCommand } = await import('../../src/commands/remove.js');
-  await (removeCommand.handler as Function)({ _: ['remove'], target: 'repo', branch: 'feat/x', force });
+  await (removeCommand.handler as (argv: unknown) => unknown)({ _: ['remove'], target: 'repo', branch: 'feat/x', force });
 };
 
 describe('work remove', () => {

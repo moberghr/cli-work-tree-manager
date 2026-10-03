@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail-layout.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
@@ -131,13 +131,16 @@ export function SessionsTab({
     for (const g of groupRail(sessions.filter((s) => !isArchived(s)), rail)) for (const s of g.sessions) m.set(s.id, g);
     return m;
   }, [sessions, rail]);
-  const inRail = (s: SessionSummary): boolean => {
-    if (railFilter === 'any') return true;
-    const g = railGroupOf.get(s.id);
-    if (railFilter === 'pinned') return g?.key === 'pinned';
-    if (railFilter === 'none') return !g || g.key === 'rest';
-    return g?.key === railFilter;
-  };
+  const inRail = useCallback(
+    (s: SessionSummary): boolean => {
+      if (railFilter === 'any') return true;
+      const g = railGroupOf.get(s.id);
+      if (railFilter === 'pinned') return g?.key === 'pinned';
+      if (railFilter === 'none') return !g || g.key === 'rest';
+      return g?.key === railFilter;
+    },
+    [railFilter, railGroupOf],
+  );
   const [query, setQuery] = useState('');
   const [grouping, setGroupingState] = useState<Grouping>(() => {
     try {
@@ -181,7 +184,7 @@ export function SessionsTab({
       }
       return lastActiveAt(b).localeCompare(lastActiveAt(a));
     });
-  }, [sessions, live, showArchived, sort, filter, query, railFilter, railGroupOf]);
+  }, [sessions, live, showArchived, sort, filter, query, inRail]);
 
   const selected = filtered.filter((s) => picked.has(s.id));
   const hiddenTicked = tickedAll.length - selected.length;

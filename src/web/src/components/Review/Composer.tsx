@@ -54,7 +54,7 @@ export function Composer({
       e.preventDefault();
       // When starting a review is an option, Ctrl+Enter defaults to it (batching)
       // rather than posting a single comment.
-      submit(allowDraft ? 'draft' : 'published');
+      void submit(allowDraft ? 'draft' : 'published');
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancel();

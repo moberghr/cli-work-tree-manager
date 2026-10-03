@@ -35,7 +35,7 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const tree = () => (treeCommand.handler as Function)({ _: [], target: 'api', branch: 'feat/x', host: false, pull: false, unsafe: false, fresh: false });
+const tree = () => (treeCommand.handler as (argv: unknown) => unknown)({ _: [], target: 'api', branch: 'feat/x', host: false, pull: false, unsafe: false, fresh: false });
 
 describe('work tree --no-host', () => {
   it('a new session runs the default agent; coming back after the default changed, it runs the one it was created with', async () => {

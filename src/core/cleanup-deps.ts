@@ -58,7 +58,7 @@ export async function untrackedWorktrees(
 
   for (const [group, aliases] of Object.entries(config.groups)) {
     const groupDir = path.join(config.worktreesRoot, group);
-    let branchDirs: string[] = [];
+    let branchDirs: string[];
     try {
       branchDirs = fs.readdirSync(groupDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     } catch {

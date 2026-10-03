@@ -40,7 +40,7 @@ describe('activity log', () => {
   });
 
   it('a schedule says when it runs next, and why it rests', () => {
-    let t = Date.parse('2026-09-30T10:00:00Z');
+    const t = Date.parse('2026-09-30T10:00:00Z');
     const log = createActivityLog({ now: () => t });
     const s = log.schedule('pr-watch', 'Pull request check', 180_000);
     s.next(t + 180_000);

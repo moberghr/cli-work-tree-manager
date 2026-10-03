@@ -100,6 +100,5 @@ export function useSse(url: string | null, handlers: SseHandlers): void {
     };
     // We intentionally only depend on the URL — handlers can change between
     // renders without forcing a reconnect, since dispatch goes through the ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 }

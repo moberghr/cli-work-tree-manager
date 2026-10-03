@@ -7,7 +7,6 @@ import {
   type CheckpointEntry,
   type DiffBase,
   type RepoData,
-  type SessionDiff,
   type SessionSummary,
 } from '../../api/client.js';
 import { sessionReviewApi } from '../../api/review-api.js';

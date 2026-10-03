@@ -89,7 +89,7 @@ describe('CheckpointStrip (GitHub-style single dropdown)', () => {
     openMenu();
 
     act(() => rowByText('add resolve route').click()); // plain → single checkpoint #1
-    act(() =>
+    act(() => void
       rowByText('add resolve route').dispatchEvent(
         new MouseEvent('click', { bubbles: true, shiftKey: true }),
       ),

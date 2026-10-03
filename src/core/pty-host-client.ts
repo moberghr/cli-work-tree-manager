@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { spawnDetachedWork } from './process.js';
 import { getConfigDir } from './config.js';

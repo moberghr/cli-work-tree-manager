@@ -40,7 +40,7 @@ function initRepo(): void {
 
 function runSync(extra: Record<string, unknown> = {}): Promise<void> {
   const argv = { _: ['sync'], dryRun: false, force: true, ...extra };
-  return (syncCommand.handler as Function)(argv);
+  return (syncCommand.handler as (argv: unknown) => Promise<void>)(argv);
 }
 
 beforeEach(() => {

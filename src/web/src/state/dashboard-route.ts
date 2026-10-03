@@ -86,7 +86,7 @@ export type RouteStorage = Pick<Storage, 'getItem' | 'setItem'>;
  */
 export function initialHash(currentHash: string, storage: RouteStorage | null): string {
   if (currentHash && currentHash !== '#' && currentHash !== '#/') return currentHash;
-  let saved: string | null = null;
+  let saved: string | null;
   try {
     saved = storage?.getItem(LAST_ROUTE_KEY) ?? null;
   } catch {

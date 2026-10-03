@@ -45,7 +45,7 @@ describe('SnoozeUntilDialog', () => {
     expect(submit.disabled).toBe(true);
     type('+2h');
     expect(submit.disabled).toBe(false);
-    act(() => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    act(() => void container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     const iso = onPick.mock.calls[0][0] as string;
     expect(Math.abs(Date.parse(iso) - (Date.now() + 2 * 3600_000))).toBeLessThan(60_000);
   });

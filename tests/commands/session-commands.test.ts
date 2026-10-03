@@ -58,7 +58,7 @@ afterEach(() => {
   fs.rmSync(homeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const COMMANDS: Record<string, { handler: Function }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand, blockCommand, timeCommand } as never;
+const COMMANDS: Record<string, { handler: (argv: unknown) => unknown }> = { snoozeCommand, pinCommand, sectionCommand, updateCommand, catchupCommand, noteCommand, blockCommand, timeCommand } as never;
 const run = async (_file: string, name: string, argv: Record<string, unknown> = {}) => {
   await COMMANDS[name].handler({ _: [name], ...argv });
 };

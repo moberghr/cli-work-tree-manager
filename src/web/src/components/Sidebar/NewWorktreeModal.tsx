@@ -61,7 +61,7 @@ export function NewWorktreeModal({
       (p) => {
         setProjects(p);
         // Default target to the first project if nothing prefilled.
-        if (!target && p.singles[0]) setTarget(p.singles[0].name);
+        if (p.singles[0]) setTarget((t) => t || p.singles[0].name);
       },
       () => setProjects({ singles: [], groups: [] }),
     );

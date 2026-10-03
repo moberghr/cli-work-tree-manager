@@ -169,7 +169,7 @@ export function run(argv: string[]) {
     .command(installSkillsCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
-    .completion('__completions', false as any, completionHandler)
+    .completion('__completions', false, completionHandler)
     .demandCommand(1, 'You need to specify a command. Run work --help for usage.')
     .strict()
     .fail((msg, err, yargs) => {
@@ -190,5 +190,6 @@ export function run(argv: string[]) {
     .alias('v', 'version')
     .wrap(Math.min(100, process.stdout.columns || 80));
 
-  cli.parse();
+  // Async handlers' failures land in .fail() above (and the fatal handlers in bin.ts).
+  void cli.parse();
 }

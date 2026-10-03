@@ -468,7 +468,7 @@ async function runReview(ctx: RenderContext): Promise<void> {
   openUrl(handle.url);
 
   const cleanup = () => {
-    handle.stop();
+    void handle.stop();
   };
 
   const onSignal = () => {

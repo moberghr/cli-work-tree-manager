@@ -7,8 +7,6 @@ import {
   installCommandHook,
   removeCommandHook,
   removeCommandHookSync,
-  removeCommandHooksSync,
-  syncCommandHooks,
 } from '../../src/core/command-hook-installer.js';
 
 let tmpDir: string;

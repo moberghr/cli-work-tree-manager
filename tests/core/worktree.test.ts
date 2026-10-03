@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git, parseWorktreeList, getCurrentBranch, localBranchExists, repoState } from '../../src/core/git.js';
+import { git, getCurrentBranch, localBranchExists, repoState } from '../../src/core/git.js';
 import { createSingleWorktree, removeSingleWorktree, teardownWorktree, wouldRefuseRemoval } from '../../src/core/worktree.js';
 import type { WorkConfig } from '../../src/core/config.js';
 

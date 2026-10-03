@@ -378,7 +378,7 @@ function SessionComments({ sessionId }: SessionCommentsProps) {
   );
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
   useSse('/events', { events: { 'comments-changed': () => refresh() } });
 

@@ -45,17 +45,33 @@ async function probeAcli(): Promise<{ available: boolean; siteUrl: string }> {
   }
 }
 
-function parseIssuesJson(stdout: string, siteUrl: string): JiraIssue[] {
-  const parsed = JSON.parse(stdout);
-  const issues: any[] = parsed.issues ?? parsed ?? [];
+/** The fields of `acli jira workitem search --json` this reads; all optional — it is someone else's output. */
+interface AcliIssue {
+  key?: string;
+  fields?: {
+    summary?: string;
+    status?: { name?: string; statusCategory?: { key?: string } };
+    issuetype?: { name?: string };
+    priority?: { name?: string };
+  };
+}
 
-  return issues.map((issue: any) => {
+/** Jira's three status categories (the board's column order); anything else isn't one. */
+function isStatusCategory(k: unknown): k is NonNullable<JiraIssue['statusCategory']> {
+  return k === 'new' || k === 'indeterminate' || k === 'done';
+}
+
+function parseIssuesJson(stdout: string, siteUrl: string): JiraIssue[] {
+  const parsed = JSON.parse(stdout) as { issues?: AcliIssue[] } | AcliIssue[] | null;
+  const issues: AcliIssue[] = (Array.isArray(parsed) ? parsed : parsed?.issues) ?? [];
+
+  return issues.map((issue) => {
     const fields = issue.fields ?? {};
     return {
       key: issue.key ?? '',
       summary: fields.summary ?? '',
       status: fields.status?.name ?? '',
-      ...(['new', 'indeterminate', 'done'].includes(fields.status?.statusCategory?.key) ? { statusCategory: fields.status.statusCategory.key } : {}),
+      ...(isStatusCategory(fields.status?.statusCategory?.key) ? { statusCategory: fields.status.statusCategory.key } : {}),
       issuetype: fields.issuetype?.name ?? '',
       priority: fields.priority?.name ?? '',
       url: siteUrl ? `${siteUrl}/browse/${issue.key}` : '',

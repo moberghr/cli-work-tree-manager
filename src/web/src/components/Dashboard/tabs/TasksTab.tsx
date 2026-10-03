@@ -33,7 +33,7 @@ export function TasksTab({ onPick }: Props) {
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
 
   function refresh() {
-    fetchTasks().then((r) => setTasks(r.tasks));
+    fetchTasks().then((r) => setTasks(r.tasks), () => { /* offline: the list stays as it was */ });
   }
 
   useEffect(refresh, []);

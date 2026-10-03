@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 import { parse as acornParse } from 'acorn';
 import {
   escapeForScriptTag,
@@ -59,7 +60,6 @@ beforeEach(() => {
   // produces one modified file: README.md.
   repoDir = path.join(tmpDir, 'repo');
   fs.mkdirSync(repoDir, { recursive: true });
-  const { execSync } = require('node:child_process') as typeof import('node:child_process');
   execSync('git init -q', { cwd: repoDir });
   execSync('git config user.email t@t.t', { cwd: repoDir });
   execSync('git config user.name t', { cwd: repoDir });

@@ -27,7 +27,7 @@ function initRepo(): void {
 // every collected worktree without an inquirer round-trip.
 function runPrune(extra: Record<string, unknown> = {}): Promise<void> {
   const argv = { _: ['prune'], force: true, ...extra };
-  return (pruneCommand.handler as Function)(argv);
+  return (pruneCommand.handler as (argv: unknown) => Promise<void>)(argv);
 }
 
 beforeEach(() => {

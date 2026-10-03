@@ -1,6 +1,5 @@
 import { createFsWatcher, type FsWatcher } from './fs-watcher.js';
-import { findSessionById, loadHistory, type WorktreeSession } from './history.js';
-import { sessionIdFor } from './session-id.js';
+import { findSessionById, type WorktreeSession } from './history.js';
 
 export { sessionIdFor } from './session-id.js';
 

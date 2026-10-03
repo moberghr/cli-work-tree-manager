@@ -107,7 +107,8 @@ export function InboxTab({
   const [marking, setMarking] = useState<Set<string>>(new Set());
   const markSeen = (id: string) => {
     setMarking((m) => new Set(m).add(id));
-    onMarkSeen(id).finally(() =>
+    // A failed mark leaves the row as it was; the next refresh shows the truth.
+    onMarkSeen(id).catch(() => {}).finally(() =>
       setMarking((m) => {
         const next = new Set(m);
         next.delete(id);

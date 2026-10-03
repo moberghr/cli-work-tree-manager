@@ -31,7 +31,7 @@ function run(...extra: string[]): void {
     action: 'group',
     _: ['config', ...extra],
   };
-  (configCommand.handler as Function)(argv);
+  (configCommand.handler as (argv: unknown) => unknown)(argv);
 }
 
 beforeEach(() => {

@@ -123,7 +123,7 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
     setChosen(next);
   }, [st]);
 
-  const candidates = st?.candidates ?? [];
+  const candidates = useMemo(() => st?.candidates ?? [], [st]);
   const selected = useMemo(() => candidates.filter((c) => chosen[c.sessionId]), [candidates, chosen]);
   const tally = useMemo(() => {
     const t: Record<CleanupAction, number> = { delete: 0, archive: 0, forget: 0 };

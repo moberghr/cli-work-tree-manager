@@ -30,7 +30,7 @@ export function firstPromptOf(file: string, toEntries: (lines: readonly unknown[
   // its whole head was read already: re-reading 256 KB of every such
   // transcript on every session-list build cost the most of all.
   if (hit && size >= hit.size && (hit.title !== null || size === hit.size || hit.size >= HEAD_BYTES)) return hit.title;
-  let text = '';
+  let text: string;
   try {
     const fd = fs.openSync(file, 'r');
     try {

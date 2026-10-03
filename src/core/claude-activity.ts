@@ -154,7 +154,6 @@ export function resolveResumeLaunch(session: WorktreeSession): {
 }
 
 export type { ActivityState } from './api-types.js';
-import type { ActivityState } from './api-types.js';
 
 /** Watch root: `~/.claude/projects/`. The web server subscribes to mtime
  *  changes here and re-broadcasts `sessions-changed` so the sidebar

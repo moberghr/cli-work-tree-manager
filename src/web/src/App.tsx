@@ -69,6 +69,8 @@ function AppRoutes() {
       (err: Error) => { if (!cancelled) setError(err.message); },
     );
     return () => { cancelled = true; };
+    // Once, at load: the URL it reads is the one the page was opened at.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (urlFile) {

@@ -133,7 +133,7 @@ describe('Toast', () => {
     act(() => root.render(createElement(Host)));
     act(() => api.show({ text: "Couldn't open the editor: code not found", kind: 'error' }));
     expect(container.querySelector('[role="alert"]')!.textContent).toBe("Couldn't open the editor: code not found");
-    act(() => vi.advanceTimersByTime(2100)); // an error stays twice as long
+    act(() => void vi.advanceTimersByTime(2100)); // an error stays twice as long
     expect(container.querySelector('[role="alert"]')).toBeNull();
     act(() => api.show({ text: 'Copied feat/a' }));
     act(() => (container.querySelector('[role="status"]') as HTMLElement).click());

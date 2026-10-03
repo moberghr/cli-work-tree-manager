@@ -7,7 +7,6 @@ import {
   loadConfig,
   saveConfig,
   getConfigPath,
-  type WorkConfig,
 } from '../core/config.js';
 import { isGitRepo } from '../core/git.js';
 import { KNOWN_TOOLS } from '../core/ai-launcher.js';

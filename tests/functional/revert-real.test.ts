@@ -45,7 +45,7 @@ afterEach(async () => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const get = async <T = any>(p: string): Promise<{ status: number; body: T }> => {
+const get = async <T = unknown>(p: string): Promise<{ status: number; body: T }> => {
   const res = await fetch(server.url.replace(/\/$/, '') + p);
   return { status: res.status, body: (await res.json()) as T };
 };
@@ -55,8 +55,10 @@ const post = async (p: string, body: unknown) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return { status: res.status, body: (await res.json()) as any };
+  return { status: res.status, body: (await res.json()) as unknown };
 };
+/** What a session's diff route answers (the fields these tests read). */
+type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
 const id = () => sessionIdFor({ target: 'repo', branch: 'feat/x' });
 
 describe('POST /api/sessions/:id/revert', () => {
@@ -68,7 +70,7 @@ describe('POST /api/sessions/:id/revert', () => {
     lines[27] = 'BOTTOM';
     fs.writeFileSync(path.join(repo, 'README.md'), lines.join('\n') + '\n');
 
-    const d = await get(`/api/sessions/${id()}/diff?base=uncommitted`);
+    const d = await get<DiffWire>(`/api/sessions/${id()}/diff?base=uncommitted`);
     const hunks = d.body.repos[0].files[0].hunks;
     expect(hunks).toHaveLength(2);
     const h = hunks[0];

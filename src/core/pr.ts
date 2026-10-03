@@ -40,18 +40,33 @@ function execAsync(cmd: string, args: string[], cwd: string, timeout: number): P
   });
 }
 
+/** The fields of `gh pr list --json …` this reads; all optional — it is someone else's output. */
+interface GhPr {
+  number?: number;
+  title?: string;
+  headRefName?: string;
+  url?: string;
+  isDraft?: boolean;
+  mergeable?: string;
+  reviewDecision?: string;
+  author?: { login?: string } | null;
+  statusCheckRollup?: Array<{ conclusion?: string | null; status?: string | null }> | null;
+  reviews?: Array<{ author?: { login?: string } | null; state?: string }> | null;
+}
+
 function parsePrJson(stdout: string, repoAlias: string, currentUser: string): PullRequestInfo[] {
-  const prs: any[] = JSON.parse(stdout);
+  const parsed = JSON.parse(stdout) as unknown;
+  const prs: GhPr[] = Array.isArray(parsed) ? (parsed as GhPr[]) : [];
   const results: PullRequestInfo[] = [];
 
   for (const pr of prs) {
     let checksStatus: PullRequestInfo['checksStatus'] = 'NONE';
-    const checks: any[] = pr.statusCheckRollup ?? [];
+    const checks = pr.statusCheckRollup ?? [];
     if (checks.length > 0) {
-      const hasFailure = checks.some((c: any) =>
+      const hasFailure = checks.some((c) =>
         c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT' || c.conclusion === 'CANCELLED',
       );
-      const hasPending = checks.some((c: any) =>
+      const hasPending = checks.some((c) =>
         c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || c.status === 'PENDING',
       );
       if (hasFailure) checksStatus = 'FAILURE';
@@ -70,7 +85,7 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
     // Check current user's latest review state
     let myReview: PullRequestInfo['myReview'] = 'NONE';
     if (currentUser) {
-      const reviews: any[] = pr.reviews ?? [];
+      const reviews = pr.reviews ?? [];
       for (let i = reviews.length - 1; i >= 0; i--) {
         if (reviews[i].author?.login?.toLowerCase() === currentUser.toLowerCase()) {
           const state = reviews[i].state;
@@ -83,10 +98,10 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
     }
 
     results.push({
-      number: pr.number,
-      title: pr.title,
-      branch: pr.headRefName,
-      url: pr.url,
+      number: pr.number ?? 0,
+      title: pr.title ?? '',
+      branch: pr.headRefName ?? '',
+      url: pr.url ?? '',
       isDraft: pr.isDraft ?? false,
       checksStatus,
       reviewDecision,

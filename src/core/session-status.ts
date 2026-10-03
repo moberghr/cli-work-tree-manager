@@ -1,5 +1,5 @@
 import { json, tx, withDb, type Db } from './db.js';
-import { contentBlocks, readTranscriptTail, type TranscriptEntry } from './transcript.js';
+import { contentBlocks, readTranscriptTail } from './transcript.js';
 import type { ConversationEntry } from './agents/types.js';
 
 /**
@@ -12,7 +12,7 @@ import type { ConversationEntry } from './agents/types.js';
  */
 
 import type { AgentState } from './attention.js';
-import type { PermissionAnswer, PermissionRequest } from './permission-request.js';
+import type { PermissionRequest } from './permission-request.js';
 
 export type { AgentState } from './attention.js';
 export { attentionRank, compareAttention, needsAttention } from './attention.js';

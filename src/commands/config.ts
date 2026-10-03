@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
-import type { ArgumentsCamelCase, CommandModule } from 'yargs';
+import type { CommandModule } from 'yargs';
 import {
   loadConfig,
   saveConfig,

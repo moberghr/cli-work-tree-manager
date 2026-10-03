@@ -84,13 +84,13 @@ describe('the session’s own agent', () => {
     seedHistory([claudes]);
     seedTranscript(worktreePath);
     vi.mocked(select).mockResolvedValueOnce(claudes);
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
     expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, undefined);
     // One from before (nothing recorded) follows the default: opencode, and no --continue (a Claude transcript says nothing about it).
     const old = makeSession();
     seedHistory([old]);
     vi.mocked(select).mockResolvedValueOnce(old);
-    await (recentCommand.handler as Function)({ count: 10, resume: true, unsafe: false, _: [] });
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
     expect(launchAi).toHaveBeenCalledTimes(2);
     expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
   });
@@ -105,7 +105,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     const history = loadHistory();
     expect(history).toHaveLength(1);
@@ -129,7 +129,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
@@ -147,7 +147,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
@@ -164,7 +164,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     const history = loadHistory();
     expect(history[0].createdAt).toBe(OLD_TIMESTAMP);
@@ -180,7 +180,7 @@ describe('recent --resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (recentCommand.handler as Function)({
+    await (recentCommand.handler as (argv: unknown) => unknown)({
       count: 10,
       resume: true,
       unsafe: false,

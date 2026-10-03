@@ -104,7 +104,7 @@ export class BehindCache {
     while (this.running < (this.opts.concurrency ?? 2) && this.queue.length > 0) {
       const job = this.queue.shift()!;
       this.running++;
-      Promise.all(job.paths.map((p) => behindMain(p, this.opts.run, job.parent)))
+      void Promise.all(job.paths.map((p) => behindMain(p, this.opts.run, job.parent)))
         .then(combineBehind)
         .catch((err) => {
           logSwallowed(`behind main for ${job.id}`, err);

@@ -34,7 +34,7 @@ export function GeneralPane() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
-              submit('published');
+              void submit('published');
             }
           }}
         />

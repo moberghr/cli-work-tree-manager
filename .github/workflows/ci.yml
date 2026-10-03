@@ -24,6 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       # Build before testing: the functional `work attach` test drives the
       # built dist/bin.js (it skips itself when there is no build).
       - run: npm run build

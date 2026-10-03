@@ -5,8 +5,6 @@ import os from 'node:os';
 import { loadConfig, saveConfig, getConfigDir, validatePortRange, type WorkConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
-const originalHome = process.env.HOME;
-const originalUserProfile = process.env.USERPROFILE;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-test-'));

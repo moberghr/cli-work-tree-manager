@@ -99,7 +99,7 @@ export function CommentItem({ comment, currentLineContent }: Props) {
                 // Re-resolving collapses again next render; clear the local
                 // expand so an already-resolved-then-expanded thread folds.
                 setExpandedResolved(false);
-                review.resolveComment(comment.id, !comment.resolved);
+                void review.resolveComment(comment.id, !comment.resolved);
               }}
             >
               {comment.resolved ? 'unresolve' : 'resolve'}

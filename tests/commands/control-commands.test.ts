@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CommandModule } from 'yargs';
 
 /** `work read | screen | send | wait | start | stop | answer`: driving a session from a terminal (or another Claude). work web is faked. */
 
@@ -54,7 +55,7 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const run = (cmd: { handler: Function }, argv: Record<string, unknown> = {}) => cmd.handler({ _: [], ...argv });
+const run = (cmd: CommandModule, argv: Record<string, unknown> = {}) => (cmd.handler as (argv: unknown) => unknown)({ _: [], ...argv });
 const transcript = (lines: object[]) => {
   const dir = path.join(home, '.claude', 'projects', encodeProjectDir(wt));
   fs.mkdirSync(dir, { recursive: true });

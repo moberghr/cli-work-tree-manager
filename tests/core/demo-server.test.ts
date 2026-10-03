@@ -5,7 +5,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { startDemoServer } from '../../src/core/demo/demo-server.js';
 import { DemoScenario } from '../../src/core/demo/scenario.js';
-import type { SessionWire, ShipPreflight } from '../../src/core/api-types.js';
+import type { SessionCi, SessionWire, ShipPreflight } from '../../src/core/api-types.js';
+import type { CheckpointEntry } from '../../src/core/checkpoint.js';
+import type { Comment } from '../../src/core/comment-types.js';
+
+/** What a session's diff route answers (the fields these tests read). */
+type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
+type Comments = { comments: Comment[] };
 
 /**
  * The demo server behaves like work web over HTTP/WS — with no repos,
@@ -30,7 +36,7 @@ afterEach(async () => {
   fs.rmSync(webRoot, { recursive: true, force: true });
 });
 
-const get = async <T = any>(p: string): Promise<T> => (await fetch(server.url + p.replace(/^\//, ''))).json() as Promise<T>;
+const get = async <T = unknown>(p: string): Promise<T> => (await fetch(server.url + p.replace(/^\//, ''))).json() as Promise<T>;
 const send = (method: string, p: string, body?: unknown) =>
   fetch(server.url + p.replace(/^\//, ''), {
     method,
@@ -74,23 +80,23 @@ describe('demo server', () => {
 
   it('diffs parse into files for both scopes', async () => {
     const login = await byBranch('fix/login-redirect');
-    const d = await get(`/api/sessions/${login.id}/diff?base=uncommitted`);
+    const d = await get<DiffWire>(`/api/sessions/${login.id}/diff?base=uncommitted`);
     expect(d.repos[0].files.map((f: { path: string }) => f.path)).toEqual(['src/auth.ts', 'src/auth.test.ts']);
     const shop = await byBranch('feat/checkout-v2');
-    const b = await get(`/api/sessions/${shop.id}/diff?base=branch`);
+    const b = await get<DiffWire>(`/api/sessions/${shop.id}/diff?base=branch`);
     expect(b.repos.map((r: { name: string }) => r.name)).toEqual(['backend', 'frontend']);
   });
 
   it('shows failing CI, and asking Claude to fix it turns the checks green', async () => {
     const deps = await byBranch('chore/deps-update');
-    const ci = await get(`/api/sessions/${deps.id}/ci`);
+    const ci = await get<SessionCi>(`/api/sessions/${deps.id}/ci`);
     expect(ci.repos[0].pr).toMatchObject({ number: 212, checks: 'fail', failing: [{ name: 'test (node 22)' }, { name: 'typecheck' }] });
     expect((await send('POST', `/api/sessions/${deps.id}/ci/fix`)).status).toBe(200);
-    expect((await get(`/api/sessions/${deps.id}/comments`)).comments[0].body).toContain('CI is failing');
+    expect((await get<Comments>(`/api/sessions/${deps.id}/comments`)).comments[0].body).toContain('CI is failing');
     advance(3_500);
-    expect((await get(`/api/sessions/${deps.id}/ci`)).repos[0].pr.checks).toBe('pending');
+    expect((await get<SessionCi>(`/api/sessions/${deps.id}/ci`)).repos[0].pr?.checks).toBe('pending');
     advance(4_000);
-    expect((await get(`/api/sessions/${deps.id}/ci`)).repos[0].pr.checks).toBe('pass');
+    expect((await get<SessionCi>(`/api/sessions/${deps.id}/ci`)).repos[0].pr?.checks).toBe('pass');
     expect((await send('POST', `/api/sessions/${deps.id}/ci/fix`)).status).toBe(409);
   });
 
@@ -128,12 +134,12 @@ describe('demo server', () => {
 
   it('fakes per-turn checkpoints, and a turn diffs to part of the change', async () => {
     const login = await byBranch('fix/login-redirect');
-    const { entries } = await get(`/api/sessions/${login.id}/checkpoints`);
+    const { entries } = await get<{ entries: CheckpointEntry[] }>(`/api/sessions/${login.id}/checkpoints`);
     expect(entries.map((e: { id: number }) => e.id)).toEqual([0, 1, 2]);
-    const last = await get(`/api/sessions/${login.id}/diff?from=1&to=2`);
+    const last = await get<DiffWire>(`/api/sessions/${login.id}/diff?from=1&to=2`);
     expect(last.base).toBe('range');
     expect(last.repos[0].files.map((f: { path: string }) => f.path)).toEqual(['src/auth.test.ts']);
-    const all = await get(`/api/sessions/${login.id}/diff?from=0&to=2`);
+    const all = await get<DiffWire>(`/api/sessions/${login.id}/diff?from=0&to=2`);
     expect(all.repos[0].files).toHaveLength(2);
   });
 
@@ -141,16 +147,16 @@ describe('demo server', () => {
     const login = await byBranch('fix/login-redirect');
     const r = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.test.ts' });
     expect(r.status).toBe(200);
-    const d = await get(`/api/sessions/${login.id}/diff?base=uncommitted`);
+    const d = await get<DiffWire>(`/api/sessions/${login.id}/diff?base=uncommitted`);
     expect(d.repos[0].files.map((f: { path: string }) => f.path)).toEqual(['src/auth.ts']);
     expect((await byBranch('fix/login-redirect')).diffStat).toMatchObject({ files: 1 });
-    const { comments } = await get(`/api/sessions/${login.id}/comments`);
-    expect(comments.at(-1).body).toContain('`src/auth.test.ts`');
+    const { comments } = await get<Comments>(`/api/sessions/${login.id}/comments`);
+    expect(comments.at(-1)!.body).toContain('`src/auth.test.ts`');
 
     const h = d.repos[0].files[0].hunks[0];
     const hunk = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts', lines: { start: h.newStart, end: h.newStart } });
     expect(hunk.status).toBe(200);
-    expect((await get(`/api/sessions/${login.id}/diff?base=uncommitted`)).repos[0].files).toEqual([]);
+    expect((await get<DiffWire>(`/api/sessions/${login.id}/diff?base=uncommitted`)).repos[0].files).toEqual([]);
     expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
   });
 
@@ -239,7 +245,7 @@ describe('demo server', () => {
     const res = await send('POST', `/api/sessions/${login.id}/comments`, { repo: 'web', file: 'src/auth.ts', line: 5, side: 'right', body: 'Log this?' });
     const { comment } = await res.json();
     advance(4_500);
-    const { comments } = await get(`/api/sessions/${login.id}/comments`);
+    const { comments } = await get<Comments>(`/api/sessions/${login.id}/comments`);
     expect(comments.find((c: { parentId?: string; author: string }) => c.parentId === comment.id)?.author).toBe('claude');
   });
 

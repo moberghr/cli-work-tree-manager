@@ -7,7 +7,6 @@ import type {
   MergeMethod,
   MergeSelection,
   RepoShipState,
-  ShipAction,
   ShipPr,
   ShipPreflight,
   ShipResult,

@@ -260,7 +260,7 @@ export function DashboardApp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [takePrs]);
   useEffect(() => {
     if (refreshKey === 0 || Date.now() - prsFetchedAt < PR_MIN_GAP_MS) return;
     setPrsFetchedAt(Date.now());
@@ -688,7 +688,7 @@ export function DashboardApp() {
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
-          onCreated={(id, result) => {
+          onCreated={(id, _result) => {
             setNewOpen(false);
             setNewInitial(null);
             // A new worktree has no diff yet: land on its terminal.

@@ -19,8 +19,6 @@ type HookResult = ReturnType<typeof useReviewedHunks>;
 function renderHook(initialScope: string) {
   let latest: HookResult;
   let setScope: (s: string) => void = () => {};
-  let container: HTMLDivElement;
-  let root: Root;
 
   function Harness({ scope }: { scope: string }) {
     latest = useReviewedHunks(scope);
@@ -33,9 +31,9 @@ function renderHook(initialScope: string) {
     return createElement(Harness, { scope });
   }
 
-  container = document.createElement('div');
+  const container = document.createElement('div');
   document.body.appendChild(container);
-  root = createRoot(container);
+  const root: Root = createRoot(container);
   act(() => {
     root.render(createElement(Wrapper));
   });

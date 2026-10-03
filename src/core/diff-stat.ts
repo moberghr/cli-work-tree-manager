@@ -188,7 +188,7 @@ export class DiffStatCache {
     while (this.running < this.concurrency && this.queue.length > 0) {
       const job = this.queue.shift()!;
       this.running++;
-      computeChanges(job.paths, job.names, this.run)
+      void computeChanges(job.paths, job.names, this.run)
         .catch((err) => {
           logSwallowed(`diff stat for ${job.id}`, err);
           return { stat: null, touched: [] as TouchedRepo[] };

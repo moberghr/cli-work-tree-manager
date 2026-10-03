@@ -23,7 +23,7 @@ describe('diff table classes', () => {
       for (const cls of DIFF_CLASSES) {
         // The whole class name (not `.wd-context-menu`), opening a selector:
         // `.wd-tree-stats .wd-add` is scoped to the tree and can't reach a cell.
-        const re = new RegExp(`(^|[,{}])\s*\.${cls}(?![\w-])`, 'gm');
+        const re = new RegExp(String.raw`(^|[,{}])\s*\.${cls}(?![\w-])`, 'gm');
         for (const m of css.matchAll(re)) {
           const line = css.slice(0, m.index).split('\n').length;
           offenders.push(`${file}:${line} .${cls}`);

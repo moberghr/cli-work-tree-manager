@@ -22,7 +22,6 @@ const MESSAGES: Record<NotifyKind, string> = {
 
 /** Drop control characters that could break notifier argument parsing. */
 function sanitize(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
 }
 

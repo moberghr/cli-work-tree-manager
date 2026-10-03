@@ -133,7 +133,7 @@ describe('narrow-layout session drawer', () => {
     expect(body().className).not.toContain('wd-dash-rail-open');
 
     act(() => toggle().click());
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(body().className).not.toContain('wd-dash-rail-open');
 
     act(() => toggle().click());

@@ -314,7 +314,7 @@ function attachCoverage(root: string, files: ParsedFile[]): void {
     f.coverage = pct;
     if (lcovMtimeMs != null) {
       f.coverageMtimeMs = lcovMtimeMs;
-      let srcMtimeMs: number | null = null;
+      let srcMtimeMs: number | null;
       try {
         srcMtimeMs = fs.statSync(path.join(root, f.path)).mtimeMs;
       } catch {

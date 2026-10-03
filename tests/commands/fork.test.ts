@@ -53,7 +53,7 @@ afterEach(() => {
 
 const run = async (argv: Record<string, unknown>) => {
   const { forkCommand } = await import('../../src/commands/fork.js');
-  await (forkCommand.handler as Function)({ _: ['fork'], attach: true, ...argv });
+  await (forkCommand.handler as (argv: unknown) => unknown)({ _: ['fork'], attach: true, ...argv });
 };
 
 describe('work fork', () => {

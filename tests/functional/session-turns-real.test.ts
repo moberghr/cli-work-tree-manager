@@ -44,7 +44,7 @@ afterEach(async () => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const get = async <T = any>(p: string): Promise<{ status: number; body: T }> => {
+const get = async <T = unknown>(p: string): Promise<{ status: number; body: T }> => {
   const res = await fetch(server.url.replace(/\/$/, '') + p);
   return { status: res.status, body: (await res.json()) as T };
 };
@@ -62,6 +62,8 @@ const turnEnded = async () => {
     body: JSON.stringify({ cwd: repo }),
   });
 };
+/** What a session's diff route answers (the fields these tests read). */
+type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
 const files = (d: { repos: Array<{ files: Array<{ path: string }> }> }) =>
   d.repos.flatMap((r) => r.files.map((f) => f.path)).sort();
 
@@ -93,16 +95,16 @@ describe('session turns', () => {
     const ids = body.entries.map((e) => e.id);
     expect(ids).toHaveLength(3);
 
-    const last = await get(`/api/sessions/${id}/diff?from=${ids[1]}&to=${ids[2]}`);
+    const last = await get<DiffWire>(`/api/sessions/${id}/diff?from=${ids[1]}&to=${ids[2]}`);
     expect(last.status).toBe(200);
     expect(last.body.base).toBe('range');
     expect(files(last.body)).toEqual(['b.txt']);
 
-    const both = await get(`/api/sessions/${id}/diff?from=${ids[0]}&to=${ids[2]}`);
+    const both = await get<DiffWire>(`/api/sessions/${id}/diff?from=${ids[0]}&to=${ids[2]}`);
     expect(files(both.body)).toEqual(['a.txt', 'b.txt']);
 
     // The plain scopes still work alongside.
-    const uncommitted = await get(`/api/sessions/${id}/diff?base=uncommitted`);
+    const uncommitted = await get<DiffWire>(`/api/sessions/${id}/diff?base=uncommitted`);
     expect(files(uncommitted.body)).toEqual(['a.txt', 'b.txt']);
   }, 60_000);
 
