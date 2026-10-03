@@ -3,13 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
-import { readStatus } from '../../src/core/session-status.js';
+import { readStatus } from '../../src/core/status/session-status.js';
 import {
   clearCommentStoreCache,
   getCommentFileStore,
-} from '../../src/core/comment-file-store.js';
-import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
-import { sessionIdFor } from '../../src/core/web-state.js';
+} from '../../src/core/comments/comment-file-store.js';
+import { saveHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../src/core/sessions/web-state.js';
 
 let tmpDir: string;
 

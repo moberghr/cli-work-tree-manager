@@ -26,8 +26,8 @@ mtk-version: 7.10.0
 - [EXTRACTED] Key dependencies: `yargs` (command parsing), `react` (browser SPA, bundled by Vite), `node-pty` + `@xterm/headless` (PTY terminal sessions), `proper-lockfile` (cross-process file locking), `chalk`/`inquirer` (CLI I/O), `chokidar` (file watching), `cross-spawn` (subprocess), `glob` (file matching). Evidence: `package.json` dependencies.
 
 ## 2. Layer Architecture
-- [EXTRACTED] Three-layer split: `src/commands/` (yargs command definitions, 14 files), `src/core/` (business logic, 22 files), `src/utils/` (helpers). Evidence: `ls src/commands/*.ts | wc -l` → 14; `ls src/core/*.ts | wc -l` → 22.
-- [EXTRACTED] Commands depend on core, not the reverse. Command handlers import from `../core/*`. Evidence: `src/commands/list.ts:5-7` imports `../core/config.js`, `../core/git.js`, `../core/resolve.js`.
+- [EXTRACTED] Two front-ends over one core: `src/commands/` (yargs command definitions), `src/server/` (the HTTP front-end, routes in `src/server/routes/`), `src/core/` (all logic, grouped by feature: `sessions/`, `status/`, `diff/`, `pr/`, `pty/`, `platform/`, …), `src/utils/` (helpers). Evidence: CLAUDE.md "Source layout"; `tests/architecture/boundaries.test.ts` enforces the direction.
+- [EXTRACTED] Commands and the server depend on core, not the reverse. Command handlers import from `../core/*`. Evidence: `src/commands/list.ts:5-7` imports `../core/platform/config.js`, `../core/git/git.js`, `../core/worktree/resolve.js`.
 - [EXTRACTED] Two entry points: `src/bin.ts` (the `work` CLI) wires global error handling then calls `run()` from `src/cli.ts`; `src/wd-bin.ts` is the `wd` diff binary. Evidence: `src/bin.ts:4` `import { run } from './cli.js'`, `package.json` bin map.
 - [EXTRACTED] `src/tui/session.ts` is the PTY wrapper (node-pty + headless xterm), used only by the PTY host. The Ink terminal dashboard (`work dash`, `src/tui-ink/`) was removed in 2.0.
 
@@ -45,14 +45,14 @@ mtk-version: 7.10.0
 
 ## 4. API Design
 - Not applicable — this is a local CLI, not a network service. No HTTP server framework, no REST/gRPC surface.
-- [INFERRED:0.8] The only HTTP usage is a local comment/diff server built on `node:http` for the browser-based diff view; there is no external HTTP client library. Evidence: `src/core/comment-server.ts`, `src/core/diff-html.ts`; `grep -rln "octokit|axios|node-fetch" src` → no matches.
+- [INFERRED:0.8] The only HTTP usage is a local comment/diff server built on `node:http` for the browser-based diff view; there is no external HTTP client library. Evidence: `src/server/comment-server.ts`, `src/core/diff-html.ts`; `grep -rln "octokit|axios|node-fetch" src` → no matches.
 
 ## 5. Data Layer
-- [EXTRACTED] State is JSON files under `~/.work/` (config, history, tasks, debug log). Evidence: `src/core/config.ts:35` `path.join(os.homedir(), '.work')`.
-- [EXTRACTED] Atomic write helper writes to a sibling `.tmp-<pid>` file then renames over the target to avoid truncation on crash. Evidence: `src/core/fs-safe.ts:8-12` `atomicWriteFile`.
-- [EXTRACTED] Cross-process serialization uses `proper-lockfile` advisory locks via `withFileLock` (20 retries, 10s stale). Evidence: `src/core/fs-safe.ts:30-49`.
-- [EXTRACTED] History and tasks stores use `atomicWriteFile` + `withFileLock`. Evidence: `src/core/history.ts:4,68`, `src/core/tasks.ts:4,42`.
-- [AMBIGUOUS] State-write safety is split: `history.json` and `tasks.json` use the atomic+lock path, but `config.json` is written with a plain `fs.writeFileSync` (no atomic rename, no lock). Evidence: `src/core/config.ts:71` vs `src/core/history.ts:68`. See §10.
+- [EXTRACTED] State is JSON files under `~/.work/` (config, history, tasks, debug log). Evidence: `src/core/platform/config.ts:35` `path.join(os.homedir(), '.work')`.
+- [EXTRACTED] Atomic write helper writes to a sibling `.tmp-<pid>` file then renames over the target to avoid truncation on crash. Evidence: `src/core/platform/fs-safe.ts:8-12` `atomicWriteFile`.
+- [EXTRACTED] Cross-process serialization uses `proper-lockfile` advisory locks via `withFileLock` (20 retries, 10s stale). Evidence: `src/core/platform/fs-safe.ts:30-49`.
+- [EXTRACTED] History and tasks stores use `atomicWriteFile` + `withFileLock`. Evidence: `src/core/sessions/history.ts:4,68`, `src/core/tasks.ts:4,42`.
+- [AMBIGUOUS] State-write safety is split: `history.json` and `tasks.json` use the atomic+lock path, but `config.json` is written with a plain `fs.writeFileSync` (no atomic rename, no lock). Evidence: `src/core/platform/config.ts:71` vs `src/core/sessions/history.ts:68`. See §10.
 
 ## 6. Testing Approach
 - [EXTRACTED] Vitest is the test framework; `npm test` runs `vitest run`. Evidence: `package.json` (`"test": "vitest run"`, `vitest: ^3.0.5`).
@@ -66,14 +66,14 @@ mtk-version: 7.10.0
 
 ## 8. Cross-Cutting Concerns
 - [EXTRACTED] Global error handling installs `uncaughtException`/`unhandledRejection` handlers that special-case `node-pty` "already exited" errors and inquirer `ExitPromptError`, logging fatals to `~/.work/debug.log`. Evidence: `src/bin.ts:18-46`.
-- [EXTRACTED] Logging: a console logger mirrors `console.log/error/warn` to `~/.work/debug.log`. Evidence: `src/core/logger.ts`; `src/bin.ts:8` `installConsoleLogger()`.
+- [EXTRACTED] Logging: a console logger mirrors `console.log/error/warn` to `~/.work/debug.log`. Evidence: `src/core/platform/logger.ts`; `src/bin.ts:8` `installConsoleLogger()`.
 - [EXTRACTED] Color output forced for non-TTY Windows shims unless `NO_COLOR` set. Evidence: `src/bin.ts:14-16`.
 
 ## 9. Inter-Service Communication
-- Not applicable — single local process. The only IPC is the browser-facing local diff/comment server (`node:http`) and PTY child processes. Evidence: `src/core/comment-server.ts`, `src/tui/session.ts`.
+- Not applicable — single local process. The only IPC is the browser-facing local diff/comment server (`node:http`) and PTY child processes. Evidence: `src/server/comment-server.ts`, `src/tui/session.ts`.
 
 ## 10. Inconsistencies Found
-- ⚠️ [AMBIGUOUS] State-write durability is inconsistent: `config.json` is written with a bare `fs.writeFileSync` while `history.json`/`tasks.json` go through `atomicWriteFile` + `withFileLock`. Standardize on the atomic+lock path for all persisted JSON state. Evidence: `src/core/config.ts:71` vs `src/core/history.ts:68`, `src/core/tasks.ts:42`.
+- ⚠️ [AMBIGUOUS] State-write durability is inconsistent: `config.json` is written with a bare `fs.writeFileSync` while `history.json`/`tasks.json` go through `atomicWriteFile` + `withFileLock`. Standardize on the atomic+lock path for all persisted JSON state. Evidence: `src/core/platform/config.ts:71` vs `src/core/sessions/history.ts:68`, `src/core/tasks.ts:42`.
 
 ## Provenance
 

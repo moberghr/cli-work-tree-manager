@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
-import { broadcastPrompt } from '../core/broadcast.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { broadcastPrompt } from '../core/comments/broadcast.js';
 
 /** Read the whole of stdin synchronously (for `broadcast -`). */
 function readStdin(): string {

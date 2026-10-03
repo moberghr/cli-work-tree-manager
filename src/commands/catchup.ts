@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { askCatchUp, catchUpFacts } from '../core/catch-up-deps.js';
-import { catchUp } from '../core/catch-up.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
+import { catchUp } from '../core/conversations/catch-up.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /** `work catchup` — the dashboard's Catch me up (catch-up.ts): a few sentences on where a session stands. */

@@ -1,5 +1,5 @@
-import { findHost, PtyHostClient } from '../../core/pty-host-client.js';
-import type { PtyInfo } from '../../core/pty-host-protocol.js';
+import { findHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
+import type { PtyInfo } from '../../core/pty/pty-host-protocol.js';
 
 /** The PTY host's live sessions by id; null when no host runs (or it
  *  doesn't answer): "unknown", not "none". */

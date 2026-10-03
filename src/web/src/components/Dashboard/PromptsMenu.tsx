@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sendPromptToSession } from '../../api/client.js';
 import type { PromptsResponse, SavedPrompt, SessionSummary } from '../../api/client.js';
-import { promptsForSession } from '../../../../core/saved-prompts.js';
+import { promptsForSession } from '../../../../core/sessions/saved-prompts.js';
 
 interface Props {
   session: SessionSummary;

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { callWorkWeb } from '../core/web-discovery.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { callWorkWeb } from '../core/platform/web-discovery.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { agentOf } from '../core/agents/index.js';
-import { parseDuration, sendHowText, waitForTurn } from '../core/session-control.js';
+import { parseDuration, sendHowText, waitForTurn } from '../core/sessions/session-control.js';
 import type { SendWire } from '../core/api-types.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 import { formatConversation, READ_AS_DATA } from './shared/conversation-format.js';

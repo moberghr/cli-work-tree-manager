@@ -3,13 +3,13 @@ import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSw
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
 import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } from '../api/client.js';
-import type { HostHealth } from '../../../core/host-health.js';
+import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
-import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail-layout.js';
+import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail/rail-layout.js';
 import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
-import { compareInbox, needsAttention, wantsYou } from '../../../core/attention.js';
+import { compareInbox, needsAttention, wantsYou } from '../../../core/status/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';

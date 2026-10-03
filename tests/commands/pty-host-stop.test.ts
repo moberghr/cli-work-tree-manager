@@ -5,13 +5,13 @@ import http from 'node:http';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let configDir: string;
-vi.mock('../../src/core/config.js', async (orig) => ({
-  ...(await orig<typeof import('../../src/core/config.js')>()),
+vi.mock('../../src/core/platform/config.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/platform/config.js')>()),
   getConfigDir: () => configDir,
 }));
 
 import { stopHost } from '../../src/commands/pty-host.js';
-import { PROTOCOL_VERSION } from '../../src/core/pty-host-protocol.js';
+import { PROTOCOL_VERSION } from '../../src/core/pty/pty-host-protocol.js';
 
 let server: http.Server | null = null;
 async function fakeHost(reportPid: number, token = 'tok'): Promise<number> {

@@ -44,9 +44,9 @@ function hook(event: string, payload: unknown): Promise<{ code: number | null; s
 
 describe.skipIf(!hasBuild)('work hook (built binary)', () => {
   it('records a permission prompt as "needs input", fast', async () => {
-    const { upsertSession } = await import('../../src/core/history.js');
-    const { sessionIdFor } = await import('../../src/core/session-id.js');
-    const { readStatus } = await import('../../src/core/session-status.js');
+    const { upsertSession } = await import('../../src/core/sessions/history.js');
+    const { sessionIdFor } = await import('../../src/core/sessions/session-id.js');
+    const { readStatus } = await import('../../src/core/status/session-status.js');
     await upsertSession('api', false, 'feat/x', [wt]);
 
     const r = await hook('status-notify', { cwd: wt, message: 'Claude needs your permission to use Bash' });
@@ -58,10 +58,10 @@ describe.skipIf(!hasBuild)('work hook (built binary)', () => {
   });
 
   it('a Stop with a pending review comment blocks the turn with it, and claims it', async () => {
-    const { upsertSession } = await import('../../src/core/history.js');
-    const { sessionIdFor } = await import('../../src/core/session-id.js');
-    const { getCommentFileStore } = await import('../../src/core/comment-file-store.js');
-    const { readPendingForSession } = await import('../../src/core/pending-delivery.js');
+    const { upsertSession } = await import('../../src/core/sessions/history.js');
+    const { sessionIdFor } = await import('../../src/core/sessions/session-id.js');
+    const { getCommentFileStore } = await import('../../src/core/comments/comment-file-store.js');
+    const { readPendingForSession } = await import('../../src/core/comments/pending-delivery.js');
     await upsertSession('api', false, 'feat/x', [wt]);
     const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
     getCommentFileStore(id).post({ side: 'general', status: 'published', body: 'please rename foo' });
@@ -83,7 +83,7 @@ describe.skipIf(!hasBuild)('work hook (built binary)', () => {
   });
 
   it("assistant-context prints what the dashboard shows (Claude adds it to the prompt), and nothing when stale", async () => {
-    const { writeAssistantContext } = await import('../../src/core/assistant.js');
+    const { writeAssistantContext } = await import('../../src/core/agents/assistant.js');
     writeAssistantContext('The user is looking at the cleanup tab.');
     const r = await hook('assistant-context', { prompt: 'clean these up' });
     expect(r.code).toBe(0);

@@ -1,5 +1,5 @@
 import type { SessionSummary } from '../api/client.js';
-import type { SnoozeFor } from '../../../core/snooze.js';
+import type { SnoozeFor } from '../../../core/rail/snooze.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 
 /**

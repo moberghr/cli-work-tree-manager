@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { listTranscripts } from './files.js';
-import { getAiTool } from '../../ai-launcher.js';
+import { getAiTool } from '../../platform/ai-launcher.js';
 import { claudeProjectsRoot, encodeProjectDir, getClaudeActivityMs, hasClaudeConversation, resolveResumeLaunch } from './activity.js';
 import { withoutParentSession } from './env.js';
 import { readTranscriptTail } from './transcript.js';

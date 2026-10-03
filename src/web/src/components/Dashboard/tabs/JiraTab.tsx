@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { columnOrder } from '../../../../../core/jira-board.js';
+import { columnOrder } from '../../../../../core/jira/jira-board.js';
 import {
   dismissJiraIssue,
   fetchJira,

@@ -8,17 +8,17 @@ import type { CommandModule } from 'yargs';
 
 const calls: Array<{ method: string; route: string; body: unknown }> = [];
 let answer: (route: string) => unknown = () => ({ ok: true, body: {} });
-vi.mock('../../src/core/web-discovery.js', async (orig) => ({
-  ...(await orig<typeof import('../../src/core/web-discovery.js')>()),
+vi.mock('../../src/core/platform/web-discovery.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/platform/web-discovery.js')>()),
   callWorkWeb: vi.fn(async (method: string, route: string, body?: unknown) => {
     calls.push({ method, route, body });
     return answer(route);
   }),
 }));
 
-const { upsertSession } = await import('../../src/core/history.js');
-const { sessionIdFor } = await import('../../src/core/session-id.js');
-const { recordStatusEvent } = await import('../../src/core/session-status.js');
+const { upsertSession } = await import('../../src/core/sessions/history.js');
+const { sessionIdFor } = await import('../../src/core/sessions/session-id.js');
+const { recordStatusEvent } = await import('../../src/core/status/session-status.js');
 const { encodeProjectDir } = await import('../../src/core/agents/claude/activity.js');
 const { readCommand } = await import('../../src/commands/read.js');
 const { screenCommand } = await import('../../src/commands/screen.js');

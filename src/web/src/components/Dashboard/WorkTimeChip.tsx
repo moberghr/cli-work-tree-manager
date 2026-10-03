@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchWorklog, fetchWorkTime, logWorklog, type SessionSummary, type WorkTime } from '../../api/client.js';
-import { dayKey, formatWorked, worklogTime } from '../../../../core/work-time-view.js';
+import { dayKey, formatWorked, worklogTime } from '../../../../core/conversations/work-time-view.js';
 
 /** Look again at most this often while the session is open (it reads transcripts). */
 const REFRESH_MS = 60_000;

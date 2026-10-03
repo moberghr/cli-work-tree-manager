@@ -1,8 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { getConfigDir } from '../../src/core/config.js';
-import { dbPath } from '../../src/core/db.js';
+import { getConfigDir } from '../../src/core/platform/config.js';
+import { dbPath } from '../../src/core/platform/db.js';
 
 /** Guards the guard (tests/setup/isolate-home.ts): nothing a test does can
  *  reach the developer's real ~/.work or ~/.claude. */

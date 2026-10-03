@@ -1,12 +1,12 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
-import { sessionWire, lastActiveMs } from '../core/session-wire.js';
-import { AGE_LABEL, DISPLAY_LABEL, ageBucket, displayStatus, type AgeBucket, type DisplayKind } from '../core/session-view.js';
-import { scanChanges } from '../core/overlap-scan.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { sessionWire, lastActiveMs } from '../core/sessions/session-wire.js';
+import { AGE_LABEL, DISPLAY_LABEL, ageBucket, displayStatus, type AgeBucket, type DisplayKind } from '../core/sessions/session-view.js';
+import { scanChanges } from '../core/diff/overlap-scan.js';
 import { timeAgo } from '../utils/format.js';
 import { livePtys } from './shared/live-ptys.js';
-import { statusFromOutput } from '../core/output-status.js';
+import { statusFromOutput } from '../core/pty/output-status.js';
 import type { SessionWire } from '../core/api-types.js';
 
 /** A `work sessions --json` row: the dashboard's row, plus what it shows

@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { applyCleanup, scanCleanup } from '../core/cleanup.js';
-import { defaultCleanupDeps } from '../core/cleanup-deps.js';
-import { createBuildFoldersJob, scanBuildFolders } from '../core/build-folders-scan.js';
-import { defaultBuildFoldersDeps } from '../core/build-folders-deps.js';
-import { deleteMergedBranches, findMergedBranches } from '../core/branch-tidy.js';
-import { defaultBranchTidyDeps } from '../core/branch-tidy-deps.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { applyCleanup, scanCleanup } from '../core/cleanup/cleanup.js';
+import { defaultCleanupDeps } from '../core/cleanup/cleanup-deps.js';
+import { createBuildFoldersJob, scanBuildFolders } from '../core/cleanup/build-folders-scan.js';
+import { defaultBuildFoldersDeps } from '../core/cleanup/build-folders-deps.js';
+import { deleteMergedBranches, findMergedBranches } from '../core/cleanup/branch-tidy.js';
+import { defaultBranchTidyDeps } from '../core/cleanup/branch-tidy-deps.js';
 import type { CleanupAction, CleanupCandidate } from '../core/api-types.js';
 import { timeAgo } from '../utils/format.js';
 

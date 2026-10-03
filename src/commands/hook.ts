@@ -1,17 +1,17 @@
 import type { CommandModule } from 'yargs';
-import { readSessionActivity } from '../core/session-activity.js';
+import { readSessionActivity } from '../core/sessions/session-activity.js';
 import {
   findSessionForCwd,
   formatPendingForPrompt,
   claimForDelivery,
   readPendingForWorktree,
   sessionIdFor,
-} from '../core/pending-delivery.js';
-import { isInternalRun } from '../core/internal-run.js';
-import { readWebUrl } from '../core/web-discovery.js';
-import { recordStatusEvent, type StatusEvent } from '../core/session-status.js';
-import { bestEffortAsync } from '../core/best-effort.js';
-import { readAssistantContext } from '../core/assistant.js';
+} from '../core/comments/pending-delivery.js';
+import { isInternalRun } from '../core/platform/internal-run.js';
+import { readWebUrl } from '../core/platform/web-discovery.js';
+import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
+import { bestEffortAsync } from '../core/platform/best-effort.js';
+import { readAssistantContext } from '../core/agents/assistant.js';
 import { agentById, type AgentAdapter, type TurnEdge } from '../core/agents/index.js';
 
 /**

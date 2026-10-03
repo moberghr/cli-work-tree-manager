@@ -7,9 +7,9 @@ import {
   loadConfig,
   saveConfig,
   getConfigPath,
-} from '../core/config.js';
-import { isGitRepo } from '../core/git.js';
-import { KNOWN_TOOLS } from '../core/ai-launcher.js';
+} from '../core/platform/config.js';
+import { isGitRepo } from '../core/git/git.js';
+import { KNOWN_TOOLS } from '../core/platform/ai-launcher.js';
 import {
   setupCompletions,
   printCompletionResults,

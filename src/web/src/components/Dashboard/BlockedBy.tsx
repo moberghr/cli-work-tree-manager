@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { addBlocker, removeBlocker, type SessionSummary } from '../../api/client.js';
-import { prUrl } from '../../../../core/blocks.js';
+import { prUrl } from '../../../../core/rail/blocks.js';
 
 /**
  * In the session strip: what this session waits on (core/session-blocks.ts) —

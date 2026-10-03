@@ -1,4 +1,4 @@
-import type { AttentionLike } from './attention.js';
+import type { AttentionLike } from './status/attention.js';
 
 /**
  * Wire types shared by the server (core) and the browser SPA — ONE
@@ -189,7 +189,7 @@ export interface ChatSnapshot {
   /** The agent's conversation id, once it runs. */
   conversationId: string | null;
   /** What was said, in work's terms (records read by the agent's adapter; core/chat-view.ts). */
-  messages: import('./chat-view.js').ChatMessage[];
+  messages: import('./chat/chat-view.js').ChatMessage[];
   partial: ChatPartial | null;
   permissions: ChatPermissionWire[];
   /** The session's agent runs in the terminal (PTY host) right now. */
@@ -594,19 +594,19 @@ export interface RepliesWire {
 // ---- the rail's pins and sections (rail-layout.ts) -------------------------------
 
 /** GET /api/rail (and every rail write's answer). */
-export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail-layout.js';
+export type { RailLayout, RailSection, RailPlace, PlacePatch, SectionOp } from './rail/rail-layout.js';
 
 // ---- the PTY host's heartbeat (host-health.ts) ----------------------------------------
 
-export type { HostHealth, HostState } from './host-health.js';
+export type { HostHealth, HostState } from './pty/host-health.js';
 
 // ---- a session's timeline (timeline.ts) ---------------------------------------------
 
-export type { TimelineEvent, TimelineKind } from './timeline.js';
+export type { TimelineEvent, TimelineKind } from './conversations/timeline.js';
 
 /** GET /api/sessions/:id/timeline: newest first. */
 export interface TimelineWire {
-  events: import('./timeline.js').TimelineEvent[];
+  events: import('./conversations/timeline.js').TimelineEvent[];
 }
 
 // ---- blocked by (session-blocks.ts) -------------------------------------------------

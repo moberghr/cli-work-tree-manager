@@ -3,9 +3,9 @@ import type {
   CommentAuthor,
   CommentStatus,
   CommentSide,
-} from '../../../core/comment-types.js';
+} from '../../../core/comments/comment-types.js';
 import type { UpdateFromMainWire } from '../../../core/api-types.js';
-import type { SnoozeChoice } from '../../../core/snooze.js';
+import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import type {
   ActivityState,
@@ -43,7 +43,7 @@ import type {
   ShipResponse,
   ShipResult,
 } from '../../../core/api-types.js';
-import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile } from '../../../core/diff-parse.js';
+import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile } from '../../../core/diff/diff-parse.js';
 
 // Wire types have ONE definition, in core (shared with the server) — see
 // core/api-types.ts and core/diff-parse.ts. Re-exported here so SPA code
@@ -675,14 +675,14 @@ export async function saveSessionOrder(order: string[]): Promise<void> {
 
 // ---- the PTY host's heartbeat ----------------------------------------------
 
-export function fetchHostHealth(): Promise<import('../../../core/host-health.js').HostHealth> {
+export function fetchHostHealth(): Promise<import('../../../core/pty/host-health.js').HostHealth> {
   return getJson('/api/pty-host/health');
 }
 
 // ---- a session's timeline ---------------------------------------------------
 
-export async function fetchTimeline(sessionId: string): Promise<import('../../../core/timeline.js').TimelineEvent[]> {
-  return (await getJson<{ events: import('../../../core/timeline.js').TimelineEvent[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/timeline`)).events;
+export async function fetchTimeline(sessionId: string): Promise<import('../../../core/conversations/timeline.js').TimelineEvent[]> {
+  return (await getJson<{ events: import('../../../core/conversations/timeline.js').TimelineEvent[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/timeline`)).events;
 }
 
 // ---- blocked by ----------------------------------------------------------
@@ -735,19 +735,19 @@ export function forkSession(sessionId: string, req: { branch: string; prompt?: s
 
 // ---- the rail's pins and sections ----------------------------------------
 
-type RailLayout = import('../../../core/rail-layout.js').RailLayout;
+type RailLayout = import('../../../core/rail/rail-layout.js').RailLayout;
 
 export function fetchRailLayout(): Promise<RailLayout> {
   return getJson<RailLayout>('/api/rail');
 }
 
 /** One change to your sections, applied to the list as it is on the server. */
-export function changeRailSections(op: import('../../../core/rail-layout.js').SectionOp): Promise<RailLayout> {
+export function changeRailSections(op: import('../../../core/rail/rail-layout.js').SectionOp): Promise<RailLayout> {
   return sendJson('POST', '/api/rail/sections', op);
 }
 
 /** Pin / unpin, or move into (`section: id`) or out of (`null`) a section. */
-export function placeSession(sessionId: string, patch: import('../../../core/rail-layout.js').PlacePatch): Promise<RailLayout> {
+export function placeSession(sessionId: string, patch: import('../../../core/rail/rail-layout.js').PlacePatch): Promise<RailLayout> {
   return sendJson('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/rail`, patch);
 }
 

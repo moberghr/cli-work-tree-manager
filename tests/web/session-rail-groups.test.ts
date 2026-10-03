@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
-import type { RailLayout, SectionOp } from '../../src/core/rail-layout.js';
+import type { RailLayout, SectionOp } from '../../src/core/rail/rail-layout.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { railMenuItems } from '../../src/web/src/state/rail-menu.js';
 import { railGroups } from '../../src/web/src/state/session-display.js';

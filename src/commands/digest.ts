@@ -1,7 +1,7 @@
 import type { CommandModule } from 'yargs';
-import { createDigestSource } from '../core/digest-source.js';
-import { digestMarkdown, windowStart, WINDOW_LABEL, type DigestWindow } from '../core/digest-view.js';
-import { askWorkWeb } from '../core/web-discovery.js';
+import { createDigestSource } from '../core/conversations/digest-source.js';
+import { digestMarkdown, windowStart, WINDOW_LABEL, type DigestWindow } from '../core/conversations/digest-view.js';
+import { askWorkWeb } from '../core/platform/web-discovery.js';
 import type { DigestResponse } from '../core/api-types.js';
 
 /** `today` / `yesterday` / `week`, or a date/time → [start, title]. */

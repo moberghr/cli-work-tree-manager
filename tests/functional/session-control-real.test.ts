@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { saveHistory, type WorktreeSession } from '../../src/core/history.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
-import { disposeAllScopes } from '../../src/core/scope-manager.js';
-import { startWebServer, type WebServerHandle } from '../../src/core/web-server.js';
+import { saveHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
+import { disposeAllScopes } from '../../src/core/diff/scope-manager.js';
+import { startWebServer, type WebServerHandle } from '../../src/server/web-server.js';
 
 /**
  * The session-control routes on the real server (wired with the real PTY

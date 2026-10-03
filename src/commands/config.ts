@@ -8,9 +8,9 @@ import {
   getConfigPath,
   getConfigDir,
   ensureConfig,
-} from '../core/config.js';
-import { isGitRepo } from '../core/git.js';
-import { generateGroupInstructions } from '../core/group-instructions.js';
+} from '../core/platform/config.js';
+import { isGitRepo } from '../core/git/git.js';
+import { generateGroupInstructions } from '../core/agents/group-instructions.js';
 import { openInEditor } from '../utils/platform.js';
 
 export const configCommand: CommandModule = {

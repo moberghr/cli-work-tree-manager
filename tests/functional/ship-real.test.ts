@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mergeSelected, runShipAction, shipPreflight } from '../../src/core/ship.js';
-import { computeDiffStat } from '../../src/core/diff-stat.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+import { mergeSelected, runShipAction, shipPreflight } from '../../src/core/pr/ship.js';
+import { computeDiffStat } from '../../src/core/diff/diff-stat.js';
+import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
 /**
  * Ship against real git: a bare repo per "origin", a clone per worktree,

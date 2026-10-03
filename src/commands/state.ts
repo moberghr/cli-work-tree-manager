@@ -1,7 +1,7 @@
 import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { exportLegacyState, stateSummary } from '../core/db-export.js';
+import { exportLegacyState, stateSummary } from '../core/platform/db-export.js';
 
 /**
  * `work state` — look inside ~/.work/state.db, or export it as the old JSON

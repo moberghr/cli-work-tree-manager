@@ -1,6 +1,6 @@
 import { pendingToolUse } from './permission.js';
 import { contentBlocks, readTranscriptTail } from './transcript.js';
-import type { StatusEvent } from '../../status-event.js';
+import type { StatusEvent } from '../../status/status-event.js';
 import type { AgentEvents, TurnEdge, WorkHook } from '../types.js';
 
 /**
@@ -14,9 +14,9 @@ import type { AgentEvents, TurnEdge, WorkHook } from '../types.js';
  * reading a payload needs none of it.
  */
 
-type Installer = typeof import('../../command-hook-installer.js');
+type Installer = typeof import('../../platform/command-hook-installer.js');
 let installer: Installer | null = null;
-const loadInstaller = async (): Promise<Installer> => (installer ??= await import('../../command-hook-installer.js'));
+const loadInstaller = async (): Promise<Installer> => (installer ??= await import('../../platform/command-hook-installer.js'));
 
 /** Claude Code's hook event for each of work's turn edges. */
 export const CLAUDE_EVENT: Record<TurnEdge, string> = {

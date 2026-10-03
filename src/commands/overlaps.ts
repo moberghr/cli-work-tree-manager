@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
-import { sessionIdFor } from '../core/session-id.js';
-import { scanChanges } from '../core/overlap-scan.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { scanChanges } from '../core/diff/overlap-scan.js';
 
 export const overlapsCommand: CommandModule = {
   command: 'overlaps',

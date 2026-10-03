@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { upsertSession } from '../../src/core/history.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
+import { upsertSession } from '../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
 import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
-import { disposeAllScopes } from '../../src/core/scope-manager.js';
-import { startWebServer, type WebServerHandle } from '../../src/core/web-server.js';
+import { disposeAllScopes } from '../../src/core/diff/scope-manager.js';
+import { startWebServer, type WebServerHandle } from '../../src/server/web-server.js';
 import type { DigestResponse } from '../../src/core/api-types.js';
 
 /** GET /api/digest against the real server and real transcript files. */

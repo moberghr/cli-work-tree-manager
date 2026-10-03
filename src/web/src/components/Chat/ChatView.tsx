@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { diffLines } from 'diff';
 import type { ChatPartial, ChatPermissionWire, ChatSnapshot, ChatState } from '../../../../core/api-types.js';
-import { chatItems, type ChatItem, type ChatMessage } from '../../../../core/chat-view.js';
+import { chatItems, type ChatItem, type ChatMessage } from '../../../../core/chat/chat-view.js';
 import { answerChatPermission, interruptChat, sendChatMessage } from '../../api/client.js';
 import { Markdown } from '../Markdown.js';
 

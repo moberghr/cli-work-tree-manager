@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { behindText } from './BehindChip.js';
 import { RowMenu, type MenuItem } from './RowMenu.js';
-import { EMPTY_RAIL_LAYOUT, MAX_SECTION_NAME, placeForGroup, type PlacePatch, type RailGroup, type RailLayout, type SectionOp } from '../../../../core/rail-layout.js';
+import { EMPTY_RAIL_LAYOUT, MAX_SECTION_NAME, placeForGroup, type PlacePatch, type RailGroup, type RailLayout, type SectionOp } from '../../../../core/rail/rail-layout.js';
 import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
@@ -18,7 +18,7 @@ import {
   type PrLookup,
 } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
-import { moveSession } from '../../../../core/session-order.js';
+import { moveSession } from '../../../../core/rail/session-order.js';
 import { lastActiveAt } from '../../state/session-display.js';
 
 interface Props {

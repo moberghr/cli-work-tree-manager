@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { parseWhen, snoozeLabel } from '../core/snooze.js';
-import { clearSnooze, requestSnooze, type SnoozeRequest } from '../core/snooze-store.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { parseWhen, snoozeLabel } from '../core/rail/snooze.js';
+import { clearSnooze, requestSnooze, type SnoozeRequest } from '../core/rail/snooze-store.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /** `work snooze` — the dashboard's Snooze (snooze.ts): out of the Inbox for a while, until a time, or until it changes. */

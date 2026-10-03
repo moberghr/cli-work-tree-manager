@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { run } from './cli.js';
-import { installConsoleLogger, debug } from './core/logger.js';
-import { withReporter } from './core/report.js';
+import { installConsoleLogger, debug } from './core/platform/logger.js';
+import { withReporter } from './core/platform/report.js';
 import { consoleReporter } from './commands/shared/console-reporter.js';
 
 installConsoleLogger();

@@ -1,14 +1,14 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { startWebServer } from '../core/web-server.js';
+import { startWebServer } from '../server/web-server.js';
 import { knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
 import { openUrl } from '../utils/platform.js';
-import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
+import { configurePtyPool, resumePersistedSessions } from '../core/pty/pty-pool.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
-import { setAutostart } from '../core/autostart.js';
-import { startDemoServer } from '../core/demo/demo-server.js';
-import { resolveWebRoot } from '../core/web-static.js';
-import { isPidAlive } from '../core/process.js';
+import { setAutostart } from '../core/platform/autostart.js';
+import { startDemoServer } from '../server/demo/demo-server.js';
+import { resolveWebRoot } from '../core/platform/web-static.js';
+import { isPidAlive } from '../core/platform/process.js';
 import {
   clearWebDiscovery,
   discoveryCheck,
@@ -17,8 +17,8 @@ import {
   readWebUrl,
   existingWebDecision,
   writeWebDiscovery,
-} from '../core/web-discovery.js';
-import { bestEffort, swallow } from '../core/best-effort.js';
+} from '../core/platform/web-discovery.js';
+import { bestEffort, swallow } from '../core/platform/best-effort.js';
 
 /**
  * The Claude hooks work web installs. Full dashboard: ONE hook per turn
@@ -67,7 +67,7 @@ function info(message: string): void {
   process.stderr.write(message + '\n');
 }
 
-import { buildStamp } from '../core/build-stamp.js';
+import { buildStamp } from '../core/platform/build-stamp.js';
 
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 

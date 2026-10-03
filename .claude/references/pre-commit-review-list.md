@@ -4,7 +4,7 @@
 > Selected from detected tools (TypeScript Node CLI, React browser SPA) + stack-agnostic always-include items.
 
 - [ ] **ESM `.js` imports** — every new relative import carries the `.js` extension (Node ESM runtime requirement).
-- [ ] **Shared-state writes** — read-modify-write on session state is one `tx()` in `src/core/db.ts` terms; remaining JSON files (config, settings.json) go through `withFileLock` + `atomicWriteFile`, not a bare `writeFileSync`.
+- [ ] **Shared-state writes** — read-modify-write on session state is one `tx()` in `src/core/platform/db.ts` terms; remaining JSON files (config, settings.json) go through `withFileLock` + `atomicWriteFile`, not a bare `writeFileSync`.
 - [ ] **Subprocess safety** — git/shell commands use `cross-spawn` with an argv array; no shell-string interpolation of branch names or paths.
 - [ ] **React rendering** — React only under `src/web/` (browser SPA); stable keys on rendered lists; no Node-only imports in the SPA.
 - [ ] **Two binaries** — CLI-wiring changes account for both `work` (`src/bin.ts`) and `wd` (`src/wd-bin.ts`) where relevant.

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { atomicWriteFile } from '../../fs-safe.js';
+import { atomicWriteFile } from '../../platform/fs-safe.js';
 import { CLAUDE_EVENT } from './hooks.js';
 import type { AgentWorkspace, AllowRule } from '../types.js';
 

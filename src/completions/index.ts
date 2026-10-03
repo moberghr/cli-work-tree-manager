@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../core/config.js';
-import { parseWorktreeList, getCurrentBranch } from '../core/git.js';
-import { resolveProjectTarget } from '../core/resolve.js';
+import { loadConfig } from '../core/platform/config.js';
+import { parseWorktreeList, getCurrentBranch } from '../core/git/git.js';
+import { resolveProjectTarget } from '../core/worktree/resolve.js';
 
 type Done = (completions: string[]) => void;
 

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { appendNote, readNote, saveNote, MAX_NOTE_CHARS } from '../core/session-notes.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { appendNote, readNote, saveNote, MAX_NOTE_CHARS } from '../core/rail/session-notes.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /** `work note` — your notes on a session (session-notes.ts), the dashboard's 📝 Notes: print, set, add a line, clear. */

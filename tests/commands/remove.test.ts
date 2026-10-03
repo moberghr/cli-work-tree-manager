@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { loadHistory, upsertSession } from '../../src/core/history.js';
-import { recordStatusEvent } from '../../src/core/session-status.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { loadHistory, upsertSession } from '../../src/core/sessions/history.js';
+import { recordStatusEvent } from '../../src/core/status/session-status.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
 
-vi.mock('../../src/core/pty-pool.js', () => ({ stopSessionPty: async () => {} }));
+vi.mock('../../src/core/pty/pty-pool.js', () => ({ stopSessionPty: async () => {} }));
 
 let homeDir: string;
 let wt: string;

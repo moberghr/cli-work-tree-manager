@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { newSectionId } from '../core/rail-layout.js';
-import { changeRailSections, placeSession, readRailLayout } from '../core/rail-store.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { newSectionId } from '../core/rail/rail-layout.js';
+import { changeRailSections, placeSession, readRailLayout } from '../core/rail/rail-store.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /**

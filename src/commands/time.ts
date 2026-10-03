@@ -1,11 +1,11 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { loadConfig } from '../core/config.js';
-import { loadHistory } from '../core/history.js';
-import { jiraWorklogPoster, loggedDays, logWorkDay, worklogSettings } from '../core/jira-worklog.js';
-import { sessionIdFor } from '../core/session-id.js';
-import { sessionWorkTime } from '../core/work-time-source.js';
-import { dayKey, formatWorked, worklogTime } from '../core/work-time-view.js';
+import { loadConfig } from '../core/platform/config.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { jiraWorklogPoster, loggedDays, logWorkDay, worklogSettings } from '../core/jira/jira-worklog.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { sessionWorkTime } from '../core/conversations/work-time-source.js';
+import { dayKey, formatWorked, worklogTime } from '../core/conversations/work-time-view.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /**

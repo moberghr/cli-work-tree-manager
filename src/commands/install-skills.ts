@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { installSkills } from '../core/skills.js';
+import { installSkills } from '../core/agents/skills.js';
 
 /** Give each agent work knows its skills (core/skills.ts) and say how it went, a line per agent. Best-effort: never throws. */
 export async function runInstallSkills(): Promise<void> {

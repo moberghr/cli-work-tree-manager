@@ -8,9 +8,9 @@ import {
   anyFailed,
   type RunResult,
   type RunUnit,
-} from '../../src/core/fleet.js';
+} from '../../src/core/sessions/fleet.js';
 import { extractRun, stripRunToken, runPool } from '../../src/commands/run.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
 function session(
   target: string,

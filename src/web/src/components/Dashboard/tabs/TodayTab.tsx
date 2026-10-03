@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatWorked } from '../../../../../core/work-time-view.js';
+import { formatWorked } from '../../../../../core/conversations/work-time-view.js';
 import type { DigestResponse, DigestSession } from '../../../api/client.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {

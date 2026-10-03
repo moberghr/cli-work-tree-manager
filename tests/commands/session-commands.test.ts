@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { upsertSession } from '../../src/core/history.js';
-import { readSnooze } from '../../src/core/snooze-store.js';
-import { readRailLayout } from '../../src/core/rail-store.js';
-import { recordStatusEvent } from '../../src/core/session-status.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { upsertSession } from '../../src/core/sessions/history.js';
+import { readSnooze } from '../../src/core/rail/snooze-store.js';
+import { readRailLayout } from '../../src/core/rail/rail-store.js';
+import { recordStatusEvent } from '../../src/core/status/session-status.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
 import { snoozeCommand } from '../../src/commands/snooze.js';
 import { pinCommand } from '../../src/commands/pin.js';
 import { sectionCommand } from '../../src/commands/section.js';
@@ -18,8 +18,8 @@ import { catchupCommand } from '../../src/commands/catchup.js';
 import { noteCommand } from '../../src/commands/note.js';
 import { blockCommand } from '../../src/commands/block.js';
 import { timeCommand } from '../../src/commands/time.js';
-import { readBlock } from '../../src/core/session-blocks.js';
-import { readNote } from '../../src/core/session-notes.js';
+import { readBlock } from '../../src/core/rail/session-blocks.js';
+import { readNote } from '../../src/core/rail/session-notes.js';
 
 /** `work snooze | pin | section | update | catchup`: the dashboard's session actions, from a terminal. */
 

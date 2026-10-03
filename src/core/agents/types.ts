@@ -1,9 +1,9 @@
-import type { WorktreeSession } from '../session-types.js';
-import type { AiToolSpec } from '../ai-launcher.js';
-import type { WorkConfig } from '../config.js';
-import type { StatusEvent } from '../status-event.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
+import type { AiToolSpec } from '../platform/ai-launcher.js';
+import type { WorkConfig } from '../platform/config.js';
+import type { StatusEvent } from '../status/status-event.js';
 import type { PermissionRequest } from '../api-types.js';
-import type { ChatRecord } from '../chat-view.js';
+import type { ChatRecord } from '../chat/chat-view.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI

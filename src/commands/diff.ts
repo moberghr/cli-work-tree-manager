@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { computeDiff } from '../core/diff-pipeline.js';
-import { stableDiffPath, type RepoSpec } from '../core/repo-spec.js';
+import { computeDiff } from '../core/diff/diff-pipeline.js';
+import { stableDiffPath, type RepoSpec } from '../core/diff/repo-spec.js';
 import {
   buildRepoSpecs,
   findAnyParentBranch,
@@ -13,16 +13,16 @@ import {
   resolveScope,
   type DiffScope,
   type ResolvedBase,
-} from '../core/diff-scope.js';
+} from '../core/diff/diff-scope.js';
 import {
   formatSingleComment,
   startCommentServer,
-} from '../core/comment-server.js';
-import { diffReviewSnapshot } from '../core/review-poll.js';
-import { renderStatic } from '../core/static-renderer.js';
+} from '../server/comment-server.js';
+import { diffReviewSnapshot } from '../core/comments/review-poll.js';
+import { renderStatic } from '../core/diff/static-renderer.js';
 import { openUrl } from '../utils/platform.js';
-import { spawnDetachedWork } from '../core/process.js';
-import { existingWebDecision, readWebUrl, webUrlPath } from '../core/web-discovery.js';
+import { spawnDetachedWork } from '../core/platform/process.js';
+import { existingWebDecision, readWebUrl, webUrlPath } from '../core/platform/web-discovery.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
  *  be piped or captured by callers (notably `wd -c` review mode, where
@@ -94,7 +94,7 @@ export { resolveWorkBinPath } from '../utils/work-bin.js';
 
 // Discovery of the running work web lives in core/web-discovery.ts;
 // webServerResponds is re-exported for existing callers/tests.
-export { webServerResponds } from '../core/web-discovery.js';
+export { webServerResponds } from '../core/platform/web-discovery.js';
 
 /**
  * Spawn a detached, lean `work web` instance and wait for its url file
@@ -338,7 +338,7 @@ async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
   // races with a slow prior poll.
   let polling = false;
 
-  type SnapshotComment = import('../core/comment-types.js').Comment;
+  type SnapshotComment = import('../core/comments/comment-types.js').Comment;
 
   async function poll(): Promise<void> {
     if (exiting || polling) return;
@@ -427,7 +427,7 @@ async function runReview(ctx: RenderContext): Promise<void> {
   // comment-server when work web isn't up.
   if (await tryReviewViaWorkWeb(ctx)) return;
 
-  const onComment = (c: import('../core/comment-server.js').Comment) => {
+  const onComment = (c: import('../server/comment-server.js').Comment) => {
     process.stdout.write(formatSingleComment(c));
   };
   const onCommentDeleted = (id: string) => {
@@ -435,7 +435,7 @@ async function runReview(ctx: RenderContext): Promise<void> {
   };
   const onSubmitReviewStart = (info: {
     count: number;
-    summary: import('../core/comment-server.js').Comment | null;
+    summary: import('../server/comment-server.js').Comment | null;
   }) => {
     const head = `--- review submitted ---\ncount: ${info.count}${info.summary ? `\nsummary-id: ${info.summary.id}` : ''}\n\n`;
     process.stdout.write(head);

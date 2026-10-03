@@ -7,7 +7,7 @@
 ## Naming Conventions
 - **Commands:** one file per command at `src/commands/<verb>.ts`, exporting `export const <verb>Command: CommandModule`. 14/14 follow this (`grep -rhoE "export const [a-zA-Z]+Command" src/commands` → 14 hits; e.g. `listCommand` in `src/commands/list.ts`).
 - **Core modules:** kebab-case filenames (`ai-launcher.ts`, `comment-server.ts`, `fs-safe.ts`, `setup-completions.ts`). Evidence: `ls src/core`.
-- **Tests:** `<module>.test.ts`, mirroring the source module name. Evidence: `find tests -name '*.test.ts'` (e.g. `tests/core/config.test.ts` covers `src/core/config.ts`).
+- **Tests:** `<module>.test.ts`, mirroring the source module name. Evidence: `find tests -name '*.test.ts'` (e.g. `tests/core/config.test.ts` covers `src/core/platform/config.ts`).
 - **UI components:** PascalCase `*.tsx` under `src/web/src/components/` (the browser SPA; the Ink TUI was removed in 2.0).
 
 ## File Organization
@@ -24,8 +24,8 @@
 - Fatal errors are caught by global `uncaughtException`/`unhandledRejection` handlers in `src/bin.ts`, which special-case node-pty "already exited" and inquirer `ExitPromptError`, and append fatals to `~/.work/debug.log`.
 
 ## State & Persistence
-- Persistent state is JSON files under `~/.work/` (`src/core/config.ts:35`).
-- Session state is in `~/.work/state.db` (`src/core/db.ts`): read-modify-write inside `tx()`. The files that remain (config.json, settings.json edits) use `withFileLock` (proper-lockfile) + `atomicWriteFile` (tmp-file + rename), see `src/core/fs-safe.ts`.
+- Persistent state is JSON files under `~/.work/` (`src/core/platform/config.ts:35`).
+- Session state is in `~/.work/state.db` (`src/core/platform/db.ts`): read-modify-write inside `tx()`. The files that remain (config.json, settings.json edits) use `withFileLock` (proper-lockfile) + `atomicWriteFile` (tmp-file + rename), see `src/core/platform/fs-safe.ts`.
 
 ## Test Conventions
 - Vitest (`npm test` → `vitest run`). Assertions: `expect(...).toBe(...)` inside `describe` blocks; mock with `vi.mock` / `vi.fn`.

@@ -1,14 +1,14 @@
 import chalk from 'chalk';
 import spawn from 'cross-spawn';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
+import { loadHistory } from '../core/sessions/history.js';
 import {
   selectSessions,
   expandRunUnits,
   anyFailed,
   type RunResult,
   type RunUnit,
-} from '../core/fleet.js';
+} from '../core/sessions/fleet.js';
 
 /** Build the shell invocation for the current platform. `sh -c <cmd>` on
  *  POSIX, `cmd.exe /c <cmd>` on Windows. We pass cross-spawn an argv array

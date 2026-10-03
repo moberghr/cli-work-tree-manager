@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
-import { snoozeLabel } from '../../../../../core/snooze.js';
+import { snoozeLabel } from '../../../../../core/rail/snooze.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, type SessionSummary, snoozeSession, unsnoozeSession } from '../../../api/client.js';
 import { defaultSubTab, isArchived, lastActiveAt, staleSuggestions, type PrLookup, agentCan, agentName } from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import { compareInbox, inboxRank } from '../../../../../core/attention.js';
+import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
 import { relativeTime } from '../../../utils/time.js';
 
 interface Props {

@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { placeSession } from '../core/rail-store.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { placeSession } from '../core/rail/rail-store.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /** `work pin` — pin a session to the top of the dashboard's rail (rail-layout.ts), or `--off`. */

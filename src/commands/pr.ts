@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { findSessionForCwd } from '../core/pending-delivery.js';
-import { sessionIdFor } from '../core/session-id.js';
-import { listReplies, postDrafts, saveDraft } from '../core/pr-replies.js';
-import { defaultRunner } from '../core/ship.js';
-import { readWebUrl } from '../core/web-discovery.js';
+import { findSessionForCwd } from '../core/comments/pending-delivery.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { listReplies, postDrafts, saveDraft } from '../core/pr/pr-replies.js';
+import { defaultRunner } from '../core/pr/ship.js';
+import { readWebUrl } from '../core/platform/web-discovery.js';
 
 /** Tell a running work web a draft changed, so the session header shows it. Best effort. */
 async function nudgeWeb(sessionId: string): Promise<void> {

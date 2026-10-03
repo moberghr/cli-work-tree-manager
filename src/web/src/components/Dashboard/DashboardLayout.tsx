@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { PlacePatch, RailLayout, SectionOp } from '../../../../core/rail-layout.js';
+import type { PlacePatch, RailLayout, SectionOp } from '../../../../core/rail/rail-layout.js';
 import type { MenuItem } from './RowMenu.js';
 import { renameSession, type SessionSummary } from '../../api/client.js';
 import type { DashboardRoute } from '../../state/dashboard-route.js';

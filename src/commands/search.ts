@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
-import { searchConversations, syncConversations } from '../core/conversation-store.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { searchConversations, syncConversations } from '../core/conversations/conversation-store.js';
 
 export const searchCommand: CommandModule = {
   command: 'search <query..>',

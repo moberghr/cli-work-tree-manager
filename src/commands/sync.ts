@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { applyCleanup, scanCleanup } from '../core/cleanup.js';
-import { defaultCleanupDeps } from '../core/cleanup-deps.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { applyCleanup, scanCleanup } from '../core/cleanup/cleanup.js';
+import { defaultCleanupDeps } from '../core/cleanup/cleanup-deps.js';
 import { printCleanupResults, removable } from './shared/cleanup-print.js';
 
 export const syncCommand: CommandModule = {

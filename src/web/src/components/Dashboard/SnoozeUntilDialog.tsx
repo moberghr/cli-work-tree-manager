@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MAX_SNOOZE_MS, parseWhen } from '../../../../core/snooze.js';
+import { MAX_SNOOZE_MS, parseWhen } from '../../../../core/rail/snooze.js';
 
 /** What the typed time means, in words ("Fri 3 Oct, 14:00"), or why it isn't one. */
 export function whenPreview(text: string, now = new Date()): { at: Date | null; text: string } {

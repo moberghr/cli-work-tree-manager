@@ -1,9 +1,9 @@
 import chalk from 'chalk';
 import { WebSocket } from 'ws';
-import type { WorktreeSession } from '../../core/history.js';
-import { sessionIdFor } from '../../core/web-state.js';
-import { spawnSpecFor } from '../../core/pty-pool.js';
-import { ensureHost, PtyHostClient } from '../../core/pty-host-client.js';
+import type { WorktreeSession } from '../../core/sessions/history.js';
+import { sessionIdFor } from '../../core/sessions/web-state.js';
+import { spawnSpecFor } from '../../core/pty/pty-pool.js';
+import { ensureHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
 import { resolveWorkBinPath } from '../../utils/work-bin.js';
 
 // Bridges this terminal to a session in the PTY host. Shared by

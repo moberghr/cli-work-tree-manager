@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigPath, isAgentId } from '../config.js';
-import { getAiTool } from '../ai-launcher.js';
-import type { WorkConfig } from '../config.js';
-import type { WorktreeSession } from '../session-types.js';
+import { getConfigPath, isAgentId } from '../platform/config.js';
+import { getAiTool } from '../platform/ai-launcher.js';
+import type { WorkConfig } from '../platform/config.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
 import type { SessionAgentWire } from '../api-types.js';
 import { claudeAgent } from './claude/adapter.js';
 import type { AgentAdapter, AgentConversation, LiveAgent } from './types.js';

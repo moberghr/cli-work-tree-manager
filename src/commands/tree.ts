@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import { agentFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
-import { openBaseCheckout, setupWorktree } from '../core/worktree.js';
-import { findSession, loadHistory, recordLaunch } from '../core/history.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
+import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
+import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../utils/platform.js';
-import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
+import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
 
 export const treeCommand: CommandModule = {
   command: ['tree [target] [branch]', 't [target] [branch]'],

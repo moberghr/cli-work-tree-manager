@@ -1,5 +1,5 @@
 import type { SessionSummary } from '../api/client.js';
-import type { PlacePatch, RailLayout } from '../../../core/rail-layout.js';
+import type { PlacePatch, RailLayout } from '../../../core/rail/rail-layout.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 
 /**
@@ -27,4 +27,4 @@ export function railMenuItems(
   return items;
 }
 
-export { newSectionId } from '../../../core/rail-layout.js';
+export { newSectionId } from '../../../core/rail/rail-layout.js';

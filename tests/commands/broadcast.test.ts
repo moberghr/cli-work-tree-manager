@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { broadcastPrompt } from '../../src/core/broadcast.js';
-import { sessionIdFor } from '../../src/core/web-state.js';
-import { clearCommentStoreCache } from '../../src/core/comment-file-store.js';
+import { broadcastPrompt } from '../../src/core/comments/broadcast.js';
+import { sessionIdFor } from '../../src/core/sessions/web-state.js';
+import { clearCommentStoreCache } from '../../src/core/comments/comment-file-store.js';
 import {
   readPendingForSession,
   formatPendingForPrompt,
-} from '../../src/core/pending-delivery.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+} from '../../src/core/comments/pending-delivery.js';
+import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
 let tmpDir: string;
 

@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { saveConfig, loadConfig, type WorkConfig } from '../../src/core/config.js';
+import { saveConfig, loadConfig, type WorkConfig } from '../../src/core/platform/config.js';
 
 // Mock generateGroupInstructions before importing the config command
-vi.mock('../../src/core/group-instructions.js', () => ({
+vi.mock('../../src/core/agents/group-instructions.js', () => ({
   generateGroupInstructions: vi.fn(),
 }));
 
 import { configCommand } from '../../src/commands/config.js';
-import { generateGroupInstructions } from '../../src/core/group-instructions.js';
+import { generateGroupInstructions } from '../../src/core/agents/group-instructions.js';
 
 let tmpDir: string;
 

@@ -1,0 +1,283 @@
+/**
+ * Stage 1 of the migration to "one server per machine."
+ *
+ * A scope is an ad-hoc registration from a `wd` (or `wd -c`) invocation:
+ * a label and a list of repo roots. Identified by the same sha1-of-roots
+ * hash that `stableDiffPath` produces, so the same directory always gets
+ * the same scope id across CLI invocations.
+ *
+ * Scopes are in-memory only — registering one doesn't touch disk. The
+ * file watcher and comment store are per-scope, lazily started on first
+ * access and reused thereafter.
+ *
+ * This module is mounted into `work web` so multiple `wd` invocations
+ * share a single server process. Eventually `wd` itself will become a
+ * thin client that registers a scope and opens a URL.
+ */
+
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { createFsWatcher, type FsWatcher } from '../platform/fs-watcher.js';
+import { loadConfig } from '../platform/config.js';
+
+export interface Scope {
+  /** Stable hash — same as `stableDiffPath` would emit. */
+  hash: string;
+  /** Repo roots this scope covers. One for a single-repo worktree,
+   *  many for a group. */
+  paths: string[];
+  /** Optional human label (e.g. "work-tree · feat/x"). */
+  label: string;
+  /** When the scope was first registered. */
+  createdAt: string;
+  /** Set when the user clicks "End Review" in the browser. The scope
+   *  itself stays alive (browser tab still works) — this is just a
+   *  signal so the `wd -c` CLI proxy knows to emit
+   *  `--- review done ---` and exit. */
+  ended: boolean;
+}
+
+interface ScopeEntry {
+  scope: Scope;
+  watcher: FsWatcher | null;
+  subscribers: Set<() => void>;
+  /** ms-since-epoch until which fs-watch events for this scope are ignored.
+   *  The diff server sets a short window right after it computes a diff so
+   *  the `.git` churn from its OWN git commands (e.g. the `to=working`
+   *  range diff's `git add -A` / `write-tree`) doesn't fire a reload — which
+   *  would refetch the diff, churn `.git` again, and loop. Real user edits
+   *  land outside this window and still reload. */
+  suppressWatchUntil: number;
+}
+
+const scopes = new Map<string, ScopeEntry>();
+
+function hashFor(paths: string[]): string {
+  const key = paths.slice().sort().join('|');
+  return crypto.createHash('sha1').update(key).digest('hex').slice(0, 12);
+}
+
+/** Thrown by registerScope when the requested paths aren't inside any
+ *  configured repo or under the configured worktrees root. */
+export class ScopePathRejectedError extends Error {
+  constructor(public rejected: string[]) {
+    super(
+      `paths not allowed: ${rejected.join(', ')} (must be inside a configured repo or worktreesRoot)`,
+    );
+    this.name = 'ScopePathRejectedError';
+  }
+}
+
+function normaliseForCompare(p: string): string {
+  return path.resolve(p).replace(/\\/g, '/').toLowerCase();
+}
+
+/**
+ * Reject paths that aren't inside any configured repo or under the
+ * configured `worktreesRoot`. The work web server binds to 127.0.0.1
+ * only, but any local process can still POST `/api/scopes` with an
+ * arbitrary filesystem path — without this check a malicious npm
+ * package could cause `git` and chokidar to operate on
+ * `C:\Windows\System32` or the user's home root.
+ *
+ * Returns the rejected subset (empty array when everything's allowed).
+ */
+function rejectedPaths(normalised: string[]): string[] {
+  const config = loadConfig();
+  if (!config) {
+    // No config means no allowlist to check against. Fall back to
+    // permissive — `work init` hasn't been run yet, and rejecting
+    // everything would break first-run flows.
+    return [];
+  }
+  const allowed = [
+    ...Object.values(config.repos),
+    ...(config.worktreesRoot ? [config.worktreesRoot] : []),
+  ].map(normaliseForCompare);
+  if (allowed.length === 0) return [];
+  return normalised.filter((p) => {
+    const np = normaliseForCompare(p);
+    return !allowed.some((a) => np === a || np.startsWith(a + '/'));
+  });
+}
+
+/** Register a scope (idempotent). Returns the resolved entry — same call
+ *  twice with the same paths gets the same hash and the same entry.
+ *  Throws `ScopePathRejectedError` when any path is outside the configured
+ *  repos / worktrees root. */
+export function registerScope(paths: string[], label?: string): Scope {
+  const normalised = paths.map((p) => path.resolve(p));
+  const rejected = rejectedPaths(normalised);
+  if (rejected.length > 0) throw new ScopePathRejectedError(rejected);
+  const hash = hashFor(normalised);
+  const existing = scopes.get(hash);
+  if (existing) {
+    if (label && existing.scope.label !== label) {
+      existing.scope.label = label;
+    }
+    return existing.scope;
+  }
+  const scope: Scope = {
+    hash,
+    paths: normalised,
+    label: label ?? path.basename(normalised[0]),
+    createdAt: new Date().toISOString(),
+    ended: false,
+  };
+  scopes.set(hash, {
+    scope,
+    watcher: null,
+    subscribers: new Set(),
+    suppressWatchUntil: 0,
+  });
+  return scope;
+}
+
+/** Mark a scope as ended (the user clicked "End Review"). Idempotent.
+ *  Does NOT remove the scope — the URL stays viewable. */
+export function markScopeEnded(hash: string): boolean {
+  const entry = scopes.get(hash);
+  if (!entry) return false;
+  if (entry.scope.ended) return false;
+  entry.scope.ended = true;
+  return true;
+}
+
+/**
+ * Clear a scope's `ended` flag. Called when a scope is re-registered —
+ * a new `wd -c` run on the same paths is a fresh review, not a replay of
+ * the finished one. Returns true when the flag was actually set (so the
+ * caller knows to also reset the previous run's comments).
+ */
+export function reviveScope(hash: string): boolean {
+  const entry = scopes.get(hash);
+  if (!entry || !entry.scope.ended) return false;
+  entry.scope.ended = false;
+  return true;
+}
+
+/**
+ * Which scopes a work web shutdown may sweep (checkpoint refs + manifest):
+ * only ones no session owns. A session's scope holds its turn history
+ * ("Last turn"), which must survive a restart; sweeping it on every clean
+ * shutdown erased every session's turns. What's left are `wd` scopes for
+ * paths outside any session (or one sub-repo of a group).
+ */
+export function scopesToSweep(scopes: Scope[], sessionPaths: string[][]): Scope[] {
+  const owned = new Set(sessionPaths.map((paths) => hashFor(paths.map((p) => path.resolve(p)))));
+  return scopes.filter((s) => !owned.has(s.hash));
+}
+
+/** The registered scope for exactly these paths, or null — no side effects
+ *  (unlike registerScope, which relabels). */
+export function findScope(paths: string[]): Scope | null {
+  return getScope(scopeHashForPaths(paths));
+}
+
+/** The scope hash for these paths, registered or not (its checkpoint
+ *  manifest on disk is keyed by it). */
+export function scopeHashForPaths(paths: string[]): string {
+  return hashFor(paths.map((p) => path.resolve(p)));
+}
+
+export function getScope(hash: string): Scope | null {
+  return scopes.get(hash)?.scope ?? null;
+}
+
+/** Ignore this scope's fs-watch events for the next `ms`. The diff server
+ *  calls this right after computing a diff so its own `.git` churn doesn't
+ *  trigger a reload (which would recompute → churn → loop). */
+export function suppressScopeWatch(hash: string, ms: number): void {
+  const entry = scopes.get(hash);
+  if (entry) entry.suppressWatchUntil = Date.now() + ms;
+}
+
+/**
+ * Pure predicate: does a scope with these repo roots cover `cwd`? True when
+ * cwd equals a root, sits inside one, or contains one (the group-root case,
+ * where Claude runs in the parent of the sub-repos). Exported for testing
+ * without the registry / config allowlist.
+ */
+export function scopeCoversCwd(paths: string[], cwd: string): boolean {
+  const nc = normaliseForCompare(cwd);
+  return paths.some((p) => {
+    const np = normaliseForCompare(p);
+    return np === nc || np.startsWith(nc + '/') || nc.startsWith(np + '/');
+  });
+}
+
+/**
+ * Scopes relevant to `cwd` — used by the `work hook checkpoint` bridge to
+ * snapshot the right scope when a Claude turn ends.
+ */
+export function scopesForCwd(cwd: string): Scope[] {
+  return Array.from(scopes.values())
+    .map((e) => e.scope)
+    .filter((s) => scopeCoversCwd(s.paths, cwd));
+}
+
+export function listScopes(): Scope[] {
+  return Array.from(scopes.values()).map((e) => e.scope);
+}
+
+export function removeScope(hash: string): boolean {
+  const entry = scopes.get(hash);
+  if (!entry) return false;
+  entry.watcher?.stop();
+  entry.subscribers.clear();
+  scopes.delete(hash);
+  return true;
+}
+
+/**
+ * Subscribe to file-change events for a scope. Lazy-starts the
+ * chokidar watcher on first subscribe; tears it down when the last
+ * subscriber unsubscribes. Same lifecycle as `web-state.subscribeSession`.
+ *
+ * The callback fires once per debounced fs event burst.
+ */
+export function subscribeScope(
+  hash: string,
+  cb: () => void,
+): (() => void) | null {
+  const entry = scopes.get(hash);
+  if (!entry) return null;
+  entry.subscribers.add(cb);
+  if (!entry.watcher) {
+    entry.watcher = createFsWatcher({
+      roots: entry.scope.paths,
+      debounceMs: 150,
+      onChange: () => {
+        // Ignore the burst of `.git` churn our own diff computation just
+        // produced (see suppressWatchUntil) — firing here would loop the
+        // live-reload. Real edits arrive outside the window.
+        if (Date.now() < entry.suppressWatchUntil) return;
+        for (const sub of entry.subscribers) {
+          try { sub(); } catch { /* */ }
+        }
+      },
+    });
+  }
+  return () => {
+    entry.subscribers.delete(cb);
+    if (entry.subscribers.size === 0 && entry.watcher) {
+      entry.watcher.stop();
+      entry.watcher = null;
+    }
+  };
+}
+
+/** Shut down every scope's watcher. Web server shutdown hook. */
+export function disposeAllScopes(): void {
+  for (const e of scopes.values()) {
+    e.watcher?.stop();
+    e.subscribers.clear();
+  }
+  scopes.clear();
+}
+
+/** Build a comment-store id for a scope. Distinguishes from session
+ *  ids so the two namespaces can't collide on disk. */
+export function commentStoreIdForScope(hash: string): string {
+  return `scope-${hash}`;
+}

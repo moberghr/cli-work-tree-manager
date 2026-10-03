@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { SessionSummary } from '../../../api/client.js';
-import type { SnoozeChoice, SnoozeFor } from '../../../../../core/snooze.js';
+import type { SnoozeChoice, SnoozeFor } from '../../../../../core/rail/snooze.js';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
-import type { PlacePatch, RailSection } from '../../../../../core/rail-layout.js';
+import type { PlacePatch, RailSection } from '../../../../../core/rail/rail-layout.js';
 
 /** What the bulk bar can do; each returns a promise per session (the same calls as the one-session buttons). */
 export interface BulkActions {

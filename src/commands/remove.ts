@@ -1,12 +1,12 @@
 import chalk from 'chalk';
-import { archiveWaiting } from '../core/session-archive-deps.js';
-import { sessionIdFor } from '../core/session-id.js';
-import { stopSessionPty } from '../core/pty-pool.js';
+import { archiveWaiting } from '../core/archive/session-archive-deps.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { stopSessionPty } from '../core/pty/pty-pool.js';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
-import { teardownWorktree, wouldRefuseRemoval } from '../core/worktree.js';
-import { findSession, loadHistory, removeSession } from '../core/history.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { resolveProjectTarget, getAllTargetNames } from '../core/worktree/resolve.js';
+import { teardownWorktree, wouldRefuseRemoval } from '../core/worktree/worktree.js';
+import { findSession, loadHistory, removeSession } from '../core/sessions/history.js';
 
 export const removeCommand: CommandModule = {
   command: 'remove <target> <branch>',

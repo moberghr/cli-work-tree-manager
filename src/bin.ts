@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
-import { installConsoleLogger, debug } from './core/logger.js';
-import { getConfigDir } from './core/config.js';
+import { installConsoleLogger, debug } from './core/platform/logger.js';
+import { getConfigDir } from './core/platform/config.js';
 
 // Install debug logging — all console.log/error/warn also write to ~/.work/debug.log
 installConsoleLogger();
@@ -51,7 +51,7 @@ if (args[0] === 'hook') {
   await runHookEvent(args[1], args.slice(2));
 } else {
   const { run } = await import('./cli.js');
-  const { withReporter } = await import('./core/report.js');
+  const { withReporter } = await import('./core/platform/report.js');
   const { consoleReporter, reportStreamFor } = await import('./commands/shared/console-reporter.js');
   // Core never prints; in a terminal, what it reports is shown here — on
   // stderr for --json, so stdout stays the data.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchTimeline, type SessionSummary } from '../../api/client.js';
-import type { TimelineEvent, TimelineKind } from '../../../../core/timeline.js';
+import type { TimelineEvent, TimelineKind } from '../../../../core/conversations/timeline.js';
 
 const ICON: Record<TimelineKind, string> = {
   created: '✦',

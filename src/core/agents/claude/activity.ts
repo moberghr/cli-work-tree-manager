@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { WorktreeSession } from '../../session-types.js';
+import type { WorktreeSession } from '../../sessions/session-types.js';
 
 /**
  * Claude Code writes each session as JSONL under

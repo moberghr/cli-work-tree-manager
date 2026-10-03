@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { startPtyHost } from '../core/pty-host.js';
-import { ensureHost, findHost, probeHostDetailed, PtyHostBusyError, PtyHostClient, PtyHostVersionError } from '../core/pty-host-client.js';
-import { ensureFile, withFileLock } from '../core/fs-safe.js';
-import { killTree } from '../core/process.js';
-import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty-host-protocol.js';
-import { loadHistory } from '../core/history.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { startPtyHost } from '../core/pty/pty-host.js';
+import { ensureHost, findHost, probeHostDetailed, PtyHostBusyError, PtyHostClient, PtyHostVersionError } from '../core/pty/pty-host-client.js';
+import { ensureFile, withFileLock } from '../core/platform/fs-safe.js';
+import { killTree } from '../core/platform/process.js';
+import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-host-protocol.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
 
 function info(message: string): void {

@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/utils/platform.js', async (orig) => ({ ...(await orig<typeof import('../../src/utils/platform.js')>()), launchAi: vi.fn() }));
 const { launchAi } = await import('../../src/utils/platform.js');
-const { git } = await import('../../src/core/git.js');
-const { saveConfig } = await import('../../src/core/config.js');
-const { loadHistory, saveHistory } = await import('../../src/core/history.js');
+const { git } = await import('../../src/core/git/git.js');
+const { saveConfig } = await import('../../src/core/platform/config.js');
+const { loadHistory, saveHistory } = await import('../../src/core/sessions/history.js');
 const { treeCommand } = await import('../../src/commands/tree.js');
 
 let home: string;

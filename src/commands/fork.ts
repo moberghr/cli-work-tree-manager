@@ -1,13 +1,13 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { askCatchUp, catchUpFacts } from '../core/catch-up-deps.js';
-import { catchUp } from '../core/catch-up.js';
-import { forkSession } from '../core/fork.js';
-import { defaultForkDeps, uncommittedFiles } from '../core/fork-deps.js';
-import { findSession, loadHistory } from '../core/history.js';
-import { findSessionForCwd } from '../core/pending-delivery.js';
-import { sessionIdFor } from '../core/session-id.js';
-import { startSessionWithPrompt } from '../core/session-start.js';
+import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
+import { catchUp } from '../core/conversations/catch-up.js';
+import { forkSession } from '../core/sessions/fork.js';
+import { defaultForkDeps, uncommittedFiles } from '../core/sessions/fork-deps.js';
+import { findSession, loadHistory } from '../core/sessions/history.js';
+import { findSessionForCwd } from '../core/comments/pending-delivery.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { startSessionWithPrompt } from '../core/sessions/session-start.js';
 import { attachSession } from './shared/attach-session.js';
 
 /**

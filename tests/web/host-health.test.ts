@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { hostHealth, hostHealthText, UNRESPONSIVE_MS } from '../../src/core/host-health.js';
+import { hostHealth, hostHealthText, UNRESPONSIVE_MS } from '../../src/core/pty/host-health.js';
 import { LatencyMeter } from '../../src/web/src/state/keystroke-latency.js';
 import { HostHealthBanner } from '../../src/web/src/components/Dashboard/HostHealthBanner.js';
 

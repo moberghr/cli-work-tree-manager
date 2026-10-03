@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { git } from '../../src/core/git.js';
-import { upsertSession } from '../../src/core/history.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
-import { disposeAllScopes } from '../../src/core/scope-manager.js';
-import { startWebServer, type WebServerHandle } from '../../src/core/web-server.js';
+import { git } from '../../src/core/git/git.js';
+import { upsertSession } from '../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
+import { disposeAllScopes } from '../../src/core/diff/scope-manager.js';
+import { startWebServer, type WebServerHandle } from '../../src/server/web-server.js';
 
 /**
  * "Last turn" end to end against the real work web server and real git:
@@ -15,7 +15,7 @@ import { startWebServer, type WebServerHandle } from '../../src/core/web-server.
  * serves a turn as a checkpoint range.
  */
 
-vi.mock('../../src/core/checkpoint-summary.js', () => ({
+vi.mock('../../src/core/diff/checkpoint-summary.js', () => ({
   summarizeCheckpoint: vi.fn(async () => 'mock summary'),
 }));
 

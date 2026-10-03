@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const skills = vi.hoisted(() => ({ installSkills: vi.fn() }));
-vi.mock('../../src/core/skills.js', () => skills);
+vi.mock('../../src/core/agents/skills.js', () => skills);
 
 import { installSkillsCommand } from '../../src/commands/install-skills.js';
 

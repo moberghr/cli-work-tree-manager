@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
-import type { RailLayout } from '../../src/core/rail-layout.js';
+import type { RailLayout } from '../../src/core/rail/rail-layout.js';
 import { SessionsTab } from '../../src/web/src/components/Dashboard/tabs/SessionsTab.js';
 import type { BulkActions } from '../../src/web/src/components/Dashboard/tabs/BulkBar.js';
 

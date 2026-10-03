@@ -1,4 +1,4 @@
-import { compareAttention } from '../../../core/attention.js';
+import { compareAttention } from '../../../core/status/attention.js';
 import { isArchived } from './session-display.js';
 import type { SessionSummary } from '../api/client.js';
 

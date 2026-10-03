@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail-layout.js';
+import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail/rail-layout.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
 import { StatusIcon } from '../StatusIcon.js';

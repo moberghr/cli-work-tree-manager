@@ -2,17 +2,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
 import { syncCommand } from '../../src/commands/sync.js';
 
 // Controllable wrapper around the real teardownWorktree (what cleanup removes
 // through) so a test can force a non-throwing failure for a chosen branch.
 const failingBranches = new Set<string>();
-vi.mock('../../src/core/worktree.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/core/worktree.js')>(
-    '../../src/core/worktree.js',
+vi.mock('../../src/core/worktree/worktree.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/core/worktree/worktree.js')>(
+    '../../src/core/worktree/worktree.js',
   );
   return {
     ...actual,

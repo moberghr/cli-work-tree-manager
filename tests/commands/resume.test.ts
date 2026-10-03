@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/history.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
 
 // Mock interactive prompt and AI launcher
 vi.mock('@inquirer/prompts', () => ({

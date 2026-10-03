@@ -1,4 +1,4 @@
-import { hostHealthText, type HostHealth } from '../../../../core/host-health.js';
+import { hostHealthText, type HostHealth } from '../../../../core/pty/host-health.js';
 
 /**
  * Says so when the PTY host — the process every Claude runs in — is slow or

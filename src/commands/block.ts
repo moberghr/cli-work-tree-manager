@@ -1,9 +1,9 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { blockRefFrom } from '../core/session-blocks.js';
-import { addBlocker, blockKey, readBlock, removeBlocker } from '../core/session-blocks.js';
-import { findSession, loadHistory } from '../core/history.js';
-import { sessionIdFor } from '../core/session-id.js';
+import { blockRefFrom } from '../core/rail/session-blocks.js';
+import { addBlocker, blockKey, readBlock, removeBlocker } from '../core/rail/session-blocks.js';
+import { findSession, loadHistory } from '../core/sessions/history.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /**

@@ -379,19 +379,19 @@ bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent
 wd-bin.ts → forwards argv to `diff`     web,attach,pty-host,config,init,todo,run,broadcast,diff,hook}.ts
                                        │
                                        ▼
-                                  core/worktree.ts          ← high-level setup / teardown
-                                  ├── core/git.ts           ← git wrapper
-                                  ├── core/copy-files.ts    ← glob-based file copying
-                                  ├── core/resolve.ts       ← group vs single-repo dispatch
-                                  ├── core/history.ts       ← session tracking
+                                  core/worktree/worktree.ts          ← high-level setup / teardown
+                                  ├── core/git/git.ts           ← git wrapper
+                                  ├── core/worktree/copy-files.ts    ← glob-based file copying
+                                  ├── core/worktree/resolve.ts       ← group vs single-repo dispatch
+                                  ├── core/sessions/history.ts       ← session tracking
                                   ├── core/tasks.ts         ← local task persistence
-                                  ├── core/pr.ts            ← GitHub PR fetching (gh)
-                                  ├── core/jira.ts          ← Jira issue fetching (acli)
-                                  ├── core/fleet.ts         ← run/broadcast session selection
-                                  ├── core/broadcast.ts     ← queue a prompt to live sessions
-                                  ├── core/notifier.ts      ← desktop notifications
-                                  ├── core/status-hooks.ts  ← user shell hooks on status change
-                                  └── core/port-allocator.ts← deterministic free-port pick
+                                  ├── core/pr/pr.ts            ← GitHub PR fetching (gh)
+                                  ├── core/jira/jira.ts          ← Jira issue fetching (acli)
+                                  ├── core/sessions/fleet.ts         ← run/broadcast session selection
+                                  ├── core/comments/broadcast.ts     ← queue a prompt to live sessions
+                                  ├── core/status/notifier.ts      ← desktop notifications
+                                  ├── core/status/status-hooks.ts  ← user shell hooks on status change
+                                  └── core/worktree/port-allocator.ts← deterministic free-port pick
 
                                   Diff / review stack       ← `wd` + `work web`
                                   ├── diff-pipeline.ts      ← computeDiff(): git diff + untracked + lcov
@@ -408,12 +408,12 @@ wd-bin.ts → forwards argv to `diff`     web,attach,pty-host,config,init,todo,r
                                   ├── apps/DashboardApp.tsx ← multi-session view (work web)
                                   └── components/           ← Diff/, Review/, Sidebar/, Terminal/
 
-                                  core/web-server.ts        ← `work web` dashboard (Hono + SSE + WS)
+                                  server/web-server.ts        ← `work web` dashboard (Hono + SSE + WS)
                                   ├── scope-routes / panes-routes / worktree-routes / *-comment-routes
                                   ├── pty-pool.ts           ← per-session Claude PTY pool
                                   └── command-hook-installer.ts ← UserPromptSubmit/Stop hooks
 
-                                  core/pty-host.ts          ← PTY host: owns every Claude PTY (survives restarts)
+                                  core/pty/pty-host.ts          ← PTY host: owns every Claude PTY (survives restarts)
                                   tui/session.ts            ← node-pty + @xterm/headless (used by the PTY host)
 ```
 

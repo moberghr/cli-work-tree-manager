@@ -1,4 +1,4 @@
-import { readJsonlTail, TAIL_BYTES } from '../../jsonl.js';
+import { readJsonlTail, TAIL_BYTES } from '../../conversations/jsonl.js';
 import type { TranscriptEntry } from './transcript-entry.js';
 
 /**

@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { sessionIdFor } from '../core/session-id.js';
-import { parseDuration, waitForTurn } from '../core/session-control.js';
+import { sessionIdFor } from '../core/sessions/session-id.js';
+import { parseDuration, waitForTurn } from '../core/sessions/session-control.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 import { cliWaitDeps } from './shared/turn-wait.js';
 

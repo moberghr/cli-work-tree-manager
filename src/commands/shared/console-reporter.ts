@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import type { ReportLevel, Reporter } from '../../core/report.js';
+import type { ReportLevel, Reporter } from '../../core/platform/report.js';
 
 /**
  * How the CLI shows core's reports. Colors live here, not in core.

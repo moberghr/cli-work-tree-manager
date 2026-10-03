@@ -1,5 +1,5 @@
 import type { JiraIssue, PrInfo } from '../api/panes.js';
-import { jiraPrompt as coreJiraPrompt } from '../../../core/jira-prompt.js';
+import { jiraPrompt as coreJiraPrompt } from '../../../core/jira/jira-prompt.js';
 
 /**
  * First messages for a session started from a ticket or a PR. They're a

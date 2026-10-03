@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { internalRunEnv } from '../../internal-run.js';
+import { internalRunEnv } from '../../platform/internal-run.js';
 
 /**
  * How to run an internal, text-only `claude -p`: args, cwd and env in one

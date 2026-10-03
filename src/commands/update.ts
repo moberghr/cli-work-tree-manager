@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { updateSession } from '../core/session-update.js';
+import { updateSession } from '../core/stacks/session-update.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /**

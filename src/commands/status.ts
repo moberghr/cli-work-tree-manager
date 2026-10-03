@@ -1,20 +1,20 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
+import { ensureConfig } from '../core/platform/config.js';
 import {
   loadHistory,
   getSessionsForTarget,
   prunePersistedStaleEntries,
   type WorktreeSession,
-} from '../core/history.js';
-import { effectiveLastAccessedAt } from '../core/session-activity.js';
+} from '../core/sessions/history.js';
+import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import {
   getStatus,
   getUnpushedCommits,
   isBranchMerged,
   getCurrentBranch,
-} from '../core/git.js';
+} from '../core/git/git.js';
 import { timeAgo, shortDateTime } from '../utils/format.js';
 
 export const statusCommand: CommandModule = {

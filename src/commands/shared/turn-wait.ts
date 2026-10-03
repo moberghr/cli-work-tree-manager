@@ -1,5 +1,5 @@
-import { readStatus } from '../../core/session-status.js';
-import type { WaitDeps } from '../../core/session-control.js';
+import { readStatus } from '../../core/status/session-status.js';
+import type { WaitDeps } from '../../core/sessions/session-control.js';
 
 /** waitForTurn's I/O for the CLI: the hook-recorded status in state.db, polled. */
 export const cliWaitDeps: WaitDeps = {

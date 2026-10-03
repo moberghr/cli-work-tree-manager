@@ -4,10 +4,10 @@ import type { SessionSubTab } from './dashboard-route.js';
 
 // The status vocabulary (Needs your input / Working / Idle / Stale, the age
 // sections) lives in core, shared with `work sessions`.
-export * from '../../../core/session-view.js';
-import { displayStatus, lastActiveAt } from '../../../core/session-view.js';
-import { applyManualOrder } from '../../../core/session-order.js';
-import { groupRail, type RailGroup, type RailLayout } from '../../../core/rail-layout.js';
+export * from '../../../core/sessions/session-view.js';
+import { displayStatus, lastActiveAt } from '../../../core/sessions/session-view.js';
+import { applyManualOrder } from '../../../core/rail/session-order.js';
+import { groupRail, type RailGroup, type RailLayout } from '../../../core/rail/rail-layout.js';
 
 /** Where opening a session should land: its terminal — except finished
  *  work you haven't looked at yet, which opens on the diff to review. */

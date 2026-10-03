@@ -1,0 +1,41 @@
+import { describe, expect, it } from 'vitest';
+import { sleepAfterMs, sleepCandidates } from '../../../src/core/pty/idle-sleep.js';
+import type { PtyInfo } from '../../../src/core/pty/pty-host-protocol.js';
+
+const NOW = Date.parse('2026-09-30T18:00:00Z');
+const HOUR = 3_600_000;
+const pty = (id: string, over: Partial<PtyInfo> = {}): PtyInfo => ({
+  id, cwd: `/wt/${id}`, pid: 1, exited: false, cols: 80, rows: 24, startedAt: '', restored: false,
+  clients: 0, lastOutputAt: new Date(NOW - 5 * HOUR).toISOString(), ...over,
+});
+const idle = () => false;
+
+describe('sleepCandidates', () => {
+  it('puts to sleep a Claude quiet for long enough with nothing attached', () => {
+    expect(sleepCandidates([pty('a')], NOW, 4 * HOUR, idle)).toEqual(['a']);
+  });
+
+  it('keeps one that is attached, recently printed, busy, or the assistant', () => {
+    const ptys = [
+      pty('watched', { clients: 1 }),
+      pty('recent', { lastOutputAt: new Date(NOW - HOUR).toISOString() }),
+      pty('busy'),
+      pty('assistant'),
+      pty('gone', { exited: true }),
+    ];
+    expect(sleepCandidates(ptys, NOW, 4 * HOUR, (id) => id === 'busy')).toEqual([]);
+  });
+
+  it('never acts on a host that does not report clients, or when switched off', () => {
+    expect(sleepCandidates([pty('old-host', { clients: undefined })], NOW, 4 * HOUR, idle)).toEqual([]);
+    expect(sleepCandidates([pty('a')], NOW, 0, idle)).toEqual([]);
+  });
+});
+
+describe('sleepAfterMs', () => {
+  it('0 = never; anything shorter than half an hour is half an hour (the Terminal tab would refuse to wake it)', () => {
+    expect(sleepAfterMs(0)).toBe(0);
+    expect(sleepAfterMs(10)).toBe(30 * 60_000);
+    expect(sleepAfterMs(240)).toBe(240 * 60_000);
+  });
+});

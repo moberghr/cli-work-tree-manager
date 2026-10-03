@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { upsertSession } from '../../src/core/history.js';
-import { sessionIdFor } from '../../src/core/session-id.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { upsertSession } from '../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../src/core/sessions/session-id.js';
 import { sessionsCommand, sessionRows } from '../../src/commands/sessions.js';
 import { digestCommand, parseSince } from '../../src/commands/digest.js';
 import { cleanupCommand } from '../../src/commands/cleanup.js';
@@ -126,7 +126,7 @@ describe('work cleanup', () => {
     const old = new Date(Date.now() - 10 * DAY).toISOString();
     await upsertSession('repo', false, 'feat/merged', [merged]);
     await upsertSession('repo', false, 'feat/work', [work]);
-    const { withDb } = await import('../../src/core/db.js');
+    const { withDb } = await import('../../src/core/platform/db.js');
     withDb((d) => {
       for (const row of d.prepare('SELECT target, branch, data FROM sessions').all() as Array<{ target: string; branch: string; data: string }>) {
         const s = JSON.parse(row.data);

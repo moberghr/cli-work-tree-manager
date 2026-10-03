@@ -3,8 +3,8 @@ import { agentById } from '../core/agents/index.js';
 import crossSpawn from 'cross-spawn';
 import xtermHeadless from '@xterm/headless';
 import xtermSerialize from '@xterm/addon-serialize';
-import { debug } from '../core/logger.js';
-import { buildAiLaunchArgs, type AiToolSpec } from '../core/ai-launcher.js';
+import { debug } from '../core/platform/logger.js';
+import { buildAiLaunchArgs, type AiToolSpec } from '../core/platform/ai-launcher.js';
 import childProcess from 'node:child_process';
 
 type Fork = typeof childProcess.fork;

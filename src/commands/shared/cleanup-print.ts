@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CleanupCandidate } from '../../core/api-types.js';
-import type { CleanupResult } from '../../core/cleanup.js';
+import type { CleanupResult } from '../../core/cleanup/cleanup.js';
 
 /**
  * What prune / sync may remove: merged (or never committed to) and clean,

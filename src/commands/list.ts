@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { parseWorktreeList, getCurrentBranch } from '../core/git.js';
-import { resolveProjectTarget, getAllTargetNames } from '../core/resolve.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { parseWorktreeList, getCurrentBranch } from '../core/git/git.js';
+import { resolveProjectTarget, getAllTargetNames } from '../core/worktree/resolve.js';
 
 export const listCommand: CommandModule = {
   command: 'list [target]',

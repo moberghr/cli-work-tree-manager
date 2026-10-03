@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from './activity.js';
-import type { WorktreeSession } from '../../session-types.js';
+import type { WorktreeSession } from '../../sessions/session-types.js';
 import type { ConversationFile } from '../types.js';
 
 /**

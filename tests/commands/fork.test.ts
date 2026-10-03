@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { findSession, loadHistory, upsertSession } from '../../src/core/history.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { findSession, loadHistory, upsertSession } from '../../src/core/sessions/history.js';
 
 const h = vi.hoisted(() => ({ attach: vi.fn(async () => 0), start: vi.fn(async () => 'started') }));
 vi.mock('../../src/commands/shared/attach-session.js', () => ({ attachSession: h.attach }));
-vi.mock('../../src/core/session-start.js', async (orig) => ({
-  ...(await orig<typeof import('../../src/core/session-start.js')>()),
+vi.mock('../../src/core/sessions/session-start.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/sessions/session-start.js')>()),
   startSessionWithPrompt: h.start,
 }));
 

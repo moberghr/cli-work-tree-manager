@@ -4,10 +4,10 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { killTree, runAll } from './fixtures/processes.js';
 import { WebSocket } from 'ws';
-import { PtyRegistry } from '../../src/core/pty-registry.js';
-import { startPtyHost, type PtyHostHandle } from '../../src/core/pty-host.js';
-import { PtyHostClient } from '../../src/core/pty-host-client.js';
-import type { AiToolSpec } from '../../src/core/ai-launcher.js';
+import { PtyRegistry } from '../../src/core/pty/pty-registry.js';
+import { startPtyHost, type PtyHostHandle } from '../../src/core/pty/pty-host.js';
+import { PtyHostClient } from '../../src/core/pty/pty-host-client.js';
+import type { AiToolSpec } from '../../src/core/platform/ai-launcher.js';
 
 /**
  * Functional tests: the real PTY stack — node-pty/ConPTY, the headless

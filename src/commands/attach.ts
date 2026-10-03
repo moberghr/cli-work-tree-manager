@@ -1,12 +1,12 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { findSession, loadHistory } from '../core/history.js';
+import { findSession, loadHistory } from '../core/sessions/history.js';
 import { attachSession } from './shared/attach-session.js';
-import { loadConfig } from '../core/config.js';
-import { findSessionForCwd } from '../core/pending-delivery.js';
+import { loadConfig } from '../core/platform/config.js';
+import { findSessionForCwd } from '../core/comments/pending-delivery.js';
 
-export { baseCheckoutSession } from '../core/session-resolve.js';
-import { baseCheckoutSession } from '../core/session-resolve.js';
+export { baseCheckoutSession } from '../core/sessions/session-resolve.js';
+import { baseCheckoutSession } from '../core/sessions/session-resolve.js';
 
 export const attachCommand: CommandModule = {
   command: 'attach [target] [branch]',
