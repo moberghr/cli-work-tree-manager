@@ -6,7 +6,14 @@ import { debug } from '../platform/logger.js';
 import type { WorkConfig } from '../platform/config.js';
 import { getConfigDir } from '../platform/config.js';
 import { resolveProjectTarget } from './resolve.js';
-import { findSession, loadHistory, upsertSession, upsertSessionWithPort, setSessionTitle, forgetOtherBaseCheckoutEntries } from '../sessions/history.js';
+import {
+  findSession,
+  loadHistory,
+  upsertSession,
+  upsertSessionWithPort,
+  setSessionTitle,
+  forgetOtherBaseCheckoutEntries,
+} from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
@@ -22,13 +29,7 @@ import {
   getUnpushedCommits,
 } from '../git/git.js';
 import { copyConfigFiles } from './copy-files.js';
-import {
-  type BaseSpec,
-  baseForAlias,
-  baseSpecOverrideAliases,
-  isEmptyBaseSpec,
-  toBaseSpec,
-} from '../git/base-spec.js';
+import { type BaseSpec, baseForAlias, baseSpecOverrideAliases, isEmptyBaseSpec, toBaseSpec } from '../git/base-spec.js';
 import { report } from '../platform/report.js';
 
 /**
@@ -40,10 +41,7 @@ import { report } from '../platform/report.js';
 export function pullLatestForBranch(worktreePath: string, branchName: string): void {
   // Skip purely local branches — `git pull` would print a "no tracking
   // information" error that reads as a failure rather than a no-op.
-  const upstream = git(
-    ['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`],
-    worktreePath,
-  );
+  const upstream = git(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`], worktreePath);
   if (upstream.exitCode !== 0) return;
 
   report('info', `  Pulling latest changes for ${branchName}...`);
@@ -106,7 +104,10 @@ export function createSingleWorktree(
       // into it would fail, and re-entering or restoring the session with it.
       const ours = parseWorktreeList(repoPath).some((wt) => samePath(wt.path, worktreePath));
       if (ours) {
-        report('warn', `  Worktree already exists at: ${worktreePath} (on ${currentBranch ?? 'a detached HEAD'}, not ${branchName}: using it as it is)`);
+        report(
+          'warn',
+          `  Worktree already exists at: ${worktreePath} (on ${currentBranch ?? 'a detached HEAD'}, not ${branchName}: using it as it is)`,
+        );
         if (pull && currentBranch) pullLatestForBranch(worktreePath, currentBranch);
         return true;
       }
@@ -115,9 +116,7 @@ export function createSingleWorktree(
 
   // Check if the branch is already checked out in another worktree
   const worktrees = parseWorktreeList(repoPath);
-  const existingForBranch = worktrees.find(
-    (wt) => wt.branch === branchName && wt.path !== worktreePath,
-  );
+  const existingForBranch = worktrees.find((wt) => wt.branch === branchName && wt.path !== worktreePath);
 
   if (existingForBranch) {
     report('error', `  Branch '${branchName}' is already checked out in a worktree at: ${existingForBranch.path}`);
@@ -178,24 +177,10 @@ export function createSingleWorktree(
   if (hasLocal || hasRemote) {
     if (hasRemote && !hasLocal) {
       branchSource = 'remote';
-      result = git(
-        [
-          'worktree',
-          'add',
-          worktreePath,
-          '-b',
-          branchName,
-          '--track',
-          `origin/${branchName}`,
-        ],
-        repoPath,
-      );
+      result = git(['worktree', 'add', worktreePath, '-b', branchName, '--track', `origin/${branchName}`], repoPath);
     } else {
       branchSource = 'local';
-      result = git(
-        ['worktree', 'add', worktreePath, branchName],
-        repoPath,
-      );
+      result = git(['worktree', 'add', worktreePath, branchName], repoPath);
     }
   } else if (baseBranch) {
     // Validate the base branch exists
@@ -208,28 +193,16 @@ export function createSingleWorktree(
     }
 
     const baseRef = baseLocal ? baseBranch : `origin/${baseBranch}`;
-    result = git(
-      ['worktree', 'add', worktreePath, '-b', branchName, baseRef],
-      repoPath,
-    );
+    result = git(['worktree', 'add', worktreePath, '-b', branchName, baseRef], repoPath);
   } else {
     // If pulling the base repo branch failed, use origin/<baseRepoBranch> as the
     // source so the new branch isn't created from a stale local HEAD.
-    const fallbackToRemote =
-      baseRepoPullFailed &&
-      !!baseRepoBranch &&
-      remoteBranchExists(baseRepoBranch, repoPath);
+    const fallbackToRemote = baseRepoPullFailed && !!baseRepoBranch && remoteBranchExists(baseRepoBranch, repoPath);
     if (fallbackToRemote) {
       report('step', `  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`);
-      result = git(
-        ['worktree', 'add', worktreePath, '-b', branchName, `origin/${baseRepoBranch}`],
-        repoPath,
-      );
+      result = git(['worktree', 'add', worktreePath, '-b', branchName, `origin/${baseRepoBranch}`], repoPath);
     } else {
-      result = git(
-        ['worktree', 'add', worktreePath, '-b', branchName],
-        repoPath,
-      );
+      result = git(['worktree', 'add', worktreePath, '-b', branchName], repoPath);
     }
   }
 
@@ -290,12 +263,7 @@ export function isDeleteFailure(stderr: string): boolean {
   return /failed to delete/i.test(stderr);
 }
 
-export function removeSingleWorktree(
-  repoPath: string,
-  worktreePath: string,
-  branchName: string,
-  force: boolean,
-): boolean {
+export function removeSingleWorktree(repoPath: string, worktreePath: string, branchName: string, force: boolean): boolean {
   if (!fs.existsSync(worktreePath)) {
     report('warn', `  Worktree does not exist at: ${worktreePath}`);
     return true; // Nothing to remove is success
@@ -312,7 +280,10 @@ export function removeSingleWorktree(
     return true;
   }
   if (state === 'unknown' && !force) {
-    report('warn', `  git can't read ${worktreePath} (ownership, a moved main repo, git not on PATH?) — not removing it. Check it, or use --force.`);
+    report(
+      'warn',
+      `  git can't read ${worktreePath} (ownership, a moved main repo, git not on PATH?) — not removing it. Check it, or use --force.`,
+    );
     return false;
   }
 
@@ -429,7 +400,10 @@ export async function setupWorktree(
   const spec = toBaseSpec(base);
   debug('setupWorktree', { targetName, branchName, spec, jiraKey, opts });
   const target = resolveProjectTarget(targetName, config);
-  if (!target) { debug('setupWorktree: target not found', targetName); return null; }
+  if (!target) {
+    debug('setupWorktree: target not found', targetName);
+    return null;
+  }
 
   const workTreeDirName = branchName.replace(/\//g, '-');
 
@@ -454,7 +428,10 @@ export async function setupWorktree(
     const session = findSession(loadHistory(), sessionTarget, branchName);
     if (session) bestEffort('restore the archived conversation', () => restoreArchivedTranscripts(session), 0);
     // And the uncommitted work archiving saved when it removed the worktree.
-    if (session) await restoreArchivedUncommitted(session, config).catch((err: Error) => report('warn', `couldn't put back its uncommitted changes: ${err.message}`));
+    if (session)
+      await restoreArchivedUncommitted(session, config).catch((err: Error) =>
+        report('warn', `couldn't put back its uncommitted changes: ${err.message}`),
+      );
     if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;
@@ -513,11 +490,12 @@ async function setupGroupWorktree(
   // resolves its own base: a per-repo override (`alias=branch`) if present,
   // otherwise the bare default.
   if (!isEmptyBaseSpec(spec)) {
-    const unknownAliases = baseSpecOverrideAliases(spec).filter(
-      (a) => !repoAliases.includes(a),
-    );
+    const unknownAliases = baseSpecOverrideAliases(spec).filter((a) => !repoAliases.includes(a));
     if (unknownAliases.length > 0) {
-      report('error', `--base names repo(s) not in group '${groupName}': ${unknownAliases.join(', ')}. Group repos: ${repoAliases.join(', ')}`);
+      report(
+        'error',
+        `--base names repo(s) not in group '${groupName}': ${unknownAliases.join(', ')}. Group repos: ${repoAliases.join(', ')}`,
+      );
       return null;
     }
 
@@ -563,7 +541,14 @@ async function setupGroupWorktree(
     const repoBase = baseForAlias(spec, alias);
 
     report('step', `[${alias}] (${repoName}):`);
-    const success = createSingleWorktree(repoPath, subWorktreePath, opts.checkoutFor?.[alias] ?? branchName, config, repoBase, opts.pull !== false);
+    const success = createSingleWorktree(
+      repoPath,
+      subWorktreePath,
+      opts.checkoutFor?.[alias] ?? branchName,
+      config,
+      repoBase,
+      opts.pull !== false,
+    );
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
@@ -579,7 +564,9 @@ async function setupGroupWorktree(
         if (fs.readdirSync(groupWorktreePath).length === 0) {
           fs.rmSync(groupWorktreePath, { recursive: true, force: true });
         }
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       report('error', 'Failed to create group worktree. Changes have been rolled back.');
       return null;
     }
@@ -605,18 +592,8 @@ async function setupGroupWorktree(
   // Representative base for the single-line "vs X" badge: the explicit
   // default, else a per-repo value only when every repo shares it.
   const distinctBases = [...new Set(Object.values(baseBranches))];
-  const representativeBase =
-    spec.default ?? (distinctBases.length === 1 ? distinctBases[0] : undefined);
-  const { port } = await upsertSessionWithPort(
-    groupName,
-    true,
-    branchName,
-    allPaths,
-    config,
-    jiraKey,
-    representativeBase,
-    baseBranches,
-  );
+  const representativeBase = spec.default ?? (distinctBases.length === 1 ? distinctBases[0] : undefined);
+  const { port } = await upsertSessionWithPort(groupName, true, branchName, allPaths, config, jiraKey, representativeBase, baseBranches);
 
   report('info', '');
   report('info', `Branch: ${branchName}`);
@@ -653,11 +630,7 @@ async function setupSingleWorktree(
 
   // Check for existing worktree at any path
   const worktrees = parseWorktreeList(repoPath);
-  const existing = worktrees.find(
-    (wt) =>
-      wt.branch === branchName &&
-      path.resolve(wt.path) !== path.resolve(repoPath),
-  );
+  const existing = worktrees.find((wt) => wt.branch === branchName && path.resolve(wt.path) !== path.resolve(repoPath));
 
   if (existing) {
     if (baseBranch) {
@@ -668,7 +641,14 @@ async function setupSingleWorktree(
     workTreePath = existing.path;
     if (opts.pull !== false) pullLatestForBranch(workTreePath, branchName);
   } else {
-    const success = createSingleWorktree(repoPath, workTreePath, opts.checkoutFor?.[targetName] ?? branchName, config, baseBranch, opts.pull !== false);
+    const success = createSingleWorktree(
+      repoPath,
+      workTreePath,
+      opts.checkoutFor?.[targetName] ?? branchName,
+      config,
+      baseBranch,
+      opts.pull !== false,
+    );
     if (!success) return null;
   }
 
@@ -736,13 +716,19 @@ export function teardownWorktree(
 
     // Clean up the group's instructions file (its agent's name) and empty parent dir
     const claudeMd = path.join(groupWorktreePath, agentFor(config, findSession(loadHistory(), target, branch)).instructionsFile);
-    try { if (fs.existsSync(claudeMd)) fs.unlinkSync(claudeMd); } catch { /* */ }
+    try {
+      if (fs.existsSync(claudeMd)) fs.unlinkSync(claudeMd);
+    } catch {
+      /* */
+    }
     try {
       if (fs.existsSync(groupWorktreePath) && fs.readdirSync(groupWorktreePath).length === 0) {
         fs.rmSync(groupWorktreePath, { recursive: true, force: true });
         report('success', `Cleaned up group directory: ${groupWorktreePath}`);
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
 
     return allRemoved;
   } else {
@@ -750,7 +736,8 @@ export function teardownWorktree(
     if (repoPath) {
       const worktrees = parseWorktreeList(repoPath);
       const at = paths?.[0] ? normalizeWorktreePath(paths[0]) : null;
-      const wt = (at ? worktrees.find((w) => normalizeWorktreePath(w.path) === at) : undefined) ?? worktrees.find((w) => w.branch === branch);
+      const wt =
+        (at ? worktrees.find((w) => normalizeWorktreePath(w.path) === at) : undefined) ?? worktrees.find((w) => w.branch === branch);
       if (wt) {
         return removeSingleWorktree(repoPath, wt.path, branch, force);
       }

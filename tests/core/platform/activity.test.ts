@@ -11,7 +11,11 @@ describe('activity log', () => {
     run.note('api feat/x: archived — every PR merged', { level: 'action', sessionId: 's1' });
     let snap = log.snapshot();
     expect(snap.running).toHaveLength(1);
-    expect(snap.running[0]).toMatchObject({ status: 'running', progress: { done: 1, total: 3 }, notes: [{ level: 'action', sessionId: 's1' }] });
+    expect(snap.running[0]).toMatchObject({
+      status: 'running',
+      progress: { done: 1, total: 3 },
+      notes: [{ level: 'action', sessionId: 's1' }],
+    });
     t += 5000;
     run.done('3 sessions · 1 archived');
     run.note('ignored after the end');
@@ -36,7 +40,10 @@ describe('activity log', () => {
     log.skip('pr-watch', 'Checking pull requests', "GitHub's API limit is spent");
     log.skip('pr-watch', 'Checking pull requests', 'turned off');
     const recent = log.snapshot().recent;
-    expect(recent.map((r) => [r.summary, r.repeats ?? 0])).toEqual([['turned off', 0], ["GitHub's API limit is spent", 1]]);
+    expect(recent.map((r) => [r.summary, r.repeats ?? 0])).toEqual([
+      ['turned off', 0],
+      ["GitHub's API limit is spent", 1],
+    ]);
   });
 
   it('a schedule says when it runs next, and why it rests', () => {
@@ -46,7 +53,10 @@ describe('activity log', () => {
     s.next(t + 180_000);
     expect(log.snapshot().schedules[0]).toMatchObject({ everyMs: 180_000, nextAt: '2026-09-30T10:03:00.000Z', pausedUntil: null });
     s.pause(t + 600_000, "GitHub's API limit is spent");
-    expect(log.snapshot().schedules[0]).toMatchObject({ pausedUntil: '2026-09-30T10:10:00.000Z', pausedWhy: "GitHub's API limit is spent" });
+    expect(log.snapshot().schedules[0]).toMatchObject({
+      pausedUntil: '2026-09-30T10:10:00.000Z',
+      pausedWhy: "GitHub's API limit is spent",
+    });
     s.resume();
     expect(log.snapshot().schedules[0].pausedUntil).toBeNull();
   });

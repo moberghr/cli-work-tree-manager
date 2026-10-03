@@ -44,15 +44,44 @@ afterEach(() => {
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: 'sess-1', target: 'api', branch: 'feat/x', isGroup: false, paths: ['/wt/api/feat-x'],
-  createdAt: minsAgo(100), lastAccessedAt: minsAgo(10), ...over,
+  id: 'sess-1',
+  target: 'api',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: ['/wt/api/feat-x'],
+  createdAt: minsAgo(100),
+  lastAccessedAt: minsAgo(10),
+  ...over,
 });
 const repo = (over: Partial<RepoShipState> = {}): RepoShipState => ({
-  name: 'api', path: '/wt/api/feat-x', branch: 'feat/x', localSha: 'abc', dirtyFiles: 0,
-  hasUpstream: true, tracksRemote: true, ahead: 0, behind: 0, pr: null, done: false, mergeBlockers: [], ...over,
+  name: 'api',
+  path: '/wt/api/feat-x',
+  branch: 'feat/x',
+  localSha: 'abc',
+  dirtyFiles: 0,
+  hasUpstream: true,
+  tracksRemote: true,
+  ahead: 0,
+  behind: 0,
+  pr: null,
+  done: false,
+  mergeBlockers: [],
+  ...over,
 });
-const openPr = { number: 12, url: 'https://gh/pr/12', state: 'OPEN' as const, isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass' as const, headSha: 'abc' };
-const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+const openPr = {
+  number: 12,
+  url: 'https://gh/pr/12',
+  state: 'OPEN' as const,
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  checks: 'pass' as const,
+  headSha: 'abc',
+};
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 const button = (label: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim().startsWith(label))!;
@@ -105,7 +134,11 @@ describe('ShipPanel', () => {
     expect(text(container)).toContain('not pushed');
     expect(text(container)).toContain('no PR yet');
     let resolve!: (v: unknown) => void;
-    h.ship.mockReturnValue(new Promise((r) => { resolve = r; }));
+    h.ship.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
     act(() => container.querySelector<HTMLInputElement>('.wd-ship-inline input')!.click());
     act(() => button('Create PR').click());
     expect(h.ship).toHaveBeenCalledWith('sess-1', { action: 'create-pr', draft: true });
@@ -137,7 +170,9 @@ describe('ShipPanel', () => {
   });
 
   it('lists merge blockers and surfaces action errors', async () => {
-    await openPanel({ repos: [repo({ pr: { ...openPr, mergeStateStatus: 'BLOCKED' }, mergeBlockers: ['Required review missing', 'Checks failing'] })] });
+    await openPanel({
+      repos: [repo({ pr: { ...openPr, mergeStateStatus: 'BLOCKED' }, mergeBlockers: ['Required review missing', 'Checks failing'] })],
+    });
     const blockers = [...container.querySelectorAll('.wd-ship-blockers li')].map((li) => li.textContent);
     expect(blockers).toEqual(['Required review missing', 'Checks failing']);
     expect(button('Merge…').disabled).toBe(true);
@@ -153,14 +188,37 @@ describe('ShipPanel', () => {
 
 describe('Session header strip', () => {
   const att = (state: SessionAttention['state'], seen: boolean, summary: string): SessionAttention => ({
-    state, seen, since: minsAgo(4), updatedAt: minsAgo(4), summary, stale: false,
+    state,
+    seen,
+    since: minsAgo(4),
+    updatedAt: minsAgo(4),
+    summary,
+    stale: false,
   });
   const renderDetail = (s: SessionSummary) =>
     act(() =>
       root.render(
         createElement(SessionDetail, {
-          session: s, subTab: 'diff', onSelectSubTab: () => {}, onBack: () => {}, backLabel: 'Sessions', onDelete: () => {},
-          prs: [{ number: 7, title: 't', branch: 'feat/x', url: 'https://gh/7', isDraft: false, checksStatus: 'PENDING', reviewDecision: 'NONE', myReview: 'NONE', isMine: true, repoAlias: 'api' }],
+          session: s,
+          subTab: 'diff',
+          onSelectSubTab: () => {},
+          onBack: () => {},
+          backLabel: 'Sessions',
+          onDelete: () => {},
+          prs: [
+            {
+              number: 7,
+              title: 't',
+              branch: 'feat/x',
+              url: 'https://gh/7',
+              isDraft: false,
+              checksStatus: 'PENDING',
+              reviewDecision: 'NONE',
+              myReview: 'NONE',
+              isMine: true,
+              repoAlias: 'api',
+            },
+          ],
         }),
       ),
     );
@@ -179,7 +237,11 @@ describe('Session header strip', () => {
 
   it('Archive shows progress and flips to an Archived pill + Unarchive', async () => {
     let resolve!: (v: unknown) => void;
-    h.setArchived.mockReturnValue(new Promise((r) => { resolve = r; }));
+    h.setArchived.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
     renderDetail(session());
     act(() => button('Archive').click());
     expect(h.setArchived).toHaveBeenCalledWith('sess-1', true);
@@ -199,8 +261,10 @@ describe('Session header strip', () => {
   });
 
   describe('groups — shipped in parts, carefully', () => {
-    const be = (over: Partial<RepoShipState> = {}) => repo({ name: 'backend', path: '/wt/shop/backend', pr: { ...openPr, headSha: 'b1' }, ...over });
-    const fe = (over: Partial<RepoShipState> = {}) => repo({ name: 'frontend', path: '/wt/shop/frontend', pr: { ...openPr, number: 13, headSha: 'f1' }, ...over });
+    const be = (over: Partial<RepoShipState> = {}) =>
+      repo({ name: 'backend', path: '/wt/shop/backend', pr: { ...openPr, headSha: 'b1' }, ...over });
+    const fe = (over: Partial<RepoShipState> = {}) =>
+      repo({ name: 'frontend', path: '/wt/shop/frontend', pr: { ...openPr, number: 13, headSha: 'f1' }, ...over });
     const docs = repo({ name: 'docs', path: '/wt/shop/docs', done: true, doneReason: 'untouched', commitsVsBase: 0 });
     const checkbox = (name: string) => container.querySelector<HTMLInputElement>(`input[aria-label="Merge ${name}"]`);
 
@@ -225,7 +289,11 @@ describe('Session header strip', () => {
       const confirm = text(container.querySelector('[role="alertdialog"]'));
       expect(confirm).toContain('Merge backend #12 (b1)');
       expect(confirm).toContain('1 other repository stays open — the session stays until everything is done');
-      h.ship.mockResolvedValue({ results: [{ repo: 'backend', ok: true, merged: true, message: 'merged' }], archived: false, allDone: false });
+      h.ship.mockResolvedValue({
+        results: [{ repo: 'backend', ok: true, merged: true, message: 'merged' }],
+        archived: false,
+        allDone: false,
+      });
       h.fetchShipPreflight.mockResolvedValue({ repos: [be({ done: true, doneReason: 'merged' }), fe(), docs] });
       await act(async () => button('Confirm merge').click());
       expect(h.ship).toHaveBeenCalledWith('sess-1', { action: 'merge', method: 'squash', repos: [{ name: 'backend', headSha: 'b1' }] });

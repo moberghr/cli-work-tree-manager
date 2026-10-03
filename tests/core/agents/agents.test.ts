@@ -11,15 +11,20 @@ import type { TranscriptEntry } from '../../../src/core/agents/claude/transcript
 
 /** The agent interface's first slice: a session's conversation in work's own terms, read from Claude Code's transcripts. */
 
-const user = (at: string, content: unknown, extra: object = {}) => ({ type: 'user', timestamp: at, message: { role: 'user', content }, ...extra }) as TranscriptEntry;
-const assistant = (at: string, content: unknown, extra: object = {}) => ({ type: 'assistant', timestamp: at, message: { role: 'assistant', content }, ...extra }) as TranscriptEntry;
+const user = (at: string, content: unknown, extra: object = {}) =>
+  ({ type: 'user', timestamp: at, message: { role: 'user', content }, ...extra }) as TranscriptEntry;
+const assistant = (at: string, content: unknown, extra: object = {}) =>
+  ({ type: 'assistant', timestamp: at, message: { role: 'assistant', content }, ...extra }) as TranscriptEntry;
 
 describe('claudeEntries (pure): every line of a Claude transcript, in work’s own terms', () => {
   it('your prompts, its text and tool calls, tool results, the rest as `other` — subagent lines marked, ids kept', () => {
     const out = claudeEntries([
       user('2026-10-02T09:00:00Z', 'Add the CSV export', { uuid: 'u1' }),
       user('2026-10-02T09:00:01Z', '<command-name>/clear</command-name>'),
-      assistant('2026-10-02T09:00:02Z', [{ type: 'text', text: 'On it.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }]),
+      assistant('2026-10-02T09:00:02Z', [
+        { type: 'text', text: 'On it.' },
+        { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } },
+      ]),
       user('2026-10-02T09:00:03Z', [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }]),
       assistant('2026-10-02T09:00:04Z', [{ type: 'text', text: 'subagent work' }], { isSidechain: true }),
       assistant('2026-10-02T09:00:05Z', [{ type: 'thinking', thinking: '…' }]),
@@ -39,7 +44,15 @@ describe('claudeEntries (pure): every line of a Claude transcript, in work’s o
 
   it('an agent message carries its usage (prompt with the cache, and the reply) and its model; the window by model or size', () => {
     const [e] = claudeEntries([
-      { type: 'assistant', timestamp: 't', message: { model: 'claude-opus-5-5[1m]', usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5, output_tokens: 7 }, content: [{ type: 'text', text: 'ok' }] } } as TranscriptEntry,
+      {
+        type: 'assistant',
+        timestamp: 't',
+        message: {
+          model: 'claude-opus-5-5[1m]',
+          usage: { input_tokens: 10, cache_read_input_tokens: 1000, cache_creation_input_tokens: 5, output_tokens: 7 },
+          content: [{ type: 'text', text: 'ok' }],
+        },
+      } as TranscriptEntry,
     ]);
     expect(e).toMatchObject({ role: 'agent', usage: { prompt: 1015, reply: 7 }, model: 'claude-opus-5-5[1m]' });
     expect(claudeContextWindow('claude-opus-5-5[1m]', 10)).toBe(LARGE_WINDOW);
@@ -67,7 +80,9 @@ describe('claudeEntries (pure): every line of a Claude transcript, in work’s o
   });
 
   it('a line with no time is kept with `at: ""` (search and context usage read it)', () => {
-    expect(claudeEntries([{ type: 'assistant', message: { content: [{ type: 'text', text: 'no time' }] } } as TranscriptEntry])).toEqual([{ at: '', role: 'agent', text: 'no time' }]);
+    expect(claudeEntries([{ type: 'assistant', message: { content: [{ type: 'text', text: 'no time' }] } } as TranscriptEntry])).toEqual([
+      { at: '', role: 'agent', text: 'no time' },
+    ]);
     expect(claudeEntries([null, 'x', 3])).toEqual([]); // not lines
   });
 });
@@ -99,11 +114,20 @@ describe('claudeAgent.conversation.read (transcript files)', () => {
     fs.writeFileSync(f, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
     fs.utimesSync(f, mtime, mtime);
   };
-  const session = () => ({ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '' }) as WorktreeSession;
+  const session = () =>
+    ({ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '' }) as WorktreeSession;
 
   it('the newest messages, oldest first; an older conversation fills in when the newest is short', () => {
-    write('old.jsonl', [user('2026-10-01T10:00:00Z', 'Yesterday’s ask'), assistant('2026-10-01T10:01:00Z', [{ type: 'text', text: 'Yesterday’s answer' }])], new Date('2026-10-01T10:01:00Z'));
-    write('new.jsonl', [user('2026-10-02T09:00:00Z', 'Today’s ask'), assistant('2026-10-02T09:01:00Z', [{ type: 'text', text: 'Today’s answer' }])], new Date('2026-10-02T09:01:00Z'));
+    write(
+      'old.jsonl',
+      [user('2026-10-01T10:00:00Z', 'Yesterday’s ask'), assistant('2026-10-01T10:01:00Z', [{ type: 'text', text: 'Yesterday’s answer' }])],
+      new Date('2026-10-01T10:01:00Z'),
+    );
+    write(
+      'new.jsonl',
+      [user('2026-10-02T09:00:00Z', 'Today’s ask'), assistant('2026-10-02T09:01:00Z', [{ type: 'text', text: 'Today’s answer' }])],
+      new Date('2026-10-02T09:01:00Z'),
+    );
     const read = (last: number) => claudeAgent.conversation!.read(session(), { last }).map((e) => e.text);
     expect(read(2)).toEqual(['Today’s ask', 'Today’s answer']);
     expect(read(3)).toEqual(['Yesterday’s answer', 'Today’s ask', 'Today’s answer']);
@@ -173,16 +197,28 @@ describe('agentSettings / agentOf: the config read once, again when it changes',
 
 describe('agentWire: what the dashboard is told an agent can do', () => {
   it('Claude Code: everything', () => {
-    expect(agentWire(claudeAgent)).toEqual({ id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, chat: true } });
+    expect(agentWire(claudeAgent)).toEqual({
+      id: 'claude',
+      name: 'Claude Code',
+      can: { read: true, hooks: true, live: true, answer: true, chat: true },
+    });
   });
   it('a tool with no adapter: nothing beyond starting it', () => {
-    expect(agentWire(agentById('opencode'))).toEqual({ id: 'opencode', name: 'opencode', can: { read: false, hooks: false, live: false, answer: false, chat: false } });
+    expect(agentWire(agentById('opencode'))).toEqual({
+      id: 'opencode',
+      name: 'opencode',
+      can: { read: false, hooks: false, live: false, answer: false, chat: false },
+    });
   });
 });
 
 describe('launch', () => {
   it('Claude: the configured command when it is Claude, plain claude otherwise; drops a parent session’s variables', () => {
-    expect(claudeAgent.launch.tool({ aiCommand: 'claude --model opus' })).toMatchObject({ cmd: 'claude', baseArgs: ['--model', 'opus'], resumeFlag: '--continue' });
+    expect(claudeAgent.launch.tool({ aiCommand: 'claude --model opus' })).toMatchObject({
+      cmd: 'claude',
+      baseArgs: ['--model', 'opus'],
+      resumeFlag: '--continue',
+    });
     expect(claudeAgent.launch.tool({ aiCommand: 'opencode' })).toMatchObject({ cmd: 'claude', baseArgs: [] }); // the assistant runs Claude whatever the default
     const env = claudeAgent.launch.cleanEnv({ CLAUDECODE: '1', PATH: '/bin' });
     expect(env).toEqual({ PATH: '/bin' });
@@ -194,7 +230,14 @@ describe('launch', () => {
     expect(op.launch.tool({ aiCommand: 'opencode --verbose' })).toMatchObject({ baseArgs: ['--verbose'] });
     expect(op.launch.tool({ aiCommand: 'claude' }).cmd).toBe('opencode'); // the session's agent, not the default's command
     expect(op.launch.canResume('/anywhere')).toBe(false);
-    const g = { target: 'shop', branch: 'b', isGroup: true, paths: ['/wt/shop/b/api', '/wt/shop/b/web'], createdAt: '', lastAccessedAt: '' } as WorktreeSession;
+    const g = {
+      target: 'shop',
+      branch: 'b',
+      isGroup: true,
+      paths: ['/wt/shop/b/api', '/wt/shop/b/web'],
+      createdAt: '',
+      lastAccessedAt: '',
+    } as WorktreeSession;
     expect(op.launch.resumeLaunch(g)).toEqual({ launchPath: path.dirname('/wt/shop/b/api'), hasConversation: false });
     expect(op.launch.cleanEnv({ CLAUDECODE: '1' })).toEqual({ CLAUDECODE: '1' });
   });

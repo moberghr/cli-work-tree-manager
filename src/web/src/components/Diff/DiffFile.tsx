@@ -1,11 +1,4 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { resolveHighlightLang } from '../../utils/highlight.js';
 import { STATUS_LETTER } from '../../utils/status.js';
@@ -47,18 +40,8 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({
-  file,
-  anchor,
-  review,
-  repo,
-  viewed,
-  onToggleViewed,
-  hunkScopeKey,
-}: Props) {
-  const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(
-    hunkScopeKey ?? '',
-  );
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, hunkScopeKey }: Props) {
+  const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(hunkScopeKey ?? '');
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -75,20 +58,14 @@ export function DiffFile({
   // carries the below-hunk context; without one (static mode) each hunk
   // falls back to showing its own context label.
   const canExpand = !!expand;
-  const openFileHref =
-    expand && repo && !file.isBinary && file.status !== 'deleted'
-      ? expand.fileHref(repo, file.path)
-      : null;
+  const openFileHref = expand && repo && !file.isBinary && file.status !== 'deleted' ? expand.fileHref(repo, file.path) : null;
   // Resolved highlight language for this file (null = no highlighting). The
   // actual highlighting happens per-hunk in DiffHunk / per-gap in GapRegion,
   // which highlight a contiguous block at once so stateful grammars (Razor's
   // `@code` C# sublanguage, multi-line comments/strings) keep their context —
   // line-by-line highlighting would lose it. React owns the DOM via
   // dangerouslySetInnerHTML — no post-paint mutation.
-  const lang = useMemo(
-    () => (file.isBinary ? null : resolveHighlightLang(file.path)),
-    [file.isBinary, file.path],
-  );
+  const lang = useMemo(() => (file.isBinary ? null : resolveHighlightLang(file.path)), [file.isBinary, file.path]);
 
   // Large-file gate. Auto-generated migrations / lockfile churn / bundle
   // diffs can have tens of thousands of rows; rendering them all at once
@@ -142,15 +119,8 @@ export function DiffFile({
   // Server may also flag `tooLarge: true` to opt the file out of preview
   // when content would balloon the payload (large auto-generated docs).
   const mdContent = file.mdContent;
-  const hasPreview =
-    !!mdContent &&
-    !mdContent.tooLarge &&
-    (mdContent.before !== undefined || mdContent.after !== undefined);
-  const hasSplit =
-    !!mdContent &&
-    !mdContent.tooLarge &&
-    mdContent.before !== undefined &&
-    mdContent.after !== undefined;
+  const hasPreview = !!mdContent && !mdContent.tooLarge && (mdContent.before !== undefined || mdContent.after !== undefined);
+  const hasSplit = !!mdContent && !mdContent.tooLarge && mdContent.before !== undefined && mdContent.after !== undefined;
   const [viewMode, setViewMode] = useState<FileViewMode>('diff');
   // Reset to the diff view whenever the file folds. The body gate is
   // `!collapsed` (not `!viewed`), so without this an expand of a
@@ -200,11 +170,7 @@ export function DiffFile({
   return (
     <article
       ref={articleRef}
-      className={
-        'wd-file' +
-        (viewed ? ' wd-file-viewed' : '') +
-        (collapsed ? ' wd-file-collapsed' : '')
-      }
+      className={'wd-file' + (viewed ? ' wd-file-viewed' : '') + (collapsed ? ' wd-file-collapsed' : '')}
       id={anchor}
       data-status={file.status}
       data-path={file.path}
@@ -222,30 +188,20 @@ export function DiffFile({
             ▸
           </span>
         </button>
-        <span className={`wd-file-badge wd-status-${file.status}`}>
-          {STATUS_LETTER[file.status]}
-        </span>
+        <span className={`wd-file-badge wd-status-${file.status}`}>{STATUS_LETTER[file.status]}</span>
         <span className="wd-file-path">{renamed ?? file.path}</span>
         {(file.added || file.deleted) && (
           <span className="wd-file-stats">
-            <span className="wd-add">+{file.added}</span>{' '}
-            <span className="wd-del">-{file.deleted}</span>
+            <span className="wd-add">+{file.added}</span> <span className="wd-del">-{file.deleted}</span>
           </span>
         )}
         {hasPreview && !collapsed && (
-          <div
-            className="wd-view-mode"
-            role="tablist"
-            aria-label="File view mode"
-          >
+          <div className="wd-view-mode" role="tablist" aria-label="File view mode">
             <button
               type="button"
               role="tab"
               aria-selected={viewMode === 'diff'}
-              className={
-                'wd-view-mode-btn' +
-                (viewMode === 'diff' ? ' wd-view-mode-btn-active' : '')
-              }
+              className={'wd-view-mode-btn' + (viewMode === 'diff' ? ' wd-view-mode-btn-active' : '')}
               onClick={() => setViewMode('diff')}
             >
               Diff
@@ -254,10 +210,7 @@ export function DiffFile({
               type="button"
               role="tab"
               aria-selected={viewMode === 'preview'}
-              className={
-                'wd-view-mode-btn' +
-                (viewMode === 'preview' ? ' wd-view-mode-btn-active' : '')
-              }
+              className={'wd-view-mode-btn' + (viewMode === 'preview' ? ' wd-view-mode-btn-active' : '')}
               onClick={() => setViewMode('preview')}
             >
               Preview
@@ -267,10 +220,7 @@ export function DiffFile({
                 type="button"
                 role="tab"
                 aria-selected={viewMode === 'split'}
-                className={
-                  'wd-view-mode-btn' +
-                  (viewMode === 'split' ? ' wd-view-mode-btn-active' : '')
-                }
+                className={'wd-view-mode-btn' + (viewMode === 'split' ? ' wd-view-mode-btn-active' : '')}
                 onClick={() => setViewMode('split')}
               >
                 Split
@@ -309,10 +259,7 @@ export function DiffFile({
           </button>
         )}
         {onToggleViewed && (
-          <label
-            className="wd-viewed-label"
-            title="Mark this file as reviewed and collapse it"
-          >
+          <label className="wd-viewed-label" title="Mark this file as reviewed and collapse it">
             <input
               type="checkbox"
               className="wd-viewed-checkbox"
@@ -330,32 +277,21 @@ export function DiffFile({
         ) : file.isBinary ? (
           <div className="wd-binary">Binary file</div>
         ) : file.hunks.length === 0 ? (
-          <div className="wd-binary">
-            {isPureRename ? 'File renamed without changes' : 'No content changes'}
-          </div>
+          <div className="wd-binary">{isPureRename ? 'File renamed without changes' : 'No content changes'}</div>
         ) : !expanded ? (
           <div className="wd-binary wd-large-file">
             <p>
               Large file — {totalChanged.toLocaleString()} line
-              {totalChanged === 1 ? '' : 's'} changed. Not rendered by
-              default.
+              {totalChanged === 1 ? '' : 's'} changed. Not rendered by default.
             </p>
-            <button
-              type="button"
-              className="wd-btn-secondary"
-              onClick={() => setExpanded(true)}
-            >
+            <button type="button" className="wd-btn-secondary" onClick={() => setExpanded(true)}>
               Load diff
             </button>
           </div>
         ) : file.status === 'added' ? (
           <NewFileView file={file} lang={lang} review={review} repo={repo} />
         ) : (
-          <table
-            className={
-              'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')
-            }
-          >
+          <table className={'wd-diff-table ' + (diffMode === 'unified' ? 'wd-unified' : 'wd-side')}>
             <colgroup>
               {diffMode === 'unified' ? (
                 <>
@@ -399,10 +335,8 @@ export function DiffFile({
                 const gapAboveKey = i === 0 ? 'head' : `mid-${i - 1}`;
                 const hasGapAbove = gapByKey.has(gapAboveKey);
                 const gapAboveClosed = closedGaps.has(gapAboveKey);
-                const barAboveShowsHeading =
-                  canExpand && hasGapAbove && !gapAboveClosed;
-                const contiguousAbove =
-                  gapAboveClosed || (!hasGapAbove && i > 0);
+                const barAboveShowsHeading = canExpand && hasGapAbove && !gapAboveClosed;
+                const contiguousAbove = gapAboveClosed || (!hasGapAbove && i > 0);
                 const showOwnHeading = !barAboveShowsHeading && !contiguousAbove;
                 return (
                   // Suffix the array index so two byte-identical hunks in
@@ -416,11 +350,7 @@ export function DiffFile({
                       file={file.path}
                       lang={lang}
                       reviewed={reviewedHunkKeys.has(hunkKey)}
-                      onToggleReviewed={
-                        hunkScopeKey
-                          ? (next: boolean) => toggleHunk(hunkKey, next)
-                          : undefined
-                      }
+                      onToggleReviewed={hunkScopeKey ? (next: boolean) => toggleHunk(hunkKey, next) : undefined}
                       showHeading={showOwnHeading}
                     />
                     {repo && midGap && (
@@ -430,24 +360,13 @@ export function DiffFile({
                         gap={midGap}
                         lang={lang}
                         onClosedChange={gapHandlers.get(`mid-${i}`)}
-                        belowHeading={
-                          file.hunks[i + 1]
-                            ? hunkHeading(file.hunks[i + 1])
-                            : undefined
-                        }
+                        belowHeading={file.hunks[i + 1] ? hunkHeading(file.hunks[i + 1]) : undefined}
                       />
                     )}
                   </Fragment>
                 );
               })}
-              {repo && gapByKey.has('tail') && (
-                <GapRegion
-                  repo={repo}
-                  file={file.path}
-                  gap={gapByKey.get('tail')!}
-                  lang={lang}
-                />
-              )}
+              {repo && gapByKey.has('tail') && <GapRegion repo={repo} file={file.path} gap={gapByKey.get('tail')!} lang={lang} />}
             </tbody>
           </table>
         ))}
@@ -463,9 +382,7 @@ export function DiffFile({
  */
 function FileCommentSection({ repo, file }: { repo: string; file: string }) {
   const review = useReview();
-  const comments = review.comments.filter(
-    (c) => c.side === 'file' && !c.parentId && c.repo === repo && c.file === file,
-  );
+  const comments = review.comments.filter((c) => c.side === 'file' && !c.parentId && c.repo === repo && c.file === file);
   const composerOpen =
     review.openComposer !== null &&
     review.openComposer.side === 'file' &&

@@ -13,16 +13,39 @@ afterEach(() => {
 });
 
 describe('desktop: staging the work CLI into the app', () => {
-  it("ships what the npm package ships, plus its lockfile for npm ci", () => {
+  it('ships what the npm package ships, plus its lockfile for npm ci', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     expect(cliFiles(pkg)).toEqual(['package.json', 'npm-shrinkwrap.json', ...pkg.files]);
     expect(pkg.files).toContain('dist');
   });
 
   it('drops only the other platforms’ prebuilt binaries', () => {
-    const names = ['win32-x64', 'win32-arm64', 'darwin-arm64', 'darwin-x64', 'linux-x64.node', 'linuxmusl-x64.node', 'win32-x64.node', 'README.md', 'node.napi.node'];
-    expect(foreignPrebuilds(names, 'win32', 'x64')).toEqual(['win32-arm64', 'darwin-arm64', 'darwin-x64', 'linux-x64.node', 'linuxmusl-x64.node']);
-    expect(foreignPrebuilds(names, 'linux', 'x64')).toEqual(['win32-x64', 'win32-arm64', 'darwin-arm64', 'darwin-x64', 'linuxmusl-x64.node', 'win32-x64.node']);
+    const names = [
+      'win32-x64',
+      'win32-arm64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64.node',
+      'linuxmusl-x64.node',
+      'win32-x64.node',
+      'README.md',
+      'node.napi.node',
+    ];
+    expect(foreignPrebuilds(names, 'win32', 'x64')).toEqual([
+      'win32-arm64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64.node',
+      'linuxmusl-x64.node',
+    ]);
+    expect(foreignPrebuilds(names, 'linux', 'x64')).toEqual([
+      'win32-x64',
+      'win32-arm64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linuxmusl-x64.node',
+      'win32-x64.node',
+    ]);
   });
 
   it('stages the package files, this Node, and VERSION last (runtime.rs takes a cli/ with one as complete)', () => {

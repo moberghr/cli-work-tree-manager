@@ -83,8 +83,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       cursorBlink: true,
       fontSize: 13,
       // Cascadia is Windows Terminal's default — same glyphs, same widths.
-      fontFamily:
-        '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
+      fontFamily: '"Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, "Liberation Mono", monospace',
       theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
       convertEol: false,
       scrollback: 5000,
@@ -113,9 +112,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const unicode = new Unicode11Addon();
     term.loadAddon(unicode);
     term.unicode.activeVersion = '11';
-    term.loadAddon(
-      new WebLinksAddon((_e, uri) => openLink(uri)),
-    );
+    term.loadAddon(new WebLinksAddon((_e, uri) => openLink(uri)));
     term.open(hostRef.current);
     // GPU renderer: the DOM renderer is what makes a busy Claude feel
     // sluggish (every spinner frame re-lays out spans). Must load after
@@ -125,7 +122,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       term.loadAddon(webgl);
-    } catch { /* DOM renderer fallback */ }
+    } catch {
+      /* DOM renderer fallback */
+    }
     fit.fit();
     // Take the keyboard: you land here to answer Claude (Inbox "needs your
     // input", `n`, a notification click). Without focus your answer went to
@@ -240,9 +239,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
         else finishReplay();
       } else if (msg.type === 'exit') {
         exited = true;
-        term.write(
-          `\r\n\x1b[33m[session exited${msg.code ? ` with code ${msg.code}` : ''} — press Enter to start it again]\x1b[0m\r\n`,
-        );
+        term.write(`\r\n\x1b[33m[session exited${msg.code ? ` with code ${msg.code}` : ''} — press Enter to start it again]\x1b[0m\r\n`);
       } else if (msg.type === 'error') {
         term.write(`\r\n\x1b[31m[${msg.message ?? 'error'}]\x1b[0m\r\n`);
       } else if (msg.type === 'elsewhere') {
@@ -311,10 +308,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const onWindowResize = () => onResize();
     // Observe the host, not just the window: dragging the dashboard's rail
     // divider resizes the pane without any window resize event.
-    const observer =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => onResize())
-        : null;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => onResize()) : null;
     if (observer) observer.observe(hostRef.current);
     else window.addEventListener('resize', onWindowResize);
     shown.current = () => {
@@ -333,7 +327,11 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       observer?.disconnect();
       window.removeEventListener('resize', onWindowResize);
       inputSub.dispose();
-      try { ws.close(); } catch { /* */ }
+      try {
+        ws.close();
+      } catch {
+        /* */
+      }
       term.dispose();
     };
   }, [sessionId, generation]);
@@ -366,14 +364,15 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       {elsewhere && (
         <div className="wd-pty-elsewhere" role="status">
           <p className="wd-pty-elsewhere-title">
-            {elsewhere.confirmed ? 'This session’s Claude is open in another terminal' : 'This session’s Claude seems to be running in another terminal'}
+            {elsewhere.confirmed
+              ? 'This session’s Claude is open in another terminal'
+              : 'This session’s Claude seems to be running in another terminal'}
             {elsewhere.lastActivity !== null && <> (last wrote {ago(elsewhere.lastActivity)})</>}
             {elsewhere.state === 'needs_input' && <>, waiting for your answer there</>}.
           </p>
           <p>
-            Close it there (type <code>/exit</code>) and this tab attaches by itself — it checks every few seconds. To
-            have both show the same screen instead, restart it with <code>{hostHint}</code> (Ctrl+] detaches, Claude keeps
-            running).
+            Close it there (type <code>/exit</code>) and this tab attaches by itself — it checks every few seconds. To have both show the
+            same screen instead, restart it with <code>{hostHint}</code> (Ctrl+] detaches, Claude keeps running).
           </p>
           <p className="wd-pty-elsewhere-actions">
             <button type="button" className="wd-btn-secondary" onClick={checkAgain} disabled={checking}>

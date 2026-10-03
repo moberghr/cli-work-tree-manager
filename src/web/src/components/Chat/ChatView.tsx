@@ -87,7 +87,9 @@ export function ChatView({ sessionId, agentName: name = 'Claude' }: Props) {
       const msg = (err as Error).message;
       if (msg === 'terminal-running') setTerminalBlock(text);
       else if (msg === 'running-in-terminal')
-        setSendError(`This session's ${name} is open in one of your terminal tabs. Exit it there (or close the tab), then send again — two of them would both write to this conversation.`);
+        setSendError(
+          `This session's ${name} is open in one of your terminal tabs. Exit it there (or close the tab), then send again — two of them would both write to this conversation.`,
+        );
       else setSendError(msg);
     } finally {
       setSending(false);
@@ -102,79 +104,84 @@ export function ChatView({ sessionId, agentName: name = 'Claude' }: Props) {
 
   return (
     <AgentName.Provider value={name}>
-    <div className="wd-chat">
-      <div className="wd-chat-list" ref={listRef} onScroll={onScroll}>
-        {items.length === 0 && !snap.partial && (
-          <div className="wd-chat-empty">No conversation yet. Say what {name} should do.</div>
-        )}
-        {items.map((it) => (
-          <Item key={it.key} item={it} permission={it.kind === 'tool' ? permissionFor.get(it.id) : undefined} onAnswer={answer} />
-        ))}
-        {loosePermissions.map((p) => (
-          <div key={p.id} className="wd-chat-tool wd-chat-tool-asking">
-            <div className="wd-chat-tool-head">
-              <span className="wd-chat-tool-name">{p.toolName}</span>
+      <div className="wd-chat">
+        <div className="wd-chat-list" ref={listRef} onScroll={onScroll}>
+          {items.length === 0 && !snap.partial && <div className="wd-chat-empty">No conversation yet. Say what {name} should do.</div>}
+          {items.map((it) => (
+            <Item key={it.key} item={it} permission={it.kind === 'tool' ? permissionFor.get(it.id) : undefined} onAnswer={answer} />
+          ))}
+          {loosePermissions.map((p) => (
+            <div key={p.id} className="wd-chat-tool wd-chat-tool-asking">
+              <div className="wd-chat-tool-head">
+                <span className="wd-chat-tool-name">{p.toolName}</span>
+              </div>
+              <pre className="wd-chat-pre">{JSON.stringify(p.input, null, 2)}</pre>
+              <PermissionBar p={p} onAnswer={answer} />
             </div>
-            <pre className="wd-chat-pre">{JSON.stringify(p.input, null, 2)}</pre>
-            <PermissionBar p={p} onAnswer={answer} />
-          </div>
-        ))}
-        {snap.partial && (
-          snap.partial.kind === 'thinking'
-            ? <div className="wd-chat-thinking wd-chat-live">Thinking…</div>
-            : <div className="wd-chat-text wd-chat-live"><Markdown source={snap.partial.text} block /></div>
-        )}
-      </div>
+          ))}
+          {snap.partial &&
+            (snap.partial.kind === 'thinking' ? (
+              <div className="wd-chat-thinking wd-chat-live">Thinking…</div>
+            ) : (
+              <div className="wd-chat-text wd-chat-live">
+                <Markdown source={snap.partial.text} block />
+              </div>
+            ))}
+        </div>
 
-      <div className="wd-chat-status" role="status">
-        {snap.state === 'starting' && `Starting ${name}…`}
-        {snap.state === 'working' && (
-          <>
-            <span className="wd-chat-dot" /> {name} is working
-            <button type="button" className="wd-btn-secondary wd-chat-stop" onClick={() => void interruptChat(sessionId)}>
-              Stop (Esc)
+        <div className="wd-chat-status" role="status">
+          {snap.state === 'starting' && `Starting ${name}…`}
+          {snap.state === 'working' && (
+            <>
+              <span className="wd-chat-dot" /> {name} is working
+              <button type="button" className="wd-btn-secondary wd-chat-stop" onClick={() => void interruptChat(sessionId)}>
+                Stop (Esc)
+              </button>
+            </>
+          )}
+          {snap.state === 'needs_input' && 'Waiting for you'}
+          {snap.state === 'exited' && (
+            <span className="wd-chat-error">
+              {name} stopped: {snap.error ?? 'unknown reason'}. Send a message to resume.
+            </span>
+          )}
+          {sendError && <span className="wd-chat-error">{sendError}</span>}
+        </div>
+
+        {terminalBlock !== null && (
+          <div className="wd-chat-takeover">
+            This session&apos;s {name} is running in the terminal. Moving it here stops that one and continues the same conversation in the
+            chat.
+            <button type="button" className="wd-btn-primary" onClick={() => void send(true)} disabled={sending}>
+              Move it here and send
             </button>
-          </>
+            <button type="button" className="wd-btn-secondary" onClick={() => setTerminalBlock(null)}>
+              Cancel
+            </button>
+          </div>
         )}
-        {snap.state === 'needs_input' && 'Waiting for you'}
-        {snap.state === 'exited' && <span className="wd-chat-error">{name} stopped: {snap.error ?? 'unknown reason'}. Send a message to resume.</span>}
-        {sendError && <span className="wd-chat-error">{sendError}</span>}
-      </div>
 
-      {terminalBlock !== null && (
-        <div className="wd-chat-takeover">
-          This session&apos;s {name} is running in the terminal. Moving it here stops that one and continues the same
-          conversation in the chat.
-          <button type="button" className="wd-btn-primary" onClick={() => void send(true)} disabled={sending}>
-            Move it here and send
-          </button>
-          <button type="button" className="wd-btn-secondary" onClick={() => setTerminalBlock(null)}>
-            Cancel
+        <div className="wd-chat-composer">
+          <textarea
+            value={draft}
+            placeholder={working ? `Message ${name} (it reads it after the current step)…` : `Message ${name}…`}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              } else if (e.key === 'Escape' && working) {
+                e.preventDefault();
+                void interruptChat(sessionId);
+              }
+            }}
+            rows={3}
+          />
+          <button type="button" className="wd-btn-primary" onClick={() => void send()} disabled={sending || !draft.trim()}>
+            Send
           </button>
         </div>
-      )}
-
-      <div className="wd-chat-composer">
-        <textarea
-          value={draft}
-          placeholder={working ? `Message ${name} (it reads it after the current step)…` : `Message ${name}…`}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            } else if (e.key === 'Escape' && working) {
-              e.preventDefault();
-              void interruptChat(sessionId);
-            }
-          }}
-          rows={3}
-        />
-        <button type="button" className="wd-btn-primary" onClick={() => void send()} disabled={sending || !draft.trim()}>
-          Send
-        </button>
       </div>
-    </div>
     </AgentName.Provider>
   );
 }
@@ -185,7 +192,9 @@ function apply(s: ChatSnapshot | null, e: ChatEventWire): ChatSnapshot | null {
   if (!s) return s;
   switch (e.type) {
     case 'message':
-      return s.messages.length && s.messages[s.messages.length - 1].seq >= e.message.seq ? s : { ...s, messages: [...s.messages, e.message] };
+      return s.messages.length && s.messages[s.messages.length - 1].seq >= e.message.seq
+        ? s
+        : { ...s, messages: [...s.messages, e.message] };
     case 'partial':
       return { ...s, partial: e.partial };
     case 'state':
@@ -195,14 +204,26 @@ function apply(s: ChatSnapshot | null, e: ChatEventWire): ChatSnapshot | null {
   }
 }
 
-function Item({ item, permission, onAnswer }: { item: ChatItem; permission?: ChatPermissionWire; onAnswer: (p: ChatPermissionWire, allow: boolean) => void }) {
+function Item({
+  item,
+  permission,
+  onAnswer,
+}: {
+  item: ChatItem;
+  permission?: ChatPermissionWire;
+  onAnswer: (p: ChatPermissionWire, allow: boolean) => void;
+}) {
   switch (item.kind) {
     case 'user':
       return <div className="wd-chat-user">{item.text}</div>;
     case 'tagged':
       return <Tagged parts={item.parts} />;
     case 'text':
-      return <div className="wd-chat-text"><Markdown source={item.text} block /></div>;
+      return (
+        <div className="wd-chat-text">
+          <Markdown source={item.text} block />
+        </div>
+      );
     case 'thinking':
       return (
         <details className="wd-chat-thinking">
@@ -243,21 +264,37 @@ function Tagged({ parts }: { parts: Array<{ tag: string; text: string }> }) {
     if (!p.text && p.tag !== 'command-name') return;
     switch (p.tag) {
       case 'bash-input':
-        rows.push(<pre key={i} className="wd-chat-pre wd-chat-cmd">$ {p.text}</pre>);
+        rows.push(
+          <pre key={i} className="wd-chat-pre wd-chat-cmd">
+            $ {p.text}
+          </pre>,
+        );
         break;
       case 'command-name':
-        rows.push(<pre key={i} className="wd-chat-pre wd-chat-cmd">{`${p.text} ${byTag.get('command-args') ?? ''}`.trim()}</pre>);
+        rows.push(
+          <pre key={i} className="wd-chat-pre wd-chat-cmd">
+            {`${p.text} ${byTag.get('command-args') ?? ''}`.trim()}
+          </pre>,
+        );
         break;
       case 'command-message':
       case 'command-args':
         break; // folded into command-name
       case 'bash-stderr':
       case 'local-command-stderr':
-        rows.push(<pre key={i} className="wd-chat-pre wd-chat-stderr">{p.text}</pre>);
+        rows.push(
+          <pre key={i} className="wd-chat-pre wd-chat-stderr">
+            {p.text}
+          </pre>,
+        );
         break;
       case 'bash-stdout':
       case 'local-command-stdout':
-        rows.push(<pre key={i} className="wd-chat-pre">{p.text}</pre>);
+        rows.push(
+          <pre key={i} className="wd-chat-pre">
+            {p.text}
+          </pre>,
+        );
         break;
       default:
         rows.push(
@@ -272,7 +309,8 @@ function Tagged({ parts }: { parts: Array<{ tag: string; text: string }> }) {
   return <div className="wd-chat-local">{rows}</div>;
 }
 
-const formatDuration =(ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
+const formatDuration = (ms: number) =>
+  ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
 
 // ---------------------------------------------------------------- tools
 
@@ -289,12 +327,24 @@ interface Special {
 function special(name: string, input: unknown): Special | null {
   if (!isObj(input)) return null;
   if (name === 'Bash' && s(input.command)) {
-    return { summary: s(input.description) ?? s(input.command)!, body: <pre className="wd-chat-pre wd-chat-cmd">$ {s(input.command)}</pre> };
+    return {
+      summary: s(input.description) ?? s(input.command)!,
+      body: <pre className="wd-chat-pre wd-chat-cmd">$ {s(input.command)}</pre>,
+    };
   }
   if ((name === 'Edit' || name === 'MultiEdit') && s(input.file_path)) {
     const edits = name === 'Edit' ? [input] : Array.isArray(input.edits) ? input.edits.filter(isObj) : null;
     if (!edits || edits.some((e) => s(e.old_string) === null || s(e.new_string) === null)) return null;
-    return { summary: s(input.file_path)!, body: <>{edits.map((e, i) => <EditDiff key={i} before={s(e.old_string)!} after={s(e.new_string)!} />)}</> };
+    return {
+      summary: s(input.file_path)!,
+      body: (
+        <>
+          {edits.map((e, i) => (
+            <EditDiff key={i} before={s(e.old_string)!} after={s(e.new_string)!} />
+          ))}
+        </>
+      ),
+    };
   }
   if (name === 'Write' && s(input.file_path) && s(input.content) !== null) {
     return { summary: s(input.file_path)!, body: <EditDiff before="" after={s(input.content)!} /> };
@@ -310,7 +360,9 @@ function special(name: string, input: unknown): Special | null {
       body: (
         <ul className="wd-chat-todos">
           {todos.map((t, i) => (
-            <li key={i} className={`wd-chat-todo-${s(t.status) ?? 'pending'}`}>{t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▸' : '☐'} {s(t.content)}</li>
+            <li key={i} className={`wd-chat-todo-${s(t.status) ?? 'pending'}`}>
+              {t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▸' : '☐'} {s(t.content)}
+            </li>
           ))}
         </ul>
       ),
@@ -319,7 +371,15 @@ function special(name: string, input: unknown): Special | null {
   return null;
 }
 
-function ToolCard({ item, permission, onAnswer }: { item: Extract<ChatItem, { kind: 'tool' }>; permission?: ChatPermissionWire; onAnswer: (p: ChatPermissionWire, allow: boolean) => void }) {
+function ToolCard({
+  item,
+  permission,
+  onAnswer,
+}: {
+  item: Extract<ChatItem, { kind: 'tool' }>;
+  permission?: ChatPermissionWire;
+  onAnswer: (p: ChatPermissionWire, allow: boolean) => void;
+}) {
   const sp = special(item.name, item.input);
   const [open, setOpen] = useState(!!permission);
   useEffect(() => {
@@ -388,9 +448,15 @@ function EditDiff({ before, after }: { before: string; after: string }) {
 function PermissionBar({ p, onAnswer }: { p: ChatPermissionWire; onAnswer: (p: ChatPermissionWire, allow: boolean) => void }) {
   return (
     <div className="wd-chat-permission">
-      <span>{useContext(AgentName)} wants to use <b>{p.toolName}</b>.</span>
-      <button type="button" className="wd-btn-primary" onClick={() => onAnswer(p, true)}>Allow</button>
-      <button type="button" className="wd-btn-secondary" onClick={() => onAnswer(p, false)}>Deny</button>
+      <span>
+        {useContext(AgentName)} wants to use <b>{p.toolName}</b>.
+      </span>
+      <button type="button" className="wd-btn-primary" onClick={() => onAnswer(p, true)}>
+        Allow
+      </button>
+      <button type="button" className="wd-btn-secondary" onClick={() => onAnswer(p, false)}>
+        Deny
+      </button>
     </div>
   );
 }

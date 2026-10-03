@@ -14,22 +14,14 @@ import { report } from '../platform/report.js';
  * ~/.work/<group>.claude.md (the name it always had) and copied into each
  * group worktree's root.
  */
-export function generateGroupInstructions(
-  groupName: string,
-  repoAliases: string[],
-  config: WorkConfig,
-): void {
+export function generateGroupInstructions(groupName: string, repoAliases: string[], config: WorkConfig): void {
   const outputPath = path.join(getConfigDir(), `${groupName}.claude.md`);
   const fileName = agentFor(config).instructionsFile;
 
   // Build prompt with each repo's instructions file
   const promptParts: string[] = [];
-  promptParts.push(
-    `You are generating a ${fileName} file (instructions for an AI coding agent) for a multi-repository workspace.`,
-  );
-  promptParts.push(
-    'The workspace contains the following repositories as subdirectories:',
-  );
+  promptParts.push(`You are generating a ${fileName} file (instructions for an AI coding agent) for a multi-repository workspace.`);
+  promptParts.push('The workspace contains the following repositories as subdirectories:');
   promptParts.push('');
 
   for (const alias of repoAliases) {
@@ -52,22 +44,12 @@ export function generateGroupInstructions(
   }
 
   promptParts.push(`Generate a combined ${fileName} for this workspace that:`);
-  promptParts.push(
-    '1. Explains the workspace structure (which subdirectories contain which repos)',
-  );
-  promptParts.push(
-    `2. Merges and synthesizes the instructions from all repos' ${fileName} files`,
-  );
-  promptParts.push(
-    '3. Notes any cross-repo relationships or considerations',
-  );
-  promptParts.push(
-    '4. Keeps all specific technical instructions (build commands, test commands, etc.) organized by repository',
-  );
+  promptParts.push('1. Explains the workspace structure (which subdirectories contain which repos)');
+  promptParts.push(`2. Merges and synthesizes the instructions from all repos' ${fileName} files`);
+  promptParts.push('3. Notes any cross-repo relationships or considerations');
+  promptParts.push('4. Keeps all specific technical instructions (build commands, test commands, etc.) organized by repository');
   promptParts.push('');
-  promptParts.push(
-    `Output ONLY the markdown content for the combined ${fileName}, with no additional commentary.`,
-  );
+  promptParts.push(`Output ONLY the markdown content for the combined ${fileName}, with no additional commentary.`);
 
   const prompt = promptParts.join('\n');
 
@@ -101,11 +83,7 @@ export function generateGroupInstructions(
   report('success', `Saved: ${outputPath}`);
 }
 
-function buildFallbackTemplate(
-  groupName: string,
-  repoAliases: string[],
-  config: WorkConfig,
-): string {
+function buildFallbackTemplate(groupName: string, repoAliases: string[], config: WorkConfig): string {
   const fileName = agentFor(config).instructionsFile;
   const parts: string[] = [];
   parts.push(`# Multi-Repository Workspace: ${groupName}`);

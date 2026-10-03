@@ -26,7 +26,12 @@ describe('session notes (state.db)', () => {
     const events: string[] = [];
     const app = new Hono();
     mountNoteRoutes(app, { broadcast: (e) => void events.push(e) });
-    const put = (body: unknown, sid = id) => app.request(`/api/sessions/${sid}/note`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const put = (body: unknown, sid = id) =>
+      app.request(`/api/sessions/${sid}/note`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
     expect((await put({ text: 'hello' })).status).toBe(200);
     expect(await (await app.request(`/api/sessions/${id}/note`)).json()).toMatchObject({ note: { text: 'hello' } });
     expect(events).toEqual(['sessions-changed']);

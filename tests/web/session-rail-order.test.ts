@@ -8,11 +8,27 @@ import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const now = new Date().toISOString();
-const session = (id: string, target: string): SessionSummary => ({
-  id, target, branch: `feat/${id}`, isGroup: false, paths: [`/wt/${id}`], createdAt: now, lastAccessedAt: now,
-  draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'open',
-  pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null,
-} as SessionSummary);
+const session = (id: string, target: string): SessionSummary =>
+  ({
+    id,
+    target,
+    branch: `feat/${id}`,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: now,
+    lastAccessedAt: now,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'open',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+  }) as SessionSummary;
 const SESSIONS = [session('a', 'alpha'), session('b', 'beta'), session('c', 'gamma')];
 
 let container: HTMLDivElement;
@@ -28,7 +44,18 @@ afterEach(() => {
 });
 
 const render = (order: string[], onReorder = vi.fn()) => {
-  act(() => root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {}, order, onReorder })));
+  act(() =>
+    root.render(
+      createElement(SessionRail, {
+        sessions: SESSIONS,
+        activeSessionId: null,
+        onSelect: () => {},
+        onNewWorktree: () => {},
+        order,
+        onReorder,
+      }),
+    ),
+  );
   return onReorder;
 };
 const names = () => [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
@@ -39,7 +66,9 @@ function drag(el: Element, type: string, clientY = 0) {
   const ev = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(ev, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
   Object.defineProperty(ev, 'clientY', { value: clientY });
-  act(() => { el.dispatchEvent(ev); });
+  act(() => {
+    el.dispatchEvent(ev);
+  });
 }
 
 describe('SessionRail order', () => {
@@ -51,7 +80,9 @@ describe('SessionRail order', () => {
   it('Alt+↑ moves a row up one', () => {
     const onReorder = render([]);
     const third = container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')[2];
-    act(() => { third.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true })); });
+    act(() => {
+      third.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true }));
+    });
     expect(onReorder).toHaveBeenCalledWith(['a', 'c', 'b']);
   });
 

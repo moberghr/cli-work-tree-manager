@@ -20,7 +20,9 @@ export function mountCatchUpRoutes(
     ask?: (prompt: string) => Promise<string | null>;
     facts?: (id: string) => CatchUpFacts;
     /** Sends one worklog (tests swap it; default: Jira's REST API). */
-    postWorklog?: (s: WorklogSettings) => (issueKey: string, body: { timeSpentSeconds: number; started: string; comment: unknown }) => Promise<string>;
+    postWorklog?: (
+      s: WorklogSettings,
+    ) => (issueKey: string, body: { timeSpentSeconds: number; started: string; comment: unknown }) => Promise<string>;
   } = {},
 ): void {
   const ask = opts.ask ?? askCatchUp;
@@ -46,7 +48,8 @@ export function mountCatchUpRoutes(
     const s = findSession(id);
     if (!s) return c.json({ error: 'unknown session' }, 404);
     const settings = worklogSettings(loadConfig());
-    if (!settings) return c.json({ error: 'Jira worklogs are not set up (config jiraWorklog: site, email, and an API token in JIRA_API_TOKEN).' }, 409);
+    if (!settings)
+      return c.json({ error: 'Jira worklogs are not set up (config jiraWorklog: site, email, and an API token in JIRA_API_TOKEN).' }, 409);
     if (!s.jiraKey) return c.json({ error: 'this session has no Jira issue' }, 409);
     const body = (await c.req.json().catch(() => ({}))) as { day?: unknown };
     const time = await sessionWorkTime(s);

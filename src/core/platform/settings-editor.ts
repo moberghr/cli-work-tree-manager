@@ -94,7 +94,10 @@ function backupOnce(file: string): void {
 function applyEdit(file: string, mutate: (s: SettingsFile) => void): boolean {
   const read = readSettings(file);
   if (read.kind === 'unreadable') {
-    report('error', `[work] ${file} is not valid JSON (${read.error}) — left it alone; work's Claude hooks were not updated. Fix the file and restart work web.`);
+    report(
+      'error',
+      `[work] ${file} is not valid JSON (${read.error}) — left it alone; work's Claude hooks were not updated. Fix the file and restart work web.`,
+    );
     return false;
   }
   const s = read.kind === 'ok' ? read.settings : {};

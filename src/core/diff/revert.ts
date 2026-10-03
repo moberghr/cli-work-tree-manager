@@ -16,9 +16,7 @@ import type { ParsedFile } from './diff-parse.js';
  * since the user looked, the check fails and nothing is written.
  */
 
-export type RevertOutcome =
-  | { ok: true; description: string }
-  | { ok: false; status: 400 | 409; error: string };
+export type RevertOutcome = { ok: true; description: string } | { ok: false; status: 400 | 409; error: string };
 
 /** A repo-relative path, resolved inside `root` — or null if it escapes. */
 function inside(root: string, rel: string): string | null {

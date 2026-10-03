@@ -60,7 +60,10 @@ export async function untrackedWorktrees(
     const groupDir = path.join(config.worktreesRoot, group);
     let branchDirs: string[];
     try {
-      branchDirs = fs.readdirSync(groupDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+      branchDirs = fs
+        .readdirSync(groupDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name);
     } catch {
       continue;
     }
@@ -76,8 +79,14 @@ export async function untrackedWorktrees(
       for (const m of members) covered.add(normPath(m.wt));
       out.push({
         id: `untracked:${normPath(path.join(groupDir, dir))}`,
-        target: group, branch, isGroup: true, paths: members.map((m) => m.wt),
-        archivedAt: null, lastActiveMs: 0, aliases: members.map((m) => m.alias), untracked: true,
+        target: group,
+        branch,
+        isGroup: true,
+        paths: members.map((m) => m.wt),
+        archivedAt: null,
+        lastActiveMs: 0,
+        aliases: members.map((m) => m.alias),
+        untracked: true,
       });
     }
   }
@@ -92,8 +101,14 @@ export async function untrackedWorktrees(
       covered.add(normPath(wt.path));
       out.push({
         id: `untracked:${normPath(wt.path)}`,
-        target: alias, branch: wt.branch, isGroup: false, paths: [path.resolve(wt.path)],
-        archivedAt: null, lastActiveMs: 0, aliases: [alias], untracked: true,
+        target: alias,
+        branch: wt.branch,
+        isGroup: false,
+        paths: [path.resolve(wt.path)],
+        archivedAt: null,
+        lastActiveMs: 0,
+        aliases: [alias],
+        untracked: true,
       });
     }
   }
@@ -121,7 +136,11 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
       const tracked: CleanupSession[] = loadHistory().map((s) => {
         const id = sessionIdFor(s);
         return {
-          id, target: s.target, branch: s.branch, isGroup: s.isGroup, paths: s.paths,
+          id,
+          target: s.target,
+          branch: s.branch,
+          isGroup: s.isGroup,
+          paths: s.paths,
           archivedAt: s.archivedAt ?? null,
           lastActiveMs: lastActiveMs(s.lastAccessedAt, id, readSessionActivity(s).lastActivity),
           aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
@@ -131,7 +150,10 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
       return [...tracked, ...(await untrackedWorktrees(cfg, trackedPaths, run))];
     },
     baseCheckouts: () => Object.values(loadConfig()?.repos ?? {}),
-    fetchRepos: () => Object.entries(loadConfig()?.repos ?? {}).filter(([, p]) => fs.existsSync(p)).map(([alias, p]) => ({ alias, path: p })),
+    fetchRepos: () =>
+      Object.entries(loadConfig()?.repos ?? {})
+        .filter(([, p]) => fs.existsSync(p))
+        .map(([alias, p]) => ({ alias, path: p })),
     fetch: (repoPath) => fetchRemoteAsync(repoPath),
     run,
     act: async (s: CleanupSession, action: CleanupAction) => {
@@ -155,7 +177,8 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
         }
         // By its folder (what the scan examined), not by branch name: the
         // branch checked out there may since have changed.
-        if (!teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths)) throw new Error('git refused to remove the worktree.');
+        if (!teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths))
+          throw new Error('git refused to remove the worktree.');
       }
       if (!s.untracked) await removeSession(s.target, s.branch); // delete and forget
     },

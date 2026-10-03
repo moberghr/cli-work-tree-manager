@@ -71,7 +71,15 @@ async function waitFor(pred: () => boolean, ms = 15_000, what = 'condition'): Pr
 /** Attach through the registry and collect output. */
 function collect(reg: PtyRegistry, id: string) {
   const out = { text: '', exit: null as number | null };
-  const att = reg.attach(id, (d) => { out.text += d; }, (c) => { out.exit = c; });
+  const att = reg.attach(
+    id,
+    (d) => {
+      out.text += d;
+    },
+    (c) => {
+      out.exit = c;
+    },
+  );
   cleanup.push(() => att?.detach());
   return { out, replay: att?.replay };
 }
@@ -142,26 +150,21 @@ describe('launch options on a real PTY', () => {
   const SHIM = path.resolve(__dirname, 'fixtures/echo-ai.cmd');
   const shimTool = { ...tool, cmd: SHIM, baseArgs: [] } as AiToolSpec;
 
-  it.runIf(process.platform === 'win32')(
-    'a prompt with cmd metacharacters reaches a .cmd-shim tool as literal text',
-    async () => {
-      const reg = registry();
-      reg.spawn('s', { cwd, tool: shimTool, initialPrompt: 'fix it & echo INJECTED | more' });
-      const { out } = collect(reg, 's');
-      await waitFor(() => out.text.includes('fake-ai ready'), 15_000, 'banner');
-      await new Promise((r) => setTimeout(r, 300));
-      const plain = out.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
-      expect(plain).toContain('args=[fix it & echo INJECTED | more]');
-      // Had cmd.exe executed the `&`, "INJECTED" would appear on its own line.
-      expect(plain).not.toMatch(/^\s*INJECTED\s*$/m);
-    },
-  );
+  it.runIf(process.platform === 'win32')('a prompt with cmd metacharacters reaches a .cmd-shim tool as literal text', async () => {
+    const reg = registry();
+    reg.spawn('s', { cwd, tool: shimTool, initialPrompt: 'fix it & echo INJECTED | more' });
+    const { out } = collect(reg, 's');
+    await waitFor(() => out.text.includes('fake-ai ready'), 15_000, 'banner');
+    await new Promise((r) => setTimeout(r, 300));
+    const plain = out.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+    expect(plain).toContain('args=[fix it & echo INJECTED | more]');
+    // Had cmd.exe executed the `&`, "INJECTED" would appear on its own line.
+    expect(plain).not.toMatch(/^\s*INJECTED\s*$/m);
+  });
 
   it("the forwarded shell environment replaces the host's", async () => {
     const reg = registry();
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
-    );
+    const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] != null));
     reg.spawn('s', { cwd, tool, env: { ...env, WORK_TEST_MARK: 'from-shell' } });
     const { out } = collect(reg, 's');
     await waitFor(() => out.text.includes('fake-ai ready'), 15_000, 'banner');
@@ -218,18 +221,25 @@ describe('PTY host server over real sockets', () => {
     expect(info.exited).toBe(false);
     expect(await client.write('s', 'still-here\r')).toBe(true);
     const b = wsAttach('s');
-    await waitFor(() => b.text.includes('echo:still-here') ||
-      String(b.control[0]?.data ?? '').includes('echo:still-here'), 15_000, 'reattach');
+    await waitFor(
+      () => b.text.includes('echo:still-here') || String(b.control[0]?.data ?? '').includes('echo:still-here'),
+      15_000,
+      'reattach',
+    );
   });
 
   it('serves the visible screen as plain text (what inbox answers are checked against)', async () => {
     await client.spawn('s', { cwd, tool });
     expect(await client.write('s', 'Do you want to proceed?\r')).toBe(true);
     let text: string | null = null;
-    await waitFor(() => {
-      void client.screen('s').then((t) => (text = t));
-      return !!text && text.includes('echo:Do you want to proceed?');
-    }, 15_000, 'screen text');
+    await waitFor(
+      () => {
+        void client.screen('s').then((t) => (text = t));
+        return !!text && text.includes('echo:Do you want to proceed?');
+      },
+      15_000,
+      'screen text',
+    );
     expect(text).not.toMatch(/\x1b\[/); // no escape sequences
     expect(await client.screen('nope')).toBeNull();
   });

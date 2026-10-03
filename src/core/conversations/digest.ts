@@ -108,9 +108,7 @@ export function digestSession(s: DigestInput, sinceMs: number): DigestSession | 
     prompts: prompts.slice(-MAX_PROMPTS),
     morePrompts: Math.max(0, prompts.length - MAX_PROMPTS),
     turns: turns.length,
-    turnLabels: turns
-      .map((t) => t.label?.trim())
-      .filter((l): l is string => !!l && l !== 'Initial' && !HEURISTIC_LABEL_RE.test(l)),
+    turnLabels: turns.map((t) => t.label?.trim()).filter((l): l is string => !!l && l !== 'Initial' && !HEURISTIC_LABEL_RE.test(l)),
     ...(s.transcriptsPartial ? { partial: true } : {}),
     diffStat: s.diffStat,
     prs,

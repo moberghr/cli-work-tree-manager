@@ -16,7 +16,12 @@ export function defaultBuildFoldersDeps(): BuildFoldersDeps {
       const running = agentsBySession(liveAgents(), loadHistory());
       const repos = new Set(Object.values(loadConfig()?.repos ?? {}).map(normPath));
       return (await cleanup.sessions()).map((s) => ({
-        id: s.id, target: s.target, branch: s.branch, paths: s.paths, lastActiveMs: s.lastActiveMs, running: running.has(s.id),
+        id: s.id,
+        target: s.target,
+        branch: s.branch,
+        paths: s.paths,
+        lastActiveMs: s.lastActiveMs,
+        running: running.has(s.id),
         baseCheckout: s.paths.some((p) => repos.has(normPath(p))),
       }));
     },

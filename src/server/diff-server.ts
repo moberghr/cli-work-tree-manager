@@ -34,7 +34,6 @@ export interface DiffServerOptions {
   attachRoutes?: (api: DiffServerApi) => void;
 }
 
-
 /** A typed SSE event broadcast to every connected client. */
 export interface SseEvent {
   event: string;
@@ -54,9 +53,7 @@ export interface DiffServerApi {
  * mode needs: GET /api/context, GET /api/diff, GET /events. Comment routes
  * register themselves via `attachRoutes`.
  */
-export async function startDiffServer(
-  opts: DiffServerOptions,
-): Promise<DiffServerHandle> {
+export async function startDiffServer(opts: DiffServerOptions): Promise<DiffServerHandle> {
   const webRoot = resolveWebRoot();
   if (!webRoot) {
     throw new Error('Could not find dist/web/. Run `npm run build` first.');
@@ -110,11 +107,7 @@ export async function startDiffServer(
       const resolved = opts.repos.map((r) =>
         base === 'uncommitted'
           ? { resolvedBase: 'HEAD', diffArg: r.diffArg }
-          : resolveRepoDiff(
-              r.root,
-              'branch',
-              opts.sessionBaseBranches?.[r.root] ?? opts.sessionBaseBranch,
-            ),
+          : resolveRepoDiff(r.root, 'branch', opts.sessionBaseBranches?.[r.root] ?? opts.sessionBaseBranch),
       );
       const repos = opts.repos.map((r, i) => ({
         name: r.name,
@@ -141,10 +134,7 @@ export async function startDiffServer(
     if (!relPath || !Number.isInteger(start) || !Number.isInteger(end)) {
       return c.json({ error: 'bad path/start/end' }, 400);
     }
-    const root =
-      opts.repos.length === 1
-        ? opts.repos[0].root
-        : opts.repos.find((r) => r.name === repoName)?.root;
+    const root = opts.repos.length === 1 ? opts.repos[0].root : opts.repos.find((r) => r.name === repoName)?.root;
     if (!root) return c.json({ error: 'unknown repo' }, 404);
     const result = readContextLines({ root, relPath, start, end, ref });
     if (!result) return c.json({ error: 'cannot read file' }, 400);
@@ -154,9 +144,9 @@ export async function startDiffServer(
   app.get('/events', (c) =>
     streamSSE(c, async (stream) => {
       const listener = (e: SseEvent) => {
-        stream
-          .writeSSE({ event: e.event, data: JSON.stringify(e.data) })
-          .catch(() => { /* client gone */ });
+        stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) }).catch(() => {
+          /* client gone */
+        });
       };
       sseListeners.add(listener);
       await stream.writeSSE({ event: 'connected', data: '' });
@@ -190,9 +180,12 @@ export async function startDiffServer(
   return {
     ...handle,
     stop: async () => {
-      try { watcher.stop(); } catch { /* */ }
+      try {
+        watcher.stop();
+      } catch {
+        /* */
+      }
       await baseStop();
     },
   };
 }
-

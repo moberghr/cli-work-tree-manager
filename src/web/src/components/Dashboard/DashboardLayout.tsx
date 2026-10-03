@@ -6,11 +6,7 @@ import type { DashboardRoute } from '../../state/dashboard-route.js';
 import type { PrLookup } from '../../state/session-display.js';
 import { TopNav } from './TopNav.js';
 import { SessionRail } from './SessionRail.js';
-import {
-  RAIL_SPEC,
-  ResizeDivider,
-  useResizableSize,
-} from '../Layout/ResizeDivider.js';
+import { RAIL_SPEC, ResizeDivider, useResizableSize } from '../Layout/ResizeDivider.js';
 
 interface Props {
   route: DashboardRoute;
@@ -93,8 +89,7 @@ export function DashboardLayout({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [railOpen]);
-  const { size: railWidth, setSize: setRailWidth } =
-    useResizableSize(RAIL_SPEC);
+  const { size: railWidth, setSize: setRailWidth } = useResizableSize(RAIL_SPEC);
   // Owns `--rail-width`; ResizeDivider writes it here during a drag.
   const bodyRef = useRef<HTMLDivElement>(null);
   return (
@@ -116,13 +111,7 @@ export function DashboardLayout({
         className={'wd-dash-body' + (railOpen ? ' wd-dash-rail-open' : '')}
         style={{ [RAIL_SPEC.cssVar as string]: `${railWidth}px` }}
       >
-        {railOpen && (
-          <div
-            className="wd-dash-rail-backdrop"
-            onClick={() => setRailOpen(false)}
-            aria-hidden
-          />
-        )}
+        {railOpen && <div className="wd-dash-rail-backdrop" onClick={() => setRailOpen(false)} aria-hidden />}
         <SessionRail
           sessions={sessions}
           activeSessionId={route.sessionId}
@@ -144,12 +133,7 @@ export function DashboardLayout({
           order={sessionOrder}
           onReorder={onReorderSessions}
         />
-        <ResizeDivider
-          layoutRef={bodyRef}
-          size={railWidth}
-          onCommit={setRailWidth}
-          spec={RAIL_SPEC}
-        />
+        <ResizeDivider layoutRef={bodyRef} size={railWidth} onCommit={setRailWidth} spec={RAIL_SPEC} />
         <main className="wd-dash-main">{children}</main>
       </div>
     </div>

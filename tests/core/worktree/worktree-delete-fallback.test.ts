@@ -52,7 +52,9 @@ describe('removing a worktree git fails to delete', () => {
     expect(removeSingleWorktree(repo, wt, 'feature/x', false)).toBe(true);
     expect(fs.existsSync(wt)).toBe(false);
     failRemove.stderr = '';
-    const registered = git(['worktree', 'list', '--porcelain'], repo).stdout.split('\n').filter((l) => l.startsWith('worktree '));
+    const registered = git(['worktree', 'list', '--porcelain'], repo)
+      .stdout.split('\n')
+      .filter((l) => l.startsWith('worktree '));
     expect(registered).toHaveLength(1); // only the main checkout is left
   });
 

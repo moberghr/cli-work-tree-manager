@@ -49,9 +49,7 @@ async function waitFor(cond: () => boolean, ms = 3000): Promise<boolean> {
 
 describe('registerScope path allowlist (S-2)', () => {
   it('accepts paths inside a configured repo', async () => {
-    const { registerScope, disposeAllScopes } = await import(
-      '../../../src/core/diff/scope-manager.js'
-    );
+    const { registerScope, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
     const repoPath = path.join(tmpHome, 'repos', 'myrepo');
     fs.mkdirSync(repoPath, { recursive: true });
 
@@ -62,9 +60,7 @@ describe('registerScope path allowlist (S-2)', () => {
   });
 
   it('accepts paths inside worktreesRoot', async () => {
-    const { registerScope, disposeAllScopes } = await import(
-      '../../../src/core/diff/scope-manager.js'
-    );
+    const { registerScope, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
     const wt = path.join(tmpHome, 'worktrees', 'myrepo', 'feat-x');
     fs.mkdirSync(wt, { recursive: true });
 
@@ -74,38 +70,31 @@ describe('registerScope path allowlist (S-2)', () => {
   });
 
   it('rejects paths outside the configured repos/worktreesRoot', async () => {
-    const { registerScope, ScopePathRejectedError, disposeAllScopes } =
-      await import('../../../src/core/diff/scope-manager.js');
-    const bad =
-      process.platform === 'win32' ? 'C:\\Windows\\System32' : '/etc';
+    const { registerScope, ScopePathRejectedError, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
+    const bad = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/etc';
 
     expect(() => registerScope([bad], 'bad')).toThrow(ScopePathRejectedError);
     disposeAllScopes();
   });
 
   it('rejects when one of several paths is outside (group worktree case)', async () => {
-    const { registerScope, ScopePathRejectedError, disposeAllScopes } =
-      await import('../../../src/core/diff/scope-manager.js');
+    const { registerScope, ScopePathRejectedError, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
     const ok = path.join(tmpHome, 'repos', 'myrepo');
     fs.mkdirSync(ok, { recursive: true });
-    const bad =
-      process.platform === 'win32' ? 'C:\\Windows\\System32' : '/etc';
+    const bad = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/etc';
 
     try {
       registerScope([ok, bad], 'mixed');
       throw new Error('should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(ScopePathRejectedError);
-      expect((err as InstanceType<typeof ScopePathRejectedError>).rejected)
-        .toContain(path.resolve(bad));
+      expect((err as InstanceType<typeof ScopePathRejectedError>).rejected).toContain(path.resolve(bad));
     }
     disposeAllScopes();
   });
 
   it('is idempotent — same paths twice return the same scope', async () => {
-    const { registerScope, disposeAllScopes } = await import(
-      '../../../src/core/diff/scope-manager.js'
-    );
+    const { registerScope, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
     const repoPath = path.join(tmpHome, 'repos', 'myrepo');
     fs.mkdirSync(repoPath, { recursive: true });
 
@@ -121,8 +110,7 @@ describe('registerScope path allowlist (S-2)', () => {
 
 describe('suppressScopeWatch — reload-loop guard', () => {
   it('drops fs-watch events inside the window, fires again after it clears', async () => {
-    const { registerScope, subscribeScope, suppressScopeWatch, disposeAllScopes } =
-      await import('../../../src/core/diff/scope-manager.js');
+    const { registerScope, subscribeScope, suppressScopeWatch, disposeAllScopes } = await import('../../../src/core/diff/scope-manager.js');
     const repoPath = path.join(tmpHome, 'repos', 'myrepo');
     fs.mkdirSync(repoPath, { recursive: true });
     const scope = registerScope([repoPath], 'sup');

@@ -30,7 +30,14 @@ function echoAgent(): AgentAdapter {
     id: 'echo',
     name: 'Echo',
     launch: {
-      tool: () => ({ cmd: 'echo-agent', baseArgs: [], unsafeFlag: '--yolo', resumeFlag: '--again', promptFileFlag: '', promptFlag: '--say' }),
+      tool: () => ({
+        cmd: 'echo-agent',
+        baseArgs: [],
+        unsafeFlag: '--yolo',
+        resumeFlag: '--again',
+        promptFileFlag: '',
+        promptFlag: '--say',
+      }),
       canResume: (cwd) => fs.existsSync(echoDir(cwd)),
       resumeLaunch: (s) => ({ launchPath: s.paths[0], hasConversation: fs.existsSync(echoDir(s.paths[0])) }),
       cleanEnv: (env) => {
@@ -62,11 +69,27 @@ function echoAgent(): AgentAdapter {
       removeSync: () => void installed.splice(0),
       read: (edge, payload) => {
         const p = payload as { dir?: string; said?: string };
-        return { cwd: p.dir, status: edge === 'turn-start' ? { kind: 'prompt', prompt: p.said } : edge === 'turn-end' ? { kind: 'stop', lastMessage: p.said } : null };
+        return {
+          cwd: p.dir,
+          status:
+            edge === 'turn-start' ? { kind: 'prompt', prompt: p.said } : edge === 'turn-end' ? { kind: 'stop', lastMessage: p.said } : null,
+        };
       },
       handOver: (_edge, text) => `ECHO-NOTE:${text}`,
     },
-    live: { running: () => running.map((r) => ({ pid: r.pid, conversationId: `c${r.pid}`, cwd: r.cwd, busy: false, state: 'idle', stateAt: null, waitingFor: null, startedAt: null })) },
+    live: {
+      running: () =>
+        running.map((r) => ({
+          pid: r.pid,
+          conversationId: `c${r.pid}`,
+          cwd: r.cwd,
+          busy: false,
+          state: 'idle',
+          stateAt: null,
+          waitingFor: null,
+          startedAt: null,
+        })),
+    },
     input: { submit: typeThenEnter },
     instructionsFile: 'ECHO.md',
   };
@@ -92,10 +115,14 @@ const echoChat: AgentChat = {
   }),
   history: (s) =>
     (echoAgent().conversation!.files(s) ?? []).flatMap((f) =>
-      fs.readFileSync(f.file, 'utf8').split('\n').filter(Boolean).map((l): ChatRecord[] => {
-        const e = JSON.parse(l) as { who: string; text: string };
-        return [e.who === 'me' ? { kind: 'you', text: e.text } : { kind: 'text', text: e.text }];
-      }),
+      fs
+        .readFileSync(f.file, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l): ChatRecord[] => {
+          const e = JSON.parse(l) as { who: string; text: string };
+          return [e.who === 'me' ? { kind: 'you', text: e.text } : { kind: 'text', text: e.text }];
+        }),
     ),
 };
 
@@ -105,7 +132,16 @@ beforeEach(async () => {
   wt = path.join(home, 'wt', 'api', 'feat-x');
   fs.mkdirSync(wt, { recursive: true });
   fs.mkdirSync(path.join(home, '.work'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'repo') }, groups: {}, copyFiles: [], aiCommand: 'echo' }));
+  fs.writeFileSync(
+    path.join(home, '.work', 'config.json'),
+    JSON.stringify({
+      worktreesRoot: path.join(home, 'wt'),
+      repos: { api: path.join(home, 'repo') },
+      groups: {},
+      copyFiles: [],
+      aiCommand: 'echo',
+    }),
+  );
   const { registerAgent } = await import('../../../src/core/agents/index.js');
   removeAgent = registerAgent(echoAgent());
   running.splice(0);
@@ -116,7 +152,12 @@ beforeEach(async () => {
   const at = (minsAgo: number) => new Date(now - minsAgo * 60_000).toISOString();
   fs.writeFileSync(
     path.join(echoDir(wt), '1.jsonl'),
-    [{ t: at(5), who: 'me', text: 'Add the CSV export' }, { t: at(2), who: 'echo', text: 'Added it.', used: 250 }].map((l) => JSON.stringify(l)).join('\n') + '\n',
+    [
+      { t: at(5), who: 'me', text: 'Add the CSV export' },
+      { t: at(2), who: 'echo', text: 'Added it.', used: 250 },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n') + '\n',
   );
 });
 afterEach(() => {
@@ -183,7 +224,11 @@ describe('a session on the echo agent, through the real modules — no Claude an
 
     // The wire says which agent, and what work can do with it.
     const { sessionWire } = await import('../../../src/core/sessions/session-wire.js');
-    expect(sessionWire(s).agent).toEqual({ id: 'echo', name: 'Echo', can: { read: true, hooks: true, live: true, answer: false, chat: false } });
+    expect(sessionWire(s).agent).toEqual({
+      id: 'echo',
+      name: 'Echo',
+      can: { read: true, hooks: true, live: true, answer: false, chat: false },
+    });
   });
 
   it('a group’s instructions file is its file (ECHO.md)', async () => {
@@ -204,7 +249,10 @@ describe('a session on the echo agent, through the real modules — no Claude an
     const { registerAgent } = await import('../../../src/core/agents/index.js');
     removeAgent = registerAgent({
       ...echoAgent(),
-      launch: { ...echoAgent().launch, tool: () => ({ cmd: process.execPath, baseArgs: [FAKE_ECHO], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' }) },
+      launch: {
+        ...echoAgent().launch,
+        tool: () => ({ cmd: process.execPath, baseArgs: [FAKE_ECHO], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' }),
+      },
       chat: echoChat,
     });
     const { upsertSession, loadHistory } = await import('../../../src/core/sessions/history.js');
@@ -217,11 +265,21 @@ describe('a session on the echo agent, through the real modules — no Claude an
     const chats = mountChatRoutes(app, { baseUrl: () => 'http://127.0.0.1:1/' });
     try {
       // Before it runs: its history, read by its adapter.
-      const before = (await (await app.request(`/api/sessions/${id}/chat`)).json()) as { state: string; messages: Array<{ records: ChatRecord[] }> };
+      const before = (await (await app.request(`/api/sessions/${id}/chat`)).json()) as {
+        state: string;
+        messages: Array<{ records: ChatRecord[] }>;
+      };
       expect(before.state).toBe('stopped');
-      expect(before.messages.map((m) => m.records)).toEqual([[{ kind: 'you', text: 'Add the CSV export' }], [{ kind: 'text', text: 'Added it.' }]]);
+      expect(before.messages.map((m) => m.records)).toEqual([
+        [{ kind: 'you', text: 'Add the CSV export' }],
+        [{ kind: 'text', text: 'Added it.' }],
+      ]);
 
-      const res = await app.request(`/api/sessions/${id}/chat/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'ping' }) });
+      const res = await app.request(`/api/sessions/${id}/chat/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'ping' }),
+      });
       expect(res.status).toBe(200);
       const end = Date.now() + 10_000;
       let snap: { state: string; conversationId: string | null; messages: Array<{ records: ChatRecord[] }> };
@@ -231,7 +289,10 @@ describe('a session on the echo agent, through the real modules — no Claude an
       } while (!(snap.state === 'idle' && snap.messages.some((m) => m.records.some((r) => r.kind === 'turn-end'))) && Date.now() < end);
       expect(snap.state).toBe('idle');
       expect(snap.conversationId).toBe('echo-conv-1');
-      expect(snap.messages.slice(2).map((m) => m.records)).toEqual([[{ kind: 'text', text: 'ping' }], [{ kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null }]]);
+      expect(snap.messages.slice(2).map((m) => m.records)).toEqual([
+        [{ kind: 'text', text: 'ping' }],
+        [{ kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null }],
+      ]);
     } finally {
       chats.stopAll();
       const pids = fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : [];

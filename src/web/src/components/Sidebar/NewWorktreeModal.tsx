@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectPicker } from './ProjectPicker.js';
-import {
-  createWorktree,
-  fetchProjects,
-  type ProjectSummary,
-} from '../../api/panes.js';
+import { createWorktree, fetchProjects, type ProjectSummary } from '../../api/panes.js';
 
 interface Props {
   /** Pre-fill the modal (e.g. when opened from a PR or Jira issue). */
@@ -33,12 +29,7 @@ interface Props {
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
-export function NewWorktreeModal({
-  initial,
-  title = 'New worktree',
-  onCreated,
-  onClose,
-}: Props) {
+export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, onClose }: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
     groups: ProjectSummary[];
@@ -52,9 +43,7 @@ export function NewWorktreeModal({
   const [createdNoStart, setCreatedNoStart] = useState<{ id: string; reason: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | null>(
-    null,
-  );
+  const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | null>(null);
 
   useEffect(() => {
     fetchProjects().then(
@@ -139,12 +128,7 @@ export function NewWorktreeModal({
       <form className="wd-modal" onSubmit={submit}>
         <header className="wd-modal-header">
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="wd-modal-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
+          <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
             ×
           </button>
         </header>
@@ -165,8 +149,7 @@ export function NewWorktreeModal({
             <span>Branch {isGroup ? '' : '(optional)'}</span>
             <input
               ref={(el) => {
-                if (initial?.target && !initial.branch)
-                  firstFocusRef.current = el;
+                if (initial?.target && !initial.branch) firstFocusRef.current = el;
               }}
               type="text"
               value={branch}
@@ -195,8 +178,7 @@ export function NewWorktreeModal({
                 // prefilled (PR / Jira flows). Without this branch the
                 // ref stays null and `null?.focus()` is a silent no-op,
                 // leaving the modal with no keyboard focus.
-                if (initial?.target && initial.branch)
-                  firstFocusRef.current = el;
+                if (initial?.target && initial.branch) firstFocusRef.current = el;
               }}
               type="text"
               value={base}
@@ -218,18 +200,13 @@ export function NewWorktreeModal({
           {error && <p className="wd-modal-error">{error}</p>}
           {createdNoStart && (
             <p className="wd-modal-error" role="alert">
-              The worktree was created, but Claude didn&apos;t start: {createdNoStart.reason}. Open the session and
-              start it from its Terminal tab.
+              The worktree was created, but Claude didn&apos;t start: {createdNoStart.reason}. Open the session and start it from its
+              Terminal tab.
             </p>
           )}
         </div>
         <footer className="wd-modal-footer">
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            onClick={onClose}
-            disabled={submitting}
-          >
+          <button type="button" className="wd-btn-secondary" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
           {createdNoStart ? (

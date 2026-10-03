@@ -6,7 +6,18 @@ import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } fr
 import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
 import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail/rail-layout.js';
-import { fetchSessionOrder, fetchSessions, markSessionSeen, reportAssistantView, saveSessionOrder, type NotifyEvent, type SessionSummary, setArchived, snoozeSession, unsnoozeSession } from '../api/client.js';
+import {
+  fetchSessionOrder,
+  fetchSessions,
+  markSessionSeen,
+  reportAssistantView,
+  saveSessionOrder,
+  type NotifyEvent,
+  type SessionSummary,
+  setArchived,
+  snoozeSession,
+  unsnoozeSession,
+} from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
 import { compareInbox, needsAttention, wantsYou } from '../../../core/status/attention.js';
@@ -21,10 +32,7 @@ import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js'
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { PrsTab } from '../components/Dashboard/tabs/PrsTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
-import {
-  TasksTab,
-  taskSlug,
-} from '../components/Dashboard/tabs/TasksTab.js';
+import { TasksTab, taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
 import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
@@ -146,8 +154,10 @@ export function DashboardApp() {
             () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
             (err: Error) => showToast({ text: err.message, kind: 'error' }),
           ),
-        openTerminal: (x) => void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),
-        openEditor: (x) => void openInEditor(x.id).catch((err: Error) => showToast({ text: `Couldn't open the editor: ${err.message}`, kind: 'error' })),
+        openTerminal: (x) =>
+          void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),
+        openEditor: (x) =>
+          void openInEditor(x.id).catch((err: Error) => showToast({ text: `Couldn't open the editor: ${err.message}`, kind: 'error' })),
         copyBranch: (x) =>
           void navigator.clipboard.writeText(x.branch).then(
             () => showToast({ text: `Copied ${x.branch}` }),
@@ -250,8 +260,12 @@ export function DashboardApp() {
     const load = () => {
       setPrsFetchedAt(Date.now());
       fetchPrs().then(
-        (r) => { if (!cancelled) takePrs(r); },
-        () => { if (!cancelled) setPrsIncomplete(null); /* gh missing / offline — badges just stay empty */ },
+        (r) => {
+          if (!cancelled) takePrs(r);
+        },
+        () => {
+          if (!cancelled) setPrsIncomplete(null); /* gh missing / offline — badges just stay empty */
+        },
       );
     };
     load();
@@ -377,13 +391,10 @@ export function DashboardApp() {
 
   // Modal helpers — each tab passes its onPick handler that calls one of
   // these to open the modal with a sensible prefill.
-  const openNew = useCallback(
-    (initial: typeof newInitial = null) => {
-      setNewInitial(initial);
-      setNewOpen(true);
-    },
-    [],
-  );
+  const openNew = useCallback((initial: typeof newInitial = null) => {
+    setNewInitial(initial);
+    setNewOpen(true);
+  }, []);
 
   const onSessionDeleted = useCallback(
     (id: string) => {
@@ -407,11 +418,7 @@ export function DashboardApp() {
     let pendingGTimer: ReturnType<typeof setTimeout> | null = null;
     const inField = () => {
       const el = document.activeElement;
-      return !!el && (
-        el.tagName === 'INPUT' ||
-        el.tagName === 'TEXTAREA' ||
-        (el as HTMLElement).isContentEditable
-      );
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -441,7 +448,9 @@ export function DashboardApp() {
       }
       if (e.key === 'g') {
         pendingG = true;
-        pendingGTimer = setTimeout(() => { pendingG = false; }, 750);
+        pendingGTimer = setTimeout(() => {
+          pendingG = false;
+        }, 750);
         return;
       }
       // n — jump to the next session that wants you, in inbox order,
@@ -472,14 +481,9 @@ export function DashboardApp() {
           ? shown
           : railGroups(sessions, { order: sessionOrder, layout: railLayout, activeId: route.sessionId }).groups.flatMap((g) => g.sessions);
         if (sorted.length === 0) return;
-        const currentIdx = route.sessionId
-          ? sorted.findIndex((s) => s.id === route.sessionId)
-          : -1;
+        const currentIdx = route.sessionId ? sorted.findIndex((s) => s.id === route.sessionId) : -1;
         const delta = e.key === 'j' ? 1 : -1;
-        const nextIdx = Math.max(
-          0,
-          Math.min(sorted.length - 1, currentIdx + delta),
-        );
+        const nextIdx = Math.max(0, Math.min(sorted.length - 1, currentIdx + delta));
         const next = sorted[nextIdx];
         if (next) {
           e.preventDefault();
@@ -503,9 +507,7 @@ export function DashboardApp() {
   }, [sessions]);
 
   // Current session (if route points at one).
-  const activeSession = route.sessionId
-    ? sessions.find((s) => s.id === route.sessionId) ?? null
-    : null;
+  const activeSession = route.sessionId ? (sessions.find((s) => s.id === route.sessionId) ?? null) : null;
 
   // Tell the assistant what is on screen while it is open (its prompt hook
   // adds this to every message), whenever the view changes.
@@ -514,9 +516,7 @@ export function DashboardApp() {
     : `the ${TAB_LABEL[route.tab]} tab`;
   useEffect(() => {
     if (!assistantOpen) return;
-    const view = route.sessionId
-      ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
-      : { tab: route.tab };
+    const view = route.sessionId ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId } : { tab: route.tab };
     void reportAssistantView(view).catch(() => {});
   }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab]);
 
@@ -535,17 +535,12 @@ export function DashboardApp() {
   }, [seenKey, looking]);
 
   // Unread count in the browser tab, so a pinned tab shows it at a glance.
-  const inboxCount = useMemo(
-    () => sessions.filter((s) => !isArchived(s) && wantsYou(s)).length,
-    [sessions],
-  );
+  const inboxCount = useMemo(() => sessions.filter((s) => !isArchived(s) && wantsYou(s)).length, [sessions]);
   useEffect(() => {
     document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
   }, [inboxCount]);
 
-  const currentScopeLabel = activeSession
-    ? `${activeSession.target}/${activeSession.branch}`
-    : undefined;
+  const currentScopeLabel = activeSession ? `${activeSession.target}/${activeSession.branch}` : undefined;
 
   // -- Render --------------------------------------------------------------
   let body: React.ReactNode;
@@ -555,27 +550,22 @@ export function DashboardApp() {
     const position = reviewQueue ? queuePosition(reviewQueue, activeSession.id) : null;
     body = (
       <>
-      {reviewQueue && position !== null && (
-        <ReviewQueueBar
-          position={position}
-          total={reviewQueue.ids.length}
-          onNext={reviewNext}
-          onStop={() => setReviewQueue(null)}
+        {reviewQueue && position !== null && (
+          <ReviewQueueBar position={position} total={reviewQueue.ids.length} onNext={reviewNext} onStop={() => setReviewQueue(null)} />
+        )}
+        <SessionDetail
+          startOnLastTurn={lastTurnFor === activeSession.id}
+          onTermSlot={setTermSlot}
+          onOpenSession={(id) => openSession(id)}
+          session={activeSession}
+          subTab={route.sessionSubTab}
+          onSelectSubTab={setSubTab}
+          onBack={backFromSession}
+          backLabel={TAB_LABEL[route.tab]}
+          onDelete={() => setDeleting(activeSession)}
+          prs={prsFor(activeSession)}
+          onShipped={backFromSession}
         />
-      )}
-      <SessionDetail
-        startOnLastTurn={lastTurnFor === activeSession.id}
-        onTermSlot={setTermSlot}
-        onOpenSession={(id) => openSession(id)}
-        session={activeSession}
-        subTab={route.sessionSubTab}
-        onSelectSubTab={setSubTab}
-        onBack={backFromSession}
-        backLabel={TAB_LABEL[route.tab]}
-        onDelete={() => setDeleting(activeSession)}
-        prs={prsFor(activeSession)}
-        onShipped={backFromSession}
-      />
       </>
     );
   } else if (route.sessionId) {
@@ -585,11 +575,7 @@ export function DashboardApp() {
       <div className="wd-tab-empty">
         Session not found. It may have been removed.
         <br />
-        <button
-          type="button"
-          className="wd-btn-secondary"
-          onClick={backFromSession}
-        >
+        <button type="button" className="wd-btn-secondary" onClick={backFromSession}>
           Back to {TAB_LABEL[route.tab]}
         </button>
       </div>
@@ -619,13 +605,7 @@ export function DashboardApp() {
         );
         break;
       case 'prs':
-        body = (
-          <PrsTab
-            onPick={(pr) =>
-              openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })
-            }
-          />
-        );
+        body = <PrsTab onPick={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })} />;
         break;
       case 'jira':
         body = (
@@ -643,11 +623,7 @@ export function DashboardApp() {
         );
         break;
       case 'tasks':
-        body = (
-          <TasksTab
-            onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })}
-          />
-        );
+        body = <TasksTab onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />;
         break;
     }
   }
@@ -682,9 +658,7 @@ export function DashboardApp() {
         slot={termSlot}
         sessions={sessions}
       />
-      {assistantMounted && (
-        <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} seeing={assistantSeeing} />
-      )}
+      {assistantMounted && <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} seeing={assistantSeeing} />}
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
@@ -746,13 +720,7 @@ export function DashboardApp() {
           }}
         />
       )}
-      {deleting && (
-        <DeleteSessionModal
-          session={deleting}
-          onDeleted={onSessionDeleted}
-          onClose={() => setDeleting(null)}
-        />
-      )}
+      {deleting && <DeleteSessionModal session={deleting} onDeleted={onSessionDeleted} onClose={() => setDeleting(null)} />}
     </>
   );
 }

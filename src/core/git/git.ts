@@ -117,10 +117,7 @@ export function getWorktreeRoot(cwd: string): string | null {
  * Returns null on failure.
  */
 export function getMainRepoRoot(cwd: string): string | null {
-  const result = git(
-    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-    cwd,
-  );
+  const result = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd);
   if (result.exitCode !== 0 || !result.stdout) return null;
   const commonDir = result.stdout;
   if (path.basename(commonDir) === '.git') {
@@ -261,17 +258,9 @@ export interface MergeCheckResult {
   confidence: MergeConfidence | null;
 }
 
-export function isBranchMerged(
-  branch: string,
-  cwd: string,
-  baseBranch?: string,
-): MergeCheckResult {
+export function isBranchMerged(branch: string, cwd: string, baseBranch?: string): MergeCheckResult {
   const defaultBranch = getDefaultBranch(cwd);
-  const bases = baseBranch
-    ? [baseBranch]
-    : [defaultBranch, 'main', 'master'].filter(
-        (b): b is string => b !== null,
-      );
+  const bases = baseBranch ? [baseBranch] : [defaultBranch, 'main', 'master'].filter((b): b is string => b !== null);
 
   // Deduplicate (e.g. default branch is "main" which is already in the list)
   const uniqueBases = [...new Set(bases)];
@@ -282,8 +271,7 @@ export function isBranchMerged(
       const baseRef = `origin/${base}`;
       const status = checkMergeStatus(branch, baseRef, cwd);
       if (status === 'merged') return { merged: true, into: baseRef, confidence: 'merged' };
-      if (status === 'squash-merged')
-        return { merged: true, into: baseRef, confidence: 'squash-merged' };
+      if (status === 'squash-merged') return { merged: true, into: baseRef, confidence: 'squash-merged' };
       if (status === 'stale') return { merged: false, into: null, confidence: null };
     }
 
@@ -291,8 +279,7 @@ export function isBranchMerged(
     if (localBranchExists(base, cwd)) {
       const status = checkMergeStatus(branch, base, cwd);
       if (status === 'merged') return { merged: true, into: base, confidence: 'merged' };
-      if (status === 'squash-merged')
-        return { merged: true, into: base, confidence: 'squash-merged' };
+      if (status === 'squash-merged') return { merged: true, into: base, confidence: 'squash-merged' };
       if (status === 'stale') return { merged: false, into: null, confidence: null };
     }
   }
@@ -313,15 +300,10 @@ export function fetchRemote(cwd: string): void {
 /** Async version of fetchRemote — non-blocking. */
 export async function fetchRemoteAsync(cwd: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    execFile(
-      'git',
-      ['fetch', '--quiet'],
-      { cwd, timeout: 30000, windowsHide: true },
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      },
-    );
+    execFile('git', ['fetch', '--quiet'], { cwd, timeout: 30000, windowsHide: true }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
   });
   if (!getDefaultBranch(cwd)) {
     git(['remote', 'set-head', 'origin', '--auto'], cwd);
@@ -363,10 +345,7 @@ export function getUnpushedCommits(cwd: string): string {
   const branch = getCurrentBranch(cwd);
   if (!branch) return '';
 
-  const upstreamResult = git(
-    ['rev-parse', '--abbrev-ref', `${branch}@{upstream}`],
-    cwd,
-  );
+  const upstreamResult = git(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`], cwd);
   if (upstreamResult.exitCode !== 0) return '';
 
   const upstream = upstreamResult.stdout;

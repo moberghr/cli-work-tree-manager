@@ -22,7 +22,11 @@ export { CLEANUP_ARCHIVE_AFTER_MS, CLEANUP_MIN_IDLE_MS, cleanupVerdict, type Ver
  * doesn't know (`untracked`: made by hand, or before history existed).
  */
 
-const lines = (out: string) => out.split('\n').map((l) => l.trim()).filter(Boolean);
+const lines = (out: string) =>
+  out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 export const normPath = (p: string) => {
   const r = path.resolve(p);
   return process.platform === 'win32' ? r.toLowerCase() : r;
@@ -55,13 +59,18 @@ async function squashMerged(cwd: string, base: string, run: CommandRunner): Prom
 }
 
 /** The facts about one repo of a worktree that cleanup decides on. */
-export async function repoFacts(
-  name: string,
-  worktreePath: string,
-  baseCheckouts: Set<string>,
-  run: CommandRunner,
-): Promise<CleanupRepo> {
-  const repo: CleanupRepo = { name, path: worktreePath, exists: false, readable: false, dirty: null, ahead: null, merged: null, base: null, baseCheckout: false };
+export async function repoFacts(name: string, worktreePath: string, baseCheckouts: Set<string>, run: CommandRunner): Promise<CleanupRepo> {
+  const repo: CleanupRepo = {
+    name,
+    path: worktreePath,
+    exists: false,
+    readable: false,
+    dirty: null,
+    ahead: null,
+    merged: null,
+    base: null,
+    baseCheckout: false,
+  };
   if (!fs.existsSync(worktreePath)) return repo;
   repo.exists = true;
   repo.baseCheckout = baseCheckouts.has(normPath(worktreePath));
@@ -159,9 +168,15 @@ export async function examineWorktree(
   // Nothing to archive for a worktree work doesn't track.
   const suggested = s.untracked && v.suggested === 'archive' ? null : v.suggested;
   return {
-    sessionId: s.id, target: s.target, branch: s.branch, isGroup: s.isGroup,
-    lastActive: new Date(s.lastActiveMs).toISOString(), archivedAt: s.archivedAt,
-    ...v, suggested, repos,
+    sessionId: s.id,
+    target: s.target,
+    branch: s.branch,
+    isGroup: s.isGroup,
+    lastActive: new Date(s.lastActiveMs).toISOString(),
+    archivedAt: s.archivedAt,
+    ...v,
+    suggested,
+    repos,
   };
 }
 

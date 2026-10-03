@@ -39,11 +39,7 @@ export function resolveWebRoot(): string | null {
  * NOT do SPA fallback — caller decides whether to re-try with /index.html
  * on miss.
  */
-export function serveStatic(
-  root: string,
-  urlPath: string,
-  res: http.ServerResponse,
-): boolean {
+export function serveStatic(root: string, urlPath: string, res: http.ServerResponse): boolean {
   const clean = urlPath.split('?')[0];
   const requested = clean === '/' ? '/index.html' : clean;
   const filePath = path.join(root, requested);
@@ -67,11 +63,7 @@ export function serveStatic(
 }
 
 /** Convenience: serve the file if it exists, else fall back to index.html. */
-export function serveStaticOrShell(
-  root: string,
-  urlPath: string,
-  res: http.ServerResponse,
-): boolean {
+export function serveStaticOrShell(root: string, urlPath: string, res: http.ServerResponse): boolean {
   if (serveStatic(root, urlPath, res)) return true;
   if (serveStatic(root, '/index.html', res)) return true;
   return false;

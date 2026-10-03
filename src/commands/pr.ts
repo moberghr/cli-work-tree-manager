@@ -51,7 +51,9 @@ export const prCommand: CommandModule = {
             .option('body-file', { type: 'string', describe: 'Read the reply from this file instead' }),
         async (argv) => {
           const s = sessionHere();
-          const text = argv['body-file'] ? fs.readFileSync(String(argv['body-file']), 'utf8') : ((argv.text as string[] | undefined) ?? []).join(' ');
+          const text = argv['body-file']
+            ? fs.readFileSync(String(argv['body-file']), 'utf8')
+            : ((argv.text as string[] | undefined) ?? []).join(' ');
           const id = sessionIdFor(s);
           const r = saveDraft(id, String(argv.thread), text);
           if (!r.ok) {
@@ -59,7 +61,9 @@ export const prCommand: CommandModule = {
             process.exit(1);
           }
           await nudgeWeb(id);
-          console.log(`Draft saved for ${r.reply.reviewer}'s thread on PR #${r.reply.prNumber}. Show it to the user; post it (work pr post ${r.reply.threadId}) only once they say yes.`);
+          console.log(
+            `Draft saved for ${r.reply.reviewer}'s thread on PR #${r.reply.prNumber}. Show it to the user; post it (work pr post ${r.reply.threadId}) only once they say yes.`,
+          );
         },
       )
       .command(
@@ -76,14 +80,16 @@ export const prCommand: CommandModule = {
           const asked = (argv.threads as string[] | undefined) ?? [];
           const drafts = listReplies(id).filter((r) => r.status === 'draft' && (argv.all || asked.includes(r.threadId)));
           const unknown = argv.all ? [] : asked.filter((t) => !drafts.some((r) => r.threadId === t));
-          for (const t of unknown) console.error(chalk.red(`${t}: no draft to post for this session (draft it with \`work pr reply\` first)`));
+          for (const t of unknown)
+            console.error(chalk.red(`${t}: no draft to post for this session (draft it with \`work pr reply\` first)`));
           if (drafts.length === 0) {
             if (!unknown.length) console.error(chalk.red('Nothing to post: name the threads, or --all.'));
             process.exit(1);
           }
           const r = await postDrafts(s, drafts, argv.resolve === true, defaultRunner);
           await nudgeWeb(id);
-          for (const p of r.posted) console.log(`Posted to @${p.reviewer}'s thread on PR #${p.prNumber}${p.resolved ? ' (resolved)' : ''}: ${p.url}`);
+          for (const p of r.posted)
+            console.log(`Posted to @${p.reviewer}'s thread on PR #${p.prNumber}${p.resolved ? ' (resolved)' : ''}: ${p.url}`);
           for (const f of r.failed) console.error(chalk.red(`${f.threadId}: ${f.error}`));
           if (r.failed.length || unknown.length) process.exit(1);
         },

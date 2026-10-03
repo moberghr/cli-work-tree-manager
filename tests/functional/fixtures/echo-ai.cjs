@@ -3,9 +3,7 @@
 // real agent CLI idling at its prompt. Args are printed so tests can check
 // what the launcher passed (e.g. --continue), plus WORK_TEST_MARK so tests
 // can tell whose environment the tool got.
-process.stdout.write(
-  `fake-ai ready args=[${process.argv.slice(2).join(' ')}] mark=[${process.env.WORK_TEST_MARK ?? ''}]\r\n`,
-);
+process.stdout.write(`fake-ai ready args=[${process.argv.slice(2).join(' ')}] mark=[${process.env.WORK_TEST_MARK ?? ''}]\r\n`);
 let buf = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {

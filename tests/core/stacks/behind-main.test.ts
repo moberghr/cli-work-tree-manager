@@ -7,7 +7,11 @@ import { BehindCache, behindMain, combineBehind, updateFromMain, type Behind } f
 import type { CommandRunner } from '../../../src/core/pr/ship.js';
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 // One fixture (an origin with main, a clone), copied per test (testing.md §4.7).
 let fixture: string;
@@ -63,7 +67,9 @@ describe('behindMain', () => {
   });
 
   it('a group: the furthest behind, and any conflict', () => {
-    expect(combineBehind([{ base: 'origin/main', commits: 2, conflicts: false }, null, { base: 'origin/dev', commits: 9, conflicts: true }])).toEqual({ base: 'origin/dev', commits: 9, conflicts: true });
+    expect(
+      combineBehind([{ base: 'origin/main', commits: 2, conflicts: false }, null, { base: 'origin/dev', commits: 9, conflicts: true }]),
+    ).toEqual({ base: 'origin/dev', commits: 9, conflicts: true });
     expect(combineBehind([null])).toBeNull();
   });
 });
@@ -97,7 +103,12 @@ describe('updateFromMain', () => {
     git(clone, 'commit', '-qam', 'mine');
     const before = git(clone, 'rev-parse', 'HEAD');
     mainMovesOn('a.txt', 'theirs');
-    expect(await updateFromMain(clone)).toMatchObject({ ok: false, conflicts: true, base: 'origin/main', reason: expect.stringContaining('conflicts') });
+    expect(await updateFromMain(clone)).toMatchObject({
+      ok: false,
+      conflicts: true,
+      base: 'origin/main',
+      reason: expect.stringContaining('conflicts'),
+    });
     expect(git(clone, 'rev-parse', 'HEAD')).toBe(before);
     expect(git(clone, 'status', '--porcelain')).toBe('');
     expect(fs.existsSync(path.join(clone, '.git', 'rebase-merge'))).toBe(false);
@@ -114,7 +125,11 @@ describe('updateFromMain', () => {
     mainMovesOn('b.txt', 'b');
     const before = git(clone, 'rev-parse', 'HEAD');
     // commit-msg runs on a merge commit too (git merge --no-edit).
-    fs.writeFileSync(path.join(clone, '.git', 'hooks', 'commit-msg'), '#!/bin/sh\necho "subject must start with a ticket key" >&2\nexit 1\n', { mode: 0o755 });
+    fs.writeFileSync(
+      path.join(clone, '.git', 'hooks', 'commit-msg'),
+      '#!/bin/sh\necho "subject must start with a ticket key" >&2\nexit 1\n',
+      { mode: 0o755 },
+    );
     const r = await updateFromMain(clone);
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('subject must start with a ticket key') });
     expect(r).not.toHaveProperty('conflicts');
@@ -191,7 +206,7 @@ describe('BehindCache', () => {
 });
 
 describe('POST /api/sessions/:id/update-from-main', () => {
-  it("not while its Claude works or waits on you (the files would move under it)", async () => {
+  it('not while its Claude works or waits on you (the files would move under it)', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'update-route-'));
     fs.mkdirSync(path.join(home, '.work'), { recursive: true });
     const spy = vi.spyOn(os, 'homedir').mockReturnValue(home);
@@ -201,7 +216,14 @@ describe('POST /api/sessions/:id/update-from-main', () => {
       const { recordStatusEvent } = await import('../../../src/core/status/session-status.js');
       const { sessionIdFor } = await import('../../../src/core/sessions/session-id.js');
       const { mountUpdateRoutes } = await import('../../../src/server/routes/update-routes.js');
-      const s = { target: 'api', branch: 'feat/x', isGroup: false, paths: [clone], createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+      const s = {
+        target: 'api',
+        branch: 'feat/x',
+        isGroup: false,
+        paths: [clone],
+        createdAt: new Date().toISOString(),
+        lastAccessedAt: new Date().toISOString(),
+      };
       saveHistory([s]);
       await recordStatusEvent(sessionIdFor(s), { kind: 'prompt', prompt: 'go' });
       const app = new Hono();

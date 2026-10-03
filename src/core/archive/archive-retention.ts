@@ -35,7 +35,10 @@ export function applyArchiveRetention(opts: {
   const out: RetentionResult = { compressed: [], dropped: [], bytesSaved: 0 };
   let ids: string[];
   try {
-    ids = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    ids = fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
   } catch {
     return out;
   }

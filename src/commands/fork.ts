@@ -18,7 +18,7 @@ import { attachSession } from './shared/attach-session.js';
  */
 export const forkCommand: CommandModule = {
   command: 'fork <branch>',
-  describe: "Fork the current session: a new branch from where it is, its Claude given a summary of this conversation",
+  describe: 'Fork the current session: a new branch from where it is, its Claude given a summary of this conversation',
   builder: (yargs) =>
     yargs
       .positional('branch', { type: 'string', demandOption: true, describe: 'The new branch' })
@@ -26,7 +26,11 @@ export const forkCommand: CommandModule = {
       .option('from', { type: 'string', describe: "With --target: the session's branch" })
       .option('prompt', { type: 'string', describe: 'What to try in the fork (default: read the summary and wait)' })
       .option('name', { type: 'string', describe: 'A name for the new session' })
-      .option('attach', { type: 'boolean', default: true, describe: 'Attach this terminal to the new Claude (--no-attach: start it in the PTY host and return)' }),
+      .option('attach', {
+        type: 'boolean',
+        default: true,
+        describe: 'Attach this terminal to the new Claude (--no-attach: start it in the PTY host and return)',
+      }),
   handler: async (argv) => {
     const history = loadHistory();
     const target = argv.target as string | undefined;
@@ -38,7 +42,9 @@ export const forkCommand: CommandModule = {
     }
     const parent = target && from ? findSession(history, target, from) : findSessionForCwd(process.cwd(), history);
     if (!parent) {
-      console.error(chalk.red(target ? `No session for ${target} ${from}.` : 'This folder is not inside a work session: pass --target and --from.'));
+      console.error(
+        chalk.red(target ? `No session for ${target} ${from}.` : 'This folder is not inside a work session: pass --target and --from.'),
+      );
       process.exitCode = 1;
       return;
     }
@@ -67,10 +73,15 @@ export const forkCommand: CommandModule = {
       process.exitCode = 1;
       return;
     }
-    console.log(chalk.green(`Forked into ${r.paths.join(', ')}`) + chalk.gray(r.summarized ? ' — its Claude gets a summary of this conversation.' : ' — no recent conversation to summarize.'));
+    console.log(
+      chalk.green(`Forked into ${r.paths.join(', ')}`) +
+        chalk.gray(r.summarized ? ' — its Claude gets a summary of this conversation.' : ' — no recent conversation to summarize.'),
+    );
     const fork = findSession(loadHistory(), parent.target, branch);
     if (r.startError || !fork) {
-      console.error(chalk.yellow(`Its Claude didn't start: ${r.startError ?? 'session not found'}. Run \`work tree ${parent.target} ${branch}\`.`));
+      console.error(
+        chalk.yellow(`Its Claude didn't start: ${r.startError ?? 'session not found'}. Run \`work tree ${parent.target} ${branch}\`.`),
+      );
       process.exitCode = 1;
       return;
     }

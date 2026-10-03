@@ -106,7 +106,9 @@ describe('atomicWriteFile', () => {
 
   it('gives up on a rename that keeps failing, and removes its tmp file', () => {
     fs.writeFileSync(link, 'old');
-    const always = () => { throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }); };
+    const always = () => {
+      throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+    };
     expect(() => atomicWriteFile(link, 'new', always)).toThrow('ENOSPC');
     expect(fs.readdirSync(claudeDir)).toEqual(['settings.json']);
     expect(fs.readFileSync(link, 'utf8')).toBe('old');
@@ -127,34 +129,44 @@ describe('editSettings', () => {
 
   it('keeps the symlink on the shutdown (sync) path too', () => {
     linkToDotfiles({ hooks: { Stop: [{ hooks: [] }] } });
-    editSettingsSync((s) => { delete s.hooks!.Stop; });
+    editSettingsSync((s) => {
+      delete s.hooks!.Stop;
+    });
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(JSON.parse(fs.readFileSync(real, 'utf8')).hooks).toBeUndefined();
   });
 
   it('ends the file with a newline', async () => {
     linkToDotfiles({ model: 'opus' });
-    await editSettings((s) => { s.hooks!.Stop = []; });
+    await editSettings((s) => {
+      s.hooks!.Stop = [];
+    });
     expect(fs.readFileSync(real, 'utf8').endsWith('}\n')).toBe(true);
-    editSettingsSync((s) => { delete s.hooks; });
+    editSettingsSync((s) => {
+      delete s.hooks;
+    });
     expect(fs.readFileSync(real, 'utf8').endsWith('}\n')).toBe(true);
   });
 
   it('creates a plain file when nothing exists yet', async () => {
-    await editSettings((s) => { s.hooks!.Stop = []; });
+    await editSettings((s) => {
+      s.hooks!.Stop = [];
+    });
     expect(fs.existsSync(link)).toBe(true);
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(false);
   });
 
   it('follows a dangling symlink rather than clobbering it', async () => {
     fs.symlinkSync(path.relative(claudeDir, real), link);
-    await editSettings((s) => { s.hooks!.Stop = [{ hooks: [] }]; });
+    await editSettings((s) => {
+      s.hooks!.Stop = [{ hooks: [] }];
+    });
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
     expect(fs.existsSync(real)).toBe(true);
   });
 });
 
-describe('never loses the user\'s settings', () => {
+describe("never loses the user's settings", () => {
   const file = () => path.join(claudeDir, 'settings.json');
   const addHook = (owner: string) => (s: { hooks?: Record<string, unknown[] | undefined> }) => {
     s.hooks!.Stop = [...(s.hooks!.Stop ?? []), { _workHookOwner: owner, hooks: [{ type: 'command', command: owner }] }];

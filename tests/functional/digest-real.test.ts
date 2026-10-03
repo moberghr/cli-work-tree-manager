@@ -44,7 +44,7 @@ const digest = async (since?: string) => {
 };
 
 describe('GET /api/digest', () => {
-  it("lists what you asked each session in the window, from its transcripts", async () => {
+  it('lists what you asked each session in the window, from its transcripts', async () => {
     const now = Date.now();
     const iso = (minsAgo: number) => new Date(now - minsAgo * 60_000).toISOString();
     transcript('today.jsonl', [
@@ -53,7 +53,11 @@ describe('GET /api/digest', () => {
       { type: 'user', timestamp: iso(30), message: { content: 'Now quote commas' } },
     ]);
     // Last week's conversation: its file wasn't touched in the window, never read.
-    transcript('old.jsonl', [{ type: 'user', timestamp: iso(60 * 24 * 7), message: { content: 'ancient' } }], new Date(now - 7 * 86_400_000));
+    transcript(
+      'old.jsonl',
+      [{ type: 'user', timestamp: iso(60 * 24 * 7), message: { content: 'ancient' } }],
+      new Date(now - 7 * 86_400_000),
+    );
 
     const d = await digest(iso(120));
     expect(d.sessions).toHaveLength(1);
@@ -72,7 +76,11 @@ describe('GET /api/digest', () => {
     const filler = 'x'.repeat(30_000);
     const lines: object[] = [{ type: 'user', timestamp: iso(400), uuid: 'morning', message: { content: 'Start on the export' } }];
     for (let i = 0; i < 100; i++) {
-      lines.push({ type: 'user', timestamp: iso(390 - i), message: { content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: filler }] } });
+      lines.push({
+        type: 'user',
+        timestamp: iso(390 - i),
+        message: { content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: filler }] },
+      });
     }
     lines.push({ type: 'user', timestamp: iso(30), uuid: 'afternoon', message: { content: 'Now the tests' } });
     transcript('busy.jsonl', lines);

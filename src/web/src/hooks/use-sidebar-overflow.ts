@@ -5,10 +5,7 @@ import { useEffect, useState, type RefObject } from 'react';
  * Kept pure + exported so the threshold is unit-testable without a layout
  * engine (jsdom reports no real geometry).
  */
-export function sidebarNeedsOwnScroller(
-  contentHeight: number,
-  viewportHeight: number,
-): boolean {
+export function sidebarNeedsOwnScroller(contentHeight: number, viewportHeight: number): boolean {
   return contentHeight > viewportHeight;
 }
 
@@ -29,10 +26,7 @@ export function sidebarNeedsOwnScroller(
  * `deps` should change when the rendered sidebar content identity changes
  * (e.g. the active repo) so the observer re-attaches once the element mounts.
  */
-export function useSidebarOverflowsViewport(
-  ref: RefObject<HTMLElement | null>,
-  deps: unknown[],
-): boolean {
+export function useSidebarOverflowsViewport(ref: RefObject<HTMLElement | null>, deps: unknown[]): boolean {
   const [overflows, setOverflows] = useState(false);
   useEffect(() => {
     const el = ref.current;
@@ -40,13 +34,11 @@ export function useSidebarOverflowsViewport(
     // scrollHeight is the full content height regardless of the current
     // overflow/height — so the decision is stable across the class toggle
     // it drives (no measure/restyle feedback loop).
-    const measure = () =>
-      setOverflows(sidebarNeedsOwnScroller(el.scrollHeight, window.innerHeight));
+    const measure = () => setOverflows(sidebarNeedsOwnScroller(el.scrollHeight, window.innerHeight));
     measure();
     // ResizeObserver is absent in non-browser environments (e.g. jsdom under
     // test). Fall back to the resize listener alone — measure() still ran once.
-    const ro =
-      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     ro?.observe(el);
     window.addEventListener('resize', measure);
     return () => {

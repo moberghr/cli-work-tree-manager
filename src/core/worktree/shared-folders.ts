@@ -15,10 +15,7 @@ import { sessionIdFor } from '../sessions/session-id.js';
 const norm = (p: string) => path.resolve(p).replace(/\\/g, '/').toLowerCase();
 
 /** Ids of the sessions that share a folder with its owner (the rest). */
-export function shadowedSessions(
-  sessions: WorktreeSession[],
-  branchCheckedOut: (dir: string) => string | null,
-): Set<string> {
+export function shadowedSessions(sessions: WorktreeSession[], branchCheckedOut: (dir: string) => string | null): Set<string> {
   const byFolder = new Map<string, WorktreeSession[]>();
   for (const s of sessions) {
     if (s.isGroup || s.paths.length !== 1) continue;

@@ -33,7 +33,12 @@ afterEach(() => {
 describe('BlockedByChip', () => {
   it('names what it waits on (a session opens on click), each with × to stop waiting', async () => {
     const onOpen = vi.fn();
-    const session = s('a', { blockedBy: [{ key: 'session:b', kind: 'session', label: 'feat/b', sessionId: 'b' }, { key: 'pr:u', kind: 'pr', label: 'api#12', url: 'https://github.com/x/api/pull/12' }] });
+    const session = s('a', {
+      blockedBy: [
+        { key: 'session:b', kind: 'session', label: 'feat/b', sessionId: 'b' },
+        { key: 'pr:u', kind: 'pr', label: 'api#12', url: 'https://github.com/x/api/pull/12' },
+      ],
+    });
     act(() => root.render(createElement(BlockedByChip, { session, onOpen })));
     expect(container.textContent).toContain('Waiting on feat/b×, api#12×');
     act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'feat/b')!.click());
@@ -46,7 +51,16 @@ describe('BlockedByChip', () => {
 describe('BlockedByDialog', () => {
   it('another live session (not itself, not archived), or a PR URL; a bad URL says so', async () => {
     const onDone = vi.fn();
-    act(() => root.render(createElement(BlockedByDialog, { session: s('a'), sessions: [s('a'), s('b'), s('c', { archivedAt: 'x' })], onDone, onClose: () => {} })));
+    act(() =>
+      root.render(
+        createElement(BlockedByDialog, {
+          session: s('a'),
+          sessions: [s('a'), s('b'), s('c', { archivedAt: 'x' })],
+          onDone,
+          onClose: () => {},
+        }),
+      ),
+    );
     const options = [...container.querySelectorAll('option')].map((o) => o.textContent);
     expect(options).toEqual(['—', 'api · feat/b']);
     act(() => {

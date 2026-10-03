@@ -29,11 +29,30 @@ afterEach(() => {
 });
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-const att = (state: SessionAttention['state'], seen: boolean, summary: string): SessionAttention => ({ state, seen, since: minsAgo(5), updatedAt: minsAgo(5), summary, stale: false });
+const att = (state: SessionAttention['state'], seen: boolean, summary: string): SessionAttention => ({
+  state,
+  seen,
+  since: minsAgo(5),
+  updatedAt: minsAgo(5),
+  summary,
+  stale: false,
+});
 const session = (id: string, attention: SessionAttention, extra: Partial<SessionSummary> = {}): SessionSummary =>
-  ({ id, target: 'repo', branch: id, isGroup: false, paths: [`/wt/${id}`], createdAt: minsAgo(100), lastAccessedAt: minsAgo(100), attention, activityState: 'stale', ...extra }) as SessionSummary;
+  ({
+    id,
+    target: 'repo',
+    branch: id,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: minsAgo(100),
+    lastAccessedAt: minsAgo(100),
+    attention,
+    activityState: 'stale',
+    ...extra,
+  }) as SessionSummary;
 
-const button = (label: string, within: ParentNode = container) => [...within.querySelectorAll('button')].find((b) => b.textContent === label)!;
+const button = (label: string, within: ParentNode = container) =>
+  [...within.querySelectorAll('button')].find((b) => b.textContent === label)!;
 
 describe('snooze in the inbox', () => {
   it('a snoozed session leaves its section for Snoozed (with when), and Unsnooze brings it back', async () => {

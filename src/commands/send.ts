@@ -26,7 +26,10 @@ export const sendCommand: CommandModule = {
       .option('wait', { type: 'boolean', default: false, describe: 'Wait for the turn it starts to end, then print the reply' })
       .option('timeout', { type: 'string', default: '15m', describe: 'With --wait: give up after this long (90s, 15m, 1h)' })
       .option('force', { type: 'boolean', default: false, describe: 'Send to a session running with permission checks off (--unsafe)' })
-      .check((a) => (typeof a.message === 'string') !== (typeof a.file === 'string') || 'Give the message with -m "…" or --file <path> (one of them)'),
+      .check(
+        (a) =>
+          (typeof a.message === 'string') !== (typeof a.file === 'string') || 'Give the message with -m "…" or --file <path> (one of them)',
+      ),
   handler: async (argv) => {
     const s = sessionFromArgs(argv);
     if (!s) return;
@@ -50,7 +53,11 @@ export const sendCommand: CommandModule = {
     console.error(chalk.gray('Waiting for its turn to end…'));
     const done = await waitForTurn(id, cliWaitDeps, { after: r.body.sentAt, timeoutMs: timeoutMs! });
     if (!done.ok) {
-      console.error(chalk.yellow(`No answer within ${String(argv.timeout)} (it is ${done.status?.state ?? 'not reporting'}). \`work wait\` or \`work read\` later.`));
+      console.error(
+        chalk.yellow(
+          `No answer within ${String(argv.timeout)} (it is ${done.status?.state ?? 'not reporting'}). \`work wait\` or \`work read\` later.`,
+        ),
+      );
       process.exitCode = 2;
       return;
     }

@@ -20,9 +20,7 @@ const BIN = path.resolve(__dirname, '../../dist/bin.js');
 const ECHO_AI = path.resolve(__dirname, 'fixtures/echo-ai.cjs');
 // On Windows run the tool through a .cmd shim, like npm's claude.cmd —
 // the path where cmd.exe escaping matters.
-const AI_COMMAND = process.platform === 'win32'
-  ? path.resolve(__dirname, 'fixtures/echo-ai.cmd')
-  : `node ${ECHO_AI}`;
+const AI_COMMAND = process.platform === 'win32' ? path.resolve(__dirname, 'fixtures/echo-ai.cmd') : `node ${ECHO_AI}`;
 const hasBuild = fs.existsSync(BIN);
 
 let home: string;
@@ -70,9 +68,7 @@ beforeAll(() => {
   const now = new Date().toISOString();
   fs.writeFileSync(
     path.join(dotWork, 'history.json'),
-    JSON.stringify([
-      { target: 'api', branch: 'feat/x', isGroup: false, paths: [worktree], createdAt: now, lastAccessedAt: now },
-    ]),
+    JSON.stringify([{ target: 'api', branch: 'feat/x', isGroup: false, paths: [worktree], createdAt: now, lastAccessedAt: now }]),
   );
   env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
 });
@@ -97,9 +93,15 @@ afterAll(async () => {
   // host's session processes (echo-ai) down with it.
   const host = hostPid();
   await runAll([
-    () => { work(['pty-host', '--stop']); },
-    () => { for (const c of children) if (c.pid && c.exitCode === null) killTree(c.pid); },
-    () => { if (host) killTree(host); },
+    () => {
+      work(['pty-host', '--stop']);
+    },
+    () => {
+      for (const c of children) if (c.pid && c.exitCode === null) killTree(c.pid);
+    },
+    () => {
+      if (host) killTree(host);
+    },
     () => fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }),
   ]);
 });
@@ -109,15 +111,21 @@ afterAll(async () => {
 // most of the default 20 s.
 describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeout: 60_000 }, () => {
   it('attaches from the worktree dir, round-trips input, and detaches with Ctrl+]', async () => {
-    const child: ChildProcess = track(spawn(process.execPath, [BIN, 'attach'], {
-      cwd: path.join(worktree), // session resolved from cwd
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }));
+    const child: ChildProcess = track(
+      spawn(process.execPath, [BIN, 'attach'], {
+        cwd: path.join(worktree), // session resolved from cwd
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d) => { out += d.toString(); });
-    child.stderr!.on('data', (d) => { err += d.toString(); });
+    child.stdout!.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr!.on('data', (d) => {
+      err += d.toString();
+    });
     const exited = new Promise<number>((r) => child.on('exit', (c) => r(c ?? -1)));
 
     await waitFor(() => out.includes('fake-ai ready'), 45_000, `banner (stderr: ${err})`);
@@ -135,14 +143,20 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
   });
 
   it('a second attach replays the screen from the first', async () => {
-    const child = track(spawn(process.execPath, [BIN, 'attach', 'api', 'feat/x'], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }));
+    const child = track(
+      spawn(process.execPath, [BIN, 'attach', 'api', 'feat/x'], {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d) => { out += d.toString(); });
-    child.stderr!.on('data', (d) => { err += d.toString(); });
+    child.stdout!.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr!.on('data', (d) => {
+      err += d.toString();
+    });
     const exited = new Promise<number>((r) => child.on('exit', (c) => r(c ?? -1)));
     await waitFor(() => out.includes('echo:hello'), 20_000, 'replayed echo');
     child.stdin!.write('\x1d');
@@ -159,7 +173,14 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
     expect(pty.pid).toBeGreaterThan(0);
 
     expect(work(['pty-host', '--stop']).status).toBe(0);
-    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     // Orphaned ConPTY children would keep running unseen and be duplicated
     // by the next restore.
     await waitFor(() => !alive(pty.pid), 10_000, 'session process to die');
@@ -174,15 +195,21 @@ describe.skipIf(!hasBuild)('work attach (built binary, isolated HOME)', { timeou
 
   /** Run a `work` command that attaches, wait for `until`, then Ctrl+]. */
   async function runAttached(args: string[], until: (out: string) => boolean, extraEnv = {}) {
-    const child = track(spawn(process.execPath, [BIN, ...args], {
-      cwd: home,
-      env: { ...env, ...extraEnv },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }));
+    const child = track(
+      spawn(process.execPath, [BIN, ...args], {
+        cwd: home,
+        env: { ...env, ...extraEnv },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d) => { out += d.toString(); });
-    child.stderr!.on('data', (d) => { err += d.toString(); });
+    child.stdout!.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr!.on('data', (d) => {
+      err += d.toString();
+    });
     const exited = new Promise<number>((r) => child.on('exit', (c) => r(c ?? -1)));
     await waitFor(() => until(out), 25_000, `output (stdout: ${out.slice(-300)} stderr: ${err.slice(-300)})`);
     child.stdin!.write('\x1d');

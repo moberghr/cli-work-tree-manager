@@ -32,7 +32,13 @@ export function BlockedByChip({ session, onOpen }: { session: SessionSummary; on
           ) : (
             <span>{b.label}</span>
           )}
-          <button type="button" className="wd-blocked-drop" onClick={() => drop(b.key)} aria-label={`Stop waiting on ${b.label}`} title="Stop waiting on it">
+          <button
+            type="button"
+            className="wd-blocked-drop"
+            onClick={() => drop(b.key)}
+            aria-label={`Stop waiting on ${b.label}`}
+            title="Stop waiting on it"
+          >
             ×
           </button>
         </span>
@@ -46,8 +52,20 @@ export function BlockedByChip({ session, onOpen }: { session: SessionSummary; on
  * "Blocked by…": pick the session it waits on, or paste a pull request's URL.
  * Only live sessions other than this one; a URL must be a GitHub PR.
  */
-export function BlockedByDialog({ session, sessions, onDone, onClose }: { session: SessionSummary; sessions: SessionSummary[]; onDone: (text: string) => void; onClose: () => void }) {
-  const others = sessions.filter((s) => s.id !== session.id && !s.archivedAt && !(session.blockedBy ?? []).some((b) => b.sessionId === s.id));
+export function BlockedByDialog({
+  session,
+  sessions,
+  onDone,
+  onClose,
+}: {
+  session: SessionSummary;
+  sessions: SessionSummary[];
+  onDone: (text: string) => void;
+  onClose: () => void;
+}) {
+  const others = sessions.filter(
+    (s) => s.id !== session.id && !s.archivedAt && !(session.blockedBy ?? []).some((b) => b.sessionId === s.id),
+  );
   const [pick, setPick] = useState('');
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
@@ -70,7 +88,13 @@ export function BlockedByDialog({ session, sessions, onDone, onClose }: { sessio
     }
   };
   return (
-    <div className="wd-modal-backdrop" role="dialog" aria-modal="true" aria-label="Blocked by" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+    <div
+      className="wd-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Blocked by"
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
       <form
         className="wd-modal"
         onSubmit={(e) => {
@@ -86,7 +110,10 @@ export function BlockedByDialog({ session, sessions, onDone, onClose }: { sessio
           </button>
         </header>
         <div className="wd-modal-body">
-          <p className="wd-fork-note">It leaves the Inbox until that is done — the session archived (merged), the PR merged or closed — and then you and its Claude are told. A question from its Claude still shows.</p>
+          <p className="wd-fork-note">
+            It leaves the Inbox until that is done — the session archived (merged), the PR merged or closed — and then you and its Claude
+            are told. A question from its Claude still shows.
+          </p>
           <label className="wd-modal-row">
             <span>Another session</span>
             <select ref={first} value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy}>
@@ -100,7 +127,13 @@ export function BlockedByDialog({ session, sessions, onDone, onClose }: { sessio
           </label>
           <label className="wd-modal-row">
             <span>…or a pull request</span>
-            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/org/repo/pull/12" disabled={busy} />
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://github.com/org/repo/pull/12"
+              disabled={busy}
+            />
           </label>
           {url.trim() && !pr && <p className="wd-modal-error">Not a GitHub pull request URL.</p>}
           {error && (

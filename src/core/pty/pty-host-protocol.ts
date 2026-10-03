@@ -58,7 +58,8 @@ export interface PersistedPty extends SpawnSpec {
 }
 
 /** Names that look like secrets (or carry them, as a connection string does): never kept on disk, whatever `hostEnv` says. */
-const SECRET_NAME = /TOKEN|SECRET|PASS|PWD|CREDENTIAL|PRIVATE|KEY|AUTH|BEARER|COOKIE|SESSION|CERT|SIGN|SALT|(^|_)PAT($|_)|DSN|CONN|DATABASE_URL|_URI$|_URL$/i;
+const SECRET_NAME =
+  /TOKEN|SECRET|PASS|PWD|CREDENTIAL|PRIVATE|KEY|AUTH|BEARER|COOKIE|SESSION|CERT|SIGN|SALT|(^|_)PAT($|_)|DSN|CONN|DATABASE_URL|_URI$|_URL$/i;
 /** Values that carry a password whatever their name: `scheme://user:pass@host`. */
 const SECRET_VALUE = /:\/\/[^/\s:@]+:[^/\s@]+@/;
 
@@ -81,7 +82,8 @@ export function isPersistedPty(x: unknown): x is PersistedPty {
     typeof e.cwd === 'string' &&
     !!e.tool &&
     typeof e.tool === 'object' &&
-    (e.keptEnv === undefined || (!!e.keptEnv && typeof e.keptEnv === 'object' && Object.values(e.keptEnv).every((v) => typeof v === 'string')))
+    (e.keptEnv === undefined ||
+      (!!e.keptEnv && typeof e.keptEnv === 'object' && Object.values(e.keptEnv).every((v) => typeof v === 'string')))
   );
 }
 
@@ -107,17 +109,13 @@ export interface PtyInfo {
 
 /** Client → host frames on the attach WebSocket (text, JSON). Host →
  *  client PTY output is sent as binary frames; control frames as text. */
-export type ClientFrame =
-  | { type: 'input'; data: string }
-  | { type: 'resize'; cols: number; rows: number };
+export type ClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number };
 
 export type HostControlFrame =
   /** Sent once, first, on attach: the serialized screen and the grid it was
    *  drawn for. Clients draw it at exactly cols×rows, then resize to their
    *  own size (which makes Claude redraw), and only then send input. */
-  | { type: 'replay'; data: string; cols: number; rows: number }
-  | { type: 'exit'; code: number }
-  | { type: 'error'; message: string };
+  { type: 'replay'; data: string; cols: number; rows: number } | { type: 'exit'; code: number } | { type: 'error'; message: string };
 
 export function hostInfoPath(): string {
   return path.join(getConfigDir(), 'pty-host.json');
@@ -139,11 +137,7 @@ export function ptySessionsPath(): string {
 export function readHostInfo(): HostInfo | null {
   try {
     const raw = JSON.parse(fs.readFileSync(hostInfoPath(), 'utf-8')) as HostInfo;
-    if (
-      typeof raw.port === 'number' &&
-      typeof raw.token === 'string' &&
-      typeof raw.pid === 'number'
-    ) {
+    if (typeof raw.port === 'number' && typeof raw.token === 'string' && typeof raw.pid === 'number') {
       return raw;
     }
     return null;

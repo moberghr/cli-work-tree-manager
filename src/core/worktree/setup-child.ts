@@ -37,7 +37,8 @@ export type CreateWorktree = (req: CreateRequest, config: WorkConfig) => Promise
 export function invalidRequest(req: CreateRequest): string | null {
   if (req.target.startsWith('-')) return `not a project: ${req.target}`;
   if (req.branch?.startsWith('-')) return `${req.branch} is not a valid branch name (it can't start with "-")`;
-  for (const [alias, b] of Object.entries(req.base?.perRepo ?? {})) if (alias.startsWith('-') || b.startsWith('-')) return `not a valid base: ${alias}=${b}`;
+  for (const [alias, b] of Object.entries(req.base?.perRepo ?? {}))
+    if (alias.startsWith('-') || b.startsWith('-')) return `not a valid base: ${alias}=${b}`;
   if (req.base?.default?.startsWith('-')) return `not a valid base: ${req.base.default}`;
   return null;
 }
@@ -106,7 +107,11 @@ function resultFromHistory(req: CreateRequest, config: WorkConfig): CreateResult
     return { ok: true, branch: s.branch, launchDir: s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0], paths: s.paths };
   }
   const repo = config.repos[req.target];
-  const s = repo ? history.filter((x) => !x.archivedAt && x.target === req.target && x.paths.some((p) => norm(p) === norm(repo))).sort((a, b) => b.lastAccessedAt.localeCompare(a.lastAccessedAt))[0] : undefined;
+  const s = repo
+    ? history
+        .filter((x) => !x.archivedAt && x.target === req.target && x.paths.some((p) => norm(p) === norm(repo)))
+        .sort((a, b) => b.lastAccessedAt.localeCompare(a.lastAccessedAt))[0]
+    : undefined;
   if (!s) return { ok: false, error: `opened ${req.target}, but its session is not in the history` };
   return { ok: true, branch: s.branch, launchDir: repo, paths: [repo] };
 }
@@ -119,19 +124,26 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
       if (invalid) return resolve({ ok: false, error: invalid });
       // This process's node flags too: under tsx (dev) they are what loads a .ts entry
       // (but not a debugger's, whose port is taken).
-      const child = crossSpawn(opts.node ?? process.execPath, [...(opts.execArgv ?? process.execArgv).filter((f) => !/^--inspect/.test(f)), workBin, ...childArgs(req)], {
-        windowsHide: true,
-        env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
-      });
+      const child = crossSpawn(
+        opts.node ?? process.execPath,
+        [...(opts.execArgv ?? process.execArgv).filter((f) => !/^--inspect/.test(f)), workBin, ...childArgs(req)],
+        {
+          windowsHide: true,
+          env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+        },
+      );
       let stdout = '';
       let stderr = '';
       child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));
       child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
       let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill();
-      }, opts.timeoutMs ?? 5 * 60_000);
+      const timer = setTimeout(
+        () => {
+          timedOut = true;
+          child.kill();
+        },
+        opts.timeoutMs ?? 5 * 60_000,
+      );
       let settled = false;
       const done = (r: CreateResult) => {
         if (settled) return;
@@ -151,7 +163,12 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
         }
         if (code === 0) return done(resultFromHistory(req, config));
         // Its errors, as the CLI printed them (the reporter sends errors to stderr).
-        const why = (stderr || stdout).replace(ANSI, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(' ');
+        const why = (stderr || stdout)
+          .replace(ANSI, '')
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .join(' ');
         done({ ok: false, error: why || (code === null ? 'setting it up took too long' : `work tree exited ${code}`) });
       });
     });
@@ -172,11 +189,23 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   if (invalid) return { ok: false, error: invalid };
   if (!req.branch) {
     const opened = await openBaseCheckout(req.target, config, { jiraKey: req.jiraKey, name: req.name });
-    return opened.ok ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] } : { ok: false, error: opened.error };
+    return opened.ok
+      ? { ok: true, branch: opened.branch, launchDir: opened.repoPath, paths: [opened.repoPath] }
+      : { ok: false, error: opened.error };
   }
   // Keep what core reports, so a failure says why.
   const reports = collectingReporter();
-  const created = await withReporter(reports, () => setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, { name: req.name }));
-  if (!created) return { ok: false, error: reports.errors().map((e) => e.trim()).join(' ') || 'setup failed (target not found?)' };
+  const created = await withReporter(reports, () =>
+    setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, { name: req.name }),
+  );
+  if (!created)
+    return {
+      ok: false,
+      error:
+        reports
+          .errors()
+          .map((e) => e.trim())
+          .join(' ') || 'setup failed (target not found?)',
+    };
   return { ok: true, branch: req.branch, launchDir: created.launchDir, paths: created.paths };
 };

@@ -1,10 +1,5 @@
 import crypto from 'node:crypto';
-import type {
-  Comment,
-  CommentAuthor,
-  CommentSide,
-  CommentStatus,
-} from './comment-types.js';
+import type { Comment, CommentAuthor, CommentSide, CommentStatus } from './comment-types.js';
 
 export interface CommentInput {
   repo?: string;
@@ -71,28 +66,18 @@ export function createCommentStore(): CommentStore {
       }
       const parent = findParent(input.parentId);
       const side = input.side ?? parent?.side ?? 'general';
-      if (
-        side !== 'left' &&
-        side !== 'right' &&
-        side !== 'general' &&
-        side !== 'file'
-      ) {
+      if (side !== 'left' && side !== 'right' && side !== 'general' && side !== 'file') {
         throw new Error('invalid side');
       }
       const c: Comment = {
         id: crypto.randomBytes(8).toString('hex'),
-        repo:
-          (typeof input.repo === 'string' ? input.repo : parent?.repo) ?? '',
-        file:
-          (typeof input.file === 'string' ? input.file : parent?.file) ?? '',
+        repo: (typeof input.repo === 'string' ? input.repo : parent?.repo) ?? '',
+        file: (typeof input.file === 'string' ? input.file : parent?.file) ?? '',
         line: typeof input.line === 'number' ? input.line : (parent?.line ?? 0),
         side,
         body: input.body.trim(),
         createdAt: new Date().toISOString(),
-        lineContent:
-          typeof input.lineContent === 'string'
-            ? input.lineContent
-            : parent?.lineContent,
+        lineContent: typeof input.lineContent === 'string' ? input.lineContent : parent?.lineContent,
         author: input.author === 'claude' ? 'claude' : 'user',
         parentId: parent?.id,
         status: input.status === 'draft' ? 'draft' : 'published',
@@ -118,9 +103,7 @@ export function createCommentStore(): CommentStore {
     },
 
     submit(summary) {
-      const drafts = comments
-        .filter((c) => c.status === 'draft')
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const drafts = comments.filter((c) => c.status === 'draft').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       let summaryComment: Comment | null = null;
       if (typeof summary === 'string' && summary.trim()) {
         summaryComment = {

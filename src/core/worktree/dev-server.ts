@@ -91,10 +91,11 @@ export function devCommandFor(
   for (const p of session.paths) {
     // A worktree folder is named after its repo's folder (resolve.ts), so
     // match the alias by the repo path's basename.
-    const alias = aliases.find((a) => {
-      const repo = config?.repos?.[a];
-      return repo !== undefined && path.basename(repo).toLowerCase() === path.basename(p).toLowerCase();
-    }) ?? (session.isGroup ? undefined : session.target);
+    const alias =
+      aliases.find((a) => {
+        const repo = config?.repos?.[a];
+        return repo !== undefined && path.basename(repo).toLowerCase() === path.basename(p).toLowerCase();
+      }) ?? (session.isGroup ? undefined : session.target);
     const command = alias ? commands[alias] : undefined;
     if (alias && typeof command === 'string' && command.trim()) return { command, cwd: p, repo: alias };
   }

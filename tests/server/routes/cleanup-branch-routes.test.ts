@@ -15,7 +15,14 @@ function fakeGit() {
     const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' });
     if (a === 'rev-parse --abbrev-ref origin/HEAD') return ok('origin/main\n');
     if (a.startsWith('branch --merged')) return ok(deleted.includes('feat/done') ? 'main\n' : 'main\nfeat/done\n');
-    if (a.startsWith('for-each-ref')) return ok(['main\t' + TIP + '\t', ...(deleted.includes('feat/done') ? [] : ['feat/done\t' + TIP + '\t']), 'feat/wip\t' + 'b'.repeat(40) + '\t'].join('\n'));
+    if (a.startsWith('for-each-ref'))
+      return ok(
+        [
+          'main\t' + TIP + '\t',
+          ...(deleted.includes('feat/done') ? [] : ['feat/done\t' + TIP + '\t']),
+          'feat/wip\t' + 'b'.repeat(40) + '\t',
+        ].join('\n'),
+      );
     if (a.startsWith('branch -D')) {
       deleted.push(args.at(-1)!);
       return ok();
@@ -51,8 +58,18 @@ describe('cleanup branch routes', () => {
     });
     expect(st.candidates.map((b) => b.branch)).toEqual(['feat/done']);
 
-    const res = await (await post(a, '/api/cleanup/branches/apply', { items: [{ repo: 'api', branch: 'feat/done' }, { repo: 'api', branch: 'feat/wip' }] })).json();
-    expect(res.results.map((r: { branch: string; ok: boolean }) => [r.branch, r.ok])).toEqual([['feat/done', true], ['feat/wip', false]]);
+    const res = await (
+      await post(a, '/api/cleanup/branches/apply', {
+        items: [
+          { repo: 'api', branch: 'feat/done' },
+          { repo: 'api', branch: 'feat/wip' },
+        ],
+      })
+    ).json();
+    expect(res.results.map((r: { branch: string; ok: boolean }) => [r.branch, r.ok])).toEqual([
+      ['feat/done', true],
+      ['feat/wip', false],
+    ]);
     expect(git.deleted).toEqual(['feat/done']);
     expect(res.state.candidates).toEqual([]);
   });

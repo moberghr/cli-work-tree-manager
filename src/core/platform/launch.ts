@@ -3,11 +3,7 @@ import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-laun
 
 /** Get the platform-appropriate default editor. */
 export function getEditor(): string {
-  return (
-    process.env.EDITOR ??
-    process.env.VISUAL ??
-    (process.platform === 'win32' ? 'notepad' : 'vi')
-  );
+  return process.env.EDITOR ?? process.env.VISUAL ?? (process.platform === 'win32' ? 'notepad' : 'vi');
 }
 
 /** Open a file in the user's editor. */
@@ -34,16 +30,9 @@ export function openVSCode(dir: string): void {
  * When `port` is provided it is injected as `$PORT` into the launched process
  * so dev servers started by parallel agent sessions don't collide.
  */
-export function launchAi(
-  cwd: string,
-  tool: AiToolSpec,
-  opts: AiLaunchOpts = {},
-  port?: number,
-): void {
+export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}, port?: number): void {
   const { cmd, args } = buildAiLaunchArgs(tool, opts);
   const spawnOpts: Parameters<typeof spawn.sync>[2] =
-    port !== undefined
-      ? { cwd, stdio: 'inherit', env: { ...process.env, PORT: String(port) } }
-      : { cwd, stdio: 'inherit' };
+    port !== undefined ? { cwd, stdio: 'inherit', env: { ...process.env, PORT: String(port) } } : { cwd, stdio: 'inherit' };
   spawn.sync(cmd, args, spawnOpts);
 }

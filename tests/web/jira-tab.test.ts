@@ -23,7 +23,15 @@ vi.mock('../../src/web/src/api/panes.js', () => ({
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 const { JiraTab } = await import('../../src/web/src/components/Dashboard/tabs/JiraTab.js');
 
-const issue = (key: string, status: string, statusCategory: JiraIssue['statusCategory']): JiraIssue => ({ key, summary: `Do ${key}`, status, statusCategory, issuetype: 'Task', priority: 'Low', url: `u/${key}` });
+const issue = (key: string, status: string, statusCategory: JiraIssue['statusCategory']): JiraIssue => ({
+  key,
+  summary: `Do ${key}`,
+  status,
+  statusCategory,
+  issuetype: 'Task',
+  priority: 'Low',
+  url: `u/${key}`,
+});
 
 let container: HTMLDivElement;
 let root: Root;
@@ -32,8 +40,25 @@ beforeEach(() => {
   api.watch = {
     settings: { enabled: false, since: null },
     decisions: [
-      { key: 'SD-1', summary: 'Do SD-1', url: 'u', at: '2026-10-01T10:00:00Z', action: 'suggested', target: 'straumur', reason: 'could be either' },
-      { key: 'SD-2', summary: 'Do SD-2', url: 'u', at: '2026-10-01T10:00:00Z', action: 'started', target: 'jobly', sessionId: 'sid-2', reason: 'jobly work' },
+      {
+        key: 'SD-1',
+        summary: 'Do SD-1',
+        url: 'u',
+        at: '2026-10-01T10:00:00Z',
+        action: 'suggested',
+        target: 'straumur',
+        reason: 'could be either',
+      },
+      {
+        key: 'SD-2',
+        summary: 'Do SD-2',
+        url: 'u',
+        at: '2026-10-01T10:00:00Z',
+        action: 'started',
+        target: 'jobly',
+        sessionId: 'sid-2',
+        reason: 'jobly work',
+      },
     ],
     targets: ['straumur', 'jobly'],
     lastRunAt: null,
@@ -49,14 +74,21 @@ afterEach(() => {
   container.remove();
 });
 
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === label)!;
 
 describe('JiraTab', () => {
   it('columns in workflow order: to do, in progress, review', async () => {
     act(() => root.render(createElement(JiraTab, { onPick: () => {}, sessionJiraKeys: new Set<string>() })));
     await flush();
-    expect([...container.querySelectorAll('.wd-jira-col-header span:first-child')].map((e) => e.textContent)).toEqual(['New', 'In Progress', 'Review']);
+    expect([...container.querySelectorAll('.wd-jira-col-header span:first-child')].map((e) => e.textContent)).toEqual([
+      'New',
+      'In Progress',
+      'Review',
+    ]);
   });
 
   it('the switch turns the watch on', async () => {

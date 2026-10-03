@@ -4,7 +4,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { git } from '../../../src/core/git/git.js';
 import { buildFoldersOf, clearBuildFolders } from '../../../src/core/cleanup/build-folders.js';
-import { BUILD_FOLDERS_IDLE_MS, createBuildFoldersJob, scanBuildFolders, type BuildFolderSession } from '../../../src/core/cleanup/build-folders-scan.js';
+import {
+  BUILD_FOLDERS_IDLE_MS,
+  createBuildFoldersJob,
+  scanBuildFolders,
+  type BuildFolderSession,
+} from '../../../src/core/cleanup/build-folders-scan.js';
 
 let tmp: string;
 let repo: string;
@@ -68,7 +73,13 @@ describe('build folders', () => {
 describe('scanBuildFolders', () => {
   const NOW = Date.parse('2026-09-30T12:00:00Z');
   const s = (id: string, over: Partial<BuildFolderSession> = {}): BuildFolderSession => ({
-    id, target: 'app', branch: id, paths: [repo], lastActiveMs: NOW - BUILD_FOLDERS_IDLE_MS - 1, running: false, ...over,
+    id,
+    target: 'app',
+    branch: id,
+    paths: [repo],
+    lastActiveMs: NOW - BUILD_FOLDERS_IDLE_MS - 1,
+    running: false,
+    ...over,
   });
 
   it('offers worktrees idle a week or more with no Claude running, biggest first', async () => {

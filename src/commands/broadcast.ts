@@ -15,8 +15,7 @@ function readStdin(): string {
 
 export const broadcastCommand: CommandModule = {
   command: 'broadcast <prompt>',
-  describe:
-    'Queue a prompt to every live session; delivered on each session\'s next turn',
+  describe: "Queue a prompt to every live session; delivered on each session's next turn",
   builder: (yargs) =>
     yargs
       .positional('prompt', {
@@ -60,11 +59,7 @@ export const broadcastCommand: CommandModule = {
     // require an explicit --all (or a narrowing --target) rather than letting
     // a bare `work broadcast "..."` fan out to the whole fleet by accident.
     if (!target && !all) {
-      console.error(
-        chalk.red(
-          'Refusing to broadcast to every session. Pass --all to confirm, or --target <alias> to narrow.',
-        ),
-      );
+      console.error(chalk.red('Refusing to broadcast to every session. Pass --all to confirm, or --target <alias> to narrow.'));
       process.exitCode = 1;
       return;
     }
@@ -76,21 +71,11 @@ export const broadcastCommand: CommandModule = {
       return;
     }
 
-    console.log(
-      chalk.cyan(
-        `Queued prompt to ${queued.length} session${queued.length === 1 ? '' : 's'}:`,
-      ),
-    );
+    console.log(chalk.cyan(`Queued prompt to ${queued.length} session${queued.length === 1 ? '' : 's'}:`));
     for (const t of queued) {
-      console.log(
-        `  ${chalk.cyan(`[${t.session.target}/${t.session.branch}]`)} ${chalk.gray(t.sessionId)}`,
-      );
+      console.log(`  ${chalk.cyan(`[${t.session.target}/${t.session.branch}]`)} ${chalk.gray(t.sessionId)}`);
     }
     console.log('');
-    console.log(
-      chalk.gray(
-        'Delivery is lazy: each session picks this up on its next prompt (UserPromptSubmit hook).',
-      ),
-    );
+    console.log(chalk.gray('Delivery is lazy: each session picks this up on its next prompt (UserPromptSubmit hook).'));
   },
 };

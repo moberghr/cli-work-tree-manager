@@ -17,7 +17,11 @@ out({ hello: 'echo-conv-1', argv: process.argv.slice(2) });
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   let m;
-  try { m = JSON.parse(line); } catch { return; }
+  try {
+    m = JSON.parse(line);
+  } catch {
+    return;
+  }
   if (typeof m.answer === 'string') {
     out({ said: m.allow ? 'allowed' : 'denied' });
     out({ done: true });

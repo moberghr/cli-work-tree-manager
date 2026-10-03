@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  groupRepoNames,
-  groupSessionsByTarget,
-} from '../../src/web/src/utils/session-groups.js';
+import { groupRepoNames, groupSessionsByTarget } from '../../src/web/src/utils/session-groups.js';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 
 function s(target: string, branch: string, isGroup = false): SessionSummary {
@@ -25,21 +22,14 @@ describe('groupSessionsByTarget', () => {
       s('proj-frontend-ai', 'b3'),
       s('proj-backend-ai', 'b4'),
     ]);
-    expect(groups.map((g) => g.key)).toEqual([
-      'proj-frontend-ai',
-      'fullstack-ai',
-      'proj-backend-ai',
-    ]);
+    expect(groups.map((g) => g.key)).toEqual(['proj-frontend-ai', 'fullstack-ai', 'proj-backend-ai']);
     expect(groups[0].sessions.map((x) => x.branch)).toEqual(['b1', 'b3']);
     expect(groups[1].isGroup).toBe(true);
     expect(groups[0].isGroup).toBe(false);
   });
 
   it('orders buckets alphabetically (case-insensitive) when asked', () => {
-    const groups = groupSessionsByTarget(
-      [s('beta', 'x'), s('Alpha', 'y'), s('gamma', 'z')],
-      true,
-    );
+    const groups = groupSessionsByTarget([s('beta', 'x'), s('Alpha', 'y'), s('gamma', 'z')], true);
     expect(groups.map((g) => g.key)).toEqual(['Alpha', 'beta', 'gamma']);
   });
 
@@ -60,20 +50,13 @@ describe('groupRepoNames', () => {
   it('lists repo folder names for a multi-repo group (either separator)', () => {
     const g = {
       ...s('fullstack-ai', 'feat/x', true),
-      paths: [
-        'C:\\wt\\fullstack-ai\\feat-x\\backend',
-        '/wt/fullstack-ai/feat-x/frontend/',
-      ],
+      paths: ['C:\\wt\\fullstack-ai\\feat-x\\backend', '/wt/fullstack-ai/feat-x/frontend/'],
     };
     expect(groupRepoNames(g)).toEqual(['backend', 'frontend']);
   });
 
   it('is empty for single repos and one-repo groups', () => {
-    expect(groupRepoNames({ ...s('repo', 'b'), paths: ['/a', '/b'] })).toEqual(
-      [],
-    );
-    expect(
-      groupRepoNames({ ...s('g', 'b', true), paths: ['/wt/g/b/only'] }),
-    ).toEqual([]);
+    expect(groupRepoNames({ ...s('repo', 'b'), paths: ['/a', '/b'] })).toEqual([]);
+    expect(groupRepoNames({ ...s('g', 'b', true), paths: ['/wt/g/b/only'] })).toEqual([]);
   });
 });

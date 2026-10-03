@@ -245,7 +245,19 @@ export function revision(table: 'sessions' | 'tasks' | 'rail'): number {
 
 /** Every row a session owns, outside `sessions` itself. */
 export function purgeSessionRows(d: Db, sessionId: string): void {
-  for (const table of ['session_status', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'worklogs']) {
+  for (const table of [
+    'session_status',
+    'comment_deliveries',
+    'pty_sessions',
+    'pr_watch_seen',
+    'dev_runs',
+    'pr_replies',
+    'session_snooze',
+    'rail_place',
+    'session_notes',
+    'session_blocks',
+    'worklogs',
+  ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }
   d.prepare('DELETE FROM comments WHERE store = ?').run(sessionId);

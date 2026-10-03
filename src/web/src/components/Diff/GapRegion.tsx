@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
-import {
-  gapOffset,
-  hiddenRemaining,
-  nextBottomRange,
-  nextTopRange,
-  type DiffGap,
-} from '../../utils/expand.js';
+import { gapOffset, hiddenRemaining, nextBottomRange, nextTopRange, type DiffGap } from '../../utils/expand.js';
 import { highlightBlock } from '../../utils/highlight.js';
 
 interface RevealedLine {
@@ -41,14 +35,7 @@ interface Props {
  * mounted (static `wd --static`, which has no server) this renders
  * nothing, so the diff degrades to plain hunks.
  */
-export function GapRegion({
-  repo,
-  file,
-  gap,
-  lang,
-  onClosedChange,
-  belowHeading,
-}: Props) {
+export function GapRegion({ repo, file, gap, lang, onClosedChange, belowHeading }: Props) {
   const exp = useExpandOptional();
   const mode = useDiffMode();
   const [topLines, setTopLines] = useState<RevealedLine[]>([]);
@@ -57,11 +44,7 @@ export function GapRegion({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const remainingForClose = hiddenRemaining(
-    gap,
-    topLines.length,
-    bottomLines.length,
-  );
+  const remainingForClose = hiddenRemaining(gap, topLines.length, bottomLines.length);
   // A gap "closes" only against a hunk below it (head/mid gaps). Tail gaps
   // have a null `remaining` and no hunk beneath, so they never close.
   const closed = gap.bottom !== null && remainingForClose === 0;
@@ -76,7 +59,10 @@ export function GapRegion({
     if (!lang) return null;
     const m = new Map<RevealedLine, string>();
     const fill = (run: RevealedLine[]) => {
-      const html = highlightBlock(run.map((l) => l.content), lang);
+      const html = highlightBlock(
+        run.map((l) => l.content),
+        lang,
+      );
       run.forEach((l, i) => {
         const h = html[i];
         if (h) m.set(l, h);
@@ -138,12 +124,7 @@ export function GapRegion({
   return (
     <>
       {topLines.map((l) => (
-        <ContextRow
-          key={`t-${l.newNum}`}
-          line={l}
-          html={lineHtml?.get(l) ?? null}
-          unified={mode === 'unified'}
-        />
+        <ContextRow key={`t-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} unified={mode === 'unified'} />
       ))}
       {showExpander && (
         <tr className="wd-row wd-expander-row">
@@ -188,37 +169,20 @@ export function GapRegion({
                       ? `${remaining} hidden line${remaining === 1 ? '' : 's'}`
                       : 'Expand'}
                 </span>
-                {belowHeading && (
-                  <span className="wd-hunk-fn wd-expander-heading">
-                    {belowHeading}
-                  </span>
-                )}
+                {belowHeading && <span className="wd-hunk-fn wd-expander-heading">{belowHeading}</span>}
               </div>
             </div>
           </td>
         </tr>
       )}
       {bottomLines.map((l) => (
-        <ContextRow
-          key={`b-${l.newNum}`}
-          line={l}
-          html={lineHtml?.get(l) ?? null}
-          unified={mode === 'unified'}
-        />
+        <ContextRow key={`b-${l.newNum}`} line={l} html={lineHtml?.get(l) ?? null} unified={mode === 'unified'} />
       ))}
     </>
   );
 }
 
-function ContextRow({
-  line,
-  html,
-  unified,
-}: {
-  line: RevealedLine;
-  html: string | null;
-  unified: boolean;
-}) {
+function ContextRow({ line, html, unified }: { line: RevealedLine; html: string | null; unified: boolean }) {
   // Unified: both gutters then a single content cell. Split: old gutter +
   // content, new gutter + content (content duplicated, since context is
   // identical on both sides).
@@ -241,20 +205,9 @@ function ContextRow({
   );
 }
 
-function ContextCell({
-  content,
-  html,
-}: {
-  content: string;
-  html: string | null;
-}) {
+function ContextCell({ content, html }: { content: string; html: string | null }) {
   if (html !== null) {
-    return (
-      <td
-        className="wd-content wd-context"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <td className="wd-content wd-context" dangerouslySetInnerHTML={{ __html: html }} />;
   }
   return <td className="wd-content wd-context">{content || ' '}</td>;
 }

@@ -33,19 +33,17 @@ function mergeAdjacentChanges(spans: IntraSpan[]): IntraSpan[] {
       continue;
     }
     let j = i;
-    while (
-      j + 2 < spans.length &&
-      !spans[j + 1].changed &&
-      spans[j + 1].text.length <= INTRA_MERGE_GAP_MAX &&
-      spans[j + 2].changed
-    ) {
+    while (j + 2 < spans.length && !spans[j + 1].changed && spans[j + 1].text.length <= INTRA_MERGE_GAP_MAX && spans[j + 2].changed) {
       j += 2;
     }
     if (j === i) {
       out.push(spans[i]);
       i++;
     } else {
-      const merged = spans.slice(i, j + 1).map((s) => s.text).join('');
+      const merged = spans
+        .slice(i, j + 1)
+        .map((s) => s.text)
+        .join('');
       out.push({ text: merged, changed: true });
       i = j + 1;
     }
@@ -53,10 +51,7 @@ function mergeAdjacentChanges(spans: IntraSpan[]): IntraSpan[] {
   return out;
 }
 
-export function computeIntraLine(
-  oldContent: string,
-  newContent: string,
-): { oldSpans: IntraSpan[]; newSpans: IntraSpan[] } | null {
+export function computeIntraLine(oldContent: string, newContent: string): { oldSpans: IntraSpan[]; newSpans: IntraSpan[] } | null {
   if (oldContent.length + newContent.length > INTRA_MAX_PAIR_LEN) return null;
   const parts = diffWordsWithSpace(oldContent, newContent);
   const oldSpans: IntraSpan[] = [];
@@ -217,9 +212,7 @@ export function inlineRows(hunk: Hunk): InlineRow[] {
  *  full-width "new file" renderer: a brand-new file is one `@@ -0,0 +N @@`
  *  hunk of all-`add` lines, but we walk every hunk/line so any added-line
  *  layout is handled. `no-newline` markers are skipped. */
-export function addedLines(
-  hunks: Hunk[],
-): { newNum: number; content: string }[] {
+export function addedLines(hunks: Hunk[]): { newNum: number; content: string }[] {
   const out: { newNum: number; content: string }[] = [];
   for (const hunk of hunks) {
     for (const line of hunk.lines) {

@@ -30,10 +30,7 @@ export interface AttachSpawnOptions {
  * Shared by `work attach` and `work tree --host`. Resolves to the exit code
  * the caller should report; never calls process.exit (see the end).
  */
-export async function attachSession(
-  session: WorktreeSession,
-  launch: AttachSpawnOptions = {},
-): Promise<number> {
+export async function attachSession(session: WorktreeSession, launch: AttachSpawnOptions = {}): Promise<number> {
   const spec = spawnSpecFor(session);
   if (!spec) {
     console.error(chalk.red('Session has no worktree path.'));
@@ -54,9 +51,7 @@ export async function attachSession(
     );
   }
   const env = launch.forwardEnv
-    ? Object.fromEntries(
-        Object.entries(process.env).filter((e): e is [string, string] => e[1] != null),
-      )
+    ? Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] != null))
     : undefined;
   await host.spawn(id, {
     ...spec,
@@ -133,7 +128,9 @@ export async function attachSession(
         exitCode = 1;
         message = msg.message ?? 'PTY host error';
       }
-    } catch { /* not a control frame */ }
+    } catch {
+      /* not a control frame */
+    }
   });
   await new Promise<void>((resolve) => {
     ws.on('close', () => resolve());

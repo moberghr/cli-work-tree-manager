@@ -1,7 +1,15 @@
 import type { WorktreeSession } from '../sessions/session-types.js';
 import type { SessionCi, ShipPreflight, OpenReviewThread } from '../api-types.js';
 import { DECISION_MARKER } from '../status/attention.js';
-import { newFeedback, openThreadCount, reviewMessage, type FeedbackItem, type ReviewFeedback, type SeenStore, openThreadsOf } from './pr-review.js';
+import {
+  newFeedback,
+  openThreadCount,
+  reviewMessage,
+  type FeedbackItem,
+  type ReviewFeedback,
+  type SeenStore,
+  openThreadsOf,
+} from './pr-review.js';
 import type { ActivityLog, RunHandle, ScheduleHandle } from '../platform/activity.js';
 import { DEFAULT_TRUSTED_BOTS, subAgentHint } from './pr-review.js';
 
@@ -41,7 +49,18 @@ export interface PrWatchDeps {
   broadcast: (event: string, data: unknown) => void;
   options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean; trustedBots?: string[] };
   /** Threads just handed to a session's Claude, for the reply drafts (pr-replies.ts). */
-  rememberThreads?: (sessionId: string, threads: Array<{ threadId: string; repo: string; prNumber: number; url: string; where: string | null; reviewer: string; excerpt: string }>) => void;
+  rememberThreads?: (
+    sessionId: string,
+    threads: Array<{
+      threadId: string;
+      repo: string;
+      prNumber: number;
+      url: string;
+      where: string | null;
+      reviewer: string;
+      excerpt: string;
+    }>,
+  ) => void;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
   /** What archiving it now would leave unfinished (replies to post, undelivered notes). Merged work
@@ -82,10 +101,12 @@ export const RATE_LIMITED = /rate limit/i;
 /** How long the sweeps rest after GitHub said so. */
 export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
 
-export function ciFixMessage(failing: Array<{ repo: string; number: number; checks: string[] }>, isGroup: boolean, contextShare?: number | null): string {
-  const lines = failing.map(
-    (f) => `- PR #${f.number}${isGroup ? ` (${f.repo})` : ''}: ${f.checks.join(', ')}`,
-  );
+export function ciFixMessage(
+  failing: Array<{ repo: string; number: number; checks: string[] }>,
+  isGroup: boolean,
+  contextShare?: number | null,
+): string {
+  const lines = failing.map((f) => `- PR #${f.number}${isGroup ? ` (${f.repo})` : ''}: ${f.checks.join(', ')}`);
   const hint = subAgentHint(contextShare);
   return [
     'CI is failing:',
@@ -280,9 +301,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         }
         threads.set(r.name, openThreadCount(fb));
         const prNumber = r.pr.number;
-        threadList.set(r.name, openThreadsOf(fb).map((t) => ({ ...t, repo: r.name, prNumber })));
+        threadList.set(
+          r.name,
+          openThreadsOf(fb).map((t) => ({ ...t, repo: r.name, prNumber })),
+        );
         if (act && deliverReviews) {
-          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, { trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS });
+          const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {
+            trustedBots: opts.trustedBots ?? DEFAULT_TRUSTED_BOTS,
+          });
           if (items.length) feedback.push({ repo: r.name, number: r.pr.number, items });
         }
       }
@@ -312,7 +338,15 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
           feedback.flatMap((f) =>
             f.items
               .filter((it) => it.threadId)
-              .map((it) => ({ threadId: it.threadId!, repo: f.repo, prNumber: f.number, url: it.url, where: it.where ?? null, reviewer: it.author, excerpt: it.body.slice(0, 400) })),
+              .map((it) => ({
+                threadId: it.threadId!,
+                repo: f.repo,
+                prNumber: f.number,
+                url: it.url,
+                where: it.where ?? null,
+                reviewer: it.author,
+                excerpt: it.body.slice(0, 400),
+              })),
           ),
         );
         note(`handed ${what} to its Claude${await wakeNote(id)}`, 'action');
@@ -324,7 +358,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);
         const what = fresh.map((f) => `#${f.number} (${f.checks.join(', ') || 'checks'})`).join(', ');
-        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup, deps.contextShare?.(session)), ciSeen)) note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
+        if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup, deps.contextShare?.(session)), ciSeen))
+          note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
         else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }

@@ -15,7 +15,16 @@ const { CatchUpButton } = await import('../../src/web/src/components/Dashboard/C
 
 const NOW = Date.parse('2026-10-01T12:00:00Z');
 const session = (lastMs: number): SessionSummary =>
-  ({ id: 's1', target: 'api', branch: 'fix/pdf', isGroup: false, paths: [], createdAt: new Date(lastMs).toISOString(), lastAccessedAt: new Date(lastMs).toISOString(), activityState: 'stale' }) as SessionSummary;
+  ({
+    id: 's1',
+    target: 'api',
+    branch: 'fix/pdf',
+    isGroup: false,
+    paths: [],
+    createdAt: new Date(lastMs).toISOString(),
+    lastAccessedAt: new Date(lastMs).toISOString(),
+    activityState: 'stale',
+  }) as SessionSummary;
 
 let container: HTMLDivElement;
 let root: Root;

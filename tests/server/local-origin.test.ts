@@ -27,8 +27,12 @@ describe('refuseReason', () => {
   });
 
   it('treats another localhost port (same-site: a dev server) like another site', () => {
-    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'no-cors', secFetchDest: 'image' }, P)).toBe('cross-site request');
-    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'navigate', secFetchDest: 'document' }, P)).toBeNull();
+    expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'no-cors', secFetchDest: 'image' }, P)).toBe(
+      'cross-site request',
+    );
+    expect(
+      refuseReason({ method: 'GET', host: H, secFetchSite: 'same-site', secFetchMode: 'navigate', secFetchDest: 'document' }, P),
+    ).toBeNull();
     expect(refuseReason({ method: 'GET', host: H, secFetchSite: 'same-origin' }, P)).toBeNull();
   });
 
@@ -48,7 +52,10 @@ describe('the launch() guard on a real server', () => {
   it('a page on another site cannot POST (even text/plain, the no-preflight trick)', async () => {
     const app = new Hono();
     let hits = 0;
-    app.post('/api/x', (c) => { hits++; return c.json({ ok: true }); });
+    app.post('/api/x', (c) => {
+      hits++;
+      return c.json({ ok: true });
+    });
     const h = await launch(app);
     const url = `http://127.0.0.1:${h.port}/api/x`;
     const post = (headers: Record<string, string>) =>
@@ -97,7 +104,10 @@ describe('the terminal WebSocket', () => {
     const outcome = (origin?: string) =>
       new Promise<string>((resolve) => {
         const ws = new WebSocket(url, origin ? { origin } : {});
-        ws.on('open', () => { ws.close(); resolve('open'); });
+        ws.on('open', () => {
+          ws.close();
+          resolve('open');
+        });
         ws.on('error', () => resolve('refused'));
       });
     expect(await outcome('https://evil.example')).toBe('refused');

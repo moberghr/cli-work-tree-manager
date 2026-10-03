@@ -20,7 +20,12 @@ export type ReportLevel = 'step' | 'info' | 'detail' | 'success' | 'warn' | 'err
 export type Reporter = (level: ReportLevel, text: string) => void;
 
 const DEBUG_LEVEL: Record<ReportLevel, 'INFO' | 'WARN' | 'ERROR'> = {
-  step: 'INFO', info: 'INFO', detail: 'INFO', success: 'INFO', warn: 'WARN', error: 'ERROR',
+  step: 'INFO',
+  info: 'INFO',
+  detail: 'INFO',
+  success: 'INFO',
+  warn: 'WARN',
+  error: 'ERROR',
 };
 
 /** Where reports go with no reporter in scope (servers, background jobs). */

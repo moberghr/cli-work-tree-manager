@@ -26,8 +26,21 @@ export interface StateSummary {
 }
 
 const TABLES = [
-  'sessions', 'session_status', 'comments', 'comment_deliveries', 'pty_sessions', 'pr_watch_seen', 'dev_runs', 'pr_replies', 'tasks',
-  'jira_watch', 'session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'worklogs',
+  'sessions',
+  'session_status',
+  'comments',
+  'comment_deliveries',
+  'pty_sessions',
+  'pr_watch_seen',
+  'dev_runs',
+  'pr_replies',
+  'tasks',
+  'jira_watch',
+  'session_snooze',
+  'rail_place',
+  'session_notes',
+  'session_blocks',
+  'worklogs',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
@@ -75,7 +88,10 @@ export function exportLegacyState(dir: string): string[] {
       return out;
     };
 
-    put('history.json', all('SELECT data FROM sessions ORDER BY rowid').map((r) => parse(String(r.data))));
+    put(
+      'history.json',
+      all('SELECT data FROM sessions ORDER BY rowid').map((r) => parse(String(r.data))),
+    );
     for (const r of all('SELECT session_id, data FROM session_status')) put(`status/${r.session_id}.json`, parse(String(r.data)));
     for (const [store, cs] of groupBy(all('SELECT store, data FROM comments ORDER BY rowid'), 'store', (r) => parse(String(r.data)))) {
       put(`comments/${store}.json`, cs);
@@ -83,7 +99,10 @@ export function exportLegacyState(dir: string): string[] {
     for (const [sid, ids] of groupBy(all('SELECT session_id, comment_id FROM comment_deliveries'), 'session_id', (r) => r.comment_id)) {
       put(`comments/${sid}.delivered.json`, ids);
     }
-    put('pty-sessions.json', Object.fromEntries(all('SELECT session_id, data FROM pty_sessions').map((r) => [r.session_id, parse(String(r.data))])));
+    put(
+      'pty-sessions.json',
+      Object.fromEntries(all('SELECT session_id, data FROM pty_sessions').map((r) => [r.session_id, parse(String(r.data))])),
+    );
     for (const [sid, keys] of groupBy(all('SELECT session_id, key FROM pr_watch_seen'), 'session_id', (r) => r.key)) {
       put(`pr-watch/${sid}.json`, { seen: keys });
     }
@@ -94,10 +113,19 @@ export function exportLegacyState(dir: string): string[] {
     put('tasks.json', { nextId: next ? Number(next.value) : maxId + 1, tasks });
 
     const newer: Record<string, unknown> = {};
-    for (const t of NEWER_BY_SESSION) newer[t] = Object.fromEntries(all(`SELECT session_id, data FROM ${t}`).map((r) => [r.session_id, parse(String(r.data))]));
-    newer.pr_replies = all('SELECT session_id, thread_id, data FROM pr_replies').map((r) => ({ session_id: r.session_id, thread_id: r.thread_id, ...((parse(String(r.data)) as object | null) ?? {}) }));
+    for (const t of NEWER_BY_SESSION)
+      newer[t] = Object.fromEntries(all(`SELECT session_id, data FROM ${t}`).map((r) => [r.session_id, parse(String(r.data))]));
+    newer.pr_replies = all('SELECT session_id, thread_id, data FROM pr_replies').map((r) => ({
+      session_id: r.session_id,
+      thread_id: r.thread_id,
+      ...((parse(String(r.data)) as object | null) ?? {}),
+    }));
     newer.jira_watch = Object.fromEntries(all('SELECT issue_key, data FROM jira_watch').map((r) => [r.issue_key, parse(String(r.data))]));
-    newer.worklogs = all('SELECT session_id, day, data FROM worklogs').map((r) => ({ session_id: r.session_id, day: r.day, ...((parse(String(r.data)) as object | null) ?? {}) }));
+    newer.worklogs = all('SELECT session_id, day, data FROM worklogs').map((r) => ({
+      session_id: r.session_id,
+      day: r.day,
+      ...((parse(String(r.data)) as object | null) ?? {}),
+    }));
     newer.meta = Object.fromEntries(
       NEWER_META.flatMap((k) => {
         const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(k) as { value: string } | undefined;

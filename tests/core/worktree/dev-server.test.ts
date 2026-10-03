@@ -20,8 +20,14 @@ afterEach(() => {
 });
 
 const session = (over: Partial<WorktreeSession> = {}): WorktreeSession => ({
-  target: 'web', branch: 'feat/x', isGroup: false, paths: [home],
-  createdAt: '', lastAccessedAt: '', port: undefined, ...over,
+  target: 'web',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: [home],
+  createdAt: '',
+  lastAccessedAt: '',
+  port: undefined,
+  ...over,
 });
 const freePort = () =>
   new Promise<number>((resolve) => {
@@ -134,7 +140,10 @@ describe('startDev / stopDev', () => {
     const port = await freePort();
     const s = session({ port });
     const script = path.join(home, 'serve.cjs');
-    fs.writeFileSync(script, "require('http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1', () => console.log('ready on ' + process.env.PORT));\n");
+    fs.writeFileSync(
+      script,
+      "require('http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1', () => console.log('ready on ' + process.env.PORT));\n",
+    );
     const config = { repos: {}, groups: {}, devCommands: { web: `node "${script}"` } };
 
     expect(startDev('s1', session(), config)).toMatchObject({ ok: false, status: 400 }); // no port

@@ -40,8 +40,7 @@ export const treeCommand: CommandModule = {
         default: false,
       })
       .option('pull', {
-        describe:
-          'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
+        describe: 'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
         type: 'boolean',
         default: true,
       })
@@ -51,8 +50,7 @@ export const treeCommand: CommandModule = {
         type: 'boolean',
       })
       .option('fresh', {
-        describe:
-          'Start a new AI conversation instead of continuing the previous one for this directory',
+        describe: 'Start a new AI conversation instead of continuing the previous one for this directory',
         type: 'boolean',
         default: false,
       })
@@ -129,11 +127,7 @@ export const treeCommand: CommandModule = {
      * found to continue") in a directory the tool has never run in, so the flag
      * is gated on an existing transcript.
      */
-    const launchTool = async (
-      dir: string,
-      port: number | undefined,
-      sessionKey: { target: string; branch: string },
-    ): Promise<void> => {
+    const launchTool = async (dir: string, port: number | undefined, sessionKey: { target: string; branch: string }): Promise<void> => {
       recordLaunch(sessionKey.target, sessionKey.branch, { unsafe: !!unsafe });
       if (viaHost) {
         const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
@@ -155,11 +149,7 @@ export const treeCommand: CommandModule = {
       const tool = agent.launch.tool(config);
       const resume = !fresh && agent.launch.canResume(dir);
       if (resume) {
-        console.log(
-          chalk.gray(
-            `Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`,
-          ),
-        );
+        console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
       console.log(`Starting ${tool.cmd}...`);
       launchAi(dir, tool, { unsafe, initialPrompt, resume }, port);
@@ -180,15 +170,9 @@ export const treeCommand: CommandModule = {
       }
       targetName = inferred.target;
       branchName = inferred.isBaseRepo ? undefined : inferred.branch;
-      console.log(
-        chalk.cyan(
-          `Resolved from current directory: ${targetName}${branchName ? ' @ ' + branchName : ' (base repo)'}`,
-        ),
-      );
+      console.log(chalk.cyan(`Resolved from current directory: ${targetName}${branchName ? ' @ ' + branchName : ' (base repo)'}`));
     } else if (!targetName) {
-      console.error(
-        'Specify a target, or use --here to infer it from the current directory.',
-      );
+      console.error('Specify a target, or use --here to infer it from the current directory.');
       process.exitCode = 1;
       return;
     }
@@ -196,9 +180,7 @@ export const treeCommand: CommandModule = {
     // --base requires a branch name
     if (!isEmptyBaseSpec(baseSpec) && !branchName) {
       console.error('--base requires a branch name');
-      console.log(
-        chalk.yellow(`Usage: work tree ${targetName} <branch> --base <base>`),
-      );
+      console.log(chalk.yellow(`Usage: work tree ${targetName} <branch> --base <base>`));
       process.exitCode = 1;
       return;
     }
@@ -209,11 +191,7 @@ export const treeCommand: CommandModule = {
       const allNames = getAllTargetNames(config);
       console.error(`Project or group not found: ${targetName}`);
       console.log(chalk.yellow(`Available: ${allNames.join(', ')}`));
-      console.log(
-        chalk.yellow(
-          'Add a new project with: work config add <alias> <path>',
-        ),
-      );
+      console.log(chalk.yellow('Add a new project with: work config add <alias> <path>'));
       process.exitCode = 1;
       return;
     }
@@ -228,7 +206,11 @@ export const treeCommand: CommandModule = {
       }
 
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
-      const opened = await openBaseCheckout(targetName, config, { pull, jiraKey, name: typeof argv.name === 'string' ? argv.name : undefined });
+      const opened = await openBaseCheckout(targetName, config, {
+        pull,
+        jiraKey,
+        name: typeof argv.name === 'string' ? argv.name : undefined,
+      });
       if (!opened.ok) {
         console.error(opened.error);
         process.exitCode = 1;

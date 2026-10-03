@@ -74,12 +74,7 @@ export function TopNav({
           ☰
         </button>
       )}
-      <button
-        type="button"
-        className="wd-dash-brand"
-        onClick={onHome}
-        title="work — dashboard home"
-      >
+      <button type="button" className="wd-dash-brand" onClick={onHome} title="work — dashboard home">
         work
       </button>
       <span className="wd-dash-version" title={`work-tree v${VERSION}`}>
@@ -92,10 +87,7 @@ export function TopNav({
               type="button"
               role="tab"
               aria-selected={active === t.key}
-              className={
-                'wd-dash-tab' +
-                (active === t.key ? ' wd-dash-tab-active' : '')
-              }
+              className={'wd-dash-tab' + (active === t.key ? ' wd-dash-tab-active' : '')}
               title={`${t.label}  (press g ${t.hotkey})`}
               onClick={() => onSelect(t.key)}
             >
@@ -111,10 +103,7 @@ export function TopNav({
       </ul>
       <div className="wd-dash-topnav-spacer" />
       {currentScopeLabel && (
-        <span
-          className="wd-dash-current-scope"
-          title="Current `wd` scope — deep links resolve here"
-        >
+        <span className="wd-dash-current-scope" title="Current `wd` scope — deep links resolve here">
           {currentScopeLabel}
         </span>
       )}

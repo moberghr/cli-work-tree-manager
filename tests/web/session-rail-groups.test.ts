@@ -14,13 +14,31 @@ const now = new Date().toISOString();
 const old = new Date(Date.now() - 60 * 24 * 3600_000).toISOString();
 const session = (id: string, lastAccessedAt = now): SessionSummary =>
   ({
-    id, target: 'api', branch: `feat/${id}`, isGroup: false, paths: [`/wt/${id}`], createdAt: lastAccessedAt, lastAccessedAt,
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-    pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null,
+    id,
+    target: 'api',
+    branch: `feat/${id}`,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: lastAccessedAt,
+    lastAccessedAt,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
   }) as SessionSummary;
 const SESSIONS = [session('a'), session('b'), session('c'), session('d'), session('old', old)];
 const LAYOUT: RailLayout = {
-  sections: [{ id: 'x', name: 'Client X' }, { id: 'y', name: 'Waiting' }],
+  sections: [
+    { id: 'x', name: 'Client X' },
+    { id: 'y', name: 'Waiting' },
+  ],
   places: { c: { pinned: true }, old: { pinned: true }, b: { section: 'x' } },
 };
 
@@ -60,15 +78,22 @@ const shown = () =>
 const heading = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-group-toggle')].find((b) => b.textContent?.includes(name))!;
 const row = (branch: string) =>
-  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.querySelector('.wd-dash-rail-name')?.textContent === branch)!;
-const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent?.includes(label));
+  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find(
+    (b) => b.querySelector('.wd-dash-rail-name')?.textContent === branch,
+  )!;
+const menuItem = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent?.includes(label));
 function rightClick(el: Element) {
-  act(() => { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })); });
+  act(() => {
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+  });
 }
 function drag(el: Element, type: string) {
   const ev = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(ev, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
-  act(() => { el.dispatchEvent(ev); });
+  act(() => {
+    el.dispatchEvent(ev);
+  });
 }
 
 describe('the rail in groups', () => {
@@ -110,7 +135,9 @@ describe('the rail in groups', () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Hotfixes');
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
     const op = vi.mocked(p.onSections).mock.calls[0][0];
     expect(op).toMatchObject({ op: 'add', name: 'Hotfixes' }); // one change, not the whole list
     expect(p.onPlace).toHaveBeenLastCalledWith('a', { pinned: false, section: op.id });
@@ -136,7 +163,9 @@ describe('the rail in groups', () => {
       const e = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(e, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
       Object.defineProperty(e, 'clientY', { value: 5 });
-      act(() => { target.dispatchEvent(e); });
+      act(() => {
+        target.dispatchEvent(e);
+      });
     };
     ev('dragover');
     ev('drop');
@@ -153,14 +182,19 @@ describe('the rail in groups', () => {
       const e = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(e, 'dataTransfer', { value: { setData: () => {}, effectAllowed: '' } });
       Object.defineProperty(e, 'clientY', { value: 5 });
-      act(() => { target.dispatchEvent(e); });
+      act(() => {
+        target.dispatchEvent(e);
+      });
     }
     expect(p.onPlace).not.toHaveBeenCalled();
     expect(p.onReorder).toHaveBeenCalledWith(['c', 'old', 'b', 'd', 'a']);
   });
 
   it('with every row placed, Other stays, empty, as somewhere to drag a row out of its section', () => {
-    render({ sessions: [session('a'), session('b')], layout: { sections: [{ id: 'x', name: 'Client X' }], places: { a: { section: 'x' }, b: { pinned: true } } } });
+    render({
+      sessions: [session('a'), session('b')],
+      layout: { sections: [{ id: 'x', name: 'Client X' }], places: { a: { section: 'x' }, b: { pinned: true } } },
+    });
     expect(shown()).toEqual(['# Pinned', 'feat/b', '# Client X', 'feat/a', '# Other']);
     expect(container.textContent).toContain('Drag a session here to unpin it or take it out of its section.');
   });
@@ -178,7 +212,9 @@ describe('the rail in groups', () => {
   it('Alt+1…9 opens the rows as shown, pinned first — a terminal included, not while typing in a field', () => {
     const p = render();
     const alt = (code: string, target: EventTarget = window) =>
-      act(() => { target.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.slice(-1), altKey: true, bubbles: true, cancelable: true })); });
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.slice(-1), altKey: true, bubbles: true, cancelable: true }));
+      });
     alt('Digit1');
     expect(p.onSelect).toHaveBeenLastCalledWith('c');
     alt('Digit3');
@@ -208,7 +244,9 @@ describe('the rows as shown (j/k walk them)', () => {
     const onShownChange = vi.fn();
     render({ sessions: more, onShownChange });
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd']);
-    act(() => [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-older')].find((b) => b.textContent?.includes('older'))!.click());
+    act(() =>
+      [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-older')].find((b) => b.textContent?.includes('older'))!.click(),
+    );
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'b', 'a', 'd', 'old2']);
     act(() => heading('Client X').click());
     expect(onShownChange).toHaveBeenLastCalledWith(['c', 'old', 'a', 'd', 'old2']);

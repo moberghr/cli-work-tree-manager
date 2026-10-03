@@ -36,9 +36,19 @@ const PACK_AUTHORS = 'Moberg';
 const BUNDLE_ID = 'hr.moberg.work-desktop'; // = tauri.conf.json identifier; permanent on macOS too
 
 export function target(platform = process.platform, arch = process.arch) {
-  if (platform === 'win32' && arch === 'x64') return { rid: 'win-x64', directive: '[win]', channel: 'win', exe: 'work-desktop.exe', icon: 'src-tauri/icons/icon.ico', pkgTag: '' };
-  if (platform === 'darwin' && arch === 'arm64') return { rid: 'osx-arm64', directive: '[osx]', channel: 'osx', exe: 'work-desktop', icon: 'src-tauri/icons/icon.icns', pkgTag: '-osx' };
-  if (platform === 'linux' && arch === 'x64') return { rid: 'linux-x64', directive: '[linux]', channel: 'linux', exe: 'work-desktop', icon: 'src-tauri/icons/icon.png', pkgTag: '-linux' };
+  if (platform === 'win32' && arch === 'x64')
+    return { rid: 'win-x64', directive: '[win]', channel: 'win', exe: 'work-desktop.exe', icon: 'src-tauri/icons/icon.ico', pkgTag: '' };
+  if (platform === 'darwin' && arch === 'arm64')
+    return { rid: 'osx-arm64', directive: '[osx]', channel: 'osx', exe: 'work-desktop', icon: 'src-tauri/icons/icon.icns', pkgTag: '-osx' };
+  if (platform === 'linux' && arch === 'x64')
+    return {
+      rid: 'linux-x64',
+      directive: '[linux]',
+      channel: 'linux',
+      exe: 'work-desktop',
+      icon: 'src-tauri/icons/icon.png',
+      pkgTag: '-linux',
+    };
   throw new Error(`no desktop package for ${platform}-${arch} (win-x64, osx-arm64 and linux-x64 are built)`);
 }
 
@@ -89,7 +99,11 @@ function main() {
   // first release has none, and a miss only costs users a full download.
   fs.rmSync(releases, { recursive: true, force: true });
   fs.mkdirSync(releases, { recursive: true });
-  const dl = spawn.sync('vpk', ['download', 'github', '--repoUrl', REPO_URL, '--channel', t.channel, '--outputDir', releases, ...(token ? ['--token', token] : [])], { stdio: 'inherit' });
+  const dl = spawn.sync(
+    'vpk',
+    ['download', 'github', '--repoUrl', REPO_URL, '--channel', t.channel, '--outputDir', releases, ...(token ? ['--token', token] : [])],
+    { stdio: 'inherit' },
+  );
   if (dl.status !== 0) console.log('  no previous release found (or unreachable): this one ships as a full package only.');
 
   const extra = [];
@@ -103,17 +117,28 @@ function main() {
     if (process.env.NOTARY_PROFILE) extra.push('--notaryProfile', process.env.NOTARY_PROFILE);
   }
   run('vpk', [
-    t.directive, 'pack',
-    '--packId', PACK_ID,
-    '--packTitle', PACK_TITLE,
-    '--packAuthors', PACK_AUTHORS,
-    '--packVersion', version,
-    '--packDir', packDir,
-    '--mainExe', t.exe,
-    '--icon', path.join(DESKTOP, t.icon),
-    '--runtime', t.rid,
-    '--channel', t.channel,
-    '--outputDir', releases,
+    t.directive,
+    'pack',
+    '--packId',
+    PACK_ID,
+    '--packTitle',
+    PACK_TITLE,
+    '--packAuthors',
+    PACK_AUTHORS,
+    '--packVersion',
+    version,
+    '--packDir',
+    packDir,
+    '--mainExe',
+    t.exe,
+    '--icon',
+    path.join(DESKTOP, t.icon),
+    '--runtime',
+    t.rid,
+    '--channel',
+    t.channel,
+    '--outputDir',
+    releases,
     ...extra,
   ]);
 
@@ -123,10 +148,37 @@ function main() {
   }
   if (!token) throw new Error('PUBLISH=1 needs a GitHub token (GITHUB_TOKEN, or `gh auth login`)');
   // --merge: each platform's channel lands on the same release, beside npm's.
-  run('vpk', ['upload', 'github', '--repoUrl', REPO_URL, '--token', token, '--channel', t.channel, '--outputDir', releases, '--publish', '--merge', '--releaseName', `work ${version}`, '--tag', tag]);
+  run('vpk', [
+    'upload',
+    'github',
+    '--repoUrl',
+    REPO_URL,
+    '--token',
+    token,
+    '--channel',
+    t.channel,
+    '--outputDir',
+    releases,
+    '--publish',
+    '--merge',
+    '--releaseName',
+    `work ${version}`,
+    '--tag',
+    tag,
+  ]);
 
   // A release without the feed is invisible to every installed copy: check it landed.
-  const assets = capture('gh', ['release', 'view', tag, '--repo', REPO_URL, '--json', 'assets', '--jq', '[.assets[].name] | join(" ")']).split(' ');
+  const assets = capture('gh', [
+    'release',
+    'view',
+    tag,
+    '--repo',
+    REPO_URL,
+    '--json',
+    'assets',
+    '--jq',
+    '[.assets[].name] | join(" ")',
+  ]).split(' ');
   const missing = requiredAssets(t, version).filter((a) => !assets.includes(a));
   if (missing.length) throw new Error(`the release ${tag} is missing ${missing.join(', ')}: re-run the upload before calling it released`);
   console.log(`\nPublished work ${version} (${t.rid}) to ${tag}.`);

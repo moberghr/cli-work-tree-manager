@@ -71,8 +71,12 @@ export const defaultRunner: CommandRunner = (cmd, args, cwd) =>
       child.kill();
       done({ code: 124, stdout, stderr: stderr || `${cmd} timed out` });
     }, 60_000);
-    child.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stdout?.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
     child.on('error', (err: NodeJS.ErrnoException) => {
       done({ code: err.code === 'ENOENT' ? 127 : 1, stdout, stderr: err.message });
     });
@@ -166,10 +170,17 @@ export function mergeBlockers(r: RepoFacts): string[] {
     out.push("the PR's head isn't your local HEAD — push or pull first");
   }
   switch (r.pr.mergeStateStatus) {
-    case 'DIRTY': out.push('merge conflicts with the base branch'); break;
-    case 'BEHIND': out.push('branch is behind the base branch'); break;
-    case 'BLOCKED': out.push('blocked by branch protection (reviews or required checks)'); break;
-    default: break;
+    case 'DIRTY':
+      out.push('merge conflicts with the base branch');
+      break;
+    case 'BEHIND':
+      out.push('branch is behind the base branch');
+      break;
+    case 'BLOCKED':
+      out.push('blocked by branch protection (reviews or required checks)');
+      break;
+    default:
+      break;
   }
   if (r.pr.checks === 'fail') out.push('checks failing');
   else if (r.pr.checks === 'pending') out.push('checks still running');
@@ -177,18 +188,19 @@ export function mergeBlockers(r: RepoFacts): string[] {
 }
 
 function oneLineErr(s: string): string {
-  return s.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? '';
+  return (
+    s
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 /** Whether to ask GitHub about a repo's PR at all (the PR watch skips
  *  branches that were never pushed and have no PR it knows of). */
 export type AskGh = (repo: { name: string; hasUpstream: boolean; commitsVsBase: number | null }) => boolean;
 
-async function inspectRepo(
-  repo: { name: string; path: string },
-  run: CommandRunner,
-  askGh?: AskGh,
-): Promise<RepoShipState> {
+async function inspectRepo(repo: { name: string; path: string }, run: CommandRunner, askGh?: AskGh): Promise<RepoShipState> {
   const git = (...args: string[]) => run('git', args, repo.path);
   const branch = (await git('rev-parse', '--abbrev-ref', 'HEAD')).stdout.trim();
   const localSha = (await git('rev-parse', 'HEAD')).stdout.trim();
@@ -235,8 +247,15 @@ async function inspectRepo(
   if (view.code === 0) {
     try {
       const j = JSON.parse(view.stdout) as {
-        number: number; url: string; state: ShipPr['state']; isDraft: boolean;
-        mergeStateStatus?: string; headRefOid: string; mergedAt?: string | null; updatedAt?: string; statusCheckRollup?: CheckRollupItem[];
+        number: number;
+        url: string;
+        state: ShipPr['state'];
+        isDraft: boolean;
+        mergeStateStatus?: string;
+        headRefOid: string;
+        mergedAt?: string | null;
+        updatedAt?: string;
+        statusCheckRollup?: CheckRollupItem[];
       };
       pr = {
         number: j.number,
@@ -260,8 +279,18 @@ async function inspectRepo(
   }
 
   const facts: RepoFacts = {
-    name: repo.name, path: repo.path, branch, localSha, dirtyFiles,
-    hasUpstream, tracksRemote, ahead, behind, pr, ghError, commitsVsBase,
+    name: repo.name,
+    path: repo.path,
+    branch,
+    localSha,
+    dirtyFiles,
+    hasUpstream,
+    tracksRemote,
+    ahead,
+    behind,
+    pr,
+    ghError,
+    commitsVsBase,
   };
   const { done, reason } = repoDone(facts);
   return { ...facts, done, doneReason: reason, mergeBlockers: mergeBlockers(facts) };
@@ -335,7 +364,10 @@ export async function runShipAction(
     if (opts.draft) args.push('--draft');
     const res = await run('gh', args, r.path);
     if (res.code === 0) {
-      const url = res.stdout.trim().split(/\s+/).find((t) => t.startsWith('http'));
+      const url = res.stdout
+        .trim()
+        .split(/\s+/)
+        .find((t) => t.startsWith('http'));
       results.push({ repo: r.name, ok: true, message: opts.draft ? 'draft PR opened' : 'PR opened', url });
     } else {
       results.push({ repo: r.name, ok: false, message: oneLineErr(res.stderr) || 'gh pr create failed' });
@@ -370,7 +402,11 @@ export async function mergeSelected(
   const { repos } = await shipPreflight(session, run);
   const byName = new Map(repos.map((r) => [r.name, r]));
   if (selection.length === 0) {
-    return { results: [{ repo: '-', ok: false, message: 'no repositories selected' }], mergedAny: false, allDone: repos.every((r) => r.done) };
+    return {
+      results: [{ repo: '-', ok: false, message: 'no repositories selected' }],
+      mergedAny: false,
+      allDone: repos.every((r) => r.done),
+    };
   }
 
   const problems: ShipResult[] = [];
@@ -402,11 +438,7 @@ export async function mergeSelected(
   const mergedNow = new Set<string>();
   for (const sel of selection) {
     const r = byName.get(sel.name)!;
-    const res = await run(
-      'gh',
-      ['pr', 'merge', String(r.pr!.number), `--${method}`, '--match-head-commit', sel.headSha],
-      r.path,
-    );
+    const res = await run('gh', ['pr', 'merge', String(r.pr!.number), `--${method}`, '--match-head-commit', sel.headSha], r.path);
     if (res.code === 0) {
       mergedNow.add(r.name);
       results.push({ repo: r.name, ok: true, merged: true, message: `PR #${r.pr!.number} merged (${method})`, url: r.pr!.url });

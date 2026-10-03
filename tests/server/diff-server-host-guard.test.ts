@@ -42,10 +42,7 @@ async function startProbeServer(): Promise<{
   return handle;
 }
 
-function request(
-  port: number,
-  hostHeader: string | null,
-): Promise<{ status: number; body: string }> {
+function request(port: number, hostHeader: string | null): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = {};
     if (hostHeader !== null) headers.Host = hostHeader;

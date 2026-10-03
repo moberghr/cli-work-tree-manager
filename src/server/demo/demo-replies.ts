@@ -14,14 +14,29 @@ export function mountDemoReplies(app: Hono, scenario: DemoScenario, emit: (sessi
     const at = new Date(Date.now() - 20 * 60_000).toISOString();
     byId.set(deps.id, [
       {
-        threadId: 'PRRT_demo_zod', repo: 'api', prNumber: 212, url: 'https://github.com/example/api/pull/212#discussion_r1', where: 'src/schema.ts:14',
-        reviewer: 'dana', excerpt: 'zod 4 changed `.nonempty()` — does this still reject empty arrays?', status: 'draft',
-        draft: 'Yes — switched to `.min(1)`, which zod 4 keeps, and added a test for the empty case (a1b2c3d).', sentAt: at, draftedAt: at,
+        threadId: 'PRRT_demo_zod',
+        repo: 'api',
+        prNumber: 212,
+        url: 'https://github.com/example/api/pull/212#discussion_r1',
+        where: 'src/schema.ts:14',
+        reviewer: 'dana',
+        excerpt: 'zod 4 changed `.nonempty()` — does this still reject empty arrays?',
+        status: 'draft',
+        draft: 'Yes — switched to `.min(1)`, which zod 4 keeps, and added a test for the empty case (a1b2c3d).',
+        sentAt: at,
+        draftedAt: at,
       },
       {
-        threadId: 'PRRT_demo_lock', repo: 'api', prNumber: 212, url: 'https://github.com/example/api/pull/212#discussion_r2', where: 'package-lock.json',
-        reviewer: 'copilot-pull-request-reviewer', excerpt: 'The lockfile also bumps `express` to a new major version; was that intended?', status: 'sent',
-        draft: null, sentAt: at,
+        threadId: 'PRRT_demo_lock',
+        repo: 'api',
+        prNumber: 212,
+        url: 'https://github.com/example/api/pull/212#discussion_r2',
+        where: 'package-lock.json',
+        reviewer: 'copilot-pull-request-reviewer',
+        excerpt: 'The lockfile also bumps `express` to a new major version; was that intended?',
+        status: 'sent',
+        draft: null,
+        sentAt: at,
       },
     ]);
   }
@@ -39,7 +54,10 @@ export function mountDemoReplies(app: Hono, scenario: DemoScenario, emit: (sessi
   });
   app.delete('/api/sessions/:id/replies/:thread', (c) => {
     const id = c.req.param('id');
-    byId.set(id, list(id).filter((r) => r.threadId !== c.req.param('thread')));
+    byId.set(
+      id,
+      list(id).filter((r) => r.threadId !== c.req.param('thread')),
+    );
     emit(id);
     return c.json({ ok: true });
   });
@@ -47,7 +65,13 @@ export function mountDemoReplies(app: Hono, scenario: DemoScenario, emit: (sessi
     const r = find(c.req.param('id'), c.req.param('thread'));
     const b = (await c.req.json().catch(() => ({}))) as { body?: unknown; resolve?: unknown };
     if (!r || typeof b.body !== 'string' || !b.body.trim()) return c.json({ error: 'unknown thread or empty reply' }, 400);
-    Object.assign(r, { status: 'posted', draft: b.body.trim(), postedAt: new Date().toISOString(), postedUrl: r.url, resolved: b.resolve === true });
+    Object.assign(r, {
+      status: 'posted',
+      draft: b.body.trim(),
+      postedAt: new Date().toISOString(),
+      postedUrl: r.url,
+      resolved: b.resolve === true,
+    });
     emit(c.req.param('id'));
     return c.json({ ok: true, url: r.url, resolved: b.resolve === true });
   });

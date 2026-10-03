@@ -103,7 +103,11 @@ export interface ArchiveDeps {
    *  `uncommittedSaved`, uncommitted files don't count: they were saved. */
   removable: (s: WorktreeSession, opts?: { uncommittedSaved?: boolean }) => Promise<{ ok: boolean; reason: string }>;
   /** Save each repo's uncommitted work (archive-uncommitted.ts) before the worktree may go. */
-  saveUncommitted?: (s: WorktreeSession, archiveDir: string, stamp: number) => Promise<{ saved: Record<string, SavedUncommitted>; error: string | null }>;
+  saveUncommitted?: (
+    s: WorktreeSession,
+    archiveDir: string,
+    stamp: number,
+  ) => Promise<{ saved: Record<string, SavedUncommitted>; error: string | null }>;
   /** Drop saves that weren't needed (the worktree stayed). */
   dropSaved?: (s: WorktreeSession, saved: Record<string, SavedUncommitted>, archiveDir: string) => Promise<void>;
   removeWorktree: (s: WorktreeSession) => Promise<boolean>;
@@ -174,12 +178,13 @@ export interface ArchiveOptions {
 export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
   // Nothing starts its Claude again while this runs (archiving.ts).
   const out = await whileArchiving(sessionIdFor(s), () => archiveSteps(s, deps, opts));
-  if (out.ok) for (const l of afterArchive) {
-    // Sync throws and async rejections alike: a listener's trouble isn't the archive's.
-    void Promise.resolve()
-      .then(() => l(s))
-      .catch((err) => logSwallowed('after archiving', err));
-  }
+  if (out.ok)
+    for (const l of afterArchive) {
+      // Sync throws and async rejections alike: a listener's trouble isn't the archive's.
+      void Promise.resolve()
+        .then(() => l(s))
+        .catch((err) => logSwallowed('after archiving', err));
+    }
   return out;
 }
 
@@ -190,9 +195,22 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   const now = deps.now ?? Date.now;
 
   // 0. Work still waiting in it would vanish from view with it.
-  const waiting = opts.force ? [] : opts.merged ? (deps.working?.(id) ? ['its Claude is in the middle of a turn'] : []) : (deps.waiting?.(id) ?? []);
+  const waiting = opts.force
+    ? []
+    : opts.merged
+      ? deps.working?.(id)
+        ? ['its Claude is in the middle of a turn']
+        : []
+      : (deps.waiting?.(id) ?? []);
   if (waiting.length) {
-    return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: 0, blocked: waiting, message: `Not archived: ${waiting.join('; ')}.` };
+    return {
+      ok: false,
+      worktreeRemoved: false,
+      keptBecause: null,
+      transcripts: 0,
+      blocked: waiting,
+      message: `Not archived: ${waiting.join('; ')}.`,
+    };
   }
 
   await deps.stopClaude(id);
@@ -225,13 +243,21 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
       entries.push(toEntries(readJsonlTail(file, 64 * 1024 * 1024)));
     }
   } catch (err) {
-    return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: copied.length, message: `Not archived: could not copy its conversation (${(err as Error).message}).` };
+    return {
+      ok: false,
+      worktreeRemoved: false,
+      keptBecause: null,
+      transcripts: copied.length,
+      message: `Not archived: could not copy its conversation (${(err as Error).message}).`,
+    };
   }
 
   // 3. Uncommitted work is saved (a snapshot commit + a patch), so it
   //    doesn't keep the worktree: Restore puts it back. A save that fails
   //    keeps the worktree, as before.
-  const saving = deps.saveUncommitted ? await deps.saveUncommitted(s, dir, now()).catch((err: Error) => ({ saved: {}, error: err.message })) : { saved: {}, error: null };
+  const saving = deps.saveUncommitted
+    ? await deps.saveUncommitted(s, dir, now()).catch((err: Error) => ({ saved: {}, error: err.message }))
+    : { saved: {}, error: null };
   let saved: Record<string, SavedUncommitted> = saving.error ? {} : saving.saved;
   if (saving.error) await deps.dropSaved?.(s, saving.saved, dir).catch(() => {});
 
@@ -254,10 +280,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   const kept = deps.kept?.(id);
   // Work an earlier Restore couldn't put back stays known (its ref and patch are still there).
   const earlier = readArchive(id, root);
-  const unrestored = [
-    ...(earlier?.unrestored ?? []),
-    ...Object.values(earlier?.uncommitted ?? {}).filter((u) => !u.restoredAt),
-  ];
+  const unrestored = [...(earlier?.unrestored ?? []), ...Object.values(earlier?.uncommitted ?? {}).filter((u) => !u.restoredAt)];
   let branchesDeleted: string[] = [];
   let buildFolders: ArchiveRecord['buildFolders'];
   if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s, heads).catch(() => [])) ?? [];
@@ -329,7 +352,11 @@ export function keptList(k: ArchiveKept | undefined): string {
 }
 
 /** Ask for the written summary and store it in the record (background, after archiving). */
-export async function writeArchiveSummary(id: string, summarize: (rec: ArchiveRecord) => Promise<string | null>, root = archiveRoot()): Promise<string | null> {
+export async function writeArchiveSummary(
+  id: string,
+  summarize: (rec: ArchiveRecord) => Promise<string | null>,
+  root = archiveRoot(),
+): Promise<string | null> {
   const rec = readArchive(id, root);
   if (!rec || rec.summary.written) return rec?.summary.written ?? null;
   const text = (await summarize(rec))?.trim() || null;
@@ -377,7 +404,8 @@ export function readArchive(id: string, root = archiveRoot()): ArchiveRecord | n
 function withValidSaves(r: ArchiveRecord): ArchiveRecord {
   const out = { ...r };
   if (r.uncommitted !== undefined) {
-    const valid = typeof r.uncommitted === 'object' && r.uncommitted ? Object.entries(r.uncommitted).filter(([, v]) => isSavedUncommitted(v)) : [];
+    const valid =
+      typeof r.uncommitted === 'object' && r.uncommitted ? Object.entries(r.uncommitted).filter(([, v]) => isSavedUncommitted(v)) : [];
     if (valid.length) out.uncommitted = Object.fromEntries(valid);
     else delete out.uncommitted;
   }
@@ -391,7 +419,15 @@ function withValidSaves(r: ArchiveRecord): ArchiveRecord {
 
 function isArchiveRecord(x: unknown): x is ArchiveRecord {
   const r = x as ArchiveRecord | null;
-  return !!r && typeof r === 'object' && typeof r.sessionId === 'string' && typeof r.worktreeRemoved === 'boolean' && Array.isArray(r.transcripts) && !!r.summary && Array.isArray(r.summary.prompts);
+  return (
+    !!r &&
+    typeof r === 'object' &&
+    typeof r.sessionId === 'string' &&
+    typeof r.worktreeRemoved === 'boolean' &&
+    Array.isArray(r.transcripts) &&
+    !!r.summary &&
+    Array.isArray(r.summary.prompts)
+  );
 }
 
 /**

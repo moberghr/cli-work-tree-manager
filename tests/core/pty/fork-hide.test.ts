@@ -6,7 +6,12 @@ import { hideForkConsoles } from '../../../src/core/pty/pty-session.js';
 describe('hideForkConsoles', () => {
   const fake = () => {
     const calls: unknown[][] = [];
-    const cp = { fork: ((...a: unknown[]) => { calls.push(a); return {}; }) as never };
+    const cp = {
+      fork: ((...a: unknown[]) => {
+        calls.push(a);
+        return {};
+      }) as never,
+    };
     hideForkConsoles(cp);
     return { cp: cp as { fork: (...a: unknown[]) => unknown }, calls };
   };

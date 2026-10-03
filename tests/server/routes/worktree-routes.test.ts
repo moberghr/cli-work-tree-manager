@@ -112,7 +112,9 @@ describe('POST /api/worktrees with a first prompt', () => {
   });
 
   it('no branch but a base, or an unknown project: refused with why', async () => {
-    expect(await (await create(app, { target: 'repo', base: 'dev' })).json()).toMatchObject({ error: expect.stringContaining('a base needs a branch') });
+    expect(await (await create(app, { target: 'repo', base: 'dev' })).json()).toMatchObject({
+      error: expect.stringContaining('a base needs a branch'),
+    });
     expect(await (await create(app, { target: 'nope' })).json()).toMatchObject({ error: 'Project or group not found: nope' });
   });
 
@@ -139,12 +141,19 @@ describe('POST /api/worktrees with a first prompt', () => {
     expect(await res.json()).toMatchObject({ started: 'queued' });
     expect(ensurePty).not.toHaveBeenCalled();
     const { getCommentFileStore } = await import('../../../src/core/comments/comment-file-store.js');
-    expect(getCommentFileStore(newId()).snapshot()).toMatchObject([{ side: 'general', status: 'published', author: 'user', body: 'also do X' }]);
+    expect(getCommentFileStore(newId()).snapshot()).toMatchObject([
+      { side: 'general', status: 'published', author: 'user', body: 'also do X' },
+    ]);
   });
 
   it('a start that fails still reports the created worktree', async () => {
     const failing = new Hono();
-    mountWorktreeRoutes(failing, { broadcast, startSession: async () => { throw new Error('claude not found'); } });
+    mountWorktreeRoutes(failing, {
+      broadcast,
+      startSession: async () => {
+        throw new Error('claude not found');
+      },
+    });
     const res = await create(failing, { target: 'repo', branch: 'feat/new', prompt: 'go' });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sessionId: string; startError: string; paths: string[] };
@@ -161,10 +170,7 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect(fs.existsSync(wtPath)).toBe(false);
     expect(loadHistory()).toHaveLength(0);
     expect(disposePty).toHaveBeenCalledWith(sessionId());
-    expect(broadcast).toHaveBeenCalledWith(
-      'sessions-changed',
-      expect.anything(),
-    );
+    expect(broadcast).toHaveBeenCalledWith('sessions-changed', expect.anything());
   });
 
   it('two deletes at once (the row while the bulk bar deletes it): one teardown, both told it went', async () => {
@@ -239,7 +245,9 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     const editor = process.platform === 'win32' ? path.join(bin, 'fake-editor.cmd') : path.join(bin, 'fake-editor');
     fs.writeFileSync(
       editor,
-      process.platform === 'win32' ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,
+      process.platform === 'win32'
+        ? `@"${process.execPath}" "${script}" %*\r\n`
+        : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,
       { mode: 0o755 },
     );
     saveConfig({ ...loadConfig()!, editor });

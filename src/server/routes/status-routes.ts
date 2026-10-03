@@ -73,15 +73,10 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
     const status = readStatus(id);
     if (status && lastNotified.get(id) !== status.updatedAt) {
       lastNotified.set(id, status.updatedAt);
-      const kind = notifyKindForTransition(
-        status.prevState ? { state: status.prevState } : null,
-        status,
-      );
+      const kind = notifyKindForTransition(status.prevState ? { state: status.prevState } : null, status);
       if (kind) {
         const config = loadConfig();
-        const launchDir = session.isGroup && session.paths[0]
-          ? path.dirname(session.paths[0])
-          : session.paths[0] ?? body.cwd;
+        const launchDir = session.isGroup && session.paths[0] ? path.dirname(session.paths[0]) : (session.paths[0] ?? body.cwd);
         const name = `${session.target} · ${session.branch}`;
         // Snoozed for a while: no notification until then ("until it
         // changes" has just ended — this is the change).

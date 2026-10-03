@@ -42,13 +42,26 @@ async function readHead(fh: fs.promises.FileHandle, size: number): Promise<strin
 }
 
 /** Read what was appended to `file` since `st` (or all of it), line by line. */
-async function readOn(file: string, size: number, mtimeMs: number, st: FileState | undefined, toEntries: (lines: readonly unknown[]) => ConversationEntry[]): Promise<FileState> {
+async function readOn(
+  file: string,
+  size: number,
+  mtimeMs: number,
+  st: FileState | undefined,
+  toEntries: (lines: readonly unknown[]) => ConversationEntry[],
+): Promise<FileState> {
   const fh = await fs.promises.open(file, 'r');
   try {
     const head = await readHead(fh, size);
     // Appended to, or rewritten? An append grows it and leaves its start as it was.
-    const appended = !!st && size >= st.offset && !(size === st.offset && mtimeMs !== st.mtimeMs) && head.startsWith(st.head.slice(0, head.length)) && st.head.startsWith(head.slice(0, st.head.length));
-    const state: FileState = appended ? { ...st!, steps: [...st!.steps], mtimeMs, head } : { offset: 0, mtimeMs, lastMs: null, steps: [], prompts: 0, firstMs: null, head };
+    const appended =
+      !!st &&
+      size >= st.offset &&
+      !(size === st.offset && mtimeMs !== st.mtimeMs) &&
+      head.startsWith(st.head.slice(0, head.length)) &&
+      st.head.startsWith(head.slice(0, st.head.length));
+    const state: FileState = appended
+      ? { ...st!, steps: [...st!.steps], mtimeMs, head }
+      : { offset: 0, mtimeMs, lastMs: null, steps: [], prompts: 0, firstMs: null, head };
     // Bytes read past the last newline (kept as bytes: a character can be cut in two).
     let carry = Buffer.alloc(0);
     while (state.offset + carry.length < size) {

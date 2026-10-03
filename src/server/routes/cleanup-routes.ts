@@ -46,7 +46,8 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
   const trackCleanup = () => {
     const st = job.state();
     if (st.phase !== 'idle') {
-      cleanupRun ??= opts.activity?.start('cleanup', st.phase === 'applying' ? 'Cleaning up worktrees' : 'Checking which worktrees can go') ?? null;
+      cleanupRun ??=
+        opts.activity?.start('cleanup', st.phase === 'applying' ? 'Cleaning up worktrees' : 'Checking which worktrees can go') ?? null;
       cleanupRun?.progress(st.done, st.total);
       return;
     }
@@ -128,7 +129,9 @@ export function mountCleanupRoutes(app: Hono, opts: CleanupRoutesOptions): Clean
     const body = (await c.req.json().catch(() => null)) as { items?: unknown } | null;
     const items = Array.isArray(body?.items)
       ? body.items
-          .filter((i): i is { repo: string; branch: string; tip?: unknown } => !!i && typeof i.repo === 'string' && typeof i.branch === 'string')
+          .filter(
+            (i): i is { repo: string; branch: string; tip?: unknown } => !!i && typeof i.repo === 'string' && typeof i.branch === 'string',
+          )
           .map((i) => ({ repo: i.repo, branch: i.branch, ...(typeof i.tip === 'string' ? { tip: i.tip } : {}) }))
       : [];
     if (items.length === 0) return c.json({ error: 'items: [{repo, branch, tip?}]' }, 400);

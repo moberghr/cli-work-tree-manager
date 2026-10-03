@@ -23,11 +23,22 @@ afterEach(() => {
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const att = (state: SessionAttention['state'], seen: boolean, summary?: string): SessionAttention => ({
-  state, seen, since: minsAgo(3), updatedAt: minsAgo(3), summary, stale: false,
+  state,
+  seen,
+  since: minsAgo(3),
+  updatedAt: minsAgo(3),
+  summary,
+  stale: false,
 });
 const s = (over: Partial<SessionSummary> & { id: string }): SessionSummary => ({
-  target: 'api', branch: over.id, isGroup: false, paths: [`/wt/${over.id}`],
-  createdAt: minsAgo(1000), lastAccessedAt: minsAgo(10), activityState: 'stale', ...over,
+  target: 'api',
+  branch: over.id,
+  isGroup: false,
+  paths: [`/wt/${over.id}`],
+  createdAt: minsAgo(1000),
+  lastAccessedAt: minsAgo(10),
+  activityState: 'stale',
+  ...over,
 });
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
@@ -41,7 +52,12 @@ describe('Inbox row actions', () => {
   it('Diff / Terminal open the right sub-tab; Mark seen only on finished rows, with progress', async () => {
     const onOpen = vi.fn();
     let resolve!: () => void;
-    const onMarkSeen = vi.fn(() => new Promise<void>((r) => { resolve = r; }));
+    const onMarkSeen = vi.fn(
+      () =>
+        new Promise<void>((r) => {
+          resolve = r;
+        }),
+    );
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: onOpen, onMarkSeen })));
 
     const items = [...container.querySelectorAll('.wd-inbox-item')];
@@ -53,7 +69,10 @@ describe('Inbox row actions', () => {
     expect(btn(blocked, 'Mark seen')).toBeUndefined();
     act(() => btn(blocked, 'Diff')!.click());
     act(() => btn(done, 'Terminal')!.click());
-    expect(onOpen.mock.calls).toEqual([['blocked', 'diff'], ['done', 'term']]);
+    expect(onOpen.mock.calls).toEqual([
+      ['blocked', 'diff'],
+      ['done', 'term'],
+    ]);
 
     act(() => btn(done, 'Mark seen')!.click());
     expect(onMarkSeen).toHaveBeenCalledWith('done');
@@ -73,18 +92,15 @@ describe('narrow-layout session drawer', () => {
   const render = (onSelectSession = vi.fn()) => {
     act(() =>
       root.render(
-        createElement(
-          DashboardLayout,
-          {
-            route: DEFAULT_ROUTE,
-            sessions: [s({ id: 'feat/a' })],
-            onSelectTab: () => {},
-            onSelectSession,
-            onHome: () => {},
-            onNewWorktree: () => {},
-            children: createElement('div', null, 'main'),
-          },
-        ),
+        createElement(DashboardLayout, {
+          route: DEFAULT_ROUTE,
+          sessions: [s({ id: 'feat/a' })],
+          onSelectTab: () => {},
+          onSelectSession,
+          onHome: () => {},
+          onNewWorktree: () => {},
+          children: createElement('div', null, 'main'),
+        }),
       ),
     );
     return onSelectSession;
@@ -108,18 +124,15 @@ describe('narrow-layout session drawer', () => {
     expect(body().className).toContain('wd-dash-rail-open');
     act(() =>
       root.render(
-        createElement(
-          DashboardLayout,
-          {
-            route: { tab: 'inbox', sessionId: 'feat/a', sessionSubTab: 'term' },
-            sessions: [s({ id: 'feat/a' })],
-            onSelectTab: () => {},
-            onSelectSession: () => {},
-            onHome: () => {},
-            onNewWorktree: () => {},
-            children: createElement('div', null, 'main'),
-          },
-        ),
+        createElement(DashboardLayout, {
+          route: { tab: 'inbox', sessionId: 'feat/a', sessionSubTab: 'term' },
+          sessions: [s({ id: 'feat/a' })],
+          onSelectTab: () => {},
+          onSelectSession: () => {},
+          onHome: () => {},
+          onNewWorktree: () => {},
+          children: createElement('div', null, 'main'),
+        }),
       ),
     );
     expect(body().className).not.toContain('wd-dash-rail-open');

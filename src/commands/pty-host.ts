@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startPtyHost } from '../core/pty/pty-host.js';
-import { ensureHost, findHost, probeHostDetailed, PtyHostBusyError, PtyHostClient, PtyHostVersionError } from '../core/pty/pty-host-client.js';
+import {
+  ensureHost,
+  findHost,
+  probeHostDetailed,
+  PtyHostBusyError,
+  PtyHostClient,
+  PtyHostVersionError,
+} from '../core/pty/pty-host-client.js';
 import { ensureFile, withFileLock } from '../core/platform/fs-safe.js';
 import { killTree } from '../core/platform/process.js';
 import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-host-protocol.js';
@@ -26,10 +33,7 @@ export type StopOutcome = 'stopped' | 'not-running' | 'stale-file' | 'unresponsi
  * Windows reuses PIDs — force-killing the recorded PID and its tree blind
  * could take down an unrelated process. A stale file is just removed.
  */
-export async function stopHost(
-  kill: (pid: number) => boolean = killTree,
-  probeTimeoutMs = 5000,
-): Promise<StopOutcome> {
+export async function stopHost(kill: (pid: number) => boolean = killTree, probeTimeoutMs = 5000): Promise<StopOutcome> {
   const hostInfo = readHostInfo();
   if (!hostInfo) return 'not-running';
   // A busy host (restoring many sessions) can miss a short probe; give it
@@ -44,16 +48,22 @@ export async function stopHost(
   if (probe.kind !== 'host' || probe.pid !== hostInfo.pid) {
     // Nothing listening, or someone else on that port: the file is stale
     // (reboot, crash, PID/port reused). Remove it; kill nothing.
-    try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
+    try {
+      fs.unlinkSync(hostInfoPath());
+    } catch {
+      /* */
+    }
     return 'stale-file';
   }
   const ok = kill(hostInfo.pid);
   // TerminateProcess means the host never runs its own cleanup.
-  try { fs.unlinkSync(hostInfoPath()); } catch { /* */ }
+  try {
+    fs.unlinkSync(hostInfoPath());
+  } catch {
+    /* */
+  }
   return ok ? 'stopped' : 'failed';
 }
-
-
 
 async function printStatus(): Promise<void> {
   let host;

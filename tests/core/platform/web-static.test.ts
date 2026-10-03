@@ -6,9 +6,7 @@ import { resolveWebRoot } from '../../../src/core/platform/web-static.js';
 // The directory the resolver derives from import.meta.url (the bundle's own
 // location at runtime). In the build, src/core/platform/web-static.ts is inlined into
 // dist/<bin>.js, so dist/web is a sibling of this module's directory.
-const moduleDir = path.dirname(
-  fileURLToPath(new URL('../../../src/core/platform/web-static.ts', import.meta.url)),
-);
+const moduleDir = path.dirname(fileURLToPath(new URL('../../../src/core/platform/web-static.ts', import.meta.url)));
 
 describe('resolveWebRoot', () => {
   afterEach(() => {
@@ -19,14 +17,10 @@ describe('resolveWebRoot', () => {
     // Simulate a global install: argv[1] points at the (non-realpath'd) bin
     // symlink dir, so the entryDir candidate misses. Only the module-dir
     // sibling candidate should match — the regression this guards against.
-    const argvSpy = vi
-      .spyOn(process, 'argv', 'get')
-      .mockReturnValue(['node', '/usr/local/bin/wd']);
+    const argvSpy = vi.spyOn(process, 'argv', 'get').mockReturnValue(['node', '/usr/local/bin/wd']);
     const siblingWeb = path.join(moduleDir, 'web');
     const fs = await import('node:fs');
-    vi.spyOn(fs.default, 'existsSync').mockImplementation((p) =>
-      String(p).startsWith(siblingWeb),
-    );
+    vi.spyOn(fs.default, 'existsSync').mockImplementation((p) => String(p).startsWith(siblingWeb));
 
     expect(resolveWebRoot()).toBe(siblingWeb);
     argvSpy.mockRestore();

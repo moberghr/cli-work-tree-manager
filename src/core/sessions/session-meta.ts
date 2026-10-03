@@ -38,10 +38,7 @@ export interface SessionMeta {
  * `session` is required because we need the worktree paths to look up
  * Claude's transcript directory (the sessionId hash alone isn't enough).
  */
-export function readSessionMeta(
-  sessionId: string,
-  session: WorktreeSession,
-): SessionMeta {
+export function readSessionMeta(sessionId: string, session: WorktreeSession): SessionMeta {
   const comments = getCommentFileStore(sessionId).snapshot();
   let drafts = 0;
   let claude = 0;

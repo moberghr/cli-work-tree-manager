@@ -28,15 +28,10 @@ function execAsync(cmd: string, args: string[], cwd: string, timeout: number): P
     // Windows whenever the PRs pane refreshes. Without it, opening
     // the PRs pane in `work web` triggers a visible terminal popup
     // for every configured repo's `gh pr list` invocation.
-    execFile(
-      cmd,
-      args,
-      { cwd, encoding: 'utf-8', timeout, windowsHide: true },
-      (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout ?? '');
-      },
-    );
+    execFile(cmd, args, { cwd, encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout ?? '');
+    });
   });
 }
 
@@ -63,12 +58,8 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
     let checksStatus: PullRequestInfo['checksStatus'] = 'NONE';
     const checks = pr.statusCheckRollup ?? [];
     if (checks.length > 0) {
-      const hasFailure = checks.some((c) =>
-        c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT' || c.conclusion === 'CANCELLED',
-      );
-      const hasPending = checks.some((c) =>
-        c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || c.status === 'PENDING',
-      );
+      const hasFailure = checks.some((c) => c.conclusion === 'FAILURE' || c.conclusion === 'TIMED_OUT' || c.conclusion === 'CANCELLED');
+      const hasPending = checks.some((c) => c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || c.status === 'PENDING');
       if (hasFailure) checksStatus = 'FAILURE';
       else if (hasPending) checksStatus = 'PENDING';
       else checksStatus = 'SUCCESS';
@@ -125,10 +116,14 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
     const stdout = await execAsync(
       'gh',
       [
-        'pr', 'list',
-        '--state', 'open',
-        '--json', 'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,mergeable,author',
-        '--limit', String(PR_LIST_LIMIT),
+        'pr',
+        'list',
+        '--state',
+        'open',
+        '--json',
+        'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,mergeable,author',
+        '--limit',
+        String(PR_LIST_LIMIT),
       ],
       repoPath,
       15000,
@@ -157,9 +152,7 @@ async function getCurrentUser(): Promise<string> {
 export async function fetchAllPullRequests(repos: Record<string, string>): Promise<{ map: BranchPrMap; incomplete: string[] }> {
   const currentUser = await getCurrentUser();
   const entries = Object.entries(repos);
-  const results = await Promise.all(
-    entries.map(([alias, repoPath]) => fetchPullRequests(repoPath, alias, currentUser)),
-  );
+  const results = await Promise.all(entries.map(([alias, repoPath]) => fetchPullRequests(repoPath, alias, currentUser)));
 
   // Repos whose list may be missing PRs: gh failed, or it hit the limit.
   const incomplete = entries.filter((_, i) => results[i] === null || results[i]!.length >= PR_LIST_LIMIT).map(([alias]) => alias);
@@ -177,4 +170,3 @@ export async function fetchAllPullRequests(repos: Record<string, string>): Promi
 
   return { map, incomplete };
 }
-

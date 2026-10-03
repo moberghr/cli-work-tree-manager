@@ -27,9 +27,7 @@ export interface SessionMenuActions {
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
   const archived = !!s.archivedAt;
   return [
-    archived
-      ? { label: 'Restore', run: () => a.setArchived(s, false) }
-      : { label: 'Archive', run: () => a.setArchived(s, true) },
+    archived ? { label: 'Restore', run: () => a.setArchived(s, false) } : { label: 'Archive', run: () => a.setArchived(s, true) },
     // Snooze: out of the Inbox for a while (an archived one isn't in it).
     ...(archived
       ? []

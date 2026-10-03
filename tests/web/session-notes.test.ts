@@ -47,7 +47,9 @@ describe('SessionNotes', () => {
     type('earlier\nmore');
     type('earlier\nmore and more');
     expect(container.textContent).toContain('Saving…');
-    await act(async () => { vi.advanceTimersByTime(800); });
+    await act(async () => {
+      vi.advanceTimersByTime(800);
+    });
     expect(api.saveNote).toHaveBeenCalledTimes(1);
     expect(api.saveNote).toHaveBeenCalledWith('s1', 'earlier\nmore and more');
     expect(container.textContent).toContain('Saved');

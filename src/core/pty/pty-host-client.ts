@@ -3,13 +3,7 @@ import { spawnDetachedWork } from '../platform/process.js';
 import { getConfigDir } from '../platform/config.js';
 import { isPidAlive } from '../platform/process.js';
 import { ensureFile, withFileLock } from '../platform/fs-safe.js';
-import {
-  PROTOCOL_VERSION,
-  readHostInfo,
-  type HostInfo,
-  type PtyInfo,
-  type SpawnSpec,
-} from './pty-host-protocol.js';
+import { PROTOCOL_VERSION, readHostInfo, type HostInfo, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';
 
 export class PtyHostVersionError extends Error {
   constructor(readonly hostVersion: number) {
@@ -26,10 +20,7 @@ export class PtyHostVersionError extends Error {
  * protocol version and pid), or null if nothing answers / the token is
  * wrong — i.e. the discovery file is stale.
  */
-export async function probeHost(
-  info: HostInfo,
-  timeoutMs = 800,
-): Promise<{ version: number; pid: number } | null> {
+export async function probeHost(info: HostInfo, timeoutMs = 800): Promise<{ version: number; pid: number } | null> {
   const r = await probeHostDetailed(info, timeoutMs);
   return r.kind === 'host' ? { version: r.version, pid: r.pid } : null;
 }

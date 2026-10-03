@@ -38,11 +38,7 @@ import {
 import type { Scope } from '../../core/diff/scope-manager.js';
 import { scopeHashForPaths } from '../../core/diff/scope-manager.js';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
-import {
-  commentInputSchema,
-  resolveSchema,
-  submitReviewSchema,
-} from '../../core/comments/comment-schemas.js';
+import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
 import { streamSSE } from 'hono/streaming';
 import { report } from '../../core/platform/report.js';
 
@@ -50,7 +46,6 @@ export interface ScopeMountOptions {
   /** Server-level broadcast. Scope events go here too. */
   broadcast: (event: string, data: unknown) => void;
 }
-
 
 /**
  * Hono sub-app exposing the per-scope diff + review surface that lets
@@ -144,9 +139,7 @@ export function mountScopeRoutes(
    *  stream and the scope-narrowed /api/scopes/:hash/events stream (via
    *  scopeBus). The review SPA listens on the scope stream so each tab
    *  holds a single SSE connection instead of one per concern. */
-  function emitCommentsChanged(
-    payload: { scopeHash: string } & Record<string, unknown>,
-  ): void {
+  function emitCommentsChanged(payload: { scopeHash: string } & Record<string, unknown>): void {
     opts.broadcast('comments-changed', payload);
     scopeBus.emit('comments-changed', payload);
   }
@@ -199,10 +192,7 @@ export function mountScopeRoutes(
    * Returns true when it reset. Idempotent: once Initial == HEAD, returns
    * false until HEAD moves again (no reload loop).
    */
-  async function rebaselineIfHeadAdvanced(
-    hash: string,
-    paths: string[],
-  ): Promise<boolean> {
+  async function rebaselineIfHeadAdvanced(hash: string, paths: string[]): Promise<boolean> {
     const repos = scopeRepos(paths);
     // Cheap pre-check OUTSIDE the lock so the common no-commit path (every
     // checkpoint event) stays lock-free. A benign TOCTOU remains — two
@@ -333,7 +323,10 @@ export function mountScopeRoutes(
       subscribeScope(hash, () => {
         const pending = snapshotTimers.get(hash);
         if (pending) clearTimeout(pending);
-        snapshotTimers.set(hash, setTimeout(() => void runSnapshot(), CHECKPOINT_SETTLE_MS));
+        snapshotTimers.set(
+          hash,
+          setTimeout(() => void runSnapshot(), CHECKPOINT_SETTLE_MS),
+        );
       });
     }
     return scope;
@@ -377,83 +370,68 @@ export function mountScopeRoutes(
   // /api/checkpoint/seal) so the NEXT turn opens a fresh one. Net effect: one
   // step per instruction, always reflecting the latest turn's result. No-op
   // (200) when the cwd isn't a tracked scope — the Stop hook is global.
-  app.post(
-    '/api/checkpoint',
-    zValidator('json', z.object({ cwd: z.string().min(1) })),
-    async (c) => {
-      const { cwd } = c.req.valid('json');
-      const matched = scopesForCwd(cwd);
-      let snapshotted = 0;
-      for (const s of matched) {
-        // A commit may have landed this turn (Claude or the user committed) —
-        // re-baseline first so steps are always "since the last commit". This
-        // clears the live step too, so the logic below opens a fresh step
-        // capturing any post-commit uncommitted edits.
-        await rebaselineIfHeadAdvanced(s.hash, s.paths);
+  app.post('/api/checkpoint', zValidator('json', z.object({ cwd: z.string().min(1) })), async (c) => {
+    const { cwd } = c.req.valid('json');
+    const matched = scopesForCwd(cwd);
+    let snapshotted = 0;
+    for (const s of matched) {
+      // A commit may have landed this turn (Claude or the user committed) —
+      // re-baseline first so steps are always "since the last commit". This
+      // clears the live step too, so the logic below opens a fresh step
+      // capturing any post-commit uncommitted edits.
+      await rebaselineIfHeadAdvanced(s.hash, s.paths);
 
-        const liveId = liveCheckpoint.get(s.hash);
-        let entry: CheckpointEntry | null = null;
+      const liveId = liveCheckpoint.get(s.hash);
+      let entry: CheckpointEntry | null = null;
 
-        if (liveId !== undefined) {
-          // Refresh the in-progress step with this turn's working tree.
-          const res = await updateCheckpoint(
-            s.hash,
-            scopeRepos(s.paths),
-            liveId,
-          ).catch(() => ({ status: 'missing' as const }));
-          if (res.status === 'updated') {
-            entry = res.entry;
-          } else if (res.status === 'missing') {
-            // The live step vanished (manifest cleared) — fall through to
-            // open a fresh one below.
-            liveCheckpoint.delete(s.hash);
-          }
-          // 'unchanged' → nothing changed this turn; keep the live step as-is.
+      if (liveId !== undefined) {
+        // Refresh the in-progress step with this turn's working tree.
+        const res = await updateCheckpoint(s.hash, scopeRepos(s.paths), liveId).catch(() => ({ status: 'missing' as const }));
+        if (res.status === 'updated') {
+          entry = res.entry;
+        } else if (res.status === 'missing') {
+          // The live step vanished (manifest cleared) — fall through to
+          // open a fresh one below.
+          liveCheckpoint.delete(s.hash);
         }
+        // 'unchanged' → nothing changed this turn; keep the live step as-is.
+      }
 
-        if (entry === null && !liveCheckpoint.has(s.hash)) {
-          // No live step (first turn of an instruction, or it was sealed):
-          // append a new one and mark it live.
-          const appended = await takeCheckpoint(
-            s.hash,
-            scopeRepos(s.paths),
-          ).catch(() => null);
-          if (appended) {
-            entry = appended;
-            liveCheckpoint.set(s.hash, appended.id);
-          }
-        }
-
-        if (entry) {
-          const payload = { scopeHash: s.hash, id: entry.id };
-          opts.broadcast('checkpoints-changed', payload);
-          scopeBus.emit('checkpoints-changed', payload);
-          ensureSummary(s, entry.id);
-          snapshotted++;
+      if (entry === null && !liveCheckpoint.has(s.hash)) {
+        // No live step (first turn of an instruction, or it was sealed):
+        // append a new one and mark it live.
+        const appended = await takeCheckpoint(s.hash, scopeRepos(s.paths)).catch(() => null);
+        if (appended) {
+          entry = appended;
+          liveCheckpoint.set(s.hash, appended.id);
         }
       }
-      return c.json({ ok: true, scopes: matched.length, snapshotted });
-    },
-  );
+
+      if (entry) {
+        const payload = { scopeHash: s.hash, id: entry.id };
+        opts.broadcast('checkpoints-changed', payload);
+        scopeBus.emit('checkpoints-changed', payload);
+        ensureSummary(s, entry.id);
+        snapshotted++;
+      }
+    }
+    return c.json({ ok: true, scopes: matched.length, snapshotted });
+  });
 
   // UserPromptSubmit bridge: `work hook checkpoint-seal` POSTs the Claude cwd
   // here when the user submits a new prompt. Sealing clears the scope's live
   // step so the work answering THIS prompt opens a fresh checkpoint instead of
   // folding into the previous instruction's step. No snapshot is taken — the
   // previous instruction's result was already captured by its last Stop.
-  app.post(
-    '/api/checkpoint/seal',
-    zValidator('json', z.object({ cwd: z.string().min(1) })),
-    (c) => {
-      const { cwd } = c.req.valid('json');
-      const matched = scopesForCwd(cwd);
-      let sealed = 0;
-      for (const s of matched) {
-        if (liveCheckpoint.delete(s.hash)) sealed++;
-      }
-      return c.json({ ok: true, scopes: matched.length, sealed });
-    },
-  );
+  app.post('/api/checkpoint/seal', zValidator('json', z.object({ cwd: z.string().min(1) })), (c) => {
+    const { cwd } = c.req.valid('json');
+    const matched = scopesForCwd(cwd);
+    let sealed = 0;
+    for (const s of matched) {
+      if (liveCheckpoint.delete(s.hash)) sealed++;
+    }
+    return c.json({ ok: true, scopes: matched.length, sealed });
+  });
 
   /**
    * Tear a scope down: its file watch, our bookkeeping (auto-snapshot
@@ -492,9 +470,7 @@ export function mountScopeRoutes(
   /** Parse "0", "1", ... as a numeric id; everything else as undefined.
    *  The literal "working" stays as the sentinel — only meaningful for
    *  the `to` parameter. */
-  function parseCheckpointParam(
-    raw: string | undefined,
-  ): number | 'working' | undefined {
+  function parseCheckpointParam(raw: string | undefined): number | 'working' | undefined {
     if (raw === undefined || raw === '') return undefined;
     if (raw === 'working') return 'working';
     const n = Number(raw);
@@ -514,10 +490,7 @@ export function mountScopeRoutes(
       // silently falling through to legacy mode and serving a HEAD-vs-
       // working diff that looks like the requested range.
       if (fromParam === 'working') {
-        return c.json(
-          { error: "'working' is not valid as a from-checkpoint" },
-          400,
-        );
+        return c.json({ error: "'working' is not valid as a from-checkpoint" }, 400);
       }
       // Checkpoint-range mode: ignore `base`, look up commits from the
       // manifest, run computeRangeDiff per repo. Either endpoint can be
@@ -541,10 +514,7 @@ export function mountScopeRoutes(
           // SPA or curl users) get a clear error instead of confusing
           // output.
           if (toEntry.id < fromEntry.id) {
-            return c.json(
-              { error: `to (${toEntry.id}) must be >= from (${fromEntry.id})` },
-              400,
-            );
+            return c.json({ error: `to (${toEntry.id}) must be >= from (${fromEntry.id})` }, 400);
           }
         }
         const repos = scope.paths.map((p) => {
@@ -552,8 +522,7 @@ export function mountScopeRoutes(
           // response's `name` is still the basename — it's the user-
           // visible repo tab label and doesn't need to be unique-by-key.
           const fromSha = fromEntry.repos[p] ?? 'HEAD';
-          const toSha: string | 'working' =
-            toEntry === undefined ? 'working' : (toEntry.repos[p] ?? 'HEAD');
+          const toSha: string | 'working' = toEntry === undefined ? 'working' : (toEntry.repos[p] ?? 'HEAD');
           return {
             name: path.basename(p),
             root: p,
@@ -580,9 +549,7 @@ export function mountScopeRoutes(
       // recorded fork point (`work tree --base`) wins over auto-detection,
       // per-repo — so a group forked `backend=dev frontend=feat/x` diffs
       // each repo against its own base.
-      const resolved = scope.paths.map((p) =>
-        resolveRepoDiff(p, base, sessionBaseForPath(p)),
-      );
+      const resolved = scope.paths.map((p) => resolveRepoDiff(p, base, sessionBaseForPath(p)));
       const repos = scope.paths.map((p, i) => ({
         name: path.basename(p),
         root: p,
@@ -597,10 +564,7 @@ export function mountScopeRoutes(
       // title. In work-web mode the SPA synthesizes its context from the
       // URL hash (no headBranch), so it reads this off the diff instead.
       const head = git(['rev-parse', '--abbrev-ref', 'HEAD'], scope.paths[0]);
-      const headBranch =
-        head.exitCode === 0 && head.stdout && head.stdout !== 'HEAD'
-          ? head.stdout
-          : undefined;
+      const headBranch = head.exitCode === 0 && head.stdout && head.stdout !== 'HEAD' ? head.stdout : undefined;
       // Same self-churn suppression as the range branch (e.g. the
       // HEAD-vs-working `git diff` refreshing `.git/index`).
       suppressScopeWatch(scope.hash, 800);
@@ -637,10 +601,7 @@ export function mountScopeRoutes(
     // Resolve the repo root. Single-repo scopes have exactly one path;
     // group scopes key each repo's response `name` by basename, so match
     // the same way the diff route labels them.
-    const root =
-      scope.paths.length === 1
-        ? scope.paths[0]
-        : scope.paths.find((p) => path.basename(p) === repoName);
+    const root = scope.paths.length === 1 ? scope.paths[0] : scope.paths.find((p) => path.basename(p) === repoName);
     if (!root) return c.json({ error: 'unknown repo' }, 404);
     const result = readContextLines({ root, relPath, start, end, ref });
     if (!result) return c.json({ error: 'cannot read file' }, 400);
@@ -696,25 +657,21 @@ export function mountScopeRoutes(
     });
   });
 
-  app.post(
-    '/api/scopes/:hash/comments',
-    zValidator('json', commentInputSchema),
-    (c) => {
-      const scope = getScope(c.req.param('hash'));
-      if (!scope) return c.json({ error: 'unknown scope' }, 404);
-      const store = commentStore(scope.hash);
-      try {
-        const comment = store.post(c.req.valid('json'));
-        emitCommentsChanged({
-          scopeHash: scope.hash,
-          id: comment.id,
-        });
-        return c.json({ comment, comments: store.snapshot() });
-      } catch (err) {
-        return c.json({ error: (err as Error).message }, 400);
-      }
-    },
-  );
+  app.post('/api/scopes/:hash/comments', zValidator('json', commentInputSchema), (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const store = commentStore(scope.hash);
+    try {
+      const comment = store.post(c.req.valid('json'));
+      emitCommentsChanged({
+        scopeHash: scope.hash,
+        id: comment.id,
+      });
+      return c.json({ comment, comments: store.snapshot() });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
 
   app.delete('/api/scopes/:hash/comments/:cid', (c) => {
     const scope = getScope(c.req.param('hash'));
@@ -730,45 +687,34 @@ export function mountScopeRoutes(
     return c.json({ comments: store.snapshot() });
   });
 
-  app.post(
-    '/api/scopes/:hash/comments/:cid/resolve',
-    zValidator('json', resolveSchema),
-    (c) => {
-      const scope = getScope(c.req.param('hash'));
-      if (!scope) return c.json({ error: 'unknown scope' }, 404);
-      const store = commentStore(scope.hash);
-      const updated = store.setResolved(
-        c.req.param('cid'),
-        c.req.valid('json').resolved,
-      );
-      if (updated) {
-        emitCommentsChanged({
-          scopeHash: scope.hash,
-          id: updated.id,
-        });
-      }
-      return c.json({ comments: store.snapshot() });
-    },
-  );
-
-  app.post(
-    '/api/scopes/:hash/submit-review',
-    zValidator('json', submitReviewSchema),
-    (c) => {
-      const scope = getScope(c.req.param('hash'));
-      if (!scope) return c.json({ error: 'unknown scope' }, 404);
-      const store = commentStore(scope.hash);
-      const result = store.submit(c.req.valid('json').summary);
+  app.post('/api/scopes/:hash/comments/:cid/resolve', zValidator('json', resolveSchema), (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const store = commentStore(scope.hash);
+    const updated = store.setResolved(c.req.param('cid'), c.req.valid('json').resolved);
+    if (updated) {
       emitCommentsChanged({
         scopeHash: scope.hash,
-        submittedCount: result.drafts.length,
+        id: updated.id,
       });
-      return c.json({
-        count: result.drafts.length,
-        comments: store.snapshot(),
-      });
-    },
-  );
+    }
+    return c.json({ comments: store.snapshot() });
+  });
+
+  app.post('/api/scopes/:hash/submit-review', zValidator('json', submitReviewSchema), (c) => {
+    const scope = getScope(c.req.param('hash'));
+    if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const store = commentStore(scope.hash);
+    const result = store.submit(c.req.valid('json').summary);
+    emitCommentsChanged({
+      scopeHash: scope.hash,
+      submittedCount: result.drafts.length,
+    });
+    return c.json({
+      count: result.drafts.length,
+      comments: store.snapshot(),
+    });
+  });
 
   app.post('/api/scopes/:hash/discard-review', (c) => {
     const scope = getScope(c.req.param('hash'));
@@ -813,7 +759,9 @@ export function mountScopeRoutes(
             event: 'diff-changed',
             data: JSON.stringify({ scopeHash: scope.hash }),
           })
-          .catch(() => { /* */ });
+          .catch(() => {
+            /* */
+          });
       });
       // Relay checkpoint events for THIS scope only. The auto-snapshot
       // subscriber emits to `scopeBus` whenever a new checkpoint passes
@@ -825,7 +773,9 @@ export function mountScopeRoutes(
             event: 'checkpoints-changed',
             data: JSON.stringify(payload),
           })
-          .catch(() => { /* */ });
+          .catch(() => {
+            /* */
+          });
       };
       scopeBus.on('checkpoints-changed', onCheckpoint);
       // Relay comment + review-lifecycle events for THIS scope so the
@@ -840,7 +790,9 @@ export function mountScopeRoutes(
             event: 'comments-changed',
             data: JSON.stringify(payload),
           })
-          .catch(() => { /* */ });
+          .catch(() => {
+            /* */
+          });
       };
       scopeBus.on('comments-changed', onComments);
       const onDone = (payload: { scopeHash: string }) => {
@@ -850,7 +802,9 @@ export function mountScopeRoutes(
             event: 'review-done',
             data: JSON.stringify(payload),
           })
-          .catch(() => { /* */ });
+          .catch(() => {
+            /* */
+          });
       };
       scopeBus.on('review-done', onDone);
       await stream.writeSSE({ event: 'connected', data: '' });

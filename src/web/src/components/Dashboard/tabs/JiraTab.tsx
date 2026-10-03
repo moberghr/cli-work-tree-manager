@@ -92,10 +92,7 @@ export function JiraTab({ onPick, sessionJiraKeys, onOpenSession }: Props) {
     <div className="wd-dash-tab-pane wd-tab-jira">
       <header className="wd-tab-header">
         <h1>
-          Jira{' '}
-          <span className="wd-tab-header-muted">
-            ({issues?.length ?? '…'} issues)
-          </span>
+          Jira <span className="wd-tab-header-muted">({issues?.length ?? '…'} issues)</span>
         </h1>
         <div className="wd-tab-controls">
           {watch && (
@@ -113,12 +110,7 @@ export function JiraTab({ onPick, sessionJiraKeys, onOpenSession }: Props) {
               Start new issues automatically
             </label>
           )}
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            onClick={refresh}
-            title="Refresh"
-          >
+          <button type="button" className="wd-btn-secondary" onClick={refresh} title="Refresh">
             ⟳
           </button>
         </div>
@@ -137,9 +129,7 @@ export function JiraTab({ onPick, sessionJiraKeys, onOpenSession }: Props) {
         </div>
       )}
       {error && <div className="wd-tab-empty wd-tab-error">{error}</div>}
-      {available && issues && issues.length === 0 && !error && (
-        <div className="wd-tab-empty">No issues assigned to you.</div>
-      )}
+      {available && issues && issues.length === 0 && !error && <div className="wd-tab-empty">No issues assigned to you.</div>}
       {byStatus.length > 0 && (
         <div className="wd-jira-board">
           {byStatus.map(([status, group]) => (
@@ -177,13 +167,14 @@ export function JiraTab({ onPick, sessionJiraKeys, onOpenSession }: Props) {
                         </a>
                       </header>
                       <p className="wd-jira-card-summary">{i.summary}</p>
-                      {hasSession && (
-                        <span className="wd-jira-card-has-session">
-                          ● has worktree
-                        </span>
-                      )}
+                      {hasSession && <span className="wd-jira-card-has-session">● has worktree</span>}
                       {decisions.has(i.key) && (
-                        <WatchDecision decision={decisions.get(i.key)!} targets={watch?.targets ?? []} onOpenSession={onOpenSession} onChanged={refreshWatch} />
+                        <WatchDecision
+                          decision={decisions.get(i.key)!}
+                          targets={watch?.targets ?? []}
+                          onOpenSession={onOpenSession}
+                          onChanged={refreshWatch}
+                        />
                       )}
                     </li>
                   );
@@ -249,7 +240,9 @@ function WatchDecision({
     return (
       <div className="wd-jira-watch wd-jira-watch-ask" onClick={stop} onKeyDown={stop}>
         <span title={d.reason}>
-          {d.action === 'failed' ? `⚠ couldn't start it: ${d.reason}` : `? not sure where it belongs${d.target ? ` — maybe ${d.target}` : ''}`}
+          {d.action === 'failed'
+            ? `⚠ couldn't start it: ${d.reason}`
+            : `? not sure where it belongs${d.target ? ` — maybe ${d.target}` : ''}`}
         </span>
         <span className="wd-jira-watch-actions">
           <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy} aria-label={`Project for ${d.key}`}>
@@ -259,10 +252,21 @@ function WatchDecision({
               </option>
             ))}
           </select>
-          <button type="button" className="wd-btn-primary" disabled={busy || !target} onClick={() => run(() => startJiraIssue(d.key, target))}>
+          <button
+            type="button"
+            className="wd-btn-primary"
+            disabled={busy || !target}
+            onClick={() => run(() => startJiraIssue(d.key, target))}
+          >
             {busy ? 'Starting…' : 'Start'}
           </button>
-          <button type="button" className="wd-btn-secondary" disabled={busy} onClick={() => run(() => dismissJiraIssue(d.key))} title="Not this one">
+          <button
+            type="button"
+            className="wd-btn-secondary"
+            disabled={busy}
+            onClick={() => run(() => dismissJiraIssue(d.key))}
+            title="Not this one"
+          >
             Dismiss
           </button>
         </span>

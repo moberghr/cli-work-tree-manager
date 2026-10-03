@@ -79,7 +79,6 @@ interface DemoSession {
   worktreeRemoved?: boolean;
 }
 
-
 /** The demo's sessions run Claude Code, with everything work can do with it. */
 const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, chat: true } };
 
@@ -124,53 +123,58 @@ function diffEdit(file: string, start: number, before: string[], after: string[]
   ].join('\n');
 }
 
-const AUTH_FIX = diffNew('src/auth.ts', [
-  'export function afterLogin(returnTo: string | null): string {',
-  '  // Only same-site paths: an absolute URL here was an open redirect,',
-  "  // and '/login' itself caused the redirect loop.",
-  "  if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return '/';",
-  "  if (returnTo.startsWith('/login')) return '/';",
-  '  return returnTo;',
-  '}',
-]) + diffNew('src/auth.test.ts', [
-  "import { afterLogin } from './auth';",
-  '',
-  "test('never redirects back to /login', () => {",
-  "  expect(afterLogin('/login?next=/login')).toBe('/');",
-  '});',
-  '',
-  "test('refuses absolute URLs', () => {",
-  "  expect(afterLogin('https://evil.example')).toBe('/');",
-  '});',
-]);
+const AUTH_FIX =
+  diffNew('src/auth.ts', [
+    'export function afterLogin(returnTo: string | null): string {',
+    '  // Only same-site paths: an absolute URL here was an open redirect,',
+    "  // and '/login' itself caused the redirect loop.",
+    "  if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return '/';",
+    "  if (returnTo.startsWith('/login')) return '/';",
+    '  return returnTo;',
+    '}',
+  ]) +
+  diffNew('src/auth.test.ts', [
+    "import { afterLogin } from './auth';",
+    '',
+    "test('never redirects back to /login', () => {",
+    "  expect(afterLogin('/login?next=/login')).toBe('/');",
+    '});',
+    '',
+    "test('refuses absolute URLs', () => {",
+    "  expect(afterLogin('https://evil.example')).toBe('/');",
+    '});',
+  ]);
 
-const CSV_EXPORT = diffNew('src/invoices/export.ts', [
-  "import type { Invoice } from './model';",
-  '',
-  'const HEADER = [\'number\', \'customer\', \'issued\', \'total\'];',
-  '',
-  'export function toCsv(invoices: Invoice[]): string {',
-  "  const rows = invoices.map((i) => [i.number, quote(i.customer), i.issued, i.total.toFixed(2)]);",
-  "  return [HEADER, ...rows].map((r) => r.join(',')).join('\\n');",
-  '}',
-  '',
-  'function quote(s: string): string {',
-  '  return /[",\\n]/.test(s) ? `"${s.replace(/"/g, \'""\')}"` : s;',
-  '}',
-]) + diffEdit(
-  'src/invoices/routes.ts',
-  12,
-  ["router.get('/invoices', list);"],
-  ["router.get('/invoices', list);", "router.get('/invoices.csv', exportCsv);"],
-  ["router.get('/invoices/:id', show);"],
-) + diffEdit(
-  // The same file chore/deps-update bumps: the dashboard warns about it.
-  'package.json',
-  14,
-  [],
-  ['    "csv-stringify": "^6.5.0",'],
-  ['  "dependencies": {'],
-);
+const CSV_EXPORT =
+  diffNew('src/invoices/export.ts', [
+    "import type { Invoice } from './model';",
+    '',
+    "const HEADER = ['number', 'customer', 'issued', 'total'];",
+    '',
+    'export function toCsv(invoices: Invoice[]): string {',
+    '  const rows = invoices.map((i) => [i.number, quote(i.customer), i.issued, i.total.toFixed(2)]);',
+    "  return [HEADER, ...rows].map((r) => r.join(',')).join('\\n');",
+    '}',
+    '',
+    'function quote(s: string): string {',
+    '  return /[",\\n]/.test(s) ? `"${s.replace(/"/g, \'""\')}"` : s;',
+    '}',
+  ]) +
+  diffEdit(
+    'src/invoices/routes.ts',
+    12,
+    ["router.get('/invoices', list);"],
+    ["router.get('/invoices', list);", "router.get('/invoices.csv', exportCsv);"],
+    ["router.get('/invoices/:id', show);"],
+  ) +
+  diffEdit(
+    // The same file chore/deps-update bumps: the dashboard warns about it.
+    'package.json',
+    14,
+    [],
+    ['    "csv-stringify": "^6.5.0",'],
+    ['  "dependencies": {'],
+  );
 
 const SEARCH_FILTERS = diffEdit(
   'src/search/SearchPage.tsx',
@@ -322,8 +326,13 @@ export class DemoScenario {
       lastAccessedAt: this.iso(lastAccessedMinutesAgo),
       attention: state
         ? {
-            state: state.state, seen: state.seen, since: this.iso(state.minutesAgo), summary: state.summary,
-            updatedAt: this.iso(state.minutesAgo), stale: false, ...(state.request ? { request: state.request } : {}),
+            state: state.state,
+            seen: state.seen,
+            since: this.iso(state.minutesAgo),
+            summary: state.summary,
+            updatedAt: this.iso(state.minutesAgo),
+            stale: false,
+            ...(state.request ? { request: state.request } : {}),
           }
         : null,
       archivedAt: null,
@@ -338,9 +347,16 @@ export class DemoScenario {
 
   private seed(): void {
     this.add(
-      'api', 'feat/invoice-export',
+      'api',
+      'feat/invoice-export',
       [{ name: 'api', uncommitted: CSV_EXPORT, sinceBranch: CSV_EXPORT }],
-      { state: 'needs_input', seen: false, summary: PERMISSION_BASH, minutesAgo: 4, request: { tool: 'Bash', detail: 'npm test -- invoices' } },
+      {
+        state: 'needs_input',
+        seen: false,
+        summary: PERMISSION_BASH,
+        minutesAgo: 4,
+        request: { tool: 'Bash', detail: 'npm test -- invoices' },
+      },
       claudeScreen('Add CSV export to the invoices endpoint', [
         '● Read(src/invoices/routes.ts)',
         '● Write(src/invoices/export.ts)',
@@ -355,7 +371,8 @@ export class DemoScenario {
       8,
     );
     const login = this.add(
-      'web', 'fix/login-redirect',
+      'web',
+      'fix/login-redirect',
       [{ name: 'web', uncommitted: AUTH_FIX, sinceBranch: AUTH_FIX }],
       { state: 'idle', seen: false, summary: 'Fixed the redirect loop after login and added a regression test.', minutesAgo: 11 },
       claudeScreen('Fix the redirect loop after login', [
@@ -369,12 +386,17 @@ export class DemoScenario {
       15,
     );
     login.comments.post({
-      repo: 'web', file: 'src/auth.ts', line: 4, side: 'right',
+      repo: 'web',
+      file: 'src/auth.ts',
+      line: 4,
+      side: 'right',
       body: "Does this also cover '//evil.example' (protocol-relative)?",
-      author: 'user', status: 'published',
+      author: 'user',
+      status: 'published',
     });
     this.add(
-      'shop', 'feat/checkout-v2',
+      'shop',
+      'feat/checkout-v2',
       [
         { name: 'backend', uncommitted: '', sinceBranch: CHECKOUT_BACKEND, published: true },
         { name: 'frontend', uncommitted: CHECKOUT_FRONTEND, sinceBranch: CHECKOUT_FRONTEND },
@@ -388,7 +410,8 @@ export class DemoScenario {
       5,
     );
     this.add(
-      'web', 'feat/search-filters',
+      'web',
+      'feat/search-filters',
       [{ name: 'web', uncommitted: SEARCH_FILTERS, sinceBranch: SEARCH_FILTERS }],
       { state: 'working', seen: true, summary: 'Add price and brand filters to search', minutesAgo: 1 },
       claudeScreen('Add price and brand filters to search', [
@@ -399,39 +422,87 @@ export class DemoScenario {
       3,
     );
     this.add(
-      'api', 'chore/deps-update',
-      [{
-        name: 'api', uncommitted: '', sinceBranch: DEPS, published: true,
-        pr: { number: 212, url: 'https://github.com/example/api/pull/212', state: 'OPEN', isDraft: false, mergeStateStatus: 'UNSTABLE', checks: 'fail', headSha: 'c0ffee1234ab',
-          failing: [{ name: 'test (node 22)', url: 'https://github.com/example/api/actions/runs/1' }, { name: 'typecheck' }] },
-        openThreads: 2,
-      }],
+      'api',
+      'chore/deps-update',
+      [
+        {
+          name: 'api',
+          uncommitted: '',
+          sinceBranch: DEPS,
+          published: true,
+          pr: {
+            number: 212,
+            url: 'https://github.com/example/api/pull/212',
+            state: 'OPEN',
+            isDraft: false,
+            mergeStateStatus: 'UNSTABLE',
+            checks: 'fail',
+            headSha: 'c0ffee1234ab',
+            failing: [{ name: 'test (node 22)', url: 'https://github.com/example/api/actions/runs/1' }, { name: 'typecheck' }],
+          },
+          openThreads: 2,
+        },
+      ],
       { state: 'idle', seen: true, summary: FINISH_MESSAGES['chore/deps-update'], minutesAgo: 50 },
-      claudeScreen('Update dependencies', ['● Bash(npm outdated)', '● Update(package.json)', '● Bash(npm test)  ⎿  84 passed', '', '● ' + FINISH_MESSAGES['chore/deps-update']]),
+      claudeScreen('Update dependencies', [
+        '● Bash(npm outdated)',
+        '● Update(package.json)',
+        '● Bash(npm test)  ⎿  84 passed',
+        '',
+        '● ' + FINISH_MESSAGES['chore/deps-update'],
+      ]),
       55,
     );
     this.add('web', 'spike/dark-mode', [{ name: 'web' }], null, claudeScreen('', []), 60 * 24 * 40);
     // A fork of the invoice export, stacked on it (and two commits behind it).
     this.add(
-      'api', 'feat/invoice-pdf',
+      'api',
+      'feat/invoice-pdf',
       [{ name: 'api' }],
       { state: 'idle', seen: true, summary: 'PDF layout drafted; waiting for the CSV columns to settle.', minutesAgo: 90 },
-      claudeScreen('Add a PDF variant of the invoice export', ['● Read(src/invoices/export.ts)', '● Write(src/invoices/pdf.ts)', '', '● PDF layout drafted; waiting for the CSV columns to settle.']),
+      claudeScreen('Add a PDF variant of the invoice export', [
+        '● Read(src/invoices/export.ts)',
+        '● Write(src/invoices/pdf.ts)',
+        '',
+        '● PDF layout drafted; waiting for the CSV columns to settle.',
+      ]),
       95,
     ).baseBranch = 'feat/invoice-export';
     // A parent that merged (archived), and the session still stacked on it: Move onto main.
     const taxes = this.add(
-      'api', 'feat/tax-rates',
-      [{ name: 'api', published: true, pr: { number: 205, url: 'https://github.com/example/api/pull/205', state: 'MERGED', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'tax0001aa' } }],
-      null, claudeScreen('', []), 60 * 26,
+      'api',
+      'feat/tax-rates',
+      [
+        {
+          name: 'api',
+          published: true,
+          pr: {
+            number: 205,
+            url: 'https://github.com/example/api/pull/205',
+            state: 'MERGED',
+            isDraft: false,
+            mergeStateStatus: 'CLEAN',
+            checks: 'pass',
+            headSha: 'tax0001aa',
+          },
+        },
+      ],
+      null,
+      claudeScreen('', []),
+      60 * 26,
     );
     taxes.archivedAt = this.iso(60 * 20);
     taxes.worktreeRemoved = true;
     this.add(
-      'api', 'feat/tax-report',
+      'api',
+      'feat/tax-report',
       [{ name: 'api' }],
       { state: 'idle', seen: true, summary: 'Tax report endpoint ready; built on the tax rates branch.', minutesAgo: 60 * 3 },
-      claudeScreen('Add a tax report on top of the new rates', ['● Write(src/tax/report.ts)', '', '● Tax report endpoint ready; built on the tax rates branch.']),
+      claudeScreen('Add a tax report on top of the new rates', [
+        '● Write(src/tax/report.ts)',
+        '',
+        '● Tax report endpoint ready; built on the tax rates branch.',
+      ]),
       60 * 3,
     ).baseBranch = 'feat/tax-rates';
 
@@ -445,7 +516,11 @@ export class DemoScenario {
     this.script = [
       {
         at: 20_000,
-        run: (s) => s.setState('demo-web-feat-search-filters', 'needs_input', PERMISSION_EDIT, { tool: 'Edit', detail: 'src/search/BrandFilter.tsx' }),
+        run: (s) =>
+          s.setState('demo-web-feat-search-filters', 'needs_input', PERMISSION_EDIT, {
+            tool: 'Edit',
+            detail: 'src/search/BrandFilter.tsx',
+          }),
       },
       { at: 45_000, run: (s) => s.finishTurn('demo-shop-feat-checkout-v2') },
     ];
@@ -469,7 +544,12 @@ export class DemoScenario {
       ...(state === 'needs_input' && request ? { request } : {}),
     };
     if (state === 'needs_input' && summary) {
-      s.transcript.push('', `  ${summary.replace('Claude needs your permission to use ', '')} — do you want to proceed?`, '  ❯ 1. Yes', '    2. No, tell Claude what to do differently');
+      s.transcript.push(
+        '',
+        `  ${summary.replace('Claude needs your permission to use ', '')} — do you want to proceed?`,
+        '  ❯ 1. Yes',
+        '    2. No, tell Claude what to do differently',
+      );
     }
     // Same discipline as the real server: notify only if nobody is looking.
     const kind = state === 'needs_input' && prev !== 'needs_input' ? 'needs_input' : state === 'idle' && prev === 'working' ? 'idle' : null;
@@ -500,7 +580,8 @@ export class DemoScenario {
     const s = this.sessions.get(id);
     const req = s?.attention?.state === 'needs_input' ? s.attention.request : undefined;
     if (!s || !req) return 'Nothing to answer — it has moved on.';
-    if (request?.tool !== req.tool || request?.detail !== req.detail) return 'The request changed since you saw it. Look again before answering.';
+    if (request?.tool !== req.tool || request?.detail !== req.detail)
+      return 'The request changed since you saw it. Look again before answering.';
     if (answer === 'deny') {
       s.transcript.push('  ⎿  User rejected the request');
       this.emitTerminal(id, '\r\n  ⎿  User rejected the request\r\n> ');
@@ -536,7 +617,11 @@ export class DemoScenario {
     const text = line.trim();
     s.transcript.push(`> ${text}`);
     const answered = s.attention?.state === 'needs_input';
-    this.setState(id, 'working', answered ? s.attention?.summary?.replace('Claude needs your permission to use', 'Continuing after') : text || 'Working');
+    this.setState(
+      id,
+      'working',
+      answered ? s.attention?.summary?.replace('Claude needs your permission to use', 'Continuing after') : text || 'Working',
+    );
     const reply = answered ? '● Thanks — continuing.' : '● On it.';
     s.transcript.push(reply);
     this.emitTerminal(id, `\r\n${reply}\r\n✻ Working…\r\n`);
@@ -656,7 +741,9 @@ export class DemoScenario {
       }
       if (children.get(w.id)) w.stackedChildren = children.get(w.id);
       // Its parent merged and was archived: "Move onto main".
-      const merged = p ? null : mergedParent(w, wires, undefined, (x) => this.sessions.get(x.id)?.repos.some((r) => r.pr?.state === 'MERGED') ?? false);
+      const merged = p
+        ? null
+        : mergedParent(w, wires, undefined, (x) => this.sessions.get(x.id)?.repos.some((r) => r.pr?.state === 'MERGED') ?? false);
       if (merged) w.stackParentMerged = { id: merged.id, branch: merged.branch };
     }
     for (const w of wires) {
@@ -690,7 +777,9 @@ export class DemoScenario {
       archivedAt: s.archivedAt,
       port: s.port,
       ...(s.baseBranch ? { baseBranch: s.baseBranch } : {}),
-      context: DEMO_CONTEXT[s.branch] ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' } : null,
+      context: DEMO_CONTEXT[s.branch]
+        ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' }
+        : null,
       ...(this.reviewThreads(s) > 0 ? { openReviewThreads: this.reviewThreads(s) } : {}),
     };
   }
@@ -714,7 +803,15 @@ export class DemoScenario {
     return { added, deleted, files };
   }
 
-  diff(id: string, base: 'uncommitted' | 'branch'): { sessionId: string; base: string; resolvedBase: string; repos: Array<{ name: string; root: string; files: ParsedFile[]; resolvedBase: string }> } | null {
+  diff(
+    id: string,
+    base: 'uncommitted' | 'branch',
+  ): {
+    sessionId: string;
+    base: string;
+    resolvedBase: string;
+    repos: Array<{ name: string; root: string; files: ParsedFile[]; resolvedBase: string }>;
+  } | null {
     const s = this.sessions.get(id);
     if (!s) return null;
     const resolvedBase = base === 'uncommitted' ? 'HEAD' : 'origin/main';
@@ -754,7 +851,16 @@ export class DemoScenario {
   }
 
   /** The files a checkpoint range changed — see checkpoints(). */
-  rangeDiff(id: string, from: number, to: number): { sessionId: string; base: string; resolvedBase: string; repos: Array<{ name: string; root: string; files: ParsedFile[]; resolvedBase: string }> } | null {
+  rangeDiff(
+    id: string,
+    from: number,
+    to: number,
+  ): {
+    sessionId: string;
+    base: string;
+    resolvedBase: string;
+    repos: Array<{ name: string; root: string; files: ParsedFile[]; resolvedBase: string }>;
+  } | null {
     const s = this.sessions.get(id);
     if (!s) return null;
     const lo = Math.max(0, Math.min(from, to));
@@ -782,7 +888,10 @@ export class DemoScenario {
    * diff too while it's the same uncommitted work — then leave Claude the
    * same note the real server does.
    */
-  revert(id: string, req: { repo: string; path: string; lines?: { start: number; end: number } }): { ok: true; description: string } | { ok: false; status: 404 | 409; error: string } {
+  revert(
+    id: string,
+    req: { repo: string; path: string; lines?: { start: number; end: number } },
+  ): { ok: true; description: string } | { ok: false; status: 404 | 409; error: string } {
     const s = this.sessions.get(id);
     const r = s?.repos.find((x) => x.name === req.repo);
     if (!s || !r) return { ok: false, status: 404, error: 'unknown session or repo' };
@@ -807,7 +916,11 @@ export class DemoScenario {
     r.uncommitted = r.uncommitted.replace(block, next);
     const where = s.isGroup ? `${r.name}/${req.path}` : req.path;
     const what = req.lines ? `lines ${req.lines.start}–${req.lines.end} of \`${where}\`` : `\`${where}\``;
-    s.comments.post({ side: 'general', status: 'published', body: `I reverted your uncommitted change to ${what} (back to HEAD). Leave it that way — don't reintroduce it unless I ask.` });
+    s.comments.post({
+      side: 'general',
+      status: 'published',
+      body: `I reverted your uncommitted change to ${what} (back to HEAD). Leave it that way — don't reintroduce it unless I ask.`,
+    });
     this.emit('comments-changed', { sessionId: id });
     this.emit('diff-changed', { sessionId: id });
     this.changed();
@@ -841,7 +954,7 @@ export class DemoScenario {
           .map((l, i) => ({
             role: 'you' as const,
             // The first prompt started the session; later ones came as you went.
-            at: i === 0 ? s.createdAt : s.attention?.since ?? s.lastAccessedAt,
+            at: i === 0 ? s.createdAt : (s.attention?.since ?? s.lastAccessedAt),
             text: l.slice(2),
           })),
       ],
@@ -883,9 +996,15 @@ export class DemoScenario {
     this.emit('comments-changed', { sessionId: id });
     this.setState(id, 'working', 'Fix the failing CI checks');
     this.after(3_000, () => {
-      s.comments.post({ body: 'The node 22 run failed on a removed `Buffer.slice` overload — switched to `subarray`, fixed the type error, pushed.', parentId: note.id, author: 'claude', status: 'published' });
+      s.comments.post({
+        body: 'The node 22 run failed on a removed `Buffer.slice` overload — switched to `subarray`, fixed the type error, pushed.',
+        parentId: note.id,
+        author: 'claude',
+        status: 'published',
+      });
       for (const r of s.repos) {
-        if (r.pr?.checks === 'fail') r.pr = { ...r.pr, checks: 'pending', mergeStateStatus: 'BLOCKED', headSha: 'f1x' + r.pr.headSha.slice(3), failing: undefined };
+        if (r.pr?.checks === 'fail')
+          r.pr = { ...r.pr, checks: 'pending', mergeStateStatus: 'BLOCKED', headSha: 'f1x' + r.pr.headSha.slice(3), failing: undefined };
       }
       this.emit('comments-changed', { sessionId: id });
       this.emit('ci-changed', { sessionId: id });
@@ -940,7 +1059,12 @@ export class DemoScenario {
     this.after(4_000, () => {
       const store = this.comments(id);
       if (!store) return;
-      store.post({ body: 'Good catch — updated it and added a test for that case.', parentId: commentId, author: 'claude', status: 'published' });
+      store.post({
+        body: 'Good catch — updated it and added a test for that case.',
+        parentId: commentId,
+        author: 'claude',
+        status: 'published',
+      });
       this.emit('comments-changed', { sessionId: id });
       this.changed();
     });
@@ -989,19 +1113,38 @@ export class DemoScenario {
       const repos = s.repos.map((r) => {
         const own = parseGitDiff(r.sinceBranch).length > 0 && r.pr?.state !== 'MERGED';
         return {
-          name: r.name, path: `~/worktrees/${s.target}/${s.branch.replace(/\//g, '-')}`, exists: true, readable: true,
+          name: r.name,
+          path: `~/worktrees/${s.target}/${s.branch.replace(/\//g, '-')}`,
+          exists: true,
+          readable: true,
           dirty: r.uncommitted && r.uncommitted !== r.sinceBranch ? parseGitDiff(r.uncommitted).length : 0,
-          ahead: own ? 1 : 0, merged: own ? null : ('contained' as const), base: 'origin/HEAD', baseCheckout: false,
+          ahead: own ? 1 : 0,
+          merged: own ? null : ('contained' as const),
+          base: 'origin/HEAD',
+          baseCheckout: false,
         };
       });
       const v = cleanupVerdict({ repos, lastActiveMs, archived: !!s.archivedAt }, now);
       if (v.verdict === 'keep') continue;
       candidates.push({
-        sessionId: s.id, target: s.target, branch: s.branch, isGroup: s.isGroup,
-        lastActive: new Date(lastActiveMs).toISOString(), archivedAt: s.archivedAt, ...v, repos,
+        sessionId: s.id,
+        target: s.target,
+        branch: s.branch,
+        isGroup: s.isGroup,
+        lastActive: new Date(lastActiveMs).toISOString(),
+        archivedAt: s.archivedAt,
+        ...v,
+        repos,
       });
     }
-    this.cleanupState = { phase: 'idle', done: this.sessions.size, total: this.sessions.size, candidates, results: [], finishedAt: new Date(now).toISOString() };
+    this.cleanupState = {
+      phase: 'idle',
+      done: this.sessions.size,
+      total: this.sessions.size,
+      candidates,
+      results: [],
+      finishedAt: new Date(now).toISOString(),
+    };
     return this.cleanupState;
   }
 
@@ -1016,7 +1159,11 @@ export class DemoScenario {
       }
       if (it.action === 'archive') s.archivedAt = new Date(this.now()).toISOString();
       else this.sessions.delete(it.sessionId);
-      results.push({ ...it, ok: true, message: it.action === 'delete' ? 'Worktree removed' : it.action === 'archive' ? 'Archived' : 'Forgotten' });
+      results.push({
+        ...it,
+        ok: true,
+        message: it.action === 'delete' ? 'Worktree removed' : it.action === 'archive' ? 'Archived' : 'Forgotten',
+      });
     }
     const ok = new Set(results.filter((r) => r.ok).map((r) => r.sessionId));
     this.cleanupState = { ...this.cleanupState, results, candidates: this.cleanupState.candidates.filter((c) => !ok.has(c.sessionId)) };
@@ -1120,7 +1267,11 @@ export class DemoScenario {
     return out;
   }
 
-  merge(id: string, selection: MergeSelection[], method: MergeMethod): { results: ShipResult[]; archived: boolean; allDone: boolean } | null {
+  merge(
+    id: string,
+    selection: MergeSelection[],
+    method: MergeMethod,
+  ): { results: ShipResult[]; archived: boolean; allDone: boolean } | null {
     const s = this.sessions.get(id);
     if (!s) return null;
     const states = new Map(s.repos.map((r) => [this.repoState(s, r).name, { r, st: this.repoState(s, r) }]));
@@ -1129,13 +1280,18 @@ export class DemoScenario {
         const e = states.get(sel.name);
         if (!e) return { repo: sel.name, ok: false, message: 'not a repository of this session' };
         if (e.st.done) return { repo: sel.name, ok: false, message: 'already merged' };
-        if (!e.r.pr || e.r.pr.headSha !== sel.headSha) return { repo: sel.name, ok: false, message: 'the pull request changed since you looked — review it again before merging' };
+        if (!e.r.pr || e.r.pr.headSha !== sel.headSha)
+          return { repo: sel.name, ok: false, message: 'the pull request changed since you looked — review it again before merging' };
         if (e.st.mergeBlockers.length) return { repo: sel.name, ok: false, message: `not merged: ${e.st.mergeBlockers.join('; ')}` };
         return null;
       })
       .filter((p): p is ShipResult => p !== null);
     if (problems.length || selection.length === 0) {
-      return { results: problems.length ? problems : [{ repo: '-', ok: false, message: 'no repositories selected' }], archived: false, allDone: false };
+      return {
+        results: problems.length ? problems : [{ repo: '-', ok: false, message: 'no repositories selected' }],
+        archived: false,
+        allDone: false,
+      };
     }
     const results = selection.map((sel) => {
       const { r } = states.get(sel.name)!;
@@ -1150,7 +1306,10 @@ export class DemoScenario {
 
   // -- side panes -------------------------------------------------------------
 
-  projects(): { singles: Array<{ name: string; kind: 'single'; path: string }>; groups: Array<{ name: string; kind: 'group'; members: string[] }> } {
+  projects(): {
+    singles: Array<{ name: string; kind: 'single'; path: string }>;
+    groups: Array<{ name: string; kind: 'group'; members: string[] }>;
+  } {
     return {
       singles: [
         { name: 'api', kind: 'single', path: '~/repos/api' },
@@ -1180,17 +1339,46 @@ export class DemoScenario {
       }
     }
     out.push({
-      number: 208, title: 'Cache product images at the edge', branch: 'perf/image-cache', url: 'https://github.com/example/web/pull/208',
-      isDraft: false, checksStatus: 'SUCCESS', reviewDecision: 'APPROVED', myReview: 'APPROVED', isMine: false, repoAlias: 'web',
+      number: 208,
+      title: 'Cache product images at the edge',
+      branch: 'perf/image-cache',
+      url: 'https://github.com/example/web/pull/208',
+      isDraft: false,
+      checksStatus: 'SUCCESS',
+      reviewDecision: 'APPROVED',
+      myReview: 'APPROVED',
+      isMine: false,
+      repoAlias: 'web',
     });
     return out;
   }
 
   jira(): JiraIssue[] {
     return [
-      { key: 'SHOP-412', summary: 'Customers can save a card for next time', status: 'To Do', issuetype: 'Story', priority: 'High', url: 'https://example.atlassian.net/browse/SHOP-412' },
-      { key: 'SHOP-398', summary: 'Invoice PDF shows the wrong VAT rate for EU customers', status: 'In Progress', issuetype: 'Bug', priority: 'Highest', url: 'https://example.atlassian.net/browse/SHOP-398' },
-      { key: 'SHOP-377', summary: 'Search: remember the last used filters', status: 'To Do', issuetype: 'Story', priority: 'Medium', url: 'https://example.atlassian.net/browse/SHOP-377' },
+      {
+        key: 'SHOP-412',
+        summary: 'Customers can save a card for next time',
+        status: 'To Do',
+        issuetype: 'Story',
+        priority: 'High',
+        url: 'https://example.atlassian.net/browse/SHOP-412',
+      },
+      {
+        key: 'SHOP-398',
+        summary: 'Invoice PDF shows the wrong VAT rate for EU customers',
+        status: 'In Progress',
+        issuetype: 'Bug',
+        priority: 'Highest',
+        url: 'https://example.atlassian.net/browse/SHOP-398',
+      },
+      {
+        key: 'SHOP-377',
+        summary: 'Search: remember the last used filters',
+        status: 'To Do',
+        issuetype: 'Story',
+        priority: 'Medium',
+        url: 'https://example.atlassian.net/browse/SHOP-377',
+      },
     ];
   }
 

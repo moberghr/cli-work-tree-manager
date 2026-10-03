@@ -47,7 +47,9 @@ describe('StatusIcon', () => {
       act(() => root.render(createElement(StatusIcon, { kind })));
       return container.querySelector('svg')!.innerHTML;
     };
-    const distinct = new Set(['needs_input', 'done', 'working', 'review', 'quiet', 'active', 'open', 'stale'].map((k) => shape(k as DisplayKind)));
+    const distinct = new Set(
+      ['needs_input', 'done', 'working', 'review', 'quiet', 'active', 'open', 'stale'].map((k) => shape(k as DisplayKind)),
+    );
     expect(distinct.size).toBe(8);
     expect(shape('recent')).toBe(shape('quiet')); // both read "Idle"
   });

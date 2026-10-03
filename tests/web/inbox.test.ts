@@ -28,8 +28,14 @@ function att(state: SessionAttention['state'], seen: boolean, mins: number, summ
 }
 function session(id: string, attention: SessionAttention | null, lastAccessMins = 100): SessionSummary {
   return {
-    id, target: 'repo', branch: id, isGroup: false, paths: [`/wt/${id}`],
-    createdAt: minsAgo(1000), lastAccessedAt: minsAgo(lastAccessMins), attention,
+    id,
+    target: 'repo',
+    branch: id,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: minsAgo(1000),
+    lastAccessedAt: minsAgo(lastAccessMins),
+    attention,
     activityState: 'stale',
   };
 }
@@ -84,12 +90,15 @@ describe('InboxTab', () => {
     const rows = [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-row')];
     act(() => rows[0].click());
     act(() => rows[2].click());
-    expect(onOpen.mock.calls).toEqual([['blocked-old', 'term', undefined], ['done', 'diff', { lastTurn: true }]]);
+    expect(onOpen.mock.calls).toEqual([
+      ['blocked-old', 'term', undefined],
+      ['done', 'diff', { lastTurn: true }],
+    ]);
   });
 
   it('explains where status comes from when no session has reported yet', () => {
     act(() => root.render(createElement(InboxTab, { sessions: [session('a', null)], onOpenSession: () => {} })));
-    expect(text(container)).toContain("No session has reported its status yet");
+    expect(text(container)).toContain('No session has reported its status yet');
   });
 
   it('says so when nothing needs you', () => {
@@ -125,7 +134,9 @@ describe('InboxTab: answering a permission prompt', () => {
   });
 
   it("shows the server's reason when it refused to type", async () => {
-    const onAnswer = vi.fn(async () => { throw new Error('The permission prompt is no longer on screen'); });
+    const onAnswer = vi.fn(async () => {
+      throw new Error('The permission prompt is no longer on screen');
+    });
     act(() => root.render(createElement(InboxTab, { sessions: [blocked(true)], onOpenSession: () => {}, onAnswer })));
     await act(async () => button('Allow')!.click());
     expect(text(container.querySelector('[role=alert]'))).toBe('The permission prompt is no longer on screen');
@@ -152,7 +163,11 @@ describe('InboxTab: review queue', () => {
 describe('OverlapChip', () => {
   const withOverlaps = (overlaps: SessionSummary['overlaps']): SessionSummary => ({ ...session('me', null), overlaps });
   const o = (branch: string, count: number) => ({
-    sessionId: branch, target: 'api', branch, count, files: [{ repo: 'api', path: 'package.json' }],
+    sessionId: branch,
+    target: 'api',
+    branch,
+    count,
+    files: [{ repo: 'api', path: 'package.json' }],
   });
 
   it('names the sessions that change the same files, lists them on hover, and links in the header', () => {
@@ -200,9 +215,7 @@ describe('ContextChip', () => {
 describe('SessionRail with attention', () => {
   it('keeps a STABLE order (project, then most recent) and marks what wants you; urgency order is the inbox job', () => {
     act(() =>
-      root.render(
-        createElement(SessionRail, { sessions: SESSIONS, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} }),
-      ),
+      root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })),
     );
     const names = [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
     // All target 'repo'; lastAccessedAt all 100m ago except 'untracked' (1m) — recency order, not attention.
@@ -218,7 +231,9 @@ describe('SessionRail with attention', () => {
 
   it('colours a session with unresolved review comments, and says how many', () => {
     const list = [{ ...session('reviewed', att('idle', true, 300)), openReviewThreads: 2 }];
-    act(() => root.render(createElement(SessionRail, { sessions: list, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    act(() =>
+      root.render(createElement(SessionRail, { sessions: list, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })),
+    );
     const item = container.querySelector('.wd-dash-rail-item')!;
     expect(item.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-review');
     expect(item.querySelector('.wd-rail-dot')!.getAttribute('aria-label')).toBe('Review comments');
@@ -231,7 +246,12 @@ describe('SessionRail with attention', () => {
     const old = ['old-a', 'old-b', 'old-c'].map((id) => session(id, null, 60 * 24 * 30));
     act(() =>
       root.render(
-        createElement(SessionRail, { sessions: [...recent, ...old], activeSessionId: 'old-b', onSelect: () => {}, onNewWorktree: () => {} }),
+        createElement(SessionRail, {
+          sessions: [...recent, ...old],
+          activeSessionId: 'old-b',
+          onSelect: () => {},
+          onNewWorktree: () => {},
+        }),
       ),
     );
     const names = [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
@@ -243,9 +263,7 @@ describe('SessionRail with attention', () => {
 
 describe('TopNav inbox badge', () => {
   const render = (inboxCount: number) =>
-    act(() =>
-      root.render(createElement(TopNav, { active: 'sessions', onSelect: () => {}, onHome: () => {}, inboxCount })),
-    );
+    act(() => root.render(createElement(TopNav, { active: 'sessions', onSelect: () => {}, onHome: () => {}, inboxCount })));
 
   it('shows the count on the Inbox tab only when something needs you', () => {
     render(3);

@@ -37,7 +37,15 @@ beforeEach(() => {
     path.join(dir, 'c.jsonl'),
     [
       { type: 'user', timestamp: at(120_000), uuid: 'u1', message: { role: 'user', content: 'Add the CSV export' } },
-      { type: 'assistant', timestamp: at(60_000), message: { model: 'claude-sonnet-5', usage: { input_tokens: 5000, output_tokens: 100 }, content: [{ type: 'text', text: 'Added the CSV export.' }] } },
+      {
+        type: 'assistant',
+        timestamp: at(60_000),
+        message: {
+          model: 'claude-sonnet-5',
+          usage: { input_tokens: 5000, output_tokens: 100 },
+          content: [{ type: 'text', text: 'Added the CSV export.' }],
+        },
+      },
     ]
       .map((l) => JSON.stringify(l))
       .join('\n') + '\n',
@@ -50,8 +58,12 @@ afterEach(() => {
 });
 
 const session = (agent?: string): WorktreeSession => ({
-  target: 'api', branch: agent ? `feat/${agent}` : 'feat/x', isGroup: false, paths: [wt],
-  createdAt: new Date(Date.now() - 3600_000).toISOString(), lastAccessedAt: new Date().toISOString(),
+  target: 'api',
+  branch: agent ? `feat/${agent}` : 'feat/x',
+  isGroup: false,
+  paths: [wt],
+  createdAt: new Date(Date.now() - 3600_000).toISOString(),
+  lastAccessedAt: new Date().toISOString(),
   ...(agent ? { agent } : {}),
 });
 
@@ -61,7 +73,9 @@ describe('the session’s agent decides what its conversation is', () => {
     expect(readContextUsage(s)).toMatchObject({ used: 5100, window: 200_000 });
     expect(sessionTitle(s)).toBe('Add the CSV export');
     expect((await sessionWorkTime(s)).prompts).toBe(1);
-    expect((await sessionTimeline(s, { run: async () => ({ code: 1, stdout: '', stderr: '' }) })).some((e) => e.kind === 'prompt')).toBe(true);
+    expect((await sessionTimeline(s, { run: async () => ({ code: 1, stdout: '', stderr: '' }) })).some((e) => e.kind === 'prompt')).toBe(
+      true,
+    );
   });
 
   it('a session running an agent work can’t read: none of it, even with Claude’s files in its folder', async () => {
@@ -71,7 +85,9 @@ describe('the session’s agent decides what its conversation is', () => {
     expect(readContextUsage(s)).toBeNull();
     expect(sessionTitle(s)).toBeNull();
     expect(await sessionWorkTime(s)).toMatchObject({ prompts: 0, workedMs: 0 });
-    expect((await sessionTimeline(s, { run: async () => ({ code: 1, stdout: '', stderr: '' }) })).some((e) => e.kind === 'prompt')).toBe(false);
+    expect((await sessionTimeline(s, { run: async () => ({ code: 1, stdout: '', stderr: '' }) })).some((e) => e.kind === 'prompt')).toBe(
+      false,
+    );
     const ask = vi.fn(async () => 'summary');
     expect(await catchUp(s, ask)).toBeNull(); // nothing to go on
     expect(ask).not.toHaveBeenCalled();
@@ -81,7 +97,13 @@ describe('the session’s agent decides what its conversation is', () => {
     expect(await searchConversations('CSV export', { sessions: [s], root, archive: path.join(home, 'archive') })).toEqual([]);
     // Nor its activity, nor "a turn's message after the turn ended" (turn activity).
     expect(readSessionActivity(s)).toEqual({ lastActivity: null, state: 'stale' });
-    const idle = { state: 'idle' as const, seen: true, since: new Date(Date.now() - 3600_000).toISOString(), updatedAt: new Date(Date.now() - 3600_000).toISOString(), turnEndedAt: new Date(Date.now() - 3600_000).toISOString() };
+    const idle = {
+      state: 'idle' as const,
+      seen: true,
+      since: new Date(Date.now() - 3600_000).toISOString(),
+      updatedAt: new Date(Date.now() - 3600_000).toISOString(),
+      turnEndedAt: new Date(Date.now() - 3600_000).toISOString(),
+    };
     expect(sessionStatusView(idle, s, Date.now()).state).toBe('idle');
     // …while a session created with Claude keeps reading its transcript: a reply after the turn ended reads as working.
     const claudes = session('claude');

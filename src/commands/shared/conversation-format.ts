@@ -5,7 +5,9 @@ import type { ConversationEntry } from '../../core/agents/index.js';
 export function formatConversation(entries: ConversationEntry[], agentName: string): string {
   const out: string[] = [];
   for (const e of entries) {
-    const time = e.at ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const time = e.at
+      ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
     if (e.role === 'tool') {
       out.push(chalk.gray(`   ⚙ ${e.tool ?? 'tool'}  ${e.text}`));
       continue;

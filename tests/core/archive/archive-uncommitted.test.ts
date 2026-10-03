@@ -3,16 +3,29 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { archiveRefFor, dropSessionSaves, restoreUncommitted, saveUncommitted, type SavedUncommitted } from '../../../src/core/archive/archive-uncommitted.js';
+import {
+  archiveRefFor,
+  dropSessionSaves,
+  restoreUncommitted,
+  saveUncommitted,
+  type SavedUncommitted,
+} from '../../../src/core/archive/archive-uncommitted.js';
 import { restoreArchivedUncommitted } from '../../../src/core/archive/archive-restore.js';
-import { archiveSession, readArchive, writeArchiveRecord, type ArchiveDeps, type ArchiveRecord } from '../../../src/core/archive/session-archive.js';
+import {
+  archiveSession,
+  readArchive,
+  writeArchiveRecord,
+  type ArchiveDeps,
+  type ArchiveRecord,
+} from '../../../src/core/archive/session-archive.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import type { WorkConfig } from '../../../src/core/platform/config.js';
 
 /** Uncommitted work survives an archive that removes the worktree, and comes back on Restore (reported: fix/pdf-generation-speed). */
 
-const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 let fixture: string;
 let tmp: string;
@@ -104,7 +117,10 @@ describe('saving and putting back uncommitted work (real git)', () => {
     git(repo, 'worktree', 'add', '-q', wt, 'feat/x');
 
     fs.writeFileSync(path.join(wt, 'mine.txt'), 'new work');
-    expect(await restoreUncommitted(wt, saved, archiveDir)).toMatchObject({ ok: false, error: expect.stringContaining('already has changes') });
+    expect(await restoreUncommitted(wt, saved, archiveDir)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('already has changes'),
+    });
     fs.rmSync(path.join(wt, 'mine.txt'));
 
     fs.writeFileSync(path.join(wt, 'keep.txt'), 'rewritten\n');
@@ -123,11 +139,21 @@ describe('saving and putting back uncommitted work (real git)', () => {
 });
 
 describe('archiveSession with uncommitted work', () => {
-  const session = () => ({ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '2026-09-01T00:00:00Z', lastAccessedAt: '2026-09-01T00:00:00Z' }) as WorktreeSession;
+  const session = () =>
+    ({
+      target: 'api',
+      branch: 'feat/x',
+      isGroup: false,
+      paths: [wt],
+      createdAt: '2026-09-01T00:00:00Z',
+      lastAccessedAt: '2026-09-01T00:00:00Z',
+    }) as WorktreeSession;
   const savedOne: SavedUncommitted = { commit: 'c1', base: 'b1', ref: 'refs/work/archive/x/api/1', files: 3, patch: 'api-1.patch' };
   const deps = (over: Partial<ArchiveDeps> = {}): ArchiveDeps => ({
     stopClaude: async () => {},
-    removable: vi.fn(async (_s, o) => (o?.uncommittedSaved ? { ok: true, reason: 'merged' } : { ok: false, reason: '3 uncommitted files' })),
+    removable: vi.fn(async (_s, o) =>
+      o?.uncommittedSaved ? { ok: true, reason: 'merged' } : { ok: false, reason: '3 uncommitted files' },
+    ),
     removeWorktree: async () => true,
     setArchived: async () => true,
     transcripts: () => [],
@@ -142,7 +168,11 @@ describe('archiveSession with uncommitted work', () => {
     const d = deps();
     const out = await archiveSession(session(), d);
     expect(d.removable).toHaveBeenCalledWith(expect.anything(), { uncommittedSaved: true });
-    expect(out).toMatchObject({ ok: true, worktreeRemoved: true, message: expect.stringContaining('3 uncommitted files saved for Restore') });
+    expect(out).toMatchObject({
+      ok: true,
+      worktreeRemoved: true,
+      message: expect.stringContaining('3 uncommitted files saved for Restore'),
+    });
     expect(readArchive(sessionIdFor(session()), path.join(tmp, 'archive'))?.uncommitted).toEqual({ api: savedOne });
   });
 
@@ -168,8 +198,22 @@ describe('Restore puts it back once', () => {
     const root = path.join(tmp, 'archive');
     const s = { target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '' } as WorktreeSession;
     const id = sessionIdFor(s);
-    const saved = ((await saveUncommitted(wt, 'api', archiveRefFor(id, 'api', 1), path.join(root, id), 'api-1')) as { saved: SavedUncommitted }).saved;
-    const rec = { sessionId: id, target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], archivedAt: '', worktreeRemoved: true, keptBecause: null, transcripts: [], summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null }, uncommitted: { api: saved } } as ArchiveRecord;
+    const saved = (
+      (await saveUncommitted(wt, 'api', archiveRefFor(id, 'api', 1), path.join(root, id), 'api-1')) as { saved: SavedUncommitted }
+    ).saved;
+    const rec = {
+      sessionId: id,
+      target: 'api',
+      branch: 'feat/x',
+      isGroup: false,
+      paths: [wt],
+      archivedAt: '',
+      worktreeRemoved: true,
+      keptBecause: null,
+      transcripts: [],
+      summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+      uncommitted: { api: saved },
+    } as ArchiveRecord;
     fs.mkdirSync(path.join(root, id), { recursive: true });
     writeArchiveRecord(rec, root);
     git(repo, 'worktree', 'remove', '--force', wt);

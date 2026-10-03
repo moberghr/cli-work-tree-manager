@@ -86,7 +86,11 @@ export function useSse(url: string | null, handlers: SseHandlers): void {
     const subs = names.map((name) => {
       const listener = (e: MessageEvent) => {
         let data: unknown = e.data;
-        try { data = JSON.parse(e.data); } catch { /* keep raw */ }
+        try {
+          data = JSON.parse(e.data);
+        } catch {
+          /* keep raw */
+        }
         ref.current.events?.[name]?.(data);
       };
       es.addEventListener(name, listener as EventListener);

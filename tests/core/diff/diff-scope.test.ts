@@ -3,16 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
-import {
-  buildRepoSpecs,
-  resolveBase,
-  resolveRepoDiff,
-  resolveScope,
-} from '../../../src/core/diff/diff-scope.js';
-import {
-  saveHistory,
-  type WorktreeSession,
-} from '../../../src/core/sessions/history.js';
+import { buildRepoSpecs, resolveBase, resolveRepoDiff, resolveScope } from '../../../src/core/diff/diff-scope.js';
+import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 
 let tmpDir: string;
 let repoDir: string;

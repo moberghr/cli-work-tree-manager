@@ -26,11 +26,7 @@ export interface BroadcastTarget {
  * Post `prompt` as a published user comment (side 'general') to every session
  * matching `filter`. Returns one entry per session queued.
  */
-export async function broadcastPrompt(
-  sessions: WorktreeSession[],
-  filter: FleetFilter,
-  prompt: string,
-): Promise<BroadcastTarget[]> {
+export async function broadcastPrompt(sessions: WorktreeSession[], filter: FleetFilter, prompt: string): Promise<BroadcastTarget[]> {
   const body = prompt.trim();
   if (!body) throw new Error('broadcast prompt is empty');
 

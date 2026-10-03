@@ -17,7 +17,11 @@ export const switcherLabel = (s: SessionSummary): string => (s.titleIsYours && s
 export function switcherResults(sessions: SessionSummary[], query: string): SessionSummary[] {
   const q = query.trim().toLowerCase();
   const recent = (a: SessionSummary, b: SessionSummary) => lastActiveAt(b).localeCompare(lastActiveAt(a));
-  if (!q) return sessions.filter((s) => !s.archivedAt).sort(recent).slice(0, RECENT);
+  if (!q)
+    return sessions
+      .filter((s) => !s.archivedAt)
+      .sort(recent)
+      .slice(0, RECENT);
   // Ranked by every word (several words: each must start a name or a part of one).
   const words = q.split(/\s+/);
   const rank = (s: SessionSummary) => {

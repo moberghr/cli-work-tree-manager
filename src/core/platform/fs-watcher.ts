@@ -62,8 +62,7 @@ export function isIgnoredWatchPath(roots: string[], filePath: string): boolean {
 // ReadDirectoryChangesW) — a single OS handle covers the whole tree with
 // O(1) file descriptors. Linux has no recursive fs.watch, so we keep
 // chokidar there.
-const SUPPORTS_RECURSIVE_WATCH =
-  process.platform === 'darwin' || process.platform === 'win32';
+const SUPPORTS_RECURSIVE_WATCH = process.platform === 'darwin' || process.platform === 'win32';
 
 function logWatchError(err: unknown): void {
   report('warn', `[watcher] fs error: ${(err as Error).message}`);
@@ -98,10 +97,7 @@ export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
         // `filename` is relative to `root` (and may be null on some events).
         // The single FSEvents handle still reports ignored dirs, so filter
         // here to avoid spurious reloads from node_modules / build churn.
-        if (
-          filename &&
-          isIgnoredWatchPath([root], path.join(root, filename.toString()))
-        ) {
+        if (filename && isIgnoredWatchPath([root], path.join(root, filename.toString()))) {
           return;
         }
         fire();
@@ -135,7 +131,9 @@ export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
   return {
     stop() {
       if (debounceTimer) clearTimeout(debounceTimer);
-      watcher.close().catch(() => { /* */ });
+      watcher.close().catch(() => {
+        /* */
+      });
     },
   };
 }

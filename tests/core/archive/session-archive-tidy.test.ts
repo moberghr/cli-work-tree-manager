@@ -13,12 +13,23 @@ import { recordStatusEvent } from '../../../src/core/status/session-status.js';
 import { archiveSession } from '../../../src/core/archive/session-archive.js';
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 let home: string;
 let repo: string;
 let config: WorkConfig;
-const session = (branch: string): WorktreeSession => ({ target: 'api', branch, isGroup: false, paths: [path.join(home, 'wt', branch.replace('/', '-'))], createdAt: 'x', lastAccessedAt: 'x' });
+const session = (branch: string): WorktreeSession => ({
+  target: 'api',
+  branch,
+  isGroup: false,
+  paths: [path.join(home, 'wt', branch.replace('/', '-'))],
+  createdAt: 'x',
+  lastAccessedAt: 'x',
+});
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-deps-'));
@@ -34,7 +45,10 @@ beforeEach(() => {
   git(repo, 'push', '-q', '-u', 'origin', 'main');
   git(repo, 'remote', 'set-head', 'origin', 'main');
   // feat/merged: merged into main and pushed. feat/squashed: not in main.
-  for (const [b, merge] of [['feat/merged', true], ['feat/squashed', false]] as const) {
+  for (const [b, merge] of [
+    ['feat/merged', true],
+    ['feat/squashed', false],
+  ] as const) {
     git(repo, 'checkout', '-q', '-b', b, 'main');
     fs.writeFileSync(path.join(repo, b.replace('/', '-')), b);
     git(repo, 'add', '.');
@@ -69,11 +83,23 @@ describe('archive deps (real git)', () => {
     const tip = git(repo, 'rev-parse', 'feat/merged');
     const id = sessionIdFor(session('feat/merged'));
     fs.mkdirSync(path.join(home, '.work', 'archive', id), { recursive: true });
-    fs.writeFileSync(path.join(home, '.work', 'archive', id, 'archive.json'), JSON.stringify({
-      sessionId: id, target: 'api', branch: 'feat/merged', isGroup: false, paths: [], archivedAt: 'x', worktreeRemoved: true, keptBecause: null,
-      transcripts: [], summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
-      tips: { api: tip }, branchesDeleted: ['api'],
-    }));
+    fs.writeFileSync(
+      path.join(home, '.work', 'archive', id, 'archive.json'),
+      JSON.stringify({
+        sessionId: id,
+        target: 'api',
+        branch: 'feat/merged',
+        isGroup: false,
+        paths: [],
+        archivedAt: 'x',
+        worktreeRemoved: true,
+        keptBecause: null,
+        transcripts: [],
+        summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+        tips: { api: tip },
+        branchesDeleted: ['api'],
+      }),
+    );
     git(repo, 'branch', '-D', 'feat/merged');
     expect(recreateArchivedBranches('api', 'feat/merged', ['api'], config)).toEqual(['api']);
     expect(git(repo, 'rev-parse', 'feat/merged')).toBe(tip);
@@ -106,11 +132,24 @@ describe('archive deps (real git)', () => {
     const tip = git(repo, 'rev-parse', 'feat/merged');
     const id = sessionIdFor(s);
     fs.mkdirSync(path.join(home, '.work', 'archive', id), { recursive: true });
-    fs.writeFileSync(path.join(home, '.work', 'archive', id, 'archive.json'), JSON.stringify({
-      sessionId: id, target: 'api', branch: 'feat/start', isGroup: false, paths: [wt], archivedAt: 'x', worktreeRemoved: true, keptBecause: null,
-      transcripts: [], summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
-      tips: { api: tip }, heads: { api: 'feat/merged' }, branchesDeleted: ['api'],
-    }));
+    fs.writeFileSync(
+      path.join(home, '.work', 'archive', id, 'archive.json'),
+      JSON.stringify({
+        sessionId: id,
+        target: 'api',
+        branch: 'feat/start',
+        isGroup: false,
+        paths: [wt],
+        archivedAt: 'x',
+        worktreeRemoved: true,
+        keptBecause: null,
+        transcripts: [],
+        summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+        tips: { api: tip },
+        heads: { api: 'feat/merged' },
+        branchesDeleted: ['api'],
+      }),
+    );
     git(repo, 'worktree', 'remove', wt);
     git(repo, 'branch', '-D', 'feat/merged');
     await setSessionArchived('api', 'feat/start', true);
@@ -138,7 +177,11 @@ describe('archive deps (real git)', () => {
       const s = loadHistory().find((x) => x.branch === 'feat/merged' && x.paths[0] === wt)!;
 
       const out = await archiveSession(s, deps(), { merged: true });
-      expect(out).toMatchObject({ ok: true, worktreeRemoved: true, message: expect.stringContaining('2 uncommitted files saved for Restore') });
+      expect(out).toMatchObject({
+        ok: true,
+        worktreeRemoved: true,
+        message: expect.stringContaining('2 uncommitted files saved for Restore'),
+      });
       expect(fs.existsSync(wt)).toBe(false);
       expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toContain(sessionIdFor(s));
 
@@ -200,7 +243,11 @@ describe('archive deps (real git)', () => {
       fs.writeFileSync(path.join(wt, 'a'), 'edited');
       const s = loadHistory().find((x) => x.branch === 'feat/squashed' && x.paths[0] === wt)!;
       const out = await archiveSession(s, deps(), { merged: true });
-      expect(out).toMatchObject({ ok: true, worktreeRemoved: false, keptBecause: expect.stringContaining('commits not in the main branch') });
+      expect(out).toMatchObject({
+        ok: true,
+        worktreeRemoved: false,
+        keptBecause: expect.stringContaining('commits not in the main branch'),
+      });
       expect(fs.readFileSync(path.join(wt, 'a'), 'utf8')).toBe('edited');
       expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toBe('');
     });

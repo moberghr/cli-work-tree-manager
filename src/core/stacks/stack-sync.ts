@@ -43,7 +43,8 @@ export async function syncStackChild(child: WorktreeSession, parentBranch: strin
     if (b && b.commits > 0) behind.push({ path: p, b });
   }
   if (behind.length === 0) return { updated: false, why: `already on top of ${parentBranch}` };
-  if (behind.some((x) => x.b.conflicts)) return { updated: false, why: `bringing in ${parentBranch} would conflict: left for you (Update from ${parentBranch})` };
+  if (behind.some((x) => x.b.conflicts))
+    return { updated: false, why: `bringing in ${parentBranch} would conflict: left for you (Update from ${parentBranch})` };
   // Where each repo is now, to put a group back if a later repo fails.
   const heads = new Map<string, string>();
   for (const { path: p } of behind) {
@@ -63,7 +64,10 @@ export async function syncStackChild(child: WorktreeSession, parentBranch: strin
     if (!r || !r.ok) {
       // All or nothing: put back the repos already brought in (they were clean, so nothing of anyone's is lost).
       for (const q of done) await run('git', ['-C', q, 'reset', '--hard', '--quiet', heads.get(q)!], q);
-      return { updated: false, why: nowBusy ?? `${r!.repo}: ${(r as { reason: string }).reason}${done.length ? ' (the others were put back)' : ''}` };
+      return {
+        updated: false,
+        why: nowBusy ?? `${r!.repo}: ${(r as { reason: string }).reason}${done.length ? ' (the others were put back)' : ''}`,
+      };
     }
     done.push(p);
     commits = Math.max(commits, r.commits);
@@ -106,23 +110,46 @@ export async function retargetIfMerged(
     if (blocker?.handOff) {
       // Git alone can't tell its own commits from the parent's old ones: its Claude can (once per parent tip).
       const key = `${sessionIdFor(child)}:${tip}`;
-      if (handedOff.has(key)) return { updated: false, why: `${parent.branch} was rewritten before it merged; its Claude was already asked to move it onto main` };
+      if (handedOff.has(key))
+        return {
+          updated: false,
+          why: `${parent.branch} was rewritten before it merged; its Claude was already asked to move it onto main`,
+        };
       handedOff.add(key);
       await deps.tell(child, ontoMainPrompt(parent.branch)).catch((err) => logSwallowed(`asking ${child.branch} to move onto main`, err));
       return { updated: false, why: `${parent.branch} was rewritten before it merged: its Claude was asked to move this branch onto main` };
     }
     if (!(await retargetIsClean(p, { branch: parent.branch, tip }, run))) {
-      return { updated: false, why: `${parent.branch} merged; moving onto main isn't sure to go cleanly (a conflict, uncommitted changes, a rewritten parent, or an old git): left for you` };
+      return {
+        updated: false,
+        why: `${parent.branch} merged; moving onto main isn't sure to go cleanly (a conflict, uncommitted changes, a rewritten parent, or an old git): left for you`,
+      };
     }
   }
   // Asked again right before each repo is changed (a turn may have started while git looked).
-  const r = await retargetOntoMain(child, async (p) => ({ branch: parent.branch, tip: tips.get(p) ?? null }), run, () => busyWhy(deps.shownState(child)));
-  if (!r.ok) return { updated: false, why: r.results.filter((x) => !x.ok).map((x) => `${x.repo}: ${(x as { reason: string }).reason}`).pop() ?? 'failed' };
+  const r = await retargetOntoMain(
+    child,
+    async (p) => ({ branch: parent.branch, tip: tips.get(p) ?? null }),
+    run,
+    () => busyWhy(deps.shownState(child)),
+  );
+  if (!r.ok)
+    return {
+      updated: false,
+      why:
+        r.results
+          .filter((x) => !x.ok)
+          .map((x) => `${x.repo}: ${(x as { reason: string }).reason}`)
+          .pop() ?? 'failed',
+    };
   await setSessionBase(child.target, child.branch, r.bases ?? {});
   const main = [...new Set(Object.values(r.bases ?? {}))].join(' / ') || 'main';
   let told = true;
   await deps
-    .tell(child, `${parent.branch} — the branch this one was stacked on — has merged, so this branch was moved onto ${main} (only its own commits kept on top). Files may have changed since you last read them; look again before editing them.`)
+    .tell(
+      child,
+      `${parent.branch} — the branch this one was stacked on — has merged, so this branch was moved onto ${main} (only its own commits kept on top). Files may have changed since you last read them; look again before editing them.`,
+    )
     .catch((err) => {
       told = false;
       logSwallowed(`telling ${child.branch} it moved onto main`, err);
@@ -161,7 +188,10 @@ export async function retargetChildrenOf(parentId: string, deps: Omit<AfterTurnD
       if (r.updated) {
         moved++;
         deps.invalidate(id);
-        run.note(`${child.branch}: ${r.how} (its parent merged and was archived)${r.told ? '; its Claude was told' : ' — telling its Claude failed'}`, { sessionId: id, ...(r.told ? {} : { level: 'warn' as const }) });
+        run.note(
+          `${child.branch}: ${r.how} (its parent merged and was archived)${r.told ? '; its Claude was told' : ' — telling its Claude failed'}`,
+          { sessionId: id, ...(r.told ? {} : { level: 'warn' as const }) },
+        );
       } else run.note(`${child.branch}: left as it is — ${r.why}`, { sessionId: id });
     } catch (err) {
       run.note(`${child.branch}: ${(err as Error).message}`, { sessionId: id, level: 'warn' });
@@ -208,7 +238,10 @@ export async function syncStacksAfterTurn(sessionId: string, deps: AfterTurnDeps
       if (r.updated) {
         updated++;
         deps.invalidate(sessionId);
-        run.note(`${self.branch}: ${r.how} (${merged.branch} merged)${r.told ? '; its Claude was told' : " — telling its Claude failed"}`, { sessionId, ...(r.told ? {} : { level: 'warn' as const }) });
+        run.note(`${self.branch}: ${r.how} (${merged.branch} merged)${r.told ? '; its Claude was told' : ' — telling its Claude failed'}`, {
+          sessionId,
+          ...(r.told ? {} : { level: 'warn' as const }),
+        });
       } else run.note(`${self.branch}: left as it is — ${r.why}`, { sessionId });
     } catch (err) {
       run.note(`${self.branch}: ${(err as Error).message}`, { sessionId, level: 'warn' });

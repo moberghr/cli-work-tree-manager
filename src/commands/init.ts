@@ -3,18 +3,10 @@ import os from 'node:os';
 import chalk from 'chalk';
 import { input, confirm, select } from '@inquirer/prompts';
 import type { CommandModule } from 'yargs';
-import {
-  loadConfig,
-  saveConfig,
-  getConfigPath,
-} from '../core/platform/config.js';
+import { loadConfig, saveConfig, getConfigPath } from '../core/platform/config.js';
 import { isGitRepo } from '../core/git/git.js';
 import { KNOWN_TOOLS } from '../core/platform/ai-launcher.js';
-import {
-  setupCompletions,
-  printCompletionResults,
-  printManualInstructions,
-} from './shared/setup-completions.js';
+import { setupCompletions, printCompletionResults, printManualInstructions } from './shared/setup-completions.js';
 
 export const initCommand: CommandModule = {
   command: 'init',
@@ -29,14 +21,9 @@ export const initCommand: CommandModule = {
     let config = loadConfig();
 
     if (config) {
-      console.log(
-        chalk.yellow(
-          `Configuration file already exists at: ${configPath}`,
-        ),
-      );
+      console.log(chalk.yellow(`Configuration file already exists at: ${configPath}`));
       const overwrite = await confirm({
-        message:
-          'Do you want to reconfigure? This will keep existing repos.',
+        message: 'Do you want to reconfigure? This will keep existing repos.',
         default: false,
       });
 
@@ -51,19 +38,13 @@ export const initCommand: CommandModule = {
         worktreesRoot: '',
         repos: {},
         groups: {},
-        copyFiles: [
-          '*.Development.json',
-          '*.Local.json',
-          '.claude/settings.local.json',
-        ],
+        copyFiles: ['*.Development.json', '*.Local.json', '.claude/settings.local.json'],
       };
     }
 
     // Configure worktrees root
     console.log(chalk.green('Where should all worktrees be created?'));
-    const defaultRoot =
-      config.worktreesRoot ||
-      path.join(path.dirname(os.homedir()), 'worktrees');
+    const defaultRoot = config.worktreesRoot || path.join(path.dirname(os.homedir()), 'worktrees');
 
     const worktreesInput = await input({
       message: 'Worktrees root directory',
@@ -73,11 +54,7 @@ export const initCommand: CommandModule = {
     config.worktreesRoot = worktreesInput || defaultRoot;
 
     console.log('');
-    console.log(
-      chalk.green(
-        `Great! Worktrees will be created in: ${config.worktreesRoot}`,
-      ),
-    );
+    console.log(chalk.green(`Great! Worktrees will be created in: ${config.worktreesRoot}`));
     console.log('');
 
     // AI tool selection
@@ -106,10 +83,8 @@ export const initCommand: CommandModule = {
     console.log('');
 
     // Add repositories
-    console.log(chalk.green('Now let\'s add your repositories.'));
-    console.log(
-      chalk.gray('(You can add more later with: work config add <alias> <path>)'),
-    );
+    console.log(chalk.green("Now let's add your repositories."));
+    console.log(chalk.gray('(You can add more later with: work config add <alias> <path>)'));
     console.log('');
 
     let addMore = true;
@@ -138,18 +113,12 @@ export const initCommand: CommandModule = {
 
       // Validate path is a git repo
       if (!isGitRepo(repoPath)) {
-        console.log(
-          chalk.red(
-            `Path is not a git repository (or does not exist): ${repoPath}`,
-          ),
-        );
+        console.log(chalk.red(`Path is not a git repository (or does not exist): ${repoPath}`));
         continue;
       }
 
       config.repos[alias.trim()] = repoPath.trim();
-      console.log(
-        chalk.green(`  Added: ${alias.trim()} -> ${repoPath.trim()}`),
-      );
+      console.log(chalk.green(`  Added: ${alias.trim()} -> ${repoPath.trim()}`));
       console.log('');
 
       repoCount++;
@@ -179,18 +148,14 @@ export const initCommand: CommandModule = {
       if (results.length > 0) {
         printCompletionResults(results);
         console.log('');
-        console.log(
-          chalk.gray('  Restart your shell for completions to take effect.'),
-        );
+        console.log(chalk.gray('  Restart your shell for completions to take effect.'));
       } else {
         printManualInstructions();
       }
     }
 
     console.log('');
-    console.log(
-      chalk.cyan('You\'re all set! Try: work tree <project> <branch>'),
-    );
+    console.log(chalk.cyan("You're all set! Try: work tree <project> <branch>"));
     console.log('');
   },
 };

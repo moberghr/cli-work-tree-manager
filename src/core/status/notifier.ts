@@ -22,7 +22,7 @@ const MESSAGES: Record<NotifyKind, string> = {
 
 /** Drop control characters that could break notifier argument parsing. */
 function sanitize(s: string): string {
-  return s.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  return s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
 }
 
 /** Escape for embedding inside an AppleScript double-quoted string literal. */
@@ -115,11 +115,7 @@ export interface NotifyOptions {
  * Fire a desktop notification for a session event. No-op when disabled, on an
  * unsupported platform, or when the notifier binary is missing. Never throws.
  */
-export function notifyDesktop(
-  sessionName: string,
-  kind: NotifyKind,
-  opts: NotifyOptions = {},
-): void {
+export function notifyDesktop(sessionName: string, kind: NotifyKind, opts: NotifyOptions = {}): void {
   if (opts.enabled !== true) return;
 
   const platform = opts.platform ?? process.platform;

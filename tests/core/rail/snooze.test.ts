@@ -25,7 +25,9 @@ describe('snoozeActive', () => {
     expect(snoozeActive(timed, done, now.getTime() + 3 * 3600_000)).toBe(false);
     const change = snoozeFor('change', done, now);
     expect(snoozeActive(change, done)).toBe(true);
-    expect(snoozeActive(change, { ...done, attention: { ...done.attention, state: 'working' as const, since: '2026-10-01T10:05:00Z' } })).toBe(false); // a new turn
+    expect(
+      snoozeActive(change, { ...done, attention: { ...done.attention, state: 'working' as const, since: '2026-10-01T10:05:00Z' } }),
+    ).toBe(false); // a new turn
     expect(snoozeActive(change, { ...done, openReviewThreads: 1 })).toBe(false); // a reviewer wrote
     expect(snoozeActive(null, done)).toBe(false);
   });
@@ -69,14 +71,26 @@ describe('snooze routes and the session list', () => {
     const { withDb, purgeSessionRows } = await import('../../../src/core/platform/db.js');
     const wt = path.join(home, 'wt');
     fs.mkdirSync(wt);
-    const s = { target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() };
+    const s = {
+      target: 'api',
+      branch: 'feat/x',
+      isGroup: false,
+      paths: [wt],
+      createdAt: new Date().toISOString(),
+      lastAccessedAt: new Date().toISOString(),
+    };
     saveHistory([s]);
     const id = sessionIdFor(s);
     await recordStatusEvent(id, { kind: 'stop', lastMessage: 'done' });
     const app = new Hono();
     const events: string[] = [];
     mountStatusRoutes(app, { broadcast: (e) => void events.push(e) });
-    const post = (body: unknown) => app.request(`/api/sessions/${id}/snooze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const post = (body: unknown) =>
+      app.request(`/api/sessions/${id}/snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
     expect((await post({ for: 'soon' })).status).toBe(400);
     expect((await post({ for: 'change' })).status).toBe(200);
     expect(events).toContain('sessions-changed');

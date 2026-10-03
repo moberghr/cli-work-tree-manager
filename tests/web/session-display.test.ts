@@ -22,18 +22,36 @@ import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const att = (state: SessionAttention['state'], seen: boolean, summary?: string): SessionAttention => ({
-  state, seen, since: minsAgo(3), updatedAt: minsAgo(3), summary, stale: false,
+  state,
+  seen,
+  since: minsAgo(3),
+  updatedAt: minsAgo(3),
+  summary,
+  stale: false,
 });
 function s(over: Partial<SessionSummary> & { id: string }): SessionSummary {
   return {
-    target: 'api', branch: over.id, isGroup: false, paths: [`/wt/${over.id}`],
-    createdAt: minsAgo(1000), lastAccessedAt: minsAgo(100), activityState: 'stale',
+    target: 'api',
+    branch: over.id,
+    isGroup: false,
+    paths: [`/wt/${over.id}`],
+    createdAt: minsAgo(1000),
+    lastAccessedAt: minsAgo(100),
+    activityState: 'stale',
     ...over,
   };
 }
 const pr = (over: Partial<PrInfo>): PrInfo => ({
-  number: 1, title: 't', branch: 'b', url: 'https://x/pr/1', isDraft: false,
-  checksStatus: 'SUCCESS', reviewDecision: 'NONE', myReview: 'NONE', isMine: true, repoAlias: 'api',
+  number: 1,
+  title: 't',
+  branch: 'b',
+  url: 'https://x/pr/1',
+  isDraft: false,
+  checksStatus: 'SUCCESS',
+  reviewDecision: 'NONE',
+  myReview: 'NONE',
+  isMine: true,
+  repoAlias: 'api',
   ...over,
 });
 
@@ -70,7 +88,9 @@ describe('displayStatus — one vocabulary for every view', () => {
     const wrote = Date.now() - 60_000;
     expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote }))).toBe(new Date(wrote).toISOString());
     const hooked = new Date(Date.now() - 1000).toISOString(); // newer than the write
-    expect(lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote, attention: { ...att('idle', true), updatedAt: hooked } }))).toBe(hooked);
+    expect(
+      lastActiveAt(s({ id: 'a', lastAccessedAt: entry, lastActivity: wrote, attention: { ...att('idle', true), updatedAt: hooked } })),
+    ).toBe(hooked);
   });
 
   it('age sections: Now (wants you, working, or used today), This week, Older', () => {
@@ -139,7 +159,11 @@ describe('SessionRail rows', () => {
 
   it('shows branch, target · summary, diff size and the PR badge; hides archived', () => {
     const sessions = [
-      s({ id: 'feat/x', attention: att('needs_input', false, 'Claude needs your permission to use Bash'), diffStat: { added: 5, deleted: 1, files: 2 } }),
+      s({
+        id: 'feat/x',
+        attention: att('needs_input', false, 'Claude needs your permission to use Bash'),
+        diffStat: { added: 5, deleted: 1, files: 2 },
+      }),
       s({ id: 'gone', archivedAt: minsAgo(5) }),
     ];
     const prs = [pr({ number: 42, branch: 'feat/x', checksStatus: 'FAILURE' })];
@@ -187,7 +211,16 @@ describe('railSessions — hundreds of sessions (reviewed: active ones were hidd
   const day = 24 * 60 * 60_000;
   const now = Date.parse('2026-09-29T12:00:00Z');
   const mk = (id: string, target: string, daysAgo: number, extra: Record<string, unknown> = {}) =>
-    ({ id, target, branch: id, isGroup: false, paths: [], createdAt: '', lastAccessedAt: new Date(now - daysAgo * day).toISOString(), ...extra }) as never;
+    ({
+      id,
+      target,
+      branch: id,
+      isGroup: false,
+      paths: [],
+      createdAt: '',
+      lastAccessedAt: new Date(now - daysAgo * day).toISOString(),
+      ...extra,
+    }) as never;
 
   it('keeps current sessions (recent, reporting a status, or live) and parks the rest as older', async () => {
     const { railSessions } = await import('../../src/web/src/state/session-display.js');

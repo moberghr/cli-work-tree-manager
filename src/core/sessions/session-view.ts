@@ -29,16 +29,7 @@ export interface SessionLike {
  *     without them): transcript activity only. Active ≤ 30 s, Open ≤ 5 min,
  *     Idle (recent) within a day, Stale after that.
  */
-export type DisplayKind =
-  | 'needs_input'
-  | 'done'
-  | 'working'
-  | 'review'
-  | 'quiet'
-  | 'active'
-  | 'open'
-  | 'recent'
-  | 'stale';
+export type DisplayKind = 'needs_input' | 'done' | 'working' | 'review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -117,7 +108,8 @@ export const WEEK_MS = 7 * 24 * 3_600_000;
  *  used within 7 days. Older: everything else — cleanup material. */
 export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
   const kind = displayStatus(s, now);
-  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'review' || kind === 'active' || kind === 'open') return 'now';
+  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'review' || kind === 'active' || kind === 'open')
+    return 'now';
   const age = now - Date.parse(lastActiveAt(s));
   if (age < RECENT_MS) return 'now';
   return age < WEEK_MS ? 'week' : 'older';
@@ -143,7 +135,6 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
       return 'stale';
   }
 }
-
 
 /** Why a session shows Active / Open / Idle(recent) / Stale instead of a
  *  real status: its Claude isn't reporting through work web's hooks. */

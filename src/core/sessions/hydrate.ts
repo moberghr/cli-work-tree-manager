@@ -2,10 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
 import { parseWorktreeList } from '../git/git.js';
-import {
-  type WorktreeSession,
-  mergeHydratedSessions,
-} from './history.js';
+import { type WorktreeSession, mergeHydratedSessions } from './history.js';
 
 interface HydrateResult {
   discovered: number;
@@ -18,9 +15,7 @@ interface HydrateResult {
  * with any that aren't already tracked. Used for recovery from a wiped
  * history.json and to adopt worktrees created outside work.
  */
-export async function hydrateHistoryFromDisk(
-  config: WorkConfig,
-): Promise<HydrateResult> {
+export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<HydrateResult> {
   const worktreesRoot = path.resolve(config.worktreesRoot);
   const folderNameToAlias = new Map<string, string>();
   for (const [alias, repoPath] of Object.entries(config.repos)) {

@@ -10,12 +10,7 @@ import { useEffect, useState, type RefObject } from 'react';
  * Pure (no DOM) so the file-tree follow-scroll behaviour is unit-testable
  * without a layout engine — mirrors `sidebarNeedsOwnScroller`.
  */
-export function revealDelta(
-  relTop: number,
-  childHeight: number,
-  viewportHeight: number,
-  pad: number,
-): number {
+export function revealDelta(relTop: number, childHeight: number, viewportHeight: number, pad: number): number {
   const relBottom = relTop + childHeight;
   if (relTop < pad) return relTop - pad;
   if (relBottom > viewportHeight - pad) return relBottom - (viewportHeight - pad);
@@ -32,19 +27,14 @@ export function revealDelta(
  * scroller: `ReviewApp`'s page layout only overflows on a tall tree, while the
  * dashboard's `DiffView` sidebar always scrolls (so it passes `true`).
  */
-export function useFollowActiveInSidebar(
-  sidebarRef: RefObject<HTMLElement | null>,
-  activeAnchor: string | null,
-  enabled: boolean,
-): void {
+export function useFollowActiveInSidebar(sidebarRef: RefObject<HTMLElement | null>, activeAnchor: string | null, enabled: boolean): void {
   useEffect(() => {
     if (!enabled || !activeAnchor) return;
     const aside = sidebarRef.current;
     if (!aside) return;
     const item = aside.querySelector<HTMLElement>('.wd-tree-file-active');
     if (!item) return;
-    const relTop =
-      item.getBoundingClientRect().top - aside.getBoundingClientRect().top;
+    const relTop = item.getBoundingClientRect().top - aside.getBoundingClientRect().top;
     aside.scrollTop += revealDelta(relTop, item.offsetHeight, aside.clientHeight, 24);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAnchor, enabled]);

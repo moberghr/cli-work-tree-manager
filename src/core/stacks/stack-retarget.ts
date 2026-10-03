@@ -64,7 +64,12 @@ interface Plan extends Fork {
  * is built on, so at worst a commit too few or too many of the parent's
  * comes along — and a conflict is aborted, never left.)
  */
-export async function forkPoint(repo: string, parent: { branch: string; tip: string }, main: string, run: CommandRunner = defaultRunner): Promise<Fork | { error: string; handOff?: boolean }> {
+export async function forkPoint(
+  repo: string,
+  parent: { branch: string; tip: string },
+  main: string,
+  run: CommandRunner = defaultRunner,
+): Promise<Fork | { error: string; handOff?: boolean }> {
   const git = (...args: string[]) => run('git', ['-C', repo, ...args], repo);
   if ((await git('merge-base', '--is-ancestor', parent.tip, main)).code === 0) {
     const base = (await git('merge-base', 'HEAD', main)).stdout.trim();
@@ -75,10 +80,18 @@ export async function forkPoint(repo: string, parent: { branch: string; tip: str
     if (fp.code === 0 && fp.stdout.trim()) return { fork: fp.stdout.trim(), plain: false };
   }
   if ((await git('merge-base', '--is-ancestor', parent.tip, 'HEAD')).code === 0) return { fork: parent.tip, plain: false };
-  return { error: `${parent.branch} was rewritten (rebased or amended) after this branched off, and git can't tell which commits are this branch's own: ask its Claude to move it onto main`, handOff: true };
+  return {
+    error: `${parent.branch} was rewritten (rebased or amended) after this branched off, and git can't tell which commits are this branch's own: ask its Claude to move it onto main`,
+    handOff: true,
+  };
 }
 
-async function plan(repo: string, parent: { branch: string; tip: string }, run: CommandRunner, fetch: boolean): Promise<Plan | { error: string; handOff?: boolean; base?: string }> {
+async function plan(
+  repo: string,
+  parent: { branch: string; tip: string },
+  run: CommandRunner,
+  fetch: boolean,
+): Promise<Plan | { error: string; handOff?: boolean; base?: string }> {
   const git = (...args: string[]) => run('git', ['-C', repo, ...args], repo);
   const name = path.basename(repo);
   const st = await git('status', '--porcelain');
@@ -96,7 +109,11 @@ async function plan(repo: string, parent: { branch: string; tip: string }, run: 
 }
 
 /** Why it can't be moved by git alone, if so: the parent was rewritten and the fork point is unknown (hand it to Claude). */
-export async function retargetBlocker(repo: string, parent: { branch: string; tip: string }, run: CommandRunner = defaultRunner): Promise<{ reason: string; handOff: boolean } | null> {
+export async function retargetBlocker(
+  repo: string,
+  parent: { branch: string; tip: string },
+  run: CommandRunner = defaultRunner,
+): Promise<{ reason: string; handOff: boolean } | null> {
   const p = await plan(repo, parent, run, false);
   return 'error' in p ? { reason: p.error, handOff: !!p.handOff } : null;
 }
@@ -106,7 +123,11 @@ export async function retargetBlocker(repo: string, parent: { branch: string; ti
  * can't tell — `--merge-base` needs git 2.40 — so the automatic move never
  * runs on an older git; the button still works.
  */
-export async function retargetIsClean(repo: string, parent: { branch: string; tip: string }, run: CommandRunner = defaultRunner): Promise<boolean> {
+export async function retargetIsClean(
+  repo: string,
+  parent: { branch: string; tip: string },
+  run: CommandRunner = defaultRunner,
+): Promise<boolean> {
   const p = await plan(repo, parent, run, false);
   if ('error' in p) return false;
   const args =
@@ -138,9 +159,19 @@ export async function retargetOntoMain(
   const plans: Plan[] = [];
   for (const repo of child.paths) {
     const parent = await parentOf(repo);
-    if (!parent.tip) return { ok: false, results: [{ ok: false, repo: path.basename(repo), reason: `${parent.branch} is gone and its archive has no tip for this repo` }] };
+    if (!parent.tip)
+      return {
+        ok: false,
+        results: [{ ok: false, repo: path.basename(repo), reason: `${parent.branch} is gone and its archive has no tip for this repo` }],
+      };
     const p = await plan(repo, { branch: parent.branch, tip: parent.tip }, run, true);
-    if ('error' in p) return { ok: false, results: [{ ok: false, repo: path.basename(repo), reason: p.error, ...(p.handOff ? { handOff: true, base: p.base ?? 'origin/main' } : {}) }] };
+    if ('error' in p)
+      return {
+        ok: false,
+        results: [
+          { ok: false, repo: path.basename(repo), reason: p.error, ...(p.handOff ? { handOff: true, base: p.base ?? 'origin/main' } : {}) },
+        ],
+      };
     plans.push(p);
   }
   const before = new Map<string, string>();
@@ -152,7 +183,13 @@ export async function retargetOntoMain(
   };
   const fail = async (r: UpdateResult): Promise<RetargetResult> => {
     await putBack();
-    return { ok: false, results: [...results.map((x): UpdateResult => ({ ok: false, repo: x.repo, reason: 'put back as it was', base: x.ok ? x.base : undefined })), r] };
+    return {
+      ok: false,
+      results: [
+        ...results.map((x): UpdateResult => ({ ok: false, repo: x.repo, reason: 'put back as it was', base: x.ok ? x.base : undefined })),
+        r,
+      ],
+    };
   };
   for (const p of plans) {
     const busy = stillOk();
@@ -171,7 +208,12 @@ export async function retargetOntoMain(
         await git('rebase', '--abort');
         r = unmerged
           ? { ok: false, repo: p.name, reason: `moving onto ${p.head} conflicts`, conflicts: true, base: p.head }
-          : { ok: false, repo: p.name, reason: `moving onto ${p.head} failed: ${rb.stderr.trim().split(/\r?\n/)[0] || `git exited ${rb.code}`}`, base: p.head };
+          : {
+              ok: false,
+              repo: p.name,
+              reason: `moving onto ${p.head} failed: ${rb.stderr.trim().split(/\r?\n/)[0] || `git exited ${rb.code}`}`,
+              base: p.head,
+            };
       }
     }
     if (!r.ok) return fail(r);

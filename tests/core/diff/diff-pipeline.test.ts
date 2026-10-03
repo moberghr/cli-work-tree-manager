@@ -2,11 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {
-  computeDiff,
-  computeRangeDiff,
-  isInsideRoot,
-} from '../../../src/core/diff/diff-pipeline.js';
+import { computeDiff, computeRangeDiff, isInsideRoot } from '../../../src/core/diff/diff-pipeline.js';
 import { snapshotRepo } from '../../../src/core/diff/checkpoint.js';
 import { git } from '../../../src/core/git/git.js';
 
@@ -106,9 +102,7 @@ describe('computeDiff mdContent', () => {
     write('NEW.md', '# header\nbody line\nbody line two\nadded\n');
 
     const files = computeDiff({ root: tmpDir, diffArg: 'HEAD' });
-    const renamed = files.find(
-      (f) => f.oldPath === 'OLD.md' || f.newPath === 'NEW.md',
-    );
+    const renamed = files.find((f) => f.oldPath === 'OLD.md' || f.newPath === 'NEW.md');
     expect(renamed).toBeDefined();
     expect(renamed!.mdContent?.before).toContain('header');
     expect(renamed!.mdContent?.after).toContain('added');
@@ -158,9 +152,7 @@ describe('computeDiff mdContent', () => {
       fromRef: 'HEAD',
       toRef: 'working',
     });
-    expect(range.map((f) => f.path).sort()).toEqual(
-      direct.map((f) => f.path).sort(),
-    );
+    expect(range.map((f) => f.path).sort()).toEqual(direct.map((f) => f.path).sort());
   });
 
   it('handles a root whose ancestor is itself a symlink (macOS /tmp case)', () => {
@@ -169,9 +161,7 @@ describe('computeDiff mdContent', () => {
     // otherwise every working-tree markdown read fails silently.
     // We simulate by making the repo's parent a symlink and using
     // that link path as the root for computeDiff.
-    const realParent = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'wd-realparent-'),
-    );
+    const realParent = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-realparent-'));
     const linkedParent = path.join(os.tmpdir(), `wd-linkparent-${Date.now()}`);
     try {
       try {
@@ -201,7 +191,11 @@ describe('computeDiff mdContent', () => {
       // the file lived in a different namespace from the lexical root.
       expect(readme!.mdContent?.after).toContain('# v2');
     } finally {
-      try { fs.unlinkSync(linkedParent); } catch { /* */ }
+      try {
+        fs.unlinkSync(linkedParent);
+      } catch {
+        /* */
+      }
       fs.rmSync(realParent, { recursive: true, force: true });
     }
   });
@@ -263,12 +257,8 @@ describe('computeDiff mdContent', () => {
     expect(renamed).toBeDefined();
     expect(renamed!.oldPath).toBe('old.txt');
     expect(renamed!.newPath).toBe('new.txt');
-    expect(files.some((f) => f.status === 'added' && f.path === 'new.txt')).toBe(
-      false,
-    );
-    expect(
-      files.some((f) => f.status === 'deleted' && f.path === 'old.txt'),
-    ).toBe(false);
+    expect(files.some((f) => f.status === 'added' && f.path === 'new.txt')).toBe(false);
+    expect(files.some((f) => f.status === 'deleted' && f.path === 'old.txt')).toBe(false);
   });
 
   it('does not read symlinks that target paths outside the repo root', () => {
@@ -296,8 +286,16 @@ describe('computeDiff mdContent', () => {
       // mdContent payload. Before the realpath check, this leaked.
       expect(leak!.mdContent?.after).toBeUndefined();
     } finally {
-      try { fs.unlinkSync(linkPath); } catch { /* */ }
-      try { fs.unlinkSync(secret); } catch { /* */ }
+      try {
+        fs.unlinkSync(linkPath);
+      } catch {
+        /* */
+      }
+      try {
+        fs.unlinkSync(secret);
+      } catch {
+        /* */
+      }
     }
   });
 
@@ -325,13 +323,7 @@ describe('computeDiff coverage', () => {
     write('src/a.ts', 'export const x = 2;\n');
 
     // lcov measured at a fixed point in the past.
-    const lcov = [
-      'SF:src/a.ts',
-      'DA:1,1',
-      'LF:4',
-      'LH:3',
-      'end_of_record',
-    ].join('\n');
+    const lcov = ['SF:src/a.ts', 'DA:1,1', 'LF:4', 'LH:3', 'end_of_record'].join('\n');
     write('coverage/lcov.info', lcov);
     const past = new Date(Date.now() - 60_000);
     fs.utimesSync(path.join(tmpDir, 'coverage', 'lcov.info'), past, past);

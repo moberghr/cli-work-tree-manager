@@ -30,18 +30,31 @@ beforeEach(() => {
   wt = path.join(home, 'wt', 'api', 'feat-x');
   fs.mkdirSync(wt, { recursive: true });
   session = {
-    target: 'api', branch: 'feat/x', isGroup: false, paths: [wt],
-    createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+    target: 'api',
+    branch: 'feat/x',
+    isGroup: false,
+    paths: [wt],
+    createdAt: new Date().toISOString(),
+    lastAccessedAt: new Date().toISOString(),
   };
   fs.mkdirSync(path.join(home, '.work'), { recursive: true });
   saveHistory([session]);
-  fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: home, notifications: true, statusHooks: [{ on: 'needs_input', command: 'x' }] }));
+  fs.writeFileSync(
+    path.join(home, '.work', 'config.json'),
+    JSON.stringify({ worktreesRoot: home, notifications: true, statusHooks: [{ on: 'needs_input', command: 'x' }] }),
+  );
   events = [];
   app = new Hono();
   clock = 1_000_000;
   presence = createPresence(() => clock);
   sent = [];
-  mountStatusRoutes(app, { broadcast: (e, d) => { events.push(e); sent.push({ e, d }); }, presence });
+  mountStatusRoutes(app, {
+    broadcast: (e, d) => {
+      events.push(e);
+      sent.push({ e, d });
+    },
+    presence,
+  });
   notifyDesktop.mockClear();
   runStatusHooks.mockClear();
 });
@@ -59,7 +72,11 @@ describe('status routes', () => {
     const a = new Hono();
     mountStatusRoutes(a, { broadcast: (e) => void order.push(e), onStatusChanged: () => void order.push('bookkeeping'), presence });
     await recordStatusEvent(sessionIdFor(session), { kind: 'prompt', prompt: 'go' });
-    const res = await a.request('/api/status-changed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd: wt }) });
+    const res = await a.request('/api/status-changed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: wt }),
+    });
     expect(res.status).toBe(200);
     expect(order).toEqual(['sessions-changed']); // replied: bookkeeping not yet
     await new Promise((r) => setImmediate(r));
@@ -240,7 +257,11 @@ describe('POST /api/sessions/:id/answer', () => {
     await recordStatusEvent(id, { kind: 'notification', message: 'Claude needs your permission to use Bash', request: bash });
   });
   const answer = (body: unknown) =>
-    answerApp.request(`/api/sessions/${id}/answer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    answerApp.request(`/api/sessions/${id}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
   it('Allow presses Enter on the highlighted Yes and marks the session working', async () => {
     const res = await answer({ answer: 'allow', request: bash });

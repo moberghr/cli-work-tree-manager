@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
-import {
-  getWorktreeRoot,
-  getMainRepoRoot,
-  getCurrentBranch,
-} from '../git/git.js';
+import { getWorktreeRoot, getMainRepoRoot, getCurrentBranch } from '../git/git.js';
 
 export interface ProjectTarget {
   isGroup: boolean;
@@ -17,10 +13,7 @@ export interface ProjectTarget {
  * Resolve whether a name is a group or single repo.
  * Returns null if the name is not found in either.
  */
-export function resolveProjectTarget(
-  name: string,
-  config: WorkConfig,
-): ProjectTarget | null {
+export function resolveProjectTarget(name: string, config: WorkConfig): ProjectTarget | null {
   // Check if it's a group
   if (name in config.groups) {
     return {
@@ -44,10 +37,7 @@ export function resolveProjectTarget(
 
 /** Get all available project/group names. */
 export function getAllTargetNames(config: WorkConfig): string[] {
-  return [
-    ...Object.keys(config.repos),
-    ...Object.keys(config.groups),
-  ];
+  return [...Object.keys(config.repos), ...Object.keys(config.groups)];
 }
 
 /**
@@ -136,9 +126,7 @@ function safeRealpath(p: string): string {
 export function resolveFromCwd(
   config: WorkConfig,
   cwd: string,
-):
-  | { target: string; isGroup: boolean; branch: string; isBaseRepo: boolean }
-  | { error: string } {
+): { target: string; isGroup: boolean; branch: string; isBaseRepo: boolean } | { error: string } {
   const worktreeRoot = getWorktreeRoot(cwd);
   if (!worktreeRoot) {
     return { error: 'Not inside a git repository.' };

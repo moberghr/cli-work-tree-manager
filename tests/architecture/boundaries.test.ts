@@ -26,7 +26,8 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
+const IMPORT_RE =
+  /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
 
 const files: SourceFile[] = walk(SRC).map((abs) => {
   const text = fs.readFileSync(abs, 'utf-8');
@@ -54,9 +55,7 @@ describe('architecture boundaries', () => {
 
   it('§2.1 core never imports the commands layer', () => {
     expect(
-      violations((f, s) =>
-        f.rel.startsWith('src/core/') && s.startsWith('.') && resolveRel(f.rel, s).startsWith('src/commands/'),
-      ),
+      violations((f, s) => f.rel.startsWith('src/core/') && s.startsWith('.') && resolveRel(f.rel, s).startsWith('src/commands/')),
     ).toEqual([]);
   });
 
@@ -70,7 +69,10 @@ describe('architecture boundaries', () => {
     // A route module holding logic a command needs means that logic belongs in core (catch-up-deps.ts, fork-deps.ts, …).
     const starters = new Set(['src/commands/web.ts', 'src/commands/diff.ts']);
     expect(
-      violations((f, s) => f.rel.startsWith('src/commands/') && !starters.has(f.rel) && s.startsWith('.') && resolveRel(f.rel, s).startsWith('src/server/')),
+      violations(
+        (f, s) =>
+          f.rel.startsWith('src/commands/') && !starters.has(f.rel) && s.startsWith('.') && resolveRel(f.rel, s).startsWith('src/server/'),
+      ),
     ).toEqual([]);
   });
 
@@ -114,29 +116,61 @@ describe('architecture boundaries', () => {
 
   it('the browser SPA and the demo never touch state.db', () => {
     const db = /(^|\/)db(-import)?\.js$/;
-    expect(
-      violations((f, s) => (f.rel.startsWith('src/web/') || f.rel.startsWith('src/server/demo/')) && db.test(s)),
-    ).toEqual([]);
+    expect(violations((f, s) => (f.rel.startsWith('src/web/') || f.rel.startsWith('src/server/demo/')) && db.test(s))).toEqual([]);
   });
 
   it('§2.5 relative imports carry an explicit extension (.js for sources)', () => {
-    expect(
-      violations((f, s) => s.startsWith('.') && !/\.(js|css|json|svg|png)$/.test(s)),
-    ).toEqual([]);
+    expect(violations((f, s) => s.startsWith('.') && !/\.(js|css|json|svg|png)$/.test(s))).toEqual([]);
   });
 
   it('§2.6 Node builtins use the node: prefix', () => {
     const builtins = new Set([
-      'fs', 'path', 'os', 'crypto', 'http', 'https', 'net', 'child_process', 'events',
-      'url', 'util', 'stream', 'readline', 'zlib', 'tty', 'assert', 'buffer', 'worker_threads',
-      'fs/promises', 'timers', 'timers/promises',
+      'fs',
+      'path',
+      'os',
+      'crypto',
+      'http',
+      'https',
+      'net',
+      'child_process',
+      'events',
+      'url',
+      'util',
+      'stream',
+      'readline',
+      'zlib',
+      'tty',
+      'assert',
+      'buffer',
+      'worker_threads',
+      'fs/promises',
+      'timers',
+      'timers/promises',
     ]);
     expect(violations((_file, s) => builtins.has(s))).toEqual([]);
   });
 
   it('the browser SPA reaches into src/core only for the shared comment types', () => {
     // Shared wire types + pure logic: one definition for server and SPA.
-    const allowed = new Set(['src/core/comments/comment-types.js', 'src/core/status/attention.js', 'src/core/api-types.js', 'src/core/diff/diff-parse.js', 'src/core/sessions/saved-prompts.js', 'src/core/conversations/digest-view.js', 'src/core/sessions/session-view.js', 'src/core/chat/chat-view.js', 'src/core/rail/session-order.js', 'src/core/jira/jira-board.js', 'src/core/jira/jira-prompt.js', 'src/core/rail/snooze.js', 'src/core/rail/rail-layout.js', 'src/core/conversations/work-time-view.js', 'src/core/rail/blocks.js', 'src/core/conversations/timeline.js', 'src/core/pty/host-health.js']);
+    const allowed = new Set([
+      'src/core/comments/comment-types.js',
+      'src/core/status/attention.js',
+      'src/core/api-types.js',
+      'src/core/diff/diff-parse.js',
+      'src/core/sessions/saved-prompts.js',
+      'src/core/conversations/digest-view.js',
+      'src/core/sessions/session-view.js',
+      'src/core/chat/chat-view.js',
+      'src/core/rail/session-order.js',
+      'src/core/jira/jira-board.js',
+      'src/core/jira/jira-prompt.js',
+      'src/core/rail/snooze.js',
+      'src/core/rail/rail-layout.js',
+      'src/core/conversations/work-time-view.js',
+      'src/core/rail/blocks.js',
+      'src/core/conversations/timeline.js',
+      'src/core/pty/host-health.js',
+    ]);
     expect(
       violations(
         (f, s) =>
@@ -151,10 +185,31 @@ describe('architecture boundaries', () => {
   it('core modules the SPA may import are pure (no imports at all)', () => {
     // Anything in the SPA allowlist above gets bundled for the browser, so
     // it must not reach Node — keep them dependency-free.
-    for (const rel of ['src/core/comments/comment-types.ts', 'src/core/status/attention.ts', 'src/core/api-types.ts', 'src/core/diff/diff-parse.ts', 'src/core/sessions/saved-prompts.ts', 'src/core/conversations/digest-view.ts', 'src/core/sessions/session-view.ts', 'src/core/chat/chat-view.ts', 'src/core/rail/session-order.ts', 'src/core/jira/jira-board.ts', 'src/core/jira/jira-prompt.ts', 'src/core/rail/snooze.ts', 'src/core/rail/rail-layout.ts', 'src/core/conversations/work-time-view.ts', 'src/core/rail/blocks.ts', 'src/core/conversations/timeline.ts', 'src/core/pty/host-health.ts']) {
+    for (const rel of [
+      'src/core/comments/comment-types.ts',
+      'src/core/status/attention.ts',
+      'src/core/api-types.ts',
+      'src/core/diff/diff-parse.ts',
+      'src/core/sessions/saved-prompts.ts',
+      'src/core/conversations/digest-view.ts',
+      'src/core/sessions/session-view.ts',
+      'src/core/chat/chat-view.ts',
+      'src/core/rail/session-order.ts',
+      'src/core/jira/jira-board.ts',
+      'src/core/jira/jira-prompt.ts',
+      'src/core/rail/snooze.ts',
+      'src/core/rail/rail-layout.ts',
+      'src/core/conversations/work-time-view.ts',
+      'src/core/rail/blocks.ts',
+      'src/core/conversations/timeline.ts',
+      'src/core/pty/host-health.ts',
+    ]) {
       const f = files.find((x) => x.rel === rel);
       expect(f, rel).toBeDefined();
-      expect(f!.imports.filter((s) => !s.startsWith('.')), rel).toEqual([]);
+      expect(
+        f!.imports.filter((s) => !s.startsWith('.')),
+        rel,
+      ).toEqual([]);
     }
   });
 
@@ -167,9 +222,7 @@ describe('architecture boundaries', () => {
     // A session PTY created anywhere else would not survive restarts, would
     // not be restorable after a reboot and could not be attached to.
     const allowed = new Set(['src/core/pty/pty-registry.ts', 'src/core/pty/pty-session.ts']);
-    const offenders = files
-      .filter((f) => /new PtySession\s*\(/.test(f.text) && !allowed.has(f.rel))
-      .map((f) => f.rel);
+    const offenders = files.filter((f) => /new PtySession\s*\(/.test(f.text) && !allowed.has(f.rel)).map((f) => f.rel);
     expect(offenders).toEqual([]);
   });
 
@@ -200,10 +253,7 @@ describe('architecture boundaries', () => {
   it('only the PTY host imports the registry — node-pty never loads into work web or the CLI', () => {
     expect(
       violations(
-        (f, s) =>
-          s.startsWith('.') &&
-          resolveRel(f.rel, s) === 'src/core/pty/pty-registry.js' &&
-          f.rel !== 'src/core/pty/pty-host.ts',
+        (f, s) => s.startsWith('.') && resolveRel(f.rel, s) === 'src/core/pty/pty-registry.js' && f.rel !== 'src/core/pty/pty-host.ts',
       ),
     ).toEqual([]);
   });
@@ -218,10 +268,7 @@ describe('architecture boundaries', () => {
     // runtime. A package imported by Node code but listed only under
     // devDependencies works in dev and breaks a global install.
     const pkg = JSON.parse(fs.readFileSync(path.resolve(SRC, '../package.json'), 'utf-8'));
-    const deps = new Set([
-      ...Object.keys(pkg.dependencies ?? {}),
-      ...Object.keys(pkg.optionalDependencies ?? {}),
-    ]);
+    const deps = new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {})]);
     const missing = violations((f, s) => {
       if (f.rel.startsWith('src/web/') || s.startsWith('.') || s.startsWith('node:')) return false;
       const name = s.startsWith('@') ? s.split('/').slice(0, 2).join('/') : s.split('/')[0];

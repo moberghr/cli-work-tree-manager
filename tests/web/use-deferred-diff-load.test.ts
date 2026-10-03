@@ -4,8 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { useDeferredDiffLoad } from '../../src/web/src/hooks/use-deferred-diff-load.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Load = ReturnType<typeof useDeferredDiffLoad<unknown>>;
 
@@ -22,11 +21,7 @@ afterEach(() => {
   container.remove();
 });
 
-function renderHook(
-  fetcher: () => Promise<unknown>,
-  deps: unknown[],
-  delayMs: number,
-) {
+function renderHook(fetcher: () => Promise<unknown>, deps: unknown[], delayMs: number) {
   let latest: Load = {
     data: null,
     error: null,
@@ -239,14 +234,19 @@ describe('useDeferredDiffLoad staged live updates', () => {
     let latest: Load | null = null;
     function Harness({ id }: { id: string }) {
       latest = useDeferredDiffLoad(
-        () => new Promise((r) => { resolvers[id] = r; }),
+        () =>
+          new Promise((r) => {
+            resolvers[id] = r;
+          }),
         [id],
         50,
       );
       return null;
     }
     act(() => root.render(createElement(Harness, { id: 'a' })));
-    await act(async () => { resolvers.a({ id: 'a' }); });
+    await act(async () => {
+      resolvers.a({ id: 'a' });
+    });
     expect(latest!.data).toEqual({ id: 'a' });
     expect(latest!.stale).toBe(false);
 
@@ -255,7 +255,9 @@ describe('useDeferredDiffLoad staged live updates', () => {
     expect(latest!.stale).toBe(true);
     expect(latest!.data).toEqual({ id: 'a' });
 
-    await act(async () => { resolvers.b({ id: 'b' }); });
+    await act(async () => {
+      resolvers.b({ id: 'b' });
+    });
     expect(latest!.data).toEqual({ id: 'b' });
     expect(latest!.stale).toBe(false);
   });

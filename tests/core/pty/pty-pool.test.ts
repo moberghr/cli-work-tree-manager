@@ -19,7 +19,10 @@ const host = {
   failNextSpawn: false,
 };
 let hostRunning = false;
-const ensureHost = vi.fn(async () => { hostRunning = true; return { pid: 1, port: 9, token: 't', version: 1 }; });
+const ensureHost = vi.fn(async () => {
+  hostRunning = true;
+  return { pid: 1, port: 9, token: 't', version: 1 };
+});
 const findHost = vi.fn(async () => (hostRunning ? { pid: 1, port: 9, token: 't', version: 1 } : null));
 /** The patient variant: what the real one returns after waiting. */
 const findHostPatient = vi.fn(async () => findHost());
@@ -31,8 +34,14 @@ vi.mock('../../../src/core/sessions/web-state.js', () => ({
 }));
 const cfg = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 // The real module (agent settings read its path, isAgentId), with the config and its folder ours.
-vi.mock('../../../src/core/platform/config.js', async (orig) => ({ ...(await orig<object>()), loadConfig: () => cfg.value, getConfigDir: () => os.tmpdir() }));
-vi.mock('../../../src/core/platform/ai-launcher.js', () => ({ getAiTool: (c?: { aiCommand?: string }) => ({ cmd: (c?.aiCommand ?? 'claude').split(' ')[0], baseArgs: [] }) }));
+vi.mock('../../../src/core/platform/config.js', async (orig) => ({
+  ...(await orig<object>()),
+  loadConfig: () => cfg.value,
+  getConfigDir: () => os.tmpdir(),
+}));
+vi.mock('../../../src/core/platform/ai-launcher.js', () => ({
+  getAiTool: (c?: { aiCommand?: string }) => ({ cmd: (c?.aiCommand ?? 'claude').split(' ')[0], baseArgs: [] }),
+}));
 vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
   ensureHost: (...a: unknown[]) => ensureHost(...(a as [])),
   findHost: (...a: unknown[]) => findHost(...(a as [])),
@@ -40,15 +49,28 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
   PtyHostVersionError,
   PtyHostClient: class {
     async spawn(id: string, spec: { cwd: string; port?: number }) {
-      if (host.failNextSpawn) { host.failNextSpawn = false; throw new Error('ECONNREFUSED'); }
+      if (host.failNextSpawn) {
+        host.failNextSpawn = false;
+        throw new Error('ECONNREFUSED');
+      }
       host.spawned.push({ id, spec });
       host.live.add(id);
       return {};
     }
-    async list() { return [...host.live].map((id) => ({ id, exited: false })); }
-    async write(id: string, data: string) { host.written.push([id, data]); return true; }
-    async kill(id: string) { host.killed.push(id); host.live.delete(id); }
-    attachUrl(id: string) { return `ws://host/${id}`; }
+    async list() {
+      return [...host.live].map((id) => ({ id, exited: false }));
+    }
+    async write(id: string, data: string) {
+      host.written.push([id, data]);
+      return true;
+    }
+    async kill(id: string) {
+      host.killed.push(id);
+      host.live.delete(id);
+    }
+    attachUrl(id: string) {
+      return `ws://host/${id}`;
+    }
   },
 }));
 
@@ -72,9 +94,16 @@ async function freshPool() {
 }
 
 beforeEach(() => {
-  host.spawned = []; host.killed = []; host.written = []; host.live = new Set(); host.failNextSpawn = false;
+  host.spawned = [];
+  host.killed = [];
+  host.written = [];
+  host.live = new Set();
+  host.failNextSpawn = false;
   hostRunning = false;
-  ensureHost.mockClear(); findHost.mockClear(); findHostPatient.mockClear(); findHostPatient.mockImplementation(async () => findHost());
+  ensureHost.mockClear();
+  findHost.mockClear();
+  findHostPatient.mockClear();
+  findHostPatient.mockImplementation(async () => findHost());
   sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pty-pool-')), 'pty-sessions.json');
   restore.list = {};
 });

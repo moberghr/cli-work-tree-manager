@@ -11,7 +11,11 @@ import { digestMarkdown, windowStart } from '../../src/web/src/state/digest.js';
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
-  try { localStorage.clear(); } catch { /* */ }
+  try {
+    localStorage.clear();
+  } catch {
+    /* */
+  }
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -27,16 +31,27 @@ const DIGEST: DigestResponse = {
   generatedAt: '2026-09-29T17:00:00.000Z',
   sessions: [
     {
-      sessionId: 's1', target: 'api', branch: 'feat/csv', isGroup: false, state: 'idle', summary: 'Export works',
-      prompts: [{ ts: '2026-09-29T09:05:00.000Z', text: 'Add the CSV export' }], morePrompts: 2,
-      turns: 3, turnLabels: ['Wrote the export', 'Added tests'],
+      sessionId: 's1',
+      target: 'api',
+      branch: 'feat/csv',
+      isGroup: false,
+      state: 'idle',
+      summary: 'Export works',
+      prompts: [{ ts: '2026-09-29T09:05:00.000Z', text: 'Add the CSV export' }],
+      morePrompts: 2,
+      turns: 3,
+      turnLabels: ['Wrote the export', 'Added tests'],
       diffStat: { added: 40, deleted: 2, files: 3 },
       prs: [{ repo: 'api', number: 7, url: 'https://gh/7', state: 'MERGED', mergedAt: '2026-09-29T15:00:00.000Z' }],
-      archivedAt: null, lastActivity: '2026-09-29T15:00:00.000Z',
+      archivedAt: null,
+      lastActivity: '2026-09-29T15:00:00.000Z',
     },
   ],
 };
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const text = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 describe('digest helpers', () => {
@@ -123,20 +138,26 @@ describe('TodayTab', () => {
   it('marks a PR merged in the window, and says when earlier prompts are missing', async () => {
     const d: DigestResponse = {
       ...DIGEST,
-      sessions: [{
-        ...DIGEST.sessions[0],
-        partial: true,
-        prs: [
-          { repo: 'api', number: 7, url: 'u7', state: 'MERGED', mergedAt: '2026-09-29T15:00:00.000Z' },
-          { repo: 'api', number: 3, url: 'u3', state: 'MERGED', mergedAt: '2026-09-20T15:00:00.000Z' },
-          { repo: 'web', number: 9, url: 'u9', state: 'OPEN' },
-        ],
-      }],
+      sessions: [
+        {
+          ...DIGEST.sessions[0],
+          partial: true,
+          prs: [
+            { repo: 'api', number: 7, url: 'u7', state: 'MERGED', mergedAt: '2026-09-29T15:00:00.000Z' },
+            { repo: 'api', number: 3, url: 'u3', state: 'MERGED', mergedAt: '2026-09-20T15:00:00.000Z' },
+            { repo: 'web', number: 9, url: 'u9', state: 'OPEN' },
+          ],
+        },
+      ],
     };
     act(() => root.render(createElement(TodayTab, { onOpenSession: vi.fn(), load: async () => d })));
     await flush();
     const prs = [...container.querySelectorAll('.wd-today-pr')].map((a) => [a.textContent, a.classList.contains('wd-today-pr-merged')]);
-    expect(prs).toEqual([['#7 merged', true], ['#3 merged', false], ['#9 open', false]]);
+    expect(prs).toEqual([
+      ['#7 merged', true],
+      ['#3 merged', false],
+      ['#9 open', false],
+    ]);
     expect(text(container.querySelector('.wd-today-prompts'))).toContain('Earlier prompts not shown');
   });
 

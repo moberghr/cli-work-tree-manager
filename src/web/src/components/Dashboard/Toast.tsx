@@ -31,7 +31,11 @@ export function useToast(ms = 5000): { toast: ToastMessage | null; show: (t: Toa
 export function Toast({ toast, onClose }: { toast: ToastMessage | null; onClose: () => void }) {
   if (!toast) return null;
   return (
-    <div className={'wd-toast' + (toast.kind === 'error' ? ' wd-toast-error' : '')} role={toast.kind === 'error' ? 'alert' : 'status'} onClick={onClose}>
+    <div
+      className={'wd-toast' + (toast.kind === 'error' ? ' wd-toast-error' : '')}
+      role={toast.kind === 'error' ? 'alert' : 'status'}
+      onClick={onClose}
+    >
       {toast.text}
     </div>
   );

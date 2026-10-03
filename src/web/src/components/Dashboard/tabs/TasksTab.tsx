@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RowMenu } from '../RowMenu.js';
-import {
-  createTask,
-  deleteTask,
-  fetchTasks,
-  updateTask,
-  type TaskItem,
-} from '../../../api/panes.js';
+import { createTask, deleteTask, fetchTasks, updateTask, type TaskItem } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 
 interface Props {
@@ -33,7 +27,12 @@ export function TasksTab({ onPick }: Props) {
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
 
   function refresh() {
-    fetchTasks().then((r) => setTasks(r.tasks), () => { /* offline: the list stays as it was */ });
+    fetchTasks().then(
+      (r) => setTasks(r.tasks),
+      () => {
+        /* offline: the list stays as it was */
+      },
+    );
   }
 
   useEffect(refresh, []);
@@ -47,14 +46,18 @@ export function TasksTab({ onPick }: Props) {
       const r = await createTask(text);
       setTasks(r.tasks);
       setDraft('');
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   async function toggle(t: TaskItem) {
     try {
       const r = await updateTask(t.id, { done: !t.done });
       setTasks(r.tasks);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   async function rename(t: TaskItem, text: string) {
@@ -63,20 +66,21 @@ export function TasksTab({ onPick }: Props) {
     try {
       const r = await updateTask(t.id, { text: next });
       setTasks(r.tasks);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   async function remove(id: number) {
     try {
       const r = await deleteTask(id);
       setTasks(r.tasks);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
-  const visible = useMemo(
-    () => (showDone ? tasks : tasks.filter((t) => !t.done)),
-    [tasks, showDone],
-  );
+  const visible = useMemo(() => (showDone ? tasks : tasks.filter((t) => !t.done)), [tasks, showDone]);
   const counts = useMemo(() => {
     const open = tasks.filter((t) => !t.done).length;
     return { open, done: tasks.length - open };
@@ -93,25 +97,11 @@ export function TasksTab({ onPick }: Props) {
         </h1>
         <div className="wd-tab-controls">
           <label>
-            <input
-              type="checkbox"
-              checked={showDone}
-              onChange={(e) => setShowDone(e.target.checked)}
-            />
-            {' '}
-            show done
+            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> show done
           </label>
           <form className="wd-task-add" onSubmit={submitAdd}>
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="+ Add task…"
-            />
-            <button
-              type="submit"
-              className="wd-btn-primary"
-              disabled={!draft.trim()}
-            >
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="+ Add task…" />
+            <button type="submit" className="wd-btn-primary" disabled={!draft.trim()}>
               Add
             </button>
           </form>
@@ -134,12 +124,7 @@ export function TasksTab({ onPick }: Props) {
                 setMenu({ id: t.id, x: e.clientX, y: e.clientY });
               }}
             >
-              <input
-                type="checkbox"
-                checked={t.done}
-                onChange={() => toggle(t)}
-                aria-label={t.done ? 'Mark not done' : 'Mark done'}
-              />
+              <input type="checkbox" checked={t.done} onChange={() => toggle(t)} aria-label={t.done ? 'Mark not done' : 'Mark done'} />
               <TaskText
                 task={t}
                 editing={editingId === t.id}

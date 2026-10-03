@@ -14,27 +14,59 @@ describe('runBulk / bulkSummary', () => {
     let running = 0;
     let most = 0;
     const progress: number[] = [];
-    const results = await runBulk(['a', 'b', 'c', 'd', 'e'], async (id) => {
-      running++;
-      most = Math.max(most, running);
-      await new Promise((r) => setTimeout(r, 5));
-      running--;
-      if (id === 'c') throw new Error('1 uncommitted file');
-    }, { concurrency: 2, onProgress: (d) => progress.push(d) });
+    const results = await runBulk(
+      ['a', 'b', 'c', 'd', 'e'],
+      async (id) => {
+        running++;
+        most = Math.max(most, running);
+        await new Promise((r) => setTimeout(r, 5));
+        running--;
+        if (id === 'c') throw new Error('1 uncommitted file');
+      },
+      { concurrency: 2, onProgress: (d) => progress.push(d) },
+    );
     expect(most).toBe(2);
-    expect(results.map((r) => [r.id, r.ok])).toEqual([['a', true], ['b', true], ['c', false], ['d', true], ['e', true]]);
+    expect(results.map((r) => [r.id, r.ok])).toEqual([
+      ['a', true],
+      ['b', true],
+      ['c', false],
+      ['d', true],
+      ['e', true],
+    ]);
     expect(progress).toEqual([1, 2, 3, 4, 5]);
     expect(bulkSummary('Archived', results, (id) => `feat/${id}`)).toBe('Archived 4; 1 refused: feat/c — 1 uncommitted file');
-    expect(bulkSummary('Snoozed', results.filter((r) => r.ok), String)).toBe('Snoozed 4.');
+    expect(
+      bulkSummary(
+        'Snoozed',
+        results.filter((r) => r.ok),
+        String,
+      ),
+    ).toBe('Snoozed 4.');
   });
 });
 
 const now = new Date().toISOString();
 const session = (id: string, extra: Partial<SessionSummary> = {}): SessionSummary =>
   ({
-    id, target: 'api', branch: `feat/${id}`, isGroup: false, paths: [`C:\\wt\\${id}`], createdAt: now, lastAccessedAt: now,
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-    pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null, ...extra,
+    id,
+    target: 'api',
+    branch: `feat/${id}`,
+    isGroup: false,
+    paths: [`C:\\wt\\${id}`],
+    createdAt: now,
+    lastAccessedAt: now,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+    ...extra,
   }) as SessionSummary;
 
 describe('the Sessions table’s bulk bar', () => {
@@ -46,7 +78,9 @@ describe('the Sessions table’s bulk bar', () => {
     localStorage.setItem('work-web:sessions-grouping', 'none'); // one table
     localStorage.setItem('work-web:sessions-show-archived', '1');
     bulk = {
-      archive: vi.fn(async (s: SessionSummary) => { if (s.id === 'b') throw new Error('its Claude is working'); }),
+      archive: vi.fn(async (s: SessionSummary) => {
+        if (s.id === 'b') throw new Error('its Claude is working');
+      }),
       restore: vi.fn(async () => {}),
       snooze: vi.fn(async () => {}),
       send: vi.fn(async () => {}),
@@ -72,8 +106,14 @@ describe('the Sessions table’s bulk bar', () => {
     container.remove();
   });
   const tick = (id: string) => act(() => container.querySelector<HTMLInputElement>(`input[aria-label="Select api feat/${id}"]`)!.click());
-  const button = (label: string | RegExp) => [...container.querySelectorAll('button')].find((b) => (typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? '')))!;
-  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  const button = (label: string | RegExp) =>
+    [...container.querySelectorAll('button')].find((b) =>
+      typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? ''),
+    )!;
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
 
   it('tick rows → archive them; a refused one stays ticked with the reason', async () => {
     tick('a');
@@ -119,7 +159,10 @@ describe('the Sessions table’s bulk bar', () => {
     });
     await act(async () => button('Send to 2').click());
     await settle();
-    expect(bulk.send.mock.calls.map((c) => [(c[0] as SessionSummary).id, c[1]]).sort()).toEqual([['a', 'Rebase on main'], ['c', 'Rebase on main']]);
+    expect(bulk.send.mock.calls.map((c) => [(c[0] as SessionSummary).id, c[1]]).sort()).toEqual([
+      ['a', 'Rebase on main'],
+      ['c', 'Rebase on main'],
+    ]);
     tick('a');
     await act(async () => button('Delete…').click());
     expect(container.textContent).toContain('A worktree goes only where nothing would be lost');
@@ -136,11 +179,14 @@ describe('the bulk bar’s real calls (defaultBulk)', () => {
   it('archive never forces: a session with work waiting is refused with why; delete sends no force', async () => {
     const { defaultBulk } = await import('../../src/web/src/components/Dashboard/tabs/SessionsTab.js');
     const calls: Array<{ url: string; method?: string; body?: string }> = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url, method: init?.method, body: init?.body as string | undefined });
-      if (url.endsWith('/archive')) return new Response(JSON.stringify({ blocked: ['its Claude is working'] }), { status: 409 });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method, body: init?.body as string | undefined });
+        if (url.endsWith('/archive')) return new Response(JSON.stringify({ blocked: ['its Claude is working'] }), { status: 409 });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
     await expect(defaultBulk.archive(session('a'))).rejects.toThrow('Not archived: its Claude is working');
     expect(calls.filter((c) => c.url.endsWith('/archive'))).toHaveLength(1); // asked once, not again with force
     await defaultBulk.remove(session('b'));

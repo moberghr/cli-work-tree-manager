@@ -81,34 +81,22 @@ describe('getAllTargetNames', () => {
 
 describe('matchTargetByWorktreePath', () => {
   it('matches a single-repo worktree path', () => {
-    const result = matchTargetByWorktreePath(
-      config,
-      path.join('/tmp/worktrees', 'api', 'feature-login'),
-    );
+    const result = matchTargetByWorktreePath(config, path.join('/tmp/worktrees', 'api', 'feature-login'));
     expect(result).toEqual({ target: 'api', isGroup: false });
   });
 
   it('matches a group worktree path (with sub-repo segment)', () => {
-    const result = matchTargetByWorktreePath(
-      config,
-      path.join('/tmp/worktrees', 'fullstack', 'feature-login', 'api'),
-    );
+    const result = matchTargetByWorktreePath(config, path.join('/tmp/worktrees', 'fullstack', 'feature-login', 'api'));
     expect(result).toEqual({ target: 'fullstack', isGroup: true });
   });
 
   it('matches a group path with a trailing subdir', () => {
-    const result = matchTargetByWorktreePath(
-      config,
-      path.join('/tmp/worktrees', 'all', 'feature-x', 'shared', 'src'),
-    );
+    const result = matchTargetByWorktreePath(config, path.join('/tmp/worktrees', 'all', 'feature-x', 'shared', 'src'));
     expect(result).toEqual({ target: 'all', isGroup: true });
   });
 
   it('returns null for a path not under worktreesRoot', () => {
-    const result = matchTargetByWorktreePath(
-      config,
-      '/somewhere/else/api/feature-login',
-    );
+    const result = matchTargetByWorktreePath(config, '/somewhere/else/api/feature-login');
     expect(result).toBeNull();
   });
 
@@ -118,10 +106,7 @@ describe('matchTargetByWorktreePath', () => {
   });
 
   it('returns null for an unknown first segment', () => {
-    const result = matchTargetByWorktreePath(
-      config,
-      path.join('/tmp/worktrees', 'unknown', 'feature-login'),
-    );
+    const result = matchTargetByWorktreePath(config, path.join('/tmp/worktrees', 'unknown', 'feature-login'));
     expect(result).toBeNull();
   });
 
@@ -130,10 +115,7 @@ describe('matchTargetByWorktreePath', () => {
       ...config,
       repos: { ...config.repos, api: '/repos/api-service' },
     };
-    const result = matchTargetByWorktreePath(
-      aliasConfig,
-      path.join('/tmp/worktrees', 'api-service', 'feature-login'),
-    );
+    const result = matchTargetByWorktreePath(aliasConfig, path.join('/tmp/worktrees', 'api-service', 'feature-login'));
     expect(result).toEqual({ target: 'api', isGroup: false });
   });
 
@@ -141,11 +123,7 @@ describe('matchTargetByWorktreePath', () => {
     // git --show-toplevel returns the symlink-resolved path; the config root
     // may still contain the symlinked component (macOS /tmp -> /private/tmp).
     const realpath = (p: string) => p.replace(/^\/tmp\//, '/private/tmp/');
-    const result = matchTargetByWorktreePath(
-      config,
-      '/private/tmp/worktrees/fullstack/feature-login/api',
-      realpath,
-    );
+    const result = matchTargetByWorktreePath(config, '/private/tmp/worktrees/fullstack/feature-login/api', realpath);
     expect(result).toEqual({ target: 'fullstack', isGroup: true });
   });
 });
@@ -164,8 +142,7 @@ describe('matchTargetByRepoRoot', () => {
   });
 
   it('uses the injected realpath fn for canonicalization', () => {
-    const canonical = (p: string) =>
-      p === '/tmp/api' ? '/repos/api' : p;
+    const canonical = (p: string) => (p === '/tmp/api' ? '/repos/api' : p);
     const result = matchTargetByRepoRoot(config, '/tmp/api', canonical);
     expect(result).toEqual({ target: 'api', isGroup: false });
   });

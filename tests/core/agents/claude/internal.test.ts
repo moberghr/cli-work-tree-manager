@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { INTERNAL_RUN_ENV as INTERNAL_CLAUDE_ENV, internalRunEnv as internalClaudeEnv, isInternalRun as isInternalClaude } from '../../../../src/core/platform/internal-run.js';
+import {
+  INTERNAL_RUN_ENV as INTERNAL_CLAUDE_ENV,
+  internalRunEnv as internalClaudeEnv,
+  isInternalRun as isInternalClaude,
+} from '../../../../src/core/platform/internal-run.js';
 
 const original = process.env[INTERNAL_CLAUDE_ENV];
 

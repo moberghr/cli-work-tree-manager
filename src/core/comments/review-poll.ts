@@ -26,10 +26,7 @@ export interface SnapshotDiff {
   deleted: string[];
 }
 
-export function diffReviewSnapshot(
-  snapshot: Comment[],
-  seen: Set<string>,
-): SnapshotDiff {
+export function diffReviewSnapshot(snapshot: Comment[], seen: Set<string>): SnapshotDiff {
   const now = new Set(snapshot.map((c) => c.id));
 
   const deleted: string[] = [];

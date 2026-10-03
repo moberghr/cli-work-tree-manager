@@ -2,14 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatWorked } from '../../../../../core/conversations/work-time-view.js';
 import type { DigestResponse, DigestSession } from '../../../api/client.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import {
-  STATE_LABEL,
-  WINDOW_LABEL,
-  digestMarkdown,
-  totals,
-  windowStart,
-  type DigestWindow,
-} from '../../../state/digest.js';
+import { STATE_LABEL, WINDOW_LABEL, digestMarkdown, totals, windowStart, type DigestWindow } from '../../../state/digest.js';
 
 interface Props {
   onOpenSession: (id: string, sub: SessionSubTab) => void;
@@ -53,7 +46,12 @@ export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCo
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null);
   const request = useRef(0);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   const refresh = useCallback(() => {
     const n = ++request.current;
@@ -155,7 +153,11 @@ function DigestCard({ s, since, onOpen }: { s: DigestSession; since: string; onO
               {s.turns} turn{s.turns === 1 ? '' : 's'}
             </span>
           )}
-          {!!s.workedMs && <span title="How long its Claude worked in this window (approximate: the time between its steps, at most 15 minutes each)">~{formatWorked(s.workedMs)} worked</span>}
+          {!!s.workedMs && (
+            <span title="How long its Claude worked in this window (approximate: the time between its steps, at most 15 minutes each)">
+              ~{formatWorked(s.workedMs)} worked
+            </span>
+          )}
           {!!s.diffStat?.files && (
             <span className="wd-diffstat" title="Uncommitted now">
               <span className="wd-diffstat-add">+{s.diffStat.added}</span> <span className="wd-diffstat-del">−{s.diffStat.deleted}</span>

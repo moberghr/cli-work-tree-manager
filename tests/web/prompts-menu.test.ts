@@ -20,8 +20,15 @@ afterEach(() => {
 });
 
 const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: 's1', target: 'api', branch: 'feat/x', isGroup: false, paths: ['/wt/api'],
-  createdAt: '', lastAccessedAt: '', ptyStatus: 'running', ...over,
+  id: 's1',
+  target: 'api',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: ['/wt/api'],
+  createdAt: '',
+  lastAccessedAt: '',
+  ptyStatus: 'running',
+  ...over,
 });
 const loadPrompts = async () => ({
   configured: true,
@@ -30,7 +37,10 @@ const loadPrompts = async () => ({
     { label: 'Web only', prompt: 'x', repos: ['web'] },
   ],
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === label)!;
 
 describe('PromptsMenu', () => {
@@ -58,12 +68,16 @@ describe('PromptsMenu', () => {
       await flush();
       return container.querySelector('[role=status]')?.textContent;
     };
-    expect(await pickFor(session({ attention: { state: 'working', seen: true, since: '', updatedAt: '', stale: false } }))).toContain('when this turn ends');
+    expect(await pickFor(session({ attention: { state: 'working', seen: true, since: '', updatedAt: '', stale: false } }))).toContain(
+      'when this turn ends',
+    );
     expect(await pickFor(session({ id: 's2', ptyStatus: 'idle' }))).toContain('next turn');
   });
 
   it('shows a failed send', async () => {
-    const send = vi.fn(async () => { throw new Error('send failed (500)'); });
+    const send = vi.fn(async () => {
+      throw new Error('send failed (500)');
+    });
     act(() => root.render(createElement(PromptsMenu, { session: session(), loadPrompts, send })));
     await act(async () => button('Prompts ▾').click());
     await flush();

@@ -46,10 +46,7 @@ describe('loadHistory', () => {
         lastAccessedAt: '2025-01-01T00:00:00.000Z',
       },
     ];
-    fs.writeFileSync(
-      path.join(historyDir, 'history.json'),
-      JSON.stringify(sessions),
-    );
+    fs.writeFileSync(path.join(historyDir, 'history.json'), JSON.stringify(sessions));
 
     expect(loadHistory()).toEqual(sessions);
   });
@@ -78,10 +75,7 @@ describe('loadHistory', () => {
   it('returns empty array for non-array JSON', () => {
     const historyDir = path.join(tmpDir, '.work');
     fs.mkdirSync(historyDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(historyDir, 'history.json'),
-      JSON.stringify({ not: 'an array' }),
-    );
+    fs.writeFileSync(path.join(historyDir, 'history.json'), JSON.stringify({ not: 'an array' }));
 
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(loadHistory()).toEqual([]);
@@ -138,7 +132,10 @@ describe('the agent a session runs', () => {
     await upsertSession('api', false, 'feat/a', ['/tmp/a']);
     expect(findSession(loadHistory(), 'api', 'feat/a')?.agent).toBe('claude');
     fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.work', 'config.json'), JSON.stringify({ worktreesRoot: '/w', repos: {}, groups: {}, copyFiles: [], aiCommand: 'opencode' }));
+    fs.writeFileSync(
+      path.join(tmpDir, '.work', 'config.json'),
+      JSON.stringify({ worktreesRoot: '/w', repos: {}, groups: {}, copyFiles: [], aiCommand: 'opencode' }),
+    );
     await upsertSession('api', false, 'feat/a', ['/tmp/a']); // coming back to it
     expect(findSession(loadHistory(), 'api', 'feat/a')?.agent).toBe('claude');
     // A tool work has no adapter for isn't recorded: the session follows aiCommand.
@@ -163,9 +160,7 @@ describe('upsertSession', () => {
     await upsertSession('api', false, 'feat', ['/tmp/wt']);
 
     // Small delay to ensure different timestamp
-    vi.spyOn(Date.prototype, 'toISOString').mockReturnValueOnce(
-      '2099-01-01T00:00:00.000Z',
-    );
+    vi.spyOn(Date.prototype, 'toISOString').mockReturnValueOnce('2099-01-01T00:00:00.000Z');
     await upsertSession('api', false, 'feat', ['/tmp/wt2']);
 
     const sessions = loadHistory();
@@ -379,13 +374,7 @@ describe('upsertSessionWithPort (atomic allocate + persist)', () => {
   const portRange = { start: 51000, end: 51099 };
 
   it('persists the session together with an allocated port', async () => {
-    const { port } = await upsertSessionWithPort(
-      'api',
-      false,
-      'feat',
-      [tmpDir],
-      { portRange },
-    );
+    const { port } = await upsertSessionWithPort('api', false, 'feat', [tmpDir], { portRange });
     expect(port).toBeGreaterThanOrEqual(51000);
     expect(port).toBeLessThanOrEqual(51099);
 
@@ -407,9 +396,7 @@ describe('upsertSessionWithPort (atomic allocate + persist)', () => {
     // them all read the same empty snapshot and collide.
     const count = 8;
     const results = await Promise.all(
-      Array.from({ length: count }, (_, i) =>
-        upsertSessionWithPort('api', false, `feat-${i}`, [tmpDir], { portRange }),
-      ),
+      Array.from({ length: count }, (_, i) => upsertSessionWithPort('api', false, `feat-${i}`, [tmpDir], { portRange })),
     );
 
     const ports = results.map((r) => r.port);
@@ -444,6 +431,10 @@ describe('forgetOtherBaseCheckoutEntries', () => {
     await upsertSession('web', false, 'feat/old', [repo]); // another target: not ours
     await upsertSession('api', false, 'main', [repo]);
     expect((await forgetOtherBaseCheckoutEntries('api', 'main', repo)).sort()).toEqual(['feat/old', 'feat/older']);
-    expect(loadHistory().map((s) => `${s.target}:${s.branch}`).sort()).toEqual(['api:feat/worktree', 'api:main', 'web:feat/old']);
+    expect(
+      loadHistory()
+        .map((s) => `${s.target}:${s.branch}`)
+        .sort(),
+    ).toEqual(['api:feat/worktree', 'api:main', 'web:feat/old']);
   });
 });

@@ -6,7 +6,10 @@ import type { WorktreeSession } from '../../../src/core/sessions/session-types.j
 
 const files = vi.hoisted(() => ({ list: [] as Array<{ file: string; mtimeMs: number; size: number }> }));
 // Claude's transcript list (the Claude adapter's files): these files.
-vi.mock('../../../src/core/agents/claude/files.js', () => ({ listTranscripts: () => files.list, latestTranscript: () => files.list[0] ?? null }));
+vi.mock('../../../src/core/agents/claude/files.js', () => ({
+  listTranscripts: () => files.list,
+  latestTranscript: () => files.list[0] ?? null,
+}));
 
 import { firstPromptOf, sessionTitle, titleText } from '../../../src/core/conversations/session-title.js';
 import { claudeEntries } from '../../../src/core/agents/claude/entries.js';
@@ -15,7 +18,12 @@ let tmp: string;
 const line = (o: object) => JSON.stringify(o) + '\n';
 const write = (name: string, prompts: string[], mtimeMs: number) => {
   const file = path.join(tmp, name);
-  fs.writeFileSync(file, prompts.map((p, i) => line({ type: 'user', uuid: `${name}-${i}`, timestamp: `2026-09-0${i + 1}T10:00:00Z`, message: { content: p } })).join(''));
+  fs.writeFileSync(
+    file,
+    prompts
+      .map((p, i) => line({ type: 'user', uuid: `${name}-${i}`, timestamp: `2026-09-0${i + 1}T10:00:00Z`, message: { content: p } }))
+      .join(''),
+  );
   files.list.push({ file, mtimeMs, size: fs.statSync(file).size });
   return file;
 };
@@ -36,7 +44,11 @@ describe('sessionTitle', () => {
 
   it('else the first prompt of its OLDEST conversation, shortened', () => {
     write('new.jsonl', ['Later work on it'], 200);
-    write('old.jsonl', ['Rotate the terminal encryption keys for stage and check Adyen accepts the new shape of the key identifier', 'more'], 100);
+    write(
+      'old.jsonl',
+      ['Rotate the terminal encryption keys for stage and check Adyen accepts the new shape of the key identifier', 'more'],
+      100,
+    );
     const t = sessionTitle(s())!;
     expect(t.startsWith('Rotate the terminal encryption keys')).toBe(true);
     expect(t.length).toBeLessThanOrEqual(80);
@@ -59,7 +71,9 @@ describe('sessionTitle', () => {
 
 describe('titleText', () => {
   it('a name from what you wrote: pasted blocks and tags left out', () => {
-    expect(titleText('<pasted_content id="496a"> using Payfac.Worker; namespace X {} </pasted_content>\nwhy is this slow?')).toBe('why is this slow?');
+    expect(titleText('<pasted_content id="496a"> using Payfac.Worker; namespace X {} </pasted_content>\nwhy is this slow?')).toBe(
+      'why is this slow?',
+    );
     expect(titleText('<pasted_content id="1">only the paste</pasted_content>')).toBe('only the paste');
     expect(titleText('fix <b>the</b>\n  login   redirect')).toBe('fix the login redirect');
     expect(titleText('<pasted_content id="1"></pasted_content>')).toBeNull();

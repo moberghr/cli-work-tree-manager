@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  selectPublishedCount,
-  selectDrafts,
-} from '../../src/web/src/state/ReviewProvider.js';
+import { selectPublishedCount, selectDrafts } from '../../src/web/src/state/ReviewProvider.js';
 import type { Comment } from '../../src/web/src/api/client.js';
 
 function comment(over: Partial<Comment>): Comment {
@@ -22,27 +19,17 @@ function comment(over: Partial<Comment>): Comment {
 
 describe('selectPublishedCount', () => {
   it("counts the user's published comments", () => {
-    expect(
-      selectPublishedCount([comment({}), comment({})]),
-    ).toBe(2);
+    expect(selectPublishedCount([comment({}), comment({})])).toBe(2);
   });
 
   it("does NOT count Claude's published replies (the End-review badge bug)", () => {
     // One user comment + one Claude reply → must read as 1, not 2.
-    const c = [
-      comment({ id: 'u1', author: 'user' }),
-      comment({ id: 'c1', author: 'claude', parentId: 'u1' }),
-    ];
+    const c = [comment({ id: 'u1', author: 'user' }), comment({ id: 'c1', author: 'claude', parentId: 'u1' })];
     expect(selectPublishedCount(c)).toBe(1);
   });
 
   it('ignores drafts', () => {
-    expect(
-      selectPublishedCount([
-        comment({ status: 'draft' }),
-        comment({ status: 'published' }),
-      ]),
-    ).toBe(1);
+    expect(selectPublishedCount([comment({ status: 'draft' }), comment({ status: 'published' })])).toBe(1);
   });
 });
 

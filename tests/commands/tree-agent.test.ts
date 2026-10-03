@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** `work tree --no-host`: the direct launch runs the session's own agent, and asks that agent whether it can resume. */
 
-vi.mock('../../src/core/platform/launch.js', async (orig) => ({ ...(await orig<typeof import('../../src/core/platform/launch.js')>()), launchAi: vi.fn() }));
+vi.mock('../../src/core/platform/launch.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/platform/launch.js')>()),
+  launchAi: vi.fn(),
+}));
 const { launchAi } = await import('../../src/core/platform/launch.js');
 const { git } = await import('../../src/core/git/git.js');
 const { saveConfig } = await import('../../src/core/platform/config.js');
@@ -35,20 +38,44 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const tree = () => (treeCommand.handler as (argv: unknown) => unknown)({ _: [], target: 'api', branch: 'feat/x', host: false, pull: false, unsafe: false, fresh: false });
+const tree = () =>
+  (treeCommand.handler as (argv: unknown) => unknown)({
+    _: [],
+    target: 'api',
+    branch: 'feat/x',
+    host: false,
+    pull: false,
+    unsafe: false,
+    fresh: false,
+  });
 
 describe('work tree --no-host', () => {
   it('a new session runs the default agent; coming back after the default changed, it runs the one it was created with', async () => {
     await tree();
-    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'claude' }), expect.objectContaining({ resume: false }), expect.anything());
+    expect(launchAi).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cmd: 'claude' }),
+      expect.objectContaining({ resume: false }),
+      expect.anything(),
+    );
     expect(loadHistory()[0].agent).toBe('claude');
     // The default changes to a tool work has no adapter for.
     saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [], aiCommand: 'opencode' });
     await tree();
-    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'claude' }), expect.anything(), expect.anything());
+    expect(launchAi).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cmd: 'claude' }),
+      expect.anything(),
+      expect.anything(),
+    );
     // A session from before (nothing recorded) follows the default.
     saveHistory(loadHistory().map(({ agent: _a, ...s }) => s));
     await tree();
-    expect(launchAi).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ cmd: 'opencode' }), expect.objectContaining({ resume: false }), expect.anything());
+    expect(launchAi).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cmd: 'opencode' }),
+      expect.objectContaining({ resume: false }),
+      expect.anything(),
+    );
   });
 });

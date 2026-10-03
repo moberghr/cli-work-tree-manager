@@ -19,8 +19,24 @@ import { defaultRunner, type CommandRunner } from '../pr/ship.js';
  */
 
 export const BUILD_DIR_NAMES = new Set([
-  'node_modules', 'bin', 'obj', 'dist', 'build', 'out', 'target', 'coverage',
-  '.next', '.nuxt', '.turbo', '.vite', '.angular', '.parcel-cache', '.svelte-kit', '.gradle', '.pytest_cache', '__pycache__',
+  'node_modules',
+  'bin',
+  'obj',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'coverage',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.vite',
+  '.angular',
+  '.parcel-cache',
+  '.svelte-kit',
+  '.gradle',
+  '.pytest_cache',
+  '__pycache__',
 ]);
 const SKIP = new Set(['.git']);
 
@@ -53,7 +69,12 @@ export async function ignoredByGit(root: string, dirs: string[], run: CommandRun
   // Exit 0: some ignored (listed); 1: none; anything else: we can't tell — nothing counts.
   const r = await run('git', ['-C', root, 'check-ignore', '--', ...rel], root);
   if (r.code !== 0) return new Set();
-  const ignored = new Set(r.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  const ignored = new Set(
+    r.stdout
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean),
+  );
   return new Set(dirs.filter((_, i) => ignored.has(rel[i])));
 }
 
@@ -101,7 +122,10 @@ export async function buildFoldersOf(root: string, run?: CommandRunner): Promise
  * Delete a worktree's build folders: the ones git ignores RIGHT NOW (checked
  * again here), never anything tracked. Returns what went.
  */
-export async function clearBuildFolders(root: string, run?: CommandRunner): Promise<{ removed: string[]; failed: Array<{ path: string; error: string }> }> {
+export async function clearBuildFolders(
+  root: string,
+  run?: CommandRunner,
+): Promise<{ removed: string[]; failed: Array<{ path: string; error: string }> }> {
   const dirs = await ignoredByGit(root, await candidateBuildDirs(root), run);
   const removed: string[] = [];
   const failed: Array<{ path: string; error: string }> = [];

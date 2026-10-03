@@ -15,7 +15,9 @@ describe('findOverlaps', () => {
       sess('b', [{ repoKey: '/r/api.git', name: 'api', files: ['package.json', 'src/b.ts'] }]),
       sess('c', [{ repoKey: '/r/api.git', name: 'api', files: ['src/c.ts'] }]),
     ]);
-    expect(o.get('a')).toEqual([{ sessionId: 'b', target: 'api', branch: 'feat/b', count: 1, files: [{ repo: 'api', path: 'package.json' }] }]);
+    expect(o.get('a')).toEqual([
+      { sessionId: 'b', target: 'api', branch: 'feat/b', count: 1, files: [{ repo: 'api', path: 'package.json' }] },
+    ]);
     expect(o.get('b')?.map((x) => x.sessionId)).toEqual(['a']);
     expect(o.has('c')).toBe(false);
   });
@@ -39,7 +41,10 @@ describe('findOverlaps', () => {
       sess('big', [{ repoKey: '/r/frontend.git', name: 'frontend', files: many }]),
     ]);
     const g = o.get('group')!;
-    expect(g.map((x) => [x.sessionId, x.count])).toEqual([['big', 30], ['small', 1]]);
+    expect(g.map((x) => [x.sessionId, x.count])).toEqual([
+      ['big', 30],
+      ['small', 1],
+    ]);
     expect(g[0].files).toHaveLength(MAX_OVERLAP_FILES);
     expect(g[1].files).toEqual([{ repo: 'backend', path: 'api.ts' }]);
   });

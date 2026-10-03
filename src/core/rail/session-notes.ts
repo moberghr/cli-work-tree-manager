@@ -20,7 +20,9 @@ function isNote(v: unknown): v is SessionNote {
 }
 
 export function readNote(sessionId: string): SessionNote | null {
-  const row = withDb((d) => d.prepare('SELECT data FROM session_notes WHERE session_id = ?').get(sessionId) as { data: string } | undefined);
+  const row = withDb(
+    (d) => d.prepare('SELECT data FROM session_notes WHERE session_id = ?').get(sessionId) as { data: string } | undefined,
+  );
   const v = row ? json.parse(row.data) : null;
   return isNote(v) ? v : null;
 }

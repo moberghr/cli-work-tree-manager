@@ -34,7 +34,9 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
   const [now, setNow] = useState(() => Date.now());
   const ref = useRef<HTMLDivElement>(null);
   const reload = useCallback(() => {
-    load().then(setData, () => { /* server restarting: keep the last */ });
+    load().then(setData, () => {
+      /* server restarting: keep the last */
+    });
   }, [load]);
   useEffect(reload, [reload]);
   useSse('/events', { events: { 'activity-changed': reload }, onOpen: reload });
@@ -68,7 +70,12 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
       <>
         <span className="wd-activity-spinner" aria-hidden />
         {first.label}
-        {first.progress && first.progress.total > 0 && <span className="wd-activity-count"> {first.progress.done}/{first.progress.total}</span>}
+        {first.progress && first.progress.total > 0 && (
+          <span className="wd-activity-count">
+            {' '}
+            {first.progress.done}/{first.progress.total}
+          </span>
+        )}
         {running.length > 1 && <span className="wd-activity-count"> +{running.length - 1}</span>}
       </>
     );
@@ -93,13 +100,19 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
         <div className="wd-activity-panel" role="dialog" aria-label="Background activity">
           <section>
             <h3 className="wd-legend-title">Now</h3>
-            {running.length === 0 ? <p className="wd-activity-empty">Nothing running.</p> : running.map((r) => <RunRow key={r.id} run={r} onOpenSession={onOpenSession} />)}
+            {running.length === 0 ? (
+              <p className="wd-activity-empty">Nothing running.</p>
+            ) : (
+              running.map((r) => <RunRow key={r.id} run={r} onOpenSession={onOpenSession} />)
+            )}
           </section>
           {(data?.schedules.length ?? 0) > 0 && (
             <section>
               <h3 className="wd-legend-title">Coming up</h3>
               <ul className="wd-activity-list">
-                {data!.schedules.map((s) => <ScheduleRow key={s.kind} s={s} now={now} />)}
+                {data!.schedules.map((s) => (
+                  <ScheduleRow key={s.kind} s={s} now={now} />
+                ))}
               </ul>
             </section>
           )}
@@ -124,7 +137,9 @@ function ScheduleRow({ s, now }: { s: ActivitySchedule; now: number }) {
       <span className="wd-activity-name">{s.label}</span>{' '}
       <span className="wd-activity-muted">
         {resting ? (
-          <span className="wd-activity-warn">resting until {clock(s.pausedUntil!)}: {s.pausedWhy}</span>
+          <span className="wd-activity-warn">
+            resting until {clock(s.pausedUntil!)}: {s.pausedWhy}
+          </span>
         ) : (
           <>
             {every(s.everyMs)}
@@ -145,10 +160,19 @@ function RunRow({ run, onOpenSession }: { run: ActivityRun; onOpenSession: (id: 
   return (
     <div className={`wd-activity-run wd-activity-run-${run.status}`}>
       <div className="wd-activity-head">
-        {run.status === 'running' ? <span className="wd-activity-spinner" aria-hidden /> : <span className="wd-activity-mark">{STATUS_MARK[run.status]}</span>}
+        {run.status === 'running' ? (
+          <span className="wd-activity-spinner" aria-hidden />
+        ) : (
+          <span className="wd-activity-mark">{STATUS_MARK[run.status]}</span>
+        )}
         <span className="wd-activity-name">{run.label}</span>
         {run.status === 'running' && run.progress && run.progress.total > 0 && (
-          <progress className="wd-activity-progress" max={run.progress.total} value={run.progress.done} aria-label={`${run.progress.done} of ${run.progress.total}`} />
+          <progress
+            className="wd-activity-progress"
+            max={run.progress.total}
+            value={run.progress.done}
+            aria-label={`${run.progress.done} of ${run.progress.total}`}
+          />
         )}
         <span className="wd-activity-muted wd-activity-when">
           {run.status === 'running' ? `started ${relativeTime(run.startedAt)}` : relativeTime(run.endedAt ?? run.startedAt)}

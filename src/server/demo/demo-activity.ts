@@ -42,9 +42,13 @@ export function createDemoActivity(scenario: DemoScenario, emit: () => void): { 
           threads += r.openThreads ?? 0;
           if (r.pr.checks === 'fail') {
             failing++;
-            run.note(`${s.target} ${s.branch}: checks fail on #${r.pr.number} (${(r.pr.failing ?? []).map((f) => f.name).join(', ')}): already told its Claude`, { sessionId: s.id });
+            run.note(
+              `${s.target} ${s.branch}: checks fail on #${r.pr.number} (${(r.pr.failing ?? []).map((f) => f.name).join(', ')}): already told its Claude`,
+              { sessionId: s.id },
+            );
           }
-          if (r.openThreads) run.note(`${s.target} ${s.branch}: ${r.openThreads} unresolved review threads on #${r.pr.number}`, { sessionId: s.id });
+          if (r.openThreads)
+            run.note(`${s.target} ${s.branch}: ${r.openThreads} unresolved review threads on #${r.pr.number}`, { sessionId: s.id });
         }
         run.progress(i + 1, sessions.length);
         if (i === sessions.length - 1) {

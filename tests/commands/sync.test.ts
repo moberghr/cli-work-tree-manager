@@ -11,9 +11,7 @@ import { syncCommand } from '../../src/commands/sync.js';
 // through) so a test can force a non-throwing failure for a chosen branch.
 const failingBranches = new Set<string>();
 vi.mock('../../src/core/worktree/worktree.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/core/worktree/worktree.js')>(
-    '../../src/core/worktree/worktree.js',
-  );
+  const actual = await vi.importActual<typeof import('../../src/core/worktree/worktree.js')>('../../src/core/worktree/worktree.js');
   return {
     ...actual,
     teardownWorktree: (...args: Parameters<typeof actual.teardownWorktree>): boolean =>

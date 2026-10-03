@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 /**
  * Light / dark theme, applied by stamping `data-theme` on <html> so the
@@ -116,10 +108,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const value = useMemo<ThemeValue>(
-    () => ({ theme, explicit: stored !== null, setTheme, toggle }),
-    [theme, stored, setTheme, toggle],
-  );
+  const value = useMemo<ThemeValue>(() => ({ theme, explicit: stored !== null, setTheme, toggle }), [theme, stored, setTheme, toggle]);
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 }
 

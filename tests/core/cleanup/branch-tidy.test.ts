@@ -10,7 +10,11 @@ import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 function commit(repo: string, file: string) {
   fs.writeFileSync(path.join(repo, file), file);
@@ -68,17 +72,26 @@ function depsFor(repo: string, tips: Record<string, string>, gh: string[][]): Br
     if (cmd !== 'gh') return defaultRunner(cmd, args, cwd);
     gh.push(args);
     const head = args[args.indexOf('--head') + 1];
-    const prs = head === 'feat/squashed' ? [{ number: 7, headRefOid: tips['feat/squashed'] }]
-      : head === 'feat/squash-moved' ? [{ number: 8, headRefOid: tips['feat/squash-moved'] }]
-      : [];
+    const prs =
+      head === 'feat/squashed'
+        ? [{ number: 7, headRefOid: tips['feat/squashed'] }]
+        : head === 'feat/squash-moved'
+          ? [{ number: 8, headRefOid: tips['feat/squash-moved'] }]
+          : [];
     return { code: 0, stdout: JSON.stringify(prs), stderr: '' };
   };
   return {
     repos: () => [{ alias: 'api', path: repo }],
-    sessionBranches: () => new Map([['api', new Map([
-      ['feat/live', { id: 'live1', archived: false }],
-      ['feat/archived', { id: 'arch1', archived: true }],
-    ])]]),
+    sessionBranches: () =>
+      new Map([
+        [
+          'api',
+          new Map([
+            ['feat/live', { id: 'live1', archived: false }],
+            ['feat/archived', { id: 'arch1', archived: true }],
+          ]),
+        ],
+      ]),
     run,
   };
 }
@@ -113,10 +126,20 @@ describe('deleteMergedBranches', () => {
     commit(repo, 'later');
     git(repo, 'checkout', '-q', 'main');
     const results = await deleteMergedBranches(
-      [{ repo: 'api', branch: 'feat/merged' }, { repo: 'api', branch: 'feat/squashed' }, { repo: 'api', branch: 'feat/wip' }, { repo: 'api', branch: 'feat/live' }],
+      [
+        { repo: 'api', branch: 'feat/merged' },
+        { repo: 'api', branch: 'feat/squashed' },
+        { repo: 'api', branch: 'feat/wip' },
+        { repo: 'api', branch: 'feat/live' },
+      ],
       deps,
     );
-    expect(results.map((r) => [r.branch, r.ok])).toEqual([['feat/merged', true], ['feat/squashed', false], ['feat/wip', false], ['feat/live', false]]);
+    expect(results.map((r) => [r.branch, r.ok])).toEqual([
+      ['feat/merged', true],
+      ['feat/squashed', false],
+      ['feat/wip', false],
+      ['feat/live', false],
+    ]);
     const left = git(repo, 'branch', '--format=%(refname:short)').split('\n');
     expect(left).not.toContain('feat/merged');
     expect(left).toEqual(expect.arrayContaining(['feat/squashed', 'feat/wip', 'feat/live', 'main']));
@@ -127,7 +150,10 @@ describe('deleteMergedBranches', () => {
     const gh: string[][] = [];
     const deps = depsFor(repo, tips, gh);
     const results = await deleteMergedBranches(
-      [{ repo: 'api', branch: 'feat/merged', tip: 'f'.repeat(40) }, { repo: 'api', branch: 'feat/archived', tip: git(repo, 'rev-parse', 'feat/archived') }],
+      [
+        { repo: 'api', branch: 'feat/merged', tip: 'f'.repeat(40) },
+        { repo: 'api', branch: 'feat/archived', tip: git(repo, 'rev-parse', 'feat/archived') },
+      ],
       deps,
     );
     expect(results.map((r) => [r.branch, r.ok, r.message])).toEqual([
@@ -140,15 +166,28 @@ describe('deleteMergedBranches', () => {
 
 describe('sessionBranchUse', () => {
   const sess = (target: string, isGroup: boolean, archived: boolean): WorktreeSession => ({
-    target, branch: 'feat/x', isGroup, paths: [], createdAt: '', lastAccessedAt: '', ...(archived ? { archivedAt: '2026-09-01T00:00:00Z' } : {}),
+    target,
+    branch: 'feat/x',
+    isGroup,
+    paths: [],
+    createdAt: '',
+    lastAccessedAt: '',
+    ...(archived ? { archivedAt: '2026-09-01T00:00:00Z' } : {}),
   });
   it('a current session using a branch wins over an archived one on the same repo + branch, in either order', () => {
     const groups = { shop: ['api', 'web'] };
-    for (const list of [[sess('shop', true, false), sess('api', false, true)], [sess('api', false, true), sess('shop', true, false)]]) {
+    for (const list of [
+      [sess('shop', true, false), sess('api', false, true)],
+      [sess('api', false, true), sess('shop', true, false)],
+    ]) {
       const use = sessionBranchUse(list, groups);
       expect(use.get('api')?.get('feat/x')).toMatchObject({ archived: false, id: sessionIdFor(list.find((s) => s.isGroup)!) });
       expect(use.get('web')?.get('feat/x')?.archived).toBe(false);
     }
-    expect(sessionBranchUse([sess('api', false, true)], groups).get('api')?.get('feat/x')?.archived).toBe(true);
+    expect(
+      sessionBranchUse([sess('api', false, true)], groups)
+        .get('api')
+        ?.get('feat/x')?.archived,
+    ).toBe(true);
   });
 });

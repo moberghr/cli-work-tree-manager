@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  checkDialog,
-  describeToolUse,
-  pendingToolUse,
-  screenAnchor,
-} from '../../../../src/core/agents/claude/permission.js';
+import { checkDialog, describeToolUse, pendingToolUse, screenAnchor } from '../../../../src/core/agents/claude/permission.js';
 import type { TranscriptEntry } from '../../../../src/core/agents/claude/transcript.js';
 
 const use = (id: string, name: string, input: unknown): TranscriptEntry => ({
@@ -20,7 +15,13 @@ const prompt = (text: string): TranscriptEntry => ({ type: 'user', message: { co
 
 describe('pendingToolUse', () => {
   it('is the call with no result yet', () => {
-    const t = [prompt('run the tests'), use('a', 'Read', { file_path: 'src/x.ts' }), result('a'), said('Running them'), use('b', 'Bash', { command: 'npm test' })];
+    const t = [
+      prompt('run the tests'),
+      use('a', 'Read', { file_path: 'src/x.ts' }),
+      result('a'),
+      said('Running them'),
+      use('b', 'Bash', { command: 'npm test' }),
+    ];
     expect(pendingToolUse(t)).toEqual({ tool: 'Bash', detail: 'npm test' });
   });
 
@@ -36,7 +37,11 @@ describe('pendingToolUse', () => {
   });
 
   it('ignores an unanswered call from an earlier, interrupted turn', () => {
-    const t = [use('old', 'Bash', { command: 'rm -rf build' }), prompt('stop, do this instead'), use('new', 'Edit', { file_path: 'src/a.ts' })];
+    const t = [
+      use('old', 'Bash', { command: 'rm -rf build' }),
+      prompt('stop, do this instead'),
+      use('new', 'Edit', { file_path: 'src/a.ts' }),
+    ];
     expect(pendingToolUse(t)).toEqual({ tool: 'Edit', detail: 'src/a.ts' });
   });
 });
@@ -89,7 +94,10 @@ describe('checkDialog', () => {
   it('file tools are matched by file name (the dialog shows the name, not the path)', () => {
     const edit = { tool: 'Edit', detail: 'C:\\wt\\api\\src\\export.ts' };
     expect(screenAnchor(edit)).toBe('export.ts');
-    const screen = dialog(['│ Edit file', '│ src/export.ts']).replace('Do you want to proceed?', 'Do you want to make this edit to export.ts?');
+    const screen = dialog(['│ Edit file', '│ src/export.ts']).replace(
+      'Do you want to proceed?',
+      'Do you want to make this edit to export.ts?',
+    );
     expect(checkDialog(screen, edit)).toEqual({ ok: true });
     expect(checkDialog(screen.replace(/export\.ts/g, 'routes.ts'), edit)).toEqual({ ok: false, reason: 'other-request' });
   });

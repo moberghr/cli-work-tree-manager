@@ -131,9 +131,7 @@ const MAX_PORT = 65535;
  * undefined (callers then fall back to the default range). Rejects non-integers,
  * privileged/out-of-bounds ports, and reversed ranges.
  */
-export function validatePortRange(
-  value: unknown,
-): { start: number; end: number } | undefined {
+export function validatePortRange(value: unknown): { start: number; end: number } | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const { start, end } = value as { start?: unknown; end?: unknown };
   if (typeof start !== 'number' || typeof end !== 'number') return undefined;
@@ -192,20 +190,28 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       prompts: validatePrompts(parsed.prompts),
-      archive: parsed.archive && typeof parsed.archive === 'object'
-        ? {
-            ...(typeof parsed.archive.compressAfterDays === 'number' && parsed.archive.compressAfterDays >= 0 ? { compressAfterDays: parsed.archive.compressAfterDays } : {}),
-            ...(typeof parsed.archive.dropTranscriptsAfterDays === 'number' && parsed.archive.dropTranscriptsAfterDays >= 0
-              ? { dropTranscriptsAfterDays: parsed.archive.dropTranscriptsAfterDays }
-              : {}),
-          }
-        : undefined,
+      archive:
+        parsed.archive && typeof parsed.archive === 'object'
+          ? {
+              ...(typeof parsed.archive.compressAfterDays === 'number' && parsed.archive.compressAfterDays >= 0
+                ? { compressAfterDays: parsed.archive.compressAfterDays }
+                : {}),
+              ...(typeof parsed.archive.dropTranscriptsAfterDays === 'number' && parsed.archive.dropTranscriptsAfterDays >= 0
+                ? { dropTranscriptsAfterDays: parsed.archive.dropTranscriptsAfterDays }
+                : {}),
+            }
+          : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
       internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
       assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
-      hostEnv: Array.isArray(parsed.hostEnv) ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) : undefined,
+      hostEnv: Array.isArray(parsed.hostEnv)
+        ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))
+        : undefined,
       jiraWorklog:
-        parsed.jiraWorklog && typeof parsed.jiraWorklog === 'object' && typeof parsed.jiraWorklog.site === 'string' && typeof parsed.jiraWorklog.email === 'string'
+        parsed.jiraWorklog &&
+        typeof parsed.jiraWorklog === 'object' &&
+        typeof parsed.jiraWorklog.site === 'string' &&
+        typeof parsed.jiraWorklog.email === 'string'
           ? {
               site: parsed.jiraWorklog.site,
               email: parsed.jiraWorklog.email,
@@ -213,17 +219,22 @@ export function loadConfig(): WorkConfig | null {
               ...(typeof parsed.jiraWorklog.token === 'string' ? { token: parsed.jiraWorklog.token } : {}),
             }
           : undefined,
-      prWatch: parsed.prWatch && typeof parsed.prWatch === 'object'
-        ? {
-            autoArchive: parsed.prWatch.autoArchive !== false,
-            fixCi: parsed.prWatch.fixCi !== false,
-            reviewComments: parsed.prWatch.reviewComments !== false,
-            ...(Array.isArray(parsed.prWatch.trustedBots)
-              ? { trustedBots: parsed.prWatch.trustedBots.filter((b: unknown): b is string => typeof b === 'string' && b.trim().length > 0) }
-              : {}),
-            wakeClaude: parsed.prWatch.wakeClaude !== false,
-          }
-        : undefined,
+      prWatch:
+        parsed.prWatch && typeof parsed.prWatch === 'object'
+          ? {
+              autoArchive: parsed.prWatch.autoArchive !== false,
+              fixCi: parsed.prWatch.fixCi !== false,
+              reviewComments: parsed.prWatch.reviewComments !== false,
+              ...(Array.isArray(parsed.prWatch.trustedBots)
+                ? {
+                    trustedBots: parsed.prWatch.trustedBots.filter(
+                      (b: unknown): b is string => typeof b === 'string' && b.trim().length > 0,
+                    ),
+                  }
+                : {}),
+              wakeClaude: parsed.prWatch.wakeClaude !== false,
+            }
+          : undefined,
     };
   } catch {
     return null;

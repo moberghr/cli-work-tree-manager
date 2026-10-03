@@ -54,7 +54,9 @@ describe('HostHealthBanner', () => {
   it('shows only when the host is slow or not answering', () => {
     act(() => root.render(createElement(HostHealthBanner, { health: { state: 'ok', latencyMs: 4, quietMs: 1000, error: null } })));
     expect(container.textContent).toBe('');
-    act(() => root.render(createElement(HostHealthBanner, { health: { state: 'unresponsive', latencyMs: 4, quietMs: 15_000, error: 'x' } })));
+    act(() =>
+      root.render(createElement(HostHealthBanner, { health: { state: 'unresponsive', latencyMs: 4, quietMs: 15_000, error: 'x' } })),
+    );
     expect(container.querySelector('[role="alert"]')!.textContent).toContain('not answering (15 s)');
   });
 });

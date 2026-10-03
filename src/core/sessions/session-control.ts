@@ -34,7 +34,12 @@ export interface SendDeps {
 
 export type SendResult = { ok: true; how: SendHow; sentAt: string } | { ok: false; status: 400 | 409 | 502; error: string };
 
-export async function sendToSession(id: string, text: string, deps: SendDeps, opts: { force?: boolean; now?: () => Date } = {}): Promise<SendResult> {
+export async function sendToSession(
+  id: string,
+  text: string,
+  deps: SendDeps,
+  opts: { force?: boolean; now?: () => Date } = {},
+): Promise<SendResult> {
   const body = text.trim();
   if (!body) return { ok: false, status: 400, error: 'the message is empty' };
   if (body.length > MAX_SEND_CHARS) return { ok: false, status: 400, error: `the message is over ${MAX_SEND_CHARS} characters` };
@@ -42,7 +47,12 @@ export async function sendToSession(id: string, text: string, deps: SendDeps, op
   // A message to a Claude with permission checks off runs whatever it says,
   // unreviewed — and it may have come from another agent. Your say-so first.
   if (deps.unsafe(id) && !opts.force) {
-    return { ok: false, status: 409, error: 'its Claude runs with permission checks off (--unsafe), so it would act on this without asking you; send with --force if you mean it' };
+    return {
+      ok: false,
+      status: 409,
+      error:
+        'its Claude runs with permission checks off (--unsafe), so it would act on this without asking you; send with --force if you mean it',
+    };
   }
   const sentAt = (opts.now?.() ?? new Date()).toISOString();
   // What the comment route did, as it decided it — not a second look at the state.
@@ -50,7 +60,8 @@ export async function sendToSession(id: string, text: string, deps: SendDeps, op
   if (delivered) return { ok: true, how: delivered, sentAt };
   if (deps.hostRuns(id)) return { ok: true, how: 'next-turn', sentAt };
   if (deps.runningOutside(id)) return { ok: true, how: 'outside', sentAt };
-  if (!(await deps.start(id))) return { ok: false, status: 502, error: 'queued, but its Claude could not be started: it gets it when you open the session' };
+  if (!(await deps.start(id)))
+    return { ok: false, status: 502, error: 'queued, but its Claude could not be started: it gets it when you open the session' };
   return { ok: true, how: 'started', sentAt };
 }
 
@@ -89,7 +100,11 @@ export type WaitResult = { ok: true; status: TurnStatus } | { ok: false; reason:
  * a state entered after it counts — the turn that message started, not the
  * one before.
  */
-export async function waitForTurn(id: string, deps: WaitDeps, opts: { after?: string; timeoutMs: number; pollMs?: number }): Promise<WaitResult> {
+export async function waitForTurn(
+  id: string,
+  deps: WaitDeps,
+  opts: { after?: string; timeoutMs: number; pollMs?: number },
+): Promise<WaitResult> {
   const deadline = deps.now() + opts.timeoutMs;
   const after = opts.after ? Date.parse(opts.after) : null;
   for (;;) {

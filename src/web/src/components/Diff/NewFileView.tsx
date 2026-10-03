@@ -2,10 +2,7 @@ import { Fragment, useMemo } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { addedLines } from '../../utils/intraline.js';
 import { highlightBlock } from '../../utils/highlight.js';
-import {
-  selectCommentsForLine,
-  useReviewOptional,
-} from '../../state/ReviewProvider.js';
+import { selectCommentsForLine, useReviewOptional } from '../../state/ReviewProvider.js';
 import { SidePanel, type SideContent } from '../Review/CommentLineRow.js';
 
 interface Props {
@@ -34,7 +31,13 @@ interface Props {
 export function NewFileView({ file, lang, review = false, repo }: Props) {
   const rows = useMemo(() => addedLines(file.hunks), [file.hunks]);
   const html = useMemo(
-    () => (lang ? highlightBlock(rows.map((r) => r.content), lang) : null),
+    () =>
+      lang
+        ? highlightBlock(
+            rows.map((r) => r.content),
+            lang,
+          )
+        : null,
     [rows, lang],
   );
   return (
@@ -46,22 +49,8 @@ export function NewFileView({ file, lang, review = false, repo }: Props) {
       <tbody>
         {rows.map((r, i) => (
           <Fragment key={r.newNum}>
-            <NewFileRow
-              line={r.newNum}
-              content={r.content}
-              html={html?.[i] ?? null}
-              review={review}
-              repo={repo}
-              file={file.path}
-            />
-            {review && repo && (
-              <NewFileCommentRow
-                repo={repo}
-                file={file.path}
-                line={r.newNum}
-                content={r.content}
-              />
-            )}
+            <NewFileRow line={r.newNum} content={r.content} html={html?.[i] ?? null} review={review} repo={repo} file={file.path} />
+            {review && repo && <NewFileCommentRow repo={repo} file={file.path} line={r.newNum} content={r.content} />}
           </Fragment>
         ))}
       </tbody>
@@ -100,17 +89,11 @@ function NewFileRow({
 
   return (
     <tr className="wd-row">
-      <td
-        className={'wd-ln wd-ln-new wd-add' + (enabled ? ' wd-ln-clickable' : '')}
-        onClick={enabled ? openComposer : undefined}
-      >
+      <td className={'wd-ln wd-ln-new wd-add' + (enabled ? ' wd-ln-clickable' : '')} onClick={enabled ? openComposer : undefined}>
         {line}
       </td>
       {html !== null ? (
-        <td
-          className="wd-content wd-add"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <td className="wd-content wd-add" dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
         <td className="wd-content wd-add">{content || ' '}</td>
       )}
@@ -123,17 +106,7 @@ function NewFileRow({
  * right side of `CommentLineRow`, but as a single full-width cell to match the
  * two-column new-file table. Renders nothing unless the line has activity.
  */
-function NewFileCommentRow({
-  repo,
-  file,
-  line,
-  content,
-}: {
-  repo: string;
-  file: string;
-  line: number;
-  content: string;
-}) {
+function NewFileCommentRow({ repo, file, line, content }: { repo: string; file: string; line: number; content: string }) {
   const reviewCtx = useReviewOptional();
   if (!reviewCtx) return null;
 

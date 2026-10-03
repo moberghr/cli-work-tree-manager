@@ -3,11 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import {
-  installCommandHook,
-  removeCommandHook,
-  removeCommandHookSync,
-} from '../../../src/core/platform/command-hook-installer.js';
+import { installCommandHook, removeCommandHook, removeCommandHookSync } from '../../../src/core/platform/command-hook-installer.js';
 
 let tmpDir: string;
 let settingsFile: string;
@@ -122,7 +118,8 @@ describe('syncCommandHooks (work web, one write)', () => {
       ['web', 'Stop', 'work hook stop'],
       ['web-status', 'Stop', 'work hook status-stop'],
       ['web-checkpoint', 'Stop', 'work hook checkpoint'],
-    ]) await installCommandHook({ owner, event, command });
+    ])
+      await installCommandHook({ owner, event, command });
     const writes = vi.spyOn(fs, 'renameSync');
     await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
     expect(writes).toHaveBeenCalledTimes(1); // one write, not one per hook
@@ -142,7 +139,12 @@ describe('untagged copies of work’s hooks (tags dropped by another writer of s
     const bare = (command: string, timeout = 5): Entry => ({ hooks: [{ type: 'command', command, timeout }] });
     write({
       hooks: {
-        UserPromptSubmit: [userHook, bare('work hook prompt-submit', 15), bare('work hook checkpoint-seal'), bare('work hook checkpoint-seal')],
+        UserPromptSubmit: [
+          userHook,
+          bare('work hook prompt-submit', 15),
+          bare('work hook checkpoint-seal'),
+          bare('work hook checkpoint-seal'),
+        ],
         Stop: [bare('work hook checkpoint', 15), { hooks: [{ type: 'command', command: 'work hook checkpoint && my-script' }] }],
       },
     });
@@ -151,7 +153,8 @@ describe('untagged copies of work’s hooks (tags dropped by another writer of s
     expect(commands('Stop')).toEqual(['work hook checkpoint && my-script', 'work hook turn-end']); // not only ours: kept
     // Something rewrites settings.json and drops our tags…
     const s = read();
-    for (const list of Object.values(s.hooks ?? {})) for (const e of list) for (const k of Object.keys(e)) if (k.startsWith('_work')) delete e[k];
+    for (const list of Object.values(s.hooks ?? {}))
+      for (const e of list) for (const k of Object.keys(e)) if (k.startsWith('_work')) delete e[k];
     write(s);
     // …the next start doesn't pile a second copy on.
     await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);

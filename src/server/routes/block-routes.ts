@@ -14,7 +14,8 @@ export function mountBlockRoutes(app: Hono, opts: { broadcast: (event: string, d
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     const body = (await c.req.json().catch(() => null)) as { kind?: unknown; id?: unknown; url?: unknown } | null;
     const ref = blockRefFrom(body);
-    if (!ref) return c.json({ error: "expected {kind: 'session', id} of a live session, or {kind: 'pr', url} of a GitHub pull request" }, 400);
+    if (!ref)
+      return c.json({ error: "expected {kind: 'session', id} of a live session, or {kind: 'pr', url} of a GitHub pull request" }, 400);
     const r = addBlocker(id, ref);
     if (!r.ok) return c.json({ error: r.error }, 409);
     opts.broadcast('sessions-changed', { ts: Date.now() });

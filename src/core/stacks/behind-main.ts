@@ -44,7 +44,11 @@ export async function behindMain(repo: string, run: CommandRunner = defaultRunne
   if (commits === 0) return { base, commits: 0, conflicts: false, ...stacked };
   // Exit 1: the merge would conflict; 0: clean. Anything else (an old git's
   // usage error): can't tell, so no warning.
-  const merge = await run('git', ['-C', repo, 'merge-tree', '--write-tree', '--quiet', 'HEAD', parent ? `refs/heads/${parent}` : base], repo);
+  const merge = await run(
+    'git',
+    ['-C', repo, 'merge-tree', '--write-tree', '--quiet', 'HEAD', parent ? `refs/heads/${parent}` : base],
+    repo,
+  );
   return { base, commits, conflicts: merge.code === 1, ...stacked };
 }
 
@@ -53,7 +57,12 @@ export function combineBehind(list: Array<Behind | null>): Behind | null {
   const known = list.filter((b): b is Behind => b !== null);
   if (known.length === 0) return null;
   const worst = known.reduce((a, b) => (b.commits > a.commits ? b : a));
-  return { base: worst.base, commits: worst.commits, conflicts: known.some((b) => b.conflicts), ...(worst.stacked ? { stacked: true as const } : {}) };
+  return {
+    base: worst.base,
+    commits: worst.commits,
+    conflicts: known.some((b) => b.conflicts),
+    ...(worst.stacked ? { stacked: true as const } : {}),
+  };
 }
 
 /**
@@ -152,12 +161,14 @@ export async function updateFromMain(repo: string, run: CommandRunner = defaultR
   let head: string;
   if (parent) {
     // Stacked: the parent's local branch (its worktree commits to it here; nothing to fetch).
-    if ((await git('rev-parse', '--verify', '--quiet', `refs/heads/${parent}`)).code !== 0) return { ok: false, repo: name, reason: `${parent} is gone` };
+    if ((await git('rev-parse', '--verify', '--quiet', `refs/heads/${parent}`)).code !== 0)
+      return { ok: false, repo: name, reason: `${parent} is gone` };
     head = parent;
   } else {
     await git('fetch', '--quiet', 'origin');
     head = (await git('rev-parse', '--abbrev-ref', 'origin/HEAD')).stdout.trim();
-    if (!head || head === 'origin/HEAD') return { ok: false, repo: name, reason: 'no origin/HEAD to update from (git remote set-head origin -a)' };
+    if (!head || head === 'origin/HEAD')
+      return { ok: false, repo: name, reason: 'no origin/HEAD to update from (git remote set-head origin -a)' };
   }
   // The parent as a full ref: a tag or a file of the same name can't stand in for it.
   const ref = parent ? `refs/heads/${parent}` : head;
@@ -173,7 +184,12 @@ export async function updateFromMain(repo: string, run: CommandRunner = defaultR
   await git(how, '--abort');
   const verb = published ? `merging ${head}` : `rebasing on ${head}`;
   if (unmerged) return { ok: false, repo: name, reason: `${verb} conflicts`, conflicts: true, base: head };
-  return { ok: false, repo: name, reason: `${verb} failed: ${firstLine(r.stderr) || firstLine(r.stdout) || `git exited ${r.code}`}`, base: head };
+  return {
+    ok: false,
+    repo: name,
+    reason: `${verb} failed: ${firstLine(r.stderr) || firstLine(r.stdout) || `git exited ${r.code}`}`,
+    base: head,
+  };
 }
 
 /** What went wrong, in its first words (a hook's own message comes before git's "Not committing merge"). */

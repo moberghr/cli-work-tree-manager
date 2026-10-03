@@ -11,12 +11,11 @@ import { baseCheckoutSession } from '../core/sessions/session-resolve.js';
 export const attachCommand: CommandModule = {
   command: 'attach [target] [branch]',
   aliases: ['a'],
-  describe:
-    'Attach this terminal to a session\'s Claude in the PTY host (Ctrl+] detaches; Claude keeps running)',
+  describe: "Attach this terminal to a session's Claude in the PTY host (Ctrl+] detaches; Claude keeps running)",
   builder: (yargs) =>
     yargs
       .positional('target', { type: 'string', describe: 'Repo alias or group (default: session for the current directory)' })
-      .positional('branch', { type: 'string', describe: 'Branch (default: the target\'s base checkout)' }),
+      .positional('branch', { type: 'string', describe: "Branch (default: the target's base checkout)" }),
   handler: async (argv) => {
     const sessions = loadHistory();
     const target = argv.target as string | undefined;

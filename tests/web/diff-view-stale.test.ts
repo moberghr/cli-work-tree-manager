@@ -4,8 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // A session diff whose fetch the test resolves by hand, so the second
 // session's load can be held "in flight" while we inspect the DOM.
@@ -60,12 +59,10 @@ vi.mock('../../src/web/src/api/review-api.js', () => ({
   }),
 }));
 vi.mock('../../src/web/src/api/client.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/api/client.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
-    fetchSessionDiff: (sessionId: string) =>
-      new Promise((resolve) => h.pending.set(sessionId, resolve)),
+    fetchSessionDiff: (sessionId: string) => new Promise((resolve) => h.pending.set(sessionId, resolve)),
     fetchCheckpoints: () => Promise.resolve([]),
     fetchSessionCheckpoints: () => Promise.resolve([]),
   };
@@ -107,8 +104,7 @@ async function resolveDiff(sessionId: string, file: string) {
 
 const main = () => container.querySelector<HTMLElement>('.wd-web-review-main')!;
 const tree = () => container.querySelector<HTMLElement>('.wd-sidebar-split-top')!;
-const headerText = () =>
-  container.querySelector('.wd-web-review-sidebar-header')!.textContent ?? '';
+const headerText = () => container.querySelector('.wd-web-review-sidebar-header')!.textContent ?? '';
 
 describe('DiffView while switching sessions', () => {
   it("marks the previous session's diff stale until the selected one loads", async () => {

@@ -85,12 +85,7 @@ export function SessionDetail({
   return (
     <div className="wd-session-detail">
       <header className="wd-session-detail-header">
-        <button
-          type="button"
-          className="wd-back-link"
-          onClick={onBack}
-          title={`Back to ${backLabel}`}
-        >
+        <button type="button" className="wd-back-link" onClick={onBack} title={`Back to ${backLabel}`}>
           ‹ {backLabel}
         </button>
         <h1>
@@ -115,12 +110,7 @@ export function SessionDetail({
           Ship ▾
         </button>
         <ArchiveButton key={`archive-${session.id}`} sessionId={session.id} archived={archived} />
-        <button
-          type="button"
-          className="wd-session-detail-delete"
-          onClick={onDelete}
-          title="Delete this session (and its worktree)"
-        >
+        <button type="button" className="wd-session-detail-delete" onClick={onDelete} title="Delete this session (and its worktree)">
           <TrashIcon /> Delete
         </button>
       </header>
@@ -136,9 +126,7 @@ export function SessionDetail({
         <PrChips prs={prs} link />
         <DevChip sessionId={session.id} />
         <NotesChip session={session} open={notesOpen} onToggle={() => setNotesFor(notesOpen ? null : session.id)} />
-        {!session.attention && (
-          <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>
-        )}
+        {!session.attention && <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>}
       </div>
       {notesOpen && <SessionNotes key={session.id} session={session} onClose={() => setNotesFor(null)} />}
       <CiStrip sessionId={session.id} isGroup={session.isGroup} />
@@ -155,34 +143,16 @@ export function SessionDetail({
         />
       )}
       <nav className="wd-session-subtabs" role="tablist">
-        {agentCan(session, 'chat') && (
-          <SubTabButton
-            label="Chat"
-            active={subTab === 'chat'}
-            onClick={() => onSelectSubTab('chat')}
-          />
-        )}
-        <SubTabButton
-          label="Terminal"
-          active={subTab === 'term'}
-          onClick={() => onSelectSubTab('term')}
-        />
-        <SubTabButton
-          label="Diff"
-          active={subTab === 'diff'}
-          onClick={() => onSelectSubTab('diff')}
-        />
+        {agentCan(session, 'chat') && <SubTabButton label="Chat" active={subTab === 'chat'} onClick={() => onSelectSubTab('chat')} />}
+        <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
+        <SubTabButton label="Diff" active={subTab === 'diff'} onClick={() => onSelectSubTab('diff')} />
         <SubTabButton
           label="Comments"
           active={subTab === 'comments'}
           badge={session.commentCount}
           onClick={() => onSelectSubTab('comments')}
         />
-        <SubTabButton
-          label="Timeline"
-          active={subTab === 'timeline'}
-          onClick={() => onSelectSubTab('timeline')}
-        />
+        <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
       </nav>
       <div className="wd-session-subtab-body">
         {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
@@ -277,9 +247,7 @@ function OpenTerminalButton({ sessionId }: { sessionId: string }) {
       onClick={onClick}
       disabled={state === 'busy'}
       title={
-        state === 'error' && error
-          ? error
-          : 'Open this session in a Windows Terminal tab (work attach). Same Claude as the Terminal tab.'
+        state === 'error' && error ? error : 'Open this session in a Windows Terminal tab (work attach). Same Claude as the Terminal tab.'
       }
     >
       {state === 'busy' ? 'Opening…' : state === 'error' ? 'Open in terminal ⚠' : 'Open in terminal ↗'}
@@ -307,9 +275,7 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
       disabled={busy}
       title={
         error ??
-        (archived
-          ? 'Bring it back to the rail and inbox'
-          : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
+        (archived ? 'Bring it back to the rail and inbox' : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
       }
     >
       {busy ? (pending ? 'Archiving…' : 'Restoring…') : archived ? 'Restore' : error ? 'Archive ⚠' : 'Archive'}
@@ -363,9 +329,7 @@ function SessionComments({ sessionId }: SessionCommentsProps) {
   const refresh = useMemo(
     () => async () => {
       try {
-        const res = await fetch(
-          `/api/sessions/${encodeURIComponent(sessionId)}/comments`,
-        );
+        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/comments`);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const body = (await res.json()) as { comments: SessionComment[] };
         setComments(body.comments);
@@ -384,8 +348,7 @@ function SessionComments({ sessionId }: SessionCommentsProps) {
 
   if (error) return <div className="wd-tab-error">{error}</div>;
   if (!comments) return <div className="wd-tab-empty">Loading…</div>;
-  if (comments.length === 0)
-    return <div className="wd-tab-empty">No comments yet.</div>;
+  if (comments.length === 0) return <div className="wd-tab-empty">No comments yet.</div>;
 
   return (
     <ul className="wd-session-comments">
@@ -393,9 +356,7 @@ function SessionComments({ sessionId }: SessionCommentsProps) {
         <li key={c.id} className="wd-session-comment">
           <header className="wd-session-comment-header">
             <span>{c.author?.kind ?? 'user'}</span>
-            <span className="wd-tab-header-muted">
-              {relativeTime(c.createdAt)}
-            </span>
+            <span className="wd-tab-header-muted">{relativeTime(c.createdAt)}</span>
             {c.file && (
               <span className="wd-tab-header-muted">
                 {c.file}

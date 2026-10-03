@@ -79,7 +79,14 @@ describe('what the model is told about your projects', () => {
     fs.writeFileSync(path.join(b, 'package.json'), JSON.stringify({ description: 'Merchant admin frontend' }));
     expect(aboutRepo(a)).toBe('The payments backend for Straumur merchants.');
     expect(aboutRepo(b)).toBe('Merchant admin frontend');
-    expect(watchTargets({ worktreesRoot: home, repos: { backend: a, frontend: b }, groups: { straumur: ['backend', 'frontend'] }, copyFiles: [] })).toEqual([
+    expect(
+      watchTargets({
+        worktreesRoot: home,
+        repos: { backend: a, frontend: b },
+        groups: { straumur: ['backend', 'frontend'] },
+        copyFiles: [],
+      }),
+    ).toEqual([
       { name: 'straumur', kind: 'group', members: ['backend', 'frontend'] },
       { name: 'backend', kind: 'repo', members: ['a'], about: 'The payments backend for Straumur merchants.' },
       { name: 'frontend', kind: 'repo', members: ['b'], about: 'Merchant admin frontend' },

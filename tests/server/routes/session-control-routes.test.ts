@@ -28,7 +28,8 @@ function app(over: Partial<ControlDeps> = {}) {
   mountSessionControlRoutes(a, { broadcast: (e) => events.push(e), deps });
   return { a, deps, events };
 }
-const post = (a: Hono, url: string, body: unknown = {}) => a.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const post = (a: Hono, url: string, body: unknown = {}) =>
+  a.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('POST /api/sessions/:id/send', () => {
   it('queues the message, says how it went, and tells the dashboard', async () => {
@@ -49,7 +50,15 @@ describe('POST /api/sessions/:id/send', () => {
     expect(unsafe.status).toBe(409);
     expect(await unsafe.json()).toMatchObject({ error: expect.stringContaining('--force') });
     expect((await post(app({ unsafe: () => true }).a, `/api/sessions/${id}/send`, { text: 'x', force: true })).status).toBe(200);
-    const broken = await post(app({ post: async () => { throw new Error('queueing the message failed (500)'); } }).a, `/api/sessions/${id}/send`, { text: 'x' });
+    const broken = await post(
+      app({
+        post: async () => {
+          throw new Error('queueing the message failed (500)');
+        },
+      }).a,
+      `/api/sessions/${id}/send`,
+      { text: 'x' },
+    );
     expect(broken.status).toBe(502);
   });
 });

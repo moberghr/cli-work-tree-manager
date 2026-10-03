@@ -92,9 +92,14 @@ export function smokeTest(out) {
   const node = path.join(out, nodeName());
   const v = spawn.sync(node, [path.join(out, 'dist', 'bin.js'), '--version'], { encoding: 'utf8' });
   const want = fs.readFileSync(path.join(out, 'VERSION'), 'utf8').trim();
-  if (v.status !== 0 || v.stdout.trim() !== want) throw new Error(`work --version said ${JSON.stringify(v.stdout?.trim())} (exit ${v.status}), wanted ${want}`);
-  const native = spawn.sync(node, ['-e', "require('better-sqlite3'); require('node-pty'); console.log('ok')"], { cwd: out, encoding: 'utf8' });
-  if (native.status !== 0 || native.stdout.trim() !== 'ok') throw new Error(`native modules don't load on the bundled Node:\n${native.stderr}`);
+  if (v.status !== 0 || v.stdout.trim() !== want)
+    throw new Error(`work --version said ${JSON.stringify(v.stdout?.trim())} (exit ${v.status}), wanted ${want}`);
+  const native = spawn.sync(node, ['-e', "require('better-sqlite3'); require('node-pty'); console.log('ok')"], {
+    cwd: out,
+    encoding: 'utf8',
+  });
+  if (native.status !== 0 || native.stdout.trim() !== 'ok')
+    throw new Error(`native modules don't load on the bundled Node:\n${native.stderr}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

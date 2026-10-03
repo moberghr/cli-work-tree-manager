@@ -42,7 +42,12 @@ export function summarizeAgents(list: LiveAgent[], appPids: ReadonlySet<number>)
     inApp,
     busy: list.some((c) => c.busy),
     duplicate: [...perConversation.values()].some((n) => n > 1),
-    ...(pick?.state ? { state: pick.state, ...(pick.stateAt ? { stateAt: pick.stateAt } : {}), ...(pick.waitingFor ? { waitingFor: pick.waitingFor } : {}) } : {}),
+    ...(pick?.state
+      ? {
+          state: pick.state,
+          ...(pick.stateAt ? { stateAt: pick.stateAt } : {}),
+          ...(pick.waitingFor ? { waitingFor: pick.waitingFor } : {}),
+        }
+      : {}),
   };
 }
-

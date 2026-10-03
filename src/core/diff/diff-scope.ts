@@ -140,10 +140,7 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
   const currentResult = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   const currentBranch = currentResult.exitCode === 0 ? currentResult.stdout : '';
 
-  const candidates = ['main', 'master', 'dev', 'develop'].flatMap((name) => [
-    name,
-    `origin/${name}`,
-  ]);
+  const candidates = ['main', 'master', 'dev', 'develop'].flatMap((name) => [name, `origin/${name}`]);
 
   let best: { ref: string; sha: string; time: number } | null = null;
 
@@ -177,19 +174,14 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
   return best?.ref ?? null;
 }
 
-export function resolveBase(
-  scope: DiffScope,
-  argv: { base?: string; branch?: boolean },
-): ResolvedBase {
+export function resolveBase(scope: DiffScope, argv: { base?: string; branch?: boolean }): ResolvedBase {
   if (argv.base) return { base: argv.base, source: 'arg' };
 
   if (argv.branch) {
     if (scope.session?.baseBranch) {
       return { base: scope.session.baseBranch, source: 'session' };
     }
-    const primaryRoot =
-      scope.repos.find((r) => r.name === scope.activeRepoName)?.root ??
-      scope.repos[0].root;
+    const primaryRoot = scope.repos.find((r) => r.name === scope.activeRepoName)?.root ?? scope.repos[0].root;
     const detected = detectParentBranch(primaryRoot);
     if (detected) return { base: detected, source: 'auto-detected' };
 
@@ -209,11 +201,7 @@ export function resolveBase(
  * (`work tree --base backend=dev --base frontend=feat/x`). A repo without an
  * override falls back to the shared `base`.
  */
-export function buildRepoSpecs(
-  scope: DiffScope,
-  base: string,
-  perRepoBase?: Record<string, string>,
-): RepoSpec[] {
+export function buildRepoSpecs(scope: DiffScope, base: string, perRepoBase?: Record<string, string>): RepoSpec[] {
   return scope.repos.map((r) => {
     const repoBase = perRepoBase?.[r.root] ?? base;
     let diffArg = repoBase;
@@ -245,11 +233,7 @@ export interface ResolvedRepoDiff {
  * `findAnyParentBranch` (so the toggle stays available even when the
  * branch has no commits past parent yet — diff just renders empty).
  */
-export function resolveRepoDiff(
-  root: string,
-  base: 'uncommitted' | 'branch',
-  sessionBaseBranch?: string | null,
-): ResolvedRepoDiff {
+export function resolveRepoDiff(root: string, base: 'uncommitted' | 'branch', sessionBaseBranch?: string | null): ResolvedRepoDiff {
   if (base === 'uncommitted') {
     return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   }
@@ -258,8 +242,7 @@ export function resolveRepoDiff(
   // this branch). `findAnyParentBranch` would pick the most-recent merge-base
   // even when it's HEAD — yielding a useless 0-commit "since branch" diff.
   // Fall back to it only so the toggle still resolves to *something*.
-  const parent =
-    sessionBaseBranch ?? detectParentBranch(root) ?? findAnyParentBranch(root);
+  const parent = sessionBaseBranch ?? detectParentBranch(root) ?? findAnyParentBranch(root);
   if (!parent) return { resolvedBase: 'HEAD', diffArg: 'HEAD' };
   let diffArg = 'HEAD';
   const mb = git(['merge-base', parent, 'HEAD'], root);

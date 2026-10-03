@@ -53,7 +53,9 @@ export const ASSISTANT_ALLOW: AllowRule[] = [
 ];
 
 /** Its hook: what the dashboard shows, added at the start of each turn. */
-export const ASSISTANT_HOOKS: WorkHook[] = [{ owner: 'assistant', edge: 'turn-start', command: 'work hook assistant-context', timeoutSec: 5 }];
+export const ASSISTANT_HOOKS: WorkHook[] = [
+  { owner: 'assistant', edge: 'turn-start', command: 'work hook assistant-context', timeoutSec: 5 },
+];
 
 export const ASSISTANT_INSTRUCTIONS = `# You are the work dashboard's assistant
 
@@ -106,7 +108,9 @@ export function prepareAssistantDir(agent: Pick<AgentAdapter, 'instructionsFile'
   fs.mkdirSync(dir, { recursive: true });
   const before = readWritten();
   atomicWriteFile(path.join(dir, agent.instructionsFile), ASSISTANT_INSTRUCTIONS);
-  const written = [agent.instructionsFile, ...(agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS }) ?? [])].map((f) => path.normalize(f));
+  const written = [agent.instructionsFile, ...(agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS }) ?? [])].map(
+    (f) => path.normalize(f),
+  );
   const root = path.resolve(dir);
   for (const old of before.map((f) => path.normalize(f))) {
     const file = path.resolve(root, old);
@@ -133,8 +137,12 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
     lines.push(
       `Selected session: ${session.target} · ${session.branch} (id ${session.id}) — ${status}.`,
       ...(session.attention?.summary ? [`  Its last line: ${session.attention.summary}`] : []),
-      ...(session.diffStat?.files ? [`  Uncommitted: +${session.diffStat.added} −${session.diffStat.deleted} in ${session.diffStat.files} files.`] : []),
-      ...(session.overlaps?.length ? [`  Changes the same files as: ${session.overlaps.map((o) => `${o.target} · ${o.branch}`).join(', ')}.`] : []),
+      ...(session.diffStat?.files
+        ? [`  Uncommitted: +${session.diffStat.added} −${session.diffStat.deleted} in ${session.diffStat.files} files.`]
+        : []),
+      ...(session.overlaps?.length
+        ? [`  Changes the same files as: ${session.overlaps.map((o) => `${o.target} · ${o.branch}`).join(', ')}.`]
+        : []),
       ...(session.context ? [`  Its conversation is ${Math.round((session.context.used / session.context.window) * 100)}% full.`] : []),
       ...(session.archivedAt ? ['  It is archived.'] : []),
       `  Worktree: ${session.paths.join(', ')}`,

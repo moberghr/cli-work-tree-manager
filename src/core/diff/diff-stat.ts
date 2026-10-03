@@ -35,14 +35,15 @@ export function parseNumstat(out: string): { added: number; deleted: number; fil
   return { added, deleted, files };
 }
 
-export async function computeDiffStat(
-  paths: string[],
-  run: CommandRunner = defaultRunner,
-): Promise<DiffStat | null> {
+export async function computeDiffStat(paths: string[], run: CommandRunner = defaultRunner): Promise<DiffStat | null> {
   return (await computeChanges(paths, [], run)).stat;
 }
 
-const lines = (out: string) => out.split('\n').map((l) => l.trim()).filter(Boolean);
+const lines = (out: string) =>
+  out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
 
 /** Where "the main branch" is looked for, in order (same as cleanup.ts). */
 const MAIN_BRANCHES = ['origin/HEAD', 'origin/main', 'origin/master', 'main', 'master'];
@@ -195,8 +196,7 @@ export class DiffStatCache {
         })
         .then(({ stat, touched }) => {
           const e = this.entries.get(job.id)!;
-          const changed =
-            JSON.stringify(e.stat) !== JSON.stringify(stat) || JSON.stringify(e.touched) !== JSON.stringify(touched);
+          const changed = JSON.stringify(e.stat) !== JSON.stringify(stat) || JSON.stringify(e.touched) !== JSON.stringify(touched);
           e.stat = stat;
           e.touched = touched;
           // Invalidated while computing: show this value, but keep it stale

@@ -10,11 +10,7 @@ export interface ShellProfile {
   completionLine: string;
 }
 
-export type InstallResult =
-  | 'installed'
-  | 'created-file'
-  | 'already-exists'
-  | 'error';
+export type InstallResult = 'installed' | 'created-file' | 'already-exists' | 'error';
 
 export interface CompletionResult {
   profile: ShellProfile;
@@ -22,8 +18,7 @@ export interface CompletionResult {
   error?: string;
 }
 
-const PS_COMPLETION_LINE =
-  'work completion --shell powershell | Out-String | Invoke-Expression';
+const PS_COMPLETION_LINE = 'work completion --shell powershell | Out-String | Invoke-Expression';
 const BASH_COMPLETION_LINE = 'eval "$(work completion)"';
 const ZSH_COMPLETION_LINE = 'eval "$(work completion --shell zsh)"';
 const FISH_COMPLETION_SCRIPT = `# work tab completions
@@ -41,15 +36,11 @@ const LEGACY_MARKER = '# work2 tab completions';
 function getWindowsDocumentsFolder(): string | null {
   // Try pwsh first, fall back to powershell.exe
   for (const exe of ['pwsh', 'powershell']) {
-    const result = spawn.sync(
-      exe,
-      ['-NoProfile', '-Command', "[Environment]::GetFolderPath('MyDocuments')"],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    );
+    const result = spawn.sync(exe, ['-NoProfile', '-Command', "[Environment]::GetFolderPath('MyDocuments')"], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
     if (result.status === 0 && result.stdout) {
       const dir = result.stdout.toString().trim();
       if (dir) return dir;
@@ -80,11 +71,7 @@ export function detectShellProfiles(): ShellProfile[] {
     if (executableExists('pwsh')) {
       profiles.push({
         shell: 'PowerShell 7',
-        profilePath: path.join(
-          docs,
-          'PowerShell',
-          'Microsoft.PowerShell_profile.ps1',
-        ),
+        profilePath: path.join(docs, 'PowerShell', 'Microsoft.PowerShell_profile.ps1'),
         completionLine: PS_COMPLETION_LINE,
       });
     }
@@ -92,11 +79,7 @@ export function detectShellProfiles(): ShellProfile[] {
     if (executableExists('powershell')) {
       profiles.push({
         shell: 'PowerShell 5.1',
-        profilePath: path.join(
-          docs,
-          'WindowsPowerShell',
-          'Microsoft.PowerShell_profile.ps1',
-        ),
+        profilePath: path.join(docs, 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'),
         completionLine: PS_COMPLETION_LINE,
       });
     }
@@ -207,9 +190,7 @@ export function printCompletionResults(results: CompletionResult[]): void {
         console.log(chalk.green(`  ✓ ${label} — completions added`));
         break;
       case 'created-file':
-        console.log(
-          chalk.green(`  ✓ ${label} — profile created with completions`),
-        );
+        console.log(chalk.green(`  ✓ ${label} — profile created with completions`));
         break;
       case 'already-exists':
         console.log(chalk.gray(`  · ${label} — already has completions`));
@@ -223,11 +204,7 @@ export function printCompletionResults(results: CompletionResult[]): void {
 
 /** Print manual instructions when no shells are detected. */
 export function printManualInstructions(): void {
-  console.log(
-    chalk.yellow(
-      '  Could not detect shell profiles. Add completions manually:',
-    ),
-  );
+  console.log(chalk.yellow('  Could not detect shell profiles. Add completions manually:'));
   console.log('');
   console.log(chalk.gray('  PowerShell — add to $PROFILE:'));
   console.log(`    ${PS_COMPLETION_LINE}`);

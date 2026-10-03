@@ -47,19 +47,14 @@ export interface ContextLinesResult {
  * Returns `null` when the path is rejected or the content can't be read
  * (missing file, unknown ref, binary). Callers surface that as a 404/400.
  */
-export function readContextLines(
-  opts: ContextLinesOptions,
-): ContextLinesResult | null {
+export function readContextLines(opts: ContextLinesOptions): ContextLinesResult | null {
   const { root, relPath, ref } = opts;
   if (!relPath || !isInsideRoot(root, relPath)) return null;
 
   const start = Math.max(1, Math.floor(opts.start));
   const end = Math.max(start, Math.floor(opts.end));
 
-  const content =
-    !ref || ref === 'working'
-      ? readWorkingTree(root, relPath)
-      : readAtRef(root, ref, relPath);
+  const content = !ref || ref === 'working' ? readWorkingTree(root, relPath) : readAtRef(root, ref, relPath);
   if (content === null) return null;
 
   // Split on either line ending; drop the trailing empty element a final

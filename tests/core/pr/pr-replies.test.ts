@@ -24,7 +24,14 @@ afterEach(() => {
 const T1 = 'PRRT_kwDOabc123';
 const T2 = 'PRRT_kwDOdef456';
 const thread = (threadId: string, over = {}) => ({
-  threadId, repo: 'api', prNumber: 7, url: `https://github.com/o/api/pull/7#${threadId}`, where: 'src/a.ts:3', reviewer: 'copilot-pull-request-reviewer', excerpt: 'Use a const here', ...over,
+  threadId,
+  repo: 'api',
+  prNumber: 7,
+  url: `https://github.com/o/api/pull/7#${threadId}`,
+  where: 'src/a.ts:3',
+  reviewer: 'copilot-pull-request-reviewer',
+  excerpt: 'Use a const here',
+  ...over,
 });
 
 /** A fake gh that records its argv. */
@@ -33,7 +40,11 @@ function gh(fail = false) {
   const run: CommandRunner = async (cmd, args) => {
     calls.push([cmd, ...args]);
     if (fail) return { code: 1, stdout: '', stderr: 'HTTP 403: Resource not accessible' };
-    return { code: 0, stdout: JSON.stringify({ data: { addPullRequestReviewThreadReply: { comment: { url: 'https://github.com/o/api/pull/7#reply' } } } }), stderr: '' };
+    return {
+      code: 0,
+      stdout: JSON.stringify({ data: { addPullRequestReviewThreadReply: { comment: { url: 'https://github.com/o/api/pull/7#reply' } } } }),
+      stderr: '',
+    };
   };
   return { run, calls };
 }
@@ -41,12 +52,21 @@ function gh(fail = false) {
 describe('reply drafts', () => {
   it('only threads handed to the session can be answered; a draft is saved and counted', () => {
     rememberSent('s1', [thread(T1), thread(T2)]);
-    expect(saveDraft('s1', 'PRRT_notours', 'x')).toMatchObject({ ok: false, error: expect.stringContaining("wasn't handed to this session") });
+    expect(saveDraft('s1', 'PRRT_notours', 'x')).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("wasn't handed to this session"),
+    });
     expect(saveDraft('s1', 'not-a-thread', 'x')).toMatchObject({ ok: false, error: expect.stringContaining('not a review thread id') });
     expect(saveDraft('s1', T1, '   ')).toMatchObject({ ok: false, error: 'the reply is empty' });
     expect(saveDraft('s2', T1, 'Fixed')).toMatchObject({ ok: false }); // another session's thread
-    expect(saveDraft('s1', T1, ' Fixed in abc1234: now a const. ')).toMatchObject({ ok: true, reply: { status: 'draft', draft: 'Fixed in abc1234: now a const.' } });
-    expect(listReplies('s1').map((r) => [r.threadId, r.status])).toEqual([[T1, 'draft'], [T2, 'sent']]);
+    expect(saveDraft('s1', T1, ' Fixed in abc1234: now a const. ')).toMatchObject({
+      ok: true,
+      reply: { status: 'draft', draft: 'Fixed in abc1234: now a const.' },
+    });
+    expect(listReplies('s1').map((r) => [r.threadId, r.status])).toEqual([
+      [T1, 'draft'],
+      [T2, 'sent'],
+    ]);
     expect(draftCounts().get('s1')).toBe(1);
   });
 
@@ -77,7 +97,10 @@ describe('reply drafts', () => {
   it('a failed post keeps the draft and says why', async () => {
     rememberSent('s1', [thread(T1)]);
     saveDraft('s1', T1, 'draft');
-    expect(await postReply('s1', T1, 'draft', { resolve: false, cwd: home, run: gh(true).run })).toEqual({ ok: false, error: 'HTTP 403: Resource not accessible' });
+    expect(await postReply('s1', T1, 'draft', { resolve: false, cwd: home, run: gh(true).run })).toEqual({
+      ok: false,
+      error: 'HTTP 403: Resource not accessible',
+    });
     expect(listReplies('s1')[0].status).toBe('draft');
   });
 
@@ -124,13 +147,17 @@ describe('reply routes', () => {
 
   it('the open threads, from the PR watch’s state: open PRs only (a merged PR’s threads don’t wait on you)', () => {
     const t = (threadId: string) => ({ threadId, repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'r', excerpt: 'e' });
-    const pr = (state: string) => ({ number: 7, url: 'u', state, isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a' }) as never;
+    const pr = (state: string) =>
+      ({ number: 7, url: 'u', state, isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a' }) as never;
     expect(
-      openThreadsOfCi({ checkedAt: '', repos: [
-        { name: 'web', pr: pr('OPEN'), done: false, threads: [t('PRRT_a')] },
-        { name: 'api', pr: pr('MERGED'), done: true, threads: [t('PRRT_b')] },
-        { name: 'docs', pr: null, done: true },
-      ] }).map((x) => x.threadId),
+      openThreadsOfCi({
+        checkedAt: '',
+        repos: [
+          { name: 'web', pr: pr('OPEN'), done: false, threads: [t('PRRT_a')] },
+          { name: 'api', pr: pr('MERGED'), done: true, threads: [t('PRRT_b')] },
+          { name: 'docs', pr: null, done: true },
+        ],
+      }).map((x) => x.threadId),
     ).toEqual(['PRRT_a']);
     expect(openThreadsOfCi(null)).toEqual([]);
   });

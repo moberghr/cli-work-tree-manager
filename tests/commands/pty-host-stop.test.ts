@@ -16,7 +16,10 @@ import { PROTOCOL_VERSION } from '../../src/core/pty/pty-host-protocol.js';
 let server: http.Server | null = null;
 async function fakeHost(reportPid: number, token = 'tok'): Promise<number> {
   server = http.createServer((req, res) => {
-    if (req.headers['x-work-token'] !== token) { res.writeHead(403).end(); return; }
+    if (req.headers['x-work-token'] !== token) {
+      res.writeHead(403).end();
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: reportPid }));
   });
@@ -76,7 +79,9 @@ describe('a busy host is not mistaken for a stale file (reviewed bug)', () => {
     const kill = vi.fn(() => true);
     // Accepts the connection but never answers (a host busy restoring).
     const hung: http.ServerResponse[] = [];
-    server = http.createServer((_req, res) => { hung.push(res); });
+    server = http.createServer((_req, res) => {
+      hung.push(res);
+    });
     await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
     writeInfo(4242, (server.address() as { port: number }).port);
     expect(await stopHost(kill, 300)).toBe('unresponsive');

@@ -182,7 +182,11 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
               <span className="wd-spinner" aria-hidden /> Checking branch, upstream and PR…
             </p>
           )}
-          {loadError && <p className="wd-modal-error" role="alert">{loadError}</p>}
+          {loadError && (
+            <p className="wd-modal-error" role="alert">
+              {loadError}
+            </p>
+          )}
           {pre?.repos.map((r) => (
             <RepoState
               key={r.path}
@@ -194,14 +198,20 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
             />
           ))}
           {avail?.allDone && (
-            <p className="wd-ship-ok" role="status">Every repository is merged or untouched — nothing left to ship.</p>
+            <p className="wd-ship-ok" role="status">
+              Every repository is merged or untouched — nothing left to ship.
+            </p>
           )}
           {busy && (
             <p className="wd-ship-progress" role="status">
               <span className="wd-spinner" aria-hidden /> {BUSY_LABEL[busy]}
             </p>
           )}
-          {actionError && <p className="wd-modal-error" role="alert">{actionError}</p>}
+          {actionError && (
+            <p className="wd-modal-error" role="alert">
+              {actionError}
+            </p>
+          )}
           {results && (
             <ul className="wd-ship-results">
               {results.map((r) => (
@@ -210,7 +220,9 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
                   {r.url && (
                     <>
                       {' '}
-                      <a href={r.url} target="_blank" rel="noreferrer">open</a>
+                      <a href={r.url} target="_blank" rel="noreferrer">
+                        open
+                      </a>
                     </>
                   )}
                 </li>
@@ -257,8 +269,7 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
           </button>
           <span className="wd-ship-group">
             <label className="wd-ship-inline">
-              <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} disabled={disabled} />{' '}
-              draft
+              <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} disabled={disabled} /> draft
             </label>
             <button
               type="button"
@@ -286,11 +297,7 @@ export function ShipPanel({ session, onClose, onMerged }: Props) {
               className="wd-btn-primary"
               disabled={disabled || toMerge.length === 0 || confirming}
               onClick={() => setConfirming(true)}
-              title={
-                multi
-                  ? 'Merge the selected repositories — asks for confirmation'
-                  : 'Merge the open PR — asks for confirmation'
-              }
+              title={multi ? 'Merge the selected repositories — asks for confirmation' : 'Merge the open PR — asks for confirmation'}
             >
               {multi && toMerge.length > 0 ? `Merge ${toMerge.length}…` : 'Merge…'}
             </button>
@@ -322,22 +329,9 @@ function RepoState({
   return (
     <section className={'wd-ship-repo' + (r.done ? ' wd-ship-repo-done' : '')}>
       <header>
-        {selectable && (
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggle}
-            disabled={disabled}
-            aria-label={`Merge ${r.name}`}
-          />
-        )}{' '}
+        {selectable && <input type="checkbox" checked={selected} onChange={onToggle} disabled={disabled} aria-label={`Merge ${r.name}`} />}{' '}
         <strong>{r.name}</strong> <span className="wd-tab-header-muted">{r.branch}</span>
-        {r.done && (
-          <span className="wd-ship-done">
-            {' '}
-            {r.doneReason === 'merged' ? '✓ merged' : '— untouched, nothing to ship'}
-          </span>
-        )}
+        {r.done && <span className="wd-ship-done"> {r.doneReason === 'merged' ? '✓ merged' : '— untouched, nothing to ship'}</span>}
       </header>
       {!r.done && (
         <ul className="wd-ship-facts">
@@ -348,7 +342,9 @@ function RepoState({
           <li>
             {r.pr ? (
               <>
-                <a href={r.pr.url} target="_blank" rel="noreferrer">#{r.pr.number}</a>{' '}
+                <a href={r.pr.url} target="_blank" rel="noreferrer">
+                  #{r.pr.number}
+                </a>{' '}
                 {r.pr.state.toLowerCase()}
                 {r.pr.isDraft ? ' · draft' : ''} · checks {r.pr.checks} · {r.pr.mergeStateStatus.toLowerCase()}
               </>

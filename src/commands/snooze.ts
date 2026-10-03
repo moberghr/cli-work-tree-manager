@@ -11,7 +11,10 @@ export const snoozeCommand: CommandModule = {
   describe: 'Snooze a session out of the Inbox (default: the session for this folder)',
   builder: (yargs) =>
     sessionPositionals(yargs)
-      .option('for', { choices: ['2h', 'tomorrow', 'change'] as const, describe: 'Two hours, tomorrow 9:00, or until its status changes (default: 2h)' })
+      .option('for', {
+        choices: ['2h', 'tomorrow', 'change'] as const,
+        describe: 'Two hours, tomorrow 9:00, or until its status changes (default: 2h)',
+      })
       .option('until', { type: 'string', describe: 'Until a time: 14:00, fri, "fri 14:00", +3h, 2026-10-03 14:00' })
       .option('off', { type: 'boolean', describe: 'Unsnooze it' })
       .conflicts('until', 'for')

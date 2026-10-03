@@ -18,11 +18,16 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+const button = (label: string) =>
+  [...container.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement | undefined;
 
 const STATE: BranchesState = {
-  scanning: false, scannedAt: new Date().toISOString(),
+  scanning: false,
+  scannedAt: new Date().toISOString(),
   candidates: [
     { repo: 'api', repoPath: 'C:/repos/api', branch: 'feat/merged', tip: 'a'.repeat(40), reason: 'merged' },
     { repo: 'api', repoPath: 'C:/repos/api', branch: 'feat/squashed', tip: 'b'.repeat(40), reason: 'squash-merged', prNumber: 7 },
@@ -36,7 +41,12 @@ function fakeApi(): MergedBranchesApi {
     scan: vi.fn(async () => STATE),
     apply: vi.fn(async (items) => ({
       results: items.map((i: { repo: string; branch: string }) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted' })),
-      state: { ...STATE, candidates: STATE.candidates.filter((c) => !items.some((i: { repo: string; branch: string }) => i.repo === c.repo && i.branch === c.branch)) },
+      state: {
+        ...STATE,
+        candidates: STATE.candidates.filter(
+          (c) => !items.some((i: { repo: string; branch: string }) => i.repo === c.repo && i.branch === c.branch),
+        ),
+      },
     })),
   };
 }
@@ -49,14 +59,17 @@ describe('MergedBranches', () => {
     expect(container.textContent).toContain('an archived session uses it');
   });
 
-  it('the bulk delete asks twice and leaves out the archived session\'s branch', async () => {
+  it("the bulk delete asks twice and leaves out the archived session's branch", async () => {
     const api = fakeApi();
     act(() => root.render(createElement(MergedBranches, { api })));
     await flush();
     act(() => button('Delete 2')!.click());
     expect(api.apply).not.toHaveBeenCalled();
     await act(async () => button('Really delete 2?')!.click());
-    expect(api.apply).toHaveBeenCalledWith([{ repo: 'api', branch: 'feat/merged', tip: 'a'.repeat(40) }, { repo: 'api', branch: 'feat/squashed', tip: 'b'.repeat(40) }]);
+    expect(api.apply).toHaveBeenCalledWith([
+      { repo: 'api', branch: 'feat/merged', tip: 'a'.repeat(40) },
+      { repo: 'api', branch: 'feat/squashed', tip: 'b'.repeat(40) },
+    ]);
     expect(container.textContent).toContain('Deleted 2 branches.');
     expect(container.textContent).not.toContain('feat/merged');
     expect(container.textContent).toContain('feat/old');
@@ -64,7 +77,10 @@ describe('MergedBranches', () => {
 
   it('says which were kept, and why', async () => {
     const api = fakeApi();
-    api.apply = vi.fn(async () => ({ results: [{ repo: 'web', branch: 'feat/old', ok: false, message: 'moved since the scan' }], state: STATE }));
+    api.apply = vi.fn(async () => ({
+      results: [{ repo: 'web', branch: 'feat/old', ok: false, message: 'moved since the scan' }],
+      state: STATE,
+    }));
     act(() => root.render(createElement(MergedBranches, { api })));
     await flush();
     const del = [...container.querySelectorAll('li button')].at(-1) as HTMLButtonElement;

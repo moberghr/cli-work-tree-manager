@@ -11,12 +11,7 @@ import { fetchFileLines, type FileLinesResult } from '../api/client.js';
  * server — `useExpandOptional()` returns null and the expand UI is hidden.
  */
 export interface ExpandContextValue {
-  loadLines: (
-    repo: string,
-    filePath: string,
-    start: number,
-    end: number,
-  ) => Promise<FileLinesResult>;
+  loadLines: (repo: string, filePath: string, start: number, end: number) => Promise<FileLinesResult>;
   /** URL of the standalone "whole file" view for this repo/file, opened in
    *  a new tab. Routes to the scope-mounted `/file/<hash>` page (or `/file`
    *  on the standalone server). */
@@ -34,13 +29,10 @@ interface ExpandProviderProps {
 export function ExpandProvider({ children, scopeHash }: ExpandProviderProps) {
   const value = useMemo<ExpandContextValue>(
     () => ({
-      loadLines: (repo, filePath, start, end) =>
-        fetchFileLines(scopeHash, repo, filePath, start, end),
+      loadLines: (repo, filePath, start, end) => fetchFileLines(scopeHash, repo, filePath, start, end),
       fileHref: (repo, filePath) => {
         const params = new URLSearchParams({ repo, path: filePath });
-        const base = scopeHash
-          ? `/file/${encodeURIComponent(scopeHash)}`
-          : '/file';
+        const base = scopeHash ? `/file/${encodeURIComponent(scopeHash)}` : '/file';
         return `${base}?${params.toString()}`;
       },
     }),

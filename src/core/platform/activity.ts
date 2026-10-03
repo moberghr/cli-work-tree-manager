@@ -53,7 +53,17 @@ export function createActivityLog(opts: { now?: () => number; onChange?: () => v
 
   return {
     start(kind, label) {
-      const run: ActivityRun = { id: nextId++, kind, label, startedAt: iso(), endedAt: null, status: 'running', progress: null, summary: null, notes: [] };
+      const run: ActivityRun = {
+        id: nextId++,
+        kind,
+        label,
+        startedAt: iso(),
+        endedAt: null,
+        status: 'running',
+        progress: null,
+        summary: null,
+        notes: [],
+      };
       running.set(run.id, run);
       changed();
       const open = () => run.status === 'running';

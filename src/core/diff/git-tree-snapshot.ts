@@ -45,10 +45,7 @@ export interface TempTreeResult {
  * Returns null on any git failure (caller should skip this repo). The temp
  * index file is always unlinked.
  */
-export function writeTempTree(
-  repoRoot: string,
-  opts: { includeWorkingTree?: boolean } = {},
-): TempTreeResult | null {
+export function writeTempTree(repoRoot: string, opts: { includeWorkingTree?: boolean } = {}): TempTreeResult | null {
   const steps = tempTreeSteps(repoRoot, opts.includeWorkingTree ?? true);
   let next = steps.next();
   while (!next.done) next = steps.next(runGitSync(repoRoot, next.value));
@@ -62,10 +59,7 @@ export function writeTempTree(
  * per repo at a time: turns ending together queue rather than run several
  * `add -A` over the same tree at once.
  */
-export function writeTempTreeAsync(
-  repoRoot: string,
-  opts: { includeWorkingTree?: boolean } = {},
-): Promise<TempTreeResult | null> {
+export function writeTempTreeAsync(repoRoot: string, opts: { includeWorkingTree?: boolean } = {}): Promise<TempTreeResult | null> {
   return inRepoQueue(repoRoot, async () => {
     const steps = tempTreeSteps(repoRoot, opts.includeWorkingTree ?? true);
     let next = steps.next();
@@ -170,7 +164,13 @@ function removeQuietly(file: string): void {
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
 export function runGitSync(cwd: string, step: GitStep): GitResult {
-  const r = spawn.sync('git', step.args, { cwd, encoding: 'utf-8', env: step.env ?? process.env, windowsHide: true, maxBuffer: GIT_MAX_BUFFER });
+  const r = spawn.sync('git', step.args, {
+    cwd,
+    encoding: 'utf-8',
+    env: step.env ?? process.env,
+    windowsHide: true,
+    maxBuffer: GIT_MAX_BUFFER,
+  });
   return { status: r.status, stdout: r.stdout ?? '' };
 }
 

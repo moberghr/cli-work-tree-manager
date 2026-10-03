@@ -56,7 +56,11 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
       const r = await api.apply(items);
       setSt(r.state);
       const bad = r.results.filter((x) => !x.ok);
-      setNote(bad.length ? `${bad.length} kept: ${bad.map((b) => `${b.branch} (${b.message})`).join('; ')}` : `Deleted ${r.results.length} branch${r.results.length === 1 ? '' : 'es'}.`);
+      setNote(
+        bad.length
+          ? `${bad.length} kept: ${bad.map((b) => `${b.branch} (${b.message})`).join('; ')}`
+          : `Deleted ${r.results.length} branch${r.results.length === 1 ? '' : 'es'}.`,
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -70,12 +74,21 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
     <section className="wd-cleanup-section wd-cleanup-branches">
       <h2 className="wd-inbox-section-title" title="Local branches whose work is already in the main branch">
         Merged local branches{' '}
-        {st?.scannedAt && !st.scanning && <span className="wd-tab-header-muted">({list.length}, checked {relativeTime(st.scannedAt)})</span>}
+        {st?.scannedAt && !st.scanning && (
+          <span className="wd-tab-header-muted">
+            ({list.length}, checked {relativeTime(st.scannedAt)})
+          </span>
+        )}
         <button type="button" className="wd-row-action" disabled={!!st?.scanning} onClick={() => void load(api.scan())}>
           {st?.scanning ? 'Checking…' : st?.scannedAt ? 'Check again' : 'Check'}
         </button>
         {safe.length > 0 && !st?.scanning && (
-          <button type="button" className="wd-row-action wd-row-action-danger" disabled={busy} onClick={() => (armed ? void del(safe.map(({ repo, branch, tip }) => ({ repo, branch, tip }))) : setArmed(true))}>
+          <button
+            type="button"
+            className="wd-row-action wd-row-action-danger"
+            disabled={busy}
+            onClick={() => (armed ? void del(safe.map(({ repo, branch, tip }) => ({ repo, branch, tip }))) : setArmed(true))}
+          >
             {armed ? `Really delete ${safe.length}?` : `Delete ${safe.length}`}
           </button>
         )}
@@ -84,7 +97,11 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
         Merged into the main branch, or a squash-merged PR whose head is exactly the branch&apos;s tip. Nothing in them is lost.
       </p>
       {error && <div className="wd-tab-error">{error}</div>}
-      {note && <p className="wd-cleanup-hint" role="status">{note}</p>}
+      {note && (
+        <p className="wd-cleanup-hint" role="status">
+          {note}
+        </p>
+      )}
       {st?.scannedAt && list.length === 0 && !st.scanning && <p className="wd-cleanup-hint">None.</p>}
       <ul className="wd-cleanup-list">
         {list.map((b) => (
@@ -97,7 +114,12 @@ export function MergedBranches({ api = httpMergedBranchesApi, pollMs = 1000 }: {
               {b.reason === 'merged' ? 'merged' : `squash-merged${b.prNumber ? ` in #${b.prNumber}` : ''}`}
               {b.archivedSession && ' · an archived session uses it: Restore would need it'}
             </span>
-            <button type="button" className="wd-row-action" disabled={busy} onClick={() => void del([{ repo: b.repo, branch: b.branch, tip: b.tip }])}>
+            <button
+              type="button"
+              className="wd-row-action"
+              disabled={busy}
+              onClick={() => void del([{ repo: b.repo, branch: b.branch, tip: b.tip }])}
+            >
               Delete
             </button>
           </li>

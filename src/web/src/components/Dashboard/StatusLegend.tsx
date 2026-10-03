@@ -44,7 +44,13 @@ export function StatusLegend() {
         ?
       </button>
       {open && (
-        <div id="wd-legend-panel" className="wd-legend-panel" role="dialog" aria-label="What the icons mean" style={{ top: open.top, left: open.left }}>
+        <div
+          id="wd-legend-panel"
+          className="wd-legend-panel"
+          role="dialog"
+          aria-label="What the icons mean"
+          style={{ top: open.top, left: open.left }}
+        >
           <h3 className="wd-legend-title">What the icons mean</h3>
           <ul className="wd-legend-list">
             {LEGEND_KINDS.map((k) => (
@@ -57,10 +63,21 @@ export function StatusLegend() {
           </ul>
           <h3 className="wd-legend-title">On a row</h3>
           <ul className="wd-legend-list wd-legend-marks">
-            <li><b>Bold</b> — it wants you (needs input, done, review comments). The Inbox lists these in order; <kbd>n</kbd> jumps to the next.</li>
-            <li>On the right: <span className="wd-rail-slot-needs">4m</span> waiting that long for you · <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-review">2</span> unresolved review comments</li>
-            <li><span className="wd-pr-chip">#212</span> an open pull request (click to open it)</li>
-            <li><span className="wd-legend-overlap">⚠</span> another session changes the same files</li>
+            <li>
+              <b>Bold</b> — it wants you (needs input, done, review comments). The Inbox lists these in order; <kbd>n</kbd> jumps to the
+              next.
+            </li>
+            <li>
+              On the right: <span className="wd-rail-slot-needs">4m</span> waiting that long for you ·{' '}
+              <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-review">2</span>{' '}
+              unresolved review comments
+            </li>
+            <li>
+              <span className="wd-pr-chip">#212</span> an open pull request (click to open it)
+            </li>
+            <li>
+              <span className="wd-legend-overlap">⚠</span> another session changes the same files
+            </li>
           </ul>
         </div>
       )}

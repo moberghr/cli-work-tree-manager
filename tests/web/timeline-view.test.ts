@@ -34,7 +34,9 @@ const EVENTS = [
 describe('TimelineView', () => {
   it('by day, newest first: a PR links to its page, a commit shows its short sha', async () => {
     api.fetchTimeline.mockResolvedValue(EVENTS);
-    await act(async () => root.render(createElement(TimelineView, { session: { id: 's1', isGroup: false, lastActivity: 1 } as SessionSummary })));
+    await act(async () =>
+      root.render(createElement(TimelineView, { session: { id: 's1', isGroup: false, lastActivity: 1 } as SessionSummary })),
+    );
     expect(container.querySelectorAll('.wd-timeline-day')).toHaveLength(2);
     expect(container.querySelector<HTMLAnchorElement>('.wd-timeline-pr-merged a')!.href).toBe('https://github.com/x/api/pull/7');
     expect(container.querySelector('.wd-timeline-sha')!.textContent).toBe('abc1234');

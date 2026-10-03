@@ -7,7 +7,23 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import type { AnswerRequest, BranchCandidate, BuildFolderCandidate, CatchUpWire, CleanupApplyRequest, BlockerWire, HostHealth, TimelineWire, WorklogWire, ForkWire, JiraDecision, JiraWatchState, NoteWire, UpdateFromMainWire, WorkTimeWire } from '../../core/api-types.js';
+import type {
+  AnswerRequest,
+  BranchCandidate,
+  BuildFolderCandidate,
+  CatchUpWire,
+  CleanupApplyRequest,
+  BlockerWire,
+  HostHealth,
+  TimelineWire,
+  WorklogWire,
+  ForkWire,
+  JiraDecision,
+  JiraWatchState,
+  NoteWire,
+  UpdateFromMainWire,
+  WorkTimeWire,
+} from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
@@ -57,7 +73,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/update-from-main', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);
-    return c.json({ results: [{ ok: true, repo: w.target, how: 'nothing', base: 'origin/main', commits: 0 }] } satisfies UpdateFromMainWire);
+    return c.json({
+      results: [{ ok: true, repo: w.target, how: 'nothing', base: 'origin/main', commits: 0 }],
+    } satisfies UpdateFromMainWire);
   });
 
   // "Catch me up": a canned summary (the demo runs no Claude).
@@ -71,12 +89,14 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     let ref: BlockerWire | null = null;
     if (body.kind === 'session' && typeof body.id === 'string') {
       const other = scenario.list().find((x) => x.id === body.id && !x.archivedAt);
-      if (other && other.id !== w.id) ref = { key: `session:${other.id}`, kind: 'session', label: other.title ?? other.branch, sessionId: other.id };
+      if (other && other.id !== w.id)
+        ref = { key: `session:${other.id}`, kind: 'session', label: other.title ?? other.branch, sessionId: other.id };
     } else if (body.kind === 'pr' && typeof body.url === 'string') {
       const pr = prUrl(body.url);
       if (pr) ref = { key: `pr:${pr.url}`, kind: 'pr', label: pr.label, url: pr.url, state: 'OPEN' };
     }
-    if (!ref) return c.json({ error: "expected {kind: 'session', id} of a live session, or {kind: 'pr', url} of a GitHub pull request" }, 400);
+    if (!ref)
+      return c.json({ error: "expected {kind: 'session', id} of a live session, or {kind: 'pr', url} of a GitHub pull request" }, 400);
     blocks.set(w.id, [...(blocks.get(w.id) ?? []).filter((b) => b.key !== ref!.key), ref]);
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
     return c.json({ ok: true });
@@ -98,7 +118,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   const worklogs = new Map<string, Record<string, number>>();
   app.get('/api/sessions/:id/worklog', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
-    return w ? c.json({ configured: true, issueKey: w.jiraKey ?? null, logged: worklogs.get(w.id) ?? {} } satisfies WorklogWire) : notFound(c);
+    return w
+      ? c.json({ configured: true, issueKey: w.jiraKey ?? null, logged: worklogs.get(w.id) ?? {} } satisfies WorklogWire)
+      : notFound(c);
   });
   app.post('/api/sessions/:id/worklog', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
@@ -152,13 +174,22 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const yesterday = (seed % 3) * 25 * 60_000;
     const d = (offset: number) => dayKey(Date.now() - offset * 24 * 3_600_000);
     const byDay = [{ day: d(0), ms: today }, ...(yesterday ? [{ day: d(1), ms: yesterday }] : [])];
-    return c.json({ workedMs: today + yesterday, prompts: 3 + (seed % 9), byDay, firstAt: w.createdAt, lastAt: new Date().toISOString() } satisfies WorkTimeWire);
+    return c.json({
+      workedMs: today + yesterday,
+      prompts: 3 + (seed % 9),
+      byDay,
+      firstAt: w.createdAt,
+      lastAt: new Date().toISOString(),
+    } satisfies WorkTimeWire);
   });
   app.get('/api/sessions/:id/catch-up', (c) => c.json({ catchUp: caughtUp.get(c.req.param('id')) ?? null } satisfies CatchUpWire));
   app.post('/api/sessions/:id/catch-up', (c) => {
     const w = scenario.list().find((x) => x.id === c.req.param('id'));
     if (!w) return notFound(c);
-    const v = { text: `You asked Claude to work on ${w.branch}; ${w.attention?.summary ?? 'it made a first pass'}. Nothing is waiting on you right now; next is reviewing the diff and opening a PR.`, at: new Date().toISOString() };
+    const v = {
+      text: `You asked Claude to work on ${w.branch}; ${w.attention?.summary ?? 'it made a first pass'}. Nothing is waiting on you right now; next is reviewing the diff and opening a PR.`,
+      at: new Date().toISOString(),
+    };
     caughtUp.set(w.id, v);
     return c.json({ catchUp: v } satisfies CatchUpWire);
   });
@@ -170,7 +201,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
       sessions: scenario.list().map((w) => {
         const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
         const z = snoozes.get(w.id);
-        const waiting = (blocks.get(w.id) ?? []).filter((b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt));
+        const waiting = (blocks.get(w.id) ?? []).filter(
+          (b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt),
+        );
         const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
         const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
         return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
@@ -228,7 +261,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/dev/start', (c) => {
     const id = c.req.param('id');
     if (!scenario.devState(id)) return notFound(c);
-    return scenario.devStart(id) ? c.json({ ok: true, pid: scenario.devState(id)!.running!.pid }) : c.json({ error: 'already running' }, 409);
+    return scenario.devStart(id)
+      ? c.json({ ok: true, pid: scenario.devState(id)!.running!.pid })
+      : c.json({ error: 'already running' }, 409);
   });
   app.post('/api/sessions/:id/dev/stop', (c) => {
     const id = c.req.param('id');
@@ -323,16 +358,37 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/seen', (c) => (scenario.markSeen(c.req.param('id')) ? c.json({ ok: true }) : notFound(c)));
   // Build folders in idle worktrees (simulated sizes; nothing on disk).
   let demoFolders: BuildFolderCandidate[] = [
-    { sessionId: 'demo-web-fix-old-banner', target: 'web', branch: 'fix/old-banner', lastActive: new Date(Date.now() - 12 * 86_400_000).toISOString(), bytes: 812_000_000, folders: [{ path: 'C:/worktrees/web/fix-old-banner/node_modules', bytes: 790_000_000 }, { path: 'C:/worktrees/web/fix-old-banner/.next', bytes: 22_000_000 }] },
+    {
+      sessionId: 'demo-web-fix-old-banner',
+      target: 'web',
+      branch: 'fix/old-banner',
+      lastActive: new Date(Date.now() - 12 * 86_400_000).toISOString(),
+      bytes: 812_000_000,
+      folders: [
+        { path: 'C:/worktrees/web/fix-old-banner/node_modules', bytes: 790_000_000 },
+        { path: 'C:/worktrees/web/fix-old-banner/.next', bytes: 22_000_000 },
+      ],
+    },
   ];
-  const folderState = () => ({ scanning: false, checked: demoFolders.length, total: demoFolders.length, scannedAt: new Date().toISOString(), candidates: demoFolders });
+  const folderState = () => ({
+    scanning: false,
+    checked: demoFolders.length,
+    total: demoFolders.length,
+    scannedAt: new Date().toISOString(),
+    candidates: demoFolders,
+  });
   app.get('/api/cleanup/build-folders', (c) => c.json(folderState()));
   app.post('/api/cleanup/build-folders/scan', (c) => c.json(folderState()));
   app.post('/api/cleanup/build-folders/apply', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { sessionIds?: unknown } | null;
     const ids = Array.isArray(body?.sessionIds) ? body.sessionIds.filter((x): x is string => typeof x === 'string') : [];
     if (ids.length === 0) return c.json({ error: 'sessionIds: [...]' }, 400);
-    const results = ids.map((id) => ({ sessionId: id, ok: demoFolders.some((f) => f.sessionId === id), removed: 1, message: 'Removed (simulated)' }));
+    const results = ids.map((id) => ({
+      sessionId: id,
+      ok: demoFolders.some((f) => f.sessionId === id),
+      removed: 1,
+      message: 'Removed (simulated)',
+    }));
     demoFolders = demoFolders.filter((f) => !ids.includes(f.sessionId));
     return c.json({ results, state: folderState() });
   });
@@ -353,7 +409,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const items = Array.isArray(body?.items) ? body.items : [];
     if (items.length === 0) return c.json({ error: 'items: [{repo, branch}]' }, 400);
     demoBranches = demoBranches.filter((b) => !items.some((i) => i.repo === b.repo && i.branch === b.branch));
-    return c.json({ results: items.map((i) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted (simulated)' })), state: branchState() });
+    return c.json({
+      results: items.map((i) => ({ repo: i.repo, branch: i.branch, ok: true, message: 'Deleted (simulated)' })),
+      state: branchState(),
+    });
   });
 
   // Search in kept conversations: the demo keeps none.
@@ -416,11 +475,19 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return streamSSE(c, async (stream) => {
       const send = () => {
         const snapshot = scenario.chatSnapshot(id);
-        if (snapshot) stream.writeSSE({ event: 'snapshot', data: JSON.stringify({ type: 'snapshot', snapshot }) }).catch(() => { /* gone */ });
+        if (snapshot)
+          stream.writeSSE({ event: 'snapshot', data: JSON.stringify({ type: 'snapshot', snapshot }) }).catch(() => {
+            /* gone */
+          });
       };
       const off = scenario.subscribe(() => send());
       send();
-      await new Promise<void>((resolve) => stream.onAbort(() => { off(); resolve(); }));
+      await new Promise<void>((resolve) =>
+        stream.onAbort(() => {
+          off();
+          resolve();
+        }),
+      );
     });
   });
   app.post('/api/sessions/:id/chat/messages', async (c) => {
@@ -447,7 +514,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.post('/api/sessions/:id/agent/start', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'running' }) : notFound(c)));
   app.post('/api/sessions/:id/agent/stop', (c) => (scenario.comments(c.req.param('id')) ? c.json({ how: 'stopped' }) : notFound(c)));
-  app.get('/api/sessions/:id/screen', (c) => (scenario.comments(c.req.param('id')) ? c.json({ text: scenario.screen(c.req.param('id')) }) : notFound(c)));
+  app.get('/api/sessions/:id/screen', (c) =>
+    scenario.comments(c.req.param('id')) ? c.json({ text: scenario.screen(c.req.param('id')) }) : notFound(c),
+  );
 
   app.post('/api/sessions/:id/answer', async (c) => {
     const body = (await c.req.json().catch(() => null)) as Partial<AnswerRequest> | null;
@@ -496,8 +565,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const body = await json(c);
     const branch = typeof body.branch === 'string' ? body.branch.trim() : '';
     if (!branch || branch === w.branch) return c.json({ error: 'the fork needs a branch of its own' }, 400);
-    if (scenario.list().some((x) => x.target === w.target && x.branch === branch)) return c.json({ error: `${branch} already exists: pick another name` }, 409);
-    const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : `Forked from ${w.branch}: read the summary and wait for my instruction.`;
+    if (scenario.list().some((x) => x.target === w.target && x.branch === branch))
+      return c.json({ error: `${branch} already exists: pick another name` }, 409);
+    const prompt =
+      typeof body.prompt === 'string' && body.prompt.trim()
+        ? body.prompt.trim()
+        : `Forked from ${w.branch}: read the summary and wait for my instruction.`;
     const s = scenario.create(w.target, branch, prompt, w.branch);
     return c.json({ sessionId: s.id, paths: s.paths, summarized: true } satisfies ForkWire);
   });
@@ -514,12 +587,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.delete('/api/sessions/:id/worktree', (c) =>
     scenario.remove(c.req.param('id')) ? c.json({ ok: true, worktreeRemoved: true }) : notFound(c),
   );
-  app.post('/api/sessions/:id/sync', (c) =>
-    c.json({ results: [{ path: 'demo', fetched: true, pulled: true }] }),
-  );
-  app.post('/api/sessions/:id/rebase', (c) =>
-    c.json({ results: [{ path: 'demo', ok: true, parent: 'origin/main' }] }),
-  );
+  app.post('/api/sessions/:id/sync', (c) => c.json({ results: [{ path: 'demo', fetched: true, pulled: true }] }));
+  app.post('/api/sessions/:id/rebase', (c) => c.json({ results: [{ path: 'demo', ok: true, parent: 'origin/main' }] }));
   const noLocalApps = (c: { json: (b: unknown, s: 501) => Response }) =>
     c.json({ error: 'Demo mode: opening local apps is simulated — there is no real worktree.' }, 501);
   app.post('/api/sessions/:id/open-editor', (c) => noLocalApps(c));
@@ -562,7 +631,13 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   let jiraWatch: JiraWatchState['settings'] = { enabled: false, since: null };
   const jiraDecisions: JiraDecision[] = [];
   app.get('/api/jira/watch', (c) =>
-    c.json({ settings: jiraWatch, decisions: jiraDecisions, targets: [...new Set([...scenario.sessions.values()].map((s) => s.target))], lastRunAt: null, nextRunAt: null } satisfies JiraWatchState),
+    c.json({
+      settings: jiraWatch,
+      decisions: jiraDecisions,
+      targets: [...new Set([...scenario.sessions.values()].map((s) => s.target))],
+      lastRunAt: null,
+      nextRunAt: null,
+    } satisfies JiraWatchState),
   );
   app.put('/api/jira/watch', async (c) => {
     const body = await json(c);
@@ -602,14 +677,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/events', (c) =>
     streamSSE(c, async (stream) => {
       const cb = (e: DemoEvent) => {
-        stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) }).catch(() => { /* client gone */ });
+        stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) }).catch(() => {
+          /* client gone */
+        });
       };
       listeners.add(cb);
       await stream.writeSSE({ event: 'connected', data: '' });
-      await new Promise<void>((resolve) => stream.onAbort(() => {
-        listeners.delete(cb);
-        resolve();
-      }));
+      await new Promise<void>((resolve) =>
+        stream.onAbort(() => {
+          listeners.delete(cb);
+          resolve();
+        }),
+      );
     }),
   );
 
@@ -625,10 +704,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   const wss = new WebSocketServer({ noServer: true });
   handle.httpServer.on('upgrade', (req, socket, head) => {
     const m = (req.url ?? '').match(/^\/ws\/sessions\/([^/]+)\/terminal$/);
-    const reason = refuseReason(
-      { method: 'GET', upgrade: true, host: req.headers.host, origin: req.headers.origin },
-      handle.port,
-    );
+    const reason = refuseReason({ method: 'GET', upgrade: true, host: req.headers.host, origin: req.headers.origin }, handle.port);
     if (!m || reason) {
       socket.destroy();
       return;
@@ -637,7 +713,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.send(JSON.stringify({ type: 'replay', data: scenario.screen(id), cols: 120, rows: 32 }));
       const off = scenario.onTerminal(id, (data) => {
-        try { ws.send(Buffer.from(data), { binary: true }); } catch { /* closed */ }
+        try {
+          ws.send(Buffer.from(data), { binary: true });
+        } catch {
+          /* closed */
+        }
       });
       let line = '';
       ws.on('message', (raw) => {

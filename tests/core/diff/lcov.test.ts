@@ -2,14 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  parseLcov,
-  coverageForFiles,
-  coverageLookup,
-  readParsedLcov,
-  clearLcovCache,
-  findLcov,
-} from '../../../src/core/diff/lcov.js';
+import { parseLcov, coverageForFiles, coverageLookup, readParsedLcov, clearLcovCache, findLcov } from '../../../src/core/diff/lcov.js';
 
 const SAMPLE = [
   'TN:',
@@ -64,12 +57,7 @@ describe('parseLcov', () => {
 describe('coverageForFiles', () => {
   it('matches absolute SF paths normalized to repo-relative', () => {
     const root = mkTmp();
-    const abs = [
-      `SF:${path.join(root, 'src/a.ts')}`,
-      'LF:4',
-      'LH:1',
-      'end_of_record',
-    ].join('\n');
+    const abs = [`SF:${path.join(root, 'src/a.ts')}`, 'LF:4', 'LH:1', 'end_of_record'].join('\n');
     fs.mkdirSync(path.join(root, 'coverage'), { recursive: true });
     fs.writeFileSync(path.join(root, 'coverage', 'lcov.info'), abs);
 
@@ -169,12 +157,7 @@ describe('coverageLookup (mtime + realpath)', () => {
 
     // SF: paths reference the canonical (real) directory.
     const realRoot = fs.realpathSync(realDir);
-    const abs = [
-      `SF:${path.join(realRoot, 'src/a.ts')}`,
-      'LF:4',
-      'LH:1',
-      'end_of_record',
-    ].join('\n');
+    const abs = [`SF:${path.join(realRoot, 'src/a.ts')}`, 'LF:4', 'LH:1', 'end_of_record'].join('\n');
     fs.writeFileSync(path.join(linkDir, 'lcov.info'), abs);
 
     // Caller passes the symlinked root.

@@ -33,7 +33,9 @@ describe('StatusLegend', () => {
       expect(rows[i].textContent).toContain(DISPLAY_LABEL[k]);
       expect(rows[i].textContent).toContain(DISPLAY_MEANING[k]);
     }
-    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
     expect(container.querySelector('.wd-legend-panel')).toBeNull();
   });
 

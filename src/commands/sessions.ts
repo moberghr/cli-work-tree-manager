@@ -19,7 +19,10 @@ export function sessionRows(wires: SessionWire[], now = Date.now()): SessionRow[
   return wires
     .map((w) => {
       const status = displayStatus(w, now);
-      return { ...w, view: { status, label: DISPLAY_LABEL[status], age: ageBucket(w, now), lastActive: new Date(lastActiveMs(w)).toISOString() } };
+      return {
+        ...w,
+        view: { status, label: DISPLAY_LABEL[status], age: ageBucket(w, now), lastActive: new Date(lastActiveMs(w)).toISOString() },
+      };
     })
     .sort((a, b) => b.view.lastActive.localeCompare(a.view.lastActive));
 }
@@ -51,7 +54,13 @@ export const sessionsCommand: CommandModule = {
     const wires = history.map((s) => {
       const w = sessionWire(s, {
         ...(live
-          ? { ptyLive: (id: string) => live.has(id), outputStatusFor: (id: string) => { const p = live.get(id); return p ? statusFromOutput(p, now) : null; } }
+          ? {
+              ptyLive: (id: string) => live.has(id),
+              outputStatusFor: (id: string) => {
+                const p = live.get(id);
+                return p ? statusFromOutput(p, now) : null;
+              },
+            }
           : {}),
         ...(changes ? { diffStatFor: (id: string) => changes.stats.get(id) ?? null } : {}),
       });

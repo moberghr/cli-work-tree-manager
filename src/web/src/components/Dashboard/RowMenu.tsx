@@ -27,7 +27,10 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos({ left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)), top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) });
+    setPos({
+      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+      top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
+    });
   }, [x, y]);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -72,7 +75,9 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
           key={it.label}
           type="button"
           role="menuitem"
-          className={'wd-row-menu-item' + (it.danger ? ' wd-row-menu-item-danger' : '') + (it.separated ? ' wd-row-menu-item-separated' : '')}
+          className={
+            'wd-row-menu-item' + (it.danger ? ' wd-row-menu-item-danger' : '') + (it.separated ? ' wd-row-menu-item-separated' : '')
+          }
           onClick={() => {
             onClose();
             it.run();

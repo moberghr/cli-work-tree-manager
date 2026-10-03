@@ -15,9 +15,7 @@ export function DiffModeToggle() {
       <button
         type="button"
         aria-pressed={mode === 'split'}
-        className={
-          'wd-diff-mode-btn' + (mode === 'split' ? ' wd-diff-mode-btn-active' : '')
-        }
+        className={'wd-diff-mode-btn' + (mode === 'split' ? ' wd-diff-mode-btn-active' : '')}
         onClick={() => setMode('split')}
         title="Side-by-side layout"
       >
@@ -26,9 +24,7 @@ export function DiffModeToggle() {
       <button
         type="button"
         aria-pressed={mode === 'unified'}
-        className={
-          'wd-diff-mode-btn' + (mode === 'unified' ? ' wd-diff-mode-btn-active' : '')
-        }
+        className={'wd-diff-mode-btn' + (mode === 'unified' ? ' wd-diff-mode-btn-active' : '')}
         onClick={() => setMode('unified')}
         title="Unified (inline) layout"
       >

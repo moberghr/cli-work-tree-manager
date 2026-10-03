@@ -12,8 +12,12 @@ function Harness() {
   return createElement(
     'main',
     { ref },
-    createElement('table', null,
-      createElement('tbody', null,
+    createElement(
+      'table',
+      null,
+      createElement(
+        'tbody',
+        null,
         ['a', 'b', 'c'].map((id) => createElement('tr', { key: id, id, className: 'wd-comment-row' })),
       ),
     ),

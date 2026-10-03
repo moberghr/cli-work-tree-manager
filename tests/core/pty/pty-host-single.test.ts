@@ -77,15 +77,21 @@ describe('ensureHost starts one host, never two', () => {
     // one, which restored every session again.
     const busyUntil = Date.now() + 2500; // longer than two short probes
     const server = http.createServer((_req, res) => {
-      setTimeout(() => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: process.pid }));
-      }, Math.max(0, busyUntil - Date.now()));
+      setTimeout(
+        () => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ version: PROTOCOL_VERSION, pid: process.pid }));
+        },
+        Math.max(0, busyUntil - Date.now()),
+      );
     });
     servers.push(server);
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     const port = (server.address() as { port: number }).port;
-    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }));
+    fs.writeFileSync(
+      path.join(configDir, 'pty-host.json'),
+      JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }),
+    );
 
     const c = await freshClient();
     const host = await c.ensureHost('bin.js');
@@ -100,7 +106,10 @@ describe('ensureHost starts one host, never two', () => {
     servers.push(server);
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
     const port = (server.address() as { port: number }).port;
-    fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }));
+    fs.writeFileSync(
+      path.join(configDir, 'pty-host.json'),
+      JSON.stringify({ pid: process.pid, port, token: 't', version: PROTOCOL_VERSION }),
+    );
     const c = await freshClient();
     await expect(c.findHost([50, 100])).rejects.toBeInstanceOf(c.PtyHostBusyError);
     server.closeAllConnections();

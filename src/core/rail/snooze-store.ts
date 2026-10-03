@@ -10,7 +10,9 @@ function isSnooze(v: unknown): v is Snooze {
 }
 
 export function readSnooze(sessionId: string): Snooze | null {
-  const row = withDb((d) => d.prepare('SELECT data FROM session_snooze WHERE session_id = ?').get(sessionId) as { data: string } | undefined);
+  const row = withDb(
+    (d) => d.prepare('SELECT data FROM session_snooze WHERE session_id = ?').get(sessionId) as { data: string } | undefined,
+  );
   const v = row ? json.parse(row.data) : null;
   return isSnooze(v) ? v : null;
 }
@@ -51,8 +53,14 @@ export function cleanSnoozeRequest(raw: unknown): SnoozeRequest | null {
  * changes" is taken against the status the hooks recorded (and the review
  * threads the caller knows of), as the check that ends it compares.
  */
-export function requestSnooze(sessionId: string, req: SnoozeRequest, openReviewThreads = 0, now = new Date()): { ok: true; snooze: Snooze } | { ok: false; error: string } {
-  const snooze = 'until' in req ? snoozeUntil(req.until, now) : snoozeFor(req.for, { attention: readStatus(sessionId), openReviewThreads }, now);
+export function requestSnooze(
+  sessionId: string,
+  req: SnoozeRequest,
+  openReviewThreads = 0,
+  now = new Date(),
+): { ok: true; snooze: Snooze } | { ok: false; error: string } {
+  const snooze =
+    'until' in req ? snoozeUntil(req.until, now) : snoozeFor(req.for, { attention: readStatus(sessionId), openReviewThreads }, now);
   if (!snooze) return { ok: false, error: 'not a time to snooze until: give one in the next 30 days' };
   saveSnooze(sessionId, snooze);
   return { ok: true, snooze };

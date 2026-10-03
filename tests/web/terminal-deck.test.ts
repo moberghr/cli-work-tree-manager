@@ -13,7 +13,9 @@ vi.mock('../../src/web/src/components/Terminal/PtyView.js', () => ({
   PtyView: ({ sessionId, active }: { sessionId: string; active?: boolean }) => {
     useEffect(() => {
       life.mounts.push(sessionId);
-      return () => { life.unmounts.push(sessionId); };
+      return () => {
+        life.unmounts.push(sessionId);
+      };
     }, [sessionId]);
     return createElement('div', { 'data-pty': sessionId, 'data-active': String(active) });
   },
@@ -21,11 +23,18 @@ vi.mock('../../src/web/src/components/Terminal/PtyView.js', () => ({
 
 import { TerminalDeck, nextDeck, pruneDeck, DECK_HIDDEN_MS, DECK_SIZE } from '../../src/web/src/components/Terminal/TerminalDeck.js';
 
-const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
-  id, target: 'api', branch: id, isGroup: false, paths: [`/wt/${id}`],
-  createdAt: '2026-09-30T08:00:00.000Z', lastAccessedAt: '2026-09-30T08:00:00.000Z', activityState: 'open',
-  ...over,
-} as SessionSummary);
+const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary =>
+  ({
+    id,
+    target: 'api',
+    branch: id,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: '2026-09-30T08:00:00.000Z',
+    lastAccessedAt: '2026-09-30T08:00:00.000Z',
+    activityState: 'open',
+    ...over,
+  }) as SessionSummary;
 
 let container: HTMLDivElement;
 let root: Root;
@@ -96,9 +105,15 @@ describe('TerminalDeck', () => {
   it('closes the terminal of a session that was archived or removed', () => {
     render('a', sessions);
     render('b', sessions);
-    render('b', sessions.map((s) => (s.id === 'a' ? { ...s, archivedAt: '2026-09-30T09:00:00.000Z' } : s)));
+    render(
+      'b',
+      sessions.map((s) => (s.id === 'a' ? { ...s, archivedAt: '2026-09-30T09:00:00.000Z' } : s)),
+    );
     expect(life.unmounts).toEqual(['a']);
-    render('c', sessions.filter((s) => s.id !== 'b'));
+    render(
+      'c',
+      sessions.filter((s) => s.id !== 'b'),
+    );
     expect(life.unmounts).toEqual(['a', 'b']);
   });
 
@@ -106,14 +121,21 @@ describe('TerminalDeck', () => {
     render('a', sessions);
     render('b', sessions);
     const active = [...container.querySelectorAll('[data-pty]')].map((el) => [el.getAttribute('data-pty'), el.getAttribute('data-active')]);
-    expect(active).toEqual([['b', 'true'], ['a', 'false']]);
+    expect(active).toEqual([
+      ['b', 'true'],
+      ['a', 'false'],
+    ]);
   });
 });
 
 describe('pruneDeck', () => {
   it('lets go of terminals hidden longer than the limit, never the one on screen', () => {
     const now = 1_000_000;
-    const hidden = new Map([['old', now - DECK_HIDDEN_MS], ['recent', now - 60_000], ['shown', now - 5 * DECK_HIDDEN_MS]]);
+    const hidden = new Map([
+      ['old', now - DECK_HIDDEN_MS],
+      ['recent', now - 60_000],
+      ['shown', now - 5 * DECK_HIDDEN_MS],
+    ]);
     expect(pruneDeck(['shown', 'recent', 'old', 'unknown'], 'shown', hidden, now)).toEqual(['shown', 'recent', 'unknown']);
     expect(pruneDeck(['a'], null, new Map([['a', now - DECK_HIDDEN_MS - 1]]), now)).toEqual([]);
   });

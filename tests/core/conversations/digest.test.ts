@@ -1,12 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { buildDigest, digestSession, promptEntries, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../../src/core/conversations/digest.js';
+import {
+  buildDigest,
+  digestSession,
+  promptEntries,
+  promptsSince,
+  HEURISTIC_LABEL_RE,
+  MAX_PROMPTS,
+  type DigestInput,
+} from '../../../src/core/conversations/digest.js';
 import type { TranscriptEntry } from '../../../src/core/agents/claude/transcript-entry.js';
 import { claudeEntries } from '../../../src/core/agents/claude/entries.js';
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
-const you = (min: number, content: unknown, extra: Partial<TranscriptEntry> = {}): TranscriptEntry =>
-  ({ type: 'user', timestamp: at(min), message: { content }, ...extra });
+const you = (min: number, content: unknown, extra: Partial<TranscriptEntry> = {}): TranscriptEntry => ({
+  type: 'user',
+  timestamp: at(min),
+  message: { content },
+  ...extra,
+});
 
 describe('promptsSince', () => {
   it('keeps what you typed in the window, oldest first, and nothing Claude Code wrote for you', () => {
@@ -45,8 +57,17 @@ describe('promptsSince', () => {
 });
 
 const input = (over: Partial<DigestInput> = {}): DigestInput => ({
-  sessionId: 's1', target: 'api', branch: 'feat/x', isGroup: false,
-  lastAccessedAt: at(0), archivedAt: null, status: null, transcripts: [], checkpoints: [], diffStat: null, ci: null,
+  sessionId: 's1',
+  target: 'api',
+  branch: 'feat/x',
+  isGroup: false,
+  lastAccessedAt: at(0),
+  archivedAt: null,
+  status: null,
+  transcripts: [],
+  checkpoints: [],
+  diffStat: null,
+  ci: null,
   ...over,
 });
 
@@ -77,7 +98,13 @@ describe('digestSession', () => {
     for (const l of ['3 files · +52 −8', '1 file · +1 −0', 'no changes']) expect(HEURISTIC_LABEL_RE.test(l)).toBe(true);
     expect(HEURISTIC_LABEL_RE.test('Renamed 3 files')).toBe(false);
     const d = digestSession(
-      input({ checkpoints: [{ id: 1, ts: at(5), label: '3 files · +52 −8' }, { id: 2, ts: at(6), label: 'Wrote the export' }, { id: 3, ts: at(7), label: 'no changes' }] }),
+      input({
+        checkpoints: [
+          { id: 1, ts: at(5), label: '3 files · +52 −8' },
+          { id: 2, ts: at(6), label: 'Wrote the export' },
+          { id: 3, ts: at(7), label: 'no changes' },
+        ],
+      }),
       T0,
     )!;
     expect(d.turns).toBe(3);
@@ -93,7 +120,20 @@ describe('digestSession', () => {
     const ci = {
       checkedAt: at(50),
       repos: [
-        { name: 'api', done: true, pr: { number: 7, url: 'u7', state: 'MERGED' as const, mergedAt: at(45), isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass' as const, headSha: 'a' } },
+        {
+          name: 'api',
+          done: true,
+          pr: {
+            number: 7,
+            url: 'u7',
+            state: 'MERGED' as const,
+            mergedAt: at(45),
+            isDraft: false,
+            mergeStateStatus: 'CLEAN',
+            checks: 'pass' as const,
+            headSha: 'a',
+          },
+        },
         { name: 'web', done: false, pr: null },
       ],
     };
@@ -133,7 +173,12 @@ describe('promptEntries', () => {
       { type: 'user', uuid: 'u1', timestamp: '2026-09-30T09:00:00Z', message: { role: 'user', content: 'Fix the login redirect' } },
       { type: 'assistant', timestamp: '2026-09-30T09:00:01Z', message: { content: [{ type: 'text', text: big }] } },
       { type: 'user', timestamp: '2026-09-30T09:00:02Z', message: { content: [{ type: 'tool_result', content: big }] } },
-      { type: 'user', uuid: 'u2', timestamp: '2026-09-30T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Now add a test' }] } },
+      {
+        type: 'user',
+        uuid: 'u2',
+        timestamp: '2026-09-30T10:00:00Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'Now add a test' }] },
+      },
     ] as unknown as TranscriptEntry[];
     const slim = promptEntries(claudeEntries(entries));
     expect(slim).toHaveLength(2);

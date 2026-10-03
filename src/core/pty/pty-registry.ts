@@ -53,7 +53,6 @@ export const defaultSpawner: PtySpawner = (spec) =>
     env: spec.env,
   });
 
-
 interface Entry {
   id: string;
   spec: Omit<PersistedPty, 'startedAt'>;
@@ -192,13 +191,21 @@ export class PtyRegistry {
         }
       }
       for (const cb of entry.subscribers) {
-        try { cb(data); } catch { /* subscriber gone */ }
+        try {
+          cb(data);
+        } catch {
+          /* subscriber gone */
+        }
       }
     });
     pty.onExit = (code) => {
       entry.exitCode = code;
       for (const cb of entry.exitSubscribers) {
-        try { cb(code); } catch { /* */ }
+        try {
+          cb(code);
+        } catch {
+          /* */
+        }
       }
       setTimeout(() => {
         // Only forget it if nothing respawned under the same id meanwhile.

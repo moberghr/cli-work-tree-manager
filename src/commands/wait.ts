@@ -29,6 +29,7 @@ export const waitCommand: CommandModule = {
       process.exitCode = 2;
       return;
     }
-    if (!argv.json) console.log(`${r.status.state === 'needs_input' ? 'Waiting for you' : 'Done'}${r.status.summary ? `: ${r.status.summary}` : ''}`);
+    if (!argv.json)
+      console.log(`${r.status.state === 'needs_input' ? 'Waiting for you' : 'Done'}${r.status.summary ? `: ${r.status.summary}` : ''}`);
   },
 };

@@ -2,13 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import {
-  loadConfig,
-  saveConfig,
-  getConfigPath,
-  getConfigDir,
-  ensureConfig,
-} from '../core/platform/config.js';
+import { loadConfig, saveConfig, getConfigPath, getConfigDir, ensureConfig } from '../core/platform/config.js';
 import { isGitRepo } from '../core/git/git.js';
 import { generateGroupInstructions } from '../core/agents/group-instructions.js';
 import { openInEditor } from '../core/platform/launch.js';
@@ -21,14 +15,7 @@ export const configCommand: CommandModule = {
       .showHelpOnFail(true)
       .positional('action', {
         describe: 'Config action to perform',
-        choices: [
-          'add',
-          'remove',
-          'list',
-          'group',
-          'show',
-          'edit',
-        ] as const,
+        choices: ['add', 'remove', 'list', 'group', 'show', 'edit'] as const,
         type: 'string',
         demandOption: true,
       })
@@ -118,11 +105,7 @@ function handleRemove(args: string[]): void {
 function handleList(): void {
   const config = loadConfig();
   if (!config) {
-    console.log(
-      chalk.yellow(
-        'No configuration found. Run "work init" to set up.',
-      ),
-    );
+    console.log(chalk.yellow('No configuration found. Run "work init" to set up.'));
     return;
   }
 
@@ -176,20 +159,14 @@ function handleGroup(args: string[]): void {
 function handleAddGroup(args: string[]): void {
   const [groupName, ...repoAliases] = args;
   if (!groupName) {
-    console.error(
-      'Usage: work config group add <name> <alias1> <alias2> [alias3...]',
-    );
+    console.error('Usage: work config group add <name> <alias1> <alias2> [alias3...]');
     process.exitCode = 1;
     return;
   }
 
   if (repoAliases.length < 2) {
     console.error('A group must contain at least 2 repository aliases.');
-    console.log(
-      chalk.yellow(
-        'Usage: work config group add <name> <alias1> <alias2> [alias3...]',
-      ),
-    );
+    console.log(chalk.yellow('Usage: work config group add <name> <alias1> <alias2> [alias3...]'));
     process.exitCode = 1;
     return;
   }
@@ -200,11 +177,7 @@ function handleAddGroup(args: string[]): void {
   for (const alias of repoAliases) {
     if (!(alias in config.repos)) {
       console.error(`Repository alias not found: ${alias}`);
-      console.log(
-        chalk.yellow(
-          `Available aliases: ${Object.keys(config.repos).join(', ')}`,
-        ),
-      );
+      console.log(chalk.yellow(`Available aliases: ${Object.keys(config.repos).join(', ')}`));
       process.exitCode = 1;
       return;
     }
@@ -212,32 +185,22 @@ function handleAddGroup(args: string[]): void {
 
   // Validate: group name doesn't collide with repo aliases
   if (groupName in config.repos) {
-    console.error(
-      `Group name '${groupName}' conflicts with an existing repository alias.`,
-    );
+    console.error(`Group name '${groupName}' conflicts with an existing repository alias.`);
     process.exitCode = 1;
     return;
   }
 
   // Validate: group name doesn't collide with repo folder names
-  const repoFolderNames = Object.values(config.repos).map((p) =>
-    path.basename(p),
-  );
+  const repoFolderNames = Object.values(config.repos).map((p) => path.basename(p));
   if (repoFolderNames.includes(groupName)) {
-    console.error(
-      `Group name '${groupName}' conflicts with a repository folder name.`,
-    );
+    console.error(`Group name '${groupName}' conflicts with a repository folder name.`);
     process.exitCode = 1;
     return;
   }
 
   config.groups[groupName] = repoAliases;
   saveConfig(config);
-  console.log(
-    chalk.green(
-      `Added group: ${groupName} -> [${repoAliases.join(', ')}]`,
-    ),
-  );
+  console.log(chalk.green(`Added group: ${groupName} -> [${repoAliases.join(', ')}]`));
 
   // Generate combined CLAUDE.md
   generateGroupInstructions(groupName, repoAliases, config);
@@ -300,20 +263,14 @@ function handleShow(): void {
     const content = fs.readFileSync(configPath, 'utf-8');
     console.log(content);
   } else {
-    console.log(
-      chalk.yellow(
-        'No configuration file found. Run "work init" to set up.',
-      ),
-    );
+    console.log(chalk.yellow('No configuration file found. Run "work init" to set up.'));
   }
 }
 
 function handleEdit(): void {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
-    console.error(
-      'No configuration file found. Run "work init" first.',
-    );
+    console.error('No configuration file found. Run "work init" first.');
     process.exitCode = 1;
     return;
   }
@@ -324,37 +281,19 @@ function showConfigHelp(): void {
   console.log(chalk.yellow('Usage: work config <action>'));
   console.log('');
   console.log(chalk.green('Actions:'));
-  console.log(
-    '  add <alias> <path>                    - Add a repository',
-  );
-  console.log(
-    '  remove <alias>                        - Remove a repository',
-  );
-  console.log(
-    '  list                                  - List all configured repositories and groups',
-  );
-  console.log(
-    '  group <sub>                           - Manage groups (add, remove, regen)',
-  );
-  console.log(
-    '  show                                  - Show configuration file contents',
-  );
-  console.log(
-    '  edit                                  - Open configuration file in editor',
-  );
+  console.log('  add <alias> <path>                    - Add a repository');
+  console.log('  remove <alias>                        - Remove a repository');
+  console.log('  list                                  - List all configured repositories and groups');
+  console.log('  group <sub>                           - Manage groups (add, remove, regen)');
+  console.log('  show                                  - Show configuration file contents');
+  console.log('  edit                                  - Open configuration file in editor');
 }
 
 function showGroupHelp(): void {
   console.log(chalk.yellow('Usage: work config group <action>'));
   console.log('');
   console.log(chalk.green('Actions:'));
-  console.log(
-    '  add <name> <alias1> <alias2> [...]    - Create a repository group',
-  );
-  console.log(
-    '  remove <name>                         - Remove a repository group',
-  );
-  console.log(
-    '  regen <name>                          - Regenerate group CLAUDE.md',
-  );
+  console.log('  add <name> <alias1> <alias2> [...]    - Create a repository group');
+  console.log('  remove <name>                         - Remove a repository group');
+  console.log('  regen <name>                          - Regenerate group CLAUDE.md');
 }

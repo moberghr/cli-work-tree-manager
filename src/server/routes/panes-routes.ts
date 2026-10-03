@@ -11,14 +11,7 @@ import type { ActivityLog } from '../../core/platform/activity.js';
 /** How long the open-PR list is reused before a background refresh. */
 export const PRS_TTL_MS = 120_000;
 import { fetchJiraPane, type JiraIssue } from '../../core/jira/jira.js';
-import {
-  addTask,
-  completeTask,
-  editTask,
-  getTasks,
-  removeTask,
-  uncompleteTask,
-} from '../../core/tasks.js';
+import { addTask, completeTask, editTask, getTasks, removeTask, uncompleteTask } from '../../core/tasks.js';
 
 export interface PanesMountOptions {
   /** Server-level broadcast so mutations emit *-changed events. */
@@ -33,10 +26,7 @@ export interface PanesMountOptions {
  * the TUI already uses (`core/pr.ts`, `core/jira.ts`, `core/tasks.ts`)
  * one-to-one — no new logic, just a network surface.
  */
-export function mountPanesRoutes(
-  app: Hono,
-  opts: PanesMountOptions,
-): void {
+export function mountPanesRoutes(app: Hono, opts: PanesMountOptions): void {
   // -- Projects ----------------------------------------------------------
   //
   // Used by the new-worktree modal's project picker. Lists configured
@@ -80,7 +70,11 @@ export function mountPanesRoutes(
       const { map, incomplete } = await fetchAllPullRequests(config.repos);
       // Flatten: one entry per PR, with the resolved repo alias attached.
       const prs = Array.from(map.values()).flat();
-      if (incomplete.length) run?.note(`couldn't list every PR of ${incomplete.join(', ')} (gh failed, or 100+ open): archiving isn't suggested for sessions there`, { level: 'warn' });
+      if (incomplete.length)
+        run?.note(
+          `couldn't list every PR of ${incomplete.join(', ')} (gh failed, or 100+ open): archiving isn't suggested for sessions there`,
+          { level: 'warn' },
+        );
       run?.done(`${prs.length} open PR${prs.length === 1 ? '' : 's'} in ${Object.keys(config.repos).length} repos`);
       // Repos gh couldn't list in full: "no PR" there means "don't know".
       return incomplete.length ? { prs, incomplete } : { prs };
@@ -110,8 +104,7 @@ export function mountPanesRoutes(
   // Single `acli jira auth status` probe (combined with the issue search
   // inside fetchJiraPane) — replaces the previous two-call pattern. Also
   // dedups concurrent refreshes; `acli` can be slow.
-  let jiraInFlight: Promise<{ available: boolean; issues: JiraIssue[] }> | null =
-    null;
+  let jiraInFlight: Promise<{ available: boolean; issues: JiraIssue[] }> | null = null;
   app.get('/api/jira', async (c) => {
     if (!jiraInFlight) {
       jiraInFlight = (async () => {
@@ -153,44 +146,34 @@ export function mountPanesRoutes(
     text: z.string().min(1),
     link: z.string().optional(),
   });
-  app.post(
-    '/api/tasks',
-    zValidator('json', newTaskSchema),
-    async (c) => {
-      const { text, link } = c.req.valid('json');
-      const task = await addTask(text, link);
-      opts.broadcast('tasks-changed', { id: task.id });
-      return c.json({ task, tasks: getTasks() });
-    },
-  );
+  app.post('/api/tasks', zValidator('json', newTaskSchema), async (c) => {
+    const { text, link } = c.req.valid('json');
+    const task = await addTask(text, link);
+    opts.broadcast('tasks-changed', { id: task.id });
+    return c.json({ task, tasks: getTasks() });
+  });
 
   const editSchema = z.object({
     text: z.string().min(1).optional(),
     done: z.boolean().optional(),
   });
-  app.patch(
-    '/api/tasks/:id',
-    zValidator('json', editSchema),
-    async (c) => {
-      const id = Number(c.req.param('id'));
-      if (!Number.isFinite(id)) {
-        return c.json({ error: 'invalid id' }, 400);
-      }
-      const body = c.req.valid('json');
-      let updated = null;
-      if (typeof body.text === 'string') {
-        updated = await editTask(id, body.text);
-      }
-      if (typeof body.done === 'boolean') {
-        updated = body.done
-          ? await completeTask(id)
-          : await uncompleteTask(id);
-      }
-      if (!updated) return c.json({ error: 'not found' }, 404);
-      opts.broadcast('tasks-changed', { id });
-      return c.json({ task: updated, tasks: getTasks() });
-    },
-  );
+  app.patch('/api/tasks/:id', zValidator('json', editSchema), async (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isFinite(id)) {
+      return c.json({ error: 'invalid id' }, 400);
+    }
+    const body = c.req.valid('json');
+    let updated = null;
+    if (typeof body.text === 'string') {
+      updated = await editTask(id, body.text);
+    }
+    if (typeof body.done === 'boolean') {
+      updated = body.done ? await completeTask(id) : await uncompleteTask(id);
+    }
+    if (!updated) return c.json({ error: 'not found' }, 404);
+    opts.broadcast('tasks-changed', { id });
+    return c.json({ task: updated, tasks: getTasks() });
+  });
 
   app.delete('/api/tasks/:id', async (c) => {
     const id = Number(c.req.param('id'));

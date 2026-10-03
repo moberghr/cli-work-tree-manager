@@ -36,7 +36,9 @@ export function agentSettings(): AgentSettings {
     const p = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
     value = {
       ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
-      ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object' ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] } : {}),
+      ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object'
+        ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] }
+        : {}),
       ...(isAgentId(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
       ...(isAgentId(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
     };

@@ -21,9 +21,7 @@ describe('scopeCoversCwd (Stop-hook cwd → scope match)', () => {
   });
   it('matches when cwd is the group root containing the sub-repos', () => {
     const group = 'C:/work/worktrees/grp/feat';
-    expect(
-      scopeCoversCwd([`${group}/backend`, `${group}/frontend`], group),
-    ).toBe(true);
+    expect(scopeCoversCwd([`${group}/backend`, `${group}/frontend`], group)).toBe(true);
   });
   it('matches when cwd is nested inside a repo root', () => {
     expect(scopeCoversCwd([repo], `${repo}/src/web`)).toBe(true);

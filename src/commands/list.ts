@@ -54,26 +54,16 @@ export const listCommand: CommandModule = {
       const repoPath = config.repos[proj];
 
       if (!fs.existsSync(repoPath)) {
-        console.log(
-          chalk.red(
-            `${proj} -> Repository path not found: ${repoPath}`,
-          ),
-        );
+        console.log(chalk.red(`${proj} -> Repository path not found: ${repoPath}`));
         continue;
       }
 
-      const worktreeList = parseWorktreeList(repoPath).filter(
-        (wt) => wt.path !== repoPath,
-      );
+      const worktreeList = parseWorktreeList(repoPath).filter((wt) => wt.path !== repoPath);
 
       if (worktreeList.length > 0) {
         foundAny = true;
         const plural = worktreeList.length !== 1 ? 's' : '';
-        console.log(
-          chalk.green(
-            `${proj} (${worktreeList.length} worktree${plural}):`,
-          ),
-        );
+        console.log(chalk.green(`${proj} (${worktreeList.length} worktree${plural}):`));
 
         for (const wt of worktreeList) {
           const branchDisplay = wt.branch || `detached at ${wt.head}`;
@@ -103,11 +93,7 @@ export const listCommand: CommandModule = {
 
       foundAny = true;
       const plural = branchDirs.length !== 1 ? 's' : '';
-      console.log(
-        chalk.magenta(
-          `${groupName} [group] (${branchDirs.length} worktree${plural}):`,
-        ),
-      );
+      console.log(chalk.magenta(`${groupName} [group] (${branchDirs.length} worktree${plural}):`));
 
       const repoAliases = config.groups[groupName] ?? [];
 
@@ -133,9 +119,7 @@ export const listCommand: CommandModule = {
         console.log(`  ${displayBranch}`);
         console.log(chalk.gray(`    ${bdPath}`));
         if (repoAliases.length > 0) {
-          console.log(
-            chalk.gray(`    Repos: ${repoAliases.join(', ')}`),
-          );
+          console.log(chalk.gray(`    Repos: ${repoAliases.join(', ')}`));
         }
       }
       console.log('');
@@ -143,15 +127,9 @@ export const listCommand: CommandModule = {
 
     if (!foundAny) {
       if (targetName) {
-        console.log(
-          chalk.yellow(`No worktrees found for: ${targetName}`),
-        );
+        console.log(chalk.yellow(`No worktrees found for: ${targetName}`));
       } else {
-        console.log(
-          chalk.yellow(
-            'No worktrees found for any project or group',
-          ),
-        );
+        console.log(chalk.yellow('No worktrees found for any project or group'));
       }
       console.log('');
     }

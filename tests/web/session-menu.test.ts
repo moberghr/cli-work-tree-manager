@@ -13,9 +13,25 @@ import { Toast, useToast } from '../../src/web/src/components/Dashboard/Toast.js
 const now = new Date().toISOString();
 const session = (id: string, extra: Partial<SessionSummary> = {}): SessionSummary =>
   ({
-    id, target: 'api', branch: `feat/${id}`, isGroup: false, paths: [`C:\\wt\\${id}`], createdAt: now, lastAccessedAt: now,
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-    pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null, ...extra,
+    id,
+    target: 'api',
+    branch: `feat/${id}`,
+    isGroup: false,
+    paths: [`C:\\wt\\${id}`],
+    createdAt: now,
+    lastAccessedAt: now,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+    ...extra,
   }) as SessionSummary;
 
 const actions = (): SessionMenuActions & { calls: string[] } => {
@@ -45,13 +61,31 @@ afterEach(() => {
 });
 
 describe('sessionMenuItems', () => {
-  it("a live session: archive, snooze, open in terminal / editor, copy its branch, delete (in red)", () => {
+  it('a live session: archive, snooze, open in terminal / editor, copy its branch, delete (in red)', () => {
     const a = actions();
     const items = sessionMenuItems(session('a'), a);
-    expect(items.map((i) => i.label)).toEqual(['Archive', 'Snooze 2 hours', 'Snooze until tomorrow 9:00', 'Snooze until it changes', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
+    expect(items.map((i) => i.label)).toEqual([
+      'Archive',
+      'Snooze 2 hours',
+      'Snooze until tomorrow 9:00',
+      'Snooze until it changes',
+      'Open in terminal',
+      'Open in editor',
+      'Copy branch name',
+      'Delete…',
+    ]);
     expect(items.find((i) => i.label === 'Delete…')).toMatchObject({ danger: true });
     for (const i of items) i.run();
-    expect(a.calls).toEqual(['archive a', 'snooze a 2h', 'snooze a tomorrow', 'snooze a change', 'terminal a', 'editor a', 'copy feat/a', 'delete a']);
+    expect(a.calls).toEqual([
+      'archive a',
+      'snooze a 2h',
+      'snooze a tomorrow',
+      'snooze a change',
+      'terminal a',
+      'editor a',
+      'copy feat/a',
+      'delete a',
+    ]);
   });
 
   it('a snoozed one offers Unsnooze instead', () => {
@@ -61,18 +95,43 @@ describe('sessionMenuItems', () => {
   });
 
   it('an archived one: restore, copy, delete — nothing that opens its folder', () => {
-    expect(sessionMenuItems(session('b', { archivedAt: now }), actions()).map((i) => i.label)).toEqual(['Restore', 'Copy branch name', 'Delete…']);
+    expect(sessionMenuItems(session('b', { archivedAt: now }), actions()).map((i) => i.label)).toEqual([
+      'Restore',
+      'Copy branch name',
+      'Delete…',
+    ]);
   });
 });
 
 describe('the rail menu', () => {
   it('right-click: Rename, then what the app gives it, run on that session', async () => {
     const a = actions();
-    act(() => root.render(createElement(SessionRail, { sessions: [session('a'), session('b')], activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {}, onRename: async () => {}, menuFor: (s) => sessionMenuItems(s, a) })));
+    act(() =>
+      root.render(
+        createElement(SessionRail, {
+          sessions: [session('a'), session('b')],
+          activeSessionId: null,
+          onSelect: () => {},
+          onNewWorktree: () => {},
+          onRename: async () => {},
+          menuFor: (s) => sessionMenuItems(s, a),
+        }),
+      ),
+    );
     const row = [...container.querySelectorAll('.wd-dash-rail-item')].find((r) => r.textContent?.includes('feat/b'))!;
     act(() => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
     const items = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual(['Rename', 'Archive', 'Snooze 2 hours', 'Snooze until tomorrow 9:00', 'Snooze until it changes', 'Open in terminal', 'Open in editor', 'Copy branch name', 'Delete…']);
+    expect(items.map((i) => i.firstElementChild!.textContent)).toEqual([
+      'Rename',
+      'Archive',
+      'Snooze 2 hours',
+      'Snooze until tomorrow 9:00',
+      'Snooze until it changes',
+      'Open in terminal',
+      'Open in editor',
+      'Copy branch name',
+      'Delete…',
+    ]);
     act(() => items[5].click());
     expect(a.calls).toEqual(['terminal b']);
     expect(container.querySelector('[role="menu"]')).toBeNull();
@@ -81,7 +140,19 @@ describe('the rail menu', () => {
 
 describe('RowMenu', () => {
   it('↓/↑ move between items, wrapping', () => {
-    act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => {}, items: [{ label: 'One', run: () => {} }, { label: 'Two', run: () => {} }] })));
+    act(() =>
+      root.render(
+        createElement(RowMenu, {
+          x: 0,
+          y: 0,
+          onClose: () => {},
+          items: [
+            { label: 'One', run: () => {} },
+            { label: 'Two', run: () => {} },
+          ],
+        }),
+      ),
+    );
     const [one, two] = [...container.querySelectorAll<HTMLButtonElement>('button')];
     expect(document.activeElement).toBe(one);
     act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
@@ -92,7 +163,10 @@ describe('RowMenu', () => {
 
   it('a re-render (a background refresh) keeps where ↓ moved to; Tab closes it', () => {
     const onClose = vi.fn();
-    const items = [{ label: 'One', run: () => {} }, { label: 'Two', run: () => {} }];
+    const items = [
+      { label: 'One', run: () => {} },
+      { label: 'Two', run: () => {} },
+    ];
     act(() => root.render(createElement(RowMenu, { x: 0, y: 0, onClose: () => onClose(), items })));
     act(() => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })));
     const two = [...container.querySelectorAll<HTMLButtonElement>('button')][1];
@@ -104,7 +178,18 @@ describe('RowMenu', () => {
   });
 
   it('F2 while a row menu is open does not start renaming the open session', () => {
-    act(() => root.render(createElement(SessionRail, { sessions: [session('a'), session('b')], activeSessionId: 'a', onSelect: () => {}, onNewWorktree: () => {}, onRename: async () => {}, menuFor: () => [] })));
+    act(() =>
+      root.render(
+        createElement(SessionRail, {
+          sessions: [session('a'), session('b')],
+          activeSessionId: 'a',
+          onSelect: () => {},
+          onNewWorktree: () => {},
+          onRename: async () => {},
+          menuFor: () => [],
+        }),
+      ),
+    );
     const row = [...container.querySelectorAll('.wd-dash-rail-item')].find((r) => r.textContent?.includes('feat/b'))!;
     act(() => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     (document.activeElement as HTMLElement | null)?.blur();
@@ -113,8 +198,27 @@ describe('RowMenu', () => {
   });
 
   it('opened near the window’s edge, it moves back inside', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 160, height: 200, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) });
-    act(() => root.render(createElement(RowMenu, { x: window.innerWidth - 10, y: window.innerHeight - 10, onClose: () => {}, items: [{ label: 'One', run: () => {} }] })));
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 160,
+      height: 200,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    act(() =>
+      root.render(
+        createElement(RowMenu, {
+          x: window.innerWidth - 10,
+          y: window.innerHeight - 10,
+          onClose: () => {},
+          items: [{ label: 'One', run: () => {} }],
+        }),
+      ),
+    );
     const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
     expect(parseFloat(menu.style.left)).toBe(window.innerWidth - 164);
     expect(parseFloat(menu.style.top)).toBe(window.innerHeight - 204);

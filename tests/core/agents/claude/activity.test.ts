@@ -39,10 +39,7 @@ function touch(dir: string, name: string, ageMs = 0): void {
   }
 }
 
-function fakeSession(
-  paths: string[],
-  isGroup = false,
-): WorktreeSession {
+function fakeSession(paths: string[], isGroup = false): WorktreeSession {
   return {
     target: 'repo',
     isGroup,
@@ -55,9 +52,7 @@ function fakeSession(
 
 describe('claudeProjectsRoot', () => {
   it('points to ~/.claude/projects under the mocked homedir', () => {
-    expect(claudeProjectsRoot()).toBe(
-      path.join(tmpDir, '.claude', 'projects'),
-    );
+    expect(claudeProjectsRoot()).toBe(path.join(tmpDir, '.claude', 'projects'));
   });
 });
 
@@ -136,20 +131,14 @@ describe('readSessionActivity', () => {
     touch(projectDirFor(groupRoot), 'a.jsonl', 5_000);
     // Group sessions have paths pointing at sub-repos; Claude launches in
     // the parent (group root).
-    const session = fakeSession(
-      ['C:/work/group/api', 'C:/work/group/web'],
-      true,
-    );
+    const session = fakeSession(['C:/work/group/api', 'C:/work/group/web'], true);
     expect(readSessionActivity(session).state).toBe('active');
   });
 
   it('picks the most recent across multiple launch paths', () => {
     const groupRoot = 'C:/work/group';
     touch(projectDirFor(groupRoot), 'old.jsonl', 60_000);
-    const session = fakeSession(
-      ['C:/work/group/api', 'C:/work/group/web'],
-      true,
-    );
+    const session = fakeSession(['C:/work/group/api', 'C:/work/group/web'], true);
     expect(readSessionActivity(session).state).toBe('open');
   });
 });

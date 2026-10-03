@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  DEFAULT_ROUTE,
-  LAST_ROUTE_KEY,
-  initialHash,
-  parseHash,
-  saveLastRoute,
-  toHash,
-} from '../../src/web/src/state/dashboard-route.js';
+import { DEFAULT_ROUTE, LAST_ROUTE_KEY, initialHash, parseHash, saveLastRoute, toHash } from '../../src/web/src/state/dashboard-route.js';
 
 describe('parseHash', () => {
   it('returns the default route for empty / "#" / "#/"', () => {
@@ -63,22 +56,17 @@ describe('parseHash', () => {
 
 describe('toHash', () => {
   it('serialises tab routes', () => {
-    expect(toHash({ tab: 'sessions', sessionId: null, sessionSubTab: 'diff' }))
-      .toBe('#/sessions');
-    expect(toHash({ tab: 'prs', sessionId: null, sessionSubTab: 'diff' }))
-      .toBe('#/prs');
+    expect(toHash({ tab: 'sessions', sessionId: null, sessionSubTab: 'diff' })).toBe('#/sessions');
+    expect(toHash({ tab: 'prs', sessionId: null, sessionSubTab: 'diff' })).toBe('#/prs');
   });
 
   it('serialises session routes with the sub-tab', () => {
-    expect(toHash({ tab: 'sessions', sessionId: 'abc', sessionSubTab: 'diff' }))
-      .toBe('#/s/abc/diff');
-    expect(toHash({ tab: 'prs', sessionId: 'abc', sessionSubTab: 'term' }))
-      .toBe('#/s/abc/term');
+    expect(toHash({ tab: 'sessions', sessionId: 'abc', sessionSubTab: 'diff' })).toBe('#/s/abc/diff');
+    expect(toHash({ tab: 'prs', sessionId: 'abc', sessionSubTab: 'term' })).toBe('#/s/abc/term');
   });
 
   it('URL-encodes the session id', () => {
-    expect(toHash({ tab: 'sessions', sessionId: 'foo bar', sessionSubTab: 'diff' }))
-      .toBe('#/s/foo%20bar/diff');
+    expect(toHash({ tab: 'sessions', sessionId: 'foo bar', sessionSubTab: 'diff' })).toBe('#/s/foo%20bar/diff');
   });
 
   it('round-trips through parseHash for every variant', () => {
@@ -119,7 +107,14 @@ describe('last-route resume', () => {
     expect(initialHash('', store({ [LAST_ROUTE_KEY]: 'nonsense' }))).toBe('');
     expect(initialHash('', store())).toBe('');
     expect(initialHash('', null)).toBe('');
-    const throwing = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+    const throwing = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
     expect(initialHash('', throwing)).toBe('');
     expect(() => saveLastRoute(DEFAULT_ROUTE, throwing)).not.toThrow();
   });

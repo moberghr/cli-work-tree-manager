@@ -24,7 +24,10 @@ describe('buildTimeline (pure)', () => {
         { id: 2, ts: '2026-10-01T10:00:00Z', label: '3 files · +52 −8' },
       ],
       commits: [{ repo: 'api', sha: 'abc1234def', at: '2026-10-01T10:05:00Z', subject: 'Add CSV export' }],
-      prs: [{ repo: 'api', number: 7, url: 'https://github.com/x/api/pull/7', state: 'MERGED', mergedAt: '2026-10-02T11:00:00Z' }, { repo: 'api', number: 8, url: 'u', state: 'OPEN', createdAt: 'not a date' }],
+      prs: [
+        { repo: 'api', number: 7, url: 'https://github.com/x/api/pull/7', state: 'MERGED', mergedAt: '2026-10-02T11:00:00Z' },
+        { repo: 'api', number: 8, url: 'u', state: 'OPEN', createdAt: 'not a date' },
+      ],
     });
     expect(t.map((e) => [e.kind, e.text])).toEqual([
       ['archived', 'Archived'],
@@ -40,7 +43,11 @@ describe('buildTimeline (pure)', () => {
 
 describe('sessionTimeline (real git, a transcript on disk)', () => {
   const git = (cwd: string, ...args: string[]) =>
-    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.t', '-c', 'commit.gpgsign=false', ...args], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
   let tmp: string;
   let wt: string;
   let session: WorktreeSession;
@@ -60,10 +67,20 @@ describe('sessionTimeline (real git, a transcript on disk)', () => {
     git(wt, 'add', '.');
     git(wt, 'commit', '-q', '-m', 'Add b');
     const now = new Date().toISOString();
-    session = { target: 'api', branch: 'feat/t', isGroup: false, paths: [wt], createdAt: new Date(Date.now() - 3600_000).toISOString(), lastAccessedAt: now };
+    session = {
+      target: 'api',
+      branch: 'feat/t',
+      isGroup: false,
+      paths: [wt],
+      createdAt: new Date(Date.now() - 3600_000).toISOString(),
+      lastAccessedAt: now,
+    };
     const dir = path.join(os.homedir(), '.claude', 'projects', encodeProjectDir(wt));
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'c.jsonl'), JSON.stringify({ type: 'user', timestamp: now, message: { role: 'user', content: 'Add the b file' } }) + '\n');
+    fs.writeFileSync(
+      path.join(dir, 'c.jsonl'),
+      JSON.stringify({ type: 'user', timestamp: now, message: { role: 'user', content: 'Add the b file' } }) + '\n',
+    );
   });
   afterEach(() => fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
@@ -88,7 +105,25 @@ describe('sessionTimeline (real git, a transcript on disk)', () => {
     saveHistory([session]);
     const app = new Hono();
     mountTimelineRoutes(app, {
-      ci: () => ({ checkedAt: '', repos: [{ name: 'api', done: true, pr: { number: 3, url: 'https://github.com/x/api/pull/3', state: 'MERGED', mergedAt: new Date().toISOString(), isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'x' } }] }),
+      ci: () => ({
+        checkedAt: '',
+        repos: [
+          {
+            name: 'api',
+            done: true,
+            pr: {
+              number: 3,
+              url: 'https://github.com/x/api/pull/3',
+              state: 'MERGED',
+              mergedAt: new Date().toISOString(),
+              isDraft: false,
+              mergeStateStatus: 'CLEAN',
+              checks: 'pass',
+              headSha: 'x',
+            },
+          },
+        ],
+      }),
     });
     const r = (await (await app.request(`/api/sessions/${sessionIdFor(session)}/timeline`)).json()) as { events: Array<{ kind: string }> };
     expect(r.events.map((e) => e.kind)).toContain('pr-merged');

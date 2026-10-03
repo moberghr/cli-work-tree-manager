@@ -16,15 +16,7 @@
  * binary at install time and embed that instead.
  */
 
-import {
-  editSettings,
-  editSettingsSync,
-  isOwnerEntry,
-  isStaleEntry,
-  HOOK_TAGS,
-  tag,
-  type HookEntry,
-} from './settings-editor.js';
+import { editSettings, editSettingsSync, isOwnerEntry, isStaleEntry, HOOK_TAGS, tag, type HookEntry } from './settings-editor.js';
 
 export interface CommandHookOptions {
   owner: string;
@@ -42,9 +34,7 @@ export function installCommandHook(opts: CommandHookOptions): Promise<void> {
   return editSettings((s) => {
     if (!s.hooks) s.hooks = {};
     const list = (s.hooks[opts.event] ?? []) as HookEntry[];
-    const cleaned = list.filter(
-      (h) => !isStaleEntry(h) && !isOwnerEntry(h, opts.owner),
-    );
+    const cleaned = list.filter((h) => !isStaleEntry(h) && !isOwnerEntry(h, opts.owner));
     cleaned.push(
       tag(
         {
@@ -132,16 +122,10 @@ export function removeCommandHookSync(owner: string, event: string): void {
   editSettingsSync((s) => removeOwnerEntries(s, owner, event));
 }
 
-function removeOwnerEntries(
-  s: { hooks?: Record<string, HookEntry[] | undefined> },
-  owner: string,
-  event: string,
-): void {
+function removeOwnerEntries(s: { hooks?: Record<string, HookEntry[] | undefined> }, owner: string, event: string): void {
   if (!s.hooks) return;
   const list = s.hooks[event];
   if (!Array.isArray(list)) return;
-  s.hooks[event] = list.filter(
-    (h) => !isStaleEntry(h) && !isOwnerEntry(h, owner),
-  );
+  s.hooks[event] = list.filter((h) => !isStaleEntry(h) && !isOwnerEntry(h, owner));
   if (s.hooks[event]!.length === 0) delete s.hooks[event];
 }

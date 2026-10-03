@@ -93,13 +93,7 @@ export class PtySession {
   private _loggedOutput = false;
   onExit?: (code: number) => void;
 
-  constructor(
-    cwd: string,
-    cols: number,
-    rows: number,
-    command?: { cmd: string; args: string[] },
-    aiOptions?: PtyAiOptions,
-  ) {
+  constructor(cwd: string, cols: number, rows: number, command?: { cmd: string; args: string[] }, aiOptions?: PtyAiOptions) {
     this.cwd = cwd;
     this.terminal = new Terminal({
       cols,
@@ -180,7 +174,11 @@ export class PtySession {
 
   write(data: string) {
     if (!this._exited) {
-      try { this.pty.write(data); } catch { /* PTY already exited */ }
+      try {
+        this.pty.write(data);
+      } catch {
+        /* PTY already exited */
+      }
     }
   }
 
@@ -231,7 +229,11 @@ export class PtySession {
   dispose() {
     this.setOutputHandler(undefined);
     if (!this._exited) {
-      try { this.pty.kill(); } catch { /* PTY already exited */ }
+      try {
+        this.pty.kill();
+      } catch {
+        /* PTY already exited */
+      }
     }
     this.terminal.dispose();
   }

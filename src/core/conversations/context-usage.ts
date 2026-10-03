@@ -15,9 +15,11 @@ export type { ContextUsage } from '../api-types.js';
  * worse before that — the dashboard shows when to start fresh.
  */
 
-
 /** From conversation entries (oldest first): the newest main-thread usage, in the agent's window (`window`). */
-export function contextUsageFrom(entries: readonly ConversationEntry[], window: (model: string | undefined, used: number) => number): ContextUsage | null {
+export function contextUsageFrom(
+  entries: readonly ConversationEntry[],
+  window: (model: string | undefined, used: number) => number,
+): ContextUsage | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     // Subagent (Task) turns run in their own context.

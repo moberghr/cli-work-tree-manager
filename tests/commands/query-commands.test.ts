@@ -30,7 +30,8 @@ const run = async (cmd: { handler: unknown }, argv: Record<string, unknown>) => 
   await (cmd.handler as (a: unknown) => Promise<void>)({ _: [], ...argv });
   return out;
 };
-const json = async <T,>(cmd: { handler: unknown }, argv: Record<string, unknown>) => JSON.parse(await run(cmd, { json: true, ...argv })) as T;
+const json = async <T>(cmd: { handler: unknown }, argv: Record<string, unknown>) =>
+  JSON.parse(await run(cmd, { json: true, ...argv })) as T;
 
 function worktree(branch: string, files: Record<string, string>, commit = true): string {
   const wt = path.join(wtRoot, branch.replace(/\//g, '-'));
@@ -68,13 +69,31 @@ afterEach(() => {
 describe('work sessions', () => {
   it('rows carry the dashboard shape plus what it shows: status label, age section, last active', () => {
     const w = (id: string, lastAccessedAt: string): SessionWire => ({
-      id, target: 'repo', branch: id, isGroup: false, paths: [], createdAt: lastAccessedAt, lastAccessedAt,
-      draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-      pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null,
+      id,
+      target: 'repo',
+      branch: id,
+      isGroup: false,
+      paths: [],
+      createdAt: lastAccessedAt,
+      lastAccessedAt,
+      draftCount: 0,
+      commentCount: 0,
+      claudeCount: 0,
+      ptyStatus: 'idle',
+      lastActivity: null,
+      activityState: 'stale',
+      pendingForClaudeCount: 0,
+      attention: null,
+      diffStat: null,
+      archivedAt: null,
+      port: null,
     });
     const now = Date.now();
     const rows = sessionRows([w('old', new Date(now - 10 * DAY).toISOString()), w('today', new Date(now - 3_600_000).toISOString())], now);
-    expect(rows.map((r) => [r.id, r.view.label, r.view.age])).toEqual([['today', 'Idle', 'now'], ['old', 'Stale', 'older']]);
+    expect(rows.map((r) => [r.id, r.view.label, r.view.age])).toEqual([
+      ['today', 'Idle', 'now'],
+      ['old', 'Stale', 'older'],
+    ]);
   });
 
   it('--json lists this week by default, --all adds older and archived ones; --changes adds +N −M and overlaps', async () => {
@@ -128,19 +147,33 @@ describe('work cleanup', () => {
     await upsertSession('repo', false, 'feat/work', [work]);
     const { withDb } = await import('../../src/core/platform/db.js');
     withDb((d) => {
-      for (const row of d.prepare('SELECT target, branch, data FROM sessions').all() as Array<{ target: string; branch: string; data: string }>) {
+      for (const row of d.prepare('SELECT target, branch, data FROM sessions').all() as Array<{
+        target: string;
+        branch: string;
+        data: string;
+      }>) {
         const s = JSON.parse(row.data);
-        d.prepare('UPDATE sessions SET data = ? WHERE target = ? AND branch = ?').run(JSON.stringify({ ...s, lastAccessedAt: old }), row.target, row.branch);
+        d.prepare('UPDATE sessions SET data = ? WHERE target = ? AND branch = ?').run(
+          JSON.stringify({ ...s, lastAccessedAt: old }),
+          row.target,
+          row.branch,
+        );
       }
     });
 
-    const scan = await json<{ candidates: Array<{ sessionId: string; branch: string; verdict: string; suggested: string | null }> }>(cleanupCommand, { fetch: false });
+    const scan = await json<{ candidates: Array<{ sessionId: string; branch: string; verdict: string; suggested: string | null }> }>(
+      cleanupCommand,
+      { fetch: false },
+    );
     const byBranch = Object.fromEntries(scan.candidates.map((c) => [c.branch, c]));
     expect(byBranch['feat/merged']).toMatchObject({ verdict: 'merged', suggested: 'delete' });
     expect(byBranch['feat/work']).toMatchObject({ verdict: 'work', suggested: 'archive' });
 
     const results = await json<Array<{ ok: boolean; message: string }>>(cleanupCommand, {
-      apply: true, ids: [byBranch['feat/merged'].sessionId, byBranch['feat/work'].sessionId], action: 'delete', force: false,
+      apply: true,
+      ids: [byBranch['feat/merged'].sessionId, byBranch['feat/work'].sessionId],
+      action: 'delete',
+      force: false,
     });
     expect(results.map((r) => r.ok)).toEqual([true, false]);
     expect(results[1].message).toMatch(/^Not removed: 1 commit not in main/);

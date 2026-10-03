@@ -26,7 +26,15 @@ export interface TimelineInput {
   prompts: Array<{ ts: string; text: string }>;
   checkpoints: Array<{ id: number; ts: string; label?: string }>;
   commits: Array<{ repo: string; sha: string; at: string; subject: string }>;
-  prs: Array<{ repo: string; number: number; url: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; createdAt?: string; mergedAt?: string; closedAt?: string }>;
+  prs: Array<{
+    repo: string;
+    number: number;
+    url: string;
+    state: 'OPEN' | 'MERGED' | 'CLOSED';
+    createdAt?: string;
+    mergedAt?: string;
+    closedAt?: string;
+  }>;
 }
 
 /** A turn's name only a size ("3 files · +52 −8"): the fallback when no Claude named it, said as such. */
@@ -45,13 +53,20 @@ export function buildTimeline(input: TimelineInput, limit = 300): TimelineEvent[
   for (const c of input.checkpoints) {
     if (c.id === 0) continue; // the baseline, not a turn
     const label = c.label?.trim();
-    out.push({ at: c.ts, kind: 'turn', text: label && label !== 'Initial' ? (SIZE_LABEL.test(label) ? `A turn: ${label}` : label) : 'A turn', checkpoint: c.id });
+    out.push({
+      at: c.ts,
+      kind: 'turn',
+      text: label && label !== 'Initial' ? (SIZE_LABEL.test(label) ? `A turn: ${label}` : label) : 'A turn',
+      checkpoint: c.id,
+    });
   }
   for (const c of input.commits) out.push({ at: c.at, kind: 'commit', text: clip(c.subject), repo: c.repo, ref: c.sha });
   for (const p of input.prs) {
     if (p.createdAt) out.push({ at: p.createdAt, kind: 'pr-opened', text: `Opened PR #${p.number}`, repo: p.repo, ref: p.url });
-    if (p.state === 'MERGED' && p.mergedAt) out.push({ at: p.mergedAt, kind: 'pr-merged', text: `Merged PR #${p.number}`, repo: p.repo, ref: p.url });
-    if (p.state === 'CLOSED' && p.closedAt) out.push({ at: p.closedAt, kind: 'pr-closed', text: `Closed PR #${p.number} without merging`, repo: p.repo, ref: p.url });
+    if (p.state === 'MERGED' && p.mergedAt)
+      out.push({ at: p.mergedAt, kind: 'pr-merged', text: `Merged PR #${p.number}`, repo: p.repo, ref: p.url });
+    if (p.state === 'CLOSED' && p.closedAt)
+      out.push({ at: p.closedAt, kind: 'pr-closed', text: `Closed PR #${p.number} without merging`, repo: p.repo, ref: p.url });
   }
   if (input.archivedAt) out.push({ at: input.archivedAt, kind: 'archived', text: 'Archived' });
   return out

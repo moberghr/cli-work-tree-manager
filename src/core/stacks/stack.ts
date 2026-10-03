@@ -74,7 +74,12 @@ export function stackParents<T extends StackSubject>(all: readonly T[], eligible
  * its parent, and for anything stackParent wouldn't count. The newest archive
  * when the branch name was used more than once.
  */
-export function mergedParent<T extends StackSubject>(s: T, all: readonly T[], eligible: (p: T) => boolean = () => true, merged: (p: T) => boolean = () => false): T | null {
+export function mergedParent<T extends StackSubject>(
+  s: T,
+  all: readonly T[],
+  eligible: (p: T) => boolean = () => true,
+  merged: (p: T) => boolean = () => false,
+): T | null {
   if (s.archivedAt || stackParent(s, all, eligible)) return null;
   const base = stackBase(s);
   if (!base || base === s.branch) return null;

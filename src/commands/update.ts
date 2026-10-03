@@ -25,7 +25,12 @@ export const updateCommand: CommandModule = {
     for (const x of r.results) {
       if (!x.ok) console.log(chalk.red(`  ${x.repo}: ${x.reason}`));
       else if (x.how === 'nothing') console.log(chalk.gray(`  ${x.repo}: already up to date`));
-      else console.log(chalk.green(`  ${x.repo}: ${x.how === 'rebase' ? 'rebased on' : 'merged'} ${x.base} (${x.commits} commit${x.commits === 1 ? '' : 's'})`));
+      else
+        console.log(
+          chalk.green(
+            `  ${x.repo}: ${x.how === 'rebase' ? 'rebased on' : 'merged'} ${x.base} (${x.commits} commit${x.commits === 1 ? '' : 's'})`,
+          ),
+        );
     }
     if (r.results.some((x) => !x.ok)) process.exitCode = 1;
   },

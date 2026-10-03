@@ -215,7 +215,9 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
       ) : st.phase !== 'idle' && candidates.length === 0 ? (
         <div className="wd-tab-empty">{busyText(st)}</div>
       ) : candidates.length === 0 ? (
-        <div className="wd-tab-empty">Nothing to clean up: every worktree was used in the last day or has work of its own that is recent.</div>
+        <div className="wd-tab-empty">
+          Nothing to clean up: every worktree was used in the last day or has work of its own that is recent.
+        </div>
       ) : (
         SECTIONS.map((sec) => {
           const list = candidates.filter((c) => sec.verdicts.includes(c.verdict));
@@ -234,7 +236,8 @@ export function CleanupTab({ onOpenSession, api = httpCleanupApi, buildFoldersAp
               <p className="wd-cleanup-hint">{sec.hint}</p>
               <ul className="wd-cleanup-list">
                 {list.map((c) => {
-                  const allowed = c.verdict === 'merged' || c.verdict === 'gone' ? ALLOWED[c.verdict] : c.archivedAt ? [] : ALLOWED[c.verdict];
+                  const allowed =
+                    c.verdict === 'merged' || c.verdict === 'gone' ? ALLOWED[c.verdict] : c.archivedAt ? [] : ALLOWED[c.verdict];
                   const action = chosen[c.sessionId];
                   return (
                     <li key={c.sessionId} className={'wd-cleanup-item' + (action ? ' wd-cleanup-item-on' : '')}>

@@ -66,7 +66,11 @@ function killTree(pid: number): void {
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
   } else {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* gone */
+    }
   }
 }
 
@@ -124,7 +128,12 @@ export class WorkEnv {
   ghCalls(): string[][] {
     const log = path.join(this.home, 'gh.log');
     if (!fs.existsSync(log)) return [];
-    return fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    return fs
+      .readFileSync(log, 'utf-8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
   }
 
   /** Every session as work web reports it (archived ones included). */
@@ -137,7 +146,10 @@ export class WorkEnv {
   commitIn(branch: string, file: string, content: string): void {
     const cwd = this.worktreePath(branch);
     fs.writeFileSync(path.join(cwd, file), content);
-    for (const args of [['add', '.'], ['commit', '-q', '-m', `edit ${file}`]]) {
+    for (const args of [
+      ['add', '.'],
+      ['commit', '-q', '-m', `edit ${file}`],
+    ]) {
       const r = spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], {
         cwd,
         env: this.env,
@@ -176,7 +188,10 @@ export class WorkEnv {
   /** Commit a file in any checkout. */
   commitAt(cwd: string, file: string, content: string): void {
     fs.writeFileSync(path.join(cwd, file), content);
-    for (const args of [['add', '.'], ['commit', '-q', '-m', `edit ${file}`]]) {
+    for (const args of [
+      ['add', '.'],
+      ['commit', '-q', '-m', `edit ${file}`],
+    ]) {
       const r = spawnSync('git', ['-c', 'user.name=e2e', '-c', 'user.email=e2e@example.com', ...args], {
         cwd,
         env: this.env,
@@ -263,7 +278,11 @@ export class WorkEnv {
 
   async startWeb(): Promise<string> {
     const urlFile = path.join(this.workDir, 'web.url');
-    try { fs.unlinkSync(urlFile); } catch { /* */ }
+    try {
+      fs.unlinkSync(urlFile);
+    } catch {
+      /* */
+    }
     const log = fs.openSync(path.join(this.home, 'web.log'), 'a');
     this.web = spawn(process.execPath, [BIN, 'web', '--no-open'], {
       env: this.env,

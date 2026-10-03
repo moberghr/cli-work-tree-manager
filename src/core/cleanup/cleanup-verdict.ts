@@ -20,7 +20,10 @@ export interface VerdictInput {
 }
 
 /** What to do with a session, and the one line that says why. */
-export function cleanupVerdict(i: VerdictInput, now: number = Date.now()): { verdict: CleanupVerdict; suggested: CleanupAction | null; reason: string } {
+export function cleanupVerdict(
+  i: VerdictInput,
+  now: number = Date.now(),
+): { verdict: CleanupVerdict; suggested: CleanupAction | null; reason: string } {
   const idle = now - i.lastActiveMs;
   if (i.duplicateOf) {
     return {

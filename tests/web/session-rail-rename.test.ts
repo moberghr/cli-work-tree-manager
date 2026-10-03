@@ -10,11 +10,30 @@ import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.
 const now = new Date().toISOString();
 const session = (id: string, branch: string, extra: Partial<SessionSummary> = {}): SessionSummary =>
   ({
-    id, target: 'api', branch, isGroup: false, paths: [`C:\\wt\\${id}`], createdAt: now, lastAccessedAt: now,
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-    pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null, ...extra,
+    id,
+    target: 'api',
+    branch,
+    isGroup: false,
+    paths: [`C:\\wt\\${id}`],
+    createdAt: now,
+    lastAccessedAt: now,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+    ...extra,
   }) as SessionSummary;
-const SESSIONS = [session('a', 'fix/keys', { title: 'Rotate keys', titleIsYours: true }), session('b', 'feat/csv', { title: 'Add a CSV export' })];
+const SESSIONS = [
+  session('a', 'fix/keys', { title: 'Rotate keys', titleIsYours: true }),
+  session('b', 'feat/csv', { title: 'Add a CSV export' }),
+];
 
 let container: HTMLDivElement;
 let root: Root;
@@ -29,10 +48,13 @@ afterEach(() => {
 });
 
 const render = (onRename = vi.fn(async () => {}), activeSessionId: string | null = null) => {
-  act(() => root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId, onSelect: () => {}, onNewWorktree: () => {}, onRename })));
+  act(() =>
+    root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId, onSelect: () => {}, onNewWorktree: () => {}, onRename })),
+  );
   return onRename;
 };
-const row = (branch: string) => [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.textContent?.includes(branch))!;
+const row = (branch: string) =>
+  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.textContent?.includes(branch))!;
 const field = () => container.querySelector<HTMLInputElement>('.wd-dash-rail-rename');
 const key = (el: EventTarget, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 const type = (el: HTMLInputElement, value: string) => {
@@ -63,7 +85,10 @@ describe('SessionRail: renaming a session', () => {
 
   it('right-click → Rename', async () => {
     render();
-    act(() => void row('feat/csv').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })));
+    act(
+      () =>
+        void row('feat/csv').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 20 })),
+    );
     const item = container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
     expect(item.textContent).toContain('Rename');
     act(() => item.click());
@@ -72,7 +97,10 @@ describe('SessionRail: renaming a session', () => {
   });
 
   it('F2 anywhere renames the open session, but not while typing in a field (or a terminal)', () => {
-    render(vi.fn(async () => {}), 'b');
+    render(
+      vi.fn(async () => {}),
+      'b',
+    );
     const input = document.createElement('textarea'); // xterm's input is a textarea
     document.body.appendChild(input);
     input.focus();
@@ -101,12 +129,23 @@ describe('SessionRail: renaming a session', () => {
   });
 
   it('a worktree on another branch says so in the row’s tooltip', () => {
-    act(() => root.render(createElement(SessionRail, { sessions: [session('c', 'tmp/encryption-keys', { onOtherBranch: [{ repo: 'api', branch: 'fix/terminal-encryption-key-nexo' }] })], activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    act(() =>
+      root.render(
+        createElement(SessionRail, {
+          sessions: [session('c', 'tmp/encryption-keys', { onOtherBranch: [{ repo: 'api', branch: 'fix/terminal-encryption-key-nexo' }] })],
+          activeSessionId: null,
+          onSelect: () => {},
+          onNewWorktree: () => {},
+        }),
+      ),
+    );
     expect(row('tmp/encryption-keys').title).toContain('api · tmp/encryption-keys (on fix/terminal-encryption-key-nexo)');
   });
 
   it('without onRename, no menu and F2 does nothing', () => {
-    act(() => root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: 'a', onSelect: () => {}, onNewWorktree: () => {} })));
+    act(() =>
+      root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: 'a', onSelect: () => {}, onNewWorktree: () => {} })),
+    );
     act(() => void row('fix/keys').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     act(() => void key(row('fix/keys'), 'F2'));
     expect(container.querySelector('[role="menu"]')).toBeNull();

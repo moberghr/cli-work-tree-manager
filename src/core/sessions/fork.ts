@@ -96,7 +96,13 @@ export interface ForkDeps {
   /** git check-ref-format --branch. */
   validBranch: (name: string) => boolean;
   /** setupWorktree: null when it failed, with why. */
-  setup: (target: string, branch: string, config: WorkConfig, base: BaseSpec, name?: string) => Promise<{ paths: string[] } | { error: string }>;
+  setup: (
+    target: string,
+    branch: string,
+    config: WorkConfig,
+    base: BaseSpec,
+    name?: string,
+  ) => Promise<{ paths: string[] } | { error: string }>;
   /** A few sentences on where the parent stands; null: nothing to go on. */
   summarize: (parent: WorktreeSession) => Promise<string | null>;
   start: (sessionId: string, prompt: string) => Promise<unknown>;
@@ -130,7 +136,13 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
   const sessionId = deps.sessionIdFor({ target: parent.target, branch });
   // The worktree exists from here on: a summary or a start that fails is reported, not fatal.
   const summary = await deps.summarize(parent).catch(() => null);
-  const prompt = forkPrompt(parent, { branch, paths: created.paths, from: basesText(bases.spec) }, summary, req.prompt, deps.uncommitted(parent));
+  const prompt = forkPrompt(
+    parent,
+    { branch, paths: created.paths, from: basesText(bases.spec) },
+    summary,
+    req.prompt,
+    deps.uncommitted(parent),
+  );
   let startError: string | undefined;
   try {
     await deps.start(sessionId, prompt);

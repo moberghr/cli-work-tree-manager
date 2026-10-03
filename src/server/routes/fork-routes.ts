@@ -22,6 +22,11 @@ export function mountForkRoutes(app: Hono, opts: { broadcast: (event: string, da
     const r = await forkSession(parent, c.req.valid('json'), opts.deps);
     if (!r.ok) return c.json({ error: r.error }, r.status);
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return c.json({ sessionId: r.sessionId, paths: r.paths, summarized: r.summarized, ...(r.startError ? { startError: r.startError } : {}) } satisfies ForkWire);
+    return c.json({
+      sessionId: r.sessionId,
+      paths: r.paths,
+      summarized: r.summarized,
+      ...(r.startError ? { startError: r.startError } : {}),
+    } satisfies ForkWire);
   });
 }

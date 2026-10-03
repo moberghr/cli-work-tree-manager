@@ -56,8 +56,16 @@ export function clearWebDiscovery(ownerPid?: number): void {
     const current = readWebPid();
     if (current !== null && current !== ownerPid) return;
   }
-  try { fs.unlinkSync(webPidPath()); } catch { /* already gone */ }
-  try { fs.unlinkSync(webUrlPath()); } catch { /* already gone */ }
+  try {
+    fs.unlinkSync(webPidPath());
+  } catch {
+    /* already gone */
+  }
+  try {
+    fs.unlinkSync(webUrlPath());
+  } catch {
+    /* already gone */
+  }
 }
 
 export type WebProbe =
@@ -167,7 +175,8 @@ export async function askWorkWeb<T>(route: string, timeoutMs = 3000): Promise<T 
   }
 }
 
-export type WorkWebAnswer<T> = { ok: true; body: T } | { ok: false; status: number; error: string } | { ok: false; status: 0; error: string };
+export type WorkWebAnswer<T> =
+  { ok: true; body: T } | { ok: false; status: number; error: string } | { ok: false; status: 0; error: string };
 
 /**
  * Call a route of the running work web (what only it can do: type into a

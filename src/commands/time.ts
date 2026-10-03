@@ -31,7 +31,8 @@ export const timeCommand: CommandModule = {
       for (const s of loadHistory()) {
         const t = await sessionWorkTime(s);
         const ms = t.byDay.filter((d) => d.day >= since).reduce((n, d) => n + d.ms, 0);
-        if (ms >= 60_000) rows.push({ name: `${s.target} · ${s.title ? s.title : s.branch}`, ms, ...(s.jiraKey ? { jira: s.jiraKey } : {}) });
+        if (ms >= 60_000)
+          rows.push({ name: `${s.target} · ${s.title ? s.title : s.branch}`, ms, ...(s.jiraKey ? { jira: s.jiraKey } : {}) });
       }
       rows.sort((a, b) => b.ms - a.ms);
       if (rows.length === 0) console.log(chalk.gray(`No Claude work in the last ${days} days.`));
@@ -46,7 +47,11 @@ export const timeCommand: CommandModule = {
     if (argv.log) {
       const settings = worklogSettings(loadConfig());
       if (!settings) {
-        console.error(chalk.red('Jira worklogs are not set up: add jiraWorklog { site, email } to ~/.work/config.json and put an API token in JIRA_API_TOKEN.'));
+        console.error(
+          chalk.red(
+            'Jira worklogs are not set up: add jiraWorklog { site, email } to ~/.work/config.json and put an API token in JIRA_API_TOKEN.',
+          ),
+        );
         process.exitCode = 1;
         return;
       }
@@ -71,10 +76,16 @@ export const timeCommand: CommandModule = {
       return;
     }
     const logged = loggedDays(id);
-    console.log(chalk.bold(`${s.target} · ${s.branch}: about ${formatWorked(time.workedMs)} of Claude work over ${time.prompts} prompt${time.prompts === 1 ? '' : 's'}`));
+    console.log(
+      chalk.bold(
+        `${s.target} · ${s.branch}: about ${formatWorked(time.workedMs)} of Claude work over ${time.prompts} prompt${time.prompts === 1 ? '' : 's'}`,
+      ),
+    );
     for (const d of time.byDay) {
       const l = logged[d.day];
-      console.log(`  ${d.day}  ${formatWorked(d.ms).padStart(7)}${l ? chalk.gray(`  logged ${worklogTime(l.seconds * 1000)} on ${l.issueKey}`) : ''}`);
+      console.log(
+        `  ${d.day}  ${formatWorked(d.ms).padStart(7)}${l ? chalk.gray(`  logged ${worklogTime(l.seconds * 1000)} on ${l.issueKey}`) : ''}`,
+      );
     }
     console.log(chalk.gray('  (the time between its steps, at most 15 minutes each: your reading and typing is not counted)'));
   },

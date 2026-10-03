@@ -19,8 +19,10 @@ describe('statusEventFor (Claude hook payload → status event)', () => {
   });
 
   it('Notification carries the message', () => {
-    expect(statusEventFor('status-notify', { message: 'Claude needs your permission to use Edit' }))
-      .toEqual({ kind: 'notification', message: 'Claude needs your permission to use Edit' });
+    expect(statusEventFor('status-notify', { message: 'Claude needs your permission to use Edit' })).toEqual({
+      kind: 'notification',
+      message: 'Claude needs your permission to use Edit',
+    });
   });
 
   it('Stop reads the last assistant message from the transcript', () => {

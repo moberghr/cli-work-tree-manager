@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // ---- xterm fakes -----------------------------------------------------------
 
@@ -49,22 +48,38 @@ const h = vi.hoisted(() => {
     }
     onData(cb: (d: string) => void) {
       this.dataCb = cb;
-      return { dispose: () => { this.dataCb = null; } };
+      return {
+        dispose: () => {
+          this.dataCb = null;
+        },
+      };
     }
     attachCustomKeyEventHandler(fn: KeyHandler) {
       this.keyHandler = fn;
     }
-    hasSelection() { return this.selection.length > 0; }
-    getSelection() { return this.selection; }
-    clearSelection() { this.selection = ''; }
-    dispose() { this.disposed = true; }
+    hasSelection() {
+      return this.selection.length > 0;
+    }
+    getSelection() {
+      return this.selection;
+    }
+    clearSelection() {
+      this.selection = '';
+    }
+    dispose() {
+      this.disposed = true;
+    }
     /** Simulate typing (what xterm's onData emits). */
-    type(d: string) { this.dataCb?.(d); }
+    type(d: string) {
+      this.dataCb?.(d);
+    }
   }
 
   class FakeFit {
     private t: FakeTerminal | null = null;
-    activate(t: FakeTerminal) { this.t = t; }
+    activate(t: FakeTerminal) {
+      this.t = t;
+    }
     fit() {
       if (!this.t) return;
       this.t.cols = FIT.cols;
@@ -86,7 +101,9 @@ const h = vi.hoisted(() => {
     FakeTerminal,
     FakeFit,
     FakeWebgl,
-    setWebglThrows: (v: boolean) => { webglThrows = v; },
+    setWebglThrows: (v: boolean) => {
+      webglThrows = v;
+    },
   };
 });
 
@@ -123,8 +140,13 @@ class FakeWebSocket {
     for (const fn of this.listeners.get(type) ?? []) fn({ data });
   }
   // helpers
-  serverOpen() { this.readyState = 1; this.emit('open'); }
-  control(frame: object) { this.emit('message', JSON.stringify(frame)); }
+  serverOpen() {
+    this.readyState = 1;
+    this.emit('open');
+  }
+  control(frame: object) {
+    this.emit('message', JSON.stringify(frame));
+  }
   binary(text: string) {
     // Build the buffer in this realm: TextEncoder's can come from jsdom's,
     // which fails PtyView's `instanceof ArrayBuffer` check.
@@ -133,7 +155,10 @@ class FakeWebSocket {
     for (let i = 0; i < text.length; i++) view[i] = text.charCodeAt(i);
     this.emit('message', buf);
   }
-  serverClose() { this.readyState = 3; this.emit('close'); }
+  serverClose() {
+    this.readyState = 3;
+    this.emit('close');
+  }
 }
 
 import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
@@ -280,7 +305,9 @@ describe('PtyView', () => {
       const { ws } = mount();
       act(() => ws.control({ type: 'elsewhere', lastActivity: null, state: null, confirmed: true }));
       const before = FakeWebSocket.instances.length;
-      act(() => { vi.advanceTimersByTime(ELSEWHERE_RECHECK_MS + 10); });
+      act(() => {
+        vi.advanceTimersByTime(ELSEWHERE_RECHECK_MS + 10);
+      });
       expect(FakeWebSocket.instances.length).toBe(before + 1);
       expect(FakeWebSocket.instances.at(-1)!.url).not.toMatch(/force/);
     } finally {
@@ -370,7 +397,9 @@ describe('PtyView', () => {
     act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
     const resizes = () => ws.sent.filter((m) => (m as { type: string }).type === 'resize').length;
     const before = resizes();
-    act(() => { term.textarea.dispatchEvent(new Event('focus')); });
+    act(() => {
+      term.textarea.dispatchEvent(new Event('focus'));
+    });
     expect(resizes()).toBe(before + 1);
   });
 
@@ -418,7 +447,9 @@ describe('PtyView', () => {
       const { ws } = mount();
       const overlay = () => container.querySelector('.wd-pty-connecting')?.textContent ?? null;
       expect(overlay()).toBe('Connecting…');
-      act(() => { vi.advanceTimersByTime(800); });
+      act(() => {
+        vi.advanceTimersByTime(800);
+      });
       expect(overlay()).toMatch(/Starting Claude/);
       ws.serverOpen();
       act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
@@ -429,8 +460,7 @@ describe('PtyView', () => {
   });
 
   it('while hidden (active=false) stays connected but never resizes the shared PTY; refits and focuses when shown', () => {
-    const render = (active: boolean) =>
-      act(() => root.render(createElement(PtyView, { sessionId: 's1', active })));
+    const render = (active: boolean) => act(() => root.render(createElement(PtyView, { sessionId: 's1', active })));
     render(true);
     const ws = FakeWebSocket.instances.at(-1)!;
     const term = h.terms.at(-1)!;
@@ -444,7 +474,9 @@ describe('PtyView', () => {
     h.FIT.cols = 60;
     h.FIT.rows = 20;
     try {
-      act(() => { window.dispatchEvent(new Event('resize')); });
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
       expect(resizes()).toHaveLength(1);
       expect(ws.closed).toBe(false);
 

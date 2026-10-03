@@ -29,7 +29,10 @@ export function sessionBranchUse(
 /** The real inputs: the configured repos, and which branches sessions use (per repo alias). */
 export function defaultBranchTidyDeps(): BranchTidyDeps {
   return {
-    repos: () => Object.entries(loadConfig()?.repos ?? {}).filter(([, p]) => fs.existsSync(p)).map(([alias, path]) => ({ alias, path })),
+    repos: () =>
+      Object.entries(loadConfig()?.repos ?? {})
+        .filter(([, p]) => fs.existsSync(p))
+        .map(([alias, path]) => ({ alias, path })),
     sessionBranches: () => sessionBranchUse(loadHistory(), loadConfig()?.groups ?? {}),
   };
 }

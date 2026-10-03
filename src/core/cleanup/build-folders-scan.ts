@@ -19,7 +19,6 @@ export interface BuildFolderSession {
   baseCheckout?: boolean;
 }
 
-
 export interface BuildFoldersDeps {
   sessions: () => Promise<BuildFolderSession[]>;
   run?: CommandRunner;
@@ -30,7 +29,10 @@ export interface BuildFoldersDeps {
 const idleEnough = (s: BuildFolderSession, now: number) => !s.running && now - s.lastActiveMs >= BUILD_FOLDERS_IDLE_MS;
 
 /** The worktrees idle a week or more, and the build folders they hold, biggest first. */
-export async function scanBuildFolders(deps: BuildFoldersDeps, onProgress?: (checked: number, total: number) => void): Promise<BuildFolderCandidate[]> {
+export async function scanBuildFolders(
+  deps: BuildFoldersDeps,
+  onProgress?: (checked: number, total: number) => void,
+): Promise<BuildFolderCandidate[]> {
   const now = (deps.now ?? Date.now)();
   const eligible = (await deps.sessions()).filter((s) => idleEnough(s, now) && s.paths.some((p) => fs.existsSync(p)));
   const out: BuildFolderCandidate[] = [];
@@ -39,7 +41,16 @@ export async function scanBuildFolders(deps: BuildFoldersDeps, onProgress?: (che
     const folders: BuildFolder[] = [];
     for (const p of s.paths) if (fs.existsSync(p)) folders.push(...(await buildFoldersOf(p, deps.run)));
     const bytes = folders.reduce((n, f) => n + f.bytes, 0);
-    if (bytes > 0) out.push({ sessionId: s.id, target: s.target, branch: s.branch, ...(s.baseCheckout ? { baseCheckout: true } : {}), lastActive: new Date(s.lastActiveMs).toISOString(), folders, bytes });
+    if (bytes > 0)
+      out.push({
+        sessionId: s.id,
+        target: s.target,
+        branch: s.branch,
+        ...(s.baseCheckout ? { baseCheckout: true } : {}),
+        lastActive: new Date(s.lastActiveMs).toISOString(),
+        folders,
+        bytes,
+      });
     onProgress?.(++checked, eligible.length);
   }
   return out.sort((a, b) => b.bytes - a.bytes);
@@ -95,7 +106,12 @@ export function createBuildFoldersJob(deps: BuildFoldersDeps, activity?: Activit
           removed += r.removed.length;
           failed.push(...r.failed.map((f) => f.path));
         }
-        results.push({ sessionId: id, ok: failed.length === 0, removed, message: failed.length ? `Could not remove: ${failed.join(', ')}` : `Removed ${removed} folder(s)` });
+        results.push({
+          sessionId: id,
+          ok: failed.length === 0,
+          removed,
+          message: failed.length ? `Could not remove: ${failed.join(', ')}` : `Removed ${removed} folder(s)`,
+        });
       }
       const done = new Set(results.filter((r) => r.ok).map((r) => r.sessionId));
       state = { ...state, candidates: state.candidates.filter((c) => !done.has(c.sessionId)) };

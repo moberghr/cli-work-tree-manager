@@ -21,7 +21,11 @@ export const screenCommand: CommandModule = {
       return;
     }
     if (r.body.text === null) {
-      console.error(chalk.yellow(`${s.target} · ${s.branch} has no terminal in the PTY host (not running, or started outside work). \`work read\` shows its conversation.`));
+      console.error(
+        chalk.yellow(
+          `${s.target} · ${s.branch} has no terminal in the PTY host (not running, or started outside work). \`work read\` shows its conversation.`,
+        ),
+      );
       process.exitCode = 1;
       return;
     }

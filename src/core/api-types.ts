@@ -501,8 +501,7 @@ export interface ShipResult {
 
 /** POST /api/sessions/:id/ship body. */
 export type ShipRequest =
-  | { action: 'push' | 'create-pr'; draft?: boolean }
-  | { action: 'merge'; method?: MergeMethod; repos: MergeSelection[] };
+  { action: 'push' | 'create-pr'; draft?: boolean } | { action: 'merge'; method?: MergeMethod; repos: MergeSelection[] };
 
 export interface ShipResponse {
   results: ShipResult[];
@@ -666,7 +665,14 @@ export interface ForkWire {
 export interface UpdateFromMainWire {
   results: Array<
     | { ok: true; repo: string; how: 'rebase' | 'merge' | 'nothing'; base: string; commits: number }
-    | { ok: false; repo: string; reason: string; conflicts?: boolean; base?: string; /** Not for a button: hand it to the session's Claude. */ handOff?: boolean }
+    | {
+        ok: false;
+        repo: string;
+        reason: string;
+        conflicts?: boolean;
+        base?: string;
+        /** Not for a button: hand it to the session's Claude. */ handOff?: boolean;
+      }
   >;
 }
 
@@ -705,7 +711,20 @@ export interface JiraWatchState {
 }
 
 /** What work does in the background (core/activity.ts), for the Activity panel. */
-export type ActivityKind = 'pr-watch' | 'pr-list' | 'jira' | 'idle-sleep' | 'cleanup' | 'build-folders' | 'branches' | 'archive' | 'conversations' | 'server' | 'jira-watch' | 'stacks' | 'blocks';
+export type ActivityKind =
+  | 'pr-watch'
+  | 'pr-list'
+  | 'jira'
+  | 'idle-sleep'
+  | 'cleanup'
+  | 'build-folders'
+  | 'branches'
+  | 'archive'
+  | 'conversations'
+  | 'server'
+  | 'jira-watch'
+  | 'stacks'
+  | 'blocks';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

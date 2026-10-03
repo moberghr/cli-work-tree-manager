@@ -56,9 +56,14 @@ export function DevChip({ sessionId }: { sessionId: string }) {
     <span className={'wd-dev-chip' + (state.listening ? ' wd-dev-live' : '')}>
       <span
         className="wd-dev-port"
-        title={state.listening ? `Something is serving on port ${state.port} ($PORT)` : `Nothing is listening on port ${state.port} ($PORT)`}
+        title={
+          state.listening ? `Something is serving on port ${state.port} ($PORT)` : `Nothing is listening on port ${state.port} ($PORT)`
+        }
       >
-        <span className="wd-dev-dot" aria-hidden="true">{state.listening ? '●' : '○'}</span> :{state.port}
+        <span className="wd-dev-dot" aria-hidden="true">
+          {state.listening ? '●' : '○'}
+        </span>{' '}
+        :{state.port}
       </span>
       {state.listening && state.url && (
         <a className="wd-dev-preview" href={state.url} target="_blank" rel="noopener noreferrer">
@@ -67,7 +72,13 @@ export function DevChip({ sessionId }: { sessionId: string }) {
       )}
       {starting && <span className="wd-tab-header-muted">starting…</span>}
       {state.command && !state.running && !state.listening && (
-        <button type="button" className="wd-dev-btn" disabled={busy !== null} onClick={() => act('start')} title={`Run \`${state.command}\` in ${state.repo} with PORT=${state.port}`}>
+        <button
+          type="button"
+          className="wd-dev-btn"
+          disabled={busy !== null}
+          onClick={() => act('start')}
+          title={`Run \`${state.command}\` in ${state.repo} with PORT=${state.port}`}
+        >
           {busy === 'start' ? 'Starting…' : '▶ Start dev'}
         </button>
       )}

@@ -6,7 +6,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { git } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
-import { baseArgs, childArgs, createInChild, createInProcess, invalidRequest, oneAtATime, type CreateResult } from '../../../src/core/worktree/setup-child.js';
+import {
+  baseArgs,
+  childArgs,
+  createInChild,
+  createInProcess,
+  invalidRequest,
+  oneAtATime,
+  type CreateResult,
+} from '../../../src/core/worktree/setup-child.js';
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'src', 'bin.ts');
 
@@ -14,7 +22,12 @@ describe('the child run, as argv (pure)', () => {
   it('target, branch, --setup-only, each base, the Jira key and the name', () => {
     expect(baseArgs({ default: 'dev', perRepo: { web: 'feat/x' } })).toEqual(['--base=dev', '--base=web=feat/x']);
     expect(childArgs({ target: 'api', branch: 'feat/a', base: { perRepo: {} }, jiraKey: 'PAY-1', name: ' Retry ' })).toEqual([
-      'tree', 'api', 'feat/a', '--setup-only', '--jira-key=PAY-1', '--name=Retry',
+      'tree',
+      'api',
+      'feat/a',
+      '--setup-only',
+      '--jira-key=PAY-1',
+      '--name=Retry',
     ]);
     expect(childArgs({ target: 'api' })).toEqual(['tree', 'api', '--setup-only']); // the repo's own checkout
   });
@@ -33,7 +46,9 @@ describe('oneAtATime', () => {
     const gates = new Map<string, () => void>();
     const fake = vi.fn((req: { target: string; branch?: string }) => {
       order.push(`start ${req.target}/${req.branch}`);
-      return new Promise<CreateResult>((resolve) => gates.set(`${req.target}/${req.branch}`, () => resolve({ ok: true, branch: req.branch ?? '', launchDir: '', paths: [] })));
+      return new Promise<CreateResult>((resolve) =>
+        gates.set(`${req.target}/${req.branch}`, () => resolve({ ok: true, branch: req.branch ?? '', launchDir: '', paths: [] })),
+      );
     });
     const create = oneAtATime(fake);
     const cfg = {} as WorkConfig;
@@ -93,6 +108,9 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(!bad.ok && bad.error).toMatch(/nope/);
     expect(await createInProcess({ target: 'nope', branch: 'feat/b' }, config)).toMatchObject({ ok: false });
     // A branch that would be read as a flag: refused, no run, no base checkout opened instead.
-    expect(await create({ target: 'api', branch: '--unsafe' }, config)).toEqual({ ok: false, error: expect.stringContaining('not a valid branch name') });
+    expect(await create({ target: 'api', branch: '--unsafe' }, config)).toEqual({
+      ok: false,
+      error: expect.stringContaining('not a valid branch name'),
+    });
   }, 150_000);
 });

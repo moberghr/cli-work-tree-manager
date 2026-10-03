@@ -7,8 +7,7 @@ import { ExpandProvider } from '../../src/web/src/state/ExpandProvider.js';
 import type { ParsedFile } from '../../src/web/src/api/client.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function oneHunk(): ParsedFile['hunks'] {
   return [
@@ -106,9 +105,7 @@ describe('DiffFile collapse', () => {
     act(() => chevron().click());
     expect(hasDiffBody()).toBe(false);
     expect(chevron().getAttribute('aria-expanded')).toBe('false');
-    expect(
-      container.querySelector('.wd-file')?.classList.contains('wd-file-collapsed'),
-    ).toBe(true);
+    expect(container.querySelector('.wd-file')?.classList.contains('wd-file-collapsed')).toBe(true);
 
     act(() => chevron().click());
     expect(hasDiffBody()).toBe(true);
@@ -165,9 +162,7 @@ describe('DiffFile collapse', () => {
     });
     expect(chevron().getAttribute('aria-expanded')).toBe('false');
     // Header still shows the rename transition even while folded.
-    expect(container.querySelector('.wd-rename')?.textContent).toContain(
-      'src/old.txt',
-    );
+    expect(container.querySelector('.wd-rename')?.textContent).toContain('src/old.txt');
   });
 
   it('keeps a rename WITH content changes expanded by default', () => {
@@ -243,8 +238,7 @@ describe('DiffFile collapse', () => {
     expect(bar!.textContent).toContain('@@');
     expect(bar!.textContent).toContain('function second()');
     // The second hunk does NOT also render its own heading — appears once.
-    const occurrences =
-      container.textContent!.split('function second()').length - 1;
+    const occurrences = container.textContent!.split('function second()').length - 1;
     expect(occurrences).toBe(1);
     // The first hunk (no gap above it) still shows its own heading bar.
     expect(container.textContent).toContain('function first()');

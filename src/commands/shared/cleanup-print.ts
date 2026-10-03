@@ -8,10 +8,7 @@ import type { CleanupResult } from '../../core/cleanup/cleanup.js';
  * unattended `sync` asks for it explicitly; `prune` (you pick) offers it.
  * With `dirtyToo`, merged worktrees with uncommitted changes as well.
  */
-export function removable(
-  candidates: CleanupCandidate[],
-  opts: { includeSquash: boolean; dirtyToo?: boolean },
-): CleanupCandidate[] {
+export function removable(candidates: CleanupCandidate[], opts: { includeSquash: boolean; dirtyToo?: boolean }): CleanupCandidate[] {
   return candidates.filter((c) => {
     if (c.verdict === 'gone') return true;
     const merged = c.repos.every((r) => !r.exists || r.merged !== null);

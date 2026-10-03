@@ -48,7 +48,12 @@ describe('agents', () => {
         const spec = m[1] ?? m[2];
         if (!spec?.startsWith('.')) continue;
         const target = rel(path.resolve(path.dirname(abs), spec));
-        if (target.startsWith('src/core/agents/') && !target.startsWith(CLAUDE_DIR) && !/^src\/core\/agents\/(types|typing)\.js$/.test(target)) others.push(`${rel(abs)} → ${target}`);
+        if (
+          target.startsWith('src/core/agents/') &&
+          !target.startsWith(CLAUDE_DIR) &&
+          !/^src\/core\/agents\/(types|typing)\.js$/.test(target)
+        )
+          others.push(`${rel(abs)} → ${target}`);
       }
     }
     expect(others).toEqual([]);

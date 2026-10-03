@@ -83,11 +83,7 @@ function portsHeldByActiveSessions(sessions: WorktreeSession[]): Set<number> {
  * `allocateFreePort` when you also want to skip ports occupied by unrelated
  * processes on the machine.
  */
-export function allocatePort(
-  seedKey: string,
-  config: Pick<WorkConfig, 'portRange'>,
-  sessions: WorktreeSession[],
-): number {
+export function allocatePort(seedKey: string, config: Pick<WorkConfig, 'portRange'>, sessions: WorktreeSession[]): number {
   const { start, end, rangeSize } = normalizeRange(config);
   const inUse = portsHeldByActiveSessions(sessions);
   const baseOffset = hashString(seedKey) % rangeSize;

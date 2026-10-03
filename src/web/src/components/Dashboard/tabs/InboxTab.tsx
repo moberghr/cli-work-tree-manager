@@ -3,8 +3,24 @@ import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
 import { snoozeLabel } from '../../../../../core/rail/snooze.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
-import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, type SessionSummary, snoozeSession, unsnoozeSession } from '../../../api/client.js';
-import { defaultSubTab, isArchived, lastActiveAt, staleSuggestions, type PrLookup, agentCan, agentName } from '../../../state/session-display.js';
+import {
+  answerPermission,
+  markSessionSeen,
+  setArchived,
+  type AnswerRequest,
+  type SessionSummary,
+  snoozeSession,
+  unsnoozeSession,
+} from '../../../api/client.js';
+import {
+  defaultSubTab,
+  isArchived,
+  lastActiveAt,
+  staleSuggestions,
+  type PrLookup,
+  agentCan,
+  agentName,
+} from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
@@ -43,7 +59,13 @@ interface Section {
 const SECTIONS: Section[] = [
   { rank: 0, title: 'Needs your input', hint: 'Blocked on a permission or question', since: 'waiting', open: 'term' },
   { rank: 1, title: 'Done — not looked at yet', hint: 'Finished a turn since you last opened it', since: 'done', open: 'diff' },
-  { rank: 2, title: 'Review comments', hint: 'Reviewers left comments on its PR that nobody has answered or resolved', since: 'last active', open: 'diff' },
+  {
+    rank: 2,
+    title: 'Review comments',
+    hint: 'Reviewers left comments on its PR that nobody has answered or resolved',
+    since: 'last active',
+    open: 'diff',
+  },
   { rank: 3, title: 'Working', hint: 'Mid-turn', since: 'working', open: 'term' },
 ];
 /** Sections that want you (the header count and the badge): needs input, done, review comments. */
@@ -108,13 +130,15 @@ export function InboxTab({
   const markSeen = (id: string) => {
     setMarking((m) => new Set(m).add(id));
     // A failed mark leaves the row as it was; the next refresh shows the truth.
-    onMarkSeen(id).catch(() => {}).finally(() =>
-      setMarking((m) => {
-        const next = new Set(m);
-        next.delete(id);
-        return next;
-      }),
-    );
+    onMarkSeen(id)
+      .catch(() => {})
+      .finally(() =>
+        setMarking((m) => {
+          const next = new Set(m);
+          next.delete(id);
+          return next;
+        }),
+      );
   };
   const { bySection, quiet, tracked, snoozed, waiting } = useMemo(() => {
     const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
@@ -169,10 +193,8 @@ export function InboxTab({
       </header>
       {tracked === 0 ? (
         <div className="wd-tab-empty">
-          No session has reported its status yet. Status comes from Claude&apos;s
-          hooks, which the full <code>work web</code> installs (not the lean one{' '}
-          <code>wd</code> starts) — they apply to Claudes started, or prompted,
-          after that.
+          No session has reported its status yet. Status comes from Claude&apos;s hooks, which the full <code>work web</code> installs (not
+          the lean one <code>wd</code> starts) — they apply to Claudes started, or prompted, after that.
         </div>
       ) : waitingCount === 0 && !bySection.get(3)?.length ? (
         <div className="wd-tab-empty">Nothing needs you right now.</div>
@@ -180,8 +202,7 @@ export function InboxTab({
         SECTIONS.filter((sec) => bySection.get(sec.rank)?.length).map((sec) => (
           <section key={sec.rank} className={`wd-inbox-section wd-inbox-rank-${sec.rank}`}>
             <h2 className="wd-inbox-section-title" title={sec.hint}>
-              {sec.title}{' '}
-              <span className="wd-tab-header-muted">({bySection.get(sec.rank)!.length})</span>
+              {sec.title} <span className="wd-tab-header-muted">({bySection.get(sec.rank)!.length})</span>
               {sec.rank === 1 && onReviewAll && (
                 <button
                   type="button"
@@ -209,7 +230,9 @@ export function InboxTab({
                     </span>
                     <span className="wd-inbox-summary">
                       {answerError[s.id] ? (
-                        <span className="wd-inbox-answer-error" role="alert">{answerError[s.id]}</span>
+                        <span className="wd-inbox-answer-error" role="alert">
+                          {answerError[s.id]}
+                        </span>
                       ) : sec.rank === 2 ? (
                         <span className="wd-inbox-review">
                           💬 {s.openReviewThreads} unresolved review comment{s.openReviewThreads === 1 ? '' : 's'}
@@ -225,7 +248,7 @@ export function InboxTab({
                           <code>{s.attention!.request.detail}</code>
                         </span>
                       ) : (
-                        s.attention!.summary ?? <span className="wd-tab-header-muted">—</span>
+                        (s.attention!.summary ?? <span className="wd-tab-header-muted">—</span>)
                       )}
                     </span>
                     <span className="wd-inbox-meta">
@@ -301,7 +324,10 @@ export function InboxTab({
       {snoozeError && <div className="wd-tab-empty wd-tab-error">{snoozeError}</div>}
       {waiting.length > 0 && (
         <section className="wd-inbox-section wd-inbox-waiting">
-          <h2 className="wd-inbox-section-title" title="Waiting on other work (Blocked by…): out of the Inbox until it is done, then you are told">
+          <h2
+            className="wd-inbox-section-title"
+            title="Waiting on other work (Blocked by…): out of the Inbox until it is done, then you are told"
+          >
             Waiting on others <span className="wd-tab-header-muted">({waiting.length})</span>
           </h2>
           <ul className="wd-inbox-list">
@@ -326,7 +352,12 @@ export function InboxTab({
           <ul className="wd-inbox-list">
             {snoozed.map((s) => (
               <li key={s.id} className="wd-inbox-item">
-                <button type="button" className="wd-inbox-row" onClick={() => onOpenSession(s.id, 'diff')} title={`Open ${s.target} · ${s.branch}`}>
+                <button
+                  type="button"
+                  className="wd-inbox-row"
+                  onClick={() => onOpenSession(s.id, 'diff')}
+                  title={`Open ${s.target} · ${s.branch}`}
+                >
                   <span className="wd-inbox-name">
                     <span className="wd-inbox-target">{s.target}</span>
                     <span className="wd-inbox-branch">{s.branch}</span>
@@ -369,7 +400,13 @@ export function InboxTab({
           }}
         />
       )}
-      <StaleSuggestions sessions={sessions} prsFor={prsFor} prsKnown={prsKnown} onOpen={(id) => onOpenSession(id, 'diff')} onArchive={onArchive} />
+      <StaleSuggestions
+        sessions={sessions}
+        prsFor={prsFor}
+        prsKnown={prsKnown}
+        onOpen={(id) => onOpenSession(id, 'diff')}
+        onArchive={onArchive}
+      />
     </div>
   );
 }
@@ -390,7 +427,19 @@ function readSnoozed(): Record<string, number> {
  * archiving (the conversation is kept; the worktree too when it has work in
  * it). "Not now" hides one for two weeks in this window.
  */
-function StaleSuggestions({ sessions, prsFor, prsKnown, onOpen, onArchive }: { sessions: SessionSummary[]; prsFor?: PrLookup; prsKnown?: (s: SessionSummary) => boolean; onOpen: (id: string) => void; onArchive: (id: string) => Promise<unknown> }) {
+function StaleSuggestions({
+  sessions,
+  prsFor,
+  prsKnown,
+  onOpen,
+  onArchive,
+}: {
+  sessions: SessionSummary[];
+  prsFor?: PrLookup;
+  prsKnown?: (s: SessionSummary) => boolean;
+  onOpen: (id: string) => void;
+  onArchive: (id: string) => Promise<unknown>;
+}) {
   const [snoozed, setSnoozed] = useState<Record<string, number>>(readSnoozed);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const list = useMemo(() => staleSuggestions(sessions, prsFor, Date.now(), snoozed, prsKnown), [sessions, prsFor, snoozed, prsKnown]);
@@ -419,7 +468,9 @@ function StaleSuggestions({ sessions, prsFor, prsKnown, onOpen, onArchive }: { s
           Archive all
         </button>
       </h2>
-      <p className="wd-cleanup-hint">Archiving keeps the conversation and removes the worktree when nothing would be lost; Restore brings it back.</p>
+      <p className="wd-cleanup-hint">
+        Archiving keeps the conversation and removes the worktree when nothing would be lost; Restore brings it back.
+      </p>
       <ul className="wd-inbox-list">
         {list.map((s) => (
           <li key={s.id} className="wd-inbox-item wd-inbox-stale-item">

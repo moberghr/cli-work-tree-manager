@@ -12,7 +12,10 @@ export const AWAY_MS = 2 * 24 * 3600_000;
  * quiet days the button says how long you've been away.
  */
 export function CatchUpButton({ session, now = Date.now() }: { session: SessionSummary; now?: number }) {
-  const [state, setState] = useState<{ busy: boolean; text?: string; at?: string; error?: string; open: boolean }>({ busy: false, open: false });
+  const [state, setState] = useState<{ busy: boolean; text?: string; at?: string; error?: string; open: boolean }>({
+    busy: false,
+    open: false,
+  });
   const away = now - Date.parse(lastActiveAt(session));
   const run = () => {
     setState((s) => ({ ...s, busy: true, error: undefined, open: true }));

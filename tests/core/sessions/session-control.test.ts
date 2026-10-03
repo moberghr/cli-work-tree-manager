@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseDuration, pendingRequest, sendHowText, sendToSession, waitForTurn, MAX_SEND_CHARS, type SendDeps, type TurnStatus } from '../../../src/core/sessions/session-control.js';
+import {
+  parseDuration,
+  pendingRequest,
+  sendHowText,
+  sendToSession,
+  waitForTurn,
+  MAX_SEND_CHARS,
+  type SendDeps,
+  type TurnStatus,
+} from '../../../src/core/sessions/session-control.js';
 
 /** Driving a session from outside its terminal: the policy (session-control.ts), with its I/O faked. */
 
@@ -22,7 +31,11 @@ const NOW = () => new Date('2026-10-02T09:00:00Z');
 describe('sendToSession', () => {
   it('in the PTY host: says what the comment route did — typed in, or left for the end of the turn (reviewed: not a second look at the state)', async () => {
     const d = deps({ hostRuns: () => true, state: () => 'working' }, 'typed'); // the route typed it; the state read after says otherwise
-    expect(await sendToSession('s', '  Run the tests  ', d, { now: NOW })).toEqual({ ok: true, how: 'typed', sentAt: '2026-10-02T09:00:00.000Z' });
+    expect(await sendToSession('s', '  Run the tests  ', d, { now: NOW })).toEqual({
+      ok: true,
+      how: 'typed',
+      sentAt: '2026-10-02T09:00:00.000Z',
+    });
     expect(d.posted).toEqual(['Run the tests']);
     expect(await sendToSession('s', 'x', deps({ hostRuns: () => true }, 'next-turn'))).toMatchObject({ how: 'next-turn' });
     // The host runs it but the route typed nothing (it had nothing pending to nudge): its next turn.
@@ -39,13 +52,21 @@ describe('sendToSession', () => {
     const d = deps();
     expect(await sendToSession('s', 'x', d)).toMatchObject({ ok: true, how: 'started' });
     expect(d.start).toHaveBeenCalledWith('s');
-    expect(await sendToSession('s', 'x', deps({ start: async () => false }))).toMatchObject({ ok: false, status: 502, error: expect.stringContaining('queued') });
+    expect(await sendToSession('s', 'x', deps({ start: async () => false }))).toMatchObject({
+      ok: false,
+      status: 502,
+      error: expect.stringContaining('queued'),
+    });
   });
 
   it('refused: empty, too long, archived — and a session with permission checks off, unless forced', async () => {
     expect(await sendToSession('s', '   ', deps())).toMatchObject({ ok: false, status: 400 });
     expect(await sendToSession('s', 'x'.repeat(MAX_SEND_CHARS + 1), deps())).toMatchObject({ ok: false, status: 400 });
-    expect(await sendToSession('s', 'x', deps({ archived: () => true }))).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('archived') });
+    expect(await sendToSession('s', 'x', deps({ archived: () => true }))).toMatchObject({
+      ok: false,
+      status: 409,
+      error: expect.stringContaining('archived'),
+    });
     const unsafe = deps({ unsafe: () => true });
     expect(await sendToSession('s', 'x', unsafe)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('--unsafe') });
     expect(unsafe.posted).toEqual([]); // nothing queued
@@ -67,7 +88,11 @@ describe('waitForTurn', () => {
   };
 
   it('without `after`: returns as soon as it isn’t working', async () => {
-    const statuses: TurnStatus[] = [{ state: 'working', since: 'x' }, { state: 'working', since: 'x' }, { state: 'idle', since: '2026-10-02T09:01:00Z', summary: 'Done.' }];
+    const statuses: TurnStatus[] = [
+      { state: 'working', since: 'x' },
+      { state: 'working', since: 'x' },
+      { state: 'idle', since: '2026-10-02T09:01:00Z', summary: 'Done.' },
+    ];
     const c = clock();
     const r = await waitForTurn('s', { ...c, status: () => statuses.shift() ?? null }, { timeoutMs: 60_000 });
     expect(r).toEqual({ ok: true, status: { state: 'idle', since: '2026-10-02T09:01:00Z', summary: 'Done.' } });
@@ -80,7 +105,11 @@ describe('waitForTurn', () => {
       { state: 'working', since: '2026-10-02T09:00:01Z' },
       { state: 'needs_input', since: '2026-10-02T09:00:30Z', summary: 'Bash npm test' },
     ];
-    const r = await waitForTurn('s', { ...clock(), status: () => statuses.shift() ?? null }, { after: '2026-10-02T09:00:00Z', timeoutMs: 60_000 });
+    const r = await waitForTurn(
+      's',
+      { ...clock(), status: () => statuses.shift() ?? null },
+      { after: '2026-10-02T09:00:00Z', timeoutMs: 60_000 },
+    );
     expect(r).toMatchObject({ ok: true, status: { state: 'needs_input' } });
   });
 

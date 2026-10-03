@@ -84,7 +84,10 @@ describe('the store and the sweep', () => {
   it('two sessions cannot wait on each other (directly or through others)', () => {
     const idc = 'ccc';
     expect(addBlocker(ida, { kind: 'session', id: idb, label: 'feat/b' })).toMatchObject({ ok: true });
-    expect(addBlocker(idb, { kind: 'session', id: ida, label: 'feat/a' })).toMatchObject({ ok: false, error: expect.stringContaining('wait on each other') });
+    expect(addBlocker(idb, { kind: 'session', id: ida, label: 'feat/a' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('wait on each other'),
+    });
     expect(addBlocker(idb, { kind: 'session', id: idc, label: 'c' })).toMatchObject({ ok: true });
     expect(addBlocker(idc, { kind: 'session', id: ida, label: 'feat/a' })).toMatchObject({ ok: false }); // a → b → c → a
     removeBlocker(ida);
@@ -96,7 +99,12 @@ describe('the store and the sweep', () => {
     const changed = vi.fn();
     const app = new Hono();
     mountBlockRoutes(app, { broadcast: () => {}, changed });
-    const post = (body: unknown) => app.request(`/api/sessions/${ida}/blocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const post = (body: unknown) =>
+      app.request(`/api/sessions/${ida}/blocks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
     expect((await post({ kind: 'session', id: idb })).status).toBe(200);
     expect((await post({ kind: 'pr', url: PR })).status).toBe(200);
     expect(changed).toHaveBeenCalledTimes(2); // a look straight away

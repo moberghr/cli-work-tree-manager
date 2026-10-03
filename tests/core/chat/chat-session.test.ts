@@ -38,10 +38,21 @@ afterEach(async () => {
 });
 
 /** A chat on the fake; `args` records what each start was given by the protocol. */
-function make(history: ChatRecord[][] = [], protocol?: ChatProtocol, script = FAKE): { chat: ChatSession; events: ChatEvent[]; args: string[][] } {
+function make(
+  history: ChatRecord[][] = [],
+  protocol?: ChatProtocol,
+  script = FAKE,
+): { chat: ChatSession; events: ChatEvent[]; args: string[][] } {
   const base = protocol ?? claudeChat.open({ sessionId: 's1', permissionUrl: 'http://127.0.0.1:1/api/chat-mcp/t', dir });
   const args: string[][] = [];
-  const p: ChatProtocol = { ...base, args: (o) => { const a = base.args(o); args.push(a); return a; } };
+  const p: ChatProtocol = {
+    ...base,
+    args: (o) => {
+      const a = base.args(o);
+      args.push(a);
+      return a;
+    },
+  };
   const chat = new ChatSession('s1', { cwd: dir, cmd: process.execPath, baseArgs: [script], continueExisting: true }, p, history);
   chats.push(chat);
   const events: ChatEvent[] = [];
@@ -71,7 +82,18 @@ describe('ChatSession running Claude’s protocol (stream-json)', () => {
     expect(partials.at(-1)).toBe('Hi there');
     expect(chat.snapshot().partial).toBeNull();
     // Launched headless with the permission tool, continuing the folder's conversation.
-    expect(args[0]).toEqual(expect.arrayContaining(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--permission-prompt-tool', 'mcp__work_chat__approve', '--continue']));
+    expect(args[0]).toEqual(
+      expect.arrayContaining([
+        '-p',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+        '--permission-prompt-tool',
+        'mcp__work_chat__approve',
+        '--continue',
+      ]),
+    );
   });
 
   it('interrupts with a control request, and resumes the same conversation after a stop', async () => {
@@ -149,7 +171,11 @@ const echoProtocol = (): ChatProtocol => ({
     if (m.hello) return { records: [], ready: true, conversationId: m.hello };
     if (typeof m.said === 'string') return { records: [{ kind: 'text', text: m.said }], activity: true };
     if (m.done) return { records: [{ kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null }], turnEnded: true };
-    if (m.asks) return { records: [{ kind: 'tool', id: m.asks.id, name: m.asks.tool, input: m.asks.input }], permission: { requestId: m.asks.id, toolName: m.asks.tool, input: m.asks.input, toolUseId: m.asks.id } };
+    if (m.asks)
+      return {
+        records: [{ kind: 'tool', id: m.asks.id, name: m.asks.tool, input: m.asks.input }],
+        permission: { requestId: m.asks.id, toolName: m.asks.tool, input: m.asks.input, toolUseId: m.asks.id },
+      };
     return { records: [{ kind: 'raw', label: 'echo', raw }] };
   },
   answerLine: (requestId, d) => ({ answer: requestId, allow: d.allow }),
@@ -177,7 +203,12 @@ describe('ChatSession running another agent’s protocol', () => {
     expect(p).toMatchObject({ toolName: 'Shell', input: { cmd: 'ls' }, toolUseId: 'r1' });
     expect(chat.answer(p.id, true)).toBe(true);
     await until(() => chat.state === 'idle' && kinds(chat).includes('turn-end'));
-    expect(chat.snapshot().messages.flatMap((m) => m.records).find((r) => r.kind === 'text')).toEqual({ kind: 'text', text: 'allowed' });
+    expect(
+      chat
+        .snapshot()
+        .messages.flatMap((m) => m.records)
+        .find((r) => r.kind === 'text'),
+    ).toEqual({ kind: 'text', text: 'allowed' });
   });
 
   it('no interrupt in its protocol: an interrupt stops the process, the next message starts it again', async () => {
@@ -232,6 +263,11 @@ describe('ChatSession after a stop (it never writes to a closed stdin)', () => {
     chat.send('ask');
     await until(() => kinds(chat).includes('notice'));
     expect(chat.snapshot().permissions).toEqual([]);
-    expect(chat.snapshot().messages.flatMap((m) => m.records).find((r) => r.kind === 'notice')).toMatchObject({ text: expect.stringContaining('Shell') });
+    expect(
+      chat
+        .snapshot()
+        .messages.flatMap((m) => m.records)
+        .find((r) => r.kind === 'notice'),
+    ).toMatchObject({ text: expect.stringContaining('Shell') });
   });
 });

@@ -10,8 +10,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { useSse, _ssePoolSize } from '../../src/web/src/api/events.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -49,8 +48,7 @@ let root: Root;
 
 beforeEach(() => {
   FakeEventSource.instances = [];
-  (globalThis as unknown as { EventSource: unknown }).EventSource =
-    FakeEventSource;
+  (globalThis as unknown as { EventSource: unknown }).EventSource = FakeEventSource;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -61,13 +59,7 @@ afterEach(() => {
   container.remove();
 });
 
-function Subscriber({
-  url,
-  onPing,
-}: {
-  url: string | null;
-  onPing: (data: unknown) => void;
-}) {
+function Subscriber({ url, onPing }: { url: string | null; onPing: (data: unknown) => void }) {
   useSse(url, { events: { ping: onPing } });
   return null;
 }
@@ -176,9 +168,7 @@ describe('useSse shared connection pool', () => {
 
   it('null URL never connects', () => {
     act(() => {
-      root.render(
-        createElement(Subscriber, { url: null, onPing: () => {} }),
-      );
+      root.render(createElement(Subscriber, { url: null, onPing: () => {} }));
     });
     expect(FakeEventSource.instances).toHaveLength(0);
     expect(_ssePoolSize()).toBe(0);

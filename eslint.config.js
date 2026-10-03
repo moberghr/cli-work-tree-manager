@@ -9,7 +9,20 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['dist/**', 'desktop/**', 'docs/**', 'packaging/**', 'coverage/**', 'playwright-report/**', 'test-results/**', '.claude/**', '**/*.cjs', '**/*.mjs'] },
+  {
+    ignores: [
+      'dist/**',
+      'desktop/**',
+      'docs/**',
+      'packaging/**',
+      'coverage/**',
+      'playwright-report/**',
+      'test-results/**',
+      '.claude/**',
+      '**/*.cjs',
+      '**/*.mjs',
+    ],
+  },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -24,7 +37,16 @@ export default defineConfig(
       // An async function where a callback's result is used (if, filter…) — not where it is ignored (event handlers).
       '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
       // `_name`: unused on purpose (a callback's place-holding argument, a destructured-away field).
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_', ignoreRestSiblings: true }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
       // Every control character in a regex here is on purpose: terminal codes (ANSI) stripped or matched.
       'no-control-regex': 'off',
     },

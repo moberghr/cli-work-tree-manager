@@ -73,11 +73,7 @@ function samePayload(a: unknown, b: unknown): boolean {
  * re-triggers the effect — `deps` is the sole trigger, exactly like a
  * hand-written effect with an explicit dependency array.
  */
-export function useDeferredDiffLoad<T>(
-  fetcher: () => Promise<T>,
-  deps: unknown[],
-  delayMs = 120,
-): DeferredLoad<T> {
+export function useDeferredDiffLoad<T>(fetcher: () => Promise<T>, deps: unknown[], delayMs = 120): DeferredLoad<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

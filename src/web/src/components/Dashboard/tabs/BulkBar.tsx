@@ -52,7 +52,11 @@ export function BulkBar({
   return (
     <div className="wd-bulk-bar" role="toolbar" aria-label="Act on the ticked sessions">
       <span className="wd-bulk-count">{selected.length} selected</span>
-      {hidden > 0 && <span className="wd-bulk-hidden" title="Ticked, but hidden by the filter or search: the bar leaves them out">(+{hidden} hidden, not included)</span>}
+      {hidden > 0 && (
+        <span className="wd-bulk-hidden" title="Ticked, but hidden by the filter or search: the bar leaves them out">
+          (+{hidden} hidden, not included)
+        </span>
+      )}
       {busy ? (
         <span className="wd-bulk-busy">{busy}</span>
       ) : mode === 'send' ? (
@@ -83,7 +87,8 @@ export function BulkBar({
         </form>
       ) : mode === 'delete' ? (
         <span className="wd-bulk-confirm" role="alert">
-          Delete {selected.length} session{selected.length === 1 ? '' : 's'}? A worktree goes only where nothing would be lost; the others are refused and listed.{' '}
+          Delete {selected.length} session{selected.length === 1 ? '' : 's'}? A worktree goes only where nothing would be lost; the others
+          are refused and listed.{' '}
           <button
             type="button"
             className="wd-btn-danger"
@@ -177,7 +182,14 @@ export function BulkBar({
               run: () => onRun(`Moved to “${sec.name}”`, (s) => actions.place!(s, { pinned: false, section: sec.id }), live),
               ...(i === 0 ? { separated: true } : {}),
             })),
-            ...(sections.length ? [{ label: 'Out of their section', run: () => onRun('Took out of their section', (s) => actions.place!(s, { section: null }), live) }] : []),
+            ...(sections.length
+              ? [
+                  {
+                    label: 'Out of their section',
+                    run: () => onRun('Took out of their section', (s) => actions.place!(s, { section: null }), live),
+                  },
+                ]
+              : []),
           ]}
         />
       )}

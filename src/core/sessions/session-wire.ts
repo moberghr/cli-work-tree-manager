@@ -49,7 +49,11 @@ export interface SessionWireOptions {
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
   behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
   /** Where it sits in a stack (stack-sessions.ts). */
-  stackFor?: (id: string) => { parent: { id: string; branch: string; title?: string } | null; children: number; merged?: { id: string; branch: string } | null };
+  stackFor?: (id: string) => {
+    parent: { id: string; branch: string; title?: string } | null;
+    children: number;
+    merged?: { id: string; branch: string } | null;
+  };
 }
 
 export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): SessionWire {
@@ -75,17 +79,30 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     ptyStatus: opts.ptyLive ? (opts.ptyLive(id) ? 'running' : 'idle') : meta.ptyStatus,
     lastActivity: shadowed ? null : meta.lastActivity,
     // A running Claude is open even when it writes nothing (idle at its prompt).
-    activityState: shadowed ? 'stale' : claudes ? (claudes.busy ? 'active' : meta.activityState === 'active' ? 'active' : 'open') : meta.activityState,
+    activityState: shadowed
+      ? 'stale'
+      : claudes
+        ? claudes.busy
+          ? 'active'
+          : meta.activityState === 'active'
+            ? 'active'
+            : 'open'
+        : meta.activityState,
     ...(claudes ? { agents: claudes, claudes } : {}),
     agent: agentWire(agentOf(s)),
     ...(s.archivedAt ? archiveInfo(id) : {}),
-    title: bestEffort(`title of ${s.target}:${s.branch}`, () => sessionTitle(s, s.archivedAt ? readArchive(id)?.summary.prompts[0]?.text : null), null),
+    title: bestEffort(
+      `title of ${s.target}:${s.branch}`,
+      () => sessionTitle(s, s.archivedAt ? readArchive(id)?.summary.prompts[0]?.text : null),
+      null,
+    ),
     ...(s.title ? { titleIsYours: true } : {}),
     pendingForClaudeCount: meta.pendingForClaudeCount,
     // Claude Code's own state file over what the hooks recorded, when newer.
-    attention: meta.attention && !shadowed && opts.claudesFor
-      ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
-      : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
+    attention:
+      meta.attention && !shadowed && opts.claudesFor
+        ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
+        : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,
     port: s.port ?? null,
@@ -99,7 +116,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   // snooze was taken against — not the shown one, which a live Claude's state
   // file can override (that would end a snooze the moment it was set).
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
-  if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads })) wire.snoozed = { until: snooze.until };
+  if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads }))
+    wire.snoozed = { until: snooze.until };
   const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
   if (behind && behind.commits > 0) wire.behind = behind;
   const stack = s.archivedAt ? null : (opts.stackFor?.(id) ?? null);
@@ -117,7 +135,9 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
  * (read from HEAD files, no git). Ship and the PR watch follow the real
  * branch already; this is so the dashboard says so.
  */
-export function otherBranches(s: Pick<WorktreeSession, 'branch' | 'paths' | 'target' | 'isGroup' | 'archivedAt'>): { onOtherBranch?: Array<{ repo: string; branch: string | null }> } {
+export function otherBranches(s: Pick<WorktreeSession, 'branch' | 'paths' | 'target' | 'isGroup' | 'archivedAt'>): {
+  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
+} {
   if (s.archivedAt || !s.branch) return {};
   const out: Array<{ repo: string; branch: string | null }> = [];
   for (const p of s.paths) {
@@ -134,8 +154,12 @@ export function reviewThreadsOf(ci: { repos: Array<{ pr: { state: string } | nul
 }
 
 /** Saved uncommitted files a Restore hasn't put back yet. */
-function savedFiles(saved: Record<string, { files: number; restoredAt?: string; restoreError?: string }> | undefined): { savedUncommitted?: number } {
-  const n = Object.values(saved ?? {}).filter((u) => !u.restoredAt && !u.restoreError).reduce((sum, u) => sum + u.files, 0);
+function savedFiles(saved: Record<string, { files: number; restoredAt?: string; restoreError?: string }> | undefined): {
+  savedUncommitted?: number;
+} {
+  const n = Object.values(saved ?? {})
+    .filter((u) => !u.restoredAt && !u.restoreError)
+    .reduce((sum, u) => sum + u.files, 0);
   return n ? { savedUncommitted: n } : {};
 }
 

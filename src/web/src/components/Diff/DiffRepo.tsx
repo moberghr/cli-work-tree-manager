@@ -17,14 +17,7 @@ interface Props {
   hunkScopeKey?: string;
 }
 
-export function DiffRepo({
-  repo,
-  startIndex,
-  review,
-  viewedPaths,
-  onToggleViewed,
-  hunkScopeKey,
-}: Props) {
+export function DiffRepo({ repo, startIndex, review, viewedPaths, onToggleViewed, hunkScopeKey }: Props) {
   // Render files in the same directory-grouped, alphabetical order the
   // sidebar tree uses (GitHub-style) so the left tree and the right diff
   // list read top-to-bottom in lockstep. Each leaf keeps its ORIGINAL anchor
@@ -36,10 +29,7 @@ export function DiffRepo({
   // tick, and rebuilding the whole tree each time is wasted work for a large
   // diff. Mirrors FileTree, which memoizes the same buildTree call. The hook
   // runs before the empty-list early return (rules of hooks).
-  const ordered = useMemo(
-    () => flattenTreeFiles(buildTree(repo.files, startIndex)),
-    [repo.files, startIndex],
-  );
+  const ordered = useMemo(() => flattenTreeFiles(buildTree(repo.files, startIndex)), [repo.files, startIndex]);
   if (repo.files.length === 0) {
     return (
       <div className="wd-web-empty">
@@ -57,11 +47,7 @@ export function DiffRepo({
           review={review}
           repo={repo.name}
           viewed={viewedPaths?.has(leaf.file.path)}
-          onToggleViewed={
-            onToggleViewed
-              ? (next: boolean) => onToggleViewed(leaf.file.path, next)
-              : undefined
-          }
+          onToggleViewed={onToggleViewed ? (next: boolean) => onToggleViewed(leaf.file.path, next) : undefined}
           hunkScopeKey={hunkScopeKey}
         />
       ))}

@@ -105,9 +105,7 @@ describe('snapshotRepo', () => {
 
 describe('takeCheckpoint', () => {
   it('records id 0 with label "Initial" on first capture', async () => {
-    const entry = await takeCheckpoint('hashA', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const entry = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     expect(entry).not.toBeNull();
     expect(entry!.id).toBe(0);
     expect(entry!.label).toBe('Initial');
@@ -122,24 +120,17 @@ describe('takeCheckpoint', () => {
   });
 
   it('skips when nothing changed (dedup) and returns null', async () => {
-    const first = await takeCheckpoint('hashA', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const first = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     expect(first).not.toBeNull();
 
     // No working-tree changes between calls.
-    const second = await takeCheckpoint('hashA', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const second = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     expect(second).toBeNull();
 
     // Manifest stays at 1 entry; the rolled-back ref is gone.
     const manifest = loadManifest('hashA');
     expect(manifest.entries).toHaveLength(1);
-    const orphan = git(
-      ['rev-parse', '--verify', '--quiet', 'refs/wd/hashA/1'],
-      repoA,
-    );
+    const orphan = git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashA/1'], repoA);
     expect(orphan.exitCode).not.toBe(0);
   });
 
@@ -152,19 +143,14 @@ describe('takeCheckpoint', () => {
     writeFile(repoA, 'README.md', '# pre-existing change\n');
     writeFile(repoA, 'new.txt', 'untracked\n');
 
-    const initial = await takeCheckpoint('baseline', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const initial = await takeCheckpoint('baseline', [{ name: 'repoA', root: repoA }]);
     expect(initial).not.toBeNull();
     expect(initial!.label).toBe('Initial');
 
     // The Initial snapshot's tree must equal HEAD's tree — the working-
     // tree changes are NOT folded into the baseline.
     const headTree = git(['rev-parse', 'HEAD^{tree}'], repoA).stdout.trim();
-    const initialTree = git(
-      ['rev-parse', `${initial!.repos.repoA}^{tree}`],
-      repoA,
-    ).stdout.trim();
+    const initialTree = git(['rev-parse', `${initial!.repos.repoA}^{tree}`], repoA).stdout.trim();
     expect(initialTree).toBe(headTree);
   });
 
@@ -176,9 +162,7 @@ describe('takeCheckpoint', () => {
     // id 1 — a working-tree snapshot whose tree is broader than HEAD's.
     writeFile(repoA, 'extra.md', '# untracked\n');
     writeFile(repoA, 'README.md', '# modified\n');
-    const second = await takeCheckpoint('treededup', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const second = await takeCheckpoint('treededup', [{ name: 'repoA', root: repoA }]);
     expect(second).not.toBeNull();
     expect(second!.id).toBe(1);
 
@@ -189,9 +173,7 @@ describe('takeCheckpoint', () => {
     git(['add', '.'], repoA);
     git(['commit', '-m', 'commit-working-tree', '--no-gpg-sign'], repoA);
 
-    const third = await takeCheckpoint('treededup', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const third = await takeCheckpoint('treededup', [{ name: 'repoA', root: repoA }]);
     expect(third).toBeNull();
 
     const manifest = loadManifest('treededup');
@@ -201,9 +183,7 @@ describe('takeCheckpoint', () => {
   it('appends a new entry when the working tree changed', async () => {
     await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     writeFile(repoA, 'README.md', '# v2\n');
-    const next = await takeCheckpoint('hashA', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const next = await takeCheckpoint('hashA', [{ name: 'repoA', root: repoA }]);
     expect(next).not.toBeNull();
     expect(next!.id).toBe(1);
 
@@ -211,9 +191,7 @@ describe('takeCheckpoint', () => {
     expect(manifest.entries).toHaveLength(2);
     expect(manifest.entries[0].id).toBe(0);
     expect(manifest.entries[1].id).toBe(1);
-    expect(manifest.entries[0].repos.repoA).not.toBe(
-      manifest.entries[1].repos.repoA,
-    );
+    expect(manifest.entries[0].repos.repoA).not.toBe(manifest.entries[1].repos.repoA);
   });
 
   it('bails (returns null, no manifest entry) when any repo snapshot fails', async () => {
@@ -302,10 +280,7 @@ describe('takeCheckpoint', () => {
       git(['init', '-b', 'main'], r);
       git(['config', 'user.email', 't@t.t'], r);
       git(['config', 'user.name', 'Test'], r);
-      fs.writeFileSync(
-        path.join(r, 'README.md'),
-        `# ${path.basename(path.dirname(r))}\n`,
-      );
+      fs.writeFileSync(path.join(r, 'README.md'), `# ${path.basename(path.dirname(r))}\n`);
       git(['add', '.'], r);
       git(['commit', '-m', 'init', '--no-gpg-sign'], r);
     }
@@ -330,9 +305,7 @@ describe('takeCheckpoint', () => {
 
   it('dedup is per-scope — a different scopeHash creates a fresh entry', async () => {
     await takeCheckpoint('s1', [{ name: 'repoA', root: repoA }]);
-    const entry2 = await takeCheckpoint('s2', [
-      { name: 'repoA', root: repoA },
-    ]);
+    const entry2 = await takeCheckpoint('s2', [{ name: 'repoA', root: repoA }]);
     expect(entry2).not.toBeNull();
     expect(entry2!.id).toBe(0); // Fresh manifest for s2.
   });
@@ -405,9 +378,7 @@ describe('headAdvancedSinceInitial', () => {
     // Dirty the working tree — uncommitted changes don't move HEAD's tree.
     writeFile(repoA, 'README.md', '# dirty\n');
     writeFile(repoA, 'untracked.txt', 'x\n');
-    expect(
-      headAdvancedSinceInitial('hashH', [{ name: repoA, root: repoA }]),
-    ).toBe(false);
+    expect(headAdvancedSinceInitial('hashH', [{ name: repoA, root: repoA }])).toBe(false);
   });
 
   it('is true once HEAD advances past the baseline (a commit landed)', async () => {
@@ -417,15 +388,11 @@ describe('headAdvancedSinceInitial', () => {
     writeFile(repoA, 'feature.txt', 'upstream work\n');
     git(['add', '.'], repoA);
     git(['commit', '-m', 'advance', '--no-gpg-sign'], repoA);
-    expect(
-      headAdvancedSinceInitial('hashH2', [{ name: repoA, root: repoA }]),
-    ).toBe(true);
+    expect(headAdvancedSinceInitial('hashH2', [{ name: repoA, root: repoA }])).toBe(true);
   });
 
   it('is false when there is no manifest yet', () => {
-    expect(
-      headAdvancedSinceInitial('never-seen', [{ name: repoA, root: repoA }]),
-    ).toBe(false);
+    expect(headAdvancedSinceInitial('never-seen', [{ name: repoA, root: repoA }])).toBe(false);
   });
 
   it('is true when ANY repo in a group advanced', async () => {
@@ -455,10 +422,7 @@ describe('resetBaseline', () => {
     await takeCheckpoint('reset1', [{ name: repoA, root: repoA }]); // #2
     expect(loadManifest('reset1').entries).toHaveLength(3);
     for (const id of [0, 1, 2]) {
-      expect(
-        git(['rev-parse', '--verify', '--quiet', `refs/wd/reset1/${id}`], repoA)
-          .exitCode,
-      ).toBe(0);
+      expect(git(['rev-parse', '--verify', '--quiet', `refs/wd/reset1/${id}`], repoA).exitCode).toBe(0);
     }
 
     // Branch advances (commit), then re-baseline.
@@ -475,25 +439,13 @@ describe('resetBaseline', () => {
     const m = loadManifest('reset1');
     expect(m.entries).toHaveLength(1);
     expect(m.entries[0].id).toBe(0);
-    const initTree = git(
-      ['rev-parse', `${m.entries[0].repos[repoA]}^{tree}`],
-      repoA,
-    ).stdout.trim();
+    const initTree = git(['rev-parse', `${m.entries[0].repos[repoA]}^{tree}`], repoA).stdout.trim();
     expect(initTree).toBe(headTree);
 
     // id 0 ref present (overwritten); the orphaned step refs are gone.
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/0'], repoA)
-        .exitCode,
-    ).toBe(0);
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/1'], repoA)
-        .exitCode,
-    ).not.toBe(0);
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/2'], repoA)
-        .exitCode,
-    ).not.toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/0'], repoA).exitCode).toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/1'], repoA).exitCode).not.toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/reset1/2'], repoA).exitCode).not.toBe(0);
   });
 
   it('re-baselines all repos in a group at once', async () => {
@@ -525,22 +477,13 @@ describe('clearCheckpoints', () => {
     await takeCheckpoint('hashX', [{ name: 'repoA', root: repoA }]);
 
     expect(fs.existsSync(manifestPath('hashX'))).toBe(true);
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/0'], repoA)
-        .exitCode,
-    ).toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/0'], repoA).exitCode).toBe(0);
 
     clearCheckpoints('hashX', [repoA]);
 
     expect(fs.existsSync(manifestPath('hashX'))).toBe(false);
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/0'], repoA)
-        .exitCode,
-    ).not.toBe(0);
-    expect(
-      git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/1'], repoA)
-        .exitCode,
-    ).not.toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/0'], repoA).exitCode).not.toBe(0);
+    expect(git(['rev-parse', '--verify', '--quiet', 'refs/wd/hashX/1'], repoA).exitCode).not.toBe(0);
   });
 });
 

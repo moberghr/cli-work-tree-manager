@@ -26,9 +26,7 @@ describe('createCommentStore', () => {
 
   it('post() validates side', () => {
     const s = createCommentStore();
-    expect(() =>
-      s.post({ body: 'x', side: 'bogus' as unknown as 'left' }),
-    ).toThrow(/invalid side/);
+    expect(() => s.post({ body: 'x', side: 'bogus' as unknown as 'left' })).toThrow(/invalid side/);
   });
 
   it('replies inherit parent repo/file/line/side; explicit fields override', () => {
@@ -57,9 +55,7 @@ describe('createCommentStore', () => {
 
   it('post() throws if parentId is unknown', () => {
     const s = createCommentStore();
-    expect(() => s.post({ body: 'x', parentId: 'nope' })).toThrow(
-      /parent comment not found/,
-    );
+    expect(() => s.post({ body: 'x', parentId: 'nope' })).toThrow(/parent comment not found/);
   });
 
   it('remove() returns false for unknown ids and true for hits', () => {
@@ -113,9 +109,7 @@ describe('createCommentStore', () => {
       if (c.id === d1.id || c.id === d2.id) expect(c.status).toBe('published');
     }
     // Pre-published comment unchanged.
-    expect(s.snapshot().find((c) => c.id === pub.id)?.status).toBe(
-      'published',
-    );
+    expect(s.snapshot().find((c) => c.id === pub.id)?.status).toBe('published');
   });
 
   it('submit() with no summary text returns summary: null', () => {

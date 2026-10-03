@@ -116,12 +116,7 @@ export function loadManifest(scopeHash: string): CheckpointManifest {
  * Internally uses a temp `GIT_INDEX_FILE` so the user's real index is
  * untouched. The temp file is unlinked on success and on most failures.
  */
-export async function snapshotRepo(
-  repoRoot: string,
-  scopeHash: string,
-  id: number,
-  includeWorkingTree = true,
-): Promise<string | null> {
+export async function snapshotRepo(repoRoot: string, scopeHash: string, id: number, includeWorkingTree = true): Promise<string | null> {
   // Build the tree (HEAD baseline, or full working tree) via the shared
   // temp-index helper — same dance `diff-pipeline.ts` uses to diff against
   // a checkpoint.
@@ -192,21 +187,14 @@ export async function takeCheckpoint(
   return withFileLock(file, async () => {
     const manifest = loadManifest(scopeHash);
     const isFirst = manifest.entries.length === 0;
-    const nextId = isFirst
-      ? 0
-      : manifest.entries[manifest.entries.length - 1].id + 1;
+    const nextId = isFirst ? 0 : manifest.entries[manifest.entries.length - 1].id + 1;
 
     // The first checkpoint baselines HEAD (not the working tree) so
     // pre-existing uncommitted work stays visible in an "Initial → working"
     // range. Every subsequent checkpoint captures the working tree.
     const captured: Record<string, string | null> = {};
     for (const repo of repos) {
-      captured[repo.name] = await snapshotRepo(
-        repo.root,
-        scopeHash,
-        nextId,
-        !isFirst,
-      );
+      captured[repo.name] = await snapshotRepo(repo.root, scopeHash, nextId, !isFirst);
     }
 
     // Delete `refs/wd/<hash>/<id>` in every listed repo. Used by both
@@ -246,11 +234,7 @@ export async function takeCheckpoint(
       const prev = manifest.entries[manifest.entries.length - 1];
       const treeOf = (root: string, commitSha: string | null): string | null => {
         if (!commitSha) return null;
-        const r = spawn.sync(
-          'git',
-          ['rev-parse', `${commitSha}^{tree}`],
-          { cwd: root, encoding: 'utf-8', windowsHide: true },
-        );
+        const r = spawn.sync('git', ['rev-parse', `${commitSha}^{tree}`], { cwd: root, encoding: 'utf-8', windowsHide: true });
         if (r.status !== 0 || typeof r.stdout !== 'string') return null;
         return r.stdout.trim() || null;
       };
@@ -298,10 +282,7 @@ export function checkpointsOverCap<T extends { id: number }>(entries: T[], max =
   return entries.slice(1, 1 + (entries.length - max));
 }
 
-export type UpdateCheckpointResult =
-  | { status: 'updated'; entry: CheckpointEntry }
-  | { status: 'unchanged' }
-  | { status: 'missing' };
+export type UpdateCheckpointResult = { status: 'updated'; entry: CheckpointEntry } | { status: 'unchanged' } | { status: 'missing' };
 
 /**
  * Re-snapshot every repo into an EXISTING checkpoint `id`, replacing its
@@ -322,11 +303,7 @@ export type UpdateCheckpointResult =
  * each ref to the entry's recorded sha so a moved ref can't orphan the commit
  * the manifest still points at.
  */
-export async function updateCheckpoint(
-  scopeHash: string,
-  repos: ScopeRepo[],
-  id: number,
-): Promise<UpdateCheckpointResult> {
+export async function updateCheckpoint(scopeHash: string, repos: ScopeRepo[], id: number): Promise<UpdateCheckpointResult> {
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
   return withFileLock(file, async () => {
@@ -408,10 +385,7 @@ export async function updateCheckpoint(
  * Returns the new Initial entry, or null if any repo's snapshot failed (the
  * manifest is left untouched in that case; the partial id-0 ref is undone).
  */
-export async function resetBaseline(
-  scopeHash: string,
-  repos: ScopeRepo[],
-): Promise<CheckpointEntry | null> {
+export async function resetBaseline(scopeHash: string, repos: ScopeRepo[]): Promise<CheckpointEntry | null> {
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
   return withFileLock(file, async () => {
@@ -467,11 +441,7 @@ export async function resetBaseline(
  * `takeCheckpoint` so a concurrent auto-snapshot can't clobber the write.
  * No-op when the id isn't found. Idempotent.
  */
-export async function setCheckpointLabel(
-  scopeHash: string,
-  id: number,
-  label: string,
-): Promise<void> {
+export async function setCheckpointLabel(scopeHash: string, id: number, label: string): Promise<void> {
   const file = manifestPath(scopeHash);
   ensureFile(file, JSON.stringify(emptyManifest(scopeHash), null, 2));
   await withFileLock(file, () => {
@@ -499,10 +469,7 @@ export async function setCheckpointLabel(
  * when every recorded tree still matches (uncommitted edits don't move HEAD's
  * tree, so a dirty-but-not-advanced worktree is correctly left alone).
  */
-export function headAdvancedSinceInitial(
-  scopeHash: string,
-  repos: ScopeRepo[],
-): boolean {
+export function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRepo[]): boolean {
   const manifest = loadManifest(scopeHash);
   const initial = manifest.entries.find((e) => e.id === 0);
   if (!initial) return false;
@@ -529,10 +496,7 @@ export function headAdvancedSinceInitial(
 /** Remove the manifest + every ref for this scope. Called when a scope
  *  is explicitly torn down. Best-effort — partial failure leaves orphaned
  *  refs but doesn't otherwise corrupt state. */
-export function clearCheckpoints(
-  scopeHash: string,
-  repoRoots: string[],
-): void {
+export function clearCheckpoints(scopeHash: string, repoRoots: string[]): void {
   const manifest = loadManifest(scopeHash);
   for (const root of repoRoots) {
     for (const entry of manifest.entries) {

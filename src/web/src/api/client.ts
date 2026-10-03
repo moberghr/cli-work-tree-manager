@@ -1,9 +1,4 @@
-import type {
-  Comment,
-  CommentAuthor,
-  CommentStatus,
-  CommentSide,
-} from '../../../core/comments/comment-types.js';
+import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
 import type { UpdateFromMainWire } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
@@ -193,7 +188,11 @@ export function setArchived(
 async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean) =>
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }) });
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }),
+    });
   let res = await send(false);
   if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
@@ -220,7 +219,10 @@ type PrReply = import('../../../core/api-types.js').PrReply;
 
 /** Review threads handed to the session's Claude, and the replies it drafted. */
 export function fetchReplies(sessionId: string): Promise<import('../../../core/api-types.js').RepliesWire> {
-  return getJson<import('../../../core/api-types.js').RepliesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => ({ replies: r.replies, waiting: r.waiting ?? [] }));
+  return getJson<import('../../../core/api-types.js').RepliesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => ({
+    replies: r.replies,
+    waiting: r.waiting ?? [],
+  }));
 }
 
 async function sendJson<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
@@ -246,7 +248,12 @@ export function discardReply(sessionId: string, threadId: string): Promise<{ ok:
 }
 
 /** Post the reply from your GitHub account; `resolve` also resolves the thread. */
-export function postReply(sessionId: string, threadId: string, body: string, resolve: boolean): Promise<{ ok: true; url: string; resolved: boolean }> {
+export function postReply(
+  sessionId: string,
+  threadId: string,
+  body: string,
+  resolve: boolean,
+): Promise<{ ok: true; url: string; resolved: boolean }> {
   return sendJson('POST', `${replyPath(sessionId, threadId)}/post`, { body, resolve });
 }
 
@@ -256,9 +263,7 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
 }
 
 export function fetchSessions(): Promise<SessionSummary[]> {
-  return getJson<{ sessions: SessionSummary[] }>('/api/sessions').then(
-    (r) => r.sessions,
-  );
+  return getJson<{ sessions: SessionSummary[] }>('/api/sessions').then((r) => r.sessions);
 }
 
 export interface ReviewContext {
@@ -338,9 +343,7 @@ export interface ScopeDiffResult {
  * `diffs.<base>` shape — keeps old static HTML from earlier `wd` builds
  * working until the user regenerates.
  */
-export function fetchScopeDiff(
-  base: DiffBase = 'uncommitted',
-): Promise<ScopeDiffResult> {
+export function fetchScopeDiff(base: DiffBase = 'uncommitted'): Promise<ScopeDiffResult> {
   const boot = getBoot();
   if (boot) {
     if (boot.diffs?.[base]) return Promise.resolve(boot.diffs[base]!);
@@ -384,9 +387,7 @@ export function fetchScopeDiffByHash(
     params.set('base', 'branch');
   }
   const q = params.toString();
-  return getJson<ScopeDiffResult>(
-    `/api/scopes/${encodeURIComponent(hash)}/diff${q ? `?${q}` : ''}`,
-  );
+  return getJson<ScopeDiffResult>(`/api/scopes/${encodeURIComponent(hash)}/diff${q ? `?${q}` : ''}`);
 }
 
 export interface FileLinesResult {
@@ -419,9 +420,7 @@ export function fetchFileLines(
     end: String(end),
   });
   if (ref) params.set('ref', ref);
-  const base = hash
-    ? `/api/scopes/${encodeURIComponent(hash)}/file-lines`
-    : '/api/file-lines';
+  const base = hash ? `/api/scopes/${encodeURIComponent(hash)}/file-lines` : '/api/file-lines';
   return getJson<FileLinesResult>(`${base}?${params.toString()}`);
 }
 
@@ -435,21 +434,13 @@ export interface CheckpointEntry {
 }
 
 export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
-  return getJson<{ entries: CheckpointEntry[] }>(
-    `/api/scopes/${encodeURIComponent(hash)}/checkpoints`,
-  ).then((r) => r.entries);
+  return getJson<{ entries: CheckpointEntry[] }>(`/api/scopes/${encodeURIComponent(hash)}/checkpoints`).then((r) => r.entries);
 }
 
 /** Lazily generate (or return the cached) one-line Claude summary of what
  *  changed at a checkpoint. The server caches it in the manifest `label`. */
-export function fetchCheckpointSummary(
-  hash: string,
-  id: number,
-): Promise<{ label: string }> {
-  return postJson<{ label: string }>(
-    `/api/scopes/${encodeURIComponent(hash)}/checkpoints/${id}/summary`,
-    {},
-  );
+export function fetchCheckpointSummary(hash: string, id: number): Promise<{ label: string }> {
+  return postJson<{ label: string }>(`/api/scopes/${encodeURIComponent(hash)}/checkpoints/${id}/summary`, {});
 }
 
 export interface CommentInput {
@@ -483,10 +474,7 @@ export function postComment(input: CommentInput): Promise<{ comments: Comment[] 
 }
 
 export async function deleteComment(id: string): Promise<{ comments: Comment[] }> {
-  const res = await fetch(
-    `/api/comments/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
-  );
+  const res = await fetch(`/api/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<{ comments: Comment[] }>;
 }
@@ -531,22 +519,14 @@ export function fetchSessionDiff(
   base: DiffBase = 'uncommitted',
   range?: { from: number; to: number },
 ): Promise<SessionDiff> {
-  const q = range
-    ? `?from=${range.from}&to=${range.to}`
-    : base === 'branch'
-      ? '?base=branch'
-      : '';
-  return getJson<SessionDiff>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
-  );
+  const q = range ? `?from=${range.from}&to=${range.to}` : base === 'branch' ? '?base=branch' : '';
+  return getJson<SessionDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`);
 }
 
 /** A session's checkpoint history: one step per Claude instruction, taken
  *  when its turn ends (the first entry is the baseline). */
 export function fetchSessionCheckpoints(sessionId: string): Promise<CheckpointEntry[]> {
-  return getJson<{ entries: CheckpointEntry[] }>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`,
-  ).then((r) => r.entries);
+  return getJson<{ entries: CheckpointEntry[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => r.entries);
 }
 
 /** Consecutive checkpoint pairs = turns, newest first. */
@@ -682,7 +662,11 @@ export function fetchHostHealth(): Promise<import('../../../core/pty/host-health
 // ---- a session's timeline ---------------------------------------------------
 
 export async function fetchTimeline(sessionId: string): Promise<import('../../../core/conversations/timeline.js').TimelineEvent[]> {
-  return (await getJson<{ events: import('../../../core/conversations/timeline.js').TimelineEvent[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/timeline`)).events;
+  return (
+    await getJson<{ events: import('../../../core/conversations/timeline.js').TimelineEvent[] }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/timeline`,
+    )
+  ).events;
 }
 
 // ---- blocked by ----------------------------------------------------------
@@ -729,7 +713,10 @@ export function logWorklog(sessionId: string, day?: string): Promise<{ ok: true;
 // ---- fork a session ------------------------------------------------------
 
 /** A new branch from where the session is; its Claude starts with a summary of this conversation. Slow (the summary). */
-export function forkSession(sessionId: string, req: { branch: string; prompt?: string; name?: string }): Promise<import('../../../core/api-types.js').ForkWire> {
+export function forkSession(
+  sessionId: string,
+  req: { branch: string; prompt?: string; name?: string },
+): Promise<import('../../../core/api-types.js').ForkWire> {
   return sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/fork`, req);
 }
 
@@ -767,8 +754,7 @@ async function chatPost(sessionId: string, sub: string, body: unknown): Promise<
 
 /** Send a message. Rejects with "terminal-running" while the session's Claude
  *  runs in the terminal; `takeOver` stops that one and continues here. */
-export const sendChatMessage = (sessionId: string, text: string, takeOver = false) =>
-  chatPost(sessionId, 'messages', { text, takeOver });
+export const sendChatMessage = (sessionId: string, text: string, takeOver = false) => chatPost(sessionId, 'messages', { text, takeOver });
 export const interruptChat = (sessionId: string) => chatPost(sessionId, 'interrupt', {});
 export const answerChatPermission = (sessionId: string, permissionId: string, allow: boolean, message?: string) =>
   chatPost(sessionId, `permissions/${encodeURIComponent(permissionId)}`, { allow, message });

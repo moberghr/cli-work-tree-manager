@@ -70,9 +70,7 @@ describe('config group add', () => {
     run('add');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when fewer than 2 aliases are given', () => {
@@ -80,9 +78,7 @@ describe('config group add', () => {
     run('add', 'mygroup', 'api');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('at least 2'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('at least 2'));
     const config = loadConfig()!;
     expect(config.groups.mygroup).toBeUndefined();
   });
@@ -92,9 +88,7 @@ describe('config group add', () => {
     run('add', 'mygroup', 'api', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('nonexistent'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
     const config = loadConfig()!;
     expect(config.groups.mygroup).toBeUndefined();
   });
@@ -104,9 +98,7 @@ describe('config group add', () => {
     run('add', 'api', 'web', 'shared');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('conflicts with an existing repository alias'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('conflicts with an existing repository alias'));
   });
 
   it('rejects when group name collides with a repo folder name', () => {
@@ -114,9 +106,7 @@ describe('config group add', () => {
     run('add', 'fullstack', 'myalias', 'myalias');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('conflicts with a repository folder name'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('conflicts with a repository folder name'));
   });
 
   it('overwrites an existing group', () => {
@@ -165,9 +155,7 @@ describe('config group remove', () => {
     run('remove');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when group does not exist', () => {
@@ -175,9 +163,7 @@ describe('config group remove', () => {
     run('remove', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Group not found'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Group not found'));
   });
 });
 
@@ -201,9 +187,7 @@ describe('config group regen', () => {
     run('regen');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when group does not exist', () => {
@@ -211,9 +195,7 @@ describe('config group regen', () => {
     run('regen', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Group not found'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Group not found'));
   });
 });
 
@@ -225,17 +207,13 @@ describe('config group (dispatcher)', () => {
     run();
 
     expect(process.exitCode).toBeUndefined();
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('config group'),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config group'));
   });
 
   it('shows group help for an unknown sub-action', () => {
     seedConfig();
     run('bogus');
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('config group'),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config group'));
   });
 });

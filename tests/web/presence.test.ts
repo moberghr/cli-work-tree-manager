@@ -13,7 +13,10 @@ class FakeNotification {
   static requestPermission = vi.fn(async () => FakeNotification.permission);
   onclick: (() => void) | null = null;
   closed = false;
-  constructor(public title: string, public opts: NotificationOptions) {
+  constructor(
+    public title: string,
+    public opts: NotificationOptions,
+  ) {
     FakeNotification.shown.push(this);
   }
   close() {
@@ -67,10 +70,13 @@ describe('usePresence', () => {
   let posts: Array<Record<string, unknown>>;
   beforeEach(() => {
     posts = [];
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
-      posts.push(JSON.parse(init.body as string));
-      return new Response('{}');
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        posts.push(JSON.parse(init.body as string));
+        return new Response('{}');
+      }),
+    );
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);

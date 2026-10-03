@@ -44,17 +44,14 @@ function rows(d: Db): WorktreeSession[] {
 }
 
 function getRow(d: Db, target: string, branch: string): WorktreeSession | undefined {
-  const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(sessionIdFor({ target, branch })) as
-    | { data: string }
-    | undefined;
+  const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(sessionIdFor({ target, branch })) as { data: string } | undefined;
   const s = r ? json.parse(r.data) : null;
   return valid(s) ? s : undefined;
 }
 
 function putRow(d: Db, s: WorktreeSession): void {
   d.prepare(
-    'INSERT INTO sessions (id, target, branch, data) VALUES (?, ?, ?, ?) ' +
-      'ON CONFLICT(id) DO UPDATE SET data = excluded.data',
+    'INSERT INTO sessions (id, target, branch, data) VALUES (?, ?, ?, ?) ' + 'ON CONFLICT(id) DO UPDATE SET data = excluded.data',
   ).run(sessionIdFor(s), s.target, s.branch, JSON.stringify(s));
 }
 
@@ -91,14 +88,8 @@ function sessionKey(target: string, branch: string): string {
   return `${target}:${branch}`;
 }
 
-export function findSession(
-  sessions: WorktreeSession[],
-  target: string,
-  branch: string,
-): WorktreeSession | undefined {
-  return sessions.find(
-    (s) => s.target === target && s.branch === branch,
-  );
+export function findSession(sessions: WorktreeSession[], target: string, branch: string): WorktreeSession | undefined {
+  return sessions.find((s) => s.target === target && s.branch === branch);
 }
 
 export async function upsertSession(
@@ -208,9 +199,7 @@ export async function upsertSessionWithPort(
       // Another `work tree` may have taken this port since the snapshot:
       // only a port no other live session holds may be kept.
       if (port !== undefined && getRow(d, target, branch)?.port === undefined) {
-        const taken = rows(d).some(
-          (s) => sessionIdFor(s) !== id && s.port === port && s.paths.some((p) => fs.existsSync(p)),
-        );
+        const taken = rows(d).some((s) => sessionIdFor(s) !== id && s.port === port && s.paths.some((p) => fs.existsSync(p)));
         if (taken) return null;
       }
       return { port: write(d, port) };
@@ -233,11 +222,7 @@ export function recordLaunch(target: string, branch: string, opts: { unsafe: boo
 }
 
 /** Archive / un-archive a session. Returns false when it doesn't exist. */
-export async function setSessionArchived(
-  target: string,
-  branch: string,
-  archived: boolean,
-): Promise<boolean> {
+export async function setSessionArchived(target: string, branch: string, archived: boolean): Promise<boolean> {
   return tx((d) => {
     const s = getRow(d, target, branch);
     if (!s) return false;
@@ -299,23 +284,13 @@ export async function removeSession(target: string, branch: string): Promise<voi
   }
 }
 
-export function getSessionsForTarget(
-  sessions: WorktreeSession[],
-  target: string,
-): WorktreeSession[] {
+export function getSessionsForTarget(sessions: WorktreeSession[], target: string): WorktreeSession[] {
   return sessions.filter((s) => s.target === target);
 }
 
-export function getRecentSessions(
-  sessions: WorktreeSession[],
-  count: number,
-): WorktreeSession[] {
+export function getRecentSessions(sessions: WorktreeSession[], count: number): WorktreeSession[] {
   return [...sessions]
-    .sort(
-      (a, b) =>
-        new Date(effectiveLastAccessedAt(b)).getTime() -
-        new Date(effectiveLastAccessedAt(a)).getTime(),
-    )
+    .sort((a, b) => new Date(effectiveLastAccessedAt(b)).getTime() - new Date(effectiveLastAccessedAt(a)).getTime())
     .slice(0, count);
 }
 
@@ -361,9 +336,7 @@ export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> 
  * For each incoming session: if a matching target+branch exists, refresh its
  * paths (if different) but keep original timestamps. Otherwise insert.
  */
-export async function mergeHydratedSessions(
-  incoming: WorktreeSession[],
-): Promise<{ added: number; updated: number }> {
+export async function mergeHydratedSessions(incoming: WorktreeSession[]): Promise<{ added: number; updated: number }> {
   return tx((d) => {
     let added = 0;
     let updated = 0;
@@ -373,9 +346,7 @@ export async function mergeHydratedSessions(
       if (existing) {
         const sortedA = [...existing.paths].sort();
         const sortedB = [...inc.paths].sort();
-        const same =
-          sortedA.length === sortedB.length &&
-          sortedA.every((p, i) => p === sortedB[i]);
+        const same = sortedA.length === sortedB.length && sortedA.every((p, i) => p === sortedB[i]);
         if (!same) {
           existing.paths = inc.paths;
           putRow(d, existing);

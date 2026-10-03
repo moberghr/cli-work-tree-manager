@@ -34,7 +34,10 @@ afterEach(() => {
   container.remove();
 });
 
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const picker = () => container.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const options = () => [...container.querySelectorAll('[role="option"]')].map((o) => o.firstElementChild!.textContent);
 const type = (el: HTMLInputElement, value: string) => {
@@ -42,7 +45,8 @@ const type = (el: HTMLInputElement, value: string) => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 };
 const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-const submit = () => act(async () => void container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+const submit = () =>
+  act(async () => void container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 
 async function open(props: Record<string, unknown> = {}) {
   const onCreated = vi.fn();

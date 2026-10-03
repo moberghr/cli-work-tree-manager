@@ -2,11 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { git } from '../git/git.js';
-import {
-  parseGitDiff,
-  type MarkdownContent,
-  type ParsedFile,
-} from './diff-parse.js';
+import { parseGitDiff, type MarkdownContent, type ParsedFile } from './diff-parse.js';
 import { coverageLookup } from './lcov.js';
 import { writeTempTree } from './git-tree-snapshot.js';
 import { report } from '../platform/report.js';
@@ -64,12 +60,7 @@ export function isInsideRoot(root: string, rel: string): boolean {
  * Uses `cross-spawn` directly (not the `git()` helper) because that helper
  * trims stdout, which would silently drop trailing newlines in the source.
  */
-function readMarkdownContent(
-  root: string,
-  file: ParsedFile,
-  fromRef: string,
-  toRef: string | 'working',
-): MarkdownContent | undefined {
+function readMarkdownContent(root: string, file: ParsedFile, fromRef: string, toRef: string | 'working'): MarkdownContent | undefined {
   if (file.isBinary) return undefined;
   if (!isMarkdownPath(file.oldPath) && !isMarkdownPath(file.newPath)) {
     return undefined;
@@ -88,19 +79,11 @@ function readMarkdownContent(
 
   const result: MarkdownContent = {};
 
-  if (
-    file.status !== 'added' &&
-    isMarkdownPath(file.oldPath) &&
-    isInsideRoot(root, file.oldPath)
-  ) {
+  if (file.status !== 'added' && isMarkdownPath(file.oldPath) && isInsideRoot(root, file.oldPath)) {
     result.before = showAt(fromRef, file.oldPath);
   }
 
-  if (
-    file.status !== 'deleted' &&
-    isMarkdownPath(file.newPath) &&
-    isInsideRoot(root, file.newPath)
-  ) {
+  if (file.status !== 'deleted' && isMarkdownPath(file.newPath) && isInsideRoot(root, file.newPath)) {
     if (toRef === 'working') {
       try {
         const absPath = path.join(root, file.newPath);
@@ -124,10 +107,7 @@ function readMarkdownContent(
         const realRoot = fs.realpathSync(path.resolve(root));
         const realPath = fs.realpathSync(absPath);
         const sep = path.sep;
-        if (
-          realPath === realRoot ||
-          realPath.startsWith(realRoot + sep)
-        ) {
+        if (realPath === realRoot || realPath.startsWith(realRoot + sep)) {
           result.after = fs.readFileSync(absPath, 'utf-8');
         }
       } catch {
@@ -146,10 +126,8 @@ function readMarkdownContent(
   // code units in JS and undercounts multi-byte characters — the
   // browser pays for bytes, not chars.
   const tooBig =
-    (result.before !== undefined &&
-      Buffer.byteLength(result.before, 'utf-8') > MARKDOWN_SIZE_CAP) ||
-    (result.after !== undefined &&
-      Buffer.byteLength(result.after, 'utf-8') > MARKDOWN_SIZE_CAP);
+    (result.before !== undefined && Buffer.byteLength(result.before, 'utf-8') > MARKDOWN_SIZE_CAP) ||
+    (result.after !== undefined && Buffer.byteLength(result.after, 'utf-8') > MARKDOWN_SIZE_CAP);
   if (tooBig) {
     return { tooLarge: true };
   }
@@ -261,10 +239,7 @@ export function computeDiff(opts: ComputeDiffOptions): ParsedFile[] {
   let combined = trackedResult.stdout;
 
   // Append synthetic diffs for untracked files (respecting .gitignore).
-  const untrackedResult = git(
-    ['ls-files', '--others', '--exclude-standard'],
-    root,
-  );
+  const untrackedResult = git(['ls-files', '--others', '--exclude-standard'], root);
   if (untrackedResult.exitCode === 0 && untrackedResult.stdout) {
     const files = untrackedResult.stdout.split('\n').filter(Boolean);
     for (const file of files) {

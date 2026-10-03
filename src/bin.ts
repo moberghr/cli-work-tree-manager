@@ -24,16 +24,21 @@ function handleFatalError(err: unknown): void {
   // node-pty can throw async errors for already-exited PTYs (the PTY host) — non-fatal
   if (err instanceof Error && err.message?.includes('pty that has already exited')) {
     try {
-      fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
-        `${new Date().toISOString()} [WARN] Ignored async node-pty error: ${err.message}\n`);
-    } catch { /* */ }
+      fs.appendFileSync(
+        path.join(getConfigDir(), 'debug.log'),
+        `${new Date().toISOString()} [WARN] Ignored async node-pty error: ${err.message}\n`,
+      );
+    } catch {
+      /* */
+    }
     return;
   }
   try {
     const msg = err instanceof Error ? err.stack || err.message : String(err);
-    fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
-      `${new Date().toISOString()} [FATAL] handleFatalError: ${msg}\n`);
-  } catch { /* */ }
+    fs.appendFileSync(path.join(getConfigDir(), 'debug.log'), `${new Date().toISOString()} [FATAL] handleFatalError: ${msg}\n`);
+  } catch {
+    /* */
+  }
   console.error(err);
   process.exit(1);
 }

@@ -17,12 +17,25 @@ class FakePty implements PtyLike {
   output?: (data: string) => void;
   written: string[] = [];
   size: [number, number] = [0, 0];
-  setOutputHandler(h?: (data: string) => void) { this.output = h; }
-  write(d: string) { this.written.push(d); }
-  resize(c: number, r: number) { this.size = [c, r]; }
-  dispose() { this.disposed = true; }
-  emit(d: string) { this.output?.(d); }
-  exit(code: number) { this.exited = true; this.onExit?.(code); }
+  setOutputHandler(h?: (data: string) => void) {
+    this.output = h;
+  }
+  write(d: string) {
+    this.written.push(d);
+  }
+  resize(c: number, r: number) {
+    this.size = [c, r];
+  }
+  dispose() {
+    this.disposed = true;
+  }
+  emit(d: string) {
+    this.output?.(d);
+  }
+  exit(code: number) {
+    this.exited = true;
+    this.onExit?.(code);
+  }
 }
 
 let dir: string;
@@ -72,7 +85,11 @@ describe('PtyRegistry', () => {
     reg.spawn('a', { cwd: '/x', tool });
     spawned[0].pty.emit('hello ');
     const got: string[] = [];
-    const att = reg.attach('a', (d) => got.push(d), () => {});
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+    );
     expect(att?.replay.data).toBe('hello ');
     spawned[0].pty.emit('world');
     expect(got).toEqual(['world']);
@@ -87,8 +104,16 @@ describe('PtyRegistry', () => {
     const reg = makeRegistry();
     reg.spawn('a', { cwd: '/x', tool });
     expect(reg.get('a')).toMatchObject({ clients: 0, lastOutputAt: '2026-09-30T10:00:00.000Z' });
-    const one = reg.attach('a', () => {}, () => {});
-    const two = reg.attach('a', () => {}, () => {});
+    const one = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    );
+    const two = reg.attach(
+      'a',
+      () => {},
+      () => {},
+    );
     expect(reg.get('a')?.clients).toBe(2);
     vi.setSystemTime(new Date('2026-09-30T12:30:00Z'));
     spawned[0].pty.emit('spinner frame');
@@ -165,7 +190,13 @@ describe('PtyRegistry replay', () => {
     };
     const reg = new PtyRegistry({ spawner: serializing, hasConversation: () => false, sessionsPath, cwdExists: () => true });
     reg.spawn('a', { cwd: '/x', tool, cols: 90, rows: 20 });
-    expect(reg.attach('a', () => {}, () => {})?.replay).toEqual({ data: '<screen>', cols: 90, rows: 20 });
+    expect(
+      reg.attach(
+        'a',
+        () => {},
+        () => {},
+      )?.replay,
+    ).toEqual({ data: '<screen>', cols: 90, rows: 20 });
   });
 });
 
@@ -265,7 +296,19 @@ describe('variables a restore keeps (config hostEnv)', () => {
   });
 
   it('secret-looking names and values are never kept (reviewed gaps)', () => {
-    const env = { DB_PASS: 'p', DATABASE_URL: 'x', CONNECTION_STRING: 'x', GH_PAT: 'x', NPM_AUTH: 'x', SENTRY_DSN: 'x', SSH_KEY_PATH: 'x', MY_HOST: 'https://u:pw@h/db', JAVA_HOME: '/jdk', PATH: '/bin', GOPATH: '/go' };
+    const env = {
+      DB_PASS: 'p',
+      DATABASE_URL: 'x',
+      CONNECTION_STRING: 'x',
+      GH_PAT: 'x',
+      NPM_AUTH: 'x',
+      SENTRY_DSN: 'x',
+      SSH_KEY_PATH: 'x',
+      MY_HOST: 'https://u:pw@h/db',
+      JAVA_HOME: '/jdk',
+      PATH: '/bin',
+      GOPATH: '/go',
+    };
     expect(keepEnv(env, Object.keys(env))).toEqual({ JAVA_HOME: '/jdk', PATH: '/bin', GOPATH: '/go' });
   });
 });

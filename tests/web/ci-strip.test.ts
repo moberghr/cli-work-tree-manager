@@ -19,7 +19,14 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => ({
 import { CiStrip } from '../../src/web/src/components/Dashboard/CiStrip.js';
 
 const pr = (over: Partial<ShipPr>): ShipPr => ({
-  number: 12, url: 'https://gh/pr/12', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a', ...over,
+  number: 12,
+  url: 'https://gh/pr/12',
+  state: 'OPEN',
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  checks: 'pass',
+  headSha: 'a',
+  ...over,
 });
 let container: HTMLDivElement;
 let root: Root;
@@ -43,7 +50,9 @@ const button = () => container.querySelector<HTMLButtonElement>('.wd-ci-fix');
 
 describe('CiStrip', () => {
   it('names failing checks with links and asks Claude to fix them', async () => {
-    await render([{ name: 'api', done: false, pr: pr({ checks: 'fail', failing: [{ name: 'test', url: 'https://ci/1' }, { name: 'lint' }] }) }]);
+    await render([
+      { name: 'api', done: false, pr: pr({ checks: 'fail', failing: [{ name: 'test', url: 'https://ci/1' }, { name: 'lint' }] }) },
+    ]);
     expect(container.textContent).toContain('CI failing on #12: test, lint');
     expect(container.querySelector<HTMLAnchorElement>('a[href="https://ci/1"]')?.textContent).toBe('test');
     await act(async () => button()!.click());

@@ -29,10 +29,7 @@ export function attentionRank(s: Pick<AttentionLike, 'state' | 'seen'> | null | 
   return 3;
 }
 
-export function compareAttention(
-  a: AttentionLike | null | undefined,
-  b: AttentionLike | null | undefined,
-): number {
+export function compareAttention(a: AttentionLike | null | undefined, b: AttentionLike | null | undefined): number {
   const ra = attentionRank(a);
   const rb = attentionRank(b);
   if (ra !== rb) return ra - rb;

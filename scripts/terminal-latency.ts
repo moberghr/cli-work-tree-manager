@@ -83,7 +83,8 @@ function stats(xs: number[]): Stats {
   const at = (q: number) => s[Math.min(s.length - 1, Math.floor(q * s.length))];
   return { p50: at(0.5), p95: at(0.95), max: s[s.length - 1], mean: s.reduce((a, b) => a + b, 0) / s.length };
 }
-const fmt = (st: Stats) => `p50 ${st.p50.toFixed(1).padStart(6)}  p95 ${st.p95.toFixed(1).padStart(6)}  max ${st.max.toFixed(1).padStart(6)} ms`;
+const fmt = (st: Stats) =>
+  `p50 ${st.p50.toFixed(1).padStart(6)}  p95 ${st.p95.toFixed(1).padStart(6)}  max ${st.max.toFixed(1).padStart(6)} ms`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Echo round trips over a socket-like transport: send one char, time
@@ -147,7 +148,11 @@ async function main() {
       }
     });
   });
-  const conpty = await measure((c) => p.write(c), (cb) => p.onData(cb), SAMPLES);
+  const conpty = await measure(
+    (c) => p.write(c),
+    (cb) => p.onData(cb),
+    SAMPLES,
+  );
   p.kill();
 
   // --- the host, and work web in front of it ------------------------------
@@ -250,7 +255,11 @@ async function browserStage(
     label = 'Desktop app (Tauri, WebView2)';
     close = async () => {
       await browser!.close().catch(() => {});
-      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* gone */ }
+      try {
+        execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      } catch {
+        /* gone */
+      }
     };
   } else {
     const headless = !target.channel;
@@ -319,13 +328,20 @@ async function browserStage(
         page.on('console', (m) => console.log('    console:', m.text().slice(0, 160)));
         page.on('websocket', (ws) => {
           console.log('    ws opened', ws.url());
-          ws.on('framereceived', (f) => console.log('    frame', typeof f.payload === 'string' ? f.payload.slice(0, 100) : `[${f.payload.length} bytes]`));
+          ws.on('framereceived', (f) =>
+            console.log('    frame', typeof f.payload === 'string' ? f.payload.slice(0, 100) : `[${f.payload.length} bytes]`),
+          );
           ws.on('close', () => console.log('    ws closed'));
         });
         await page.reload();
         await sleep(3000);
       }
-      if (process.env.LAT_DEBUG && i < 3) console.log('    debug', JSON.stringify(Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v.length]))), await page.evaluate(() => document.activeElement?.className ?? ''));
+      if (process.env.LAT_DEBUG && i < 3)
+        console.log(
+          '    debug',
+          JSON.stringify(Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v.length]))),
+          await page.evaluate(() => document.activeElement?.className ?? ''),
+        );
       if (i < 5 || !l.key.length || !l.send.length || !l.recv.length || !l.paint.length) continue;
       parts.input.push(l.send[0] - l.key[0]);
       parts.network.push(l.recv[0] - l.send[0]);
@@ -344,7 +360,11 @@ async function browserStage(
   let on = true;
   const churn = (async () => {
     while (on) {
-      await fetch(`${webUrl}api/status-changed`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cwd }) }).catch(() => {});
+      await fetch(`${webUrl}api/status-changed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd }),
+      }).catch(() => {});
       await sleep(500);
     }
   })();
@@ -367,12 +387,13 @@ async function avaloniaStage(webUrl: string, sessionId: string, exe: string): Pr
     env: { ...process.env, ...realProfile, WORK_DESKTOP_URL: webUrl, WORK_DESKTOP_BENCH: sessionId, WORK_DESKTOP_BENCH_OUT: out },
     stdio: 'ignore',
   });
-  const exited = await Promise.race([
-    new Promise<boolean>((r) => child.once('exit', () => r(true))),
-    sleep(90_000).then(() => false),
-  ]);
+  const exited = await Promise.race([new Promise<boolean>((r) => child.once('exit', () => r(true))), sleep(90_000).then(() => false)]);
   if (!exited) {
-    try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* gone */ }
+    try {
+      execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    } catch {
+      /* gone */
+    }
   }
   console.log('Native terminal (Avalonia, Skia): key → echo back → drawn\n');
   if (!fs.existsSync(out)) {

@@ -10,7 +10,10 @@ import type { CheckpointEntry } from '../../../src/core/diff/checkpoint.js';
 import type { Comment } from '../../../src/core/comments/comment-types.js';
 
 /** What a session's diff route answers (the fields these tests read). */
-type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
+type DiffWire = {
+  base?: string;
+  repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }>;
+};
 type Comments = { comments: Comment[] };
 
 /**
@@ -103,7 +106,12 @@ describe('demo server', () => {
   it('simulates a dev server on each worktree port', async () => {
     const login = await byBranch('fix/login-redirect');
     expect(login.port).toBeGreaterThan(0);
-    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ port: login.port, listening: false, command: 'npm run dev', running: null });
+    expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({
+      port: login.port,
+      listening: false,
+      command: 'npm run dev',
+      running: null,
+    });
     expect((await send('POST', `/api/sessions/${login.id}/dev/start`)).status).toBe(200);
     expect(await get(`/api/sessions/${login.id}/dev`)).toMatchObject({ listening: false, running: expect.any(Object) });
     advance(2_000);
@@ -154,7 +162,11 @@ describe('demo server', () => {
     expect(comments.at(-1)!.body).toContain('`src/auth.test.ts`');
 
     const h = d.repos[0].files[0].hunks[0];
-    const hunk = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts', lines: { start: h.newStart, end: h.newStart } });
+    const hunk = await send('POST', `/api/sessions/${login.id}/revert`, {
+      repo: 'web',
+      path: 'src/auth.ts',
+      lines: { start: h.newStart, end: h.newStart },
+    });
     expect(hunk.status).toBe(200);
     expect((await get<DiffWire>(`/api/sessions/${login.id}/diff?base=uncommitted`)).repos[0].files).toEqual([]);
     expect((await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.ts' })).status).toBe(409);
@@ -164,7 +176,10 @@ describe('demo server', () => {
     const list = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
     const byBranch = async (b: string) => (await list()).find((s) => s.branch === b)!;
     const parent = await byBranch('feat/invoice-export');
-    expect(await byBranch('feat/invoice-pdf')).toMatchObject({ stackedOn: { id: parent.id, branch: 'feat/invoice-export' }, behind: { base: 'feat/invoice-export', stacked: true } });
+    expect(await byBranch('feat/invoice-pdf')).toMatchObject({
+      stackedOn: { id: parent.id, branch: 'feat/invoice-export' },
+      behind: { base: 'feat/invoice-export', stacked: true },
+    });
     expect(parent.stackedChildren).toBe(1);
     const login = (await list()).find((s) => s.branch !== 'feat/invoice-export' && !s.archivedAt && !s.stackedOn)!;
     expect((await send('POST', `/api/sessions/${login.id}/fork`, { branch: `${login.branch}-2` })).status).toBe(200);
@@ -221,13 +236,20 @@ describe('demo server', () => {
     const res = await send('POST', `/api/sessions/${id}/chat/messages`, { text: 'Also add a test' });
     expect(res.status).toBe(200);
     const after = await get<Snap>(`/api/sessions/${id}/chat`);
-    expect(after.messages.flatMap((m) => m.records).filter((r) => r.kind === 'you').map((r) => r.text)).toContain('Also add a test');
+    expect(
+      after.messages
+        .flatMap((m) => m.records)
+        .filter((r) => r.kind === 'you')
+        .map((r) => r.text),
+    ).toContain('Also add a test');
     expect((await send('POST', `/api/sessions/${id}/chat/messages`, { text: ' ' })).status).toBe(400);
   });
 
   it('Today shows the seeded day even when asked right after midnight', async () => {
     // "Since midnight", five minutes after it: the seeded prompts are older.
-    const d = await get<{ sessions: Array<{ branch: string; prompts: Array<{ text: string }> }> }>(`/api/digest?since=${new Date(clock - 5 * 60_000).toISOString()}`);
+    const d = await get<{ sessions: Array<{ branch: string; prompts: Array<{ text: string }> }> }>(
+      `/api/digest?since=${new Date(clock - 5 * 60_000).toISOString()}`,
+    );
     const inv = d.sessions.find((x) => x.branch === 'feat/invoice-export');
     expect(inv?.prompts.map((p) => p.text)).toContain('Add CSV export to the invoices endpoint');
   });
@@ -242,7 +264,13 @@ describe('demo server', () => {
 
   it('a comment gets a simulated reply from Claude', async () => {
     const login = await byBranch('fix/login-redirect');
-    const res = await send('POST', `/api/sessions/${login.id}/comments`, { repo: 'web', file: 'src/auth.ts', line: 5, side: 'right', body: 'Log this?' });
+    const res = await send('POST', `/api/sessions/${login.id}/comments`, {
+      repo: 'web',
+      file: 'src/auth.ts',
+      line: 5,
+      side: 'right',
+      body: 'Log this?',
+    });
     const { comment } = await res.json();
     advance(4_500);
     const { comments } = await get<Comments>(`/api/sessions/${login.id}/comments`);
@@ -265,7 +293,12 @@ describe('demo server', () => {
     advance(8_500);
     expect((await byBranch('feat/invoice-export')).attention).toMatchObject({ state: 'idle', seen: false });
     await new Promise((r) => setTimeout(r, 50));
-    expect(frames.filter((f) => f.bin).map((f) => f.text).join('')).toContain('Added GET /invoices.csv');
+    expect(
+      frames
+        .filter((f) => f.bin)
+        .map((f) => f.text)
+        .join(''),
+    ).toContain('Added GET /invoices.csv');
     ws.close();
   });
 
@@ -284,21 +317,30 @@ describe('demo server', () => {
     const backend = pre.repos.find((r) => r.name === 'backend')!;
     expect(backend.mergeBlockers).toEqual([]);
 
-    const first = await (await send('POST', `/api/sessions/${shop.id}/ship`, {
-      action: 'merge', repos: [{ name: 'backend', headSha: backend.pr!.headSha }],
-    })).json();
+    const first = await (
+      await send('POST', `/api/sessions/${shop.id}/ship`, {
+        action: 'merge',
+        repos: [{ name: 'backend', headSha: backend.pr!.headSha }],
+      })
+    ).json();
     expect(first).toMatchObject({ archived: false, allDone: false });
 
-    const stale = await (await send('POST', `/api/sessions/${shop.id}/ship`, {
-      action: 'merge', repos: [{ name: 'frontend', headSha: 'deadbeefdead' }],
-    })).json();
+    const stale = await (
+      await send('POST', `/api/sessions/${shop.id}/ship`, {
+        action: 'merge',
+        repos: [{ name: 'frontend', headSha: 'deadbeefdead' }],
+      })
+    ).json();
     expect(stale.results[0].message).toMatch(/changed since you looked/);
 
     const frontend = (await get<ShipPreflight>(`/api/sessions/${shop.id}/ship`)).repos.find((r) => r.name === 'frontend')!;
     expect(frontend.mergeBlockers).toEqual([]);
-    const last = await (await send('POST', `/api/sessions/${shop.id}/ship`, {
-      action: 'merge', repos: [{ name: 'frontend', headSha: frontend.pr!.headSha }],
-    })).json();
+    const last = await (
+      await send('POST', `/api/sessions/${shop.id}/ship`, {
+        action: 'merge',
+        repos: [{ name: 'frontend', headSha: frontend.pr!.headSha }],
+      })
+    ).json();
     expect(last).toMatchObject({ archived: true, allDone: true });
     expect((await byBranch('feat/checkout-v2')).archivedAt).toBeTruthy();
   });
@@ -323,7 +365,9 @@ describe('demo server', () => {
 
   it('keeps the same Origin guard as the real server', async () => {
     const res = await fetch(server.url + 'api/tasks', {
-      method: 'POST', headers: { origin: 'https://evil.example', 'content-type': 'text/plain' }, body: '{"text":"x"}',
+      method: 'POST',
+      headers: { origin: 'https://evil.example', 'content-type': 'text/plain' },
+      body: '{"text":"x"}',
     });
     expect(res.status).toBe(403);
   });

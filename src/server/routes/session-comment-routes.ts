@@ -6,11 +6,7 @@ import { findSession } from '../../core/sessions/web-state.js';
 import { peekPty, writeToPty } from '../../core/pty/pty-pool.js';
 import { NOTE_NUDGE, readPendingForSession } from '../../core/comments/pending-delivery.js';
 import { readStatus } from '../../core/status/session-status.js';
-import {
-  commentInputSchema,
-  resolveSchema,
-  submitReviewSchema,
-} from '../../core/comments/comment-schemas.js';
+import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
 
 export interface MountOptions {
   /** Server-level broadcast — used to emit comments-changed events scoped
@@ -23,10 +19,7 @@ export interface MountOptions {
  * comments are persisted to its own JSON file. The dashboard SPA's
  * ReviewProvider uses these endpoints when it's in `dashboard` context.
  */
-export function mountSessionCommentRoutes(
-  app: Hono,
-  opts: MountOptions,
-): void {
+export function mountSessionCommentRoutes(app: Hono, opts: MountOptions): void {
   function requireSession(id: string) {
     return findSession(id);
   }
@@ -38,30 +31,26 @@ export function mountSessionCommentRoutes(
     return c.json({ comments: store.snapshot() });
   });
 
-  app.post(
-    '/api/sessions/:id/comments',
-    zValidator('json', commentInputSchema),
-    (c) => {
-      const id = c.req.param('id');
-      if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
-      const store = getCommentFileStore(id);
-      try {
-        const comment = store.post(c.req.valid('json'));
-        opts.broadcast('comments-changed', { sessionId: id, id: comment.id });
-        // If a Claude is sitting in OUR own PTY (the Terminal tab is open
-        // for this session), nudge it immediately by writing the pending
-        // comments to stdin. The Stop / UserPromptSubmit hooks already
-        // cover the cases where Claude is mid-turn or the user types; this
-        // closes the "idle in our PTY, user not typing" case.
-        // A draft goes nowhere yet (it reaches Claude when the review is submitted).
-        const delivery = comment.status === 'published' ? ownedPtyDelivery(id, comment.author) : null;
-        if (delivery === 'typed') void typeAndSubmit(id, NOTE_NUDGE).catch(() => false);
-        return c.json({ comment, comments: store.snapshot(), delivery });
-      } catch (err) {
-        return c.json({ error: (err as Error).message }, 400);
-      }
-    },
-  );
+  app.post('/api/sessions/:id/comments', zValidator('json', commentInputSchema), (c) => {
+    const id = c.req.param('id');
+    if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const store = getCommentFileStore(id);
+    try {
+      const comment = store.post(c.req.valid('json'));
+      opts.broadcast('comments-changed', { sessionId: id, id: comment.id });
+      // If a Claude is sitting in OUR own PTY (the Terminal tab is open
+      // for this session), nudge it immediately by writing the pending
+      // comments to stdin. The Stop / UserPromptSubmit hooks already
+      // cover the cases where Claude is mid-turn or the user types; this
+      // closes the "idle in our PTY, user not typing" case.
+      // A draft goes nowhere yet (it reaches Claude when the review is submitted).
+      const delivery = comment.status === 'published' ? ownedPtyDelivery(id, comment.author) : null;
+      if (delivery === 'typed') void typeAndSubmit(id, NOTE_NUDGE).catch(() => false);
+      return c.json({ comment, comments: store.snapshot(), delivery });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
 
   app.delete('/api/sessions/:id/comments/:cid', (c) => {
     const id = c.req.param('id');
@@ -73,43 +62,32 @@ export function mountSessionCommentRoutes(
     return c.json({ comments: store.snapshot() });
   });
 
-  app.post(
-    '/api/sessions/:id/comments/:cid/resolve',
-    zValidator('json', resolveSchema),
-    (c) => {
-      const id = c.req.param('id');
-      if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
-      const store = getCommentFileStore(id);
-      const updated = store.setResolved(
-        c.req.param('cid'),
-        c.req.valid('json').resolved,
-      );
-      if (updated) opts.broadcast('comments-changed', { sessionId: id, id: updated.id });
-      return c.json({ comments: store.snapshot() });
-    },
-  );
+  app.post('/api/sessions/:id/comments/:cid/resolve', zValidator('json', resolveSchema), (c) => {
+    const id = c.req.param('id');
+    if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const store = getCommentFileStore(id);
+    const updated = store.setResolved(c.req.param('cid'), c.req.valid('json').resolved);
+    if (updated) opts.broadcast('comments-changed', { sessionId: id, id: updated.id });
+    return c.json({ comments: store.snapshot() });
+  });
 
-  app.post(
-    '/api/sessions/:id/submit-review',
-    zValidator('json', submitReviewSchema),
-    (c) => {
-      const id = c.req.param('id');
-      if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
-      const store = getCommentFileStore(id);
-      const result = store.submit(c.req.valid('json').summary);
-      opts.broadcast('comments-changed', {
-        sessionId: id,
-        submittedCount: result.drafts.length,
-      });
-      // The whole review goes to Claude as one message: an idle Claude in
-      // our own PTY gets it now, not on its next turn.
-      if (result.drafts.length > 0) void deliverViaOwnedPty(id, 'user');
-      return c.json({
-        count: result.drafts.length,
-        comments: store.snapshot(),
-      });
-    },
-  );
+  app.post('/api/sessions/:id/submit-review', zValidator('json', submitReviewSchema), (c) => {
+    const id = c.req.param('id');
+    if (!requireSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const store = getCommentFileStore(id);
+    const result = store.submit(c.req.valid('json').summary);
+    opts.broadcast('comments-changed', {
+      sessionId: id,
+      submittedCount: result.drafts.length,
+    });
+    // The whole review goes to Claude as one message: an idle Claude in
+    // our own PTY gets it now, not on its next turn.
+    if (result.drafts.length > 0) void deliverViaOwnedPty(id, 'user');
+    return c.json({
+      count: result.drafts.length,
+      comments: store.snapshot(),
+    });
+  });
 
   app.post('/api/sessions/:id/discard-review', (c) => {
     const id = c.req.param('id');

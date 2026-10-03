@@ -31,7 +31,13 @@ import { findSession } from '../../core/sessions/web-state.js';
 export function mountChatRoutes(
   app: Hono,
   opts: { baseUrl: () => string },
-): { stopAll: () => void; stop: (id: string) => void; pids: () => number[]; running: (id: string) => boolean; idle: (afterMs: number, now?: number) => string[] } {
+): {
+  stopAll: () => void;
+  stop: (id: string) => void;
+  pids: () => number[];
+  running: (id: string) => boolean;
+  idle: (afterMs: number, now?: number) => string[];
+} {
   const chats = new Map<string, ChatSession>();
   const byToken = new Map<string, ChatSession>();
   const watchers = new Map<string, Set<(e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => void>>();
@@ -64,10 +70,21 @@ export function mountChatRoutes(
     const spec = spawnSpecFor(session);
     if (!spec || !agent.chat) return null;
     const token = newChatToken();
-    const protocol = agent.chat.open({ sessionId: id, permissionUrl: `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`, dir: path.join(getConfigDir(), 'chat') });
+    const protocol = agent.chat.open({
+      sessionId: id,
+      permissionUrl: `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`,
+      dir: path.join(getConfigDir(), 'chat'),
+    });
     const chat = new ChatSession(
       id,
-      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agent.launch.canResume(spec.cwd), cleanEnv: agent.launch.cleanEnv },
+      {
+        cwd: spec.cwd,
+        cmd: spec.tool.cmd,
+        baseArgs: spec.tool.baseArgs,
+        port: spec.port,
+        continueExisting: agent.launch.canResume(spec.cwd),
+        cleanEnv: agent.launch.cleanEnv,
+      },
       protocol,
       historyOf(session),
       token,
@@ -93,7 +110,9 @@ export function mountChatRoutes(
     if (!session) return c.json({ error: 'unknown session' }, 404);
     return streamSSE(c, async (stream) => {
       const send = (e: ChatEvent | { type: 'snapshot'; snapshot: ChatSnapshot }) => {
-        stream.writeSSE({ event: e.type, data: JSON.stringify(e) }).catch(() => { /* gone */ });
+        stream.writeSSE({ event: e.type, data: JSON.stringify(e) }).catch(() => {
+          /* gone */
+        });
       };
       let set = watchers.get(id);
       if (!set) watchers.set(id, (set = new Set()));
@@ -170,5 +189,7 @@ export function idleChats(
   now: number,
 ): string[] {
   if (afterMs <= 0) return [];
-  return [...chats.entries()].filter(([id, c]) => c.state === 'idle' && now - c.lastActivityAt >= afterMs && watching(id) === 0).map(([id]) => id);
+  return [...chats.entries()]
+    .filter(([id, c]) => c.state === 'idle' && now - c.lastActivityAt >= afterMs && watching(id) === 0)
+    .map(([id]) => id);
 }

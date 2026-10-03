@@ -41,7 +41,11 @@ beforeEach(() => {
   git(['commit', '-m', 'init', '--no-gpg-sign'], repoDir);
 
   app = new Hono();
-  mountScopeRoutes(app, { broadcast: () => { /* */ } });
+  mountScopeRoutes(app, {
+    broadcast: () => {
+      /* */
+    },
+  });
 });
 
 afterEach(() => {
@@ -73,7 +77,11 @@ describe('sessionScope (dashboard lookups)', () => {
     expect(scope.hash).toBe(hash);
     expect(scope.ended).toBe(true);
     expect(scope.label).toBe('wd review');
-    expect(getCommentFileStore(`scope-${hash}`).snapshot().map((c) => c.body)).toEqual(['please rename this']);
+    expect(
+      getCommentFileStore(`scope-${hash}`)
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['please rename this']);
   });
 
   it('archive releases the scope (its watch and all) but keeps its checkpoints; delete clears them', async () => {
@@ -102,9 +110,7 @@ describe('sessionScope (dashboard lookups)', () => {
 describe('GET /api/scopes/:hash/checkpoints', () => {
   it('returns empty entries before any snapshot is taken', async () => {
     const hash = await register();
-    const res = await app.request(
-      `/api/scopes/${hash}/checkpoints`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/checkpoints`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { entries: unknown[] };
     expect(Array.isArray(body.entries)).toBe(true);
@@ -185,9 +191,7 @@ describe('per-instruction checkpoints (/api/checkpoint + /seal)', () => {
 describe('GET /api/scopes/:hash/diff range mode', () => {
   it('rejects from=working with 400', async () => {
     const hash = await register();
-    const res = await app.request(
-      `/api/scopes/${hash}/diff?from=working&to=working`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/diff?from=working&to=working`);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain('from-checkpoint');
@@ -195,9 +199,7 @@ describe('GET /api/scopes/:hash/diff range mode', () => {
 
   it('rejects an unknown from id with 400', async () => {
     const hash = await register();
-    const res = await app.request(
-      `/api/scopes/${hash}/diff?from=999&to=working`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/diff?from=999&to=working`);
     expect(res.status).toBe(400);
   });
 
@@ -208,9 +210,7 @@ describe('GET /api/scopes/:hash/diff range mode', () => {
     fs.writeFileSync(path.join(repoDir, 'README.md'), '# v2\n');
     await takeCheckpoint(hash, [{ name: repoDir, root: repoDir }]);
 
-    const res = await app.request(
-      `/api/scopes/${hash}/diff?from=1&to=0`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/diff?from=1&to=0`);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/must be >=/);
@@ -222,9 +222,7 @@ describe('GET /api/scopes/:hash/diff range mode', () => {
     fs.writeFileSync(path.join(repoDir, 'README.md'), '# v2\n');
     await takeCheckpoint(hash, [{ name: repoDir, root: repoDir }]);
 
-    const res = await app.request(
-      `/api/scopes/${hash}/diff?from=0&to=1`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/diff?from=0&to=1`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       from: number;
@@ -241,9 +239,7 @@ describe('GET /api/scopes/:hash/diff range mode', () => {
     await takeCheckpoint(hash, [{ name: repoDir, root: repoDir }]);
     fs.writeFileSync(path.join(repoDir, 'README.md'), '# v2\n');
 
-    const res = await app.request(
-      `/api/scopes/${hash}/diff?from=0&to=working`,
-    );
+    const res = await app.request(`/api/scopes/${hash}/diff?from=0&to=working`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { to: string | number };
     expect(body.to).toBe('working');
@@ -316,18 +312,13 @@ describe('re-registering an ended scope (fresh `wd -c` run)', () => {
 describe('re-baseline on branch advance', () => {
   /** Poll until the manifest's Initial (id 0) entry baselines `expectedTree`
    *  (its commit's tree sha). The re-baseline is fire-and-forget. */
-  async function waitForInitialTree(
-    hash: string,
-    expectedTree: string,
-  ): Promise<void> {
+  async function waitForInitialTree(hash: string, expectedTree: string): Promise<void> {
     for (let i = 0; i < 40; i++) {
       const m = loadManifest(hash);
       const initial = m.entries.find((e) => e.id === 0);
       if (initial) {
         const sha = initial.repos[repoDir];
-        const tree = sha
-          ? git(['rev-parse', `${sha}^{tree}`], repoDir).stdout.trim()
-          : '';
+        const tree = sha ? git(['rev-parse', `${sha}^{tree}`], repoDir).stdout.trim() : '';
         if (tree === expectedTree) return;
       }
       await new Promise((r) => setTimeout(r, 25));
@@ -338,10 +329,7 @@ describe('re-baseline on branch advance', () => {
   it('drops stale history and re-baselines when HEAD advanced since the baseline', async () => {
     const hash = await register();
     // Wait for the first Initial.
-    await waitForInitialTree(
-      hash,
-      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
-    );
+    await waitForInitialTree(hash, git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim());
 
     // Accumulate a working-tree checkpoint so there's history to drop.
     fs.writeFileSync(path.join(repoDir, 'work.txt'), 'session work\n');
@@ -373,10 +361,7 @@ describe('re-baseline on branch advance', () => {
 
   it('resets to a fresh baseline when a commit lands between turns (Stop-hook path)', async () => {
     const hash = await register();
-    await waitForInitialTree(
-      hash,
-      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
-    );
+    await waitForInitialTree(hash, git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim());
 
     // Uncommitted work → a Stop-hook checkpoint opens step #1.
     fs.writeFileSync(path.join(repoDir, 'wip.txt'), 'work in progress\n');
@@ -402,19 +387,13 @@ describe('re-baseline on branch advance', () => {
     const m = loadManifest(hash);
     expect(m.entries).toHaveLength(1);
     expect(m.entries[0].id).toBe(0);
-    const initTree = git(
-      ['rev-parse', `${m.entries[0].repos[repoDir]}^{tree}`],
-      repoDir,
-    ).stdout.trim();
+    const initTree = git(['rev-parse', `${m.entries[0].repos[repoDir]}^{tree}`], repoDir).stdout.trim();
     expect(initTree).toBe(newHeadTree);
   });
 
   it('leaves the baseline alone when only uncommitted edits exist (no HEAD move)', async () => {
     const hash = await register();
-    await waitForInitialTree(
-      hash,
-      git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim(),
-    );
+    await waitForInitialTree(hash, git(['rev-parse', 'HEAD^{tree}'], repoDir).stdout.trim());
     fs.writeFileSync(path.join(repoDir, 'work.txt'), 'session work\n');
     await app.request('/api/checkpoint', {
       method: 'POST',

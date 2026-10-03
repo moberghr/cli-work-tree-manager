@@ -3,7 +3,11 @@
 
 /* Inside the diff table, hljs shouldn't impose its own background / padding;
    let the row's add/delete tint show through. */
-.wd-content .hljs { background: transparent; padding: 0; color: inherit; }
+.wd-content .hljs {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
 
 /* GitHub Dark syntax theme. The npm `@import` can't be scoped to a selector,
    so the dark token colors are inlined here under [data-theme="dark"] — copied
@@ -86,4 +90,6 @@
   background-color: #67060c;
 }
 /* Diff-table cells override hljs bg to transparent — keep that in dark too. */
-:root[data-theme='dark'] .wd-content .hljs { background: transparent; }
+:root[data-theme='dark'] .wd-content .hljs {
+  background: transparent;
+}

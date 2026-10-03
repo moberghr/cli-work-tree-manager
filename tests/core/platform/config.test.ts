@@ -74,30 +74,21 @@ describe('loadConfig', () => {
   it('loads the opt-in notifications flag', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', notifications: true }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', notifications: true }));
     expect(loadConfig()?.notifications).toBe(true);
   });
 
   it('coerces notifications to false when absent (opt-in default off)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt' }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt' }));
     expect(loadConfig()?.notifications).toBe(false);
   });
 
   it('coerces a truthy non-boolean notifications value to false (only true enables)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', notifications: 'yes' }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', notifications: 'yes' }));
     const loaded = loadConfig();
     expect(loaded?.notifications).toBe(false);
     expect(typeof loaded?.notifications).toBe('boolean');
@@ -106,10 +97,7 @@ describe('loadConfig', () => {
   it('coerces notifications: 1 to a real boolean false', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', notifications: 1 }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', notifications: 1 }));
     expect(loadConfig()?.notifications).toBe(false);
   });
 
@@ -124,10 +112,7 @@ describe('loadConfig', () => {
   it('fills in missing fields with defaults', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt' }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt' }));
 
     const loaded = loadConfig();
     expect(loaded).toEqual({
@@ -144,20 +129,14 @@ describe('loadConfig', () => {
   it('accepts a valid portRange', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', portRange: { start: 4000, end: 4099 } }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', portRange: { start: 4000, end: 4099 } }));
     expect(loadConfig()?.portRange).toEqual({ start: 4000, end: 4099 });
   });
 
   it('drops an invalid portRange (privileged port) to undefined', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', portRange: { start: 80, end: 4000 } }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', portRange: { start: 80, end: 4000 } }));
     expect(loadConfig()?.portRange).toBeUndefined();
   });
 
@@ -177,10 +156,7 @@ describe('loadConfig', () => {
   it('coerces a non-array statusHooks value to an empty array', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(configDir, 'config.json'),
-      JSON.stringify({ worktreesRoot: '/wt', statusHooks: { on: 'idle' } }),
-    );
+    fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', statusHooks: { on: 'idle' } }));
     const loaded = loadConfig();
     expect(loaded?.statusHooks).toEqual([]);
     expect(Array.isArray(loaded?.statusHooks)).toBe(true);

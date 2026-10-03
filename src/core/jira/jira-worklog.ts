@@ -64,7 +64,9 @@ function writeDay(db: Db, sessionId: string, day: string, v: LoggedDay): void {
 }
 
 export function loggedDays(sessionId: string): Record<string, LoggedDay> {
-  const rows = withDb((d) => d.prepare('SELECT day, data FROM worklogs WHERE session_id = ?').all(sessionId) as Array<{ day: string; data: string }>);
+  const rows = withDb(
+    (d) => d.prepare('SELECT day, data FROM worklogs WHERE session_id = ?').all(sessionId) as Array<{ day: string; data: string }>,
+  );
   const out: Record<string, LoggedDay> = {};
   for (const r of rows) {
     const v = json.parse(r.data) as LoggedDay | null;
@@ -73,7 +75,8 @@ export function loggedDays(sessionId: string): Record<string, LoggedDay> {
   return out;
 }
 
-export type WorklogResult = { ok: true; logged: number; total: number; text: string } | { ok: false; status: 400 | 409 | 502; error: string };
+export type WorklogResult =
+  { ok: true; logged: number; total: number; text: string } | { ok: false; status: 400 | 409 | 502; error: string };
 
 /**
  * Log a day's work (`ms`, from work-time) to `issueKey`: what isn't logged
@@ -100,7 +103,10 @@ export async function logWorkDay(
     const already = prev && prev.issueKey === issueKey ? prev.seconds : 0;
     const more = total - already;
     if (more <= 0) return { already, more };
-    const held: LoggedDay = { ...(prev ?? { issueKey, seconds: 0, ids: [], at: now.toISOString() }), postingUntil: new Date(now.getTime() + CLAIM_MS).toISOString() };
+    const held: LoggedDay = {
+      ...(prev ?? { issueKey, seconds: 0, ids: [], at: now.toISOString() }),
+      postingUntil: new Date(now.getTime() + CLAIM_MS).toISOString(),
+    };
     writeDay(db, sessionId, day, held);
     return { prev, already, more };
   });
@@ -115,7 +121,11 @@ export async function logWorkDay(
     id = await post(issueKey, {
       timeSpentSeconds: more,
       started: jiraStarted(started),
-      comment: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Logged from work (Claude Code session time)' }] }] },
+      comment: {
+        type: 'doc',
+        version: 1,
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Logged from work (Claude Code session time)' }] }],
+      },
     });
   } catch (err) {
     // Let go of the claim: the day is as it was.
@@ -125,7 +135,14 @@ export async function logWorkDay(
     });
     return { ok: false, status: 502, error: `Jira refused it: ${(err as Error).message}` };
   }
-  tx((db) => writeDay(db, sessionId, day, { issueKey, seconds: already + more, ids: [...(prev?.issueKey === issueKey ? prev.ids : []), id], at: now.toISOString() }));
+  tx((db) =>
+    writeDay(db, sessionId, day, {
+      issueKey,
+      seconds: already + more,
+      ids: [...(prev?.issueKey === issueKey ? prev.ids : []), id],
+      at: now.toISOString(),
+    }),
+  );
   return { ok: true, logged: more, total: already + more, text: `${worklogTime(more * 1000)} logged on ${issueKey} for ${day}` };
 }
 
@@ -135,7 +152,11 @@ export function jiraWorklogPoster(s: WorklogSettings, fetchImpl: typeof fetch = 
     if (!isIssueKey(issueKey)) throw new Error(`not a Jira issue key: ${issueKey}`);
     const res = await fetchImpl(`https://${s.site}/rest/api/3/issue/${issueKey}/worklog`, {
       method: 'POST',
-      headers: { Authorization: `Basic ${Buffer.from(`${s.email}:${s.token}`).toString('base64')}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${s.email}:${s.token}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);

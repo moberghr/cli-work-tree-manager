@@ -78,10 +78,7 @@ export function parseLcov(content: string): Map<string, number> {
  * then `<root>/lcov.info`. Returns the first that exists, else null.
  */
 export function findLcov(root: string): string | null {
-  const candidates = [
-    path.join(root, 'coverage', 'lcov.info'),
-    path.join(root, 'lcov.info'),
-  ];
+  const candidates = [path.join(root, 'coverage', 'lcov.info'), path.join(root, 'lcov.info')];
   for (const c of candidates) {
     try {
       if (fs.statSync(c).isFile()) return c;
@@ -112,9 +109,7 @@ const lcovCache = new Map<string, LcovCacheEntry>();
  *
  * Exported for testing the cache behavior.
  */
-export function readParsedLcov(
-  lcovPath: string,
-): { parsed: Map<string, number>; mtimeMs: number } | null {
+export function readParsedLcov(lcovPath: string): { parsed: Map<string, number>; mtimeMs: number } | null {
   let mtimeMs: number;
   try {
     mtimeMs = fs.statSync(lcovPath).mtimeMs;
@@ -223,10 +218,7 @@ export interface CoverageLookup {
  * The underlying lcov parse is memoized by `(path, mtimeMs)` (see
  * `readParsedLcov`) so a multi-MB file isn't re-read on every diff refresh.
  */
-export function coverageLookup(
-  root: string,
-  relPaths: string[],
-): CoverageLookup {
+export function coverageLookup(root: string, relPaths: string[]): CoverageLookup {
   const out = new Map<string, number>();
   const lcovPath = findLcov(root);
   if (!lcovPath) return { byPath: out, lcovMtimeMs: null };
@@ -257,9 +249,6 @@ export function coverageLookup(
  * map (drops the lcov mtime). Prefer `coverageLookup` when you need staleness
  * information.
  */
-export function coverageForFiles(
-  root: string,
-  relPaths: string[],
-): Map<string, number> {
+export function coverageForFiles(root: string, relPaths: string[]): Map<string, number> {
   return coverageLookup(root, relPaths).byPath;
 }

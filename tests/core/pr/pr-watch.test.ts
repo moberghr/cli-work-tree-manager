@@ -8,19 +8,37 @@ import type { ReviewFeedback } from '../../../src/core/pr/pr-review.js';
 /** Entered at 09:00; merges in these tests happen at 10:00 unless said otherwise. */
 const ENTERED = '2026-09-30T09:00:00Z';
 const session = (isGroup = false): WorktreeSession => ({
-  target: isGroup ? 'shop' : 'api', branch: 'feat/x', isGroup, paths: [], createdAt: ENTERED, lastAccessedAt: ENTERED,
+  target: isGroup ? 'shop' : 'api',
+  branch: 'feat/x',
+  isGroup,
+  paths: [],
+  createdAt: ENTERED,
+  lastAccessedAt: ENTERED,
 });
 const merged = (mergedAt: string | undefined = '2026-09-30T10:00:00Z') => pr({ state: 'MERGED', mergedAt });
 const pr = (over: Partial<ShipPr> = {}): ShipPr => ({
-  number: 7, url: 'u', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'aaa', ...over,
+  number: 7,
+  url: 'u',
+  state: 'OPEN',
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  checks: 'pass',
+  headSha: 'aaa',
+  ...over,
 });
 const repo = (name: string, p: ShipPr | null, done = false): RepoShipState =>
-  ({ name, path: `/wt/${name}`, pr: p, done, mergeBlockers: [] } as unknown as RepoShipState);
+  ({ name, path: `/wt/${name}`, pr: p, done, mergeBlockers: [] }) as unknown as RepoShipState;
 
 const ON = { autoArchive: true, fixCi: true, reviewComments: true };
 /** "Now" for the watch: two days after ENTERED, unless a test says otherwise. */
 const LATER = Date.parse(ENTERED) + 48 * 3600_000;
-function harness(repos: RepoShipState[], opts: ReturnType<PrWatchDeps['options']> = ON, isGroup = false, feedback: ReviewFeedback | null = null, extra: Partial<PrWatchDeps> = {}) {
+function harness(
+  repos: RepoShipState[],
+  opts: ReturnType<PrWatchDeps['options']> = ON,
+  isGroup = false,
+  feedback: ReviewFeedback | null = null,
+  extra: Partial<PrWatchDeps> = {},
+) {
   let pre: ShipPreflight = { repos };
   const told = new Set<string>();
   const deps = {
@@ -94,18 +112,40 @@ describe('PR watch', () => {
   });
 
   it('re-entered on purpose (Restore, or work tree at the merged tip): not archived again that day', async () => {
-    const h = harness([{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null,
-      { now: () => Date.parse(ENTERED) + 3600_000 });
+    const h = harness(
+      [{ ...repo('api', merged('2026-09-30T08:00:00Z'), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState],
+      ON,
+      false,
+      null,
+      { now: () => Date.parse(ENTERED) + 3600_000 },
+    );
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
 
   it("GitHub's rate limit: keeps what it knew, acts on nothing, and rests its sweeps", async () => {
     let t = LATER;
-    const h = harness([{ ...repo('api', pr({ state: 'OPEN' })), openThreads: 0 } as RepoShipState], ON, false, {
-      viewer: 'me', reviews: [], comments: [],
-      threads: [{ id: 't1', isResolved: false, isOutdated: false, path: 'a.ts', line: 1, comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }] }],
-    } as unknown as ReviewFeedback, { now: () => t });
+    const h = harness(
+      [{ ...repo('api', pr({ state: 'OPEN' })), openThreads: 0 } as RepoShipState],
+      ON,
+      false,
+      {
+        viewer: 'me',
+        reviews: [],
+        comments: [],
+        threads: [
+          {
+            id: 't1',
+            isResolved: false,
+            isOutdated: false,
+            path: 'a.ts',
+            line: 1,
+            comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }],
+          },
+        ],
+      } as unknown as ReviewFeedback,
+      { now: () => t },
+    );
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
 
@@ -124,10 +164,24 @@ describe('PR watch', () => {
   });
 
   it('a review lookup that fails keeps the last count for the same PR', async () => {
-    const feedback = vi.fn<() => Promise<ReviewFeedback | null>>(async () => ({
-      viewer: 'me', reviews: [], comments: [],
-      threads: [{ id: 't1', isResolved: false, isOutdated: false, path: 'a.ts', line: 1, comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }] }],
-    } as unknown as ReviewFeedback));
+    const feedback = vi.fn<() => Promise<ReviewFeedback | null>>(
+      async () =>
+        ({
+          viewer: 'me',
+          reviews: [],
+          comments: [],
+          threads: [
+            {
+              id: 't1',
+              isResolved: false,
+              isOutdated: false,
+              path: 'a.ts',
+              line: 1,
+              comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }],
+            },
+          ],
+        }) as unknown as ReviewFeedback,
+    );
     const h = harness([repo('api', pr({ state: 'OPEN' }))], ON, false, null, { reviewFeedback: feedback });
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
@@ -135,7 +189,9 @@ describe('PR watch', () => {
     await h.watch.tick();
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
     // …and the threads themselves, for the replies panel.
-    expect(h.watch.state('s1')?.repos[0].threads).toEqual([{ threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix' }]);
+    expect(h.watch.state('s1')?.repos[0].threads).toEqual([
+      { threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix' },
+    ]);
   });
 
   describe('GitHub calls', () => {
@@ -165,8 +221,21 @@ describe('PR watch', () => {
 
   describe('feedback for a Claude that is not running', () => {
     const botThread = {
-      viewer: 'me', reviews: [], comments: [],
-      threads: [{ id: 'PRRT_t1', isResolved: false, isOutdated: false, path: 'a.ts', line: 3, comments: [{ id: 'c1', author: 'copilot-pull-request-reviewer', association: 'NONE', body: 'use a const', url: 'u1', createdAt: ENTERED }] }],
+      viewer: 'me',
+      reviews: [],
+      comments: [],
+      threads: [
+        {
+          id: 'PRRT_t1',
+          isResolved: false,
+          isOutdated: false,
+          path: 'a.ts',
+          line: 3,
+          comments: [
+            { id: 'c1', author: 'copilot-pull-request-reviewer', association: 'NONE', body: 'use a const', url: 'u1', createdAt: ENTERED },
+          ],
+        },
+      ],
     } as unknown as ReviewFeedback;
 
     it("hands a trusted bot's thread over, records it for the reply drafts, and starts the Claude", async () => {
@@ -177,7 +246,15 @@ describe('PR watch', () => {
       await h.watch.tick();
       expect(h.deps.tell).toHaveBeenCalledTimes(1);
       expect(h.deps.tell.mock.calls[0][1]).toContain('[thread PRRT_t1]');
-      expect(rememberThreads).toHaveBeenCalledWith('s1', [expect.objectContaining({ threadId: 'PRRT_t1', repo: 'api', prNumber: 7, reviewer: 'copilot-pull-request-reviewer', where: 'a.ts:3' })]);
+      expect(rememberThreads).toHaveBeenCalledWith('s1', [
+        expect.objectContaining({
+          threadId: 'PRRT_t1',
+          repo: 'api',
+          prNumber: 7,
+          reviewer: 'copilot-pull-request-reviewer',
+          where: 'a.ts:3',
+        }),
+      ]);
       expect(wake).toHaveBeenCalledWith('s1');
       expect(activity.snapshot().recent[0].notes[0].text).toContain('(started it: it resumes its conversation and works on it now)');
     });
@@ -209,30 +286,56 @@ describe('PR watch', () => {
       const h = harness([repo('api', failing())], ON, false, null, { activity });
       await h.watch.tick();
       const [run] = activity.snapshot().recent;
-      expect(run).toMatchObject({ kind: 'pr-watch', status: 'done', progress: { done: 1, total: 1 }, summary: '1 session · 1 open PR · 1 failing' });
+      expect(run).toMatchObject({
+        kind: 'pr-watch',
+        status: 'done',
+        progress: { done: 1, total: 1 },
+        summary: '1 session · 1 open PR · 1 failing',
+      });
       expect(run.notes).toEqual([
-        expect.objectContaining({ level: 'action', sessionId: 's1', text: 'api feat/x: checks fail on #7 (test, lint): asked its Claude to fix them' }),
+        expect.objectContaining({
+          level: 'action',
+          sessionId: 's1',
+          text: 'api feat/x: checks fail on #7 (test, lint): asked its Claude to fix them',
+        }),
       ]);
     });
 
     it('says why a merged session was kept, and when one is archived', async () => {
       const activity = createActivityLog();
-      const kept = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState], ON, false, null, { activity });
+      const kept = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 2 } as RepoShipState], ON, false, null, {
+        activity,
+      });
       await kept.watch.tick();
       // Uncommitted files no longer keep it: the archive saves them for Restore, and says so.
-      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({ level: 'action', text: 'api feat/x: archived: every PR merged; 2 uncommitted files saved, put back on Restore (the conversation is kept)' });
-      const ahead = harness([{ ...repo('api', merged(), false), localSha: 'aaa', ahead: 1 } as RepoShipState], ON, false, null, { activity });
+      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({
+        level: 'action',
+        text: 'api feat/x: archived: every PR merged; 2 uncommitted files saved, put back on Restore (the conversation is kept)',
+      });
+      const ahead = harness([{ ...repo('api', merged(), false), localSha: 'aaa', ahead: 1 } as RepoShipState], ON, false, null, {
+        activity,
+      });
       await ahead.watch.tick();
-      expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: a PR is merged, but kept: api: PR merged, but 1 unpushed commit');
-      const gone = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null, { activity });
+      expect(activity.snapshot().recent[0].notes[0].text).toBe(
+        'api feat/x: a PR is merged, but kept: api: PR merged, but 1 unpushed commit',
+      );
+      const gone = harness([{ ...repo('api', merged(), true), localSha: 'aaa', dirtyFiles: 0 } as RepoShipState], ON, false, null, {
+        activity,
+      });
       await gone.watch.tick();
-      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({ level: 'action', text: expect.stringContaining('archived: every PR merged') });
+      expect(activity.snapshot().recent[0].notes[0]).toMatchObject({
+        level: 'action',
+        text: expect.stringContaining('archived: every PR merged'),
+      });
     });
 
     it('GitHub’s limit: a warning, the schedule rests, and the skipped sweeps collapse into one row', async () => {
       let t = LATER;
       const activity = createActivityLog({ now: () => t });
-      const h = harness([{ ...repo('api', null, true), ghError: 'API rate limit already exceeded' } as RepoShipState], ON, false, null, { activity, now: () => t });
+      const h = harness([{ ...repo('api', null, true), ghError: 'API rate limit already exceeded' } as RepoShipState], ON, false, null, {
+        activity,
+        now: () => t,
+      });
       h.watch.start(180_000, 60_000)();
       await h.watch.tick();
       expect(activity.snapshot().recent[0].notes[0].level).toBe('warn');
@@ -245,12 +348,23 @@ describe('PR watch', () => {
   });
 
   it('autoArchiveVerdict gives the reason it keeps a merged session', () => {
-    const pre = (over: Partial<RepoShipState>[]) => ({ repos: over.map((o, i) => ({ ...repo(`r${i}`, merged(), true), localSha: 'aaa', dirtyFiles: 0, ...o }) as RepoShipState) });
+    const pre = (over: Partial<RepoShipState>[]) => ({
+      repos: over.map((o, i) => ({ ...repo(`r${i}`, merged(), true), localSha: 'aaa', dirtyFiles: 0, ...o }) as RepoShipState),
+    });
     const s = { lastAccessedAt: ENTERED };
     expect(autoArchiveVerdict({ repos: [repo('api', pr())] }, s, LATER)).toBeNull(); // nothing merged
-    expect(autoArchiveVerdict(pre([{}, { done: false, pr: pr() } as Partial<RepoShipState>]), s, LATER)).toEqual({ archive: false, why: 'not all merged yet (r1)' });
-    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z') }]), s, Date.parse(ENTERED) + 3600_000)).toMatchObject({ archive: false, why: expect.stringContaining('left alone for a day') });
-    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z'), localSha: 'new' }]), s, LATER)).toMatchObject({ archive: false, why: expect.stringContaining('older work') });
+    expect(autoArchiveVerdict(pre([{}, { done: false, pr: pr() } as Partial<RepoShipState>]), s, LATER)).toEqual({
+      archive: false,
+      why: 'not all merged yet (r1)',
+    });
+    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z') }]), s, Date.parse(ENTERED) + 3600_000)).toMatchObject({
+      archive: false,
+      why: expect.stringContaining('left alone for a day'),
+    });
+    expect(autoArchiveVerdict(pre([{ pr: merged('2026-09-30T08:00:00Z'), localSha: 'new' }]), s, LATER)).toMatchObject({
+      archive: false,
+      why: expect.stringContaining('older work'),
+    });
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
   });
 
@@ -269,9 +383,13 @@ describe('PR watch', () => {
     repoState.pr = { ...repoState.pr!, headSha: 'aaa' };
     expect(autoArchiveVerdict({ repos: [repoState] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({ archive: true });
     const other = { ...repoState, localSha: 'bbb' } as RepoShipState;
-    expect(autoArchiveVerdict({ repos: [other] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: expect.stringContaining('a commit checked out that the PR didn’t merge') });
+    expect(autoArchiveVerdict({ repos: [other] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({
+      why: expect.stringContaining('a commit checked out that the PR didn’t merge'),
+    });
     const ahead = { ...repoState, dirtyFiles: 0, ahead: 2 } as RepoShipState;
-    expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({ why: 'straumur-backend: PR merged, but 2 unpushed commits' });
+    expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({
+      why: 'straumur-backend: PR merged, but 2 unpushed commits',
+    });
   });
 
   it('merged work isn’t held up by replies to post or notes for Claude: archived, and the note says what was kept (reported)', async () => {
@@ -280,7 +398,9 @@ describe('PR watch', () => {
     h.deps.archive = vi.fn(async () => '2 reply drafts') as never;
     await h.watch.tick();
     expect(h.deps.archive).toHaveBeenCalled();
-    expect(activity.snapshot().recent[0].notes[0].text).toBe('api feat/x: archived: every PR merged; 2 reply drafts kept for Restore (the conversation is kept)');
+    expect(activity.snapshot().recent[0].notes[0].text).toBe(
+      'api feat/x: archived: every PR merged; 2 reply drafts kept for Restore (the conversation is kept)',
+    );
   });
 
   it('never archives while its Claude is in the middle of a turn', async () => {
@@ -369,7 +489,11 @@ describe('PR watch', () => {
 
   describe('review feedback', () => {
     const thread = (id: string, author: string, resolved = false) => ({
-      id: `T${id}`, isResolved: resolved, isOutdated: false, path: 'src/a.ts', line: 3,
+      id: `T${id}`,
+      isResolved: resolved,
+      isOutdated: false,
+      path: 'src/a.ts',
+      line: 3,
       comments: [{ id, author, association: 'COLLABORATOR', body: `fix ${id}`, url: `u${id}`, createdAt: '' }],
     });
     const fb = (threads: ReviewFeedback['threads']): ReviewFeedback => ({ viewer: 'me', threads, reviews: [], comments: [] });

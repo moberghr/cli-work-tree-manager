@@ -83,13 +83,8 @@ describe('allocatePort', () => {
 
   it('throws a distinct PortRangeExhaustedError when every port is occupied', () => {
     const range = { start: 6000, end: 6001 };
-    const sessions = [
-      session({ port: 6000 }),
-      session({ port: 6001, branch: 'feat2' }),
-    ];
-    expect(() => allocatePort('full', { portRange: range }, sessions)).toThrow(
-      PortRangeExhaustedError,
-    );
+    const sessions = [session({ port: 6000 }), session({ port: 6001, branch: 'feat2' })];
+    expect(() => allocatePort('full', { portRange: range }, sessions)).toThrow(PortRangeExhaustedError);
     try {
       allocatePort('full', { portRange: range }, sessions);
     } catch (err) {
@@ -167,8 +162,8 @@ describe('allocateFreePort', () => {
     const range = { start: 9200, end: 9201 };
     const sessions = [session({ port: 9200 })];
     // History holds 9200; host probe claims 9201 is taken too.
-    await expect(
-      allocateFreePort('full', { portRange: range }, sessions, async () => false),
-    ).rejects.toBeInstanceOf(PortRangeExhaustedError);
+    await expect(allocateFreePort('full', { portRange: range }, sessions, async () => false)).rejects.toBeInstanceOf(
+      PortRangeExhaustedError,
+    );
   });
 });

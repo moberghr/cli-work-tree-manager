@@ -85,14 +85,24 @@ describe('the session’s own agent', () => {
     seedTranscript(worktreePath);
     vi.mocked(select).mockResolvedValueOnce(claudes);
     await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
-    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, undefined);
+    expect(launchAi).toHaveBeenLastCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false, resume: true },
+      undefined,
+    );
     // One from before (nothing recorded) follows the default: opencode, and no --continue (a Claude transcript says nothing about it).
     const old = makeSession();
     seedHistory([old]);
     vi.mocked(select).mockResolvedValueOnce(old);
     await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
     expect(launchAi).toHaveBeenCalledTimes(2);
-    expect(launchAi).toHaveBeenLastCalledWith(worktreePath, expect.objectContaining({ cmd: 'opencode' }), { unsafe: false, resume: false }, undefined);
+    expect(launchAi).toHaveBeenLastCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'opencode' }),
+      { unsafe: false, resume: false },
+      undefined,
+    );
   });
 });
 
@@ -110,9 +120,7 @@ describe('resume updates lastAccessedAt', () => {
     const history = loadHistory();
     expect(history).toHaveLength(1);
     expect(history[0].lastAccessedAt).not.toBe(OLD_TIMESTAMP);
-    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
-      new Date(OLD_TIMESTAMP).getTime(),
-    );
+    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(new Date(OLD_TIMESTAMP).getTime());
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
@@ -131,12 +139,7 @@ describe('resume updates lastAccessedAt', () => {
 
     await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
-    expect(launchAi).toHaveBeenCalledWith(
-      worktreePath,
-      expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: true },
-      3042,
-    );
+    expect(launchAi).toHaveBeenCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, 3042);
   });
 
   it('starts a fresh session (resume: false) when no transcript exists', async () => {
@@ -190,9 +193,7 @@ describe('recent --resume updates lastAccessedAt', () => {
     const history = loadHistory();
     expect(history).toHaveLength(1);
     expect(history[0].lastAccessedAt).not.toBe(OLD_TIMESTAMP);
-    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
-      new Date(OLD_TIMESTAMP).getTime(),
-    );
+    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(new Date(OLD_TIMESTAMP).getTime());
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),

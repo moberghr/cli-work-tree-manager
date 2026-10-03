@@ -1,10 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import {
-  setupCompletions,
-  printCompletionResults,
-  printManualInstructions,
-} from './shared/setup-completions.js';
+import { setupCompletions, printCompletionResults, printManualInstructions } from './shared/setup-completions.js';
 
 const POWERSHELL_SCRIPT = `
 Register-ArgumentCompleter -CommandName work -Native -ScriptBlock {
@@ -100,9 +96,7 @@ export const completionCommand: CommandModule = {
       if (results.length > 0) {
         printCompletionResults(results);
         console.log('');
-        console.log(
-          chalk.gray('  Restart your shell for completions to take effect.'),
-        );
+        console.log(chalk.gray('  Restart your shell for completions to take effect.'));
       } else {
         printManualInstructions();
       }

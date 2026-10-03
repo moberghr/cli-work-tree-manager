@@ -41,7 +41,10 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 
 describe('useScrollspy', () => {
   it('starts following files that appear after an empty diff', async () => {

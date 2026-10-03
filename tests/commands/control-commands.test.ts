@@ -66,7 +66,17 @@ describe('work read', () => {
   it('the latest messages, said to be data; --json gives the entries', async () => {
     transcript([
       { type: 'user', timestamp: '2026-10-02T09:00:00Z', message: { role: 'user', content: 'Add the export' } },
-      { type: 'assistant', timestamp: '2026-10-02T09:00:05Z', message: { role: 'assistant', content: [{ type: 'text', text: 'Added.' }, { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'npm test' } }] } },
+      {
+        type: 'assistant',
+        timestamp: '2026-10-02T09:00:05Z',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Added.' },
+            { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'npm test' } },
+          ],
+        },
+      },
     ]);
     await run(readCommand, { last: 20 });
     expect(out.join('\n')).toContain('Add the export');
@@ -97,7 +107,13 @@ describe('work send', () => {
   it('--wait: waits for the turn it started to end and prints the reply', async () => {
     const sentAt = new Date(Date.now() - 1000).toISOString();
     answer = () => ({ ok: true, body: { how: 'typed', sentAt } });
-    transcript([{ type: 'assistant', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Tests pass.' }] } }]);
+    transcript([
+      {
+        type: 'assistant',
+        timestamp: new Date().toISOString(),
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Tests pass.' }] },
+      },
+    ]);
     await recordStatusEvent(id, { kind: 'stop', lastMessage: 'Tests pass.' }); // the turn ended after it was sent
     await run(sendCommand, { message: 'Run the tests', wait: true, timeout: '5s' });
     expect(out.join('\n')).toContain('Tests pass.');
@@ -132,11 +148,18 @@ describe('work wait', () => {
 
 describe('work start | stop | screen', () => {
   it('call work web and say what happened', async () => {
-    answer = (route) => ({ ok: true, body: route.endsWith('/start') ? { how: 'started' } : route.endsWith('/stop') ? { how: 'stopped' } : { text: '❯ ready' } });
+    answer = (route) => ({
+      ok: true,
+      body: route.endsWith('/start') ? { how: 'started' } : route.endsWith('/stop') ? { how: 'stopped' } : { text: '❯ ready' },
+    });
     await run(startCommand, { force: false });
     await run(stopCommand);
     await run(screenCommand);
-    expect(calls.map((c) => `${c.method} ${c.route}`)).toEqual([`POST /api/sessions/${id}/agent/start`, `POST /api/sessions/${id}/agent/stop`, `GET /api/sessions/${id}/screen`]);
+    expect(calls.map((c) => `${c.method} ${c.route}`)).toEqual([
+      `POST /api/sessions/${id}/agent/start`,
+      `POST /api/sessions/${id}/agent/stop`,
+      `GET /api/sessions/${id}/screen`,
+    ]);
     expect(out).toEqual(['api · feat/x: started (`work attach` to watch it)', 'api · feat/x: stopped', '❯ ready']);
   });
 

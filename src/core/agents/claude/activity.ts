@@ -73,12 +73,7 @@ function latestJsonlMtimeMs(projectDir: string): number {
 }
 
 export function getClaudeActivityMs(launchPath: string): number {
-  const dir = path.join(
-    os.homedir(),
-    '.claude',
-    'projects',
-    encodeProjectDir(launchPath),
-  );
+  const dir = path.join(os.homedir(), '.claude', 'projects', encodeProjectDir(launchPath));
   return latestJsonlMtimeMs(dir);
 }
 
@@ -137,7 +132,6 @@ export function resolveResumeLaunch(session: WorktreeSession): {
   }
   return { launchPath, hasConversation: bestMs > 0 };
 }
-
 
 /** Watch root: `~/.claude/projects/`. The web server subscribes to mtime
  *  changes here and re-broadcasts `sessions-changed` so the sidebar

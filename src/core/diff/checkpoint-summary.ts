@@ -85,11 +85,7 @@ function buildDelta(
 }
 
 /** Cheap fallback label when Claude can't be reached. */
-function heuristicLabel(
-  files: ParsedFile[],
-  added: number,
-  deleted: number,
-): string {
+function heuristicLabel(files: ParsedFile[], added: number, deleted: number): string {
   if (files.length === 0) return 'no changes';
   if (files.length === 1) {
     return `${path.basename(files[0].path)} +${added} −${deleted}`;
@@ -112,7 +108,11 @@ export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: 
   return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
 }
 
-function runNow(prompt: string, timeoutMs: number, run: { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }): Promise<string | null> {
+function runNow(
+  prompt: string,
+  timeoutMs: number,
+  run: { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv },
+): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v: string | null) => {
@@ -169,10 +169,13 @@ function runNow(prompt: string, timeoutMs: number, run: { cmd: string; args: str
   });
 }
 
-
 /** Normalise Claude's reply to a single terse line. */
 function cleanLabel(raw: string): string {
-  const firstLine = raw.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  const firstLine =
+    raw
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean) ?? '';
   // Strip surrounding quotes / trailing punctuation, collapse whitespace.
   const cleaned = firstLine
     .replace(/^["'`]+|["'`]+$/g, '')
@@ -186,11 +189,7 @@ function cleanLabel(raw: string): string {
  * Produce a one-line label for checkpoint `id`. Tries Claude; falls back to
  * a heuristic. Pure (no caching) — the caller persists the result.
  */
-export async function summarizeCheckpoint(
-  scopeHash: string,
-  repos: SummaryRepo[],
-  id: number,
-): Promise<string> {
+export async function summarizeCheckpoint(scopeHash: string, repos: SummaryRepo[], id: number): Promise<string> {
   const { files, added, deleted, text } = buildDelta(scopeHash, repos, id);
   if (files.length === 0) return 'no changes';
   const fallback = heuristicLabel(files, added, deleted);

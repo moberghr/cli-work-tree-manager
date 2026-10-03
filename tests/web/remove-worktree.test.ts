@@ -4,7 +4,10 @@ import { removeWorktree } from '../../src/web/src/api/panes.js';
 afterEach(() => vi.unstubAllGlobals());
 
 const answer = (status: number, body: unknown) =>
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })),
+  );
 
 describe('removeWorktree', () => {
   it('already gone (deleted a moment ago elsewhere) counts as deleted', async () => {

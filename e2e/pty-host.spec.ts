@@ -25,7 +25,11 @@ test('dashboard lists the session and the browser terminal drives the PTY', asyn
   const item = page.locator('.wd-dash-rail-item', { hasText: 'feat/a' });
   await expect(item).toBeVisible();
   await item.click();
-  await page.getByRole('tab', { name: 'Terminal' }).or(page.locator('button', { hasText: /^Terminal$/ })).first().click();
+  await page
+    .getByRole('tab', { name: 'Terminal' })
+    .or(page.locator('button', { hasText: /^Terminal$/ }))
+    .first()
+    .click();
   await expect(page.locator('.wd-pty-host .xterm')).toBeVisible();
 
   const id = work.sessionId('app', 'feat/a');
@@ -106,7 +110,9 @@ test('switching sessions marks the previous diff stale until the new one loads',
 
   // Hold feat/b's diff so the stale window is observable.
   let release!: () => void;
-  const held = new Promise<void>((r) => { release = r; });
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
   await page.route(`**/api/sessions/${b}/diff*`, async (route) => {
     await held;
     await route.continue();
@@ -204,8 +210,7 @@ test('ship a group in parts: merge backend now, frontend later; archived only wh
   work.commitAt(fe, 'ui.tsx', 'export const ui = 1;\n');
   await work.startWeb();
   const id = work.sessionId('shop', 'feat/g');
-  const prState = (cwd: string) =>
-    JSON.parse(fs.readFileSync(path.join(work.home, 'gh-state.json'), 'utf-8'))[cwd.toLowerCase()]?.state;
+  const prState = (cwd: string) => JSON.parse(fs.readFileSync(path.join(work.home, 'gh-state.json'), 'utf-8'))[cwd.toLowerCase()]?.state;
 
   await page.goto(`${work.url}#/s/${id}/diff`);
   await page.getByRole('button', { name: /^Ship/ }).click();
@@ -239,5 +244,10 @@ test('ship a group in parts: merge backend now, frontend later; archived only wh
   expect(prState(fe)).toBe('MERGED');
   expect((await work.sessions()).find((s) => s.target === 'shop')?.archivedAt).toBeTruthy();
   // Each merge carried the SHA the panel showed.
-  expect(work.ghCalls().filter((a) => a[1] === 'merge').every((a) => a.includes('--match-head-commit'))).toBe(true);
+  expect(
+    work
+      .ghCalls()
+      .filter((a) => a[1] === 'merge')
+      .every((a) => a.includes('--match-head-commit')),
+  ).toBe(true);
 });

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ root: '' }));
 vi.mock('../../../src/core/sessions/history.js', () => ({
-  findSessionById: (id: string) => (id === 's1' ? { target: 'api', branch: 'b', isGroup: false, paths: [h.root], createdAt: '', lastAccessedAt: '' } : null),
+  findSessionById: (id: string) =>
+    id === 's1' ? { target: 'api', branch: 'b', isGroup: false, paths: [h.root], createdAt: '', lastAccessedAt: '' } : null,
   loadHistory: () => [],
 }));
 

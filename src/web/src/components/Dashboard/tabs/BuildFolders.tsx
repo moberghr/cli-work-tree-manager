@@ -57,7 +57,11 @@ export function BuildFolders({ api = httpBuildFoldersApi, pollMs = 1000 }: { api
       const r = await api.apply(ids);
       setSt(r.state);
       const bad = r.results.filter((x) => !x.ok);
-      setNote(bad.length ? `${bad.length} left alone: ${bad.map((b) => b.message).join('; ')}` : `Cleared ${r.results.length} worktree${r.results.length === 1 ? '' : 's'}.`);
+      setNote(
+        bad.length
+          ? `${bad.length} left alone: ${bad.map((b) => b.message).join('; ')}`
+          : `Cleared ${r.results.length} worktree${r.results.length === 1 ? '' : 's'}.`,
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -69,14 +73,26 @@ export function BuildFolders({ api = httpBuildFoldersApi, pollMs = 1000 }: { api
   const total = list.reduce((n, c) => n + c.bytes, 0);
   return (
     <section className="wd-cleanup-section wd-cleanup-build">
-      <h2 className="wd-inbox-section-title" title="node_modules, bin/obj, .next, target… that git ignores, in worktrees idle a week or more">
+      <h2
+        className="wd-inbox-section-title"
+        title="node_modules, bin/obj, .next, target… that git ignores, in worktrees idle a week or more"
+      >
         Build folders in idle worktrees{' '}
-        {st?.scannedAt && !st.scanning && <span className="wd-tab-header-muted">({formatBytes(total)} in {list.length}, measured {relativeTime(st.scannedAt)})</span>}
+        {st?.scannedAt && !st.scanning && (
+          <span className="wd-tab-header-muted">
+            ({formatBytes(total)} in {list.length}, measured {relativeTime(st.scannedAt)})
+          </span>
+        )}
         <button type="button" className="wd-row-action" disabled={!!st?.scanning} onClick={() => void load(api.scan())}>
           {st?.scanning ? `Measuring ${st.checked} of ${st.total || '…'}…` : st?.scannedAt ? 'Measure again' : 'Measure'}
         </button>
         {list.length > 0 && !st?.scanning && (
-          <button type="button" className="wd-row-action wd-row-action-danger" disabled={clearing.length > 0} onClick={() => void clear(list.map((c) => c.sessionId))}>
+          <button
+            type="button"
+            className="wd-row-action wd-row-action-danger"
+            disabled={clearing.length > 0}
+            onClick={() => void clear(list.map((c) => c.sessionId))}
+          >
             Clear all ({formatBytes(total)})
           </button>
         )}
@@ -85,7 +101,11 @@ export function BuildFolders({ api = httpBuildFoldersApi, pollMs = 1000 }: { api
         Frees space without archiving: only folders git ignores are removed, and the next install or build brings them back.
       </p>
       {error && <div className="wd-tab-error">{error}</div>}
-      {note && <p className="wd-cleanup-hint" role="status">{note}</p>}
+      {note && (
+        <p className="wd-cleanup-hint" role="status">
+          {note}
+        </p>
+      )}
       {st?.scannedAt && list.length === 0 && !st.scanning && <p className="wd-cleanup-hint">Nothing to clear.</p>}
       <ul className="wd-cleanup-list">
         {list.map((c) => (
@@ -93,10 +113,19 @@ export function BuildFolders({ api = httpBuildFoldersApi, pollMs = 1000 }: { api
             <span className="wd-cleanup-name">
               <span className="wd-inbox-target">{c.target}</span>
               <span className="wd-inbox-branch">{c.branch}</span>
-              {c.baseCheckout && <span className="wd-tab-header-muted" title="The repo's own checkout, not a worktree"> · repo checkout</span>}
+              {c.baseCheckout && (
+                <span className="wd-tab-header-muted" title="The repo's own checkout, not a worktree">
+                  {' '}
+                  · repo checkout
+                </span>
+              )}
             </span>
             <span className="wd-cleanup-reason" title={c.folders.map((f) => `${formatBytes(f.bytes)}  ${f.path}`).join('\n')}>
-              {formatBytes(c.bytes)} · {c.folders.slice(0, 3).map((f) => f.path.split(/[\\/]/).pop()).join(', ')}
+              {formatBytes(c.bytes)} ·{' '}
+              {c.folders
+                .slice(0, 3)
+                .map((f) => f.path.split(/[\\/]/).pop())
+                .join(', ')}
               {c.folders.length > 3 ? ` +${c.folders.length - 3}` : ''}
             </span>
             <span className="wd-cleanup-when">{relativeTime(c.lastActive)}</span>

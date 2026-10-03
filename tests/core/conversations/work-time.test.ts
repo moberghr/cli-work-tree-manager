@@ -16,9 +16,21 @@ const T0 = Date.parse('2026-09-30T09:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
 /** Claude's lines as its adapter reads them. */
 const cl = (lines: TranscriptEntry[]) => claudeEntries(lines);
-const you = (min: number, text = 'do it'): TranscriptEntry => ({ type: 'user', timestamp: at(min), message: { role: 'user', content: text } });
-const claude = (min: number): TranscriptEntry => ({ type: 'assistant', timestamp: at(min), message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } });
-const toolResult = (min: number): TranscriptEntry => ({ type: 'user', timestamp: at(min), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't' }] } });
+const you = (min: number, text = 'do it'): TranscriptEntry => ({
+  type: 'user',
+  timestamp: at(min),
+  message: { role: 'user', content: text },
+});
+const claude = (min: number): TranscriptEntry => ({
+  type: 'assistant',
+  timestamp: at(min),
+  message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+});
+const toolResult = (min: number): TranscriptEntry => ({
+  type: 'user',
+  timestamp: at(min),
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't' }] },
+});
 
 describe('workSteps', () => {
   it("counts the time up to each of Claude's lines (its replies, tool results) — not yours", () => {
@@ -70,7 +82,14 @@ describe('sessionWorkTime (its transcripts on disk)', () => {
   let home: string;
   let wt: string;
   let file: string;
-  const session = (): WorktreeSession => ({ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: at(0), lastAccessedAt: at(0) });
+  const session = (): WorktreeSession => ({
+    target: 'api',
+    branch: 'feat/x',
+    isGroup: false,
+    paths: [wt],
+    createdAt: at(0),
+    lastAccessedAt: at(0),
+  });
   beforeEach(() => {
     resetWorkTimeCache();
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'work-time-'));
@@ -125,7 +144,10 @@ describe('sessionWorkTime (its transcripts on disk)', () => {
     saveHistory([session()]);
     const app = new Hono();
     mountCatchUpRoutes(app, { ask: async () => null });
-    expect(await (await app.request(`/api/sessions/${sessionIdFor(session())}/time`)).json()).toMatchObject({ workedMs: 7 * 60_000, prompts: 1 });
+    expect(await (await app.request(`/api/sessions/${sessionIdFor(session())}/time`)).json()).toMatchObject({
+      workedMs: 7 * 60_000,
+      prompts: 1,
+    });
     expect((await app.request('/api/sessions/nope/time')).status).toBe(404);
   });
 
@@ -138,8 +160,17 @@ describe('sessionWorkTime (its transcripts on disk)', () => {
 describe('the digest', () => {
   it('says how long its Claude worked in the window, per session and in all', () => {
     const input: DigestInput = {
-      sessionId: 's1', target: 'api', branch: 'feat/x', isGroup: false, lastAccessedAt: at(0), archivedAt: null, status: null,
-      transcripts: [cl([you(0)])], checkpoints: [], diffStat: null, ci: null,
+      sessionId: 's1',
+      target: 'api',
+      branch: 'feat/x',
+      isGroup: false,
+      lastAccessedAt: at(0),
+      archivedAt: null,
+      status: null,
+      transcripts: [cl([you(0)])],
+      checkpoints: [],
+      diffStat: null,
+      ci: null,
       work: [workSteps(cl([you(0), claude(10), you(50), claude(75)])).steps], // 10m, then 25m capped at 15
     };
     const row = digestSession(input, T0)!;

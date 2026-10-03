@@ -9,7 +9,10 @@ const N = 512;
 const px = Buffer.alloc(N * N * 4);
 const set = (x, y, [r, g, b, a]) => {
   const i = (y * N + x) * 4;
-  px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = a;
+  px[i] = r;
+  px[i + 1] = g;
+  px[i + 2] = b;
+  px[i + 3] = a;
 };
 const inRounded = (x, y, r) => {
   const cx = Math.min(Math.max(x, r), N - 1 - r);
@@ -18,13 +21,17 @@ const inRounded = (x, y, r) => {
 };
 // Distance from point to segment, for the chevron strokes.
 const seg = (x, y, x1, y1, x2, y2) => {
-  const dx = x2 - x1, dy = y2 - y1;
+  const dx = x2 - x1,
+    dy = y2 - y1;
   const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
   return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
 };
 for (let y = 0; y < N; y++) {
   for (let x = 0; x < N; x++) {
-    if (!inRounded(x, y, 96)) { set(x, y, [0, 0, 0, 0]); continue; }
+    if (!inRounded(x, y, 96)) {
+      set(x, y, [0, 0, 0, 0]);
+      continue;
+    }
     const chevron = Math.min(seg(x, y, 130, 150, 250, 256), seg(x, y, 250, 256, 130, 362)) < 30;
     const cursor = x >= 280 && x <= 390 && y >= 332 && y <= 376;
     set(x, y, chevron || cursor ? [78, 201, 176, 255] : [30, 30, 30, 255]);
@@ -44,14 +51,18 @@ const crc = (buf) => {
   return (c ^ 0xffffffff) >>> 0;
 };
 const chunk = (type, data) => {
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
   const td = Buffer.concat([Buffer.from(type), data]);
-  const c = Buffer.alloc(4); c.writeUInt32BE(crc(td));
+  const c = Buffer.alloc(4);
+  c.writeUInt32BE(crc(td));
   return Buffer.concat([len, td, c]);
 };
 const ihdr = Buffer.alloc(13);
-ihdr.writeUInt32BE(N, 0); ihdr.writeUInt32BE(N, 4);
-ihdr[8] = 8; ihdr[9] = 6; // 8-bit RGBA
+ihdr.writeUInt32BE(N, 0);
+ihdr.writeUInt32BE(N, 4);
+ihdr[8] = 8;
+ihdr[9] = 6; // 8-bit RGBA
 const png = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   chunk('IHDR', ihdr),

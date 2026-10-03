@@ -57,7 +57,10 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
   if (!time || time.workedMs < 60_000) return null;
   const now = Date.now();
   const line = worklogLine(session, time);
-  const days = time.byDay.slice(0, 7).map((d) => `${weekday(d.day, now)} ${formatWorked(d.ms)}`).join(' · ');
+  const days = time.byDay
+    .slice(0, 7)
+    .map((d) => `${weekday(d.day, now)} ${formatWorked(d.ms)}`)
+    .join(' · ');
   const flash = (what: 'ok' | 'failed') => {
     setCopied(what);
     setTimeout(() => setCopied(null), 2000);
@@ -73,21 +76,23 @@ export function WorkTimeChip({ session }: { session: SessionSummary }) {
   };
   return (
     <span className="wd-work-time-wrap">
-    <button
-      type="button"
-      className="wd-work-time"
-      onClick={copy}
-      disabled={!line}
-      title={
-        `Its Claude worked about ${formatWorked(time.workedMs)} over ${time.prompts} prompt${time.prompts === 1 ? '' : 's'}` +
-        ' (the time between its steps, at most 15 minutes each — your reading and typing time is not counted).' +
-        (days ? `\n${days}` : '') +
-        (line ? `\nClick to copy ${weekday(line.day, now) === 'Today' ? "today's" : `${weekday(line.day, now)}'s`} worklog: ${line.text}` : '\nNo work in the last two weeks to log.')
-      }
-    >
-      <span aria-hidden>⏱</span> {copied === 'ok' ? 'Copied' : copied === 'failed' ? "Couldn't copy" : formatWorked(time.workedMs)}
-    </button>
-    {line && session.jiraKey && <LogToJira sessionId={session.id} day={line.day} jiraKey={session.jiraKey} />}
+      <button
+        type="button"
+        className="wd-work-time"
+        onClick={copy}
+        disabled={!line}
+        title={
+          `Its Claude worked about ${formatWorked(time.workedMs)} over ${time.prompts} prompt${time.prompts === 1 ? '' : 's'}` +
+          ' (the time between its steps, at most 15 minutes each — your reading and typing time is not counted).' +
+          (days ? `\n${days}` : '') +
+          (line
+            ? `\nClick to copy ${weekday(line.day, now) === 'Today' ? "today's" : `${weekday(line.day, now)}'s`} worklog: ${line.text}`
+            : '\nNo work in the last two weeks to log.')
+        }
+      >
+        <span aria-hidden>⏱</span> {copied === 'ok' ? 'Copied' : copied === 'failed' ? "Couldn't copy" : formatWorked(time.workedMs)}
+      </button>
+      {line && session.jiraKey && <LogToJira sessionId={session.id} day={line.day} jiraKey={session.jiraKey} />}
     </span>
   );
 }

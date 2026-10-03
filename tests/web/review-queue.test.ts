@@ -3,10 +3,25 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 import { isDoneUnseen, nextInQueue, queuePosition, startQueue } from '../../src/web/src/state/review-queue.js';
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-const att = (state: SessionAttention['state'], seen: boolean, mins: number): SessionAttention =>
-  ({ state, seen, since: minsAgo(mins), updatedAt: minsAgo(mins), stale: false });
-const s = (id: string, attention: SessionAttention | null, archivedAt: string | null = null): SessionSummary =>
-  ({ id, target: 'r', branch: id, isGroup: false, paths: [], createdAt: minsAgo(99), lastAccessedAt: minsAgo(9), attention, archivedAt, activityState: 'stale' });
+const att = (state: SessionAttention['state'], seen: boolean, mins: number): SessionAttention => ({
+  state,
+  seen,
+  since: minsAgo(mins),
+  updatedAt: minsAgo(mins),
+  stale: false,
+});
+const s = (id: string, attention: SessionAttention | null, archivedAt: string | null = null): SessionSummary => ({
+  id,
+  target: 'r',
+  branch: id,
+  isGroup: false,
+  paths: [],
+  createdAt: minsAgo(99),
+  lastAccessedAt: minsAgo(9),
+  attention,
+  archivedAt,
+  activityState: 'stale',
+});
 
 const SESSIONS = [
   s('done-new', att('idle', false, 2)),
@@ -20,7 +35,11 @@ const SESSIONS = [
 describe('review queue', () => {
   it('holds the finished, unseen sessions in inbox order (longest waiting first)', () => {
     expect(startQueue(SESSIONS)?.ids).toEqual(['done-old', 'done-new']);
-    expect(SESSIONS.filter(isDoneUnseen).map((x) => x.id).sort()).toEqual(['done-new', 'done-old']);
+    expect(
+      SESSIONS.filter(isDoneUnseen)
+        .map((x) => x.id)
+        .sort(),
+    ).toEqual(['done-new', 'done-old']);
     expect(startQueue([s('w', att('working', true, 1))])).toBeNull();
   });
 

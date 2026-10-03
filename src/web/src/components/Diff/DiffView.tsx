@@ -25,12 +25,7 @@ import { PendingPill } from '../Review/PendingPill.js';
 import { useViewedFiles } from '../../hooks/use-viewed-files.js';
 import { useCommentJump } from '../../hooks/use-comment-jump.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
-import {
-  COMMENTS_SPEC,
-  ResizeDivider,
-  useResizableSize,
-  useSidebarWidth,
-} from '../Layout/ResizeDivider.js';
+import { COMMENTS_SPEC, ResizeDivider, useResizableSize, useSidebarWidth } from '../Layout/ResizeDivider.js';
 
 interface Props {
   session: SessionSummary;
@@ -99,10 +94,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     reload,
     checkForUpdates,
   } = useDeferredDiffLoad(
-    () =>
-      turn
-        ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to })
-        : fetchSessionDiff(session.id, diffBase),
+    () => (turn ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to }) : fetchSessionDiff(session.id, diffBase)),
     [session.id, diffBase, turn?.from, turn?.to],
   );
 
@@ -142,9 +134,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     if (!diff || diff.repos.length === 0) return null;
     return diff.repos.find((r) => r.name === activeRepoName) ?? diff.repos[0];
   }, [diff, activeRepoName]);
-  const activeStart = activeRepo
-    ? (repoStartIndex.get(activeRepo.name) ?? 0)
-    : 0;
+  const activeStart = activeRepo ? (repoStartIndex.get(activeRepo.name) ?? 0) : 0;
 
   const pathToAnchor = useMemo(() => {
     const map = new Map<string, string>();
@@ -155,22 +145,12 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     return map;
   }, [activeRepo, activeStart]);
 
-  const scopeKey = activeRepo
-    ? `session:${session.id}:${activeRepo.name}`
-    : `session:${session.id}:_pending`;
-  const hunkScopeKey = activeRepo
-    ? `session:${session.id}:${activeRepo.name}:hunks`
-    : '';
-  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(
-    scopeKey,
-    pathToAnchor,
-  );
-  const activeAnchor = useScrollspy(
-    `${session.id}:${activeRepo?.name ?? '_pending'}`,
-  );
+  const scopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}` : `session:${session.id}:_pending`;
+  const hunkScopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}:hunks` : '';
+  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor);
+  const activeAnchor = useScrollspy(`${session.id}:${activeRepo?.name ?? '_pending'}`);
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
-  const { size: commentsHeight, setSize: setCommentsHeight } =
-    useResizableSize(COMMENTS_SPEC);
+  const { size: commentsHeight, setSize: setCommentsHeight } = useResizableSize(COMMENTS_SPEC);
   const layoutRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   // The dashboard diff scrolls inside <main> (not the document), so "back to
@@ -218,9 +198,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   const totalFiles = diff.repos.reduce((s, r) => s + r.files.length, 0);
   // File count of the staged (not-yet-shown) diff, for the banner's summary.
-  const pendingFileCount = pending
-    ? pending.repos.reduce((s, r) => s + r.files.length, 0)
-    : null;
+  const pendingFileCount = pending ? pending.repos.reduce((s, r) => s + r.files.length, 0) : null;
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = diff.repos.length > 1;
   // Three flavours of empty depending on what scope failed:
@@ -247,240 +225,180 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   return (
     <ReviewProvider api={api}>
-     <RevertContext.Provider value={revertApi}>
-      <div
-        ref={layoutRef}
-        className="wd-web-review-layout"
-        style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}
-      >
-        <aside
-          ref={sidebarRef}
-          className="wd-web-review-sidebar wd-web-review-sidebar-split"
-          style={{ [COMMENTS_SPEC.cssVar as string]: `${commentsHeight}px` }}
-        >
-          <header className="wd-web-review-sidebar-header">
-            <h1>
-              {session.target}
-              <span className="wd-web-branch"> · {session.branch}</span>
-            </h1>
-            <p>
-              {stale ? (
-                <span className="wd-web-muted">loading…</span>
-              ) : isEmpty ? (
-                <span className="wd-web-muted">no changes</span>
-              ) : (
-                <>
-                  {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
-                  {hasTabs ? ` across ${diff.repos.length} repos` : ''}
-                </>
-              )}
-              {diff.base === 'branch' && diff.resolvedBase && (
-                <>
-                  {' '}
-                  <span className="wd-web-muted">vs {diff.resolvedBase}</span>
-                </>
-              )}
-            </p>
-            <div
-              className="wd-web-diff-scope"
-              role="tablist"
-              aria-label="Diff scope"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!turn && diffBase === 'uncommitted'}
-                className={
-                  'wd-web-diff-scope-btn' +
-                  (!turn && diffBase === 'uncommitted'
-                    ? ' wd-web-diff-scope-btn-active'
-                    : '')
-                }
-                onClick={() => {
-                  setTurnTo(null);
-                  setDiffBase('uncommitted');
-                }}
-                title="git diff HEAD — only the working-tree deltas"
-              >
-                Uncommitted
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!turn && diffBase === 'branch'}
-                className={
-                  'wd-web-diff-scope-btn' +
-                  (!turn && diffBase === 'branch'
-                    ? ' wd-web-diff-scope-btn-active'
-                    : '')
-                }
-                onClick={() => {
-                  setTurnTo(null);
-                  setDiffBase('branch');
-                }}
-                title={
-                  session.baseBranch
-                    ? `git diff ${session.baseBranch} — everything since this branch was created`
-                    : "Everything since this worktree's parent branch — auto-detected"
-                }
-              >
-                Since branch
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!!turn}
-                className={'wd-web-diff-scope-btn' + (turn ? ' wd-web-diff-scope-btn-active' : '')}
-                disabled={turns.length === 0}
-                onClick={() => setTurnTo(turns[0]?.to ?? null)}
-                title={
-                  turns.length
-                    ? "Only what Claude's last instruction changed"
-                    : 'No finished turn yet — appears after Claude finishes one'
-                }
-              >
-                Last turn
-              </button>
-            </div>
-            {turn && turns.length > 1 && (
-              <label className="wd-web-turn-pick">
-                <span className="wd-web-muted">Turn</span>{' '}
-                <select
-                  value={turn.to}
-                  onChange={(e) => setTurnTo(Number(e.target.value))}
-                  aria-label="Which turn"
+      <RevertContext.Provider value={revertApi}>
+        <div ref={layoutRef} className="wd-web-review-layout" style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}>
+          <aside
+            ref={sidebarRef}
+            className="wd-web-review-sidebar wd-web-review-sidebar-split"
+            style={{ [COMMENTS_SPEC.cssVar as string]: `${commentsHeight}px` }}
+          >
+            <header className="wd-web-review-sidebar-header">
+              <h1>
+                {session.target}
+                <span className="wd-web-branch"> · {session.branch}</span>
+              </h1>
+              <p>
+                {stale ? (
+                  <span className="wd-web-muted">loading…</span>
+                ) : isEmpty ? (
+                  <span className="wd-web-muted">no changes</span>
+                ) : (
+                  <>
+                    {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
+                    {hasTabs ? ` across ${diff.repos.length} repos` : ''}
+                  </>
+                )}
+                {diff.base === 'branch' && diff.resolvedBase && (
+                  <>
+                    {' '}
+                    <span className="wd-web-muted">vs {diff.resolvedBase}</span>
+                  </>
+                )}
+              </p>
+              <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!turn && diffBase === 'uncommitted'}
+                  className={'wd-web-diff-scope-btn' + (!turn && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')}
+                  onClick={() => {
+                    setTurnTo(null);
+                    setDiffBase('uncommitted');
+                  }}
+                  title="git diff HEAD — only the working-tree deltas"
                 >
-                  {turns.map((t) => (
-                    <option key={t.to} value={t.to}>
-                      {t.n}{t.label ? ` · ${t.label}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Uncommitted
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!turn && diffBase === 'branch'}
+                  className={'wd-web-diff-scope-btn' + (!turn && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
+                  onClick={() => {
+                    setTurnTo(null);
+                    setDiffBase('branch');
+                  }}
+                  title={
+                    session.baseBranch
+                      ? `git diff ${session.baseBranch} — everything since this branch was created`
+                      : "Everything since this worktree's parent branch — auto-detected"
+                  }
+                >
+                  Since branch
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!!turn}
+                  className={'wd-web-diff-scope-btn' + (turn ? ' wd-web-diff-scope-btn-active' : '')}
+                  disabled={turns.length === 0}
+                  onClick={() => setTurnTo(turns[0]?.to ?? null)}
+                  title={
+                    turns.length
+                      ? "Only what Claude's last instruction changed"
+                      : 'No finished turn yet — appears after Claude finishes one'
+                  }
+                >
+                  Last turn
+                </button>
+              </div>
+              {turn && turns.length > 1 && (
+                <label className="wd-web-turn-pick">
+                  <span className="wd-web-muted">Turn</span>{' '}
+                  <select value={turn.to} onChange={(e) => setTurnTo(Number(e.target.value))} aria-label="Which turn">
+                    {turns.map((t) => (
+                      <option key={t.to} value={t.to}>
+                        {t.n}
+                        {t.label ? ` · ${t.label}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {turn && turns.length === 1 && turn.label && <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>}
+              <DiffModeToggle />
+              {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
+              {(stale || loading || (checking && !pending)) && <DiffBusyChip label={stale || loading ? 'loading…' : 'checking…'} />}
+            </header>
+            {!isEmpty && activeRepo && (
+              <>
+                <div ref={treeScrollRef} className={'wd-sidebar-split-top' + (stale ? ' wd-diff-stale' : '')} inert={stale}>
+                  <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
+                </div>
+                <ResizeDivider layoutRef={sidebarRef} size={commentsHeight} onCommit={setCommentsHeight} spec={COMMENTS_SPEC} />
+                <div className="wd-sidebar-split-bottom">
+                  <CommentsPanel repoName={activeRepo.name} />
+                </div>
+              </>
             )}
-            {turn && turns.length === 1 && turn.label && (
-              <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>
-            )}
-            <DiffModeToggle />
-            {pending && (
-              <DiffUpdateChip
-                filesChanged={pendingFileCount}
-                onShow={applyPending}
-                onReload={reloadFromTop}
-              />
-            )}
-            {(stale || loading || (checking && !pending)) && (
-              <DiffBusyChip
-                label={stale || loading ? 'loading…' : 'checking…'}
-              />
-            )}
-          </header>
-          {!isEmpty && activeRepo && (
-            <>
-              <div
-                ref={treeScrollRef}
-                className={
-                  'wd-sidebar-split-top' + (stale ? ' wd-diff-stale' : '')
-                }
-                inert={stale}
-              >
-                <FileTree
-                  files={activeRepo.files}
+          </aside>
+          <ResizeDivider layoutRef={layoutRef} size={sidebarWidth} onCommit={setSidebarWidth} />
+          <main
+            ref={mainRef}
+            // `stale` = still showing the previously selected session's (or
+            // base's) diff while this one loads: dim + blur it so it can't be
+            // mistaken for the selected session's changes.
+            className={'wd-web-review-main' + (stale ? ' wd-diff-stale' : '')}
+            aria-busy={loading || stale}
+            inert={stale}
+            // Always set --tabs-offset (0px when no tabs) so the value is
+            // present in every render. With keep-mounted-hidden dashboard
+            // nav, an incoming pane that flips from hidden to visible would
+            // otherwise paint one frame without the variable — single-frame
+            // layout jump when scrolling sticky-positioned file headers.
+            style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
+          >
+            {isEmpty || !activeRepo ? (
+              <div className="wd-web-empty wd-web-empty-diff">
+                <p>{emptyMessage}</p>
+                {!turn && diffBase === 'uncommitted' && (
+                  <p className="wd-web-empty-hint">
+                    Try{' '}
+                    <button type="button" className="wd-web-link-btn" onClick={() => setDiffBase('branch')}>
+                      Since branch
+                    </button>{' '}
+                    to see everything in this worktree.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <GeneralPane />
+                {hasTabs && (
+                  <nav className="wd-web-repo-tabs">
+                    {diff.repos.map((r) => {
+                      const add = r.files.reduce((s, f) => s + f.added, 0);
+                      const del = r.files.reduce((s, f) => s + f.deleted, 0);
+                      return (
+                        <button
+                          key={r.name}
+                          type="button"
+                          className={'wd-web-repo-tab' + (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '')}
+                          onClick={() => setActiveRepoName(r.name)}
+                        >
+                          {r.name} <span className="wd-web-tab-count">({r.files.length})</span>{' '}
+                          <span className="wd-tab-stats">
+                            <span className="wd-add">+{add}</span> <span className="wd-del">-{del}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                )}
+                <DiffRepo
+                  repo={activeRepo}
                   startIndex={activeStart}
-                  selectedAnchor={activeAnchor}
-                  viewedAnchors={viewedAnchors}
+                  review
+                  viewedPaths={viewedPaths}
+                  onToggleViewed={toggleViewed}
+                  hunkScopeKey={hunkScopeKey}
                 />
-              </div>
-              <ResizeDivider
-                layoutRef={sidebarRef}
-                size={commentsHeight}
-                onCommit={setCommentsHeight}
-                spec={COMMENTS_SPEC}
-              />
-              <div className="wd-sidebar-split-bottom">
-                <CommentsPanel repoName={activeRepo.name} />
-              </div>
-            </>
-          )}
-        </aside>
-        <ResizeDivider
-          layoutRef={layoutRef}
-          size={sidebarWidth}
-          onCommit={setSidebarWidth}
-        />
-        <main
-          ref={mainRef}
-          // `stale` = still showing the previously selected session's (or
-          // base's) diff while this one loads: dim + blur it so it can't be
-          // mistaken for the selected session's changes.
-          className={'wd-web-review-main' + (stale ? ' wd-diff-stale' : '')}
-          aria-busy={loading || stale}
-          inert={stale}
-          // Always set --tabs-offset (0px when no tabs) so the value is
-          // present in every render. With keep-mounted-hidden dashboard
-          // nav, an incoming pane that flips from hidden to visible would
-          // otherwise paint one frame without the variable — single-frame
-          // layout jump when scrolling sticky-positioned file headers.
-          style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
-        >
-          {isEmpty || !activeRepo ? (
-            <div className="wd-web-empty wd-web-empty-diff">
-              <p>{emptyMessage}</p>
-              {!turn && diffBase === 'uncommitted' && (
-                <p className="wd-web-empty-hint">
-                  Try <button
-                    type="button"
-                    className="wd-web-link-btn"
-                    onClick={() => setDiffBase('branch')}
-                  >Since branch</button> to see everything in this worktree.
-                </p>
-              )}
-            </div>
-          ) : (
-            <>
-              <GeneralPane />
-              {hasTabs && (
-                <nav className="wd-web-repo-tabs">
-                  {diff.repos.map((r) => {
-                    const add = r.files.reduce((s, f) => s + f.added, 0);
-                    const del = r.files.reduce((s, f) => s + f.deleted, 0);
-                    return (
-                      <button
-                        key={r.name}
-                        type="button"
-                        className={
-                          'wd-web-repo-tab' +
-                          (r.name === activeRepo.name
-                            ? ' wd-web-repo-tab-active'
-                            : '')
-                        }
-                        onClick={() => setActiveRepoName(r.name)}
-                      >
-                        {r.name}{' '}
-                        <span className="wd-web-tab-count">({r.files.length})</span>{' '}
-                        <span className="wd-tab-stats">
-                          <span className="wd-add">+{add}</span>{' '}
-                          <span className="wd-del">-{del}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </nav>
-              )}
-              <DiffRepo
-                repo={activeRepo}
-                startIndex={activeStart}
-                review
-                viewedPaths={viewedPaths}
-                onToggleViewed={toggleViewed}
-                hunkScopeKey={hunkScopeKey}
-              />
-            </>
-          )}
-        </main>
-        {!isEmpty && <PendingPill />}
-      </div>
-     </RevertContext.Provider>
+              </>
+            )}
+          </main>
+          {!isEmpty && <PendingPill />}
+        </div>
+      </RevertContext.Provider>
     </ReviewProvider>
   );
 }

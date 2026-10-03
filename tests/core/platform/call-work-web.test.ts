@@ -51,6 +51,10 @@ describe('callWorkWeb', () => {
 
   it('a work web that doesn’t answer in time: status 0, not a hang', async () => {
     await serve(() => {}); // never answers
-    expect(await callWorkWeb('GET', '/api/x', undefined, 300)).toMatchObject({ ok: false, status: 0, error: expect.stringContaining('did not answer') });
+    expect(await callWorkWeb('GET', '/api/x', undefined, 300)).toMatchObject({
+      ok: false,
+      status: 0,
+      error: expect.stringContaining('did not answer'),
+    });
   });
 });

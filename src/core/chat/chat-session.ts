@@ -133,7 +133,10 @@ export class ChatSession {
   // ------------------------------------------------------------- process
 
   private start(): void {
-    const args = [...this.spec.baseArgs, ...this.protocol.args({ resumeId: this.conversationId, continueLatest: this.spec.continueExisting })];
+    const args = [
+      ...this.spec.baseArgs,
+      ...this.protocol.args({ resumeId: this.conversationId, continueLatest: this.spec.continueExisting }),
+    ];
     const clean = this.spec.cleanEnv ?? ((e: NodeJS.ProcessEnv) => e);
     const env = { ...clean(process.env), ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
     this.stopping = false;
@@ -238,7 +241,12 @@ export class ChatSession {
     const answerLine = this.protocol.answerLine?.bind(this.protocol);
     if (!answerLine) {
       report('warn', `[chat] ${this.sessionId}: the agent asked permission for ${p.toolName}, which its chat protocol can't answer`);
-      this.push([{ kind: 'notice', text: `It asked permission to use ${p.toolName}, which this chat can't answer: stop it, and answer in its terminal.` }]);
+      this.push([
+        {
+          kind: 'notice',
+          text: `It asked permission to use ${p.toolName}, which this chat can't answer: stop it, and answer in its terminal.`,
+        },
+      ]);
       return;
     }
     const child = this.child;

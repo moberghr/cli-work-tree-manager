@@ -37,12 +37,15 @@ export interface AiLaunchOpts {
  * Per-tool flag presets. Looked up by the binary in `aiCommand`. Users can
  * override any individual flag via `config.aiCommandFlags`.
  */
-export const AI_TOOL_PRESETS: Record<string, {
-  unsafe: string;
-  resume: string;
-  promptFile: string;
-  prompt: string;
-}> = {
+export const AI_TOOL_PRESETS: Record<
+  string,
+  {
+    unsafe: string;
+    resume: string;
+    promptFile: string;
+    prompt: string;
+  }
+> = {
   claude: {
     unsafe: '--dangerously-skip-permissions',
     resume: '--continue',
@@ -96,8 +99,11 @@ export function buildAiLaunchArgs(tool: AiToolSpec, opts: AiLaunchOpts = {}): { 
       args.push(tool.promptFileFlag, opts.promptFile);
     } else if (tool.promptFlag) {
       // Tool has no prompt-file flag — read the file and pass inline instead.
-      try { inlinePrompt = fs.readFileSync(opts.promptFile, 'utf-8'); }
-      catch { /* leave inlinePrompt as-is */ }
+      try {
+        inlinePrompt = fs.readFileSync(opts.promptFile, 'utf-8');
+      } catch {
+        /* leave inlinePrompt as-is */
+      }
     }
   }
   if (inlinePrompt) {

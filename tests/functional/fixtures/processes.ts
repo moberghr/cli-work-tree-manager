@@ -21,7 +21,11 @@ export function killTree(pid: number): void {
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
   } else {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* gone */
+    }
   }
 }
 

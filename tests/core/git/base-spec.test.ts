@@ -66,9 +66,7 @@ describe('parseBaseSpec', () => {
   });
 
   it('throws on conflicting per-repo values', () => {
-    expect(() => parseBaseSpec(['backend=dev', 'backend=main'])).toThrow(
-      BaseSpecError,
-    );
+    expect(() => parseBaseSpec(['backend=dev', 'backend=main'])).toThrow(BaseSpecError);
   });
 
   it('throws on an empty alias', () => {

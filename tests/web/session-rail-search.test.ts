@@ -11,11 +11,27 @@ import { sessionMatches } from '../../src/web/src/state/session-display.js';
 
 const recent = new Date().toISOString();
 const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
-const session = (id: string, target: string, branch: string, path: string, at = recent): SessionSummary => ({
-  id, target, branch, isGroup: false, paths: [path], createdAt: at, lastAccessedAt: at,
-  draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-  pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null,
-} as SessionSummary);
+const session = (id: string, target: string, branch: string, path: string, at = recent): SessionSummary =>
+  ({
+    id,
+    target,
+    branch,
+    isGroup: false,
+    paths: [path],
+    createdAt: at,
+    lastAccessedAt: at,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+  }) as SessionSummary;
 const SESSIONS = [
   session('a', 'straumur-backend', 'tmp/encryption-keys', 'C:\\repos\\worktrees\\straumur-backend-ai\\tmp-encryption-keys'),
   session('b', 'jobly', 'fix/retries', 'C:\\repos\\worktrees\\jobly\\fix-retries'),
@@ -47,7 +63,18 @@ afterEach(() => {
 
 const render = (props: Partial<Parameters<typeof SessionRail>[0]> = {}) => {
   const onSelect = vi.fn();
-  act(() => root.render(createElement(SessionRail, { sessions: SESSIONS, activeSessionId: null, onSelect, onNewWorktree: () => {}, onReorder: () => {}, ...props })));
+  act(() =>
+    root.render(
+      createElement(SessionRail, {
+        sessions: SESSIONS,
+        activeSessionId: null,
+        onSelect,
+        onNewWorktree: () => {},
+        onReorder: () => {},
+        ...props,
+      }),
+    ),
+  );
   return onSelect;
 };
 const names = () => [...container.querySelectorAll('.wd-dash-rail-name')].map((n) => n.textContent);
@@ -59,7 +86,10 @@ const type = (text: string) => {
     search().dispatchEvent(new Event('input', { bubbles: true }));
   });
 };
-const key = (el: EventTarget, k: string) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+const key = (el: EventTarget, k: string) =>
+  act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+  });
 
 describe('SessionRail search', () => {
   it('filters as you type, older sessions included, and drag is off meanwhile', () => {
@@ -88,7 +118,18 @@ describe('SessionRail search', () => {
 describe('PR pills in the rail', () => {
   it('open the PR, without selecting the row', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const pr = { number: 3509, title: 't', branch: 'fix/retries', url: 'https://github.com/o/r/pull/3509', isDraft: false, checksStatus: 'SUCCESS', reviewDecision: 'NONE', myReview: 'NONE', isMine: true, repoAlias: 'jobly' } as PrInfo;
+    const pr = {
+      number: 3509,
+      title: 't',
+      branch: 'fix/retries',
+      url: 'https://github.com/o/r/pull/3509',
+      isDraft: false,
+      checksStatus: 'SUCCESS',
+      reviewDecision: 'NONE',
+      myReview: 'NONE',
+      isMine: true,
+      repoAlias: 'jobly',
+    } as PrInfo;
     const onSelect = render({ prsFor: (s) => (s.id === 'b' ? [pr] : []) });
     const pill = container.querySelector<HTMLElement>('.wd-pr-chip')!;
     act(() => pill.click());

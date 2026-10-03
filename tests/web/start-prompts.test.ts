@@ -3,13 +3,29 @@ import { jiraPrompt, prPrompt } from '../../src/web/src/state/start-prompts.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
 
 const pr = (over: Partial<PrInfo> = {}): PrInfo => ({
-  number: 42, title: 'Add CSV export', branch: 'feat/csv', url: 'https://gh/pr/42', isDraft: false,
-  checksStatus: 'SUCCESS', reviewDecision: 'NONE', myReview: 'NONE', isMine: true, repoAlias: 'api', ...over,
+  number: 42,
+  title: 'Add CSV export',
+  branch: 'feat/csv',
+  url: 'https://gh/pr/42',
+  isDraft: false,
+  checksStatus: 'SUCCESS',
+  reviewDecision: 'NONE',
+  myReview: 'NONE',
+  isMine: true,
+  repoAlias: 'api',
+  ...over,
 });
 
 describe('start prompts', () => {
   it('a Jira issue: key, summary and where to read it', () => {
-    const p = jiraPrompt({ key: 'ABC-1', summary: 'Export invoices', status: 'To Do', issuetype: 'Story', priority: 'High', url: 'https://jira/ABC-1' });
+    const p = jiraPrompt({
+      key: 'ABC-1',
+      summary: 'Export invoices',
+      status: 'To Do',
+      issuetype: 'Story',
+      priority: 'High',
+      url: 'https://jira/ABC-1',
+    });
     expect(p.split('\n')[0]).toBe('Work on ABC-1: Export invoices');
     expect(p).toContain('https://jira/ABC-1');
   });

@@ -13,7 +13,11 @@ import { report } from '../platform/report.js';
  * `work tree` into it must not bring old changes back over newer work. What
  * couldn't be put back says where it is (its ref and patch stay).
  */
-export async function restoreArchivedUncommitted(s: WorktreeSession, config: WorkConfig, root = archiveRoot()): Promise<{ restored: string[]; failed: Array<{ repo: string; error: string }> }> {
+export async function restoreArchivedUncommitted(
+  s: WorktreeSession,
+  config: WorkConfig,
+  root = archiveRoot(),
+): Promise<{ restored: string[]; failed: Array<{ repo: string; error: string }> }> {
   const id = sessionIdFor(s);
   const rec = readArchive(id, root);
   const out = { restored: [] as string[], failed: [] as Array<{ repo: string; error: string }> };

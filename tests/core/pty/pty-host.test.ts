@@ -12,9 +12,15 @@ class EchoPty implements PtyLike {
   exited = false;
   onExit?: (code: number) => void;
   private out?: (d: string) => void;
-  setOutputHandler(h?: (d: string) => void) { this.out = h; }
+  setOutputHandler(h?: (d: string) => void) {
+    this.out = h;
+  }
   write(d: string) {
-    if (d === 'quit') { this.exited = true; this.onExit?.(3); return; }
+    if (d === 'quit') {
+      this.exited = true;
+      this.onExit?.(3);
+      return;
+    }
     this.out?.(`echo:${d}`);
   }
   resize() {}
@@ -95,9 +101,7 @@ describe('PTY host', () => {
   });
 
   it('refuses a spawn whose cwd does not exist', async () => {
-    await expect(
-      client.spawn('s3', { cwd: path.join(dir, 'nope'), tool: tool as never }),
-    ).rejects.toThrow(/cwd/);
+    await expect(client.spawn('s3', { cwd: path.join(dir, 'nope'), tool: tool as never })).rejects.toThrow(/cwd/);
   });
 });
 
@@ -105,10 +109,13 @@ describe('startup restore ordering (reviewed bug)', () => {
   it('saved sessions are restored before the host serves anything — a spawn right after start cannot drop them', async () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-host-restore-'));
     const sessionsPath = path.join(d, 'pty-sessions.json');
-    fs.writeFileSync(sessionsPath, JSON.stringify({
-      x: { cwd: d, tool, startedAt: '' },
-      z: { cwd: d, tool, startedAt: '' },
-    }));
+    fs.writeFileSync(
+      sessionsPath,
+      JSON.stringify({
+        x: { cwd: d, tool, startedAt: '' },
+        z: { cwd: d, tool, startedAt: '' },
+      }),
+    );
     const registry = new PtyRegistry({ spawner: () => new EchoPty(), hasConversation: () => false, sessionsPath, cwdExists: () => true });
     const h = await startPtyHost({ registry, writeInfo: false }); // restore: default (during startup)
     const c = new PtyHostClient(h.info);

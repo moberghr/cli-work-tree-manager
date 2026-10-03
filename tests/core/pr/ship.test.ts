@@ -65,19 +65,37 @@ function fakeRunner(scripts: Record<string, RepoScript>) {
 
 const P = (name: string) => path.resolve('/wt', name);
 const single = (): WorktreeSession => ({
-  target: 'api', branch: 'feat/x', isGroup: false, paths: [P('api')], createdAt: '', lastAccessedAt: '',
+  target: 'api',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: [P('api')],
+  createdAt: '',
+  lastAccessedAt: '',
 });
 const group = (...names: string[]): WorktreeSession => ({
-  target: 'shop', branch: 'feat/x', isGroup: true, paths: names.map(P), createdAt: '', lastAccessedAt: '',
+  target: 'shop',
+  branch: 'feat/x',
+  isGroup: true,
+  paths: names.map(P),
+  createdAt: '',
+  lastAccessedAt: '',
 });
 const pr = (over: Record<string, unknown> = {}) => ({
-  number: 12, url: 'https://github.com/o/r/pull/12', state: 'OPEN', isDraft: false,
-  mergeStateStatus: 'CLEAN', headRefOid: SHA, statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
+  number: 12,
+  url: 'https://github.com/o/r/pull/12',
+  state: 'OPEN',
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  headRefOid: SHA,
+  statusCheckRollup: [{ status: 'COMPLETED', conclusion: 'SUCCESS' }],
   ...over,
 });
 /** Pushed, tracking itself, clean, with an open green PR at local HEAD. */
 const ready = (over: Partial<RepoScript> = {}): RepoScript => ({
-  remote: true, tracking: 'origin/feat/x', pr: pr(), ...over,
+  remote: true,
+  tracking: 'origin/feat/x',
+  pr: pr(),
+  ...over,
 });
 
 describe('failingFromRollup', () => {
@@ -132,17 +150,27 @@ describe('preflight', () => {
 
   it("blocks when the PR's head is not the local HEAD, or origin has commits you don't", async () => {
     const moved = fakeRunner({ [P('api')]: ready({ head: 'ffff000' }) });
-    expect((await shipPreflight(single(), moved.run)).repos[0].mergeBlockers)
-      .toContain("the PR's head isn't your local HEAD — push or pull first");
+    expect((await shipPreflight(single(), moved.run)).repos[0].mergeBlockers).toContain(
+      "the PR's head isn't your local HEAD — push or pull first",
+    );
     const behind = fakeRunner({ [P('api')]: ready({ counts: '3 0' }) });
-    expect((await shipPreflight(single(), behind.run)).repos[0].mergeBlockers)
-      .toContain("origin has 3 commits you don't have locally — pull first");
+    expect((await shipPreflight(single(), behind.run)).repos[0].mergeBlockers).toContain(
+      "origin has 3 commits you don't have locally — pull first",
+    );
   });
 
   it('lists every other blocker in words', () => {
     const base = {
-      name: 'api', path: '/x', branch: 'feat/x', localSha: SHA, dirtyFiles: 2, hasUpstream: true, tracksRemote: true,
-      ahead: 1, behind: 0, commitsVsBase: 3,
+      name: 'api',
+      path: '/x',
+      branch: 'feat/x',
+      localSha: SHA,
+      dirtyFiles: 2,
+      hasUpstream: true,
+      tracksRemote: true,
+      ahead: 1,
+      behind: 0,
+      commitsVsBase: 3,
       pr: { number: 1, url: '', state: 'OPEN' as const, isDraft: true, mergeStateStatus: 'DIRTY', checks: 'fail' as const, headSha: SHA },
     };
     expect(mergeBlockers(base)).toEqual([
@@ -153,7 +181,10 @@ describe('preflight', () => {
       'checks failing',
     ]);
     expect(mergeBlockers({ ...base, dirtyFiles: 0, ahead: 0, pr: null })).toEqual(['no pull request']);
-    expect(mergeBlockers({ ...base, dirtyFiles: 0, ahead: 0, hasUpstream: false, pr: null })).toEqual(['branch not pushed yet', 'no pull request']);
+    expect(mergeBlockers({ ...base, dirtyFiles: 0, ahead: 0, hasUpstream: false, pr: null })).toEqual([
+      'branch not pushed yet',
+      'no pull request',
+    ]);
   });
 
   it('a merged PR or an untouched repo is DONE, never a blocker', async () => {
@@ -287,7 +318,10 @@ describe('mergeSelected', () => {
     });
     const out = await mergeSelected(
       group('backend', 'frontend'),
-      [{ name: 'backend', headSha: SHA }, { name: 'frontend', headSha: SHA }],
+      [
+        { name: 'backend', headSha: SHA },
+        { name: 'frontend', headSha: SHA },
+      ],
       'squash',
       f.run,
     );

@@ -1,13 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Comment, CommentInput } from '../api/client.js';
 import { scopeReviewApi, type ReviewApi } from '../api/review-api.js';
 import { useSse } from '../api/events.js';
@@ -128,14 +119,11 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
     },
     [api],
   );
-  const discardReview = useCallback(
-    async () => {
-      const res = await api.discard();
-      ++reqIdRef.current;
-      setComments(res.comments);
-    },
-    [api],
-  );
+  const discardReview = useCallback(async () => {
+    const res = await api.discard();
+    ++reqIdRef.current;
+    setComments(res.comments);
+  }, [api]);
   const done = useCallback(async () => {
     await api.done();
   }, [api]);
@@ -163,18 +151,7 @@ export function ReviewProvider({ children, api: providedApi }: ReviewProviderPro
       },
       closeReply: () => setOpenReplyTo(null),
     }),
-    [
-      comments,
-      error,
-      openComposer,
-      openReplyTo,
-      postComment,
-      deleteComment,
-      resolveComment,
-      submitReview,
-      discardReview,
-      done,
-    ],
+    [comments, error, openComposer, openReplyTo, postComment, deleteComment, resolveComment, submitReview, discardReview, done],
   );
 
   return <ReviewCtx.Provider value={value}>{children}</ReviewCtx.Provider>;
@@ -200,32 +177,14 @@ export function selectPublishedCount(comments: Comment[]): number {
   // Only the user's own delivered comments. Claude's replies are published
   // too (author: 'claude'), but counting them would inflate the "End review"
   // badge — one user comment + one Claude reply must read as 1, not 2.
-  return comments.reduce(
-    (n, c) => (c.status === 'published' && c.author === 'user' ? n + 1 : n),
-    0,
-  );
+  return comments.reduce((n, c) => (c.status === 'published' && c.author === 'user' ? n + 1 : n), 0);
 }
 export function selectHasDrafts(comments: Comment[]): boolean {
   return comments.some((c) => c.status === 'draft');
 }
-export function selectCommentsForLine(
-  comments: Comment[],
-  repo: string,
-  file: string,
-  line: number,
-  side: 'left' | 'right',
-): Comment[] {
-  return comments.filter(
-    (c) =>
-      !c.parentId &&
-      c.side === side &&
-      c.repo === repo &&
-      c.file === file &&
-      c.line === line,
-  );
+export function selectCommentsForLine(comments: Comment[], repo: string, file: string, line: number, side: 'left' | 'right'): Comment[] {
+  return comments.filter((c) => !c.parentId && c.side === side && c.repo === repo && c.file === file && c.line === line);
 }
 export function selectReplies(comments: Comment[], parentId: string): Comment[] {
-  return comments
-    .filter((c) => c.parentId === parentId)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return comments.filter((c) => c.parentId === parentId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

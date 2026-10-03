@@ -26,13 +26,26 @@ function parseRow(data: string): PrReply | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   const str = (k: string) => typeof r[k] === 'string';
-  if (!str('threadId') || !str('repo') || typeof r.prNumber !== 'number' || !str('url') || !str('reviewer') || !str('excerpt') || !str('sentAt')) return null;
+  if (
+    !str('threadId') ||
+    !str('repo') ||
+    typeof r.prNumber !== 'number' ||
+    !str('url') ||
+    !str('reviewer') ||
+    !str('excerpt') ||
+    !str('sentAt')
+  )
+    return null;
   if (r.status !== 'sent' && r.status !== 'draft' && r.status !== 'posted') return null;
   return v as PrReply;
 }
 
 function read(sessionId: string, threadId: string): PrReply | null {
-  const row = withDb((d) => d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as { data: string } | undefined);
+  const row = withDb(
+    (d) =>
+      d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as
+        { data: string } | undefined,
+  );
   return row ? parseRow(row.data) : null;
 }
 
@@ -81,9 +94,14 @@ export function saveDraft(sessionId: string, threadId: string, body: string, now
   if (!text) return { ok: false, error: 'the reply is empty' };
   if (text.length > MAX_REPLY_CHARS) return { ok: false, error: `the reply is over ${MAX_REPLY_CHARS} characters` };
   return tx((d) => {
-    const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as { data: string } | undefined;
+    const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as
+      { data: string } | undefined;
     const cur = row ? parseRow(row.data) : null;
-    if (!cur) return { ok: false, error: `thread ${threadId} wasn't handed to this session (only threads from its PR feedback notes can be answered)` } as const;
+    if (!cur)
+      return {
+        ok: false,
+        error: `thread ${threadId} wasn't handed to this session (only threads from its PR feedback notes can be answered)`,
+      } as const;
     if (cur.status === 'posted') return { ok: false, error: 'a reply to this thread was already posted' } as const;
     const next: PrReply = { ...cur, status: 'draft', draft: text, draftedAt: now.toISOString() };
     d.prepare('UPDATE pr_replies SET data = ? WHERE session_id = ? AND thread_id = ?').run(JSON.stringify(next), sessionId, threadId);
@@ -97,7 +115,8 @@ export function discardReply(sessionId: string, threadId: string): boolean {
 
 function markPosted(sessionId: string, threadId: string, body: string, postedUrl: string, resolved: boolean): void {
   tx((d) => {
-    const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as { data: string } | undefined;
+    const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as
+      { data: string } | undefined;
     const cur = row ? parseRow(row.data) : null;
     if (!cur) return;
     const next: PrReply = { ...cur, status: 'posted', draft: body, postedAt: new Date().toISOString(), postedUrl, resolved };
@@ -130,7 +149,11 @@ export async function postReply(
   if (!cur) return { ok: false, error: 'no such thread for this session' };
   if (cur.status === 'posted') return { ok: false, error: 'already posted' };
   // -f: raw strings (never @file / number parsing), argv only (no shell).
-  const add = await opts.run('gh', ['api', 'graphql', '-f', `query=${ADD_REPLY}`, '-f', `threadId=${threadId}`, '-f', `body=${text}`], opts.cwd);
+  const add = await opts.run(
+    'gh',
+    ['api', 'graphql', '-f', `query=${ADD_REPLY}`, '-f', `threadId=${threadId}`, '-f', `body=${text}`],
+    opts.cwd,
+  );
   if (add.code !== 0) return { ok: false, error: add.stderr.trim() || 'gh could not post the reply' };
   let url = cur.url;
   const parsed = json.parse(add.stdout) as { data?: { addPullRequestReviewThreadReply?: { comment?: { url?: unknown } } } } | null;

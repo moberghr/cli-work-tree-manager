@@ -63,9 +63,11 @@ const turnEnded = async () => {
   });
 };
 /** What a session's diff route answers (the fields these tests read). */
-type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
-const files = (d: { repos: Array<{ files: Array<{ path: string }> }> }) =>
-  d.repos.flatMap((r) => r.files.map((f) => f.path)).sort();
+type DiffWire = {
+  base?: string;
+  repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }>;
+};
+const files = (d: { repos: Array<{ files: Array<{ path: string }> }> }) => d.repos.flatMap((r) => r.files.map((f) => f.path)).sort();
 
 describe('session turns', () => {
   it('each finished turn is a range the session diff can show on its own', async () => {
@@ -83,7 +85,9 @@ describe('session turns', () => {
       body: JSON.stringify({ cwd: repo }),
     });
     await expect
-      .poll(async () => (await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`)).body.entries.map((e) => e.id), { timeout: 15_000 })
+      .poll(async () => (await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`)).body.entries.map((e) => e.id), {
+        timeout: 15_000,
+      })
       .toEqual([0]);
 
     fs.writeFileSync(path.join(repo, 'a.txt'), 'turn one\n');

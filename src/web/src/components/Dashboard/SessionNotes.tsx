@@ -76,14 +76,26 @@ export function SessionNotes({ session, onClose }: { session: SessionSummary; on
     );
   };
   const status =
-    typeof state === 'object' ? `⚠ ${state.error}` : state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : state === 'sent' ? 'Sent to its Claude' : '';
+    typeof state === 'object'
+      ? `⚠ ${state.error}`
+      : state === 'saving'
+        ? 'Saving…'
+        : state === 'saved'
+          ? 'Saved'
+          : state === 'sent'
+            ? 'Sent to its Claude'
+            : '';
   return (
     <section className="wd-notes" aria-label="Your notes on this session">
       <textarea
         className="wd-notes-text"
         value={text ?? ''}
         disabled={text === null}
-        placeholder={text === null ? 'Loading…' : 'Your notes: what you decided, what to tell the reviewer, what is next. Saved as you type; only yours until you send them.'}
+        placeholder={
+          text === null
+            ? 'Loading…'
+            : 'Your notes: what you decided, what to tell the reviewer, what is next. Saved as you type; only yours until you send them.'
+        }
         onChange={(e) => change(e.target.value)}
         rows={5}
         aria-label="Notes"
@@ -92,7 +104,13 @@ export function SessionNotes({ session, onClose }: { session: SessionSummary; on
         <span className={'wd-notes-status' + (typeof state === 'object' ? ' wd-tab-error' : '')} role="status">
           {status}
         </span>
-        <button type="button" className="wd-session-detail-btn" onClick={send} disabled={!text?.trim()} title="Hand the notes to its Claude as a message">
+        <button
+          type="button"
+          className="wd-session-detail-btn"
+          onClick={send}
+          disabled={!text?.trim()}
+          title="Hand the notes to its Claude as a message"
+        >
           Send to Claude
         </button>
         <button type="button" className="wd-link-button" onClick={onClose}>

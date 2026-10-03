@@ -87,7 +87,9 @@ async function refresh(): Promise<void> {
     beat.lastError = null;
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
-    outputs = new Map(ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt }]));
+    outputs = new Map(
+      ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt }]),
+    );
   } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.
     // A busy host is still a host (it is there, just not answering).
@@ -167,10 +169,7 @@ export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
  * needed) and return the host WebSocket URL to attach to. Null for an
  * unknown session.
  */
-export async function ensurePty(
-  sessionId: string,
-  extra: { initialPrompt?: string } = {},
-): Promise<string | null> {
+export async function ensurePty(sessionId: string, extra: { initialPrompt?: string } = {}): Promise<string | null> {
   // The dashboard assistant (Ctrl+K) is not a worktree: it runs in its own
   // folder, which is (re)written first (assistant.ts).
   const session = sessionId === ASSISTANT_ID ? null : findSession(sessionId);
@@ -178,12 +177,7 @@ export async function ensurePty(
   // purpose (a Terminal tab still open on it reconnects and would start it).
   const refused = sessionId === ASSISTANT_ID ? null : noClaudeBecause(session, sessionId);
   if (refused) throw new Error(refused);
-  const base =
-    sessionId === ASSISTANT_ID
-      ? assistantSpec()
-      : session
-        ? spawnSpecFor(session)
-        : null;
+  const base = sessionId === ASSISTANT_ID ? assistantSpec() : session ? spawnSpecFor(session) : null;
   if (!base) return null;
   // The first prompt only applies to a fresh spawn (the host ignores the
   // spec when the session's PTY is already running).

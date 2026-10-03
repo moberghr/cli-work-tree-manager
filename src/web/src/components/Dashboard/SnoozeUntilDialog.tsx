@@ -16,7 +16,15 @@ export function whenPreview(text: string, now = new Date()): { at: Date | null; 
  * takes it (snooze.ts parseWhen), with what it understood shown before you
  * confirm. `count` names how many it is for (the bulk bar).
  */
-export function SnoozeUntilDialog({ count = 1, onPick, onClose }: { count?: number; onPick: (untilIso: string) => void; onClose: () => void }) {
+export function SnoozeUntilDialog({
+  count = 1,
+  onPick,
+  onClose,
+}: {
+  count?: number;
+  onPick: (untilIso: string) => void;
+  onClose: () => void;
+}) {
   // Tomorrow morning, as a starting point to change.
   const [text, setText] = useState(() => `${['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][(new Date().getDay() + 1) % 7]} 9:00`);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,7 +37,13 @@ export function SnoozeUntilDialog({ count = 1, onPick, onClose }: { count?: numb
     if (preview.at) onPick(preview.at.toISOString());
   };
   return (
-    <div className="wd-modal-backdrop" role="dialog" aria-modal="true" aria-label="Snooze until" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="wd-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Snooze until"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <form
         className="wd-modal wd-snooze-until"
         onSubmit={(e) => {
@@ -47,7 +61,13 @@ export function SnoozeUntilDialog({ count = 1, onPick, onClose }: { count?: numb
         <div className="wd-modal-body">
           <label className="wd-modal-row">
             <span>When</span>
-            <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} aria-describedby="wd-snooze-until-preview" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              aria-describedby="wd-snooze-until-preview"
+            />
           </label>
           <p id="wd-snooze-until-preview" className={'wd-snooze-until-preview' + (preview.at ? '' : ' wd-tab-error')} role="status">
             {preview.at ? `Until ${preview.text}` : preview.text}

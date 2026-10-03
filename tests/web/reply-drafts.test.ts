@@ -20,12 +20,24 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement;
 
 const reply = (threadId: string, over: Partial<PrReply> = {}): PrReply => ({
-  threadId, repo: 'api', prNumber: 7, url: `https://gh/${threadId}`, where: 'src/a.ts:3', reviewer: 'dana', excerpt: 'Why not a const?',
-  status: 'draft', draft: 'Fixed in abc1234: now a const.', sentAt: '2026-09-30T10:00:00Z', ...over,
+  threadId,
+  repo: 'api',
+  prNumber: 7,
+  url: `https://gh/${threadId}`,
+  where: 'src/a.ts:3',
+  reviewer: 'dana',
+  excerpt: 'Why not a const?',
+  status: 'draft',
+  draft: 'Fixed in abc1234: now a const.',
+  sentAt: '2026-09-30T10:00:00Z',
+  ...over,
 });
 
 function fakeApi(list: PrReply[], waiting: OpenReviewThread[] = []): ReplyApi & { calls: string[] } {
@@ -45,7 +57,11 @@ function fakeApi(list: PrReply[], waiting: OpenReviewThread[] = []): ReplyApi & 
 
 describe('ReplyDrafts', () => {
   it("shows the reviewer's comment and Claude's draft", async () => {
-    act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a'), reply('PRRT_b', { status: 'sent', draft: null })]) })));
+    act(() =>
+      root.render(
+        createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a'), reply('PRRT_b', { status: 'sent', draft: null })]) }),
+      ),
+    );
     await flush();
     expect(container.querySelector('.wd-replies-title')!.textContent).toBe('✍ 1 reply to post');
     expect(container.querySelector('.wd-reply-quote')!.textContent).toBe('Why not a const?');
@@ -63,7 +79,10 @@ describe('ReplyDrafts', () => {
       ta.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () => button('Post & resolve').click());
-    expect(api.calls).toEqual(['edit PRRT_a Fixed in abc1234, and added a test.', 'post PRRT_a Fixed in abc1234, and added a test. resolve=true']);
+    expect(api.calls).toEqual([
+      'edit PRRT_a Fixed in abc1234, and added a test.',
+      'post PRRT_a Fixed in abc1234, and added a test. resolve=true',
+    ]);
   });
 
   it('Post leaves the thread open; Discard posts nothing; nothing at all shows without threads', async () => {
@@ -81,13 +100,23 @@ describe('ReplyDrafts', () => {
 
 describe('ReplyDrafts with nothing to post', () => {
   it('nothing open and nothing drafted: nothing shows', async () => {
-    act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a', { status: 'sent', draft: null })]) })));
+    act(() =>
+      root.render(createElement(ReplyDrafts, { sessionId: 's1', api: fakeApi([reply('PRRT_a', { status: 'sent', draft: null })]) })),
+    );
     await flush();
     expect(container.querySelector('.wd-replies')).toBeNull();
   });
 
   it('an open thread with no draft is listed — the comment, a link, Ask Claude to reply (reported: a count and nothing to see)', async () => {
-    const open: OpenReviewThread = { threadId: 'PRRT_kwDOfront1', repo: 'straumur-frontend-ai', prNumber: 1927, url: 'https://gh/1927#r1', where: 'payfac-admin/src/pages/inventory/inventory.mutations.ts:53', reviewer: 'copilot-pull-request-reviewer', excerpt: 'This invalidates the queries only once…' };
+    const open: OpenReviewThread = {
+      threadId: 'PRRT_kwDOfront1',
+      repo: 'straumur-frontend-ai',
+      prNumber: 1927,
+      url: 'https://gh/1927#r1',
+      where: 'payfac-admin/src/pages/inventory/inventory.mutations.ts:53',
+      reviewer: 'copilot-pull-request-reviewer',
+      excerpt: 'This invalidates the queries only once…',
+    };
     const api = fakeApi([reply('PRRT_kwDOfront1', { status: 'sent', draft: null })], [open]);
     act(() => root.render(createElement(ReplyDrafts, { sessionId: 's1', api })));
     await flush();

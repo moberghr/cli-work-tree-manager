@@ -2,11 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {
-  clearCommentStoreCache,
-  getCommentFileStore,
-  readStoreComments,
-} from '../../../src/core/comments/comment-file-store.js';
+import { clearCommentStoreCache, getCommentFileStore, readStoreComments } from '../../../src/core/comments/comment-file-store.js';
 import { withDb } from '../../../src/core/platform/db.js';
 import type { Comment } from '../../../src/core/comments/comment-types.js';
 
@@ -64,7 +60,11 @@ describe('comment-file-store', () => {
     const s = getCommentFileStore('sid');
     for (const b of ['1', '2', '3']) s.post({ body: b });
     clearCommentStoreCache();
-    expect(getCommentFileStore('sid').snapshot().map((c) => c.body)).toEqual(['1', '2', '3']);
+    expect(
+      getCommentFileStore('sid')
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['1', '2', '3']);
   });
 
   it('returns the same instance for the same session id (cache)', () => {
@@ -73,7 +73,7 @@ describe('comment-file-store', () => {
     expect(a).toBe(b);
   });
 
-  it('reads see another process\'s write at once (work broadcast, the hooks)', () => {
+  it("reads see another process's write at once (work broadcast, the hooks)", () => {
     const s = getCommentFileStore('sid');
     s.post({ body: 'one' });
     writeFromElsewhere('sid', 'manual', 'inserted by another process');
@@ -127,14 +127,22 @@ describe('comment-file-store', () => {
     expect(s.remove(a.id)).toBe(true);
 
     clearCommentStoreCache();
-    expect(getCommentFileStore('sid').snapshot().map((x) => x.body)).toEqual(['from broadcast']);
+    expect(
+      getCommentFileStore('sid')
+        .snapshot()
+        .map((x) => x.body),
+    ).toEqual(['from broadcast']);
   });
 
   it('skips a stored row that is not a comment instead of failing', () => {
     withDb((d) => d.prepare('INSERT INTO comments (store, id, data) VALUES (?, ?, ?)').run('sid', 'bad', '{"nope":1}'));
     getCommentFileStore('sid').post({ body: 'ok' });
     clearCommentStoreCache();
-    expect(getCommentFileStore('sid').snapshot().map((c) => c.body)).toEqual(['ok']);
+    expect(
+      getCommentFileStore('sid')
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['ok']);
   });
 });
 

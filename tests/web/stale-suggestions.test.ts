@@ -11,11 +11,28 @@ import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.j
 
 const NOW = Date.now();
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
-const s = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
-  id, target: 'api', branch: `feat/${id}`, isGroup: false, paths: [`/wt/${id}`], createdAt: ago(STALE_SUGGEST_MS * 3), lastAccessedAt: ago(STALE_SUGGEST_MS + 60_000),
-  draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale', pendingForClaudeCount: 0,
-  attention: null, diffStat: null, archivedAt: null, port: null, ...over,
-} as SessionSummary);
+const s = (id: string, over: Partial<SessionSummary> = {}): SessionSummary =>
+  ({
+    id,
+    target: 'api',
+    branch: `feat/${id}`,
+    isGroup: false,
+    paths: [`/wt/${id}`],
+    createdAt: ago(STALE_SUGGEST_MS * 3),
+    lastAccessedAt: ago(STALE_SUGGEST_MS + 60_000),
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+    ...over,
+  }) as SessionSummary;
 const pr = { number: 1 } as PrInfo;
 
 describe('staleSuggestions', () => {
@@ -29,7 +46,13 @@ describe('staleSuggestions', () => {
       s('archived', { archivedAt: ago(1000) }),
       s('snoozed'),
     ];
-    const out = staleSuggestions(list, (x) => (x.id === 'in-review' ? [pr] : []), NOW, { snoozed: NOW + 1000 }, () => true);
+    const out = staleSuggestions(
+      list,
+      (x) => (x.id === 'in-review' ? [pr] : []),
+      NOW,
+      { snoozed: NOW + 1000 },
+      () => true,
+    );
     expect(out.map((x) => x.id)).toEqual(['older', 'stale']);
   });
 
@@ -48,7 +71,11 @@ describe('staleSuggestions', () => {
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
-  try { localStorage.clear(); } catch { /* */ }
+  try {
+    localStorage.clear();
+  } catch {
+    /* */
+  }
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -61,10 +88,15 @@ afterEach(() => {
 describe('Inbox: worth archiving?', () => {
   it('archives one on click, and Not now hides it', async () => {
     const onArchive = vi.fn(async () => {});
-    act(() => root.render(createElement(InboxTab, { sessions: [s('a'), s('b')], onOpenSession: () => {}, onArchive, prsFor: () => [], prsKnown: () => true })));
+    act(() =>
+      root.render(
+        createElement(InboxTab, { sessions: [s('a'), s('b')], onOpenSession: () => {}, onArchive, prsFor: () => [], prsKnown: () => true }),
+      ),
+    );
     const section = () => container.querySelector('.wd-inbox-stale');
     expect(section()?.textContent).toContain('Worth archiving? (2)');
-    const buttons = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-stale button')].filter((b) => b.textContent === label);
+    const buttons = (label: string) =>
+      [...container.querySelectorAll<HTMLButtonElement>('.wd-inbox-stale button')].filter((b) => b.textContent === label);
     await act(async () => buttons('Archive')[0].click());
     expect(onArchive).toHaveBeenCalledWith('a');
     act(() => buttons('Not now')[1].click());

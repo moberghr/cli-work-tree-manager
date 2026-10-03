@@ -27,14 +27,10 @@ export const resumeCommand: CommandModule = {
     const recent = getRecentSessions(sessions, sessions.length);
 
     // Filter to sessions that still exist on disk
-    const valid = recent.filter((s) =>
-      s.paths.some((p) => fs.existsSync(p)),
-    );
+    const valid = recent.filter((s) => s.paths.some((p) => fs.existsSync(p)));
 
     if (valid.length === 0) {
-      console.log(
-        chalk.yellow('No resumable sessions found.'),
-      );
+      console.log(chalk.yellow('No resumable sessions found.'));
       return;
     }
 
@@ -71,11 +67,7 @@ export const resumeCommand: CommandModule = {
     const tool = agentFor(config, choice).launch.tool(config);
     console.log(chalk.cyan(`Resuming in: ${launchPath}`));
     if (!hasConversation) {
-      console.log(
-        chalk.yellow(
-          `No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`,
-        ),
-      );
+      console.log(chalk.yellow(`No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`));
     }
     console.log(`Starting ${tool.cmd}...`);
     recordLaunch(choice.target, choice.branch, { unsafe: !!unsafe });

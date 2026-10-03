@@ -41,11 +41,7 @@ describe('diffReviewSnapshot', () => {
 
   it('skips draft comments — they only ship through submit-review', () => {
     const seen = new Set<string>();
-    const snap = [
-      comment('a', { status: 'draft' }),
-      comment('b'),
-      comment('c', { status: 'draft' }),
-    ];
+    const snap = [comment('a', { status: 'draft' }), comment('b'), comment('c', { status: 'draft' })];
 
     const out = diffReviewSnapshot(snap, seen);
 

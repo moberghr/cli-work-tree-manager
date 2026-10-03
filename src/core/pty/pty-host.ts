@@ -6,13 +6,7 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import { PtyRegistry } from './pty-registry.js';
 import { adoptLegacyRestoreList } from './pty-sessions-file.js';
 import { bestEffort } from '../platform/best-effort.js';
-import {
-  PROTOCOL_VERSION,
-  hostInfoPath,
-  type ClientFrame,
-  type HostInfo,
-  type SpawnSpec,
-} from './pty-host-protocol.js';
+import { PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type SpawnSpec } from './pty-host-protocol.js';
 import { report } from '../platform/report.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
@@ -59,13 +53,7 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
 function isSpawnSpec(v: unknown): v is SpawnSpec {
   if (!v || typeof v !== 'object') return false;
   const s = v as Partial<SpawnSpec>;
-  return (
-    typeof s.cwd === 'string' &&
-    s.cwd.length > 0 &&
-    !!s.tool &&
-    typeof s.tool.cmd === 'string' &&
-    Array.isArray(s.tool.baseArgs)
-  );
+  return typeof s.cwd === 'string' && s.cwd.length > 0 && !!s.tool && typeof s.tool.cmd === 'string' && Array.isArray(s.tool.baseArgs);
 }
 
 /**
@@ -79,19 +67,14 @@ function isSpawnSpec(v: unknown): v is SpawnSpec {
  * for HTTP, `?token=` for the WebSocket upgrade. Plus a Host-header check
  * against DNS rebinding, same as the other local servers (§1.3).
  */
-export async function startPtyHost(
-  opts: { registry?: PtyRegistry; restore?: boolean; writeInfo?: boolean } = {},
-): Promise<PtyHostHandle> {
+export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boolean; writeInfo?: boolean } = {}): Promise<PtyHostHandle> {
   const registry = opts.registry ?? new PtyRegistry();
   const token = crypto.randomBytes(24).toString('hex');
   let allowedHosts = new Set<string>();
 
   const authorized = (req: http.IncomingMessage, url: URL): boolean => {
     if (!req.headers.host || !allowedHosts.has(req.headers.host)) return false;
-    const given =
-      (req.headers['x-work-token'] as string | undefined) ??
-      url.searchParams.get('token') ??
-      '';
+    const given = (req.headers['x-work-token'] as string | undefined) ?? url.searchParams.get('token') ?? '';
     const a = Buffer.from(given);
     const b = Buffer.from(token);
     return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -154,32 +137,44 @@ export async function startPtyHost(
       const attached = registry.attach(
         id,
         (data) => {
-          try { ws.send(Buffer.from(data, 'utf-8'), { binary: true }); } catch { /* */ }
+          try {
+            ws.send(Buffer.from(data, 'utf-8'), { binary: true });
+          } catch {
+            /* */
+          }
         },
         (code) => {
           try {
             ws.send(JSON.stringify({ type: 'exit', code }));
             ws.close(1000);
-          } catch { /* */ }
+          } catch {
+            /* */
+          }
         },
       );
       if (!attached) {
         try {
           ws.send(JSON.stringify({ type: 'error', message: 'no such pty' }));
           ws.close(1011);
-        } catch { /* */ }
+        } catch {
+          /* */
+        }
         return;
       }
       // Always first, even when empty: clients hold input and their own
       // resize until they've drawn it (see HostControlFrame 'replay').
       try {
         ws.send(JSON.stringify({ type: 'replay', ...attached.replay }));
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       if (attached.exitedWith !== null) {
         try {
           ws.send(JSON.stringify({ type: 'exit', code: attached.exitedWith }));
           ws.close(1000);
-        } catch { /* */ }
+        } catch {
+          /* */
+        }
         return;
       }
       ws.on('message', (raw, isBinary) => {
@@ -192,11 +187,7 @@ export async function startPtyHost(
         }
         if (msg.type === 'input' && typeof msg.data === 'string') {
           registry.write(id, msg.data);
-        } else if (
-          msg.type === 'resize' &&
-          Number.isInteger(msg.cols) &&
-          Number.isInteger(msg.rows)
-        ) {
+        } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
           registry.resize(id, msg.cols, msg.rows);
         }
       });
@@ -221,7 +212,8 @@ export async function startPtyHost(
     // file: take it over before restoring (see adoptLegacyRestoreList).
     if (!opts.registry) {
       const adopted = bestEffort('adopt the old pty-sessions.json', () => adoptLegacyRestoreList(), null);
-      if (adopted !== null && adopted !== undefined) report('info', `[pty-host] adopted ${adopted} session(s) from an older host's pty-sessions.json`);
+      if (adopted !== null && adopted !== undefined)
+        report('info', `[pty-host] adopted ${adopted} session(s) from an older host's pty-sessions.json`);
     }
     await registry.restore();
   }
@@ -237,7 +229,9 @@ export async function startPtyHost(
         try {
           const cur = JSON.parse(fs.readFileSync(hostInfoPath(), 'utf-8')) as HostInfo;
           if (cur.pid === process.pid) fs.unlinkSync(hostInfoPath());
-        } catch { /* */ }
+        } catch {
+          /* */
+        }
       }
     },
   };

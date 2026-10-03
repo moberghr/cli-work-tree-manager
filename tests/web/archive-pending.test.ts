@@ -62,10 +62,13 @@ describe('archives in flight', () => {
   it('setArchived records every call (the header, the Sessions table and the inbox share it)', async () => {
     const { setArchived } = await import('../../src/web/src/api/client.js');
     const d = deferred();
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      await d.promise;
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        await d.promise;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
     const call = setArchived('s4', true);
     expect(archivePending('s4')).toBe(true);
     d.resolve();

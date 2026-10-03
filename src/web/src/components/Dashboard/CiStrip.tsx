@@ -45,7 +45,11 @@ export function CiStrip({ sessionId, isGroup }: { sessionId: string; isGroup: bo
   return (
     <div className={'wd-ci-strip' + (failing.length ? ' wd-ci-fail' : ' wd-ci-running')} role="status">
       {reviewed.map((r) => (
-        <span key={`rv-${r.name}`} className="wd-ci-item" title="Unresolved review threads waiting on you or Claude — new ones are handed to Claude automatically">
+        <span
+          key={`rv-${r.name}`}
+          className="wd-ci-item"
+          title="Unresolved review threads waiting on you or Claude — new ones are handed to Claude automatically"
+        >
           <span aria-hidden="true">💬</span>{' '}
           <a href={`${r.pr!.url}/files`} target="_blank" rel="noopener noreferrer">
             {r.openThreads} open review thread{r.openThreads === 1 ? '' : 's'}
@@ -103,7 +107,11 @@ export function CiStrip({ sessionId, isGroup }: { sessionId: string; isGroup: bo
             {sending ? 'Sending…' : 'Ask Claude to fix'}
           </button>
         ))}
-      {error && <span className="wd-dev-error" role="alert">{error}</span>}
+      {error && (
+        <span className="wd-dev-error" role="alert">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

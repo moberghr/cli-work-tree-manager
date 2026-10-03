@@ -27,8 +27,9 @@ import type { Comment } from './comment-types.js';
 
 function deliveredIds(d: Db, sessionId: string): Set<string> {
   return new Set(
-    (d.prepare('SELECT comment_id FROM comment_deliveries WHERE session_id = ?').all(sessionId) as Array<{ comment_id: string }>)
-      .map((r) => r.comment_id),
+    (d.prepare('SELECT comment_id FROM comment_deliveries WHERE session_id = ?').all(sessionId) as Array<{ comment_id: string }>).map(
+      (r) => r.comment_id,
+    ),
   );
 }
 
@@ -56,10 +57,7 @@ function owns(candidate: WorktreeSession, current: WorktreeSession, root: string
   return (Date.parse(candidate.lastAccessedAt) || 0) > (Date.parse(current.lastAccessedAt) || 0);
 }
 
-export function findSessionForCwd(
-  cwd: string,
-  sessions: WorktreeSession[] = loadHistory(),
-): WorktreeSession | null {
+export function findSessionForCwd(cwd: string, sessions: WorktreeSession[] = loadHistory()): WorktreeSession | null {
   const here = normalize(cwd);
   // Deepest root containing cwd wins, so nested worktrees disambiguate. A
   // group's roots include the group root (the sub-repos' parent) — that's
@@ -92,8 +90,7 @@ export function findSessionForCwd(
 }
 
 function isPendingFor(delivered: Set<string>) {
-  return (c: Comment) =>
-    c.status === 'published' && c.author === 'user' && !delivered.has(c.id);
+  return (c: Comment) => c.status === 'published' && c.author === 'user' && !delivered.has(c.id);
 }
 
 /** Returns published user comments that haven't been delivered yet.
@@ -107,7 +104,8 @@ function isPendingFor(delivered: Set<string>) {
  * handling. It says where the content is, so it reads right in the
  * transcript.
  */
-export const NOTE_NUDGE = 'work has new notes for you (review feedback, CI results or comments); they are attached to this message. Work through them now.';
+export const NOTE_NUDGE =
+  'work has new notes for you (review feedback, CI results or comments); they are attached to this message. Work through them now.';
 
 export function readPendingForSession(sessionId: string): Comment[] {
   const delivered = withDb((d) => deliveredIds(d, sessionId));
@@ -217,9 +215,7 @@ const MAX_TOTAL_BYTES = 32 * 1024;
 export function formatPendingForPrompt(pending: Comment[]): string {
   if (pending.length === 0) return '';
 
-  const sorted = [...pending].sort((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
-  );
+  const sorted = [...pending].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const general = sorted.filter((c) => c.side === 'general' && !c.parentId);
   const inline = sorted.filter((c) => c.side !== 'general' && !c.parentId);
@@ -227,9 +223,7 @@ export function formatPendingForPrompt(pending: Comment[]): string {
 
   const lines: string[] = [];
   lines.push('<system-reminder>');
-  lines.push(
-    `New review comments from \`work web\` (${pending.length} item${pending.length === 1 ? '' : 's'}):`,
-  );
+  lines.push(`New review comments from \`work web\` (${pending.length} item${pending.length === 1 ? '' : 's'}):`);
   lines.push('');
 
   if (general.length > 0) {
@@ -277,8 +271,7 @@ export function formatPendingForPrompt(pending: Comment[]): string {
 
 function formatBody(prefix: string, c: Comment): string {
   const lead = c.body.split('\n')[0].trim();
-  const capped =
-    lead.length > MAX_BODY_BYTES ? `${lead.slice(0, MAX_BODY_BYTES)}…` : lead;
+  const capped = lead.length > MAX_BODY_BYTES ? `${lead.slice(0, MAX_BODY_BYTES)}…` : lead;
   return `${prefix}: ${capped}${c.body.includes('\n') ? ' …' : ''}`;
 }
 
@@ -287,8 +280,7 @@ function formatBody(prefix: string, c: Comment): string {
  *  a broadcast prompt arrives intact rather than truncated to its first line. */
 function formatFullBody(prefix: string, c: Comment): string {
   const body = c.body.trim();
-  const capped =
-    body.length > MAX_BODY_BYTES ? `${body.slice(0, MAX_BODY_BYTES)}…` : body;
+  const capped = body.length > MAX_BODY_BYTES ? `${body.slice(0, MAX_BODY_BYTES)}…` : body;
   const bodyLines = capped.split('\n');
   if (bodyLines.length === 1) return `${prefix}: ${bodyLines[0]}`;
   const [first, ...rest] = bodyLines;

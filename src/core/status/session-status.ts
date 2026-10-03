@@ -59,18 +59,19 @@ export function oneLine(text: string | undefined, max = 140): string | undefined
   if (!text) return undefined;
   const line = text
     .split(/\r?\n/)
-    .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[`*_]/g, '').trim())
+    .map((l) =>
+      l
+        .replace(/^[#>*\-\s]+/, '')
+        .replace(/[`*_]/g, '')
+        .trim(),
+    )
     .find((l) => l.length > 0);
   if (!line) return undefined;
   return line.length > max ? line.slice(0, max - 1).trimEnd() + '…' : line;
 }
 
 /** Pure transition. `prev` is null for a session never seen before. */
-export function applyStatusEvent(
-  prev: SessionStatus | null,
-  event: StatusEvent,
-  now: Date = new Date(),
-): SessionStatus {
+export function applyStatusEvent(prev: SessionStatus | null, event: StatusEvent, now: Date = new Date()): SessionStatus {
   const ts = now.toISOString();
   const enter = (state: AgentState, summary: string | undefined, seen: boolean): SessionStatus => ({
     state,
@@ -166,11 +167,7 @@ export function effectiveStatus(
   // web restart). The session read "idle" while it worked. A message in its
   // transcript after the last turn ended is the tell; quiet for 15 min, it
   // decays like a working status.
-  if (
-    status.state === 'idle' &&
-    lastTurnEntryMs > idleFrom(status) + ANSWERED_AFTER_MS &&
-    now - lastTurnEntryMs <= STALE_WORKING_MS
-  ) {
+  if (status.state === 'idle' && lastTurnEntryMs > idleFrom(status) + ANSWERED_AFTER_MS && now - lastTurnEntryMs <= STALE_WORKING_MS) {
     return { ...status, state: 'working', seen: true, stale: false };
   }
   return { ...status, stale: false };
@@ -196,9 +193,16 @@ export function withLiveClaude(
   if (live?.state && (live.stateAt ?? 0) > recorded) {
     if (live.state === 'busy' && status.state !== 'working') return { ...status, state: 'working', seen: true, stale: false };
     if (live.state === 'waiting' && status.state !== 'needs_input') {
-      return { ...status, state: 'needs_input', seen: false, stale: false, summary: live.waitingFor ? `Waiting for you: ${live.waitingFor}` : 'Waiting for you' };
+      return {
+        ...status,
+        state: 'needs_input',
+        seen: false,
+        stale: false,
+        summary: live.waitingFor ? `Waiting for you: ${live.waitingFor}` : 'Waiting for you',
+      };
     }
-    if (live.state === 'idle' && (status.state === 'working' || status.state === 'needs_input')) return { ...status, state: 'idle', seen: true, stale: true };
+    if (live.state === 'idle' && (status.state === 'working' || status.state === 'needs_input'))
+      return { ...status, state: 'idle', seen: true, stale: true };
   }
   if (!live && opts.known && !opts.hosted && (status.state === 'working' || status.state === 'needs_input')) {
     return { ...status, state: 'idle', seen: true, stale: true };

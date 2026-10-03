@@ -36,7 +36,8 @@ export type SaveResult = { clean: true } | { saved: SavedUncommitted } | { error
 
 const safeName = (s: string): string => s.replace(/[^A-Za-z0-9._-]/g, '_');
 /** Where a save is kept: per session, repo and archive time, so a later archive never overwrites one a Restore couldn't put back. */
-export const archiveRefFor = (sessionId: string, repo: string, stamp: number): string => `refs/work/archive/${safeName(sessionId)}/${safeName(repo)}/${stamp}`;
+export const archiveRefFor = (sessionId: string, repo: string, stamp: number): string =>
+  `refs/work/archive/${safeName(sessionId)}/${safeName(repo)}/${stamp}`;
 /** Every save of a session lives under this (deleted with the session). */
 export const archiveRefsPrefix = (sessionId: string): string => `refs/work/archive/${safeName(sessionId)}/`;
 export const uncommittedDir = (archiveDir: string): string => path.join(archiveDir, 'uncommitted');
@@ -49,7 +50,14 @@ const COMMIT_ENV = {
 };
 
 /** Save `worktree`'s uncommitted work under `ref` and as `<archiveDir>/uncommitted/<patchName>.patch`. */
-export async function saveUncommitted(worktree: string, repo: string, ref: string, archiveDir: string, patchName = repo, maxBytes = MAX_SAVED_PATCH_BYTES): Promise<SaveResult> {
+export async function saveUncommitted(
+  worktree: string,
+  repo: string,
+  ref: string,
+  archiveDir: string,
+  patchName = repo,
+  maxBytes = MAX_SAVED_PATCH_BYTES,
+): Promise<SaveResult> {
   const status = await runGitAsync(worktree, { args: ['status', '--porcelain', '--untracked-files=all'] });
   if (status.status !== 0) return { error: `git can't read ${repo}` };
   const files = status.stdout.split('\n').filter((l) => l.trim()).length;
@@ -68,7 +76,9 @@ export async function saveUncommitted(worktree: string, repo: string, ref: strin
   fs.mkdirSync(dir, { recursive: true });
   const patch = `${safeName(patchName)}.patch`;
   const patchPath = path.join(dir, patch);
-  const diff = await runGitAsync(worktree, { args: ['diff', '--binary', '--no-color', '--no-ext-diff', `--output=${patchPath}`, tree.headSha, sha] });
+  const diff = await runGitAsync(worktree, {
+    args: ['diff', '--binary', '--no-color', '--no-ext-diff', `--output=${patchPath}`, tree.headSha, sha],
+  });
   const size = fs.existsSync(patchPath) ? fs.statSync(patchPath).size : 0;
   if (diff.status !== 0 || size === 0) {
     fs.rmSync(patchPath, { force: true });
@@ -99,7 +109,11 @@ export async function dropSaved(repoRoot: string, saved: SavedUncommitted, archi
  * (the branch moved on) — the ref and the patch stay for doing it by hand.
  * On success the ref goes (the patch stays in the archive).
  */
-export async function restoreUncommitted(worktree: string, saved: SavedUncommitted, archiveDir: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function restoreUncommitted(
+  worktree: string,
+  saved: SavedUncommitted,
+  archiveDir: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const patchPath = path.join(uncommittedDir(archiveDir), saved.patch);
   const byHand = `the changes are kept in ${saved.ref} and ${patchPath}`;
   if (!fs.existsSync(patchPath)) return { ok: false, error: `its saved patch is missing (${patchPath})` };
@@ -117,11 +131,23 @@ export async function restoreUncommitted(worktree: string, saved: SavedUncommitt
 /** Delete every saved ref of a session in a repo (the session is deleted; its archive folder goes too). */
 export function dropSessionSaves(repoRoot: string, sessionId: string): void {
   const refs = runGitSync(repoRoot, { args: ['for-each-ref', '--format=%(refname)', archiveRefsPrefix(sessionId)] });
-  for (const ref of refs.stdout.split('\n').map((l) => l.trim()).filter(Boolean)) runGitSync(repoRoot, { args: ['update-ref', '-d', ref] });
+  for (const ref of refs.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean))
+    runGitSync(repoRoot, { args: ['update-ref', '-d', ref] });
 }
 
 /** Shape guard for the archive record's `uncommitted` map (stored JSON). */
 export function isSavedUncommitted(x: unknown): x is SavedUncommitted {
   const v = x as SavedUncommitted | null;
-  return !!v && typeof v === 'object' && typeof v.commit === 'string' && typeof v.base === 'string' && typeof v.ref === 'string' && typeof v.patch === 'string' && typeof v.files === 'number';
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    typeof v.commit === 'string' &&
+    typeof v.base === 'string' &&
+    typeof v.ref === 'string' &&
+    typeof v.patch === 'string' &&
+    typeof v.files === 'number'
+  );
 }

@@ -25,7 +25,10 @@ describe('groupRail', () => {
 
   it('Pinned, then your sections in your order (empty ones too), then Other — each keeping the rail order', () => {
     const layout: RailLayout = {
-      sections: [{ id: 'x', name: 'Client X' }, { id: 'y', name: 'Waiting' }],
+      sections: [
+        { id: 'x', name: 'Client X' },
+        { id: 'y', name: 'Waiting' },
+      ],
       places: { c: { pinned: true }, a: { section: 'x' }, d: { section: 'x' }, b: { pinned: true, section: 'x' } },
     };
     expect(keys(groupRail(list('a', 'b', 'c', 'd', 'e'), layout))).toEqual([
@@ -75,7 +78,12 @@ describe('places and sections: validation', () => {
 
   it('sections: trimmed names, unique ids, at most 30', () => {
     expect(cleanSections([{ id: 'a1', name: '  Client X ' }])).toEqual([{ id: 'a1', name: 'Client X' }]);
-    expect(cleanSections([{ id: 'a', name: 'x' }, { id: 'a', name: 'y' }])).toBeNull();
+    expect(
+      cleanSections([
+        { id: 'a', name: 'x' },
+        { id: 'a', name: 'y' },
+      ]),
+    ).toBeNull();
     expect(cleanSections([{ id: 'a', name: '   ' }])).toBeNull();
     expect(cleanSections([{ id: 'a b', name: 'x' }])).toBeNull();
     expect(cleanSections(Array.from({ length: 31 }, (_, i) => ({ id: `s${i}`, name: 'n' })))).toBeNull();
@@ -83,7 +91,10 @@ describe('places and sections: validation', () => {
 });
 
 describe('section changes (one at a time, to the list as it is)', () => {
-  const two = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }];
+  const two = [
+    { id: 'x', name: 'X' },
+    { id: 'y', name: 'Y' },
+  ];
   it('add, rename, move (an edge is a no-op), remove', () => {
     expect(applySectionOp(two, { op: 'add', id: 'z', name: 'Z' })).toEqual({ ok: true, sections: [...two, { id: 'z', name: 'Z' }] });
     expect(applySectionOp(two, { op: 'rename', id: 'y', name: 'Why' })).toEqual({ ok: true, sections: [two[0], { id: 'y', name: 'Why' }] });
@@ -92,7 +103,10 @@ describe('section changes (one at a time, to the list as it is)', () => {
     expect(applySectionOp(two, { op: 'remove', id: 'x' })).toEqual({ ok: true, sections: [two[1]] });
   });
   it('refused: one another window removed, a duplicate, too many', () => {
-    expect(applySectionOp(two, { op: 'rename', id: 'gone', name: 'n' })).toMatchObject({ ok: false, error: expect.stringContaining('no such section') });
+    expect(applySectionOp(two, { op: 'rename', id: 'gone', name: 'n' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('no such section'),
+    });
     expect(applySectionOp(two, { op: 'add', id: 'x', name: 'n' })).toMatchObject({ ok: false });
     const full = Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, name: 'n' }));
     expect(applySectionOp(full, { op: 'add', id: 'new', name: 'n' })).toMatchObject({ ok: false, error: 'at most 30 sections' });
@@ -115,7 +129,8 @@ describe('the rail routes (state.db)', () => {
     const events: string[] = [];
     const app = new Hono();
     mountRailRoutes(app, { broadcast: (e) => void events.push(e) });
-    const send = (method: string) => (path: string, body: unknown) => app.request(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const send = (method: string) => (path: string, body: unknown) =>
+      app.request(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return { app, put: send('PUT'), post: send('POST'), events };
   };
 
@@ -129,7 +144,10 @@ describe('the rail routes (state.db)', () => {
     expect((await put(`/api/sessions/${idb}/rail`, { section: 'x' })).status).toBe(409); // no such section yet
     expect((await post('/api/rail/sections', { op: 'add', id: 'x', name: 'Client X' })).status).toBe(200);
     const r = await put(`/api/sessions/${idb}/rail`, { section: 'x' });
-    expect(await r.json()).toEqual({ sections: [{ id: 'x', name: 'Client X' }], places: { [ida]: { pinned: true }, [idb]: { section: 'x' } } });
+    expect(await r.json()).toEqual({
+      sections: [{ id: 'x', name: 'Client X' }],
+      places: { [ida]: { pinned: true }, [idb]: { section: 'x' } },
+    });
     expect(events).toEqual(['rail-changed', 'rail-changed', 'rail-changed']);
 
     // Two windows: one renames a section the other has just removed — refused, not resurrected.

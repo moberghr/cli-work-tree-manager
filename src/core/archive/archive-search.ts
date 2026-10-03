@@ -29,7 +29,10 @@ export function snippet(text: string, words: string[]): string {
 
 /** A query's words, lower case, and as JSON writes them (`\` and `"` escaped) for the raw-line pre-filter. */
 export function queryWords(query: string): { words: string[]; jsonWords: string[] } {
-  const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
   return { words, jsonWords: words.map((w) => JSON.stringify(w).slice(1, -1)) };
 }
 

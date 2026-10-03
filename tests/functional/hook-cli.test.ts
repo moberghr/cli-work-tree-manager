@@ -82,7 +82,7 @@ describe.skipIf(!hasBuild)('work hook (built binary)', () => {
     expect(again.stdout).toBe('');
   });
 
-  it("assistant-context prints what the dashboard shows (Claude adds it to the prompt), and nothing when stale", async () => {
+  it('assistant-context prints what the dashboard shows (Claude adds it to the prompt), and nothing when stale', async () => {
     const { writeAssistantContext } = await import('../../src/core/agents/assistant.js');
     writeAssistantContext('The user is looking at the cleanup tab.');
     const r = await hook('assistant-context', { prompt: 'clean these up' });

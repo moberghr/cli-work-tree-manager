@@ -24,7 +24,10 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'web-life-'));
   env = { ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1' };
   fs.mkdirSync(path.join(home, '.work'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: {}, copyFiles: [] }));
+  fs.writeFileSync(
+    path.join(home, '.work', 'config.json'),
+    JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: {}, copyFiles: [] }),
+  );
 });
 afterEach(async () => {
   spawnSync(process.execPath, [BIN, 'web', '--stop'], { env, timeout: 20_000 });
@@ -63,7 +66,9 @@ function startWeb(args: string[], extraEnv: NodeJS.ProcessEnv = {}): ChildProces
 const context = async () => {
   const url = read('web.url');
   if (!url) return null;
-  return fetch(`${url}api/context`).then((r) => r.json() as Promise<{ pid: number; lean: boolean; build?: string }>).catch(() => null);
+  return fetch(`${url}api/context`)
+    .then((r) => r.json() as Promise<{ pid: number; lean: boolean; build?: string }>)
+    .catch(() => null);
 };
 const workHooks = () => {
   try {
@@ -102,7 +107,18 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     const fresh = startWeb([]);
     const ctx = (await until(context, (c) => !!c && c.pid === fresh.pid, 'the new server'))!;
     expect(ctx.build).not.toBe('september');
-    await until(() => { try { process.kill(old.pid, 0); return false; } catch { return true; } }, (gone) => gone, 'the old server to exit');
+    await until(
+      () => {
+        try {
+          process.kill(old.pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      (gone) => gone,
+      'the old server to exit',
+    );
 
     // Same build again: reused, not replaced (the singleton rule still holds).
     const again = spawnSync(process.execPath, [BIN, 'web', '--no-open'], { env, encoding: 'utf-8', timeout: 30_000 });

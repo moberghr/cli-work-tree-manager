@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * Describes one resizable dimension: which CSS variable it drives, where
@@ -71,7 +65,9 @@ function readStored(spec: ResizeSpec): number {
     const raw = localStorage.getItem(spec.storageKey);
     const n = raw ? Number(raw) : NaN;
     if (Number.isFinite(n) && n >= spec.min && n <= spec.max) return n;
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   return spec.defaultPx;
 }
 
@@ -91,7 +87,11 @@ export function useResizableSize(spec: ResizeSpec): {
     (px: number) => {
       const c = clamp(spec, px);
       setSizeState(c);
-      try { localStorage.setItem(spec.storageKey, String(c)); } catch { /* */ }
+      try {
+        localStorage.setItem(spec.storageKey, String(c));
+      } catch {
+        /* */
+      }
     },
     [spec],
   );
@@ -126,12 +126,7 @@ interface Props {
  * drag alive when the cursor leaves the strip. Double-click resets to the
  * default.
  */
-export function ResizeDivider({
-  layoutRef,
-  size,
-  onCommit,
-  spec = SIDEBAR_SPEC,
-}: Props) {
+export function ResizeDivider({ layoutRef, size, onCommit, spec = SIDEBAR_SPEC }: Props) {
   const startRef = useRef<{ pos: number; w: number } | null>(null);
   const lastRef = useRef<number>(size);
   const [dragging, setDragging] = useState(false);
@@ -142,8 +137,7 @@ export function ResizeDivider({
     layoutRef.current?.style.setProperty(spec.cssVar, `${c}px`);
   }
 
-  const pointerPos = (e: React.PointerEvent<HTMLDivElement>) =>
-    spec.axis === 'x' ? e.clientX : e.clientY;
+  const pointerPos = (e: React.PointerEvent<HTMLDivElement>) => (spec.axis === 'x' ? e.clientX : e.clientY);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -179,11 +173,7 @@ export function ResizeDivider({
 
   return (
     <div
-      className={
-        'wd-resize-divider' +
-        (spec.axis === 'y' ? ' wd-resize-divider-y' : '') +
-        (dragging ? ' wd-resize-dragging' : '')
-      }
+      className={'wd-resize-divider' + (spec.axis === 'y' ? ' wd-resize-divider-y' : '') + (dragging ? ' wd-resize-dragging' : '')}
       role="separator"
       aria-orientation={spec.axis === 'x' ? 'vertical' : 'horizontal'}
       aria-label={spec.label}

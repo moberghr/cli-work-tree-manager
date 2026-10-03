@@ -54,7 +54,12 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   const outside = i.runningOutside ?? [];
   if (outside.length > 0) {
     // Not a guess: one is running, however quiet. A second would share its conversation.
-    return { type: 'elsewhere', lastActivity: i.lastActivityMs, state: i.status?.state ?? (outside.some((c) => c.busy) ? 'working' : null), confirmed: true };
+    return {
+      type: 'elsewhere',
+      lastActivity: i.lastActivityMs,
+      state: i.status?.state ?? (outside.some((c) => c.busy) ? 'working' : null),
+      confirmed: true,
+    };
   }
   const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS;
   const s = i.status;
@@ -120,11 +125,7 @@ export interface TerminalWsOptions {
  * Hono routes get in `diff-server.launch` (core/local-origin.ts). The WS
  * upgrade bypasses Hono entirely so it needs its own check.
  */
-export function attachTerminalWs(
-  httpServer: UpgradableServer,
-  port: number,
-  opts: TerminalWsOptions = {},
-): { close: () => void } {
+export function attachTerminalWs(httpServer: UpgradableServer, port: number, opts: TerminalWsOptions = {}): { close: () => void } {
   const wss = new WebSocketServer({ noServer: true });
   const elsewhere = opts.elsewhere ?? defaultElsewhere;
 
@@ -187,7 +188,9 @@ async function bridgeToHost(
     try {
       ws.send(JSON.stringify(elsewhere));
       ws.close(1000);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     return;
   }
   // The browser may leave while ensurePty() is still starting the host (up
@@ -198,7 +201,11 @@ async function bridgeToHost(
   let upstream: WebSocket | null = null;
   const drop = () => {
     browserGone = true;
-    try { upstream?.close(); } catch { /* */ }
+    try {
+      upstream?.close();
+    } catch {
+      /* */
+    }
   };
   ws.on('close', drop);
   ws.on('error', drop);
@@ -211,14 +218,18 @@ async function bridgeToHost(
     try {
       ws.send(JSON.stringify({ type: 'error', message: (err as Error).message }));
       ws.close(1011);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     return;
   }
   if (!hostUrl) {
     try {
       ws.send(JSON.stringify({ type: 'error', message: 'unknown session' }));
       ws.close(1011);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
     return;
   }
 
@@ -235,13 +246,23 @@ async function bridgeToHost(
   up.on('message', (data, isBinary) => {
     try {
       ws.send(data as Buffer, { binary: isBinary });
-    } catch { /* browser gone */ }
+    } catch {
+      /* browser gone */
+    }
   });
   up.on('close', () => {
-    try { ws.close(); } catch { /* */ }
+    try {
+      ws.close();
+    } catch {
+      /* */
+    }
   });
   up.on('error', () => {
-    try { ws.close(1011); } catch { /* */ }
+    try {
+      ws.close(1011);
+    } catch {
+      /* */
+    }
   });
 
   ws.on('message', (raw) => {

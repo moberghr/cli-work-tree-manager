@@ -15,15 +15,17 @@ let server: http.Server | null = null;
 /** A stand-in host answering /health with the given protocol version. */
 async function fakeHost(version: number, token = 'tok'): Promise<number> {
   server = http.createServer((req, res) => {
-    if (req.headers['x-work-token'] !== token) { res.writeHead(403).end(); return; }
+    if (req.headers['x-work-token'] !== token) {
+      res.writeHead(403).end();
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ version, pid: 1 }));
   });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()));
   return (server.address() as { port: number }).port;
 }
-const writeInfo = (info: object) =>
-  fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify(info));
+const writeInfo = (info: object) => fs.writeFileSync(path.join(configDir, 'pty-host.json'), JSON.stringify(info));
 
 beforeEach(() => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-client-'));

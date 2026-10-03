@@ -19,9 +19,7 @@ export function useViewedFiles(
   viewedAnchors: Set<string>;
   toggle: (path: string, next: boolean) => void;
 } {
-  const [viewedPaths, setViewedPaths] = useState<Set<string>>(() =>
-    readScope(scopeKey),
-  );
+  const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readScope(scopeKey));
 
   // Reload from disk when the scope key changes.
   useEffect(() => {

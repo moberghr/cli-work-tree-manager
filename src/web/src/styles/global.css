@@ -1,17 +1,20 @@
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
 }
 
-code, pre {
+code,
+pre {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
 }
@@ -46,7 +49,9 @@ code, pre {
   padding: 8px 16px;
   cursor: pointer;
 }
-.wd-web-main-tab:hover { color: var(--fg); }
+.wd-web-main-tab:hover {
+  color: var(--fg);
+}
 .wd-web-main-tab-active {
   color: var(--fg);
   border-bottom-color: var(--hunk-fg);
@@ -211,8 +216,12 @@ code, pre {
   text-decoration: none;
   transition: opacity 0.1s;
 }
-.wd-web-session-row:hover .wd-web-task-action { opacity: 1; }
-.wd-web-task-action:hover { color: var(--fg); }
+.wd-web-session-row:hover .wd-web-task-action {
+  opacity: 1;
+}
+.wd-web-task-action:hover {
+  color: var(--fg);
+}
 .wd-web-task-done .wd-web-session-branch {
   text-decoration: line-through;
   opacity: 0.6;
@@ -252,10 +261,21 @@ code, pre {
   border-radius: 4px;
   cursor: pointer;
 }
-.wd-web-menu-item:hover { background: var(--hover); }
-.wd-web-menu-item:disabled { opacity: 0.6; cursor: default; }
-.wd-web-menu-item-danger { color: var(--del-fg); }
-.wd-web-menu-sep { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.wd-web-menu-item:hover {
+  background: var(--hover);
+}
+.wd-web-menu-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-web-menu-item-danger {
+  color: var(--del-fg);
+}
+.wd-web-menu-sep {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
 .wd-web-menu-error {
   color: var(--del-fg);
   font-size: 11px;
@@ -266,7 +286,10 @@ code, pre {
   padding: 10px 12px;
   min-width: 240px;
 }
-.wd-web-menu-confirm-text { margin: 0 0 8px; font-size: 12px; }
+.wd-web-menu-confirm-text {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
 .wd-web-menu-confirm-force {
   display: flex;
   align-items: center;
@@ -298,18 +321,32 @@ code, pre {
   width: 14px;
   text-align: center;
 }
-.wd-web-pr-check-ok { color: #1a7f37; }
-.wd-web-pr-check-fail { color: #cf222e; }
-.wd-web-pr-check-pending { color: #9a6700; }
+.wd-web-pr-check-ok {
+  color: #1a7f37;
+}
+.wd-web-pr-check-fail {
+  color: #cf222e;
+}
+.wd-web-pr-check-pending {
+  color: #9a6700;
+}
 .wd-web-pr-tag {
   font-size: 10px;
   font-weight: 700;
   color: var(--muted);
 }
-.wd-web-pr-tag-mine { color: var(--accent); }
-.wd-web-pr-tag-ok { color: #1a7f37; }
-.wd-web-pr-tag-fail { color: #cf222e; }
-.wd-web-pr-meta { font-size: 10px; }
+.wd-web-pr-tag-mine {
+  color: var(--accent);
+}
+.wd-web-pr-tag-ok {
+  color: #1a7f37;
+}
+.wd-web-pr-tag-fail {
+  color: #cf222e;
+}
+.wd-web-pr-meta {
+  font-size: 10px;
+}
 
 .wd-web-jira-status {
   margin-top: 4px;
@@ -355,7 +392,9 @@ code, pre {
   margin-bottom: 8px;
   outline: none;
 }
-.wd-web-filter:focus { border-color: var(--accent); }
+.wd-web-filter:focus {
+  border-color: var(--accent);
+}
 
 .wd-web-group {
   margin: 0 0 4px;
@@ -397,7 +436,9 @@ code, pre {
   border-radius: 6px;
   user-select: none;
 }
-.wd-web-group-summary::-webkit-details-marker { display: none; }
+.wd-web-group-summary::-webkit-details-marker {
+  display: none;
+}
 .wd-web-group-summary::before {
   content: '▸';
   display: inline-block;
@@ -406,8 +447,12 @@ code, pre {
   color: var(--muted);
   transition: transform 0.1s;
 }
-.wd-web-group[open] > .wd-web-group-summary::before { transform: rotate(90deg); }
-.wd-web-group-summary:hover { background: var(--hover); }
+.wd-web-group[open] > .wd-web-group-summary::before {
+  transform: rotate(90deg);
+}
+.wd-web-group-summary:hover {
+  background: var(--hover);
+}
 .wd-web-group-target {
   flex: 1;
   font-weight: 600;
@@ -447,7 +492,9 @@ code, pre {
   cursor: pointer;
   margin: 1px 0;
 }
-.wd-web-session-row:hover { background: var(--hover); }
+.wd-web-session-row:hover {
+  background: var(--hover);
+}
 .wd-web-session-row.wd-web-session-active {
   background: var(--current);
   outline: 1px solid var(--accent);
@@ -496,7 +543,10 @@ code, pre {
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  transition:
+    opacity 0.1s,
+    background 0.1s,
+    color 0.1s;
 }
 .wd-web-session-row:hover .wd-web-session-close,
 .wd-web-session-close:focus-visible {
@@ -560,9 +610,15 @@ code, pre {
   background: #94a3b8;
 }
 @keyframes wd-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
-  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
 }
 .wd-web-badge-unread {
   background: #2563eb;
@@ -660,15 +716,24 @@ code, pre {
   cursor: pointer;
   padding: 0 6px;
 }
-.wd-modal-close:hover { color: var(--fg); }
-.wd-modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.wd-modal-close:hover {
+  color: var(--fg);
+}
+.wd-modal-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .wd-modal-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
 }
-.wd-modal-row > span { color: var(--muted); }
+.wd-modal-row > span {
+  color: var(--muted);
+}
 .wd-modal-row input,
 .wd-modal-row select,
 .wd-modal-row textarea {
@@ -680,7 +745,11 @@ code, pre {
   background: var(--bg);
   color: var(--fg);
 }
-.wd-modal-row textarea { resize: vertical; min-height: 44px; line-height: 1.4; }
+.wd-modal-row textarea {
+  resize: vertical;
+  min-height: 44px;
+  line-height: 1.4;
+}
 .wd-modal-error {
   color: var(--del-fg);
   font-size: 12px;
@@ -710,14 +779,18 @@ code, pre {
   background: var(--bg);
   color: var(--fg);
 }
-.wd-btn-secondary:hover { background: var(--hover); }
+.wd-btn-secondary:hover {
+  background: var(--hover);
+}
 .wd-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
   font-weight: 600;
 }
-.wd-btn-primary:hover { filter: brightness(1.05); }
+.wd-btn-primary:hover {
+  filter: brightness(1.05);
+}
 .wd-btn-primary:disabled,
 .wd-btn-secondary:disabled {
   opacity: 0.6;
@@ -743,14 +816,29 @@ code, pre {
   margin: 4px 0 12px;
   border-left: 1px solid var(--border);
 }
-.wd-web-diff-placeholder li { padding: 2px 0; }
-.wd-web-muted { font-size: 12px; color: var(--muted); }
-.wd-web-add { color: var(--add-fg); }
-.wd-web-del { color: var(--del-fg); }
+.wd-web-diff-placeholder li {
+  padding: 2px 0;
+}
+.wd-web-muted {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-web-add {
+  color: var(--add-fg);
+}
+.wd-web-del {
+  color: var(--del-fg);
+}
 
 /* Around the xterm host: fills like the host did, and holds the overlay
    shown until the first screen arrives. */
-.wd-pty-frame { flex: 1; min-height: 0; min-width: 0; display: flex; position: relative; }
+.wd-pty-frame {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  position: relative;
+}
 .wd-pty-connecting {
   position: absolute;
   inset: 0;

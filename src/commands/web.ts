@@ -77,10 +77,7 @@ export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive
  * web.pid can name a process that reused the PID after a crash/reboot;
  * killing that blind could take down anything.
  */
-export async function stopExisting(
-  kill: (pid: number) => void = (pid) => process.kill(pid),
-  graceMs = 8000,
-): Promise<WebStopOutcome> {
+export async function stopExisting(kill: (pid: number) => void = (pid) => process.kill(pid), graceMs = 8000): Promise<WebStopOutcome> {
   const pid = readWebPid();
   const url = readWebUrl();
   if (!pid) {
@@ -120,8 +117,7 @@ export async function stopExisting(
 
 export const webCommand: CommandModule = {
   command: 'web',
-  describe:
-    'Open the browser dashboard: every worktree session in one tab. Singleton — one process per user.',
+  describe: 'Open the browser dashboard: every worktree session in one tab. Singleton — one process per user.',
   builder: (yargs) =>
     yargs
       .option('open', {
@@ -143,8 +139,7 @@ export const webCommand: CommandModule = {
       .option('autostart', {
         type: 'string',
         choices: ['on', 'off'],
-        describe:
-          'Start work web at login (Windows), so sessions come back after a reboot.',
+        describe: 'Start work web at login (Windows), so sessions come back after a reboot.',
       })
       .option('lean', {
         type: 'boolean',
@@ -214,11 +209,7 @@ export const webCommand: CommandModule = {
     if (existingPid && isPidAlive(existingPid)) {
       const url = readWebUrl();
       if (url && (await existingWebDecision(url)) === 'reuse') {
-        info(
-          chalk.gray(
-            `work web already running at ${url} (PID ${existingPid}). Opening browser.`,
-          ),
-        );
+        info(chalk.gray(`work web already running at ${url} (PID ${existingPid}). Opening browser.`));
         if (argv.open) openUrl(url);
         process.exit(0);
       }
@@ -239,11 +230,7 @@ export const webCommand: CommandModule = {
     const handle = await startWebServer({ lean, onShutdownRequest: () => shutdown() });
     bestEffort('write work web discovery files', () => writeWebDiscovery(handle.url, process.pid));
 
-    info(
-      chalk.gray(
-        `work web running at ${handle.url}${lean ? ' (lean — diff-only mode)' : ''}`,
-      ),
-    );
+    info(chalk.gray(`work web running at ${handle.url}${lean ? ' (lean — diff-only mode)' : ''}`));
     info(chalk.gray('Press Ctrl+C to stop. Or: `work web --stop` from another shell.'));
     if (argv.open) openUrl(handle.url);
 
@@ -252,7 +239,9 @@ export const webCommand: CommandModule = {
     // ten Claudes as a side effect of opening a diff.
     if (!lean) {
       resumePersistedSessions().then(
-        (n) => { if (n > 0) info(chalk.gray(`Restoring ${n} session(s) from last time (--continue).`)); },
+        (n) => {
+          if (n > 0) info(chalk.gray(`Restoring ${n} session(s) from last time (--continue).`));
+        },
         (err: Error) => info(chalk.yellow(`Could not restore sessions: ${err.message}`)),
       );
     }

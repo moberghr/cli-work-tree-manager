@@ -40,10 +40,17 @@ const run: CommandRunner = async (cmd, args, cwd) => {
   }
   if (args[1] === 'view') {
     if (state === 'untouched') return { code: 1, stdout: '', stderr: 'no pull requests found' };
-    return ok(JSON.stringify({
-      number: 5, url: 'u', state: state === 'merged' ? 'MERGED' : 'OPEN', isDraft: false,
-      mergeStateStatus: 'CLEAN', headRefOid: SHA, statusCheckRollup: [],
-    }));
+    return ok(
+      JSON.stringify({
+        number: 5,
+        url: 'u',
+        state: state === 'merged' ? 'MERGED' : 'OPEN',
+        isDraft: false,
+        mergeStateStatus: 'CLEAN',
+        headRefOid: SHA,
+        statusCheckRollup: [],
+      }),
+    );
   }
   if (args[1] === 'merge') {
     if (mergeFails) return { code: 1, stdout: '', stderr: 'Head branch was modified' };
@@ -94,7 +101,16 @@ describe('ship routes', () => {
 
   it('merge requires the reviewed repos + SHAs', async () => {
     const id = sessionIdFor(session);
-    for (const repos of [undefined, [], [{ name: 'api' }], [{ name: 'api', headSha: 'not-a-sha!' }], [{ name: 'api', headSha: SHA }, { name: 'api', headSha: SHA }]]) {
+    for (const repos of [
+      undefined,
+      [],
+      [{ name: 'api' }],
+      [{ name: 'api', headSha: 'not-a-sha!' }],
+      [
+        { name: 'api', headSha: SHA },
+        { name: 'api', headSha: SHA },
+      ],
+    ]) {
       expect((await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos })).status).toBe(400);
     }
     expect(merged).toEqual([]);
@@ -111,7 +127,14 @@ describe('ship routes', () => {
 
   it('a partial group merge does NOT archive — the rest of the group is still open', async () => {
     const wt = path.join(home, 'shop');
-    useSession({ target: 'shop', branch: 'feat/x', isGroup: true, paths: [path.join(wt, 'backend'), path.join(wt, 'frontend')], createdAt: 'x', lastAccessedAt: 'x' });
+    useSession({
+      target: 'shop',
+      branch: 'feat/x',
+      isGroup: true,
+      paths: [path.join(wt, 'backend'), path.join(wt, 'frontend')],
+      createdAt: 'x',
+      lastAccessedAt: 'x',
+    });
     const id = sessionIdFor(session);
     const res = await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos: [{ name: 'backend', headSha: SHA }] });
     expect(await res.json()).toMatchObject({ archived: false, allDone: false });
@@ -122,7 +145,14 @@ describe('ship routes', () => {
 
   it('merging the last open repo of a partly merged group archives it', async () => {
     const wt = path.join(home, 'shop');
-    useSession({ target: 'shop', branch: 'feat/x', isGroup: true, paths: [path.join(wt, 'backend'), path.join(wt, 'frontend')], createdAt: 'x', lastAccessedAt: 'x' });
+    useSession({
+      target: 'shop',
+      branch: 'feat/x',
+      isGroup: true,
+      paths: [path.join(wt, 'backend'), path.join(wt, 'frontend')],
+      createdAt: 'x',
+      lastAccessedAt: 'x',
+    });
     repoState[path.join(wt, 'backend')] = 'merged';
     const id = sessionIdFor(session);
     const res = await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', repos: [{ name: 'frontend', headSha: SHA }] });
@@ -140,7 +170,10 @@ describe('ship routes', () => {
 
   it('a failed merge leaves it alone', async () => {
     mergeFails = true;
-    const res = await post(app(), `/api/sessions/${sessionIdFor(session)}/ship`, { action: 'merge', repos: [{ name: 'api', headSha: SHA }] });
+    const res = await post(app(), `/api/sessions/${sessionIdFor(session)}/ship`, {
+      action: 'merge',
+      repos: [{ name: 'api', headSha: SHA }],
+    });
     expect(await res.json()).toMatchObject({ archived: false, results: [{ ok: false, message: 'Head branch was modified' }] });
     expect(archivedAt()).toBeUndefined();
   });
@@ -148,7 +181,10 @@ describe('ship routes', () => {
   it('validates action and method; unknown session is 404', async () => {
     const id = sessionIdFor(session);
     expect((await post(app(), `/api/sessions/${id}/ship`, { action: 'deploy' })).status).toBe(400);
-    expect((await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', method: 'octopus', repos: [{ name: 'api', headSha: SHA }] })).status).toBe(400);
+    expect(
+      (await post(app(), `/api/sessions/${id}/ship`, { action: 'merge', method: 'octopus', repos: [{ name: 'api', headSha: SHA }] }))
+        .status,
+    ).toBe(400);
     expect((await post(app(), '/api/sessions/nope/ship', { action: 'push' })).status).toBe(404);
   });
 

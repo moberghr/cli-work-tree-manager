@@ -72,44 +72,44 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
         loadHistory().filter((s) => !s.archivedAt || Date.parse(s.archivedAt) >= sinceMs),
         READ_CONCURRENCY,
         async (s) => {
-            const id = sessionIdFor(s);
-            const status = readStatus(id);
-            const attention = status ? sessionStatusView(status, s, readSessionActivity(s).lastActivity ?? 0) : null;
-            const transcripts: ConversationEntry[][] = [];
-            const work: WorkStep[][] = [];
-            let partial = false;
-            // Its conversations, as its agent keeps them (none when work can't read them).
-            const conv = agentOf(s).conversation;
-            for (const t of conv?.files(s) ?? []) {
-              if (t.mtimeMs < sinceMs) continue;
-              const key = `${t.file}:${t.size}:${t.mtimeMs}`;
-              const hit = cache.get(key);
-              const reuse = !!hit && hit.sinceMs <= sinceMs;
-              // The agent's work steps come from the whole read, before it is slimmed to prompts.
-              const read = reuse ? null : await readJsonlSince(t.file, sinceMs, lineTimeOf(conv!));
-              const all = read ? conv!.entries(read.lines) : [];
-              const win = reuse ? hit.win : { entries: promptEntries(all), partial: read!.partial };
-              const steps = reuse ? hit.steps : workSteps(all).steps;
-              next.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win, steps });
-              transcripts.push(win.entries);
-              work.push(steps);
-              if (win.partial) partial = true;
-            }
-            return {
-              sessionId: id,
-              target: s.target,
-              branch: s.branch,
-              isGroup: s.isGroup,
-              lastAccessedAt: s.lastAccessedAt,
-              archivedAt: s.archivedAt ?? null,
-              status: attention ? { state: attention.state, summary: attention.summary, updatedAt: attention.updatedAt } : null,
-              transcripts,
-              transcriptsPartial: partial,
-              work,
-              checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
-              diffStat: deps.diffStatFor?.(id) ?? null,
-              ci: (await deps.ciFor?.(id)) ?? null,
-            };
+          const id = sessionIdFor(s);
+          const status = readStatus(id);
+          const attention = status ? sessionStatusView(status, s, readSessionActivity(s).lastActivity ?? 0) : null;
+          const transcripts: ConversationEntry[][] = [];
+          const work: WorkStep[][] = [];
+          let partial = false;
+          // Its conversations, as its agent keeps them (none when work can't read them).
+          const conv = agentOf(s).conversation;
+          for (const t of conv?.files(s) ?? []) {
+            if (t.mtimeMs < sinceMs) continue;
+            const key = `${t.file}:${t.size}:${t.mtimeMs}`;
+            const hit = cache.get(key);
+            const reuse = !!hit && hit.sinceMs <= sinceMs;
+            // The agent's work steps come from the whole read, before it is slimmed to prompts.
+            const read = reuse ? null : await readJsonlSince(t.file, sinceMs, lineTimeOf(conv!));
+            const all = read ? conv!.entries(read.lines) : [];
+            const win = reuse ? hit.win : { entries: promptEntries(all), partial: read!.partial };
+            const steps = reuse ? hit.steps : workSteps(all).steps;
+            next.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win, steps });
+            transcripts.push(win.entries);
+            work.push(steps);
+            if (win.partial) partial = true;
+          }
+          return {
+            sessionId: id,
+            target: s.target,
+            branch: s.branch,
+            isGroup: s.isGroup,
+            lastAccessedAt: s.lastAccessedAt,
+            archivedAt: s.archivedAt ?? null,
+            status: attention ? { state: attention.state, summary: attention.summary, updatedAt: attention.updatedAt } : null,
+            transcripts,
+            transcriptsPartial: partial,
+            work,
+            checkpoints: loadManifest(scopeHashForPaths(s.paths)).entries,
+            diffStat: deps.diffStatFor?.(id) ?? null,
+            ci: (await deps.ciFor?.(id)) ?? null,
+          };
         },
       );
       cache = next;

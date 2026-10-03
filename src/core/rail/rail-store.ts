@@ -1,5 +1,15 @@
 import { json, tx, withDb, type Db } from '../platform/db.js';
-import { applyPlacePatch, applySectionOp, asRailPlace, cleanSections, type PlacePatch, type RailLayout, type RailPlace, type RailSection, type SectionOp } from './rail-layout.js';
+import {
+  applyPlacePatch,
+  applySectionOp,
+  asRailPlace,
+  cleanSections,
+  type PlacePatch,
+  type RailLayout,
+  type RailPlace,
+  type RailSection,
+  type SectionOp,
+} from './rail-layout.js';
 
 /**
  * The rail's pins and sections in state.db (rail-layout.ts has the rules):

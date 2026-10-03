@@ -22,7 +22,14 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => ({
 }));
 import { DevChip } from '../../src/web/src/components/Dashboard/DevChip.js';
 
-const base: DevServerState = { port: 3017, listening: false, url: 'http://localhost:3017/', command: 'npm run dev', repo: 'web', running: null };
+const base: DevServerState = {
+  port: 3017,
+  listening: false,
+  url: 'http://localhost:3017/',
+  command: 'npm run dev',
+  repo: 'web',
+  running: null,
+};
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {

@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeSkillsWith, isInstalled, MARKETPLACE_NAME, MARKETPLACE_REPO, PLUGIN_SPEC, type ClaudeRun } from '../../../src/core/agents/claude/skills.js';
+import {
+  claudeSkillsWith,
+  isInstalled,
+  MARKETPLACE_NAME,
+  MARKETPLACE_REPO,
+  PLUGIN_SPEC,
+  type ClaudeRun,
+} from '../../../src/core/agents/claude/skills.js';
 import { claudeAgent } from '../../../src/core/agents/claude/adapter.js';
 import { agentById } from '../../../src/core/agents/index.js';
 import type { AgentAdapter } from '../../../src/core/agents/types.js';
@@ -10,7 +17,14 @@ import { installSkills, skillsDir } from '../../../src/core/agents/skills.js';
 /** work's skills, given to each agent its own way (core/skills.ts, agents/: `skills`). Never runs a real `claude`. */
 
 /** A `claude` CLI that answers from a script, and records what it was asked. */
-function fakeClaude(answers: { version?: boolean; list?: string; add?: boolean; install?: boolean; installed?: string; installErr?: string }): { run: ClaudeRun; calls: string[][] } {
+function fakeClaude(answers: {
+  version?: boolean;
+  list?: string;
+  add?: boolean;
+  install?: boolean;
+  installed?: string;
+  installErr?: string;
+}): { run: ClaudeRun; calls: string[][] } {
   const calls: string[][] = [];
   const run: ClaudeRun = (args) => {
     calls.push(args);
@@ -27,7 +41,10 @@ function fakeClaude(answers: { version?: boolean; list?: string; add?: boolean; 
 describe('Claude Code’s skills: its plugin marketplace', () => {
   it('registers the marketplace when it isn’t, then installs the plugin, user-wide', async () => {
     const { run, calls } = fakeClaude({});
-    expect(await claudeSkillsWith(run).install({ skillsDir: '/x' })).toEqual({ ok: true, message: `installed the Claude Code plugin ${PLUGIN_SPEC}` });
+    expect(await claudeSkillsWith(run).install({ skillsDir: '/x' })).toEqual({
+      ok: true,
+      message: `installed the Claude Code plugin ${PLUGIN_SPEC}`,
+    });
     expect(calls).toEqual([
       ['--version'],
       ['plugin', 'marketplace', 'list'],
@@ -37,14 +54,25 @@ describe('Claude Code’s skills: its plugin marketplace', () => {
   });
 
   it('a known marketplace is not added again; an install that fails because it is installed already is fine', async () => {
-    const { run, calls } = fakeClaude({ list: `${MARKETPLACE_NAME}  github:${MARKETPLACE_REPO}`, install: false, installed: JSON.stringify([{ id: 'other@x' }, { id: PLUGIN_SPEC, scope: 'user' }]) });
-    expect(await claudeSkillsWith(run).install({ skillsDir: '/x' })).toEqual({ ok: true, message: `the Claude Code plugin ${PLUGIN_SPEC} is installed` });
+    const { run, calls } = fakeClaude({
+      list: `${MARKETPLACE_NAME}  github:${MARKETPLACE_REPO}`,
+      install: false,
+      installed: JSON.stringify([{ id: 'other@x' }, { id: PLUGIN_SPEC, scope: 'user' }]),
+    });
+    expect(await claudeSkillsWith(run).install({ skillsDir: '/x' })).toEqual({
+      ok: true,
+      message: `the Claude Code plugin ${PLUGIN_SPEC} is installed`,
+    });
     expect(calls.some((c) => c[2] === 'add')).toBe(false);
     expect(calls.at(-1)).toEqual(['plugin', 'list', '--json']);
   });
 
   it('an install that fails and isn’t there is a failure, with its reason and how to do it by hand', async () => {
-    const { run } = fakeClaude({ install: false, installErr: 'npm WARN x\nError: network unreachable\n', installed: JSON.stringify([{ id: 'other@x' }]) });
+    const { run } = fakeClaude({
+      install: false,
+      installErr: 'npm WARN x\nError: network unreachable\n',
+      installed: JSON.stringify([{ id: 'other@x' }]),
+    });
     const r = await claudeSkillsWith(run).install({ skillsDir: null });
     expect(r.ok).toBe(false);
     expect(r.message).toContain('(Error: network unreachable)');
@@ -60,10 +88,16 @@ describe('Claude Code’s skills: its plugin marketplace', () => {
 
   it('no `claude` CLI, or a marketplace it can’t add: says so, installs nothing', async () => {
     const none = fakeClaude({ version: false });
-    expect(await claudeSkillsWith(none.run).install({ skillsDir: '/x' })).toEqual({ ok: false, message: 'Claude Code (the `claude` CLI) is not installed' });
+    expect(await claudeSkillsWith(none.run).install({ skillsDir: '/x' })).toEqual({
+      ok: false,
+      message: 'Claude Code (the `claude` CLI) is not installed',
+    });
     expect(none.calls).toEqual([['--version']]);
     const refused = fakeClaude({ add: false });
-    expect(await claudeSkillsWith(refused.run).install({ skillsDir: '/x' })).toMatchObject({ ok: false, message: expect.stringContaining('marketplace add') });
+    expect(await claudeSkillsWith(refused.run).install({ skillsDir: '/x' })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('marketplace add'),
+    });
     expect(refused.calls.some((c) => c[1] === 'install')).toBe(false);
   });
 });
@@ -79,12 +113,20 @@ describe('installSkills: every agent that takes them, each its own way', () => {
 
   it('hands each the folder; an agent without skills is skipped; one that throws is reported, the rest still run', async () => {
     const got: Array<string | null> = [];
-    const agent = (name: string, skills?: AgentAdapter['skills']): AgentAdapter => ({ ...agentById(name), name, ...(skills ? { skills } : {}) });
+    const agent = (name: string, skills?: AgentAdapter['skills']): AgentAdapter => ({
+      ...agentById(name),
+      name,
+      ...(skills ? { skills } : {}),
+    });
     const out = await installSkills(
       [
         agent('Echo', { install: async ({ skillsDir }) => (got.push(skillsDir), { ok: true, message: 'copied' }) }),
         agent('Plain'),
-        agent('Broken', { install: async () => { throw new Error('disk full'); } }),
+        agent('Broken', {
+          install: async () => {
+            throw new Error('disk full');
+          },
+        }),
         agent('Late', { install: async () => ({ ok: true, message: 'linked' }) }),
       ],
       '/pkg/plugins/work-tree/skills',
@@ -97,7 +139,12 @@ describe('installSkills: every agent that takes them, each its own way', () => {
     ]);
     // No folder next to work: each agent judges (Claude's come from its marketplace and don't need it).
     const seen: Array<string | null> = [];
-    expect(await installSkills([agent('Echo', { install: async ({ skillsDir }) => (seen.push(skillsDir), { ok: true, message: 'from its marketplace' }) })], null)).toEqual([{ agent: 'Echo', ok: true, message: 'from its marketplace' }]);
+    expect(
+      await installSkills(
+        [agent('Echo', { install: async ({ skillsDir }) => (seen.push(skillsDir), { ok: true, message: 'from its marketplace' }) })],
+        null,
+      ),
+    ).toEqual([{ agent: 'Echo', ok: true, message: 'from its marketplace' }]);
     expect(seen).toEqual([null]);
   });
 });

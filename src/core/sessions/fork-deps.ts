@@ -23,7 +23,9 @@ export function uncommittedFiles(s: Pick<WorktreeSession, 'paths'>): number | nu
 }
 
 /** The real inputs of forkSession; `summarize` and `uncommitted` come from the server (catch-up, diff stats). */
-export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'> & Partial<ForkDeps> & { create?: CreateWorktree }): ForkDeps {
+export function defaultForkDeps(
+  opts: Pick<ForkDeps, 'summarize' | 'uncommitted'> & Partial<ForkDeps> & { create?: CreateWorktree },
+): ForkDeps {
   return {
     config: loadConfig,
     repos: (target, config) => {
@@ -33,7 +35,9 @@ export function defaultForkDeps(opts: Pick<ForkDeps, 'summarize' | 'uncommitted'
     branchOf: checkedOutBranch,
     // Branches only (a tag or a short SHA of that name is no clash).
     branchExists: (repoPath, branch) =>
-      ['refs/heads/', 'refs/remotes/origin/'].some((prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0),
+      ['refs/heads/', 'refs/remotes/origin/'].some(
+        (prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0,
+      ),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
     setup: async (target, branch, config, base, name) => {
       const made = await (opts.create ?? createInProcess)({ target, branch, base, name }, config);

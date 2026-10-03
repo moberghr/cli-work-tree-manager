@@ -6,8 +6,7 @@ import { useReviewedHunks } from '../../src/web/src/hooks/use-reviewed-hunks.js'
 import { setReviewed } from '../../src/web/src/state/reviewed-hunks.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type HookResult = ReturnType<typeof useReviewedHunks>;
 

@@ -43,7 +43,12 @@ export function aboutRepo(dir: string): string | undefined {
       const line = fs
         .readFileSync(readme, 'utf8')
         .split(/\r?\n/)
-        .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[`*_[\]]/g, '').trim())
+        .map((l) =>
+          l
+            .replace(/^[#>*\-\s]+/, '')
+            .replace(/[`*_[\]]/g, '')
+            .trim(),
+        )
         .find((l) => l.length > 20 && !/^(!|<|http)/.test(l));
       if (line) return line.slice(0, 160);
     }
@@ -61,7 +66,12 @@ export function aboutRepo(dir: string): string | undefined {
 /** Every configured repo and group, as a place an issue can go. */
 export function watchTargets(cfg = loadConfig()): WatchTarget[] {
   if (!cfg) return [];
-  const repos = Object.entries(cfg.repos).map(([alias, dir]): WatchTarget => ({ name: alias, kind: 'repo', members: [path.basename(dir)], about: aboutRepo(dir) }));
+  const repos = Object.entries(cfg.repos).map(([alias, dir]): WatchTarget => ({
+    name: alias,
+    kind: 'repo',
+    members: [path.basename(dir)],
+    about: aboutRepo(dir),
+  }));
   const groups = Object.entries(cfg.groups).map(([name, aliases]): WatchTarget => ({ name, kind: 'group', members: aliases }));
   return [...groups, ...repos];
 }
@@ -79,7 +89,10 @@ export function mountJiraWatchRoutes(
   const start = async (target: string, branch: string, issue: JiraIssue, automatic: boolean): Promise<string> => {
     const config = loadConfig();
     if (!config) throw new Error('no work config');
-    const made = await (opts.create ?? createInProcess)({ target, branch, jiraKey: issue.key, name: `${issue.key} ${issue.summary}`.slice(0, 120) }, config);
+    const made = await (opts.create ?? createInProcess)(
+      { target, branch, jiraKey: issue.key, name: `${issue.key} ${issue.summary}`.slice(0, 120) },
+      config,
+    );
     if (!made.ok) throw new Error(made.error || `could not create ${branch} in ${target}`);
     const id = sessionIdFor({ target, branch });
     // Normal permission mode, like every session the host starts: the issue is someone else's words.
@@ -110,7 +123,11 @@ export function mountJiraWatchRoutes(
         };
         try {
           const r = await sweepJira(deps);
-          run?.done(r.started || r.suggested || r.waiting ? `${r.started} started · ${r.suggested} to start yourself${r.waiting ? ` · ${r.waiting} waiting` : ''}` : 'no new issues');
+          run?.done(
+            r.started || r.suggested || r.waiting
+              ? `${r.started} started · ${r.suggested} to start yourself${r.waiting ? ` · ${r.waiting} waiting` : ''}`
+              : 'no new issues',
+          );
           if (r.started || r.suggested) changed();
         } catch (err) {
           run?.fail((err as Error).message);
@@ -138,7 +155,9 @@ export function mountJiraWatchRoutes(
   app.get('/api/jira/watch', (c) => {
     const body: JiraWatchState = {
       settings: readSettings(),
-      decisions: listDecisions().filter((d) => d.action !== 'baseline').slice(0, 30),
+      decisions: listDecisions()
+        .filter((d) => d.action !== 'baseline')
+        .slice(0, 30),
       targets: watchTargets().map((t) => t.name),
       lastRunAt,
       nextRunAt: readSettings().enabled ? nextRunAt : null,
@@ -153,11 +172,18 @@ export function mountJiraWatchRoutes(
     if (body.enabled) {
       // Without the list we can't tell old from new: turning it on would start your whole backlog.
       const pane = await fetchJiraPane();
-      if (!pane.available) return c.json({ error: "Jira CLI (acli) isn't available or logged in: can't tell new issues from the ones you have" }, 409);
+      if (!pane.available)
+        return c.json({ error: "Jira CLI (acli) isn't available or logged in: can't tell new issues from the ones you have" }, 409);
       current = pane.issues;
     }
     const settings = setEnabled(body.enabled, current);
-    opts.activity?.start('jira-watch', body.enabled ? 'Jira watch turned on' : 'Jira watch turned off').done(body.enabled ? `${current.length} issue${current.length === 1 ? '' : 's'} already assigned to you are left as they are; new ones are started` : 'no more automatic starts');
+    opts.activity
+      ?.start('jira-watch', body.enabled ? 'Jira watch turned on' : 'Jira watch turned off')
+      .done(
+        body.enabled
+          ? `${current.length} issue${current.length === 1 ? '' : 's'} already assigned to you are left as they are; new ones are started`
+          : 'no more automatic starts',
+      );
     opts.broadcast('jira-watch-changed', { ts: Date.now() });
     return c.json({ settings });
   });
@@ -168,12 +194,24 @@ export function mountJiraWatchRoutes(
     const target = typeof body?.target === 'string' ? body.target : '';
     if (!watchTargets().some((t) => t.name === target)) return c.json({ error: 'unknown project' }, 400);
     const d = readDecision(key);
-    const issue = (await fetchMyIssues()).find((i) => i.key === key) ?? (d ? { key, summary: d.summary, url: d.url, status: '', issuetype: 'issue', priority: '' } : null);
+    const issue =
+      (await fetchMyIssues()).find((i) => i.key === key) ??
+      (d ? { key, summary: d.summary, url: d.url, status: '', issuetype: 'issue', priority: '' } : null);
     if (!issue) return c.json({ error: 'not one of your issues' }, 404);
     const branch = branchFor(issue);
     try {
       const sessionId = await start(target, branch, issue, false);
-      saveDecision({ key, summary: issue.summary, url: issue.url, at: new Date().toISOString(), action: 'started', target, branch, sessionId, reason: 'started by you' });
+      saveDecision({
+        key,
+        summary: issue.summary,
+        url: issue.url,
+        at: new Date().toISOString(),
+        action: 'started',
+        target,
+        branch,
+        sessionId,
+        reason: 'started by you',
+      });
       opts.broadcast('jira-watch-changed', { ts: Date.now() });
       return c.json({ ok: true, sessionId });
     } catch (err) {

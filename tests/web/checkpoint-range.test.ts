@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  checkpointAtOrBefore,
-  decideRange,
-  rangeEmptyMessage,
-} from '../../src/web/src/state/checkpoint-range.js';
+import { checkpointAtOrBefore, decideRange, rangeEmptyMessage } from '../../src/web/src/state/checkpoint-range.js';
 import type { CheckpointEntry } from '../../src/web/src/api/client.js';
 
 function entry(id: number, label?: string): CheckpointEntry {
@@ -81,11 +77,7 @@ describe('decideRange', () => {
 
   it('to=working always validates (working tree is always reachable)', () => {
     const entries = [entry(0), entry(1)];
-    const decision = decideRange(
-      entries,
-      true,
-      { from: 0, to: 'working' },
-    );
+    const decision = decideRange(entries, true, { from: 0, to: 'working' });
     expect(decision).toEqual({
       kind: 'range',
       range: { from: 0, to: 'working' },
@@ -131,11 +123,7 @@ describe('checkpointAtOrBefore ("Only new" baseline)', () => {
     ts: iso,
     repos: {},
   });
-  const cps = [
-    at(0, '2026-09-23T10:00:00Z'),
-    at(1, '2026-09-23T10:05:00Z'),
-    at(2, '2026-09-23T10:10:00Z'),
-  ];
+  const cps = [at(0, '2026-09-23T10:00:00Z'), at(1, '2026-09-23T10:05:00Z'), at(2, '2026-09-23T10:10:00Z')];
   const ms = (iso: string) => Date.parse(iso);
 
   it('picks the newest checkpoint taken before the diff was fetched', () => {

@@ -11,11 +11,7 @@ const EXCLUDED_DIRS = ['bin', 'obj', 'node_modules', '.git'];
  * Handles .claude directory specially (direct path match).
  * Other patterns use recursive glob with exclusion filtering.
  */
-export function copyConfigFiles(
-  repoPath: string,
-  worktreePath: string,
-  patterns: string[],
-): void {
+export function copyConfigFiles(repoPath: string, worktreePath: string, patterns: string[]): void {
   for (const pattern of patterns) {
     // Normalize pattern separators to forward slashes for glob
     const normalized = pattern.replace(/\\/g, '/');

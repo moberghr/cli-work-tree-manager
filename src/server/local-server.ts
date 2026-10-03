@@ -49,22 +49,19 @@ export function launch(app: Hono): Promise<DiffServerHandle & { httpServer: Serv
     });
     guard.route('/', app);
 
-    const server: ServerType = serve(
-      { fetch: guard.fetch, port: 0, hostname: '127.0.0.1' },
-      (info) => {
-        listenPort = info.port;
-        const url = `http://127.0.0.1:${info.port}/`;
-        report('detail', `[server] listening at ${url}`);
-        resolve({
-          url,
-          port: info.port,
-          httpServer: server,
-          stop: () =>
-            new Promise<void>((res) => {
-              server.close(() => res());
-            }),
-        });
-      },
-    );
+    const server: ServerType = serve({ fetch: guard.fetch, port: 0, hostname: '127.0.0.1' }, (info) => {
+      listenPort = info.port;
+      const url = `http://127.0.0.1:${info.port}/`;
+      report('detail', `[server] listening at ${url}`);
+      resolve({
+        url,
+        port: info.port,
+        httpServer: server,
+        stop: () =>
+          new Promise<void>((res) => {
+            server.close(() => res());
+          }),
+      });
+    });
   });
 }

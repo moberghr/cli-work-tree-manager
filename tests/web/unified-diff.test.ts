@@ -8,8 +8,7 @@ import { ReviewProvider } from '../../src/web/src/state/ReviewProvider.js';
 import type { ReviewApi } from '../../src/web/src/api/review-api.js';
 import type { ParsedFile } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 class StubEventSource {
   addEventListener(): void {}
@@ -123,9 +122,7 @@ describe('Unified (inline) diff mode', () => {
 
   it('interleaves the deletion above the addition, then the context line', () => {
     renderUnified();
-    const rows = Array.from(
-      container.querySelectorAll('.wd-unified tbody tr.wd-row'),
-    );
+    const rows = Array.from(container.querySelectorAll('.wd-unified tbody tr.wd-row'));
     // Classify each row by the tint on its content cell.
     const kinds = rows.map((r) => {
       const cell = r.querySelector('td.wd-content')!;
@@ -138,9 +135,7 @@ describe('Unified (inline) diff mode', () => {
 
   it('shows the old line number on the deletion and the new one on the addition', () => {
     renderUnified();
-    const rows = Array.from(
-      container.querySelectorAll('.wd-unified tbody tr.wd-row'),
-    );
+    const rows = Array.from(container.querySelectorAll('.wd-unified tbody tr.wd-row'));
     const del = rows[0];
     const add = rows[1];
     expect(del.querySelector('.wd-ln-old')!.textContent).toBe('1');

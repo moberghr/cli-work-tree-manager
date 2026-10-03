@@ -44,7 +44,8 @@ export function hostHealth(b: HostBeat, now = Date.now()): HostHealth {
 
 /** For the top bar; null when there is nothing to say. */
 export function hostHealthText(h: HostHealth): string | null {
-  if (h.state === 'unresponsive') return `Terminal host not answering${h.quietMs !== null ? ` (${Math.round(h.quietMs / 1000)} s)` : ''} — terminals may be frozen; \`work pty-host --restart\` brings them back`;
+  if (h.state === 'unresponsive')
+    return `Terminal host not answering${h.quietMs !== null ? ` (${Math.round(h.quietMs / 1000)} s)` : ''} — terminals may be frozen; \`work pty-host --restart\` brings them back`;
   if (h.state === 'slow') return `Terminal host slow to answer (${Math.round((h.latencyMs ?? 0) / 100) / 10} s)`;
   return null;
 }

@@ -58,7 +58,10 @@ const post = async (p: string, body: unknown) => {
   return { status: res.status, body: (await res.json()) as unknown };
 };
 /** What a session's diff route answers (the fields these tests read). */
-type DiffWire = { base?: string; repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }> };
+type DiffWire = {
+  base?: string;
+  repos: Array<{ name: string; files: Array<{ path: string; hunks: Array<{ newStart: number; newLines: number }> }> }>;
+};
 const id = () => sessionIdFor({ target: 'repo', branch: 'feat/x' });
 
 describe('POST /api/sessions/:id/revert', () => {
@@ -84,9 +87,16 @@ describe('POST /api/sessions/:id/revert', () => {
     expect(text).not.toContain('TOP');
     expect(text).toContain('BOTTOM');
 
-    const { body } = await get<{ comments: Array<{ body: string; side: string; status: string; author: string }> }>(`/api/sessions/${id()}/comments`);
+    const { body } = await get<{ comments: Array<{ body: string; side: string; status: string; author: string }> }>(
+      `/api/sessions/${id()}/comments`,
+    );
     expect(body.comments).toEqual([
-      expect.objectContaining({ side: 'general', status: 'published', author: 'user', body: expect.stringContaining(`lines ${h.newStart}–${h.newStart + h.newLines - 1} of \`README.md\``) }),
+      expect.objectContaining({
+        side: 'general',
+        status: 'published',
+        author: 'user',
+        body: expect.stringContaining(`lines ${h.newStart}–${h.newStart + h.newLines - 1} of \`README.md\``),
+      }),
     ]);
   }, 60_000);
 

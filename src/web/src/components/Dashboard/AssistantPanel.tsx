@@ -21,11 +21,7 @@ interface Props {
  */
 export function AssistantPanel({ open, onClose, seeing }: Props) {
   return (
-    <aside
-      className={'wd-assistant' + (open ? ' wd-assistant-open' : '')}
-      aria-label="Assistant"
-      aria-hidden={!open}
-    >
+    <aside className={'wd-assistant' + (open ? ' wd-assistant-open' : '')} aria-label="Assistant" aria-hidden={!open}>
       <header className="wd-assistant-header">
         <span className="wd-assistant-title">Assistant</span>
         <span className="wd-assistant-seeing" title="Each message you send includes this">

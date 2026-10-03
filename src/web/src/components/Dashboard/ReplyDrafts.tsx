@@ -74,7 +74,13 @@ export function ReplyDrafts({ sessionId, api = httpReplies }: { sessionId: strin
         </h3>
       )}
       {waiting.map((t) => (
-        <Waiting key={t.threadId} thread={t} sessionId={sessionId} api={api} handed={replies.some((r) => r.threadId === t.threadId && r.status === 'sent')} />
+        <Waiting
+          key={t.threadId}
+          thread={t}
+          sessionId={sessionId}
+          api={api}
+          handed={replies.some((r) => r.threadId === t.threadId && r.status === 'sent')}
+        />
       ))}
     </section>
   );
@@ -106,9 +112,19 @@ function Waiting({ thread, sessionId, api, handed }: { thread: OpenReviewThread;
         {handed && <span className="wd-replies-muted"> · handed to Claude, no draft yet</span>}
       </div>
       <blockquote className="wd-reply-quote">{thread.excerpt}</blockquote>
-      {error && <div className="wd-tab-error" role="alert">{error}</div>}
+      {error && (
+        <div className="wd-tab-error" role="alert">
+          {error}
+        </div>
+      )}
       <div className="wd-reply-actions">
-        <button type="button" className="wd-btn-secondary" disabled={state !== 'idle'} onClick={ask} title="Send its Claude a note to fix it if needed and draft a reply (it posts nothing)">
+        <button
+          type="button"
+          className="wd-btn-secondary"
+          disabled={state !== 'idle'}
+          onClick={ask}
+          title="Send its Claude a note to fix it if needed and draft a reply (it posts nothing)"
+        >
           {state === 'asking' ? 'Asking…' : state === 'asked' ? 'Asked — the draft will show here' : 'Ask Claude to reply'}
         </button>
         <a className="wd-link-button" href={thread.url} target="_blank" rel="noreferrer">
@@ -152,15 +168,37 @@ function Draft({ reply, sessionId, api, onDone }: { reply: PrReply; sessionId: s
         rows={Math.min(8, Math.max(2, text.split('\n').length + 1))}
         aria-label={`Reply to ${reply.reviewer}`}
       />
-      {error && <div className="wd-tab-error" role="alert">{error}</div>}
+      {error && (
+        <div className="wd-tab-error" role="alert">
+          {error}
+        </div>
+      )}
       <div className="wd-reply-actions">
-        <button type="button" className="wd-btn-primary" disabled={!!busy || !text.trim()} onClick={() => act('resolve')} title="Post from your GitHub account, then resolve the thread">
+        <button
+          type="button"
+          className="wd-btn-primary"
+          disabled={!!busy || !text.trim()}
+          onClick={() => act('resolve')}
+          title="Post from your GitHub account, then resolve the thread"
+        >
           {busy === 'resolve' ? 'Posting…' : 'Post & resolve'}
         </button>
-        <button type="button" className="wd-btn-secondary" disabled={!!busy || !text.trim()} onClick={() => act('post')} title="Post from your GitHub account; leave the thread open">
+        <button
+          type="button"
+          className="wd-btn-secondary"
+          disabled={!!busy || !text.trim()}
+          onClick={() => act('post')}
+          title="Post from your GitHub account; leave the thread open"
+        >
           {busy === 'post' ? 'Posting…' : 'Post'}
         </button>
-        <button type="button" className="wd-link-button" disabled={!!busy} onClick={() => act('discard')} title="Drop the draft; nothing is posted">
+        <button
+          type="button"
+          className="wd-link-button"
+          disabled={!!busy}
+          onClick={() => act('discard')}
+          title="Drop the draft; nothing is posted"
+        >
           {busy === 'discard' ? 'Discarding…' : 'Discard'}
         </button>
       </div>

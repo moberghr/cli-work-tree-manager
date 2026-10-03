@@ -16,8 +16,7 @@ import { withDb } from '../platform/db.js';
  *  not imported, to keep the ship/history types out of an import cycle.) */
 export function createSeenStores(): (sessionId: string) => { has: (k: string) => boolean; add: (k: string) => void } {
   return (sessionId) => ({
-    has: (k) =>
-      withDb((d) => d.prepare('SELECT 1 FROM pr_watch_seen WHERE session_id = ? AND key = ?').get(sessionId, k)) !== undefined,
+    has: (k) => withDb((d) => d.prepare('SELECT 1 FROM pr_watch_seen WHERE session_id = ? AND key = ?').get(sessionId, k)) !== undefined,
     add: (k) => {
       try {
         withDb((d) => d.prepare('INSERT OR IGNORE INTO pr_watch_seen (session_id, key) VALUES (?, ?)').run(sessionId, k));

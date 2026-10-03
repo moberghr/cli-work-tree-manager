@@ -62,9 +62,14 @@ export async function findMergedBranches(deps: BranchTidyDeps, only?: Array<{ re
         .filter((b): b is string => !!b),
     );
     const merged = new Set(
-      (await git(run, repo.path, 'branch', '--merged', base, '--format=%(refname:short)')).stdout.split('\n').map((l) => l.trim()).filter(Boolean),
+      (await git(run, repo.path, 'branch', '--merged', base, '--format=%(refname:short)')).stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
     );
-    const refs = (await git(run, repo.path, 'for-each-ref', '--format=%(refname:short)%09%(objectname)%09%(upstream:track)', 'refs/heads')).stdout
+    const refs = (
+      await git(run, repo.path, 'for-each-ref', '--format=%(refname:short)%09%(objectname)%09%(upstream:track)', 'refs/heads')
+    ).stdout
       .split('\n')
       .map((l) => l.split('\t'))
       .filter((p) => p[0]);
@@ -78,7 +83,11 @@ export async function findMergedBranches(deps: BranchTidyDeps, only?: Array<{ re
       let prNumber: number | undefined;
       if (merged.has(branch)) reason = 'merged';
       else if ((track ?? '').includes('gone')) {
-        const pr = await run('gh', ['pr', 'list', '--state', 'merged', '--head', branch, '--json', 'number,headRefOid', '--limit', '5'], repo.path);
+        const pr = await run(
+          'gh',
+          ['pr', 'list', '--state', 'merged', '--head', branch, '--json', 'number,headRefOid', '--limit', '5'],
+          repo.path,
+        );
         if (pr.code === 0) {
           try {
             const list = JSON.parse(pr.stdout) as Array<{ number: number; headRefOid: string }>;
@@ -94,7 +103,11 @@ export async function findMergedBranches(deps: BranchTidyDeps, only?: Array<{ re
       }
       if (!reason) continue;
       out.push({
-        repo: repo.alias, repoPath: repo.path, branch, tip, reason,
+        repo: repo.alias,
+        repoPath: repo.path,
+        branch,
+        tip,
+        reason,
         ...(prNumber ? { prNumber } : {}),
         ...(session ? { archivedSession: session.id } : {}),
       });
@@ -127,7 +140,12 @@ export async function deleteMergedBranches(
       continue;
     }
     const r = await git(run, now.repoPath, 'branch', '-D', now.branch);
-    results.push({ repo, branch, ok: r.code === 0, message: r.code === 0 ? `Deleted (was ${now.tip.slice(0, 8)})` : r.stderr.trim() || 'git refused' });
+    results.push({
+      repo,
+      branch,
+      ok: r.code === 0,
+      message: r.code === 0 ? `Deleted (was ${now.tip.slice(0, 8)})` : r.stderr.trim() || 'git refused',
+    });
   }
   return results;
 }

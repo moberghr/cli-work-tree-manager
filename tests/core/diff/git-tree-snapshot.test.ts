@@ -34,13 +34,9 @@ afterEach(() => {
  * what a checkpoint captures.
  */
 function treeViaReadTree(repoRoot: string): string {
-  const tmpIndex = path.join(
-    os.tmpdir(),
-    `wd-test-${crypto.randomBytes(6).toString('hex')}.idx`,
-  );
+  const tmpIndex = path.join(os.tmpdir(), `wd-test-${crypto.randomBytes(6).toString('hex')}.idx`);
   const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
-  const run = (args: string[]) =>
-    spawn.sync('git', args, { cwd: repoRoot, encoding: 'utf-8', env });
+  const run = (args: string[]) => spawn.sync('git', args, { cwd: repoRoot, encoding: 'utf-8', env });
   try {
     run(['read-tree', 'HEAD']);
     run(['add', '-A']);
@@ -74,11 +70,7 @@ describe('writeTempTree', () => {
     expect(result!.treeSha).toBe(treeViaReadTree(repo));
 
     // Spot-check the content rather than trusting sha equality alone.
-    const listed = spawn.sync(
-      'git',
-      ['ls-tree', '-r', '--name-only', result!.treeSha],
-      { cwd: repo, encoding: 'utf-8' },
-    ).stdout;
+    const listed = spawn.sync('git', ['ls-tree', '-r', '--name-only', result!.treeSha], { cwd: repo, encoding: 'utf-8' }).stdout;
     expect(listed).toContain('untracked.md');
     expect(listed).not.toContain('removed.md');
     expect(listed).not.toContain('ignored.txt');
@@ -143,9 +135,7 @@ describe('writeTempTree', () => {
     fs.writeFileSync(path.join(repo, 'untracked.md'), 'new\n');
     const before = fs.readFileSync(path.join(repo, '.git', 'index'));
     writeTempTree(repo);
-    expect(fs.readFileSync(path.join(repo, '.git', 'index')).equals(before)).toBe(
-      true,
-    );
+    expect(fs.readFileSync(path.join(repo, '.git', 'index')).equals(before)).toBe(true);
     // Still untracked as far as the user's git is concerned.
     const status = git(['status', '--porcelain'], repo).stdout;
     expect(status).toContain('?? untracked.md');
@@ -170,11 +160,7 @@ describe('writeTempTree', () => {
       const result = writeTempTree(fresh);
       expect(result).not.toBeNull();
       expect(result!.headSha).toBeNull();
-      const listed = spawn.sync(
-        'git',
-        ['ls-tree', '-r', '--name-only', result!.treeSha],
-        { cwd: fresh, encoding: 'utf-8' },
-      ).stdout;
+      const listed = spawn.sync('git', ['ls-tree', '-r', '--name-only', result!.treeSha], { cwd: fresh, encoding: 'utf-8' }).stdout;
       expect(listed).toContain('only.md');
     } finally {
       fs.rmSync(fresh, { recursive: true, force: true });
@@ -210,13 +196,15 @@ describe('writeTempTreeAsync (checkpoints)', () => {
 describe('inRepoQueue', () => {
   it('runs one job per repo at a time, in order; other repos run alongside; a failure does not stop the queue', async () => {
     const log: string[] = [];
-    const job = (name: string, ms: number, fail = false) => async () => {
-      log.push(`${name}+`);
-      await new Promise((r) => setTimeout(r, ms));
-      log.push(`${name}-`);
-      if (fail) throw new Error(name);
-      return name;
-    };
+    const job =
+      (name: string, ms: number, fail = false) =>
+      async () => {
+        log.push(`${name}+`);
+        await new Promise((r) => setTimeout(r, ms));
+        log.push(`${name}-`);
+        if (fail) throw new Error(name);
+        return name;
+      };
     const a1 = inRepoQueue('/r/a', job('a1', 30, true));
     const a2 = inRepoQueue('/R/A', job('a2', 5)); // same repo, other case
     const b1 = inRepoQueue('/r/b', job('b1', 5));

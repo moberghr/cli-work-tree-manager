@@ -60,15 +60,11 @@ describe('readContextLines (working tree)', () => {
   });
 
   it('rejects a path that escapes the repo root', () => {
-    expect(
-      readContextLines({ root: repoDir, relPath: '../outside.txt', start: 1, end: 1 }),
-    ).toBeNull();
+    expect(readContextLines({ root: repoDir, relPath: '../outside.txt', start: 1, end: 1 })).toBeNull();
   });
 
   it('returns null for a missing file', () => {
-    expect(
-      readContextLines({ root: repoDir, relPath: 'nope.txt', start: 1, end: 1 }),
-    ).toBeNull();
+    expect(readContextLines({ root: repoDir, relPath: 'nope.txt', start: 1, end: 1 })).toBeNull();
   });
 });
 

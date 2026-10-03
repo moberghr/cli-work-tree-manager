@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  highlightBlock,
-  highlightToLines,
-  resolveHighlightLang,
-} from '../../src/web/src/utils/highlight.js';
+import { highlightBlock, highlightToLines, resolveHighlightLang } from '../../src/web/src/utils/highlight.js';
 
 // Strip hljs `<span>` markup to compare plain text content.
 function stripTags(html: string): string {
@@ -24,20 +20,12 @@ describe('highlightToLines', () => {
     const src = 'a < b && c > d';
     const [line] = highlightToLines(src, 'javascript');
     // The rendered cell must round-trip to the original source text.
-    const decoded = stripTags(line)
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&');
+    const decoded = stripTags(line).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
     expect(decoded).toBe(src);
   });
 
   it('keeps Razor @code C# context across lines (the per-line gap)', () => {
-    const src = [
-      '@code {',
-      '    private int count;',
-      '    protected override async Task OnInit()',
-      '}',
-    ].join('\n');
+    const src = ['@code {', '    private int count;', '    protected override async Task OnInit()', '}'].join('\n');
     const out = highlightToLines(src, 'cshtml-razor');
     // The standalone C# line (no opener on it) only highlights `private`,
     // `async`, etc. when the @code block state carried over from line 1.
@@ -55,10 +43,7 @@ describe('highlightToLines', () => {
   });
 
   it('does the same in highlightBlock, normalizing blanks to null', () => {
-    const out = highlightBlock(
-      ['@code {', '    private int count;', '', '}'],
-      'cshtml-razor',
-    );
+    const out = highlightBlock(['@code {', '    private int count;', '', '}'], 'cshtml-razor');
     expect(out).toHaveLength(4);
     expect(out[1]).toContain('hljs-keyword'); // C# context carried over
     expect(out[2]).toBeNull(); // blank line → null (plain-render sentinel)

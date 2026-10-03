@@ -67,7 +67,11 @@ const clip = (s: string) => (s.length > TITLE_CHARS ? s.slice(0, TITLE_CHARS - 1
  * text. Other tags are dropped, their text kept. Null when nothing is left.
  */
 export function titleText(prompt: string): string | null {
-  const flat = (s: string) => s.replace(/<\/?[A-Za-z][\w-]*(?:\s[^>]*)?>/g, ' ').replace(/\s+/g, ' ').trim();
+  const flat = (s: string) =>
+    s
+      .replace(/<\/?[A-Za-z][\w-]*(?:\s[^>]*)?>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   const outside = flat(prompt.replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content>/g, ' '));
   const text = outside || flat(prompt);
   return text ? text : null;

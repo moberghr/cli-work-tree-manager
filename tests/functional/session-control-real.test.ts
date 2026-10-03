@@ -16,7 +16,8 @@ import { startWebServer, type WebServerHandle } from '../../src/server/web-serve
 let home: string;
 let server: WebServerHandle;
 const at = (route: string) => server.url.replace(/\/$/, '') + route;
-const post = (route: string, body: unknown = {}) => fetch(at(route), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const post = (route: string, body: unknown = {}) =>
+  fetch(at(route), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 const session = (branch: string, over: Partial<WorktreeSession> = {}): WorktreeSession => {
   const wt = path.join(home, 'wt', branch.replace('/', '-'));
@@ -27,7 +28,11 @@ const session = (branch: string, over: Partial<WorktreeSession> = {}): WorktreeS
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'control-real-'));
   vi.spyOn(os, 'homedir').mockReturnValue(home);
-  saveHistory([session('feat/live'), session('feat/old', { archivedAt: '2026-10-01T00:00:00Z' }), session('feat/unsafe', { launchedUnsafe: true })]);
+  saveHistory([
+    session('feat/live'),
+    session('feat/old', { archivedAt: '2026-10-01T00:00:00Z' }),
+    session('feat/unsafe', { launchedUnsafe: true }),
+  ]);
   server = await startWebServer({ lean: true });
 }, 60_000);
 afterEach(async () => {

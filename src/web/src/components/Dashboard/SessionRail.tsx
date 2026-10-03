@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { behindText } from './BehindChip.js';
 import { RowMenu, type MenuItem } from './RowMenu.js';
-import { EMPTY_RAIL_LAYOUT, MAX_SECTION_NAME, placeForGroup, type PlacePatch, type RailGroup, type RailLayout, type SectionOp } from '../../../../core/rail/rail-layout.js';
+import {
+  EMPTY_RAIL_LAYOUT,
+  MAX_SECTION_NAME,
+  placeForGroup,
+  type PlacePatch,
+  type RailGroup,
+  type RailLayout,
+  type SectionOp,
+} from '../../../../core/rail/rail-layout.js';
 import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
@@ -115,7 +123,12 @@ export function SessionRail({
   const { groups, hidden } = useMemo(() => {
     if (searching) {
       const { current, older } = railSessions(sessions, Date.now(), order ?? []);
-      return { groups: [{ key: 'search', title: null, sessions: [...current, ...older].filter((s) => sessionMatches(s, query)) }] as RailGroup<SessionSummary>[], hidden: 0 };
+      return {
+        groups: [
+          { key: 'search', title: null, sessions: [...current, ...older].filter((s) => sessionMatches(s, query)) },
+        ] as RailGroup<SessionSummary>[],
+        hidden: 0,
+      };
     }
     return railGroups(sessions, { order, layout, activeId: activeSessionId, showOlder });
   }, [sessions, order, layout, activeSessionId, showOlder, searching, query]);
@@ -247,7 +260,10 @@ export function SessionRail({
       <li
         key={s.id}
         draggable={canReorder || canPlace}
-        className={(dragId === s.id ? 'wd-dash-rail-dragging' : '') + (over ? (over.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '')}
+        className={
+          (dragId === s.id ? 'wd-dash-rail-dragging' : '') +
+          (over ? (over.before ? ' wd-dash-rail-drop-before' : ' wd-dash-rail-drop-after') : '')
+        }
         onDragStart={(e) => {
           setDragId(s.id);
           e.dataTransfer.effectAllowed = 'move';
@@ -265,7 +281,7 @@ export function SessionRail({
           if (dragId && drop && 'id' in drop) {
             moveToGroup(dragId, groupOf.get(drop.id));
             const i = shownIds.indexOf(drop.id);
-            move(dragId, drop.before ? drop.id : shownIds[i + 1] ?? null);
+            move(dragId, drop.before ? drop.id : (shownIds[i + 1] ?? null));
           }
           endDrag();
         }}
@@ -339,21 +355,11 @@ export function SessionRail({
 
   let index = 0;
   return (
-    <aside
-      className="wd-dash-rail"
-      role="navigation"
-      aria-label="Sessions"
-    >
+    <aside className="wd-dash-rail" role="navigation" aria-label="Sessions">
       <header className="wd-dash-rail-header">
         <h2>Sessions</h2>
         <StatusLegend />
-        <button
-          type="button"
-          className="wd-dash-rail-new"
-          onClick={onNewWorktree}
-          title="New worktree"
-          aria-label="New worktree"
-        >
+        <button type="button" className="wd-dash-rail-new" onClick={onNewWorktree} title="New worktree" aria-label="New worktree">
           +
         </button>
       </header>
@@ -382,9 +388,7 @@ export function SessionRail({
       )}
       {searching && visible.length === 0 && <p className="wd-dash-rail-empty">No session matches “{query.trim()}”.</p>}
       {!anySessions ? (
-        <p className="wd-dash-rail-empty">
-          No worktrees yet. Click + to create one.
-        </p>
+        <p className="wd-dash-rail-empty">No worktrees yet. Click + to create one.</p>
       ) : (
         <ul className="wd-dash-rail-list" ref={listRef}>
           {naming?.kind === 'new' && (
@@ -400,7 +404,12 @@ export function SessionRail({
               g.title !== null &&
                 (naming?.kind === 'rename' && naming.sectionId === g.sectionId ? (
                   <li key={`h:${g.key}`}>
-                    <SectionNameInput initial={g.title} placeholder="Section name" onSave={saveSectionName} onDone={() => setNaming(null)} />
+                    <SectionNameInput
+                      initial={g.title}
+                      placeholder="Section name"
+                      onSave={saveSectionName}
+                      onDone={() => setNaming(null)}
+                    />
                   </li>
                 ) : (
                   <li
@@ -429,7 +438,9 @@ export function SessionRail({
                       }}
                       title={g.sectionId ? 'Fold or unfold; right-click to rename, move or remove it' : 'Fold or unfold'}
                     >
-                      <span className="wd-dash-rail-group-caret" aria-hidden="true">{folded ? '▸' : '▾'}</span>
+                      <span className="wd-dash-rail-group-caret" aria-hidden="true">
+                        {folded ? '▸' : '▾'}
+                      </span>
                       <span className="wd-dash-rail-group-name">{g.title}</span>
                       <span className="wd-dash-rail-group-count">{g.sessions.length}</span>
                     </button>
@@ -438,7 +449,9 @@ export function SessionRail({
               ...rows.map((s) => renderRow(s, index++)),
               !folded && g.sessions.length === 0 && (
                 <li key={`e:${g.key}`} className="wd-dash-rail-group-empty">
-                  {g.sectionId ? `Drag a session here, or right-click one → Move to “${g.title}”.` : 'Drag a session here to unpin it or take it out of its section.'}
+                  {g.sectionId
+                    ? `Drag a session here, or right-click one → Move to “${g.title}”.`
+                    : 'Drag a session here to unpin it or take it out of its section.'}
                 </li>
               ),
             ];

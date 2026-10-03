@@ -6,7 +6,8 @@ import { readJsonlSince, readJsonlTail, type JsonLine } from '../../../src/core/
 
 /** These lines carry their time in `timestamp` (as an agent's adapter would read it). */
 const timeOf = (l: JsonLine) => (typeof l.timestamp === 'string' ? Date.parse(l.timestamp) : NaN);
-const readTranscriptSince = (f: string, since: number, opts?: { chunkBytes?: number; maxBytes?: number }) => readJsonlSince(f, since, timeOf, opts);
+const readTranscriptSince = (f: string, since: number, opts?: { chunkBytes?: number; maxBytes?: number }) =>
+  readJsonlSince(f, since, timeOf, opts);
 const readTranscriptTail = readJsonlTail;
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');

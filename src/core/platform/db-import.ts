@@ -36,7 +36,10 @@ function readJson(file: string): unknown {
 
 const jsonFiles = (dir: string) => {
   try {
-    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => path.join(dir, f));
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => path.join(dir, f));
   } catch {
     return [];
   }

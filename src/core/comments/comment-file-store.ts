@@ -74,9 +74,7 @@ export function getCommentFileStore(sessionId: string): CommentFileStore {
    * writes), apply `mutate`, persist. `persisted` reports whether anything
    * changed, so a no-op (e.g. removing a missing id) skips the write.
    */
-  function lockedMutate<T>(
-    mutate: () => { value: T; persisted: boolean },
-  ): T {
+  function lockedMutate<T>(mutate: () => { value: T; persisted: boolean }): T {
     return tx((d) => {
       reloadFrom(readRows(d, sessionId));
       const { value, persisted } = mutate();

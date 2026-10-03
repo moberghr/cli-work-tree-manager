@@ -27,7 +27,9 @@ export const overlapsCommand: CommandModule = {
         const pair = [id, o.sessionId].sort().join('|');
         if (seen.has(pair)) continue;
         seen.add(pair);
-        console.log(chalk.yellow(`⚠ ${s.target} · ${s.branch}  ↔  ${o.target} · ${o.branch}  (${o.count} file${o.count === 1 ? '' : 's'})`));
+        console.log(
+          chalk.yellow(`⚠ ${s.target} · ${s.branch}  ↔  ${o.target} · ${o.branch}  (${o.count} file${o.count === 1 ? '' : 's'})`),
+        );
         for (const f of o.files) console.log(chalk.gray(`    ${f.repo}/${f.path}`));
         if (o.count > o.files.length) console.log(chalk.gray(`    …and ${o.count - o.files.length} more`));
       }

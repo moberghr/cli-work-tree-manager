@@ -50,7 +50,9 @@ export const blockCommand: CommandModule = {
     if (!ref) {
       const b = readBlock(id);
       if (!b) console.log(chalk.gray(`${name} waits on nothing.`));
-      else for (const x of b.by) console.log(`${x.label}${x.kind === 'pr' ? `  ${chalk.gray(x.url)}${x.state ? ` (${x.state.toLowerCase()})` : ''}` : ''}`);
+      else
+        for (const x of b.by)
+          console.log(`${x.label}${x.kind === 'pr' ? `  ${chalk.gray(x.url)}${x.state ? ` (${x.state.toLowerCase()})` : ''}` : ''}`);
       return;
     }
     const r = addBlocker(id, ref);

@@ -47,7 +47,12 @@ const METHODS = new Set<MergeMethod>(['squash', 'merge', 'rebase']);
  *                                    conversation put back)
  */
 export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
-  const archive = async (id: string, archived: boolean, force = false, merged = false): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
+  const archive = async (
+    id: string,
+    archived: boolean,
+    force = false,
+    merged = false,
+  ): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
     const session = findSession(id);
     if (!session) return { ok: false };
     let ok: boolean;
@@ -90,7 +95,10 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const body = (await c.req.json().catch(() => ({}))) as {
-      action?: unknown; method?: unknown; draft?: unknown; repos?: unknown;
+      action?: unknown;
+      method?: unknown;
+      draft?: unknown;
+      repos?: unknown;
     };
     if (typeof body.action !== 'string' || !ACTIONS.has(body.action as ShipAction)) {
       return c.json({ error: 'action must be push, create-pr or merge' }, 400);

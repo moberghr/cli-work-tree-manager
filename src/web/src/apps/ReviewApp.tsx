@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   fetchCheckpoints,
   fetchCheckpointSummary,
@@ -20,11 +13,7 @@ import {
 } from '../api/client.js';
 import { useSse } from '../api/events.js';
 import { useDeferredDiffLoad } from '../hooks/use-deferred-diff-load.js';
-import {
-  checkpointAtOrBefore,
-  decideRange,
-  rangeEmptyMessage,
-} from '../state/checkpoint-range.js';
+import { checkpointAtOrBefore, decideRange, rangeEmptyMessage } from '../state/checkpoint-range.js';
 import { CheckpointStrip } from '../components/Diff/CheckpointStrip.js';
 import { DiffBusyChip } from '../components/Diff/DiffBusyChip.js';
 import { DiffUpdateChip } from '../components/Diff/DiffUpdateChip.js';
@@ -43,10 +32,7 @@ import { CommentsPanel } from '../components/Sidebar/CommentsPanel.js';
 import { useViewedFiles } from '../hooks/use-viewed-files.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../hooks/use-scrollspy.js';
 import { useSidebarOverflowsViewport } from '../hooks/use-sidebar-overflow.js';
-import {
-  ResizeDivider,
-  useSidebarWidth,
-} from '../components/Layout/ResizeDivider.js';
+import { ResizeDivider, useSidebarWidth } from '../components/Layout/ResizeDivider.js';
 
 interface Props {
   context: ReviewContext;
@@ -75,25 +61,17 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // provider's refetch effect on every render). When the review has
   // ended, hand the provider a variant with no SSE path so it
   // disconnects its stream.
-  const reviewApi = useMemo(
-    () => (scopeHash ? scopeHashReviewApi(scopeHash) : undefined),
-    [scopeHash],
-  );
+  const reviewApi = useMemo(() => (scopeHash ? scopeHashReviewApi(scopeHash) : undefined), [scopeHash]);
   const effectiveReviewApi = useMemo(
-    () =>
-      reviewApi && reviewEnded ? { ...reviewApi, ssePath: '' } : reviewApi,
+    () => (reviewApi && reviewEnded ? { ...reviewApi, ssePath: '' } : reviewApi),
     [reviewApi, reviewEnded],
   );
   // Per-view diff scope. Honors the server/CLI default; the user can
   // toggle in-browser. Tab visibility is gated by whether the branch
   // scope is actually available (CLI couldn't detect a parent → no
   // tab).
-  const [diffBase, setDiffBase] = useState<DiffBase>(
-    context.initialBase ?? 'uncommitted',
-  );
-  const hasBranchTab = context.staticMode
-    ? staticHasBranchScope()
-    : true; // server mode always supports both — server resolves on demand.
+  const [diffBase, setDiffBase] = useState<DiffBase>(context.initialBase ?? 'uncommitted');
+  const hasBranchTab = context.staticMode ? staticHasBranchScope() : true; // server mode always supports both — server resolves on demand.
 
   // Checkpoint range — only meaningful in scope-mounted mode (work web).
   // `null` means "no range selected yet, use default base mode" — the
@@ -124,11 +102,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
       (entries) => {
         setCheckpoints(entries);
         setRange((prev) => {
-          const decision = decideRange(
-            entries,
-            userPickedRef.current,
-            prev,
-          );
+          const decision = decideRange(entries, userPickedRef.current, prev);
           if (decision.resetUserPicked) userPickedRef.current = false;
           if (decision.kind === 'legacy') return null;
           // Keep the previous object when the decision is the same range:
@@ -141,7 +115,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
           return next;
         });
       },
-      () => { /* silent — strip just stays hidden */ },
+      () => {
+        /* silent — strip just stays hidden */
+      },
     );
   }, [scopeHash]);
 
@@ -171,23 +147,16 @@ export function ReviewApp({ context, scopeHash }: Props) {
     applyPending,
     reload,
     checkForUpdates,
-  } = useDeferredDiffLoad(
-    () => {
-      const startedAt = Date.now();
-      const req = scopeHash
-        ? fetchScopeDiffByHash(
-            scopeHash,
-            diffBase,
-            rangeActive ? (range ?? undefined) : undefined,
-          )
-        : fetchScopeDiff(diffBase);
-      return req.then((d) => {
-        fetchedAtRef.current.set(d, startedAt);
-        return d;
-      });
-    },
-    [diffBase, scopeHash, range, rangeActive],
-  );
+  } = useDeferredDiffLoad(() => {
+    const startedAt = Date.now();
+    const req = scopeHash
+      ? fetchScopeDiffByHash(scopeHash, diffBase, rangeActive ? (range ?? undefined) : undefined)
+      : fetchScopeDiff(diffBase);
+    return req.then((d) => {
+      fetchedAtRef.current.set(d, startedAt);
+      return d;
+    });
+  }, [diffBase, scopeHash, range, rangeActive]);
   const repos: RepoData[] | null = diffData?.repos ?? null;
   const resolvedBase = diffData?.resolvedBase;
   // Standalone mode puts the branch on the context; work-web scope views
@@ -215,22 +184,15 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // uses the global /events stream (its diff server only handles one
   // scope). Once the review ends, disconnect (`null` URL) — see
   // `reviewEnded` above.
-  useSse(
-    reviewEnded
-      ? null
-      : scopeHash
-        ? `/api/scopes/${encodeURIComponent(scopeHash)}/events`
-        : '/events',
-    {
-      events: {
-        // Fetch quietly and stage the result — never re-render the diff
-        // out from under someone who's mid-scroll. The banner offers it.
-        'diff-changed': () => checkForUpdates(),
-        'checkpoints-changed': () => refreshCheckpoints(),
-        'review-done': () => setReviewEnded(true),
-      },
+  useSse(reviewEnded ? null : scopeHash ? `/api/scopes/${encodeURIComponent(scopeHash)}/events` : '/events', {
+    events: {
+      // Fetch quietly and stage the result — never re-render the diff
+      // out from under someone who's mid-scroll. The banner offers it.
+      'diff-changed': () => checkForUpdates(),
+      'checkpoints-changed': () => refreshCheckpoints(),
+      'review-done': () => setReviewEnded(true),
     },
-  );
+  });
 
   // Plain click sets `to`. Shift-click sets `from`. Each endpoint is
   // independent — moving one never silently resets the other. This is
@@ -249,10 +211,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
     window.scrollTo({ top: 0 });
   };
 
-  const normaliseRange = (
-    from: number,
-    to: CheckpointRangeEnd,
-  ): { from: number; to: CheckpointRangeEnd } => {
+  const normaliseRange = (from: number, to: CheckpointRangeEnd): { from: number; to: CheckpointRangeEnd } => {
     if (to === 'working') return { from, to };
     if (from > to) return { from: to, to: from };
     return { from, to };
@@ -296,9 +255,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
     userPickedRef.current = true;
     setRangeActive(true);
     if (end === 'working') {
-      const lastId = checkpoints.length
-        ? checkpoints[checkpoints.length - 1].id
-        : 0;
+      const lastId = checkpoints.length ? checkpoints[checkpoints.length - 1].id : 0;
       setRange({ from: lastId, to: 'working' });
       return;
     }
@@ -334,12 +291,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
       ({ label }) => {
         if (cancelled) return;
         if (label && label.trim()) {
-          setCheckpoints((prev) =>
-            prev.map((e) => (e.id === toId ? { ...e, label } : e)),
-          );
+          setCheckpoints((prev) => prev.map((e) => (e.id === toId ? { ...e, label } : e)));
         }
       },
-      () => { /* leave the bare #id; re-selecting it retries */ },
+      () => {
+        /* leave the bare #id; re-selecting it retries */
+      },
     );
     return () => {
       cancelled = true;
@@ -359,12 +316,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
       fetchCheckpointSummary(scopeHash, latest.id).then(
         ({ label }) => {
           if (label && label.trim()) {
-            setCheckpoints((prev) =>
-              prev.map((e) => (e.id === latest.id ? { ...e, label } : e)),
-            );
+            setCheckpoints((prev) => prev.map((e) => (e.id === latest.id ? { ...e, label } : e)));
           }
         },
-        () => { /* leave it as #id; selecting it will retry */ },
+        () => {
+          /* leave it as #id; selecting it will retry */
+        },
       );
     }, 2500);
     return () => clearTimeout(timer);
@@ -373,13 +330,8 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // Which checkpoint the diff CURRENTLY ON SCREEN sits on top of: the newest
   // one taken before that diff's request started (see `fetchedAtRef`).
   // Derived every render, so it tracks late checkpoint-list refreshes.
-  const shownFetchedAt = diffData
-    ? fetchedAtRef.current.get(diffData)
-    : undefined;
-  const shownBaseline =
-    shownFetchedAt === undefined
-      ? null
-      : checkpointAtOrBefore(checkpoints, shownFetchedAt);
+  const shownFetchedAt = diffData ? fetchedAtRef.current.get(diffData) : undefined;
+  const shownBaseline = shownFetchedAt === undefined ? null : checkpointAtOrBefore(checkpoints, shownFetchedAt);
 
   const repoStartIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -400,9 +352,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
     if (!repos || repos.length === 0) return null;
     return repos.find((r) => r.name === activeRepoName) ?? repos[0];
   }, [repos, activeRepoName]);
-  const activeStart = activeRepo
-    ? (repoStartIndex.get(activeRepo.name) ?? 0)
-    : 0;
+  const activeStart = activeRepo ? (repoStartIndex.get(activeRepo.name) ?? 0) : 0;
 
   const pathToAnchor = useMemo(() => {
     const map = new Map<string, string>();
@@ -413,16 +363,9 @@ export function ReviewApp({ context, scopeHash }: Props) {
     return map;
   }, [activeRepo, activeStart]);
 
-  const scopeKey = activeRepo
-    ? `scope:${context.scopeLabel}:${activeRepo.name}`
-    : `scope:${context.scopeLabel}:_pending`;
-  const hunkScopeKey = activeRepo
-    ? `scope:${context.scopeLabel}:${activeRepo.name}:hunks`
-    : '';
-  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(
-    scopeKey,
-    pathToAnchor,
-  );
+  const scopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}` : `scope:${context.scopeLabel}:_pending`;
+  const hunkScopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}:hunks` : '';
+  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor);
   const activeAnchor = useScrollspy(activeRepo?.name ?? '_pending');
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -430,10 +373,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // Ctrl+F ticks for file-tree matches share the viewport scrollbar) until
   // the tree is taller than the viewport, when it becomes its own scroller.
   const sidebarRef = useRef<HTMLElement>(null);
-  const sidebarScrolls = useSidebarOverflowsViewport(sidebarRef, [
-    activeRepo?.name,
-    repos?.length,
-  ]);
+  const sidebarScrolls = useSidebarOverflowsViewport(sidebarRef, [activeRepo?.name, repos?.length]);
 
   // Keep the active file visible in the tree as you scroll the diff — but only
   // once the sidebar is its own scroller (a tree taller than the viewport);
@@ -447,9 +387,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
 
   const totalFiles = repos.reduce((s, r) => s + r.files.length, 0);
   // File count of the staged (not-yet-shown) diff, for the banner's summary.
-  const pendingFileCount = pending
-    ? pending.repos.reduce((s, r) => s + r.files.length, 0)
-    : null;
+  const pendingFileCount = pending ? pending.repos.reduce((s, r) => s + r.files.length, 0) : null;
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = repos.length > 1;
   // Empty-state copy mirrors DiffView's three-bucket diagnostic so the
@@ -460,16 +398,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // changes" when their tree has plenty).
   let emptyMessage: string;
   if (rangeActive && range) {
-    const latestId = checkpoints.length
-      ? checkpoints[checkpoints.length - 1].id
-      : undefined;
+    const latestId = checkpoints.length ? checkpoints[checkpoints.length - 1].id : undefined;
     emptyMessage = rangeEmptyMessage(range, latestId);
   } else if (diffBase === 'uncommitted') {
     emptyMessage = 'No uncommitted changes.';
   } else if (!resolvedBase || resolvedBase === 'HEAD') {
-    emptyMessage =
-      "Couldn't auto-detect this branch's parent. " +
-      'Tried main, master, dev, develop (and their origin/* mirrors).';
+    emptyMessage = "Couldn't auto-detect this branch's parent. " + 'Tried main, master, dev, develop (and their origin/* mirrors).';
   } else {
     emptyMessage = `No commits since \`${resolvedBase}\` — branch is up to date or already merged.`;
   }
@@ -527,9 +461,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
             onShowNewOnly={shownBaseline !== null ? showNewOnly : undefined}
           />
         )}
-        {(loading || (checking && !pending)) && (
-          <DiffBusyChip label={loading ? 'loading…' : 'checking…'} />
-        )}
+        {(loading || (checking && !pending)) && <DiffBusyChip label={loading ? 'loading…' : 'checking…'} />}
       </div>
       <div className="wd-web-difftoolbar-controls">
         <span className="wd-web-version" title={`work-tree v${VERSION}`}>
@@ -538,21 +470,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <ThemeToggle />
         <DiffModeToggle />
         {hasBranchTab && (
-          <div
-            className="wd-web-diff-scope"
-            role="tablist"
-            aria-label="Diff scope"
-          >
+          <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
             <button
               type="button"
               role="tab"
               aria-selected={!rangeActive && diffBase === 'uncommitted'}
-              className={
-                'wd-web-diff-scope-btn' +
-                (!rangeActive && diffBase === 'uncommitted'
-                  ? ' wd-web-diff-scope-btn-active'
-                  : '')
-              }
+              className={'wd-web-diff-scope-btn' + (!rangeActive && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')}
               onClick={() => selectBase('uncommitted')}
             >
               Uncommitted
@@ -561,12 +484,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
               type="button"
               role="tab"
               aria-selected={!rangeActive && diffBase === 'branch'}
-              className={
-                'wd-web-diff-scope-btn' +
-                (!rangeActive && diffBase === 'branch'
-                  ? ' wd-web-diff-scope-btn-active'
-                  : '')
-              }
+              className={'wd-web-diff-scope-btn' + (!rangeActive && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
               onClick={() => selectBase('branch')}
             >
               Since branch
@@ -627,30 +545,15 @@ export function ReviewApp({ context, scopeHash }: Props) {
         // inner scroller (see .wd-web-review-layout--page in review.css).
         className="wd-web-review-layout wd-web-review-layout--page"
       >
-        <aside
-          ref={sidebarRef}
-          className={
-            'wd-web-review-sidebar' +
-            (sidebarScrolls ? ' wd-sidebar-scrolls' : '')
-          }
-        >
+        <aside ref={sidebarRef} className={'wd-web-review-sidebar' + (sidebarScrolls ? ' wd-sidebar-scrolls' : '')}>
           {!isEmpty && activeRepo && (
             <>
-              <FileTree
-                files={activeRepo.files}
-                startIndex={activeStart}
-                selectedAnchor={activeAnchor}
-                viewedAnchors={viewedAnchors}
-              />
+              <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
               {!readOnly && <CommentsPanel repoName={activeRepo.name} />}
             </>
           )}
         </aside>
-        <ResizeDivider
-          layoutRef={layoutRef}
-          size={sidebarWidth}
-          onCommit={setSidebarWidth}
-        />
+        <ResizeDivider layoutRef={layoutRef} size={sidebarWidth} onCommit={setSidebarWidth} />
         <main className="wd-web-review-main" aria-busy={loading}>
           {isEmpty || !activeRepo ? (
             <div className="wd-web-empty wd-web-empty-diff">
@@ -658,11 +561,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
               {diffBase === 'uncommitted' && hasBranchTab && (
                 <p className="wd-web-empty-hint">
                   Try{' '}
-                  <button
-                    type="button"
-                    className="wd-web-link-btn"
-                    onClick={() => selectBase('branch')}
-                  >
+                  <button type="button" className="wd-web-link-btn" onClick={() => selectBase('branch')}>
                     Since branch
                   </button>{' '}
                   to see everything in this worktree.
@@ -681,21 +580,12 @@ export function ReviewApp({ context, scopeHash }: Props) {
                       <button
                         key={r.name}
                         type="button"
-                        className={
-                          'wd-web-repo-tab' +
-                          (r.name === activeRepo.name
-                            ? ' wd-web-repo-tab-active'
-                            : '')
-                        }
+                        className={'wd-web-repo-tab' + (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '')}
                         onClick={() => setActiveRepoName(r.name)}
                       >
-                        {r.name}{' '}
-                        <span className="wd-web-tab-count">
-                          ({r.files.length})
-                        </span>{' '}
+                        {r.name} <span className="wd-web-tab-count">({r.files.length})</span>{' '}
                         <span className="wd-tab-stats">
-                          <span className="wd-add">+{add}</span>{' '}
-                          <span className="wd-del">-{del}</span>
+                          <span className="wd-add">+{add}</span> <span className="wd-del">-{del}</span>
                         </span>
                       </button>
                     );
@@ -722,18 +612,11 @@ export function ReviewApp({ context, scopeHash }: Props) {
   // "Expand lines" reads file content from the server, so it's wired in
   // every server-backed mode (read-only `wd` included) but suppressed for
   // static `wd --static` files, which have no backend to fetch from.
-  const withExpand = (node: ReactNode) =>
-    context.staticMode ? (
-      node
-    ) : (
-      <ExpandProvider scopeHash={scopeHash}>{node}</ExpandProvider>
-    );
+  const withExpand = (node: ReactNode) => (context.staticMode ? node : <ExpandProvider scopeHash={scopeHash}>{node}</ExpandProvider>);
 
   if (readOnly) return withExpand(layout);
   // For scope-mounted review (`/review/<hash>`), point the provider at
   // the scope's comment endpoints (memoized above). Standalone `wd -c`
   // uses the default scopeReviewApi which targets the bare `/api/comments`.
-  return withExpand(
-    <ReviewProvider api={effectiveReviewApi}>{layout}</ReviewProvider>,
-  );
+  return withExpand(<ReviewProvider api={effectiveReviewApi}>{layout}</ReviewProvider>);
 }

@@ -65,7 +65,13 @@ describe('work fork', () => {
     expect(fork.title).toBe('Queue idea');
     expect(git(['rev-parse', 'HEAD'], fork.paths[0]).stdout.trim()).toBe(git(['rev-parse', 'HEAD'], wt).stdout.trim());
     expect(h.start).not.toHaveBeenCalled();
-    expect(h.attach).toHaveBeenCalledWith(expect.objectContaining({ branch: 'feat/x-2' }), expect.objectContaining({ initialPrompt: expect.stringMatching(/a fork of "repo · feat\/x"[\s\S]*try it with a queue$/), forwardEnv: true }));
+    expect(h.attach).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: 'feat/x-2' }),
+      expect.objectContaining({
+        initialPrompt: expect.stringMatching(/a fork of "repo · feat\/x"[\s\S]*try it with a queue$/),
+        forwardEnv: true,
+      }),
+    );
   });
 
   it('--no-attach starts it in the PTY host and returns; --target/--from name the session', async () => {

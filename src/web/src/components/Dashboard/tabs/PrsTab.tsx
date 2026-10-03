@@ -42,9 +42,7 @@ export function PrsTab({ onPick }: Props) {
     if (!prs) return [];
     if (scope === 'mine') return prs.filter((p) => p.isMine);
     if (scope === 'needs-review') {
-      return prs.filter(
-        (p) => p.reviewDecision === 'REVIEW_REQUIRED' && !p.isMine,
-      );
+      return prs.filter((p) => p.reviewDecision === 'REVIEW_REQUIRED' && !p.isMine);
     }
     return prs;
   }, [prs, scope]);
@@ -71,36 +69,25 @@ export function PrsTab({ onPick }: Props) {
         <div className="wd-tab-controls">
           <label>
             Scope{' '}
-            <select
-              value={scope}
-              onChange={(e) => setScope(e.target.value as Scope)}
-            >
+            <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
               <option value="all">all</option>
               <option value="mine">mine</option>
               <option value="needs-review">needs review</option>
             </select>
           </label>
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            onClick={refresh}
-            title="Refresh"
-          >
+          <button type="button" className="wd-btn-secondary" onClick={refresh} title="Refresh">
             ⟳
           </button>
         </div>
       </header>
       {!available && (
         <div className="wd-tab-empty">
-          <code>gh</code> CLI not available or not authenticated. Install
-          GitHub CLI and run <code>gh auth login</code>.
+          <code>gh</code> CLI not available or not authenticated. Install GitHub CLI and run <code>gh auth login</code>.
         </div>
       )}
       {error && <div className="wd-tab-empty wd-tab-error">{error}</div>}
       {available && !error && filtered.length === 0 && (
-        <div className="wd-tab-empty">
-          {prs === null ? 'Loading…' : `No PRs match "${scope}".`}
-        </div>
+        <div className="wd-tab-empty">{prs === null ? 'Loading…' : `No PRs match "${scope}".`}</div>
       )}
       {byRepo.length > 0 && (
         <table className="wd-pr-table">
@@ -118,37 +105,25 @@ export function PrsTab({ onPick }: Props) {
             {byRepo.flatMap(([repo, list]) => [
               <tr key={`g:${repo}`} className="wd-pr-group">
                 <td colSpan={6} className="wd-pr-group-label">
-                  {repo}{' '}
-                  <span className="wd-tab-header-muted">
-                    ({list.length})
-                  </span>
+                  {repo} <span className="wd-tab-header-muted">({list.length})</span>
                 </td>
               </tr>,
               ...list.map((pr) => (
-                <tr
-                  key={`${pr.repoAlias}#${pr.number}`}
-                  className="wd-pr-row"
-                  onClick={() => onPick(pr)}
-                  title={pr.url}
-                >
+                <tr key={`${pr.repoAlias}#${pr.number}`} className="wd-pr-row" onClick={() => onPick(pr)} title={pr.url}>
                   <td className="wd-pr-num">#{pr.number}</td>
                   <td className="wd-pr-branch">{pr.branch}</td>
                   <td className="wd-pr-title">
-                    {pr.isDraft && (
-                      <span className="wd-pr-badge wd-pr-badge-draft">DRAFT</span>
-                    )}
+                    {pr.isDraft && <span className="wd-pr-badge wd-pr-badge-draft">DRAFT</span>}
                     {pr.title}
                   </td>
-                  <td><ChecksCell pr={pr} /></td>
-                  <td><ReviewCell pr={pr} /></td>
+                  <td>
+                    <ChecksCell pr={pr} />
+                  </td>
+                  <td>
+                    <ReviewCell pr={pr} />
+                  </td>
                   <td className="wd-pr-actions">
-                    <a
-                      href={pr.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      title="Open on GitHub"
-                    >
+                    <a href={pr.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Open on GitHub">
                       ↗
                     </a>
                   </td>
@@ -164,23 +139,51 @@ export function PrsTab({ onPick }: Props) {
 
 function ChecksCell({ pr }: { pr: PrInfo }) {
   if (pr.checksStatus === 'SUCCESS')
-    return <span className="wd-pr-check wd-pr-check-ok" title="Passing">✓</span>;
+    return (
+      <span className="wd-pr-check wd-pr-check-ok" title="Passing">
+        ✓
+      </span>
+    );
   if (pr.checksStatus === 'FAILURE')
-    return <span className="wd-pr-check wd-pr-check-fail" title="Failing">✗</span>;
+    return (
+      <span className="wd-pr-check wd-pr-check-fail" title="Failing">
+        ✗
+      </span>
+    );
   if (pr.checksStatus === 'PENDING')
-    return <span className="wd-pr-check wd-pr-check-pending" title="Pending">●</span>;
+    return (
+      <span className="wd-pr-check wd-pr-check-pending" title="Pending">
+        ●
+      </span>
+    );
   return <span className="wd-pr-check-none">—</span>;
 }
 
 function ReviewCell({ pr }: { pr: PrInfo }) {
   if (pr.isMine) return <span title="Your PR">★</span>;
   if (pr.myReview === 'APPROVED')
-    return <span className="wd-pr-check-ok" title="You approved">✔</span>;
+    return (
+      <span className="wd-pr-check-ok" title="You approved">
+        ✔
+      </span>
+    );
   if (pr.myReview === 'CHANGES_REQUESTED')
-    return <span className="wd-pr-check-fail" title="Changes requested">✎</span>;
+    return (
+      <span className="wd-pr-check-fail" title="Changes requested">
+        ✎
+      </span>
+    );
   if (pr.reviewDecision === 'APPROVED')
-    return <span className="wd-pr-check-ok" title="Approved">✔</span>;
+    return (
+      <span className="wd-pr-check-ok" title="Approved">
+        ✔
+      </span>
+    );
   if (pr.reviewDecision === 'CHANGES_REQUESTED')
-    return <span className="wd-pr-check-fail" title="Changes requested">✎</span>;
+    return (
+      <span className="wd-pr-check-fail" title="Changes requested">
+        ✎
+      </span>
+    );
   return <span className="wd-pr-check-none">—</span>;
 }

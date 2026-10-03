@@ -27,7 +27,7 @@ describe('contextUsageFrom', () => {
     expect(u).toEqual({ used: 52_320, window: DEFAULT_WINDOW, model: 'claude-sonnet-5' });
   });
 
-  it("skips subagent turns (they have their own context) and entries without usage", () => {
+  it('skips subagent turns (they have their own context) and entries without usage', () => {
     const u = usageOf([
       reply({ input_tokens: 40_000 }),
       reply({ input_tokens: 190_000 }, { isSidechain: true }),
@@ -49,8 +49,12 @@ describe('readContextUsage', () => {
   let wt: string;
   let file: string;
   const session = (): WorktreeSession => ({
-    target: 'api', branch: 'feat/x', isGroup: false, paths: [wt],
-    createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+    target: 'api',
+    branch: 'feat/x',
+    isGroup: false,
+    paths: [wt],
+    createdAt: new Date().toISOString(),
+    lastAccessedAt: new Date().toISOString(),
   });
   beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-usage-'));

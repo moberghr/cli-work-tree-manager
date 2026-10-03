@@ -12,11 +12,7 @@ import path from 'node:path';
  */
 export function startupScriptPath(): string | null {
   if (process.platform !== 'win32' || !process.env.APPDATA) return null;
-  return path.join(
-    process.env.APPDATA,
-    'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup',
-    'work-web.vbs',
-  );
+  return path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'work-web.vbs');
 }
 
 /** VBScript string literal: wrap in quotes, double any embedded quote. */
@@ -43,7 +39,11 @@ export function setAutostart(enabled: boolean, workBin: string): string {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, buildStartupScript(process.execPath, workBin), 'utf-8');
   } else {
-    try { fs.unlinkSync(file); } catch { /* already off */ }
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      /* already off */
+    }
   }
   return file;
 }

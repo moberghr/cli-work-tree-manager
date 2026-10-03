@@ -21,9 +21,7 @@ function isTask(x: unknown): x is Task {
 }
 
 function all(d: Db): Task[] {
-  return (d.prepare('SELECT data FROM tasks ORDER BY id').all() as Array<{ data: string }>)
-    .map((r) => json.parse(r.data))
-    .filter(isTask);
+  return (d.prepare('SELECT data FROM tasks ORDER BY id').all() as Array<{ data: string }>).map((r) => json.parse(r.data)).filter(isTask);
 }
 
 function get(d: Db, id: number): Task | null {

@@ -19,18 +19,36 @@ const NOW = Date.parse('2026-09-29T12:00:00Z');
 
 describe('cleanupVerdict', () => {
   const repo = (over: Partial<CleanupRepo> = {}): CleanupRepo => ({
-    name: 'api', path: '/wt/api', exists: true, readable: true, dirty: 0, ahead: 0, merged: 'contained', base: 'origin/HEAD', baseCheckout: false, ...over,
+    name: 'api',
+    path: '/wt/api',
+    exists: true,
+    readable: true,
+    dirty: 0,
+    ahead: 0,
+    merged: 'contained',
+    base: 'origin/HEAD',
+    baseCheckout: false,
+    ...over,
   });
-  const v = (repos: CleanupRepo[], idleMs = 3 * DAY, archived = false) => cleanupVerdict({ repos, lastActiveMs: NOW - idleMs, archived }, NOW);
+  const v = (repos: CleanupRepo[], idleMs = 3 * DAY, archived = false) =>
+    cleanupVerdict({ repos, lastActiveMs: NOW - idleMs, archived }, NOW);
 
   it('merged or never committed to, and clean: delete', () => {
     expect(v([repo()])).toMatchObject({ verdict: 'merged', suggested: 'delete' });
-    expect(v([repo({ ahead: 3, merged: 'squash' })])).toMatchObject({ verdict: 'merged', suggested: 'delete', reason: expect.stringContaining('Squash-merged') });
+    expect(v([repo({ ahead: 3, merged: 'squash' })])).toMatchObject({
+      verdict: 'merged',
+      suggested: 'delete',
+      reason: expect.stringContaining('Squash-merged'),
+    });
   });
 
   it('never deletes uncommitted work or commits of its own; archives them once a week quiet', () => {
     expect(v([repo({ dirty: 2 })])).toMatchObject({ verdict: 'dirty', suggested: null, reason: '2 uncommitted files' });
-    expect(v([repo({ ahead: 4, merged: null })])).toMatchObject({ verdict: 'work', suggested: null, reason: '4 commits not in origin/HEAD' });
+    expect(v([repo({ ahead: 4, merged: null })])).toMatchObject({
+      verdict: 'work',
+      suggested: null,
+      reason: '4 commits not in origin/HEAD',
+    });
     expect(v([repo({ dirty: 1 })], CLEANUP_ARCHIVE_AFTER_MS + 1).suggested).toBe('archive');
     expect(v([repo({ ahead: 1, merged: null })], CLEANUP_ARCHIVE_AFTER_MS + 1, true).suggested).toBeNull(); // archived already
   });
@@ -109,13 +127,25 @@ describe('cleanup on real repositories', () => {
   }, 60_000);
 
   it('never offers the repo itself', async () => {
-    const r = await repoFacts('repo', main, new Set([process.platform === 'win32' ? path.resolve(main).toLowerCase() : path.resolve(main)]), defaultRunner);
+    const r = await repoFacts(
+      'repo',
+      main,
+      new Set([process.platform === 'win32' ? path.resolve(main).toLowerCase() : path.resolve(main)]),
+      defaultRunner,
+    );
     expect(r.baseCheckout).toBe(true);
   });
 
   it('the job scans, then re-checks each item right before acting', async () => {
     const session = (name: string, idleDays = 3): CleanupSession => ({
-      id: name, target: 'repo', branch: `feat/${name}`, isGroup: false, paths: [wt[name]], archivedAt: null, lastActiveMs: Date.now() - idleDays * DAY, aliases: ['repo'],
+      id: name,
+      target: 'repo',
+      branch: `feat/${name}`,
+      isGroup: false,
+      paths: [wt[name]],
+      archivedAt: null,
+      lastActiveMs: Date.now() - idleDays * DAY,
+      aliases: ['repo'],
     });
     const acted: Array<[string, CleanupAction]> = [];
     const job = createCleanupJob({
@@ -140,7 +170,12 @@ describe('cleanup on real repositories', () => {
 
     // Between the scan and the click, a file appears in the "merged" one.
     fs.writeFileSync(path.join(wt.merged, 'late.txt'), 'x\n');
-    expect(job.apply([{ sessionId: 'merged', action: 'delete' }, { sessionId: 'squashed', action: 'delete' }])).toBe(true);
+    expect(
+      job.apply([
+        { sessionId: 'merged', action: 'delete' },
+        { sessionId: 'squashed', action: 'delete' },
+      ]),
+    ).toBe(true);
     await job.idle();
     expect(acted).toEqual([['squashed', 'delete']]);
     expect(job.state().results).toEqual([
@@ -154,7 +189,14 @@ describe('cleanup on real repositories', () => {
 
 describe('duplicate base-checkout entries', () => {
   const s = (id: string, branch: string, lastActiveMs: number, paths = ['/repos/api']): CleanupSession => ({
-    id, target: 'api', branch, isGroup: false, paths, archivedAt: null, lastActiveMs, aliases: ['api'],
+    id,
+    target: 'api',
+    branch,
+    isGroup: false,
+    paths,
+    archivedAt: null,
+    lastActiveMs,
+    aliases: ['api'],
   });
 
   it('keeps the most recently used entry for a checkout and marks the others', () => {
@@ -162,7 +204,10 @@ describe('duplicate base-checkout entries', () => {
       [s('a', 'main', 300), s('b', 'feat/old', 100), s('c', 'feat/older', 50), s('wt', 'feat/x', 10, ['/wt/api/feat-x'])],
       ['/repos/api'],
     );
-    expect([...dupes]).toEqual([['b', { branch: 'main' }], ['c', { branch: 'main' }]]);
+    expect([...dupes]).toEqual([
+      ['b', { branch: 'main' }],
+      ['c', { branch: 'main' }],
+    ]);
     expect(duplicateBaseEntries([s('a', 'main', 1)], ['/repos/api']).size).toBe(0);
   });
 

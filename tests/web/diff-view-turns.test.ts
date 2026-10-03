@@ -4,8 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Every diff fetch is recorded (with its range) and answered with one
 // file named after the request, so the test can see which scope loaded.
@@ -44,7 +43,7 @@ const h = vi.hoisted(() => {
       },
     ],
   });
-    return {
+  return {
     calls,
     diffFor,
     get checkpoints() {
@@ -70,8 +69,7 @@ vi.mock('../../src/web/src/api/review-api.js', () => ({
   }),
 }));
 vi.mock('../../src/web/src/api/client.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/api/client.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
     fetchSessionDiff: (sessionId: string, base: string, range?: { from: number; to: number }) => {
@@ -112,7 +110,10 @@ const session = (id: string): SessionSummary => ({
   lastAccessedAt: '2026-09-01T00:00:00Z',
 });
 const entry = (id: number, label?: string) => ({ id, ts: `2026-09-01T00:0${id}:00Z`, label, repos: { repo: null } });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const tab = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === name)!;
 

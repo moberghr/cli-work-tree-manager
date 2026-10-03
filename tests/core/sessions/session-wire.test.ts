@@ -5,8 +5,14 @@ import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 // a moment ago (so "active"), no hook status.
 vi.mock('../../../src/core/sessions/session-meta.js', () => ({
   readSessionMeta: () => ({
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', pendingForClaudeCount: 0,
-    lastActivity: 1_700_000_000_000, activityState: 'stale', attention: null,
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    pendingForClaudeCount: 0,
+    lastActivity: 1_700_000_000_000,
+    activityState: 'stale',
+    attention: null,
   }),
 }));
 vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContextUsage: () => null }));
@@ -14,7 +20,14 @@ vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContext
 import { reviewThreadsOf, sessionWire } from '../../../src/core/sessions/session-wire.js';
 import { OUTPUT_WORKING_MS, statusFromOutput } from '../../../src/core/pty/output-status.js';
 
-const s = { target: 'work-tree', branch: 'main', isGroup: false, paths: ['/repo/work-tree'], createdAt: '2026-09-01T00:00:00Z', lastAccessedAt: '2026-09-01T00:00:00Z' } as WorktreeSession;
+const s = {
+  target: 'work-tree',
+  branch: 'main',
+  isGroup: false,
+  paths: ['/repo/work-tree'],
+  createdAt: '2026-09-01T00:00:00Z',
+  lastAccessedAt: '2026-09-01T00:00:00Z',
+} as WorktreeSession;
 
 describe('sessionWire', () => {
   it('a running Claude makes a quiet session open, and busy makes it active', () => {
@@ -29,7 +42,11 @@ describe('sessionWire', () => {
     expect(sessionWire(s, { reviewThreadsFor: () => 0 }).openReviewThreads).toBeUndefined();
     expect(sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' }, { reviewThreadsFor: () => 3 }).openReviewThreads).toBeUndefined();
     const pr = (state: string) => ({ state });
-    expect(reviewThreadsOf({ repos: [{ pr: pr('OPEN'), openThreads: 2 }, { pr: pr('OPEN'), openThreads: 1 }, { pr: pr('MERGED'), openThreads: 4 }, { pr: null }] })).toBe(3);
+    expect(
+      reviewThreadsOf({
+        repos: [{ pr: pr('OPEN'), openThreads: 2 }, { pr: pr('OPEN'), openThreads: 1 }, { pr: pr('MERGED'), openThreads: 4 }, { pr: null }],
+      }),
+    ).toBe(3);
     expect(reviewThreadsOf(null)).toBe(0);
   });
 
@@ -52,7 +69,10 @@ describe('statusFromOutput (pure)', () => {
   const at = (msAgo: number) => new Date(now - msAgo).toISOString();
   it('working while it prints, idle once quiet; nothing for Claude (hooks) or no output yet', () => {
     expect(statusFromOutput({ tool: 'opencode', lastOutputAt: at(2_000), startedAt: '' }, now)?.state).toBe('working');
-    expect(statusFromOutput({ tool: 'opencode', lastOutputAt: at(OUTPUT_WORKING_MS + 1), startedAt: '' }, now)).toMatchObject({ state: 'idle', seen: true });
+    expect(statusFromOutput({ tool: 'opencode', lastOutputAt: at(OUTPUT_WORKING_MS + 1), startedAt: '' }, now)).toMatchObject({
+      state: 'idle',
+      seen: true,
+    });
     expect(statusFromOutput({ tool: 'claude', lastOutputAt: at(0), startedAt: '' }, now)).toBeNull();
     expect(statusFromOutput({ lastOutputAt: at(0), startedAt: '' }, now)).toBeNull(); // an older host: no tool
     expect(statusFromOutput({ tool: 'opencode', startedAt: '' }, now)).toBeNull();

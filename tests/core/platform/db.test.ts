@@ -39,19 +39,33 @@ const write = (rel: string, data: unknown) => {
   fs.mkdirSync(path.dirname(f), { recursive: true });
   fs.writeFileSync(f, typeof data === 'string' ? data : JSON.stringify(data));
 };
-const session = { target: 'api', branch: 'feat/x', isGroup: false, paths: ['/wt/api/feat-x'], createdAt: 'c', lastAccessedAt: 'l', port: 3001 };
+const session = {
+  target: 'api',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: ['/wt/api/feat-x'],
+  createdAt: 'c',
+  lastAccessedAt: 'l',
+  port: 3001,
+};
 const id = sessionIdFor(session);
 
 /** A pre-SQLite ~/.work with one of everything. */
 function legacyTree() {
-  write('history.json', [session, { target: 'web', branch: 'main', isGroup: false, paths: ['/wt/web'], createdAt: 'c', lastAccessedAt: 'l' }, { bogus: true }]);
+  write('history.json', [
+    session,
+    { target: 'web', branch: 'main', isGroup: false, paths: ['/wt/web'], createdAt: 'c', lastAccessedAt: 'l' },
+    { bogus: true },
+  ]);
   write(`status/${id}.json`, { state: 'idle', since: 's', seen: false, updatedAt: 'u', summary: 'done' });
   write(`comments/${id}.json`, [
     { id: 'c1', repo: '', file: '', line: 0, side: 'general', body: 'one', createdAt: '1', author: 'user', status: 'published' },
     { id: 'c2', repo: '', file: '', line: 0, side: 'general', body: 'two', createdAt: '2', author: 'user', status: 'published' },
   ]);
   write(`comments/${id}.delivered.json`, ['c1']);
-  write('comments/scope-abc.json', [{ id: 's1', repo: 'r', file: 'f', line: 1, side: 'right', body: 'wd review', createdAt: '3', author: 'user', status: 'published' }]);
+  write('comments/scope-abc.json', [
+    { id: 's1', repo: 'r', file: 'f', line: 1, side: 'right', body: 'wd review', createdAt: '3', author: 'user', status: 'published' },
+  ]);
   write('pty-sessions.json', { [id]: { cwd: '/wt/api/feat-x', tool: { cmd: 'claude', baseArgs: [] }, startedAt: 't' }, junk: 'x' });
   write('pr-watch.json', { told: [`rv:${id}:api:7:baseline`, `${id}:api:sha1`] });
   write(`pr-watch/${id}.json`, { seen: [`rv:${id}:api:7:t:C9`] });
@@ -68,9 +82,17 @@ describe('first open imports the JSON state', () => {
     expect(loadHistory().map((s) => s.target)).toEqual(['api', 'web']);
     expect(loadHistory()[0]).toEqual(session);
     expect(readStatus(id)).toMatchObject({ state: 'idle', summary: 'done' });
-    expect(getCommentFileStore(id).snapshot().map((c) => c.body)).toEqual(['one', 'two']);
+    expect(
+      getCommentFileStore(id)
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['one', 'two']);
     expect(readPendingForSession(id).map((c) => c.id)).toEqual(['c2']); // c1 was delivered
-    expect(getCommentFileStore('scope-abc').snapshot().map((c) => c.body)).toEqual(['wd review']);
+    expect(
+      getCommentFileStore('scope-abc')
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['wd review']);
     expect(Object.keys(dbPtySessions.read())).toEqual([id]); // the junk entry is dropped
     const seen = createSeenStores()(id);
     expect([`rv:${id}:api:7:baseline`, `${id}:api:sha1`, `rv:${id}:api:7:t:C9`].every((k) => seen.has(k))).toBe(true);
@@ -79,14 +101,24 @@ describe('first open imports the JSON state', () => {
 
     const left = fs.readdirSync(work).sort();
     expect(left).toEqual(
-      expect.arrayContaining(['history.json.migrated', 'status.migrated', 'comments.migrated', 'pty-sessions.json.migrated', 'pr-watch.json.migrated', 'pr-watch.migrated', 'tasks.json.migrated', 'state.db', 'dev']),
+      expect.arrayContaining([
+        'history.json.migrated',
+        'status.migrated',
+        'comments.migrated',
+        'pty-sessions.json.migrated',
+        'pr-watch.json.migrated',
+        'pr-watch.migrated',
+        'tasks.json.migrated',
+        'state.db',
+        'dev',
+      ]),
     );
     expect(left).not.toContain('history.json');
     // The dev log stays where the dev server writes it.
     expect(fs.readdirSync(path.join(work, 'dev')).sort()).toEqual([`${id}.json.migrated`, `${id}.log`]);
   });
 
-  it('keeps the next task id, so a removed task\'s id is not reused', async () => {
+  it("keeps the next task id, so a removed task's id is not reused", async () => {
     legacyTree();
     expect((await addTask('next')).id).toBe(7);
   });
@@ -105,7 +137,9 @@ describe('first open imports the JSON state', () => {
       d.pragma('user_version = 1');
     });
     write('history.json', [{ target: 'late', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' }]);
-    const tables = withDb((d) => (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name));
+    const tables = withDb((d) =>
+      (d.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name),
+    );
     expect(tables).toContain('pr_replies');
     expect(withDb((d) => d.pragma('user_version', { simple: true }))).toBe(SCHEMA_VERSION);
     expect(loadHistory()).toEqual([]);
@@ -239,8 +273,11 @@ describe('change counters', () => {
 describe('several processes', () => {
   const run = (script: string) =>
     new Promise<string>((resolve, reject) =>
-      execFile(process.execPath, ['--import', 'tsx', script], { env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 60_000 }, (err, out, errOut) =>
-        err ? reject(new Error(`${err.message}\n${errOut}`)) : resolve(out),
+      execFile(
+        process.execPath,
+        ['--import', 'tsx', script],
+        { env: { ...process.env, HOME: home, USERPROFILE: home }, timeout: 60_000 },
+        (err, out, errOut) => (err ? reject(new Error(`${err.message}\n${errOut}`)) : resolve(out)),
       ),
     );
   const mod = (rel: string) => JSON.stringify(pathToFileURL(path.resolve(path.join(__dirname, '..'), '../../src/core', rel)).href);
@@ -248,7 +285,10 @@ describe('several processes', () => {
   it('starting together, they import the old files exactly once', async () => {
     legacyTree();
     const script = path.join(home, 'open.mts');
-    fs.writeFileSync(script, `const { loadHistory } = await import(${mod('sessions/history.ts')});\nprocess.stdout.write(String(loadHistory().length));\n`);
+    fs.writeFileSync(
+      script,
+      `const { loadHistory } = await import(${mod('sessions/history.ts')});\nprocess.stdout.write(String(loadHistory().length));\n`,
+    );
     const counts = await Promise.all(Array.from({ length: 4 }, () => run(script)));
     expect(counts).toEqual(['2', '2', '2', '2']);
     expect(withDb((d) => d.prepare('SELECT COUNT(*) AS n FROM comments').get())).toEqual({ n: 3 });

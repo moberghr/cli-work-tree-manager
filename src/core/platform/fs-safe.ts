@@ -52,7 +52,9 @@ export function atomicWriteFile(filePath: string, content: string, renameSync: (
   fs.writeFileSync(tmpPath, content, 'utf-8');
   try {
     fs.chmodSync(tmpPath, fs.statSync(target).mode & 0o777);
-  } catch { /* target is new — default umask is right */ }
+  } catch {
+    /* target is new — default umask is right */
+  }
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(tmpPath, target);
@@ -65,7 +67,9 @@ export function atomicWriteFile(filePath: string, content: string, renameSync: (
       }
       try {
         fs.unlinkSync(tmpPath);
-      } catch { /* already gone */ }
+      } catch {
+        /* already gone */
+      }
       throw err;
     }
   }
@@ -87,10 +91,7 @@ export function ensureFile(filePath: string, initialContent: string): void {
  * advisory-lock mechanism as npm/yarn/pnpm. Caller is responsible for
  * ensuring the target file exists first (see `ensureFile`).
  */
-export async function withFileLock<T>(
-  filePath: string,
-  fn: () => T | Promise<T>,
-): Promise<T> {
+export async function withFileLock<T>(filePath: string, fn: () => T | Promise<T>): Promise<T> {
   const release = await lockfile.lock(filePath, {
     retries: { retries: 20, minTimeout: 25, maxTimeout: 500, factor: 2 },
     stale: 10_000,

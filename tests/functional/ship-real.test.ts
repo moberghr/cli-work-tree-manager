@@ -49,7 +49,13 @@ function makeRepo(name: string, branch = 'feat/x'): string {
   return wt;
 }
 const ghCalls = () =>
-  fs.existsSync(ghLog) ? fs.readFileSync(ghLog, 'utf-8').trim().split('\n').map((l) => JSON.parse(l) as string[]) : [];
+  fs.existsSync(ghLog)
+    ? fs
+        .readFileSync(ghLog, 'utf-8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as string[])
+    : [];
 /** Someone else pushed to the PR after you looked. */
 function movePrHead(wt: string, sha: string): void {
   const all = JSON.parse(fs.readFileSync(ghState, 'utf-8'));
@@ -80,7 +86,12 @@ afterEach(() => {
 });
 
 const single = (wt: string): WorktreeSession => ({
-  target: 'app', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '',
+  target: 'app',
+  branch: 'feat/x',
+  isGroup: false,
+  paths: [wt],
+  createdAt: '',
+  lastAccessedAt: '',
 });
 
 describe('ship on real git with a fake gh — single repo', { timeout: 60_000 }, () => {
@@ -100,7 +111,14 @@ describe('ship on real git with a fake gh — single repo', { timeout: 60_000 },
     expect(r).toMatchObject({ hasUpstream: true, ahead: 0, mergeBlockers: [] });
     const out = await mergeSelected(s, [{ name: 'app', headSha: r.pr!.headSha }], 'squash');
     expect(out).toMatchObject({ mergedAny: true, allDone: true });
-    expect(ghCalls().find((a) => a[1] === 'merge')).toEqual(['pr', 'merge', String(r.pr!.number), '--squash', '--match-head-commit', git(wt, 'rev-parse', 'HEAD')]);
+    expect(ghCalls().find((a) => a[1] === 'merge')).toEqual([
+      'pr',
+      'merge',
+      String(r.pr!.number),
+      '--squash',
+      '--match-head-commit',
+      git(wt, 'rev-parse', 'HEAD'),
+    ]);
   });
 
   it('pushed without -u (still tracking origin/main) + a new local commit → blocked, not merged stale', async () => {
@@ -147,7 +165,12 @@ describe('ship on real git — work after a merge is not "done"', { timeout: 60_
     commit(backend, 'api.ts');
     commit(frontend, 'ui.tsx');
     const s: WorktreeSession = {
-      target: 'shop', branch: 'feat/x', isGroup: true, paths: [backend, frontend], createdAt: '', lastAccessedAt: '',
+      target: 'shop',
+      branch: 'feat/x',
+      isGroup: true,
+      paths: [backend, frontend],
+      createdAt: '',
+      lastAccessedAt: '',
     };
     await runShipAction(s, 'create-pr');
     let repos = (await shipPreflight(s)).repos;
@@ -179,12 +202,21 @@ describe('ship on real git — a group shipped in parts', { timeout: 60_000 }, (
     commit(backend, 'api.ts');
     commit(frontend, 'ui.tsx');
     const s: WorktreeSession = {
-      target: 'shop', branch: 'feat/x', isGroup: true, paths: [backend, frontend, docs], createdAt: '', lastAccessedAt: '',
+      target: 'shop',
+      branch: 'feat/x',
+      isGroup: true,
+      paths: [backend, frontend, docs],
+      createdAt: '',
+      lastAccessedAt: '',
     };
 
     // create-pr opens PRs for the two that changed, skips docs.
     const created = await runShipAction(s, 'create-pr');
-    expect(created.map((r) => [r.repo, r.ok])).toEqual([['backend', true], ['frontend', true], ['docs', true]]);
+    expect(created.map((r) => [r.repo, r.ok])).toEqual([
+      ['backend', true],
+      ['frontend', true],
+      ['docs', true],
+    ]);
     expect(created.find((r) => r.repo === 'docs')?.message).toMatch(/skipped/);
 
     let repos = (await shipPreflight(s)).repos;
@@ -203,6 +235,10 @@ describe('ship on real git — a group shipped in parts', { timeout: 60_000 }, (
     const f = repos.find((r) => r.name === 'frontend')!;
     const second = await mergeSelected(s, [{ name: 'frontend', headSha: f.pr!.headSha }], 'squash');
     expect(second).toMatchObject({ mergedAny: true, allDone: true });
-    expect(ghCalls().filter((a) => a[1] === 'merge').map((a) => a[2])).toEqual([String(b.pr!.number), String(f.pr!.number)]);
+    expect(
+      ghCalls()
+        .filter((a) => a[1] === 'merge')
+        .map((a) => a[2]),
+    ).toEqual([String(b.pr!.number), String(f.pr!.number)]);
   });
 });

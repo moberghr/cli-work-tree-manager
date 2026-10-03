@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Hunk, HunkLine } from '../../src/web/src/api/client.js';
 import { hunkContentKey } from '../../src/web/src/utils/hunk-key.js';
 
-function line(
-  kind: HunkLine['kind'],
-  content: string,
-  oldNum: number | null,
-  newNum: number | null,
-): HunkLine {
+function line(kind: HunkLine['kind'], content: string, oldNum: number | null, newNum: number | null): HunkLine {
   return { kind, content, oldNum, newNum };
 }
 
@@ -42,9 +37,7 @@ describe('hunkContentKey', () => {
     // oldStart/newStart, but the reviewer checked off the same change.
     const before = hunk({ ...{ oldStart: 11, newStart: 11 }, lines: body });
     const after = hunk({ ...{ oldStart: 87, newStart: 91 }, lines: body });
-    expect(hunkContentKey('src/foo.ts', after)).toBe(
-      hunkContentKey('src/foo.ts', before),
-    );
+    expect(hunkContentKey('src/foo.ts', after)).toBe(hunkContentKey('src/foo.ts', before));
   });
 
   it('CHANGES when the hunk body content changes', () => {
@@ -56,24 +49,18 @@ describe('hunkContentKey', () => {
         line('add', 'const b = 99;', null, 11), // different added content
       ],
     });
-    expect(hunkContentKey('src/foo.ts', a)).not.toBe(
-      hunkContentKey('src/foo.ts', b),
-    );
+    expect(hunkContentKey('src/foo.ts', a)).not.toBe(hunkContentKey('src/foo.ts', b));
   });
 
   it('CHANGES when a line kind changes even with identical text', () => {
     const a = hunk({ lines: [line('add', 'x', null, 1)] });
     const b = hunk({ lines: [line('delete', 'x', 1, null)] });
-    expect(hunkContentKey('src/foo.ts', a)).not.toBe(
-      hunkContentKey('src/foo.ts', b),
-    );
+    expect(hunkContentKey('src/foo.ts', a)).not.toBe(hunkContentKey('src/foo.ts', b));
   });
 
   it('CHANGES when the file path differs', () => {
     const h = hunk({ lines: body });
-    expect(hunkContentKey('src/foo.ts', h)).not.toBe(
-      hunkContentKey('src/bar.ts', h),
-    );
+    expect(hunkContentKey('src/foo.ts', h)).not.toBe(hunkContentKey('src/bar.ts', h));
   });
 
   it('distinguishes two identical-body hunks via their section header', () => {
@@ -83,9 +70,7 @@ describe('hunkContentKey', () => {
     // mark both.
     const a = hunk({ context: ' function alpha() {', lines: body });
     const b = hunk({ context: ' function beta() {', lines: body });
-    expect(hunkContentKey('src/foo.ts', a)).not.toBe(
-      hunkContentKey('src/foo.ts', b),
-    );
+    expect(hunkContentKey('src/foo.ts', a)).not.toBe(hunkContentKey('src/foo.ts', b));
   });
 
   it('distinguishes hunks whose bodies differ only in line order', () => {
@@ -95,8 +80,6 @@ describe('hunkContentKey', () => {
     const b = hunk({
       lines: [line('add', 'two', null, 1), line('add', 'one', null, 2)],
     });
-    expect(hunkContentKey('src/foo.ts', a)).not.toBe(
-      hunkContentKey('src/foo.ts', b),
-    );
+    expect(hunkContentKey('src/foo.ts', a)).not.toBe(hunkContentKey('src/foo.ts', b));
   });
 });

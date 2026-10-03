@@ -103,9 +103,7 @@ describe('setupWorktree — group with per-repo bases', () => {
     // web route returns it.
     expect(reports.errors().join('\n')).toContain('frontend (dev)');
     // Nothing created.
-    expect(fs.existsSync(path.join(config.worktreesRoot, 'grp', 'feature-z'))).toBe(
-      false,
-    );
+    expect(fs.existsSync(path.join(config.worktreesRoot, 'grp', 'feature-z'))).toBe(false);
   });
 
   it('rejects an override naming a repo outside the group', async () => {

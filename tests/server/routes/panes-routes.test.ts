@@ -21,7 +21,10 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 const writeConfig = (extra: Record<string, unknown>) =>
-  fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: home, repos: {}, groups: {}, copyFiles: [], ...extra }));
+  fs.writeFileSync(
+    path.join(home, '.work', 'config.json'),
+    JSON.stringify({ worktreesRoot: home, repos: {}, groups: {}, copyFiles: [], ...extra }),
+  );
 const prompts = async () => (await (await app.request('/api/prompts')).json()) as PromptsResponse;
 
 describe('GET /api/prompts', () => {

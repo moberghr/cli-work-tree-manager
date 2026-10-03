@@ -1,10 +1,7 @@
 import type { SessionSummary } from '../../api/client.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { PrInfo } from '../../api/panes.js';
-import {
-  DISPLAY_LABEL,
-  displayStatus,
-  formatDiffStat, agentName } from '../../state/session-display.js';
+import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
 
@@ -64,8 +61,7 @@ export function DiffStatChip({ session }: { session: SessionSummary }) {
   const d = session.diffStat!;
   return (
     <span className="wd-diffstat" title={`${d.files} file${d.files === 1 ? '' : 's'} changed`}>
-      <span className="wd-diffstat-add">+{d.added}</span>{' '}
-      <span className="wd-diffstat-del">−{d.deleted}</span>
+      <span className="wd-diffstat-add">+{d.added}</span> <span className="wd-diffstat-del">−{d.deleted}</span>
     </span>
   );
 }
@@ -112,12 +108,14 @@ export function ContextChip({ session }: { session: SessionSummary }) {
 
 /** Hover text: which files, shared with which session. */
 export function overlapTitle(session: SessionSummary): string {
-  return (session.overlaps ?? [])
-    .map((o) => {
-      const more = o.count > o.files.length ? `, and ${o.count - o.files.length} more` : '';
-      return `Also changed by ${o.target} · ${o.branch}:\n  ${o.files.map((f) => `${f.repo}/${f.path}`).join('\n  ')}${more}`;
-    })
-    .join('\n\n') + '\n\nThese will conflict when both merge.';
+  return (
+    (session.overlaps ?? [])
+      .map((o) => {
+        const more = o.count > o.files.length ? `, and ${o.count - o.files.length} more` : '';
+        return `Also changed by ${o.target} · ${o.branch}:\n  ${o.files.map((f) => `${f.repo}/${f.path}`).join('\n  ')}${more}`;
+      })
+      .join('\n\n') + '\n\nThese will conflict when both merge.'
+  );
 }
 
 /**
@@ -134,7 +132,10 @@ export function ClaudesChip({ session, compact }: { session: SessionSummary; com
   const c = session.agents ?? session.claudes;
   if (!c) return null;
   const name = agentName(session);
-  const where = [c.inTerminal ? `${c.inTerminal > 1 ? `${c.inTerminal}× ` : ''}terminal` : '', c.inApp ? `${c.inApp > 1 ? `${c.inApp}× ` : ''}app` : '']
+  const where = [
+    c.inTerminal ? `${c.inTerminal > 1 ? `${c.inTerminal}× ` : ''}terminal` : '',
+    c.inApp ? `${c.inApp > 1 ? `${c.inApp}× ` : ''}app` : '',
+  ]
     .filter(Boolean)
     .join(' + ');
   const title = c.duplicate
@@ -163,7 +164,10 @@ export function StackChip({ session, onOpen }: { session: SessionSummary; onOpen
   const children = session.stackedChildren ?? 0;
   if (!parent && !children) return null;
   return (
-    <span className="wd-stack" title="Stacked sessions: one made from another session's branch builds on it, and takes in its new commits (when idle and clean).">
+    <span
+      className="wd-stack"
+      title="Stacked sessions: one made from another session's branch builds on it, and takes in its new commits (when idle and clean)."
+    >
       {parent && (
         <span>
           <span aria-hidden>⤷</span> on{' '}
@@ -202,7 +206,10 @@ export function OverlapChip({ session, onOpen }: { session: SessionSummary; onOp
         </span>
       ))}
       {list.length > 2 && ` +${list.length - 2}`}
-      <span className="wd-overlap-count"> ({files} file{files === 1 ? '' : 's'})</span>
+      <span className="wd-overlap-count">
+        {' '}
+        ({files} file{files === 1 ? '' : 's'})
+      </span>
     </span>
   );
 }
@@ -217,7 +224,12 @@ export function StatusLine({ session }: { session: SessionSummary }) {
       <StatusIcon kind={kind} />
       <span className="wd-status-label">{DISPLAY_LABEL[kind]}</span>
       {since && <span className="wd-status-since"> · {since}</span>}
-      {a?.stale && <span className="wd-status-since" title="No activity for 15 minutes"> (quiet)</span>}
+      {a?.stale && (
+        <span className="wd-status-since" title="No activity for 15 minutes">
+          {' '}
+          (quiet)
+        </span>
+      )}
       {a?.summary && <span className="wd-status-summary"> — {a.summary}</span>}
     </span>
   );

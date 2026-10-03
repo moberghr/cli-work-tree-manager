@@ -43,9 +43,7 @@ function CommentsPanelRow({ comment }: { comment: Comment }) {
       return;
     }
     // Find the table row corresponding to this comment's anchor.
-    const file = document.querySelector<HTMLElement>(
-      `article.wd-file[data-path="${cssEscape(comment.file)}"]`,
-    );
+    const file = document.querySelector<HTMLElement>(`article.wd-file[data-path="${cssEscape(comment.file)}"]`);
     if (!file) return;
     // Scroll into view and flash the first matching row.
     file.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -53,21 +51,11 @@ function CommentsPanelRow({ comment }: { comment: Comment }) {
     if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
   }
   const loc =
-    comment.side === 'general'
-      ? 'General'
-      : comment.side === 'file'
-        ? `${comment.file} · whole file`
-        : `${comment.file}:${comment.line}`;
+    comment.side === 'general' ? 'General' : comment.side === 'file' ? `${comment.file} · whole file` : `${comment.file}:${comment.line}`;
   // Resolved threads stay listed but are dimmed + checked (the user asked to
   // keep them visible in the left list, only collapsed in the diff).
   return (
-    <li
-      className={
-        'wd-comments-panel-row' +
-        (comment.resolved ? ' wd-comments-panel-row-resolved' : '')
-      }
-      onClick={onClick}
-    >
+    <li className={'wd-comments-panel-row' + (comment.resolved ? ' wd-comments-panel-row-resolved' : '')} onClick={onClick}>
       <div className="wd-comments-panel-loc">
         {comment.resolved && (
           <span className="wd-resolved-check" aria-hidden="true">
@@ -82,9 +70,7 @@ function CommentsPanelRow({ comment }: { comment: Comment }) {
 }
 
 function flashLine(file: HTMLElement, line: number, side: 'left' | 'right' | 'general') {
-  const cells = file.querySelectorAll<HTMLTableCellElement>(
-    side === 'right' ? '.wd-ln-new' : '.wd-ln-old',
-  );
+  const cells = file.querySelectorAll<HTMLTableCellElement>(side === 'right' ? '.wd-ln-new' : '.wd-ln-old');
   for (const cell of cells) {
     if (cell.textContent?.trim() === String(line)) {
       const row = cell.closest('tr');

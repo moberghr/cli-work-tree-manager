@@ -18,11 +18,7 @@ export interface PrInfo {
   url: string;
   isDraft: boolean;
   checksStatus: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'NONE';
-  reviewDecision:
-    | 'APPROVED'
-    | 'CHANGES_REQUESTED'
-    | 'REVIEW_REQUIRED'
-    | 'NONE';
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | 'NONE';
   myReview: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'NONE';
   isMine: boolean;
   repoAlias: string;
@@ -54,11 +50,7 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function postJson<T>(
-  path: string,
-  body: unknown,
-  method = 'POST',
-): Promise<T> {
+async function postJson<T>(path: string, body: unknown, method = 'POST'): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -122,7 +114,9 @@ export function setJiraWatch(enabled: boolean): Promise<{ settings: JiraWatchSta
 }
 
 export function startJiraIssue(key: string, target: string): Promise<{ ok: true; sessionId: string }> {
-  return postJson<{ ok: true; sessionId: string }>(`/api/jira/watch/${encodeURIComponent(key)}/start`, { target }).catch((e) => Promise.reject(reason(e)));
+  return postJson<{ ok: true; sessionId: string }>(`/api/jira/watch/${encodeURIComponent(key)}/start`, { target }).catch((e) =>
+    Promise.reject(reason(e)),
+  );
 }
 
 export function dismissJiraIssue(key: string): Promise<{ ok: true }> {
@@ -133,17 +127,11 @@ export function fetchTasks(): Promise<{ tasks: TaskItem[] }> {
   return getJson('/api/tasks');
 }
 
-export function createTask(
-  text: string,
-  link?: string,
-): Promise<{ task: TaskItem; tasks: TaskItem[] }> {
+export function createTask(text: string, link?: string): Promise<{ task: TaskItem; tasks: TaskItem[] }> {
   return postJson('/api/tasks', { text, link });
 }
 
-export function updateTask(
-  id: number,
-  patch: { text?: string; done?: boolean },
-): Promise<{ task: TaskItem; tasks: TaskItem[] }> {
+export function updateTask(id: number, patch: { text?: string; done?: boolean }): Promise<{ task: TaskItem; tasks: TaskItem[] }> {
   return postJson(`/api/tasks/${id}`, patch, 'PATCH');
 }
 
@@ -173,9 +161,7 @@ export interface CreateWorktreeResponse {
   startError?: string;
 }
 
-export function createWorktree(
-  req: CreateWorktreeRequest,
-): Promise<CreateWorktreeResponse> {
+export function createWorktree(req: CreateWorktreeRequest): Promise<CreateWorktreeResponse> {
   return postJson('/api/worktrees', req);
 }
 
@@ -198,7 +184,8 @@ export async function removeWorktree(
   try {
     return await postJson(`/api/sessions/${encodeURIComponent(sessionId)}/worktree`, opts, 'DELETE');
   } catch (err) {
-    if (err instanceof Error && /"error"\s*:\s*"unknown session"/.test(err.message)) return { ok: true, worktreeRemoved: false, alreadyGone: true };
+    if (err instanceof Error && /"error"\s*:\s*"unknown session"/.test(err.message))
+      return { ok: true, worktreeRemoved: false, alreadyGone: true };
     throw err;
   }
 }
@@ -210,9 +197,7 @@ export interface SyncResult {
   pullError?: string;
 }
 
-export function syncWorktree(
-  sessionId: string,
-): Promise<{ results: SyncResult[] }> {
+export function syncWorktree(sessionId: string): Promise<{ results: SyncResult[] }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/sync`, {});
 }
 
@@ -223,24 +208,14 @@ export interface RebaseResult {
   error?: string;
 }
 
-export function rebaseWorktree(
-  sessionId: string,
-): Promise<{ results: RebaseResult[] }> {
+export function rebaseWorktree(sessionId: string): Promise<{ results: RebaseResult[] }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/rebase`, {});
 }
 
 export function openInTerminal(sessionId: string): Promise<{ ok: true }> {
-  return postJson(
-    `/api/sessions/${encodeURIComponent(sessionId)}/open-terminal`,
-    {},
-  );
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-terminal`, {});
 }
 
-export function openInEditor(
-  sessionId: string,
-): Promise<{ ok: true; opened: string }> {
-  return postJson(
-    `/api/sessions/${encodeURIComponent(sessionId)}/open-editor`,
-    {},
-  );
+export function openInEditor(sessionId: string): Promise<{ ok: true; opened: string }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, {});
 }

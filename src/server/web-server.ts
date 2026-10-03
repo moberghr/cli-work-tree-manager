@@ -29,12 +29,7 @@ import { streamSSE } from 'hono/streaming';
 import { computeDiff } from '../core/diff/diff-pipeline.js';
 import { resolveRepoDiff } from '../core/diff/diff-scope.js';
 import { loadHistory, type WorktreeSession } from '../core/sessions/history.js';
-import {
-  disposeAllWatchers,
-  disposeSessionWatcher,
-  findSession,
-  subscribeSession,
-} from '../core/sessions/web-state.js';
+import { disposeAllWatchers, disposeSessionWatcher, findSession, subscribeSession } from '../core/sessions/web-state.js';
 import { createFsWatcher } from '../core/platform/fs-watcher.js';
 import { mountSessionCommentRoutes } from './routes/session-comment-routes.js';
 import { mountPanesRoutes } from './routes/panes-routes.js';
@@ -78,7 +73,17 @@ import { revision } from '../core/platform/db.js';
 import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from '../core/diff/scope-manager.js';
 import { clearCheckpoints } from '../core/diff/checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
-import { detachPtyPool, disposePty, getWorkBin, hostBeat, initPtyPool, listHostPtys, outputStatus, peekPty, ptyPids } from '../core/pty/pty-pool.js';
+import {
+  detachPtyPool,
+  disposePty,
+  getWorkBin,
+  hostBeat,
+  initPtyPool,
+  listHostPtys,
+  outputStatus,
+  peekPty,
+  ptyPids,
+} from '../core/pty/pty-pool.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
 import { loadConfig } from '../core/platform/config.js';
@@ -119,9 +124,7 @@ interface SessionDiffResult {
  * per-repo if it wants to (groups may have different parents per repo).
  */
 function computeSessionDiff(s: WorktreeSession, base: DiffBase): SessionDiffResult {
-  const resolved = s.paths.map((p) =>
-    resolveRepoDiff(p, base, s.baseBranches?.[p] ?? s.baseBranch),
-  );
+  const resolved = s.paths.map((p) => resolveRepoDiff(p, base, s.baseBranches?.[p] ?? s.baseBranch));
   const repos = s.paths.map((p, i) => ({
     name: path.basename(p),
     root: p,
@@ -152,15 +155,11 @@ export interface WebServerOptions {
   lean?: boolean;
 }
 
-export async function startWebServer(
-  opts: WebServerOptions = {},
-): Promise<WebServerHandle> {
+export async function startWebServer(opts: WebServerOptions = {}): Promise<WebServerHandle> {
   const { lean = false } = opts;
   const webRoot = resolveWebRoot();
   if (!webRoot) {
-    throw new Error(
-      'Could not find dist/web/. Run `npm run build:web` (or `npm run build`) first.',
-    );
+    throw new Error('Could not find dist/web/. Run `npm run build:web` (or `npm run build`) first.');
   }
 
   const sseListeners = new Set<(e: SseEvent) => void>();
@@ -232,19 +231,16 @@ export async function startWebServer(
           onChange: () => broadcast('sessions-changed', { ts: Date.now() }),
         });
       }
-    } catch { /* watcher startup is best-effort */ }
+    } catch {
+      /* watcher startup is best-effort */
+    }
   }
 
   // Decay tick: even when nothing writes, sessions transition active → open
   // → stale purely by elapsed time. Re-broadcast every 10 s so the badges
   // catch up. Cheap — the client just refetches /api/sessions. Skipped
   // in lean mode (no dashboard consumer).
-  const decayTick = lean
-    ? null
-    : setInterval(
-        () => broadcast('sessions-changed', { ts: Date.now() }),
-        10_000,
-      );
+  const decayTick = lean ? null : setInterval(() => broadcast('sessions-changed', { ts: Date.now() }), 10_000);
 
   // Old `wd --static` pages and dead daemon logs pile up in ~/.work/diffs
   // (16 MB on one machine). Sweep them off the startup path.
@@ -266,7 +262,8 @@ export async function startWebServer(
   app.use(async (c, next) => {
     const t0 = performance.now();
     await next();
-    if (!(c.res.headers.get('content-type') ?? '').includes('text/event-stream')) loop.request(`${c.req.method} ${c.req.path}`, performance.now() - t0);
+    if (!(c.res.headers.get('content-type') ?? '').includes('text/event-stream'))
+      loop.request(`${c.req.method} ${c.req.path}`, performance.now() - t0);
   });
 
   // pid lets `work web --stop` confirm it's killing THIS server, not a
@@ -315,7 +312,10 @@ export async function startWebServer(
       // A process table refreshed in the background: listing every process
       // synchronously (tasklist) on each build blocked the server.
       const table = recentProcessTable(5_000) ?? undefined;
-      const running = agentsBySession(liveAgents(table), history.filter((s) => !shadow.has(sessionIdFor(s))));
+      const running = agentsBySession(
+        liveAgents(table),
+        history.filter((s) => !shadow.has(sessionIdFor(s))),
+      );
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeAgents(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
@@ -350,7 +350,12 @@ export async function startWebServer(
           blockedByFor: (id) =>
             (blocks.get(id)?.by ?? [])
               .filter((b) => !blockerDone(b, (x) => !live.has(x)))
-              .map((b) => ({ key: blockKey(b), kind: b.kind, label: b.label, ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }) })),
+              .map((b) => ({
+                key: blockKey(b),
+                kind: b.kind,
+                label: b.label,
+                ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
+              })),
         }),
       );
       // Sessions changing the same files — from the same background cache
@@ -404,7 +409,9 @@ export async function startWebServer(
     if (from !== undefined && to !== undefined) {
       // Only the in-memory record the range diff route checks paths against
       // — no baseline snapshot, no watcher (those come with the hook).
-      const scope = findScope(session.paths) ?? bestEffort('register scope', () => registerScope(session.paths, `${session.target} · ${session.branch}`), null);
+      const scope =
+        findScope(session.paths) ??
+        bestEffort('register scope', () => registerScope(session.paths, `${session.target} · ${session.branch}`), null);
       if (!scope) return c.json({ error: 'no checkpoints for this session' }, 404);
       const res = await app.request(
         `/api/scopes/${encodeURIComponent(scope.hash)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
@@ -413,8 +420,7 @@ export async function startWebServer(
       return c.json(res.ok ? { ...body, sessionId: id, base: 'range' } : body, res.ok ? 200 : (res.status as 400));
     }
     const baseParam = c.req.query('base') ?? 'uncommitted';
-    const base: DiffBase =
-      baseParam === 'branch' ? 'branch' : 'uncommitted';
+    const base: DiffBase = baseParam === 'branch' ? 'branch' : 'uncommitted';
     try {
       const { repos, resolvedBase } = computeSessionDiff(session, base);
       return c.json({ sessionId: id, base, resolvedBase, repos });
@@ -453,7 +459,8 @@ export async function startWebServer(
     },
     activity,
     // The PR merged: nothing waiting in it holds it up — the archive keeps it.
-    archive: (id) => archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession }), () => broadcast('sessions-changed', { ts: Date.now() })),
+    archive: (id) =>
+      archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession }), () => broadcast('sessions-changed', { ts: Date.now() })),
   });
   const stopPrWatch = lean ? null : prWatch.start(180_000);
 
@@ -464,7 +471,8 @@ export async function startWebServer(
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
-    if (sleepAfterMs(minutes) === 0) return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
+    if (sleepAfterMs(minutes) === 0)
+      return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
     const run = activity.start('idle-sleep', 'Looking for idle Claudes');
     const ptys = await listHostPtys().catch(() => []);
     const busy = (id: string) => {
@@ -476,7 +484,11 @@ export async function startWebServer(
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
       const s = findSession(id);
       await disposePty(id).then(
-        () => run.note(`${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${Math.max(minutes, 30)} min, nothing attached; opening it resumes the conversation)`, { level: 'action', sessionId: id }),
+        () =>
+          run.note(
+            `${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${Math.max(minutes, 30)} min, nothing attached; opening it resumes the conversation)`,
+            { level: 'action', sessionId: id },
+          ),
         (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
       );
     }
@@ -485,7 +497,10 @@ export async function startWebServer(
     for (const id of chats) {
       chatApi.stop(id);
       const s = findSession(id);
-      run.note(`${s ? `${s.target} ${s.branch}` : id}: put its chat's Claude to sleep (idle ${Math.max(minutes, 30)} min, no chat open; your next message resumes it)`, { level: 'action', sessionId: id });
+      run.note(
+        `${s ? `${s.target} ${s.branch}` : id}: put its chat's Claude to sleep (idle ${Math.max(minutes, 30)} min, no chat open; your next message resumes it)`,
+        { level: 'action', sessionId: id },
+      );
     }
     const slept = ids.length + chats.length;
     run.done(`${ptys.length} Claude${ptys.length === 1 ? '' : 's'} running · ${slept ? `${slept} put to sleep` : 'none idle long enough'}`);
@@ -536,7 +551,11 @@ export async function startWebServer(
     try {
       // An archived session's Claude is stopped: its archive has the rest.
       const r = await syncConversations(loadHistory().filter((s) => !s.archivedAt));
-      run.done(r.files ? `${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.files} transcript${r.files === 1 ? '' : 's'} · ${Math.round(r.bytes / 1e3)} KB copied` : 'all up to date');
+      run.done(
+        r.files
+          ? `${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.files} transcript${r.files === 1 ? '' : 's'} · ${Math.round(r.bytes / 1e3)} KB copied`
+          : 'all up to date',
+      );
     } catch (err) {
       run.fail((err as Error).message);
     } finally {
@@ -661,7 +680,12 @@ export async function startWebServer(
           const s = history.find((x) => sessionIdFor(x) === id);
           const name = s ? `${s.target} · ${s.branch}` : id;
           run.note(`${name}: no longer waiting (${done.map((b) => b.label).join(', ')})`, { sessionId: id });
-          const event = { sessionId: id, kind: 'unblocked', title: `Unblocked — ${name}`, body: `What it waited on is done: ${done.map((b) => b.label).join(', ')}` } satisfies NotifyEvent;
+          const event = {
+            sessionId: id,
+            kind: 'unblocked',
+            title: `Unblocked — ${name}`,
+            body: `What it waited on is done: ${done.map((b) => b.label).join(', ')}`,
+          } satisfies NotifyEvent;
           // Like every notification: by presence (a tab looking at it, the browser's, or the desktop's).
           if (statusNotify) statusNotify.notify(event, name);
           else broadcast('notify', event);
@@ -711,7 +735,8 @@ export async function startWebServer(
     broadcast,
     deps: defaultForkDeps({
       create: makeWorktree,
-      summarize: async (s) => (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s), uncommittedFacts(sessionIdFor(s)))))?.text ?? null,
+      summarize: async (s) =>
+        (await catchUp(s, askCatchUp, catchUpFacts(sessionIdFor(s), uncommittedFacts(sessionIdFor(s)))))?.text ?? null,
       // Not computed yet: unknown (the prompt then says nothing about how many), never a made-up 0.
       uncommitted: (s) => diffStats.peek(sessionIdFor(s))?.files ?? null,
     }),
@@ -788,9 +813,9 @@ export async function startWebServer(
     const wantedSession = c.req.query('session');
     return streamSSE(c, async (stream) => {
       const listener = (e: SseEvent) => {
-        stream
-          .writeSSE({ event: e.event, data: JSON.stringify(e.data) })
-          .catch(() => { /* */ });
+        stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) }).catch(() => {
+          /* */
+        });
       };
       sseListeners.add(listener);
       await stream.writeSSE({ event: 'connected', data: '' });
@@ -803,7 +828,9 @@ export async function startWebServer(
               event: 'diff-changed',
               data: JSON.stringify({ sessionId: wantedSession }),
             })
-            .catch(() => { /* */ });
+            .catch(() => {
+              /* */
+            });
         });
       }
       await new Promise<void>((resolve) => {
@@ -852,7 +879,10 @@ export async function startWebServer(
       // across `work web` restarts and accumulate without bound in
       // every repo the user has reviewed.
       // Not the sessions' own scopes: their turn history outlives restarts.
-      for (const scope of scopesToSweep(listScopes(), loadHistory().map((s) => s.paths))) {
+      for (const scope of scopesToSweep(
+        listScopes(),
+        loadHistory().map((s) => s.paths),
+      )) {
         try {
           clearCheckpoints(scope.hash, scope.paths);
         } catch {

@@ -20,7 +20,13 @@ vi.mock('../../src/core/pty/pty-pool.js', () => ({
   peekPty: () => false,
 }));
 
-import { attachTerminalWs, claudeElsewhere, elsewhereStatus, ELSEWHERE_ACTIVE_MS, ELSEWHERE_IDLE_MS } from '../../src/server/terminal-ws.js';
+import {
+  attachTerminalWs,
+  claudeElsewhere,
+  elsewhereStatus,
+  ELSEWHERE_ACTIVE_MS,
+  ELSEWHERE_IDLE_MS,
+} from '../../src/server/terminal-ws.js';
 import type { TerminalElsewhere } from '../../src/core/api-types.js';
 let elsewhere: TerminalElsewhere | null = null;
 
@@ -62,24 +68,47 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
   const idle = (agoMs: number) => ({ state: 'idle' as const, updatedAt: new Date(now - agoMs).toISOString() });
 
   it('a fresh transcript write, a working or blocked status, or a recent Stop means yes', () => {
-    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 40_000, status: null }, now)).toMatchObject({ type: 'elsewhere', lastActivity: now - 40_000 });
-    expect(claudeElsewhere({ hasPty: false, lastActivityMs: null, status: { state: 'working', updatedAt: idle(0).updatedAt } }, now)).not.toBeNull();
+    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 40_000, status: null }, now)).toMatchObject({
+      type: 'elsewhere',
+      lastActivity: now - 40_000,
+    });
+    expect(
+      claudeElsewhere({ hasPty: false, lastActivityMs: null, status: { state: 'working', updatedAt: idle(0).updatedAt } }, now),
+    ).not.toBeNull();
     // Blocked on a permission prompt: silent for hours, still there.
-    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 5 * 3_600_000, status: { state: 'needs_input', updatedAt: idle(5 * 3_600_000).updatedAt } }, now)?.state).toBe('needs_input');
+    expect(
+      claudeElsewhere(
+        { hasPty: false, lastActivityMs: now - 5 * 3_600_000, status: { state: 'needs_input', updatedAt: idle(5 * 3_600_000).updatedAt } },
+        now,
+      )?.state,
+    ).toBe('needs_input');
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 20 * 60_000, status: idle(20 * 60_000) }, now)).not.toBeNull();
   });
 
   it('opening a finished session (seen) or an idle nudge moves updatedAt, not the turn’s end: not "elsewhere" (reported)', () => {
     // tmp/dispute-email-check: its turn ended yesterday, you opened it a minute ago.
-    const opened = { state: 'idle' as const, updatedAt: new Date(now - 60_000).toISOString(), endedAt: new Date(now - 20 * 3_600_000).toISOString() };
+    const opened = {
+      state: 'idle' as const,
+      updatedAt: new Date(now - 60_000).toISOString(),
+      endedAt: new Date(now - 20 * 3_600_000).toISOString(),
+    };
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 20 * 3_600_000, status: opened }, now)).toBeNull();
     // A Stop ten minutes ago still counts.
-    expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 10 * 60_000, status: { ...opened, endedAt: new Date(now - 10 * 60_000).toISOString() } }, now)).not.toBeNull();
+    expect(
+      claudeElsewhere(
+        { hasPty: false, lastActivityMs: now - 10 * 60_000, status: { ...opened, endedAt: new Date(now - 10 * 60_000).toISOString() } },
+        now,
+      ),
+    ).not.toBeNull();
   });
 
   it('the status it is given: the Stop’s own time, else when it went idle — never updatedAt alone', () => {
     const shown = { state: 'idle' as const, updatedAt: '2026-10-02T07:57:01Z', since: '2026-10-01T07:59:03Z' };
-    expect(elsewhereStatus({ turnEndedAt: '2026-10-01T08:00:00Z' }, shown)).toEqual({ state: 'idle', updatedAt: shown.updatedAt, endedAt: '2026-10-01T08:00:00Z' });
+    expect(elsewhereStatus({ turnEndedAt: '2026-10-01T08:00:00Z' }, shown)).toEqual({
+      state: 'idle',
+      updatedAt: shown.updatedAt,
+      endedAt: '2026-10-01T08:00:00Z',
+    });
     expect(elsewhereStatus({}, shown)?.endedAt).toBe(shown.since); // a record from before turnEndedAt
     expect(elsewhereStatus(null, null)).toBeNull();
   });
@@ -87,13 +116,19 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
   it('quiet long enough is unknown, so the tab may spawn; a host PTY never counts as elsewhere', () => {
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - ELSEWHERE_ACTIVE_MS - 1, status: null }, now)).toBeNull();
     expect(claudeElsewhere({ hasPty: false, lastActivityMs: now - 2 * 3_600_000, status: idle(ELSEWHERE_IDLE_MS + 1) }, now)).toBeNull();
-    expect(claudeElsewhere({ hasPty: true, lastActivityMs: now, status: { state: 'working', updatedAt: idle(0).updatedAt } }, now)).toBeNull();
+    expect(
+      claudeElsewhere({ hasPty: true, lastActivityMs: now, status: { state: 'working', updatedAt: idle(0).updatedAt } }, now),
+    ).toBeNull();
   });
 
   it('a Claude known to run outside the host counts however quiet it is (no second one on its conversation)', () => {
     const quiet = { hasPty: false, lastActivityMs: now - 9 * 3_600_000, status: null };
     expect(claudeElsewhere(quiet, now)).toBeNull();
-    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: false }] }, now)).toMatchObject({ type: 'elsewhere', state: null, confirmed: true });
+    expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: false }] }, now)).toMatchObject({
+      type: 'elsewhere',
+      state: null,
+      confirmed: true,
+    });
     expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: true }] }, now)?.state).toBe('working');
   });
 });
@@ -108,7 +143,9 @@ describe('terminal relay', () => {
       const url = await relay();
       const browser = new WebSocket(url);
       const frames: string[] = [];
-      browser.on('message', (d, bin) => { if (!bin) frames.push(d.toString()); });
+      browser.on('message', (d, bin) => {
+        if (!bin) frames.push(d.toString());
+      });
       const closed = new Promise<number>((r) => browser.on('close', (code) => r(code)));
       expect(await closed).toBe(1000);
       expect(frames.map((f) => JSON.parse(f))).toEqual([elsewhere]);
@@ -141,7 +178,9 @@ describe('terminal relay', () => {
 
     const ok = new WebSocket(url);
     const got: string[] = [];
-    ok.on('message', (d, bin) => { if (bin) got.push(d.toString()); });
+    ok.on('message', (d, bin) => {
+      if (bin) got.push(d.toString());
+    });
     await new Promise((r) => ok.on('open', r));
     await sleep(300);
     ok.send(JSON.stringify({ type: 'input', data: 'hi' }));
@@ -163,7 +202,9 @@ describe('terminal relay', () => {
     ensureDelay = 0;
     const browser = new WebSocket(await relay());
     const got: string[] = [];
-    browser.on('message', (d, bin) => { if (bin) got.push(d.toString()); });
+    browser.on('message', (d, bin) => {
+      if (bin) got.push(d.toString());
+    });
     await new Promise((r) => browser.on('open', r));
     await sleep(100);
     browser.send(JSON.stringify({ type: 'input', data: 'hi' }));

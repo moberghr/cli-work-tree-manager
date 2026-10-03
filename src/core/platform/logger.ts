@@ -20,8 +20,16 @@ export function setMaxLogSizeForTests(bytes: number): void {
 
 function rotate(file: string): void {
   const prev = file + '.1';
-  try { fs.unlinkSync(prev); } catch { /* */ }
-  try { fs.renameSync(file, prev); } catch { /* another process has it open; next time */ }
+  try {
+    fs.unlinkSync(prev);
+  } catch {
+    /* */
+  }
+  try {
+    fs.renameSync(file, prev);
+  } catch {
+    /* another process has it open; next time */
+  }
 }
 
 function ensureLog(): number | null {
@@ -33,7 +41,9 @@ function ensureLog(): number | null {
     let size = 0;
     try {
       size = fs.statSync(logPath).size;
-    } catch { /* file doesn't exist yet */ }
+    } catch {
+      /* file doesn't exist yet */
+    }
     if (size > maxLogSize) {
       rotate(logPath);
       size = 0;
@@ -58,7 +68,7 @@ function stripAnsi(str: string): string {
 export function debugLog(level: 'INFO' | 'ERROR' | 'DEBUG' | 'WARN', ...args: unknown[]): void {
   const fd = ensureLog();
   if (fd === null) return;
-  const msg = args.map((a) => typeof a === 'string' ? stripAnsi(a) : JSON.stringify(a)).join(' ');
+  const msg = args.map((a) => (typeof a === 'string' ? stripAnsi(a) : JSON.stringify(a))).join(' ');
   const line = `${timestamp()} [${level}] ${msg}\n`;
   try {
     fs.writeSync(fd, line);
@@ -113,7 +123,11 @@ export function getLogPath(): string {
 /** Flush and close the log stream. */
 export function closeLog(): void {
   if (logFd !== null) {
-    try { fs.closeSync(logFd); } catch { /* */ }
+    try {
+      fs.closeSync(logFd);
+    } catch {
+      /* */
+    }
     logFd = null;
   }
 }

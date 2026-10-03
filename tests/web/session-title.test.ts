@@ -30,7 +30,8 @@ afterEach(() => {
   container.remove();
 });
 
-const session = (over: Partial<SessionSummary> = {}) => ({ id: 's1', target: 'api', branch: 'fix/keys', title: 'Rotate the terminal keys', ...over }) as SessionSummary;
+const session = (over: Partial<SessionSummary> = {}) =>
+  ({ id: 's1', target: 'api', branch: 'fix/keys', title: 'Rotate the terminal keys', ...over }) as SessionSummary;
 
 describe('SessionTitle', () => {
   it('shows the automatic name, and renames on Enter', async () => {
@@ -46,7 +47,9 @@ describe('SessionTitle', () => {
       setValue.call(input, 'Key rotation');
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
     expect(h.renameSession).toHaveBeenCalledWith('s1', 'Key rotation');
   });
 
@@ -55,7 +58,9 @@ describe('SessionTitle', () => {
     act(() => container.querySelector<HTMLButtonElement>('.wd-session-title')!.click());
     const input = container.querySelector<HTMLInputElement>('.wd-session-title-input')!;
     expect(input.value).toBe('Mine');
-    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
     expect(h.renameSession).not.toHaveBeenCalled();
     expect(container.querySelector('.wd-session-title')?.textContent).toBe('Mine');
   });

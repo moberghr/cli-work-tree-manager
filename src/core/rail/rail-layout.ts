@@ -56,7 +56,8 @@ export function groupRail<T extends { id: string }>(list: readonly T[], layout: 
   }
   const out: RailGroup<T>[] = [];
   if (pinned.length) out.push({ key: 'pinned', title: 'Pinned', sessions: pinned });
-  for (const sec of layout.sections) out.push({ key: `section:${sec.id}`, title: sec.name, sectionId: sec.id, sessions: bySection.get(sec.id) ?? [] });
+  for (const sec of layout.sections)
+    out.push({ key: `section:${sec.id}`, title: sec.name, sectionId: sec.id, sessions: bySection.get(sec.id) ?? [] });
   // The rest: untitled when nothing tells it apart (no sections, and it has
   // rows under the pins). Kept even when empty once something is placed, as
   // somewhere to drag a row out of its section or pin.
@@ -159,7 +160,10 @@ export function cleanSectionOp(raw: unknown): SectionOp | null {
 }
 
 /** The list after one change; an error when it no longer fits (a section another window removed, a duplicate, too many). */
-export function applySectionOp(sections: readonly RailSection[], op: SectionOp): { ok: true; sections: RailSection[] } | { ok: false; error: string } {
+export function applySectionOp(
+  sections: readonly RailSection[],
+  op: SectionOp,
+): { ok: true; sections: RailSection[] } | { ok: false; error: string } {
   const i = sections.findIndex((s) => s.id === op.id);
   if (op.op === 'add') {
     if (i !== -1) return { ok: false, error: 'that section already exists' };

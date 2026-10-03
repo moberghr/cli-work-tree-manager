@@ -87,11 +87,14 @@ export function BehindChip({ session }: { session: SessionSummary }) {
 
 export function describeUpdate(results: UpdateFromMainResult[]): { text: string; conflictBase?: string; error?: boolean } {
   const done = results.filter((r): r is Extract<UpdateFromMainResult, { ok: true }> => r.ok && r.how !== 'nothing');
-  const doneText = done.map((r) => `${r.repo}: ${r.how === 'rebase' ? 'rebased on' : 'merged'} ${r.base} (${r.commits} commit${r.commits === 1 ? '' : 's'})`).join('; ');
+  const doneText = done
+    .map((r) => `${r.repo}: ${r.how === 'rebase' ? 'rebased on' : 'merged'} ${r.base} (${r.commits} commit${r.commits === 1 ? '' : 's'})`)
+    .join('; ');
   // A group updates repo by repo: say what did change before what didn't.
   const before = doneText ? `${doneText}. But ` : '';
   const conflict = results.find((r) => !r.ok && (r.conflicts || r.handOff));
-  if (conflict && !conflict.ok) return { text: `${before}${conflict.repo}: ${conflict.reason} — left as it was.`, conflictBase: conflict.base, error: true };
+  if (conflict && !conflict.ok)
+    return { text: `${before}${conflict.repo}: ${conflict.reason} — left as it was.`, conflictBase: conflict.base, error: true };
   const failed = results.find((r) => !r.ok);
   if (failed && !failed.ok) return { text: `${before}${failed.repo}: ${failed.reason}`, error: true };
   if (done.length === 0) return { text: 'Already up to date.' };

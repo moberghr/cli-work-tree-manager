@@ -24,7 +24,9 @@ function worktree(name: string, head: string): string {
 
 describe('checkedOutBranch', () => {
   it("reads a worktree's branch through its .git file, and a base checkout's from .git/HEAD", () => {
-    expect(checkedOutBranch(worktree('a', 'ref: refs/heads/task/SD-3937-split-user-system-notes\n'))).toBe('task/SD-3937-split-user-system-notes');
+    expect(checkedOutBranch(worktree('a', 'ref: refs/heads/task/SD-3937-split-user-system-notes\n'))).toBe(
+      'task/SD-3937-split-user-system-notes',
+    );
     fs.mkdirSync(path.join(tmp, 'base', '.git'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'base', '.git', 'HEAD'), 'ref: refs/heads/main\n');
     expect(checkedOutBranch(path.join(tmp, 'base'))).toBe('main');

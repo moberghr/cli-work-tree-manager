@@ -4,7 +4,15 @@ import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
 import { StatusIcon } from '../StatusIcon.js';
 import { useArchivePending } from '../../../api/archive-pending.js';
-import { placeSession, searchConversations, sendPromptToSession, setArchived, snoozeSession, type ConversationHit, type SessionSummary } from '../../../api/client.js';
+import {
+  placeSession,
+  searchConversations,
+  sendPromptToSession,
+  setArchived,
+  snoozeSession,
+  type ConversationHit,
+  type SessionSummary,
+} from '../../../api/client.js';
 import { openInTerminal, removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
@@ -18,10 +26,7 @@ import {
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
-import {
-  groupRepoNames,
-  groupSessionsByTarget,
-} from '../../../utils/session-groups.js';
+import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
 import { ContextChip, DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 
 interface Props {
@@ -66,7 +71,11 @@ function readPref(key: string, on: string): boolean {
   }
 }
 function writePref(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch { /* */ }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* */
+  }
 }
 
 const FILTER_LABEL: Record<Filter, string> = {
@@ -128,7 +137,11 @@ export function SessionsTab({
   const railGroupOf = useMemo(() => {
     const m = new Map<string, RailGroup<SessionSummary>>();
     // As the rail: archived sessions are in none of its groups.
-    for (const g of groupRail(sessions.filter((s) => !isArchived(s)), rail)) for (const s of g.sessions) m.set(s.id, g);
+    for (const g of groupRail(
+      sessions.filter((s) => !isArchived(s)),
+      rail,
+    ))
+      for (const s of g.sessions) m.set(s.id, g);
     return m;
   }, [sessions, rail]);
   const inRail = useCallback(
@@ -195,16 +208,16 @@ export function SessionsTab({
   }, [sessions]);
 
   const groups = useMemo(
-    () =>
-      grouping === 'project'
-        ? groupSessionsByTarget(filtered, sort === 'name')
-        : null,
+    () => (grouping === 'project' ? groupSessionsByTarget(filtered, sort === 'name') : null),
     [filtered, grouping, sort],
   );
   // Grouped as the rail is: Pinned, your sections, Other.
   const railGroups = useMemo(() => {
     if (grouping !== 'section') return null;
-    const groups = groupRail(filtered.filter((s) => !isArchived(s)), rail).filter((g) => g.sessions.length > 0);
+    const groups = groupRail(
+      filtered.filter((s) => !isArchived(s)),
+      rail,
+    ).filter((g) => g.sessions.length > 0);
     const archived = filtered.filter((s) => isArchived(s));
     return archived.length ? [...groups, { key: 'archived', title: 'Archived', sessions: archived }] : groups;
   }, [filtered, grouping, rail]);
@@ -248,7 +261,9 @@ export function SessionsTab({
           <th className="wd-st-col-changes">Changes</th>
           <th className="wd-st-col-pr">PR</th>
           <th className="wd-st-col-when">Last active</th>
-          <th className="wd-st-col-actions"><span className="wd-visually-hidden">Actions</span></th>
+          <th className="wd-st-col-actions">
+            <span className="wd-visually-hidden">Actions</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -291,12 +306,11 @@ export function SessionsTab({
           />
           <label>
             Filter{' '}
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as Filter)}
-            >
+            <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
               {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
-                <option key={f} value={f}>{FILTER_LABEL[f]}</option>
+                <option key={f} value={f}>
+                  {FILTER_LABEL[f]}
+                </option>
               ))}
             </select>
           </label>
@@ -317,10 +331,7 @@ export function SessionsTab({
           )}
           <label>
             Group{' '}
-            <select
-              value={grouping}
-              onChange={(e) => setGrouping(e.target.value as Grouping)}
-            >
+            <select value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
               <option value="age">age</option>
               <option value="project">project</option>
               <option value="section">rail section</option>
@@ -329,38 +340,35 @@ export function SessionsTab({
           </label>
           <label>
             Sort{' '}
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
-            >
+            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
               <option value="recent">recent</option>
               <option value="name">name</option>
             </select>
           </label>
           <label className="wd-tab-check">
-            <input
-              type="checkbox"
-              checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
-            />{' '}
-            Show archived{archivedCount > 0 ? ` (${archivedCount})` : ''}
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived
+            {archivedCount > 0 ? ` (${archivedCount})` : ''}
           </label>
           {onCleanUp && (
             <button type="button" className="wd-btn-secondary" onClick={onCleanUp} title="Find worktrees that are safe to remove">
               Clean up…
             </button>
           )}
-          <button
-            type="button"
-            className="wd-btn-primary"
-            onClick={onNewWorktree}
-          >
+          <button type="button" className="wd-btn-primary" onClick={onNewWorktree}>
             + New worktree
           </button>
         </div>
       </header>
       {(selected.length > 0 || bulkBusy) && (
-        <BulkBar selected={selected} hidden={hiddenTicked} actions={bulk} onRun={runBulkAction} onClear={() => setPicked(new Set())} busy={bulkBusy} sections={rail.sections} />
+        <BulkBar
+          selected={selected}
+          hidden={hiddenTicked}
+          actions={bulk}
+          onRun={runBulkAction}
+          onClear={() => setPicked(new Set())}
+          busy={bulkBusy}
+          sections={rail.sections}
+        />
       )}
       {bulkOutcome && (
         <p className="wd-bulk-outcome" role="status">
@@ -416,33 +424,27 @@ export function SessionsTab({
         </div>
       ) : groups ? (
         <div className="wd-session-groups">
-        {groups.map((g) => (
-          <section key={g.key} className="wd-session-group">
-            <h2 className="wd-session-group-header">
-              <span className="wd-session-group-name">{g.key}</span>
-              {g.isGroup && (
-                <span
-                  className="wd-session-group-kind"
-                  title="Multi-repo group"
-                >
-                  group
-                </span>
-              )}
-              {g.repos.length > 0 && (
-                <ul
-                  className="wd-session-group-repos"
-                  aria-label="Repos in this group"
-                >
-                  {g.repos.map((r) => (
-                    <li key={r}>{r}</li>
-                  ))}
-                </ul>
-              )}
-              <span className="wd-tab-header-muted">({g.sessions.length})</span>
-            </h2>
-            {renderTable(g.sessions)}
-          </section>
-        ))}
+          {groups.map((g) => (
+            <section key={g.key} className="wd-session-group">
+              <h2 className="wd-session-group-header">
+                <span className="wd-session-group-name">{g.key}</span>
+                {g.isGroup && (
+                  <span className="wd-session-group-kind" title="Multi-repo group">
+                    group
+                  </span>
+                )}
+                {g.repos.length > 0 && (
+                  <ul className="wd-session-group-repos" aria-label="Repos in this group">
+                    {g.repos.map((r) => (
+                      <li key={r}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+                <span className="wd-tab-header-muted">({g.sessions.length})</span>
+              </h2>
+              {renderTable(g.sessions)}
+            </section>
+          ))}
         </div>
       ) : (
         <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
@@ -469,7 +471,10 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
     }
     let live = true;
     const t = setTimeout(() => {
-      void searchConversations(q).then((h) => live && setHits(h), () => live && setHits([]));
+      void searchConversations(q).then(
+        (h) => live && setHits(h),
+        () => live && setHits([]),
+      );
     }, 300);
     return () => {
       live = false;
@@ -495,23 +500,24 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
                     : ''}
               </span>
               {h.archived && (
-              <button
-                type="button"
-                className="wd-row-action"
-                disabled={restoring !== null}
-                title={h.worktreeRemoved ? 'Recreate its worktree from the branch and continue the conversation' : 'Bring it back'}
-                onClick={() => {
-                  setRestoring(h.sessionId);
-                  void setArchived(h.sessionId, false).finally(() => setRestoring(null));
-                }}
-              >
-                {restoring === h.sessionId ? 'Restoring…' : 'Restore'}
-              </button>
+                <button
+                  type="button"
+                  className="wd-row-action"
+                  disabled={restoring !== null}
+                  title={h.worktreeRemoved ? 'Recreate its worktree from the branch and continue the conversation' : 'Bring it back'}
+                  onClick={() => {
+                    setRestoring(h.sessionId);
+                    void setArchived(h.sessionId, false).finally(() => setRestoring(null));
+                  }}
+                >
+                  {restoring === h.sessionId ? 'Restoring…' : 'Restore'}
+                </button>
               )}
             </div>
             {h.snippets.map((sn, i) => (
               <p key={i} className="wd-archive-hit-snippet">
-                <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : sn.role === 'summary' ? 'Summary' : 'Claude'}:</span> {sn.text}
+                <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : sn.role === 'summary' ? 'Summary' : 'Claude'}:</span>{' '}
+                {sn.text}
               </p>
             ))}
           </li>
@@ -580,10 +586,19 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
         </span>
       </td>
       <td className="wd-st-session">
-        <span className="wd-st-branch" title={s.branch}>{s.branch || '(base)'}</span>
-        {s.title && <span className="wd-st-title" title={s.title}>{s.title}</span>}
+        <span className="wd-st-branch" title={s.branch}>
+          {s.branch || '(base)'}
+        </span>
+        {s.title && (
+          <span className="wd-st-title" title={s.title}>
+            {s.title}
+          </span>
+        )}
         {railTag && (
-          <span className={'wd-st-rail' + (railTag === '📌' ? ' wd-st-rail-pin' : '')} title={railTag === '📌' ? 'Pinned in the rail' : `In the rail's “${railTag}” section`}>
+          <span
+            className={'wd-st-rail' + (railTag === '📌' ? ' wd-st-rail-pin' : '')}
+            title={railTag === '📌' ? 'Pinned in the rail' : `In the rail's “${railTag}” section`}
+          >
             {railTag}
           </span>
         )}
@@ -608,7 +623,9 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
                   : 'Archived'
               }
             >
-              {s.archive?.worktreeRemoved ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}` : 'archived'}
+              {s.archive?.worktreeRemoved
+                ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
+                : 'archived'}
             </span>
           )}
         </span>
@@ -616,7 +633,8 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
       <td className="wd-st-col-summary">
         {(() => {
           // An archived session: what it was about (its archive's summary / first prompt).
-          const text = s.attention?.summary ?? (archived ? (s.archive?.written ?? s.archive?.lastSummary ?? s.archive?.prompts[0]) : undefined) ?? '';
+          const text =
+            s.attention?.summary ?? (archived ? (s.archive?.written ?? s.archive?.lastSummary ?? s.archive?.prompts[0]) : undefined) ?? '';
           return (
             <span className="wd-st-summary" title={text}>
               {text}
@@ -627,7 +645,10 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
       <td className="wd-st-col-changes">
         <DiffStatChip session={s} />
         {!!s.diffStat?.files && (
-          <span className="wd-st-files"> · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}</span>
+          <span className="wd-st-files">
+            {' '}
+            · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}
+          </span>
         )}
         {s.overlaps?.length ? (
           <div className="wd-st-overlap">
@@ -680,7 +701,11 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
         >
           <TrashIcon />
         </button>
-        {error && <span className="wd-row-error" role="alert">{error}</span>}
+        {error && (
+          <span className="wd-row-error" role="alert">
+            {error}
+          </span>
+        )}
       </td>
     </tr>
   );

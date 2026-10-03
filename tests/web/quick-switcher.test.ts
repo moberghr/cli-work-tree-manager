@@ -11,9 +11,25 @@ import { QuickSwitcher, useQuickSwitcher } from '../../src/web/src/components/Da
 const at = (minAgo: number) => new Date(Date.now() - minAgo * 60_000).toISOString();
 const session = (id: string, branch: string, minAgo: number, extra: Partial<SessionSummary> = {}): SessionSummary =>
   ({
-    id, target: 'straumur', branch, isGroup: false, paths: [`C:\\wt\\${id}`], createdAt: at(minAgo), lastAccessedAt: at(minAgo),
-    draftCount: 0, commentCount: 0, claudeCount: 0, ptyStatus: 'idle', lastActivity: null, activityState: 'stale',
-    pendingForClaudeCount: 0, attention: null, diffStat: null, archivedAt: null, port: null, ...extra,
+    id,
+    target: 'straumur',
+    branch,
+    isGroup: false,
+    paths: [`C:\\wt\\${id}`],
+    createdAt: at(minAgo),
+    lastAccessedAt: at(minAgo),
+    draftCount: 0,
+    commentCount: 0,
+    claudeCount: 0,
+    ptyStatus: 'idle',
+    lastActivity: null,
+    activityState: 'stale',
+    pendingForClaudeCount: 0,
+    attention: null,
+    diffStat: null,
+    archivedAt: null,
+    port: null,
+    ...extra,
   }) as SessionSummary;
 
 const SESSIONS = [
@@ -36,8 +52,18 @@ describe('switcherResults', () => {
 
   it('several words rank by each word: the one where every word starts a name part comes first', () => {
     // Both match "pdf spe" (x has "speedier" in its status summary), but only y's name parts start with both words.
-    const summary = { state: 'idle' as const, seen: true, since: at(1), updatedAt: at(1), summary: 'made the export speedier', stale: false };
-    const two = [session('x', 'fix/old-pdf-thing', 1, { target: 'misc', attention: summary }), session('y', 'feat/pdf-speed', 50, { target: 'misc' })];
+    const summary = {
+      state: 'idle' as const,
+      seen: true,
+      since: at(1),
+      updatedAt: at(1),
+      summary: 'made the export speedier',
+      stale: false,
+    };
+    const two = [
+      session('x', 'fix/old-pdf-thing', 1, { target: 'misc', attention: summary }),
+      session('y', 'feat/pdf-speed', 50, { target: 'misc' }),
+    ];
     expect(switcherResults(two, 'pdf spe').map((s) => s.id)).toEqual(['y', 'x']);
   });
 
@@ -132,7 +158,9 @@ describe('useQuickSwitcher (Ctrl+P)', () => {
     term.blur();
     ctrlP();
     expect(container.textContent).toBe('closed');
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(document.activeElement).toBe(term);
   });
 
@@ -144,5 +172,4 @@ describe('useQuickSwitcher (Ctrl+P)', () => {
     expect(ctrlP().defaultPrevented).toBe(true);
     expect(container.textContent).toBe('closed');
   });
-
 });

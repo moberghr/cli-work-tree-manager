@@ -14,10 +14,7 @@ import {
   readPendingForWorktree,
 } from '../../../src/core/comments/pending-delivery.js';
 import { withDb } from '../../../src/core/platform/db.js';
-import {
-  clearCommentStoreCache,
-  getCommentFileStore,
-} from '../../../src/core/comments/comment-file-store.js';
+import { clearCommentStoreCache, getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
 import { scopeHashFor } from '../../../src/core/diff/repo-spec.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
@@ -77,10 +74,7 @@ describe('findSessionForCwd', () => {
   });
 
   it('picks the longest-prefix match for nested worktrees', () => {
-    saveHistory([
-      session({ branch: 'outer', paths: ['C:/work/outer'] }),
-      session({ branch: 'nested', paths: ['C:/work/outer/nested'] }),
-    ]);
+    saveHistory([session({ branch: 'outer', paths: ['C:/work/outer'] }), session({ branch: 'nested', paths: ['C:/work/outer/nested'] })]);
     const s = findSessionForCwd('C:/work/outer/nested/lib');
     expect(s?.branch).toBe('nested');
   });
@@ -145,12 +139,7 @@ describe('readPendingForSession + markDelivered', () => {
   it('markDelivered with empty array is a no-op', () => {
     markDelivered('sid', []);
     // No file should be created.
-    const deliveredPath = path.join(
-      tmpDir,
-      '.work',
-      'comments',
-      'sid.delivered.json',
-    );
+    const deliveredPath = path.join(tmpDir, '.work', 'comments', 'sid.delivered.json');
     expect(fs.existsSync(deliveredPath)).toBe(false);
   });
 

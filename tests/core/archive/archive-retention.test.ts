@@ -16,9 +16,22 @@ function archive(id: string, ageDays: number, text = 'rotate the encryption keys
   const line = JSON.stringify({ type: 'user', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: text } }) + '\n';
   fs.writeFileSync(path.join(dir, 'transcripts', 'c.jsonl'), line.repeat(200));
   const rec: ArchiveRecord = {
-    sessionId: id, target: 'api', branch: `fix/${id}`, isGroup: false, paths: [], archivedAt: new Date(NOW - ageDays * DAY).toISOString(),
-    worktreeRemoved: true, keptBecause: null, transcripts: [{ file: 'c.jsonl', projectDir: 'p' }],
-    summary: { prompts: [{ ts: 't', text }], promptCount: 1, lastSummary: 'Done.', prs: [{ repo: 'api', number: 7, url: 'u', state: 'MERGED' }], jiraKey: 'PAY-1' },
+    sessionId: id,
+    target: 'api',
+    branch: `fix/${id}`,
+    isGroup: false,
+    paths: [],
+    archivedAt: new Date(NOW - ageDays * DAY).toISOString(),
+    worktreeRemoved: true,
+    keptBecause: null,
+    transcripts: [{ file: 'c.jsonl', projectDir: 'p' }],
+    summary: {
+      prompts: [{ ts: 't', text }],
+      promptCount: 1,
+      lastSummary: 'Done.',
+      prs: [{ repo: 'api', number: 7, url: 'u', state: 'MERGED' }],
+      jiraKey: 'PAY-1',
+    },
   };
   fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(rec));
 }
@@ -77,7 +90,9 @@ describe('archive summary', () => {
 describe('clipToSentence', () => {
   it('ends a long summary at a sentence, else at a word', () => {
     // A sentence ending before half the limit isn't worth the loss: cut at a word.
-    expect(clipToSentence('First sentence here. ' + 'word '.repeat(30), 60)).toBe('First sentence here. word word word word word word word…');
+    expect(clipToSentence('First sentence here. ' + 'word '.repeat(30), 60)).toBe(
+      'First sentence here. word word word word word word word…',
+    );
     expect(clipToSentence('A. ' + 'b'.repeat(10) + ' ' + 'c'.repeat(80), 40)).toBe('A. bbbbbbbbbb…');
     expect(clipToSentence('short.', 40)).toBe('short.');
     const two = 'One full sentence that is long enough. Second one cut off here mid';

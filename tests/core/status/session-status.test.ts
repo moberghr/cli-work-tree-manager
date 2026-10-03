@@ -48,7 +48,10 @@ describe('applyStatusEvent', () => {
     const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'x' }, T0);
     const ask = applyStatusEvent(
       working,
-      { kind: 'stop', lastMessage: 'Fixed two review comments.\n\n**DECISION NEEDED:** keep the v1 endpoint for old clients?\n\n> reviewer: drop v1' },
+      {
+        kind: 'stop',
+        lastMessage: 'Fixed two review comments.\n\n**DECISION NEEDED:** keep the v1 endpoint for old clients?\n\n> reviewer: drop v1',
+      },
       at(60),
     );
     expect(ask).toMatchObject({ state: 'needs_input', seen: false, summary: 'keep the v1 endpoint for old clients?' });
@@ -78,22 +81,43 @@ describe('applyStatusEvent', () => {
   it('a Stop always starts its own `since` (a turn ended now), even idle → idle', () => {
     const a = applyStatusEvent(null, { kind: 'stop', lastMessage: 'first' }, T0);
     const b = applyStatusEvent(a, { kind: 'stop' }, at(30));
-    expect(b).toMatchObject({ state: 'idle', since: at(30).toISOString(), turnEndedAt: at(30).toISOString(), seen: false, summary: 'first' });
+    expect(b).toMatchObject({
+      state: 'idle',
+      since: at(30).toISOString(),
+      turnEndedAt: at(30).toISOString(),
+      seen: false,
+      summary: 'first',
+    });
   });
 
   it('a Stop that handed Claude more work: still working', () => {
     const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, T0);
-    expect(applyStatusEvent(working, { kind: 'continue', what: 'Working on the comments you sent' }, at(5))).toMatchObject({ state: 'working', summary: 'Working on the comments you sent' });
+    expect(applyStatusEvent(working, { kind: 'continue', what: 'Working on the comments you sent' }, at(5))).toMatchObject({
+      state: 'working',
+      summary: 'Working on the comments you sent',
+    });
   });
 
   it('notification types: a permission prompt or a dialog waits on you; idle at its prompt ends an interrupted turn', () => {
     const working = applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, T0);
-    expect(applyStatusEvent(working, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }, at(1)).state).toBe('needs_input');
-    expect(applyStatusEvent(working, { kind: 'notification', type: 'elicitation_dialog', message: 'Claude needs your input' }, at(1)).state).toBe('needs_input');
-    expect(applyStatusEvent(working, { kind: 'notification', type: 'idle_prompt', message: 'Claude is waiting for your input' }, at(60))).toMatchObject({ state: 'idle', seen: true, turnEndedAt: at(60).toISOString() });
+    expect(
+      applyStatusEvent(
+        working,
+        { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission to use Bash' },
+        at(1),
+      ).state,
+    ).toBe('needs_input');
+    expect(
+      applyStatusEvent(working, { kind: 'notification', type: 'elicitation_dialog', message: 'Claude needs your input' }, at(1)).state,
+    ).toBe('needs_input');
+    expect(
+      applyStatusEvent(working, { kind: 'notification', type: 'idle_prompt', message: 'Claude is waiting for your input' }, at(60)),
+    ).toMatchObject({ state: 'idle', seen: true, turnEndedAt: at(60).toISOString() });
     const done = applyStatusEvent(working, { kind: 'stop' }, at(10));
     expect(applyStatusEvent(done, { kind: 'notification', type: 'idle_prompt' }, at(70))).toMatchObject({ state: 'idle', seen: false }); // the nudge after a real stop: still Done
-    expect(applyStatusEvent(working, { kind: 'notification', type: 'auth_success', message: 'approval granted' }, at(1)).state).toBe('working'); // typed: not the text
+    expect(applyStatusEvent(working, { kind: 'notification', type: 'auth_success', message: 'approval granted' }, at(1)).state).toBe(
+      'working',
+    ); // typed: not the text
     // No type (an older Claude Code): the message decides, now also "needs your input".
     expect(applyStatusEvent(working, { kind: 'notification', message: 'Claude needs your input' }, at(1)).state).toBe('needs_input');
   });
@@ -102,9 +126,15 @@ describe('applyStatusEvent', () => {
 describe('permission requests', () => {
   const bash = { tool: 'Bash', detail: 'npm test' };
   const blocked = () =>
-    applyStatusEvent(applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, at(0)), {
-      kind: 'notification', message: 'Claude needs your permission to use Bash', request: bash,
-    }, at(5));
+    applyStatusEvent(
+      applyStatusEvent(null, { kind: 'prompt', prompt: 'go' }, at(0)),
+      {
+        kind: 'notification',
+        message: 'Claude needs your permission to use Bash',
+        request: bash,
+      },
+      at(5),
+    );
 
   it('a permission notification keeps the tool call it is about', () => {
     expect(blocked()).toMatchObject({ state: 'needs_input', request: bash });
@@ -122,7 +152,9 @@ describe('permission requests', () => {
     expect(applyStatusEvent(blocked(), { kind: 'answered', answer: 'allow' }, at(9)).request).toBeUndefined();
     expect(applyStatusEvent(blocked(), { kind: 'stop', lastMessage: 'done' }, at(9)).request).toBeUndefined();
     // …but the 60 s idle nudge while still blocked keeps it.
-    expect(applyStatusEvent(blocked(), { kind: 'notification', message: 'Claude is waiting for your input' }, at(65)).request).toEqual(bash);
+    expect(applyStatusEvent(blocked(), { kind: 'notification', message: 'Claude is waiting for your input' }, at(65)).request).toEqual(
+      bash,
+    );
   });
 });
 
@@ -138,7 +170,10 @@ describe('oneLine', () => {
 
 describe('effectiveStatus', () => {
   const base = (state: SessionStatus['state'], sinceSec = 0): SessionStatus => ({
-    state, since: at(sinceSec).toISOString(), seen: false, updatedAt: at(sinceSec).toISOString(),
+    state,
+    since: at(sinceSec).toISOString(),
+    seen: false,
+    updatedAt: at(sinceSec).toISOString(),
   });
 
   it('decays a working status that went quiet into idle (stale)', () => {
@@ -159,7 +194,10 @@ describe('effectiveStatus', () => {
     const wrote = T0.getTime() + 5 * 60_000; // the away summary, 5 min later
     expect(effectiveStatus(s, wrote, wrote + 1000, T0.getTime() - 1000).state).toBe('needs_input'); // newest turn entry: before the question
     expect(effectiveStatus(s, wrote, wrote + 1000, T0.getTime() + 30_000).state).toBe('working'); // a tool result after it
-    expect(effectiveStatus(s, wrote, T0.getTime() + 30_000 + STALE_WORKING_MS + 1000, T0.getTime() + 30_000)).toMatchObject({ state: 'idle', stale: true });
+    expect(effectiveStatus(s, wrote, T0.getTime() + 30_000 + STALE_WORKING_MS + 1000, T0.getTime() + 30_000)).toMatchObject({
+      state: 'idle',
+      stale: true,
+    });
   });
 
   it('an idle session with a message in its transcript after its turn ended is working (a `!` command fires no prompt hook)', () => {
@@ -179,7 +217,9 @@ describe('effectiveStatus', () => {
   });
 
   it('a stop that asks for a decision records when the turn ended too', () => {
-    expect(applyStatusEvent(null, { kind: 'stop', lastMessage: 'DECISION NEEDED: which one?' }, at(5)).turnEndedAt).toBe(at(5).toISOString());
+    expect(applyStatusEvent(null, { kind: 'stop', lastMessage: 'DECISION NEEDED: which one?' }, at(5)).turnEndedAt).toBe(
+      at(5).toISOString(),
+    );
   });
 });
 
@@ -202,7 +242,8 @@ describe('lastTurnEntryMs', () => {
 
   it('slash commands and compaction are no turn; a background task’s result is', () => {
     const turn = { type: 'assistant', timestamp: '2026-10-01T08:42:22Z', message: { content: [{ type: 'text', text: 'done' }] } };
-    const after = (content: string, extra: object = {}) => lastTurnEntryMs(claudeEntries([turn, { type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content }, ...extra }]));
+    const after = (content: string, extra: object = {}) =>
+      lastTurnEntryMs(claudeEntries([turn, { type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content }, ...extra }]));
     expect(after('<command-name>/model</command-name>')).toBe(Date.parse(turn.timestamp));
     expect(after('<local-command-stdout>Set model to opus</local-command-stdout>')).toBe(Date.parse(turn.timestamp));
     expect(after('This session is being continued…', { isCompactSummary: true })).toBe(Date.parse(turn.timestamp));
@@ -213,7 +254,9 @@ describe('lastTurnEntryMs', () => {
 
 describe('attention ordering', () => {
   const s = (state: SessionStatus['state'], seen: boolean, sinceSec: number) => ({
-    state, seen, since: at(sinceSec).toISOString(),
+    state,
+    seen,
+    since: at(sinceSec).toISOString(),
   });
 
   it('ranks blocked < done-unseen < working < idle-seen < unknown', () => {
@@ -249,8 +292,21 @@ describe('attention ordering', () => {
       { id: 'blocked', attention: s('needs_input', false, 0) },
       { id: 'none', attention: null },
     ];
-    expect([...items].sort(compareInbox).map((x) => x.id)).toEqual(['blocked', 'done', 'review-untracked', 'review-quiet', 'working', 'quiet', 'none']);
-    expect(items.filter(wantsYou).map((x) => x.id).sort()).toEqual(['blocked', 'done', 'review-quiet', 'review-untracked']);
+    expect([...items].sort(compareInbox).map((x) => x.id)).toEqual([
+      'blocked',
+      'done',
+      'review-untracked',
+      'review-quiet',
+      'working',
+      'quiet',
+      'none',
+    ]);
+    expect(
+      items
+        .filter(wantsYou)
+        .map((x) => x.id)
+        .sort(),
+    ).toEqual(['blocked', 'done', 'review-quiet', 'review-untracked']);
     expect(inboxRank({ attention: null })).toBe(5);
   });
 });
@@ -332,21 +388,35 @@ describe('lastAssistantText', () => {
     expect(lastAssistantText(path.join(configDir, 'missing.jsonl'))).toBeNull();
     expect(lastAssistantText(undefined)).toBeNull();
     const file = path.join(configDir, 'g.jsonl');
-    fs.writeFileSync(file, 'xt":"partial"}\nnot json\n' + JSON.stringify({ type: 'assistant', message: { content: 'plain string' } }) + '\n');
+    fs.writeFileSync(
+      file,
+      'xt":"partial"}\nnot json\n' + JSON.stringify({ type: 'assistant', message: { content: 'plain string' } }) + '\n',
+    );
     expect(lastAssistantText(file)).toBe('plain string');
   });
 });
 
-describe('withLiveClaude (Claude Code\'s own state over the hooks, when newer)', () => {
-  const rec = (state: SessionStatus['state'], sec = 0) => ({ state, since: at(sec).toISOString(), seen: true, updatedAt: at(sec).toISOString(), stale: false });
+describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", () => {
+  const rec = (state: SessionStatus['state'], sec = 0) => ({
+    state,
+    since: at(sec).toISOString(),
+    seen: true,
+    updatedAt: at(sec).toISOString(),
+    stale: false,
+  });
   const known = { known: true, hosted: false };
 
   it('busy → working, waiting → needs input, idle ends a working or waiting record', () => {
     expect(withLiveClaude(rec('idle'), { state: 'busy', stateAt: at(5).getTime() }, known).state).toBe('working'); // a turn the hooks missed
-    expect(withLiveClaude(rec('working'), { state: 'waiting', stateAt: at(5).getTime(), waitingFor: 'input needed' }, known)).toMatchObject({ state: 'needs_input', seen: false, summary: 'Waiting for you: input needed' });
+    expect(withLiveClaude(rec('working'), { state: 'waiting', stateAt: at(5).getTime(), waitingFor: 'input needed' }, known)).toMatchObject(
+      { state: 'needs_input', seen: false, summary: 'Waiting for you: input needed' },
+    );
     expect(withLiveClaude(rec('needs_input'), { state: 'busy', stateAt: at(5).getTime() }, known).state).toBe('working'); // answered in its terminal
     expect(withLiveClaude(rec('working'), { state: 'idle', stateAt: at(5).getTime() }, known)).toMatchObject({ state: 'idle', seen: true }); // a Stop missed, an Esc
-    expect(withLiveClaude({ ...rec('idle'), seen: false }, { state: 'idle', stateAt: at(5).getTime() }, known)).toMatchObject({ state: 'idle', seen: false }); // Done stays Done
+    expect(withLiveClaude({ ...rec('idle'), seen: false }, { state: 'idle', stateAt: at(5).getTime() }, known)).toMatchObject({
+      state: 'idle',
+      seen: false,
+    }); // Done stays Done
   });
 
   it('older than what the hooks recorded: the hooks win (the file lags a turn edge)', () => {

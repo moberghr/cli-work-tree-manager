@@ -89,8 +89,14 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       if (s.paths.some((p) => repos.includes(normPath(p)))) return { ok: false, reason: "it is the repo's own checkout" };
       if (s.paths.every((p) => !fs.existsSync(p))) return { ok: true, reason: 'already gone' };
       const cs: CleanupSession = {
-        id: sessionIdFor(s), target: s.target, branch: s.branch, isGroup: s.isGroup, paths: s.paths,
-        archivedAt: null, lastActiveMs: 0, aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
+        id: sessionIdFor(s),
+        target: s.target,
+        branch: s.branch,
+        isGroup: s.isGroup,
+        paths: s.paths,
+        archivedAt: null,
+        lastActiveMs: 0,
+        aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
       };
       const c = await examineWorktree(cs, { baseCheckouts: () => Object.values(cfg.repos), run });
       // Uncommitted files that were saved don't keep it; commits not in the
@@ -178,7 +184,10 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       const repos = repoPaths(s, cfg);
       // Its per-turn checkpoints: refs in the repos, and their manifest.
       try {
-        clearCheckpoints(scopeHashForPaths(s.paths), repos.map(([, r]) => r));
+        clearCheckpoints(
+          scopeHashForPaths(s.paths),
+          repos.map(([, r]) => r),
+        );
       } catch {
         /* best effort: orphaned refs only cost a little space */
       }
@@ -190,7 +199,9 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       for (const [alias, repo] of repos) {
         const base = (await run('git', ['-C', repo, 'rev-parse', '--abbrev-ref', 'origin/HEAD'], repo)).stdout.trim();
         if (!base || base === 'origin/HEAD') continue;
-        const merged = (await run('git', ['-C', repo, 'branch', '--merged', base, '--format=%(refname:short)'], repo)).stdout.split('\n').map((l) => l.trim());
+        const merged = (await run('git', ['-C', repo, 'branch', '--merged', base, '--format=%(refname:short)'], repo)).stdout
+          .split('\n')
+          .map((l) => l.trim());
         const inUse = (await run('git', ['-C', repo, 'worktree', 'list', '--porcelain'], repo)).stdout;
         const head = heads[alias] ?? s.branch;
         for (const branch of new Set([s.branch, head])) {

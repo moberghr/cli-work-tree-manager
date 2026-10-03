@@ -17,7 +17,14 @@ const idle: SessionStatus = { state: 'idle', since: ENDED, seen: true, updatedAt
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'turn-activity-'));
-  session = { target: 'api', branch: 'fix/pdf', isGroup: false, paths: [path.join(tmp, 'wt')], createdAt: '', lastAccessedAt: '' } as WorktreeSession;
+  session = {
+    target: 'api',
+    branch: 'fix/pdf',
+    isGroup: false,
+    paths: [path.join(tmp, 'wt')],
+    createdAt: '',
+    lastAccessedAt: '',
+  } as WorktreeSession;
   const dir = path.join(claudeProjectsRoot(), encodeProjectDir(session.paths[0]));
   fs.mkdirSync(dir, { recursive: true });
   file = path.join(dir, 'c.jsonl');
@@ -29,18 +36,26 @@ afterEach(() => {
 
 describe('sessionStatusView', () => {
   it('idle by the hooks, but your `!` command after the turn ended: working', () => {
-    fs.writeFileSync(file, line({ type: 'assistant', timestamp: '2026-10-01T08:43:00Z', message: { content: 'done' } }) + line({ type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content: '<bash-input>dotnet publish</bash-input>' } }));
+    fs.writeFileSync(
+      file,
+      line({ type: 'assistant', timestamp: '2026-10-01T08:43:00Z', message: { content: 'done' } }) +
+        line({ type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content: '<bash-input>dotnet publish</bash-input>' } }),
+    );
     const now = Date.parse('2026-10-01T08:50:30Z');
     expect(sessionStatusView(idle, session, Date.parse('2026-10-01T08:50:00Z'), now).state).toBe('working');
   });
 
   it("only Claude Code's own lines after the turn (away summary): still idle", () => {
-    fs.writeFileSync(file, line({ type: 'assistant', timestamp: '2026-10-01T08:43:00Z', message: { content: 'done' } }) + line({ type: 'system', subtype: 'away_summary', timestamp: '2026-10-01T08:49:45Z' }));
+    fs.writeFileSync(
+      file,
+      line({ type: 'assistant', timestamp: '2026-10-01T08:43:00Z', message: { content: 'done' } }) +
+        line({ type: 'system', subtype: 'away_summary', timestamp: '2026-10-01T08:49:45Z' }),
+    );
     const now = Date.parse('2026-10-01T08:50:00Z');
     expect(sessionStatusView(idle, session, Date.parse('2026-10-01T08:49:45Z'), now).state).toBe('idle');
   });
 
-  it("reads the transcript only when it was written after the turn ended, and once per change", () => {
+  it('reads the transcript only when it was written after the turn ended, and once per change', () => {
     fs.writeFileSync(file, line({ type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content: 'hi' } }));
     const read = vi.spyOn(transcript, 'readJsonlTail');
     const now = Date.parse('2026-10-01T08:50:30Z');

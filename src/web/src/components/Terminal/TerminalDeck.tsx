@@ -30,7 +30,13 @@ export function nextDeck(prev: string[], activeId: string | null, alive: Set<str
 export const DECK_HIDDEN_MS = 10 * 60_000;
 
 /** The deck without terminals hidden longer than `maxHiddenMs` (the shown one always stays). */
-export function pruneDeck(ids: string[], activeId: string | null, hiddenSince: ReadonlyMap<string, number>, now: number, maxHiddenMs = DECK_HIDDEN_MS): string[] {
+export function pruneDeck(
+  ids: string[],
+  activeId: string | null,
+  hiddenSince: ReadonlyMap<string, number>,
+  now: number,
+  maxHiddenMs = DECK_HIDDEN_MS,
+): string[] {
   return ids.filter((id) => id === activeId || now - (hiddenSince.get(id) ?? now) < maxHiddenMs);
 }
 

@@ -78,16 +78,8 @@ export const removeCommand: CommandModule = {
     } else {
       process.exitCode = 1;
       console.log('');
-      console.log(
-        chalk.yellow(
-          'Some worktrees could not be removed due to uncommitted/unpushed changes.',
-        ),
-      );
-      console.log(
-        chalk.yellow(
-          `Use 'work remove ${targetName} ${branchName} --force' to force remove.`,
-        ),
-      );
+      console.log(chalk.yellow('Some worktrees could not be removed due to uncommitted/unpushed changes.'));
+      console.log(chalk.yellow(`Use 'work remove ${targetName} ${branchName} --force' to force remove.`));
     }
   },
 };

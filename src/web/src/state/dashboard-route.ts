@@ -99,5 +99,7 @@ export function initialHash(currentHash: string, storage: RouteStorage | null): 
 export function saveLastRoute(route: DashboardRoute, storage: RouteStorage | null): void {
   try {
     storage?.setItem(LAST_ROUTE_KEY, toHash(route));
-  } catch { /* storage blocked — resume is a convenience */ }
+  } catch {
+    /* storage blocked — resume is a convenience */
+  }
 }

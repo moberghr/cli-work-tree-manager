@@ -46,7 +46,12 @@ describe.skipIf(!hasBuild)('scripts/postinstall.mjs', () => {
   });
 
   it('CI (or the opt-out) skips it', () => {
-    const r = spawnSync(process.execPath, [SCRIPT], { cwd: ROOT, encoding: 'utf8', timeout: 60_000, env: { ...process.env, CI: '1', HOME: home, USERPROFILE: home } });
+    const r = spawnSync(process.execPath, [SCRIPT], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 60_000,
+      env: { ...process.env, CI: '1', HOME: home, USERPROFILE: home },
+    });
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('');
   });

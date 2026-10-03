@@ -11,26 +11,46 @@ describe('the permission MCP endpoint, with Claude’s tool', () => {
   const chat = { requestPermission: vi.fn(async () => ({ allow: true, input: { command: 'ls' } })) };
 
   it('introduces itself and lists the agent’s tool', async () => {
-    const init = await handleMcp({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, chat, claudePermissionTool);
+    const init = await handleMcp(
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+      chat,
+      claudePermissionTool,
+    );
     expect(init).toMatchObject({ id: 1, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} } } });
     const list = await handleMcp({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, chat, claudePermissionTool);
     expect(list).toMatchObject({ result: { tools: [{ name: 'approve' }] } });
   });
 
   it('asks the chat, and answers in the shape Claude expects', async () => {
-    const res = await handleMcp({
-      jsonrpc: '2.0', id: 3, method: 'tools/call',
-      params: { name: 'approve', arguments: { tool_name: 'Bash', input: { command: 'ls' }, tool_use_id: 'toolu_1' } },
-    }, chat, claudePermissionTool);
+    const res = await handleMcp(
+      {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: { name: 'approve', arguments: { tool_name: 'Bash', input: { command: 'ls' }, tool_use_id: 'toolu_1' } },
+      },
+      chat,
+      claudePermissionTool,
+    );
     expect(chat.requestPermission).toHaveBeenCalledWith('Bash', { command: 'ls' }, 'toolu_1');
     expect(textOf(res)).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
     const deny = { requestPermission: vi.fn(async () => ({ allow: false, message: 'not that' })) };
-    expect(textOf(await handleMcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { arguments: { tool_name: 'Bash', input: {} } } }, deny, claudePermissionTool))).toEqual({ behavior: 'deny', message: 'not that' });
+    expect(
+      textOf(
+        await handleMcp(
+          { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { arguments: { tool_name: 'Bash', input: {} } } },
+          deny,
+          claudePermissionTool,
+        ),
+      ),
+    ).toEqual({ behavior: 'deny', message: 'not that' });
   });
 
   it('answers nothing to a notification, and an error to an unknown method', async () => {
     expect(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, chat, claudePermissionTool)).toBeNull();
-    expect(await handleMcp({ jsonrpc: '2.0', id: 9, method: 'resources/list' }, chat, claudePermissionTool)).toMatchObject({ error: { code: -32601 } });
+    expect(await handleMcp({ jsonrpc: '2.0', id: 9, method: 'resources/list' }, chat, claudePermissionTool)).toMatchObject({
+      error: { code: -32601 },
+    });
   });
 });
 
@@ -42,8 +62,14 @@ describe('the permission MCP endpoint, with another agent’s tool', () => {
       reply: (d) => ({ verdict: d.allow ? 'yes' : 'no', why: d.message ?? null }),
     };
     const chat = { requestPermission: vi.fn(async () => ({ allow: false, message: 'later' })) };
-    expect(await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, chat, tool)).toMatchObject({ result: { tools: [{ name: 'may_i' }] } });
-    const res = await handleMcp({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'may_i', arguments: { what: 'Shell', args: { cmd: 'ls' } } } }, chat, tool);
+    expect(await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, chat, tool)).toMatchObject({
+      result: { tools: [{ name: 'may_i' }] },
+    });
+    const res = await handleMcp(
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'may_i', arguments: { what: 'Shell', args: { cmd: 'ls' } } } },
+      chat,
+      tool,
+    );
     expect(chat.requestPermission).toHaveBeenCalledWith('Shell', { cmd: 'ls' }, null);
     expect(textOf(res)).toEqual({ verdict: 'no', why: 'later' });
   });

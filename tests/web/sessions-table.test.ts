@@ -28,7 +28,11 @@ let root: Root;
 beforeEach(() => {
   h.setArchived.mockReset().mockResolvedValue({ ok: true });
   h.openInTerminal.mockReset().mockResolvedValue({ ok: true });
-  try { localStorage.clear(); } catch { /* */ }
+  try {
+    localStorage.clear();
+  } catch {
+    /* */
+  }
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -40,17 +44,33 @@ afterEach(() => {
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 const att = (state: SessionAttention['state'], seen: boolean, summary?: string): SessionAttention => ({
-  state, seen, since: minsAgo(3), updatedAt: minsAgo(3), summary, stale: false,
+  state,
+  seen,
+  since: minsAgo(3),
+  updatedAt: minsAgo(3),
+  summary,
+  stale: false,
 });
 const s = (over: Partial<SessionSummary> & { id: string }): SessionSummary => ({
-  target: 'api', branch: over.id, isGroup: false, paths: [`/wt/${over.id}`],
-  createdAt: minsAgo(1000), lastAccessedAt: minsAgo(10), activityState: 'stale', ...over,
+  target: 'api',
+  branch: over.id,
+  isGroup: false,
+  paths: [`/wt/${over.id}`],
+  createdAt: minsAgo(1000),
+  lastAccessedAt: minsAgo(10),
+  activityState: 'stale',
+  ...over,
 });
 
 const SESSIONS = [
   // Distinct access times: equal ones computed a moment apart made the
   // "recent" order depend on whether the clock ticked a millisecond between.
-  s({ id: 'blocked', lastAccessedAt: minsAgo(9), attention: att('needs_input', false, 'Needs Bash'), diffStat: { added: 4, deleted: 2, files: 1 } }),
+  s({
+    id: 'blocked',
+    lastAccessedAt: minsAgo(9),
+    attention: att('needs_input', false, 'Needs Bash'),
+    diffStat: { added: 4, deleted: 2, files: 1 },
+  }),
   s({ id: 'done', attention: att('idle', false, 'Added tests') }),
   s({ id: 'working', attention: att('working', true, 'Refactoring') }),
   s({ id: 'old', lastAccessedAt: minsAgo(3 * 24 * 60) }), // days quiet: the Stale example
@@ -65,7 +85,23 @@ function render(onOpen = vi.fn(), onDelete = vi.fn()) {
         onOpenSession: onOpen,
         onNewWorktree: () => {},
         onDeleteSession: onDelete,
-        prsFor: (x) => (x.id === 'done' ? [{ number: 9, title: 't', branch: 'done', url: 'https://x/9', isDraft: false, checksStatus: 'SUCCESS', reviewDecision: 'NONE', myReview: 'NONE', isMine: true, repoAlias: 'api' }] : []),
+        prsFor: (x) =>
+          x.id === 'done'
+            ? [
+                {
+                  number: 9,
+                  title: 't',
+                  branch: 'done',
+                  url: 'https://x/9',
+                  isDraft: false,
+                  checksStatus: 'SUCCESS',
+                  reviewDecision: 'NONE',
+                  myReview: 'NONE',
+                  isMine: true,
+                  repoAlias: 'api',
+                },
+              ]
+            : [],
       }),
     ),
   );
@@ -76,10 +112,21 @@ const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g
 
 describe('Sessions table', () => {
   it('has the status/session/summary/changes/PR/last-active columns and one status vocabulary', () => {
-    try { localStorage.setItem('work-web:sessions-grouping', 'none'); } catch { /* */ } // one table
+    try {
+      localStorage.setItem('work-web:sessions-grouping', 'none');
+    } catch {
+      /* */
+    } // one table
     render();
     expect([...container.querySelectorAll('thead th')].map((th) => text(th))).toEqual([
-      '', 'Status', 'Session', 'Summary', 'Changes', 'PR', 'Last active', 'Actions', // '': the select-all box
+      '',
+      'Status',
+      'Session',
+      'Summary',
+      'Changes',
+      'PR',
+      'Last active',
+      'Actions', // '': the select-all box
     ]);
     // Header counts agree with the inbox: blocked + done need you.
     expect(text(container.querySelector('h1'))).toContain('2 need you · 1 working · 0 idle · 1 stale');
@@ -104,14 +151,29 @@ describe('Sessions table', () => {
 
   it('a row click opens the session where you would act on it', () => {
     const { onOpen } = render();
-    act(() => rows().find((r) => text(r).includes('blocked'))!.click());
-    act(() => rows().find((r) => text(r).includes('done'))!.click());
-    expect(onOpen.mock.calls).toEqual([['blocked', 'term'], ['done', 'diff']]);
+    act(() =>
+      rows()
+        .find((r) => text(r).includes('blocked'))!
+        .click(),
+    );
+    act(() =>
+      rows()
+        .find((r) => text(r).includes('done'))!
+        .click(),
+    );
+    expect(onOpen.mock.calls).toEqual([
+      ['blocked', 'term'],
+      ['done', 'diff'],
+    ]);
   });
 
   it('row actions archive (with progress) and open a terminal without opening the row', async () => {
     let resolve!: (v: unknown) => void;
-    h.setArchived.mockReturnValue(new Promise((r) => { resolve = r; }));
+    h.setArchived.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
     const { onOpen } = render();
     const row = rows().find((r) => text(r).includes('working'))!;
     const archive = [...row.querySelectorAll('button')].find((b) => b.textContent === 'Archive')!;
@@ -128,10 +190,25 @@ describe('Sessions table', () => {
   });
 
   it('groups by age by default: Now, This week, and Older folded until asked', () => {
-    const old = { id: 'ancient', target: 'api', branch: 'ancient', isGroup: false, paths: ['/wt/ancient'], createdAt: minsAgo(99_999), lastAccessedAt: minsAgo(60 * 24 * 30), activityState: 'stale' as const };
+    const old = {
+      id: 'ancient',
+      target: 'api',
+      branch: 'ancient',
+      isGroup: false,
+      paths: ['/wt/ancient'],
+      createdAt: minsAgo(99_999),
+      lastAccessedAt: minsAgo(60 * 24 * 30),
+      activityState: 'stale' as const,
+    };
     act(() =>
       root.render(
-        createElement(SessionsTab, { sessions: [...SESSIONS, old], onOpenSession: vi.fn(), onNewWorktree: () => {}, onDeleteSession: vi.fn(), onCleanUp: vi.fn() }),
+        createElement(SessionsTab, {
+          sessions: [...SESSIONS, old],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+          onCleanUp: vi.fn(),
+        }),
       ),
     );
     const headers = [...container.querySelectorAll('.wd-session-age h2 .wd-session-group-name')].map((h) => h.textContent);
@@ -150,7 +227,11 @@ describe('Sessions table', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     // Which rows, not their order (both fixtures' updates tie to the millisecond).
-    expect(rows().map((r) => text(r.querySelector('.wd-st-branch'))).sort()).toEqual(['blocked', 'done']);
+    expect(
+      rows()
+        .map((r) => text(r.querySelector('.wd-st-branch')))
+        .sort(),
+    ).toEqual(['blocked', 'done']);
   });
 });
 
@@ -166,7 +247,9 @@ describe('Sessions tab search', () => {
     const branches = () => rows().map((r) => r.querySelector('.wd-session-name, td:nth-child(3)')?.textContent ?? '');
     expect(rows()).toHaveLength(1);
     expect(branches()[0]).toContain('working');
-    act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    act(() => {
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
     expect(rows().length).toBeGreaterThan(1);
   });
 });

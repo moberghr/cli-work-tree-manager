@@ -28,12 +28,12 @@ const DEBOUNCE_MS = 150;
  *
  * Returns an unsubscribe function. Safe to call multiple times.
  */
-export function subscribeSession(
-  sessionId: string,
-  onChange: () => void,
-): () => void {
+export function subscribeSession(sessionId: string, onChange: () => void): () => void {
   const session = findSession(sessionId);
-  if (!session) return () => { /* unknown session */ };
+  if (!session)
+    return () => {
+      /* unknown session */
+    };
 
   let entry = sessionWatchers.get(sessionId);
   if (!entry) {
@@ -45,7 +45,11 @@ export function subscribeSession(
         debounceMs: DEBOUNCE_MS,
         onChange: () => {
           for (const cb of subscribers) {
-            try { cb(); } catch { /* swallow */ }
+            try {
+              cb();
+            } catch {
+              /* swallow */
+            }
           }
         },
       }),

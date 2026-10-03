@@ -1,13 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Hunk } from '../../src/web/src/api/client.js';
-import {
-  computeGaps,
-  gapOffset,
-  hiddenRemaining,
-  nextBottomRange,
-  nextTopRange,
-  EXPAND_CHUNK,
-} from '../../src/web/src/utils/expand.js';
+import { computeGaps, gapOffset, hiddenRemaining, nextBottomRange, nextTopRange, EXPAND_CHUNK } from '../../src/web/src/utils/expand.js';
 
 function hunk(over: Partial<Hunk>): Hunk {
   return {
@@ -59,9 +52,7 @@ describe('computeGaps', () => {
   });
 
   it('always emits a tail gap', () => {
-    const tail = computeGaps([hunk({ newStart: 1, newLines: 3, oldStart: 1, oldLines: 3 })]).find(
-      (g) => g.key === 'tail',
-    );
+    const tail = computeGaps([hunk({ newStart: 1, newLines: 3, oldStart: 1, oldLines: 3 })]).find((g) => g.key === 'tail');
     expect(tail).toBeDefined();
     expect(tail!.bottom).toBeNull();
     expect(tail!.top).toEqual({ newNum: 3, oldNum: 3 });

@@ -17,15 +17,10 @@ function execAsync(cmd: string, args: string[], timeout: number): Promise<string
     // Windows whenever the Jira pane refreshes (every 120 s when open).
     // Without it, opening the Jira pane in `work web` triggers a
     // visible terminal popup.
-    execFile(
-      cmd,
-      args,
-      { encoding: 'utf-8', timeout, windowsHide: true },
-      (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout ?? '');
-      },
-    );
+    execFile(cmd, args, { encoding: 'utf-8', timeout, windowsHide: true }, (err, stdout) => {
+      if (err) reject(err);
+      else resolve(stdout ?? '');
+    });
   });
 }
 
@@ -84,10 +79,14 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
     const stdout = await execAsync(
       'acli',
       [
-        'jira', 'workitem', 'search',
-        '--jql', 'assignee = currentUser() AND resolution = Unresolved AND status NOT IN (Archived, Done) ORDER BY updated DESC',
+        'jira',
+        'workitem',
+        'search',
+        '--jql',
+        'assignee = currentUser() AND resolution = Unresolved AND status NOT IN (Archived, Done) ORDER BY updated DESC',
         '--json',
-        '--limit', '50',
+        '--limit',
+        '50',
       ],
       15000,
     );
@@ -135,7 +134,10 @@ export function adfText(node: unknown, max = 4000): string {
     if (o.type === 'paragraph' || o.type === 'heading' || o.type === 'listItem' || o.type === 'codeBlock') out.push('\n');
   };
   walk(node);
-  const text = out.join('').replace(/\n{3,}/g, '\n\n').trim();
+  const text = out
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
 
@@ -143,10 +145,17 @@ export function adfText(node: unknown, max = 4000): string {
 export async function fetchIssueDetail(key: string): Promise<JiraIssueDetail | null> {
   if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) return null;
   try {
-    const stdout = await execAsync('acli', ['jira', 'workitem', 'view', key, '--json', '--fields', 'summary,description,project,components,labels,created'], 15000);
+    const stdout = await execAsync(
+      'acli',
+      ['jira', 'workitem', 'view', key, '--json', '--fields', 'summary,description,project,components,labels,created'],
+      15000,
+    );
     const f = (JSON.parse(stdout) as { fields?: Record<string, unknown> }).fields ?? {};
     const p = f.project as { key?: unknown; name?: unknown } | undefined;
-    const names = (v: unknown) => (Array.isArray(v) ? v.map((c) => (typeof c === 'string' ? c : (c as { name?: unknown })?.name)).filter((s): s is string => typeof s === 'string') : []);
+    const names = (v: unknown) =>
+      Array.isArray(v)
+        ? v.map((c) => (typeof c === 'string' ? c : (c as { name?: unknown })?.name)).filter((s): s is string => typeof s === 'string')
+        : [];
     return {
       project: p && typeof p.key === 'string' ? { key: p.key, name: typeof p.name === 'string' ? p.name : p.key } : null,
       components: names(f.components),

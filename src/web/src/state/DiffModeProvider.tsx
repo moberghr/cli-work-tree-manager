@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 /**
  * How the diff is laid out:
@@ -32,9 +24,7 @@ const DiffModeCtx = createContext<DiffModeValue | null>(null);
 
 function readStored(): DiffMode {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'unified'
-      ? 'unified'
-      : 'split';
+    return localStorage.getItem(STORAGE_KEY) === 'unified' ? 'unified' : 'split';
   } catch {
     return 'split';
   }

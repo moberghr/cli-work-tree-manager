@@ -61,9 +61,7 @@ function hashFor(paths: string[]): string {
  *  configured repo or under the configured worktrees root. */
 export class ScopePathRejectedError extends Error {
   constructor(public rejected: string[]) {
-    super(
-      `paths not allowed: ${rejected.join(', ')} (must be inside a configured repo or worktreesRoot)`,
-    );
+    super(`paths not allowed: ${rejected.join(', ')} (must be inside a configured repo or worktreesRoot)`);
     this.name = 'ScopePathRejectedError';
   }
 }
@@ -90,10 +88,7 @@ function rejectedPaths(normalised: string[]): string[] {
     // everything would break first-run flows.
     return [];
   }
-  const allowed = [
-    ...Object.values(config.repos),
-    ...(config.worktreesRoot ? [config.worktreesRoot] : []),
-  ].map(normaliseForCompare);
+  const allowed = [...Object.values(config.repos), ...(config.worktreesRoot ? [config.worktreesRoot] : [])].map(normaliseForCompare);
   if (allowed.length === 0) return [];
   return normalised.filter((p) => {
     const np = normaliseForCompare(p);
@@ -236,10 +231,7 @@ export function removeScope(hash: string): boolean {
  *
  * The callback fires once per debounced fs event burst.
  */
-export function subscribeScope(
-  hash: string,
-  cb: () => void,
-): (() => void) | null {
+export function subscribeScope(hash: string, cb: () => void): (() => void) | null {
   const entry = scopes.get(hash);
   if (!entry) return null;
   entry.subscribers.add(cb);
@@ -253,7 +245,11 @@ export function subscribeScope(
         // live-reload. Real edits arrive outside the window.
         if (Date.now() < entry.suppressWatchUntil) return;
         for (const sub of entry.subscribers) {
-          try { sub(); } catch { /* */ }
+          try {
+            sub();
+          } catch {
+            /* */
+          }
         }
       },
     });

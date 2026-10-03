@@ -26,7 +26,10 @@ describe('withoutParentSession', () => {
       s = new PtySession(process.cwd(), 120, 30, { cmd: process.execPath, args: ['-e', script] });
       let out = '';
       await new Promise<void>((resolve) => {
-        s!.setOutputHandler((d) => { out += d; if (out.includes(']')) resolve(); });
+        s!.setOutputHandler((d) => {
+          out += d;
+          if (out.includes(']')) resolve();
+        });
         setTimeout(resolve, 10_000);
       });
       expect(out).toContain('VARS=[]');

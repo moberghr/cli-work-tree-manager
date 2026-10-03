@@ -20,7 +20,10 @@ let repo: string;
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-deps-repo-'));
   fs.mkdirSync(path.join(os.homedir(), '.work'), { recursive: true });
-  fs.writeFileSync(path.join(os.homedir(), '.work', 'config.json'), JSON.stringify({ worktreesRoot: os.tmpdir(), repos: { api: repo }, groups: {}, copyFiles: [] }));
+  fs.writeFileSync(
+    path.join(os.homedir(), '.work', 'config.json'),
+    JSON.stringify({ worktreesRoot: os.tmpdir(), repos: { api: repo }, groups: {}, copyFiles: [] }),
+  );
 });
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
@@ -32,13 +35,30 @@ describe('archiving merged work keeps what waited in it (reported: tmp/dispute-e
     const s = { ...session([path.join(repo, '..', 'gone-wt')]), branch: 'tmp/dispute' };
     saveHistory([s]);
     const id = sessionIdFor(s);
-    rememberSent(id, [{ threadId: 'PRRT_kwDOabc1', repo: 'api', prNumber: 3515, url: 'https://x/3515#r1', where: null, reviewer: 'copilot', excerpt: 'Opt-out…' }]);
+    rememberSent(id, [
+      {
+        threadId: 'PRRT_kwDOabc1',
+        repo: 'api',
+        prNumber: 3515,
+        url: 'https://x/3515#r1',
+        where: null,
+        reviewer: 'copilot',
+        excerpt: 'Opt-out…',
+      },
+    ]);
     saveDraft(id, 'PRRT_kwDOabc1', 'Intentional: the store address is the fallback.');
     getCommentFileStore(id).post({ body: 'Rerun the tests' });
 
     const real = defaultArchiveDeps();
-    expect(real.kept!(id)).toMatchObject({ replyDrafts: [{ threadId: 'PRRT_kwDOabc1', draft: 'Intentional: the store address is the fallback.' }], notes: [{ text: 'Rerun the tests' }] });
-    const out = await archiveSession(s, { ...real, stopClaude: async () => {}, transcripts: () => [], setArchived: async () => true }, { merged: true });
+    expect(real.kept!(id)).toMatchObject({
+      replyDrafts: [{ threadId: 'PRRT_kwDOabc1', draft: 'Intentional: the store address is the fallback.' }],
+      notes: [{ text: 'Rerun the tests' }],
+    });
+    const out = await archiveSession(
+      s,
+      { ...real, stopClaude: async () => {}, transcripts: () => [], setArchived: async () => true },
+      { merged: true },
+    );
     expect(out).toMatchObject({ ok: true, kept: '1 reply draft, 1 note for its Claude' });
     // Nothing deleted: the rows are still there for the restored session.
     expect(listReplies(id).filter((r) => r.status === 'draft')).toHaveLength(1);
@@ -81,7 +101,12 @@ describe("the PR watch's archive and busy (web-server wires these as they are)",
     await recordStatusEvent(id, { kind: 'prompt' });
     expect(midTurn(id)).toBe(true);
     // A permission prompt mid-turn: stopping its Claude now would lose the pending tool call.
-    await recordStatusEvent(id, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission', request: { tool: 'Bash', detail: 'git push' } });
+    await recordStatusEvent(id, {
+      kind: 'notification',
+      type: 'permission_prompt',
+      message: 'Claude needs your permission',
+      request: { tool: 'Bash', detail: 'git push' },
+    });
     expect(midTurn(id)).toBe(true);
     // A finished turn that asks you something (DECISION NEEDED): the turn is over.
     await recordStatusEvent(id, { kind: 'stop', lastMessage: 'DECISION NEEDED: squash or merge?' });
@@ -97,7 +122,12 @@ describe("the PR watch's archive and busy (web-server wires these as they are)",
     saveHistory([s]);
     const sid = sessionIdFor(s);
     await recordStatusEvent(sid, { kind: 'prompt' });
-    await recordStatusEvent(sid, { kind: 'notification', type: 'permission_prompt', message: 'Claude needs your permission', request: { tool: 'Bash', detail: 'npm test' } });
+    await recordStatusEvent(sid, {
+      kind: 'notification',
+      type: 'permission_prompt',
+      message: 'Claude needs your permission',
+      request: { tool: 'Bash', detail: 'npm test' },
+    });
     expect(defaultArchiveDeps().working!(sid)).toBe(true);
     await recordStatusEvent(sid, { kind: 'stop', lastMessage: 'Done.' });
     expect(defaultArchiveDeps().working!(sid)).toBe(false);

@@ -16,7 +16,11 @@ let deaf = false;
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   let m;
-  try { m = JSON.parse(line); } catch { return; }
+  try {
+    m = JSON.parse(line);
+  } catch {
+    return;
+  }
   if (m.type === 'control_request' && m.request?.subtype === 'interrupt') {
     if (deaf) return;
     out({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response: {} } });
@@ -37,7 +41,11 @@ rl.on('line', (line) => {
     () => out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hi ' } } }),
     () => out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'there' } } }),
     () => {
-      out({ type: 'assistant', message: { id: 'msg_1', role: 'assistant', content: [{ type: 'text', text: 'Hi there' }] }, session_id: sessionId });
+      out({
+        type: 'assistant',
+        message: { id: 'msg_1', role: 'assistant', content: [{ type: 'text', text: 'Hi there' }] },
+        session_id: sessionId,
+      });
       out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
       out({ type: 'result', subtype: 'success', is_error: false, duration_ms: 1200, total_cost_usd: 0.01, session_id: sessionId });
     },

@@ -6,7 +6,10 @@
 export function throttleTrailing(
   fn: () => void,
   ms: number,
-  clock: { now: () => number; setTimeout: (cb: () => void, ms: number) => unknown } = { now: Date.now, setTimeout: (cb, t) => setTimeout(cb, t) },
+  clock: { now: () => number; setTimeout: (cb: () => void, ms: number) => unknown } = {
+    now: Date.now,
+    setTimeout: (cb, t) => setTimeout(cb, t),
+  },
 ): () => void {
   let lastAt = -Infinity;
   let pending = false;

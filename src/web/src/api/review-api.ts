@@ -45,8 +45,7 @@ async function postJson<T>(path: string, body: unknown, method = 'POST'): Promis
 /** Per-scope api (the wd -c server). */
 export function scopeReviewApi(): ReviewApi {
   return {
-    fetch: () =>
-      getJson<{ comments: Comment[] }>('/api/comments').then((r) => r.comments),
+    fetch: () => getJson<{ comments: Comment[] }>('/api/comments').then((r) => r.comments),
     post: (input) => postJson('/api/comments', input),
     delete: async (id) => {
       const res = await fetch(`/api/comments/${encodeURIComponent(id)}`, {
@@ -55,8 +54,7 @@ export function scopeReviewApi(): ReviewApi {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
-    resolve: (id, resolved) =>
-      postJson(`/api/comments/${encodeURIComponent(id)}/resolve`, { resolved }),
+    resolve: (id, resolved) => postJson(`/api/comments/${encodeURIComponent(id)}/resolve`, { resolved }),
     submit: (summary) => postJson('/api/submit-review', { summary }),
     discard: () => postJson('/api/discard-review', {}),
     done: async () => {
@@ -70,16 +68,10 @@ export function scopeReviewApi(): ReviewApi {
 export function scopeHashReviewApi(hash: string): ReviewApi {
   const base = `/api/scopes/${encodeURIComponent(hash)}`;
   return {
-    fetch: () =>
-      getJson<{ comments: Comment[] }>(`${base}/comments`).then(
-        (r) => r.comments,
-      ),
+    fetch: () => getJson<{ comments: Comment[] }>(`${base}/comments`).then((r) => r.comments),
     post: (input) => postJson(`${base}/comments`, input),
     delete: async (id) => {
-      const res = await fetch(
-        `${base}/comments/${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      );
+      const res = await fetch(`${base}/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
@@ -111,14 +103,10 @@ export function scopeHashReviewApi(hash: string): ReviewApi {
 export function sessionReviewApi(sessionId: string): ReviewApi {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}`;
   return {
-    fetch: () =>
-      getJson<{ comments: Comment[] }>(`${base}/comments`).then((r) => r.comments),
+    fetch: () => getJson<{ comments: Comment[] }>(`${base}/comments`).then((r) => r.comments),
     post: (input) => postJson(`${base}/comments`, input),
     delete: async (id) => {
-      const res = await fetch(
-        `${base}/comments/${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      );
+      const res = await fetch(`${base}/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return res.json() as Promise<{ comments: Comment[] }>;
     },
@@ -130,7 +118,9 @@ export function sessionReviewApi(sessionId: string): ReviewApi {
     discard: () => postJson(`${base}/discard-review`, {}),
     // Dashboard sessions don't expose /done — they live for the whole
     // server's lifetime. Resolve immediately for compat.
-    done: async () => { /* noop */ },
+    done: async () => {
+      /* noop */
+    },
     ssePath: `/events?session=${encodeURIComponent(sessionId)}`,
     matchesEvent: (payload) => {
       if (!payload || typeof payload !== 'object') return true;

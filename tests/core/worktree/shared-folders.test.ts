@@ -27,7 +27,9 @@ describe('shadowedSessions', () => {
 
 describe('branchCheckedOut', () => {
   let dir: string;
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'head-')); });
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'head-'));
+  });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it('reads a checkout and a linked worktree, and null when detached', () => {

@@ -53,8 +53,15 @@
   padding: 16px 24px 12px;
   border-bottom: 1px solid var(--border);
 }
-.wd-web-diff-header h2 { margin: 0; font-size: 18px; }
-.wd-web-diff-header p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.wd-web-diff-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.wd-web-diff-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 
 .wd-web-repo-tabs {
   display: flex;
@@ -87,17 +94,31 @@
   align-items: center;
   gap: 6px;
 }
-.wd-web-repo-tab:hover { background: var(--hover); }
+.wd-web-repo-tab:hover {
+  background: var(--hover);
+}
 .wd-web-repo-tab-active {
   background: var(--current);
   border-color: var(--hunk-fg);
   color: var(--hunk-fg);
 }
-.wd-web-tab-count { font-size: 11px; color: var(--muted); }
-.wd-web-repo-tab-active .wd-web-tab-count { color: inherit; opacity: 0.8; }
-.wd-tab-stats { font-size: 11px; }
-.wd-tab-stats .wd-add { color: var(--add-fg); }
-.wd-tab-stats .wd-del { color: var(--del-fg); }
+.wd-web-tab-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-web-repo-tab-active .wd-web-tab-count {
+  color: inherit;
+  opacity: 0.8;
+}
+.wd-tab-stats {
+  font-size: 11px;
+}
+.wd-tab-stats .wd-add {
+  color: var(--add-fg);
+}
+.wd-tab-stats .wd-del {
+  color: var(--del-fg);
+}
 
 .wd-repo-files {
   padding: 12px 24px 32px;
@@ -111,9 +132,7 @@
   /* Anchor jumps from the sidebar land below the sticky toolbar + repo-tabs
      bar when present. The vars default to 0 where absent (single-repo mode
      has no tabs; the dashboard view has no toolbar). */
-  scroll-margin-top: calc(
-    var(--topbar-h, 0px) + var(--tabs-offset, 0px) + 4px
-  );
+  scroll-margin-top: calc(var(--topbar-h, 0px) + var(--tabs-offset, 0px) + 4px);
 }
 .wd-file-header {
   /* Sticky inside its own article — when the next file's header appears,
@@ -136,7 +155,9 @@
   gap: 8px;
   font-size: 13px;
 }
-.wd-file-stats { margin-left: auto; }
+.wd-file-stats {
+  margin-left: auto;
+}
 
 /* GitHub-style per-file collapse chevron. Points down when expanded,
    right when collapsed (aria-expanded drives the rotation). */
@@ -154,7 +175,10 @@
   border-radius: 4px;
   flex-shrink: 0;
 }
-.wd-file-collapse:hover { background: var(--hover); color: var(--fg); }
+.wd-file-collapse:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-chevron {
   display: inline-block;
   font-size: 14px;
@@ -180,8 +204,13 @@
   border-radius: 4px;
   margin-left: 12px;
 }
-.wd-viewed-label:hover { background: var(--hover); }
-.wd-viewed-label input { margin: 0; cursor: pointer; }
+.wd-viewed-label:hover {
+  background: var(--hover);
+}
+.wd-viewed-label input {
+  margin: 0;
+  cursor: pointer;
+}
 .wd-file.wd-file-viewed {
   background: var(--sidebar-bg);
 }
@@ -213,7 +242,10 @@
   vertical-align: middle;
   cursor: pointer;
 }
-.wd-hunk-checkbox input { margin: 0; cursor: pointer; }
+.wd-hunk-checkbox input {
+  margin: 0;
+  cursor: pointer;
+}
 .wd-hunk-row.wd-hunk-reviewed .wd-hunk-context {
   border-left: 3px solid var(--add, #2da44e);
   background: var(--status-added-bg, rgba(45, 164, 78, 0.08));
@@ -264,15 +296,30 @@
   flex-shrink: 0;
 }
 .wd-status-added .wd-file-badge,
-.wd-file-badge.wd-status-added { background: var(--status-added-bg); color: var(--status-added-fg); }
+.wd-file-badge.wd-status-added {
+  background: var(--status-added-bg);
+  color: var(--status-added-fg);
+}
 .wd-status-deleted .wd-file-badge,
-.wd-file-badge.wd-status-deleted { background: var(--status-deleted-bg); color: var(--status-deleted-fg); }
+.wd-file-badge.wd-status-deleted {
+  background: var(--status-deleted-bg);
+  color: var(--status-deleted-fg);
+}
 .wd-status-modified .wd-file-badge,
-.wd-file-badge.wd-status-modified { background: var(--status-modified-bg); color: var(--status-modified-fg); }
+.wd-file-badge.wd-status-modified {
+  background: var(--status-modified-bg);
+  color: var(--status-modified-fg);
+}
 .wd-status-renamed .wd-file-badge,
-.wd-file-badge.wd-status-renamed { background: var(--status-renamed-bg); color: var(--status-renamed-fg); }
+.wd-file-badge.wd-status-renamed {
+  background: var(--status-renamed-bg);
+  color: var(--status-renamed-fg);
+}
 .wd-status-binary .wd-file-badge,
-.wd-file-badge.wd-status-binary { background: var(--status-binary-bg); color: var(--status-binary-fg); }
+.wd-file-badge.wd-status-binary {
+  background: var(--status-binary-bg);
+  color: var(--status-binary-fg);
+}
 
 .wd-file-path {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
@@ -283,12 +330,26 @@
   flex: 1;
   min-width: 0;
 }
-.wd-file-stats { font-size: 12px; flex-shrink: 0; }
-.wd-file-stats .wd-add { color: var(--add-fg); }
-.wd-file-stats .wd-del { color: var(--del-fg); }
-.wd-rename { font-style: italic; color: var(--muted); }
+.wd-file-stats {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.wd-file-stats .wd-add {
+  color: var(--add-fg);
+}
+.wd-file-stats .wd-del {
+  color: var(--del-fg);
+}
+.wd-rename {
+  font-style: italic;
+  color: var(--muted);
+}
 
-.wd-binary { padding: 10px 12px; font-style: italic; color: var(--muted); }
+.wd-binary {
+  padding: 10px 12px;
+  font-style: italic;
+  color: var(--muted);
+}
 
 /* Placeholder for files past the auto-collapse threshold. Centered "Load
    diff" button — same shape as GitHub's "Large diffs are not rendered" UI. */
@@ -300,7 +361,9 @@
   padding: 20px 12px;
   font-style: normal;
 }
-.wd-large-file p { margin: 0; }
+.wd-large-file p {
+  margin: 0;
+}
 
 /* Checkpoint strip — top-bar timeline of per-scope snapshots. Sits
    above the diff content; absent when there's only the Initial
@@ -336,7 +399,9 @@
   font-size: 12px;
   cursor: pointer;
 }
-.wd-checkpoint-range-btn:hover { background: var(--hover); }
+.wd-checkpoint-range-btn:hover {
+  background: var(--hover);
+}
 /* Active = the selected range is actually driving the diff: accent the
    button + its "Range:" tag so it reads as applied, not dimmed-when-not. */
 .wd-checkpoint-range:not(.wd-checkpoint-range-inactive) .wd-checkpoint-range-btn {
@@ -356,7 +421,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wd-checkpoint-caret { color: var(--muted); }
+.wd-checkpoint-caret {
+  color: var(--muted);
+}
 
 /* Popover listing every checkpoint. */
 .wd-checkpoint-pop {
@@ -402,12 +469,17 @@
   cursor: pointer;
 }
 .wd-checkpoint-pop-preset:hover,
-.wd-checkpoint-pop-row:hover { background: var(--hover); }
+.wd-checkpoint-pop-row:hover {
+  background: var(--hover);
+}
 .wd-checkpoint-pop-preset-active {
   background: color-mix(in srgb, var(--accent, #58a6ff) 16%, transparent);
   font-weight: 600;
 }
-.wd-checkpoint-pop-sub { color: var(--muted); font-size: 11px; }
+.wd-checkpoint-pop-sub {
+  color: var(--muted);
+  font-size: 11px;
+}
 .wd-checkpoint-pop-hint {
   color: var(--muted);
   font-size: 10px;
@@ -425,7 +497,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wd-checkpoint-pop-time { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+.wd-checkpoint-pop-time {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
 .wd-checkpoint-pop-in-range {
   background: color-mix(in srgb, var(--accent, #58a6ff) 12%, transparent);
 }
@@ -469,8 +545,13 @@
   animation: wd-checking-pulse 1s ease-in-out infinite;
 }
 @keyframes wd-checking-pulse {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Inline header control — deliberately NOT a banner over the diff. Anything
@@ -500,7 +581,9 @@
   flex-shrink: 0;
   background: var(--accent);
 }
-.wd-diff-update-text { color: var(--fg); }
+.wd-diff-update-text {
+  color: var(--fg);
+}
 .wd-diff-update-btn {
   font-family: inherit;
   font-size: 11px;
@@ -512,16 +595,24 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.wd-diff-update-btn:hover { background: var(--hover); }
+.wd-diff-update-btn:hover {
+  background: var(--hover);
+}
 .wd-diff-update-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-.wd-diff-update-btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+.wd-diff-update-btn-primary:hover {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .wd-diff-checking-dot { animation: none; opacity: 0.7; }
+  .wd-diff-checking-dot {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 /* Per-file view-mode toggle (markdown preview). Three small segmented
    buttons in the file header. Sits just left of the Viewed checkbox. */
@@ -542,7 +633,10 @@
   cursor: pointer;
   font-family: inherit;
 }
-.wd-view-mode-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-view-mode-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-view-mode-btn-active {
   background: var(--header-bg);
   color: var(--fg);
@@ -569,10 +663,22 @@
   margin-bottom: 0.5em;
   line-height: 1.25;
 }
-.wd-md-preview h1 { font-size: 1.7em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-.wd-md-preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-.wd-md-preview h3 { font-size: 1.2em; }
-.wd-md-preview p { margin: 0 0 1em 0; }
+.wd-md-preview h1 {
+  font-size: 1.7em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+.wd-md-preview h2 {
+  font-size: 1.4em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2em;
+}
+.wd-md-preview h3 {
+  font-size: 1.2em;
+}
+.wd-md-preview p {
+  margin: 0 0 1em 0;
+}
 .wd-md-preview code {
   background: var(--header-bg);
   padding: 1px 5px;
@@ -599,9 +705,16 @@
   color: var(--muted);
 }
 .wd-md-preview ul,
-.wd-md-preview ol { margin: 0 0 1em 1.5em; padding: 0; }
-.wd-md-preview li { margin-bottom: 0.25em; }
-.wd-md-preview a { color: var(--link, #58a6ff); }
+.wd-md-preview ol {
+  margin: 0 0 1em 1.5em;
+  padding: 0;
+}
+.wd-md-preview li {
+  margin-bottom: 0.25em;
+}
+.wd-md-preview a {
+  color: var(--link, #58a6ff);
+}
 .wd-md-preview table {
   border-collapse: collapse;
   margin: 0 0 1em 0;
@@ -611,7 +724,10 @@
   border: 1px solid var(--border);
   padding: 4px 10px;
 }
-.wd-md-preview img { max-width: 100%; height: auto; }
+.wd-md-preview img {
+  max-width: 100%;
+  height: auto;
+}
 .wd-md-preview hr {
   border: none;
   border-top: 1px solid var(--border);
@@ -628,7 +744,9 @@
   min-width: 0;
   border-right: 1px solid var(--border);
 }
-.wd-md-split-side:last-child { border-right: none; }
+.wd-md-split-side:last-child {
+  border-right: none;
+}
 .wd-md-split-label {
   padding: 4px 12px;
   font-size: 11px;
@@ -653,16 +771,24 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
-.wd-diff-table.wd-side .wd-col-ln { width: 50px; }
-.wd-diff-table.wd-side .wd-col-content { width: calc(50% - 50px); }
+.wd-diff-table.wd-side .wd-col-ln {
+  width: 50px;
+}
+.wd-diff-table.wd-side .wd-col-content {
+  width: calc(50% - 50px);
+}
 /* Unified (inline) layout: two narrow line-number gutters (old, new) then a
    single full-width content column. The unclassed content <col> takes the
    remaining space under table-layout: fixed. */
-.wd-diff-table.wd-unified .wd-col-ln { width: 50px; }
+.wd-diff-table.wd-unified .wd-col-ln {
+  width: 50px;
+}
 /* Full-width single-column layout for added files (NewFileView): one line-number
    column, the rest of the width for content. The unclassed content <col> takes
    the remaining space under table-layout: fixed. */
-.wd-diff-table.wd-newfile .wd-col-ln { width: 50px; }
+.wd-diff-table.wd-newfile .wd-col-ln {
+  width: 50px;
+}
 .wd-ln {
   background: var(--ln-bg);
   color: var(--ln-fg);
@@ -671,13 +797,27 @@
   user-select: none;
   border-right: 1px solid var(--border);
 }
-.wd-add { background: var(--add-bg); }
-.wd-delete { background: var(--del-bg); }
-.wd-empty { background: var(--empty-bg); }
-.wd-ln.wd-context { background: var(--ln-bg); }
+.wd-add {
+  background: var(--add-bg);
+}
+.wd-delete {
+  background: var(--del-bg);
+}
+.wd-empty {
+  background: var(--empty-bg);
+}
+.wd-ln.wd-context {
+  background: var(--ln-bg);
+}
 
-.wd-intra-add { background: var(--add-line-bg); border-radius: 2px; }
-.wd-intra-del { background: var(--del-line-bg); border-radius: 2px; }
+.wd-intra-add {
+  background: var(--add-line-bg);
+  border-radius: 2px;
+}
+.wd-intra-del {
+  background: var(--del-line-bg);
+  border-radius: 2px;
+}
 
 .wd-hunk-context {
   background: var(--hunk-bg) !important;
@@ -773,7 +913,9 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-.wd-file-openfile:hover { text-decoration: underline; }
+.wd-file-openfile:hover {
+  text-decoration: underline;
+}
 
 /* Standalone whole-file view (the /file route, opened in a new tab). */
 .wd-fileview {
@@ -799,7 +941,10 @@
   font-weight: 600;
   word-break: break-all;
 }
-.wd-fileview-meta { font-size: 11px; color: var(--ln-fg); }
+.wd-fileview-meta {
+  font-size: 11px;
+  color: var(--ln-fg);
+}
 .wd-fileview-table {
   width: 100%;
   border-collapse: collapse;

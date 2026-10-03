@@ -5,8 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CheckpointStrip } from '../../src/web/src/components/Diff/CheckpointStrip.js';
 import type { CheckpointEntry } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const entries: CheckpointEntry[] = [
   { id: 0, ts: '2026-06-03T12:00:00.000Z', label: 'Initial', repos: {} },
@@ -46,10 +45,8 @@ function render(props: Partial<Parameters<typeof CheckpointStrip>[0]> = {}) {
 
 const q = <T extends Element>(s: string) => container.querySelector<T>(s);
 const openMenu = () => act(() => q<HTMLButtonElement>('.wd-checkpoint-range-btn')!.click());
-const rows = () =>
-  Array.from(container.querySelectorAll<HTMLButtonElement>('.wd-checkpoint-pop-row'));
-const rowByText = (t: string) =>
-  rows().find((r) => r.textContent?.includes(t))!;
+const rows = () => Array.from(container.querySelectorAll<HTMLButtonElement>('.wd-checkpoint-pop-row'));
+const rowByText = (t: string) => rows().find((r) => r.textContent?.includes(t))!;
 
 describe('CheckpointStrip (GitHub-style single dropdown)', () => {
   it('is a single trigger button showing the from → to range', () => {
@@ -75,11 +72,7 @@ describe('CheckpointStrip (GitHub-style single dropdown)', () => {
   it('marks "All changes" active when the range is Initial → Working', () => {
     render({ fromId: 0, toId: 'working' });
     openMenu();
-    expect(
-      q('.wd-checkpoint-pop-preset')!.classList.contains(
-        'wd-checkpoint-pop-preset-active',
-      ),
-    ).toBe(true);
+    expect(q('.wd-checkpoint-pop-preset')!.classList.contains('wd-checkpoint-pop-preset-active')).toBe(true);
   });
 
   it('plain click selects a single checkpoint; shift+click widens the start', () => {
@@ -89,11 +82,7 @@ describe('CheckpointStrip (GitHub-style single dropdown)', () => {
     openMenu();
 
     act(() => rowByText('add resolve route').click()); // plain → single checkpoint #1
-    act(() => void
-      rowByText('add resolve route').dispatchEvent(
-        new MouseEvent('click', { bubbles: true, shiftKey: true }),
-      ),
-    ); // shift+click → set start = 1
+    act(() => void rowByText('add resolve route').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))); // shift+click → set start = 1
     expect(single).toEqual([1]);
     expect(from).toEqual([1]);
   });

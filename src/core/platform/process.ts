@@ -35,7 +35,11 @@ export function isPidAlive(pid: number): boolean {
 export function processName(pid: number): string | null {
   try {
     if (process.platform === 'win32') {
-      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
+      const r = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 5000,
+      });
       const m = /^"([^"]+)","(\d+)"/.exec((r.stdout ?? '').trim());
       return m && Number(m[2]) === pid ? m[1] : null;
     }
@@ -73,9 +77,14 @@ export function processTableAsync(): Promise<Map<number, string>> {
   return new Promise((resolve) => {
     const win = process.platform === 'win32';
     const [cmd, args] = win ? ['tasklist', ['/FO', 'CSV', '/NH']] : ['ps', ['-A', '-o', 'pid=,comm=']];
-    execFile(cmd, args as string[], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 }, (_err, stdout) => {
-      resolve(parseProcessTable(stdout ?? '', win));
-    });
+    execFile(
+      cmd,
+      args as string[],
+      { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 },
+      (_err, stdout) => {
+        resolve(parseProcessTable(stdout ?? '', win));
+      },
+    );
   });
 }
 

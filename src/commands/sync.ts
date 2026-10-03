@@ -23,9 +23,7 @@ export const syncCommand: CommandModule = {
         default: false,
       })
       .option('include-squash', {
-        describe:
-          'Also remove branches detected as squash-merged ' +
-          '(default: false — unattended sync requires a true merge)',
+        describe: 'Also remove branches detected as squash-merged ' + '(default: false — unattended sync requires a true merge)',
         type: 'boolean',
         default: false,
       }),
@@ -39,7 +37,8 @@ export const syncCommand: CommandModule = {
     console.log(chalk.gray('Fetching all repos and checking worktrees…\n'));
     const scan = await scanCleanup(deps);
     // A repo whose fetch failed has stale refs: its worktrees were not judged.
-    for (const f of scan.fetchFailed) console.log(chalk.yellow(`  Warning: fetch failed for ${f.alias} — skipping it (refs may be stale): ${f.error}`));
+    for (const f of scan.fetchFailed)
+      console.log(chalk.yellow(`  Warning: fetch failed for ${f.alias} — skipping it (refs may be stale): ${f.error}`));
 
     const chosen = removable(scan.candidates, { includeSquash, dirtyToo: force });
     const skippedDirty = removable(scan.candidates, { includeSquash, dirtyToo: true }).length - chosen.length;

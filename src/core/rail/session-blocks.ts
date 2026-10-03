@@ -31,7 +31,9 @@ function asBlock(v: unknown): SessionBlock | null {
 }
 
 export function readBlock(sessionId: string): SessionBlock | null {
-  const row = withDb((d) => d.prepare('SELECT data FROM session_blocks WHERE session_id = ?').get(sessionId) as { data: string } | undefined);
+  const row = withDb(
+    (d) => d.prepare('SELECT data FROM session_blocks WHERE session_id = ?').get(sessionId) as { data: string } | undefined,
+  );
   return row ? asBlock(json.parse(row.data)) : null;
 }
 
@@ -47,7 +49,11 @@ export function allBlocks(): Map<string, SessionBlock> {
 }
 
 /** Add something it waits on (not itself; at most MAX_BLOCKERS; the same thing once). */
-export function addBlocker(sessionId: string, ref: BlockRef, now = new Date()): { ok: true; block: SessionBlock } | { ok: false; error: string } {
+export function addBlocker(
+  sessionId: string,
+  ref: BlockRef,
+  now = new Date(),
+): { ok: true; block: SessionBlock } | { ok: false; error: string } {
   if (ref.kind === 'session' && ref.id === sessionId) return { ok: false, error: 'a session cannot wait on itself' };
   return tx((d) => {
     // Waiting on one that (perhaps through others) waits on this one: neither would ever be let go.
@@ -58,9 +64,10 @@ export function addBlocker(sessionId: string, ref: BlockRef, now = new Date()): 
         return (b?.by ?? []).flatMap((x) => (x.kind === 'session' ? [x.id] : []));
       };
       const seen = new Set<string>();
-      for (let todo = [ref.id]; todo.length; ) {
+      for (let todo = [ref.id]; todo.length;) {
         const id = todo.pop()!;
-        if (id === sessionId) return { ok: false as const, error: `${ref.label} already waits on this one: they would wait on each other for ever` };
+        if (id === sessionId)
+          return { ok: false as const, error: `${ref.label} already waits on this one: they would wait on each other for ever` };
         if (seen.has(id)) continue;
         seen.add(id);
         todo.push(...waitsOn(id));

@@ -13,10 +13,21 @@ vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   retargetSession: (id: string) => api.retargetSession(id),
   sendPromptToSession: (id: string, t: string) => api.sendPromptToSession(id, t),
 }));
-const { BehindChip, MergedParentChip, behindText, describeUpdate, resolvePrompt } = await import('../../src/web/src/components/Dashboard/BehindChip.js');
+const { BehindChip, MergedParentChip, behindText, describeUpdate, resolvePrompt } =
+  await import('../../src/web/src/components/Dashboard/BehindChip.js');
 
 const session = (behind?: SessionSummary['behind']): SessionSummary =>
-  ({ id: 's1', target: 'api', branch: 'feat/x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', activityState: 'stale', ...(behind ? { behind } : {}) }) as SessionSummary;
+  ({
+    id: 's1',
+    target: 'api',
+    branch: 'feat/x',
+    isGroup: false,
+    paths: [],
+    createdAt: '',
+    lastAccessedAt: '',
+    activityState: 'stale',
+    ...(behind ? { behind } : {}),
+  }) as SessionSummary;
 
 let container: HTMLDivElement;
 let root: Root;
@@ -49,7 +60,9 @@ describe('behind main', () => {
   });
 
   it('a conflict: nothing changed, and Claude can be asked to resolve it', async () => {
-    api.updateFromMain.mockResolvedValue([{ ok: false, repo: 'api', reason: 'merging origin/main conflicts', conflicts: true, base: 'origin/main' }]);
+    api.updateFromMain.mockResolvedValue([
+      { ok: false, repo: 'api', reason: 'merging origin/main conflicts', conflicts: true, base: 'origin/main' },
+    ]);
     act(() => root.render(createElement(BehindChip, { session: session({ base: 'origin/main', commits: 4, conflicts: true }) })));
     expect(container.textContent).toContain('⚠ ↓ 4 behind origin/main · conflicts');
     await act(async () => button('Update from main').click());
@@ -68,13 +81,16 @@ describe('describeUpdate', () => {
     ]);
     expect(out.text).toBe('backend: rebased on origin/main (3 commits). But frontend: merging origin/main conflicts — left as it was.');
     expect(out).toMatchObject({ error: true, conflictBase: 'origin/main' });
-    expect(describeUpdate([{ ok: false, repo: 'api', reason: 'merging origin/main failed: hook said no', base: 'origin/main' }])).toEqual({ text: 'api: merging origin/main failed: hook said no', error: true });
+    expect(describeUpdate([{ ok: false, repo: 'api', reason: 'merging origin/main failed: hook said no', base: 'origin/main' }])).toEqual({
+      text: 'api: merging origin/main failed: hook said no',
+      error: true,
+    });
     expect(describeUpdate([{ ok: true, repo: 'api', how: 'nothing', base: 'origin/main', commits: 0 }]).text).toBe('Already up to date.');
   });
 });
 
 describe('stacked sessions', () => {
-  it("behind its parent: worth a word from one commit, and updated from it by name", async () => {
+  it('behind its parent: worth a word from one commit, and updated from it by name', async () => {
     const s = session({ base: 'feat/p', commits: 1, conflicts: false, stacked: true });
     expect(behindText(s)).toBe('↓ 1 behind feat/p');
     api.updateFromMain.mockResolvedValue([{ ok: true, repo: 'api', how: 'rebase', base: 'feat/p', commits: 1 }]);
@@ -87,7 +103,14 @@ describe('stacked sessions', () => {
   it('StackChip: the parent (click opens it) and how many are stacked on this one', async () => {
     const { StackChip } = await import('../../src/web/src/components/Dashboard/SessionBits.js');
     const onOpen = vi.fn();
-    act(() => root.render(createElement(StackChip, { session: { ...session(), stackedOn: { id: 'p1', branch: 'feat/p', title: 'Payments' }, stackedChildren: 2 }, onOpen })));
+    act(() =>
+      root.render(
+        createElement(StackChip, {
+          session: { ...session(), stackedOn: { id: 'p1', branch: 'feat/p', title: 'Payments' }, stackedChildren: 2 },
+          onOpen,
+        }),
+      ),
+    );
     expect(container.textContent).toBe('⤷ on Payments · 2 stacked on this');
     act(() => button('Payments').click());
     expect(onOpen).toHaveBeenCalledWith('p1');
@@ -97,13 +120,25 @@ describe('stacked sessions', () => {
 });
 
 describe('a stacked session whose parent merged', () => {
-  it("a parent rewritten before it merged: offered to its Claude, not left as an error", () => {
-    expect(describeUpdate([{ ok: false, repo: 'api', reason: "feat/p was rewritten …: ask its Claude to move it onto main", base: 'origin/main', handOff: true }])).toMatchObject({ conflictBase: 'origin/main', error: true });
+  it('a parent rewritten before it merged: offered to its Claude, not left as an error', () => {
+    expect(
+      describeUpdate([
+        {
+          ok: false,
+          repo: 'api',
+          reason: 'feat/p was rewritten …: ask its Claude to move it onto main',
+          base: 'origin/main',
+          handOff: true,
+        },
+      ]),
+    ).toMatchObject({ conflictBase: 'origin/main', error: true });
   });
 
   it('says so, and Move onto main reports what happened (a conflict can go to Claude)', async () => {
     const s = { ...session(), stackParentMerged: { id: 'p1', branch: 'feat/p' } };
-    api.retargetSession.mockResolvedValue([{ ok: false, repo: 'api', reason: 'moving onto origin/main conflicts', conflicts: true, base: 'origin/main' }]);
+    api.retargetSession.mockResolvedValue([
+      { ok: false, repo: 'api', reason: 'moving onto origin/main conflicts', conflicts: true, base: 'origin/main' },
+    ]);
     act(() => root.render(createElement(MergedParentChip, { session: s })));
     expect(container.textContent).toContain('⤷ was on feat/p — merged');
     await act(async () => button('Move onto main').click());

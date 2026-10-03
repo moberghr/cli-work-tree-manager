@@ -40,7 +40,10 @@ async function commitsOf(repo: string, since: string, run: CommandRunner): Promi
     });
 }
 
-export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi | null; run?: CommandRunner; now?: number } = {}): Promise<TimelineEvent[]> {
+export async function sessionTimeline(
+  s: WorktreeSession,
+  deps: { ci?: SessionCi | null; run?: CommandRunner; now?: number } = {},
+): Promise<TimelineEvent[]> {
   const run = deps.run ?? defaultRunner;
   const since = Math.max(Date.parse(s.createdAt) || 0, (deps.now ?? Date.now()) - DAYS * 86_400_000);
   const transcripts: ConversationEntry[][] = [];
@@ -56,7 +59,13 @@ export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi
   const commits = s.archivedAt ? [] : (await Promise.all(s.paths.map((p) => commitsOf(p, s.createdAt, run).catch(() => [])))).flat();
   const prs = (deps.ci?.repos ?? [])
     .filter((r) => r.pr)
-    .map((r) => ({ repo: r.name, number: r.pr!.number, url: r.pr!.url, state: r.pr!.state, ...(r.pr!.mergedAt ? { mergedAt: r.pr!.mergedAt } : {}) }));
+    .map((r) => ({
+      repo: r.name,
+      number: r.pr!.number,
+      url: r.pr!.url,
+      state: r.pr!.state,
+      ...(r.pr!.mergedAt ? { mergedAt: r.pr!.mergedAt } : {}),
+    }));
   return buildTimeline({
     createdAt: s.createdAt,
     archivedAt: s.archivedAt ?? null,

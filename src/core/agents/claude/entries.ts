@@ -10,7 +10,8 @@ import type { ConversationEntry } from '../types.js';
 /** Text Claude Code writes as a "user" line that you didn't type: slash
  *  command echoes, the local-command caveat, subagent task notifications,
  *  the "[Request interrupted by user]" marker. */
-const NOT_TYPED = /^\s*(<command-name>|<command-message>|<local-command-|<system-reminder>|<bash-|<task-notification>|\[Request interrupted|Caveat: )/;
+const NOT_TYPED =
+  /^\s*(<command-name>|<command-message>|<local-command-|<system-reminder>|<bash-|<task-notification>|\[Request interrupted|Caveat: )/;
 
 /** The text you typed, when this line is one of your prompts (not a tool result, echo, meta or subagent line). */
 export function promptText(e: TranscriptEntry): string | null {
@@ -100,9 +101,16 @@ function lineEntries(e: TranscriptEntry): ConversationEntry[] {
       : null;
   const model = typeof e.message?.model === 'string' ? e.message.model : undefined;
   // A meta line (Claude Code's own) is Claude's line for work time, but no message of its.
-  out.push({ ...base, role: 'agent', text: meta ? '' : text, ...(usage && usage.prompt + usage.reply > 0 ? { usage } : {}), ...(model ? { model } : {}) });
+  out.push({
+    ...base,
+    role: 'agent',
+    text: meta ? '' : text,
+    ...(usage && usage.prompt + usage.reply > 0 ? { usage } : {}),
+    ...(model ? { model } : {}),
+  });
   for (const b of blocks) {
-    if (b.type === 'tool_use' && typeof b.name === 'string') out.push({ ...base, role: 'tool', tool: b.name, text: describeToolUse(b.name, b.input) });
+    if (b.type === 'tool_use' && typeof b.name === 'string')
+      out.push({ ...base, role: 'tool', tool: b.name, text: describeToolUse(b.name, b.input) });
   }
   return out;
 }

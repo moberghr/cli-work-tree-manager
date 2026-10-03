@@ -1,6 +1,14 @@
 import { readJsonlTail } from '../conversations/jsonl.js';
 import { agentOf } from '../agents/index.js';
-import { ANSWERED_AFTER_MS, effectiveStatus, idleFrom, lastTurnEntryMs, readStatus, type EffectiveStatus, type SessionStatus } from './session-status.js';
+import {
+  ANSWERED_AFTER_MS,
+  effectiveStatus,
+  idleFrom,
+  lastTurnEntryMs,
+  readStatus,
+  type EffectiveStatus,
+  type SessionStatus,
+} from './session-status.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
 import { readSessionActivity } from '../sessions/session-activity.js';
 import { sessionIdFor } from '../sessions/session-id.js';

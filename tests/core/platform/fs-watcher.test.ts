@@ -49,19 +49,13 @@ describe('createFsWatcher', () => {
 describe('isIgnoredWatchPath', () => {
   it('ignores dependency dirs (node_modules) at any depth — EMFILE guard', () => {
     expect(isIgnoredWatchPath([root], path.join(root, 'node_modules'))).toBe(true);
-    expect(
-      isIgnoredWatchPath([root], path.join(root, 'node_modules', 'caniuse-lite', 'data.js')),
-    ).toBe(true);
-    expect(
-      isIgnoredWatchPath([root], path.join(root, 'web', 'node_modules', 'react', 'index.js')),
-    ).toBe(true);
+    expect(isIgnoredWatchPath([root], path.join(root, 'node_modules', 'caniuse-lite', 'data.js'))).toBe(true);
+    expect(isIgnoredWatchPath([root], path.join(root, 'web', 'node_modules', 'react', 'index.js'))).toBe(true);
   });
 
   it('ignores build-output dirs (the dominant fd sink on real repos)', () => {
     // .NET — what actually wedged the server (bin/obj full of DLLs).
-    expect(
-      isIgnoredWatchPath([root], path.join(root, 'PublicApiTests', 'bin', 'Debug', 'net10.0', 'x.dll')),
-    ).toBe(true);
+    expect(isIgnoredWatchPath([root], path.join(root, 'PublicApiTests', 'bin', 'Debug', 'net10.0', 'x.dll'))).toBe(true);
     expect(isIgnoredWatchPath([root], path.join(root, 'Api', 'obj', 'project.assets.json'))).toBe(true);
     // JS / other toolchains.
     expect(isIgnoredWatchPath([root], path.join(root, 'dist', 'bundle.js'))).toBe(true);

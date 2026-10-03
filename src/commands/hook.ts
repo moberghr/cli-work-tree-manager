@@ -108,7 +108,12 @@ export function computeHookOutput(
   const sessionId = sessionIdFor(session);
   const unclaimed = readPendingForWorktree(session);
   if (unclaimed.length === 0) return null;
-  const mine = new Set(claim(sessionId, unclaimed.map((c) => c.id)));
+  const mine = new Set(
+    claim(
+      sessionId,
+      unclaimed.map((c) => c.id),
+    ),
+  );
   const pending = unclaimed.filter((c) => mine.has(c.id));
   if (pending.length === 0) return null;
 
@@ -126,7 +131,11 @@ export function computeHookOutput(
 type HookPayload = Record<string, unknown>;
 
 /** The turn edge a status hook is for. */
-const STATUS_EDGE: Partial<Record<HookEvent, TurnEdge>> = { 'status-prompt': 'turn-start', 'status-stop': 'turn-end', 'status-notify': 'notify' };
+const STATUS_EDGE: Partial<Record<HookEvent, TurnEdge>> = {
+  'status-prompt': 'turn-start',
+  'status-stop': 'turn-end',
+  'status-notify': 'notify',
+};
 
 /** Map a status hook + its payload to a status event, through the agent that ran it. Exported for tests. */
 export function statusEventFor(event: HookEvent, payload: HookPayload, agent: AgentAdapter = agentById('claude')): StatusEvent | null {
@@ -164,7 +173,6 @@ async function readStdinJson(): Promise<HookPayload> {
       }
     });
     process.stdin.on('error', () => done({}));
-
   });
 }
 

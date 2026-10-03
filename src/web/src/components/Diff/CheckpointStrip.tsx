@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type {
-  CheckpointEntry,
-  CheckpointRangeEnd,
-} from '../../api/client.js';
+import type { CheckpointEntry, CheckpointRangeEnd } from '../../api/client.js';
 
 interface Props {
   entries: CheckpointEntry[];
@@ -55,16 +52,7 @@ function relTime(iso: string, nowMs: number): string {
  * checkpoints a long session accumulates, and each row reads as a Claude
  * summary rather than a bare `#id`.
  */
-export function CheckpointStrip({
-  entries,
-  fromId,
-  toId,
-  onChangeFrom,
-  onChangeTo,
-  onPickSingle,
-  active,
-  busy,
-}: Props) {
+export function CheckpointStrip({ entries, fromId, toId, onChangeFrom, onChangeTo, onPickSingle, active, busy }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -111,10 +99,7 @@ export function CheckpointStrip({
   return (
     <nav
       ref={rootRef}
-      className={
-        'wd-checkpoint-range' +
-        (active ? '' : ' wd-checkpoint-range-inactive')
-      }
+      className={'wd-checkpoint-range' + (active ? '' : ' wd-checkpoint-range-inactive')}
       aria-label="Checkpoint range"
       aria-busy={busy}
     >
@@ -144,12 +129,7 @@ export function CheckpointStrip({
           <div className="wd-checkpoint-pop-header">
             <button
               type="button"
-              className={
-                'wd-checkpoint-pop-preset' +
-                (fromId === 0 && toId === 'working'
-                  ? ' wd-checkpoint-pop-preset-active'
-                  : '')
-              }
+              className={'wd-checkpoint-pop-preset' + (fromId === 0 && toId === 'working' ? ' wd-checkpoint-pop-preset-active' : '')}
               onClick={() => {
                 onChangeFrom(0);
                 onChangeTo('working');
@@ -158,12 +138,9 @@ export function CheckpointStrip({
               <span className="wd-checkpoint-pop-dot" aria-hidden="true">
                 {fromId === 0 && toId === 'working' ? '●' : ''}
               </span>
-              All changes{' '}
-              <span className="wd-checkpoint-pop-sub">Initial → Working</span>
+              All changes <span className="wd-checkpoint-pop-sub">Initial → Working</span>
             </button>
-            <div className="wd-checkpoint-pop-hint">
-              Click = just this checkpoint · Shift+click = widen start
-            </div>
+            <div className="wd-checkpoint-pop-hint">Click = just this checkpoint · Shift+click = widen start</div>
           </div>
           {entries.map((e) => {
             const isFrom = e.id === fromId;
@@ -172,9 +149,7 @@ export function CheckpointStrip({
               'wd-checkpoint-pop-row' +
               (isFrom ? ' wd-checkpoint-pop-from' : '') +
               (isTo ? ' wd-checkpoint-pop-to' : '') +
-              (!isFrom && !isTo && inRange(e.id)
-                ? ' wd-checkpoint-pop-in-range'
-                : '');
+              (!isFrom && !isTo && inRange(e.id) ? ' wd-checkpoint-pop-in-range' : '');
             return (
               <button
                 key={e.id}

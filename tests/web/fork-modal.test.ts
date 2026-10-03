@@ -15,7 +15,18 @@ const { ForkSessionModal, suggestForkBranch } = await import('../../src/web/src/
 const { sessionMenuItems } = await import('../../src/web/src/state/session-menu.js');
 
 const session = (branch: string, over: Partial<SessionSummary> = {}): SessionSummary =>
-  ({ id: `id-${branch}`, target: 'api', branch, isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', activityState: 'stale', diffStat: { files: 2, added: 5, deleted: 1 }, ...over }) as SessionSummary;
+  ({
+    id: `id-${branch}`,
+    target: 'api',
+    branch,
+    isGroup: false,
+    paths: [],
+    createdAt: '',
+    lastAccessedAt: '',
+    activityState: 'stale',
+    diffStat: { files: 2, added: 5, deleted: 1 },
+    ...over,
+  }) as SessionSummary;
 
 let container: HTMLDivElement;
 let root: Root;
@@ -52,13 +63,17 @@ describe('ForkSessionModal', () => {
     api.forkSession.mockReturnValue(new Promise((r) => (resolve = r)));
     const onForked = vi.fn();
     const s = session('feat/x');
-    act(() => root.render(createElement(ForkSessionModal, { session: s, sessions: [s, session('feat/x-2')], onForked, onClose: () => {} })));
+    act(() =>
+      root.render(createElement(ForkSessionModal, { session: s, sessions: [s, session('feat/x-2')], onForked, onClose: () => {} })),
+    );
     const [branch, name] = [...container.querySelectorAll<HTMLInputElement>('input')];
     expect(branch.value).toBe('feat/x-3');
     expect(container.textContent).toContain('its 2 uncommitted files stay here');
     type(name, 'Try Redis');
     type(container.querySelector('textarea')!, 'Use Redis for the queue');
-    await act(async () => { container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
     expect(api.forkSession).toHaveBeenCalledWith('id-feat/x', { branch: 'feat/x-3', name: 'Try Redis', prompt: 'Use Redis for the queue' });
     expect(container.querySelector('[role="status"]')?.textContent).toContain('writing a summary of the conversation');
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent).toBe('Forking…');
@@ -70,7 +85,9 @@ describe('ForkSessionModal', () => {
     api.forkSession.mockRejectedValue(new Error('feat/x-2 already exists (api): pick another name'));
     const s = session('feat/x');
     act(() => root.render(createElement(ForkSessionModal, { session: s, sessions: [s], onForked: vi.fn(), onClose: () => {} })));
-    await act(async () => { container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('already exists');
     expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(false);
   });
@@ -78,7 +95,16 @@ describe('ForkSessionModal', () => {
 
 describe('the row menu', () => {
   it('offers Fork… for a live session, not an archived one', () => {
-    const a = { setArchived: vi.fn(), openTerminal: vi.fn(), openEditor: vi.fn(), copyBranch: vi.fn(), remove: vi.fn(), snooze: vi.fn(), unsnooze: vi.fn(), fork: vi.fn() };
+    const a = {
+      setArchived: vi.fn(),
+      openTerminal: vi.fn(),
+      openEditor: vi.fn(),
+      copyBranch: vi.fn(),
+      remove: vi.fn(),
+      snooze: vi.fn(),
+      unsnooze: vi.fn(),
+      fork: vi.fn(),
+    };
     const items = sessionMenuItems(session('feat/x'), a);
     items.find((i) => i.label === 'Fork…')!.run();
     expect(a.fork).toHaveBeenCalled();

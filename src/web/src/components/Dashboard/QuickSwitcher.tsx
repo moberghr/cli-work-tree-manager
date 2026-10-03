@@ -9,7 +9,15 @@ import { StatusIcon } from './StatusIcon.js';
  * Enter to open it — from anywhere, a terminal included. Nothing typed, it
  * lists the sessions you used last. ↑/↓ move, Esc closes.
  */
-export function QuickSwitcher({ sessions, onOpen, onClose }: { sessions: SessionSummary[]; onOpen: (id: string) => void; onClose: (picked: boolean) => void }) {
+export function QuickSwitcher({
+  sessions,
+  onOpen,
+  onClose,
+}: {
+  sessions: SessionSummary[];
+  onOpen: (id: string) => void;
+  onClose: (picked: boolean) => void;
+}) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listId = useId();

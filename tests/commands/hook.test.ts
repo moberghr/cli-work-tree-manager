@@ -4,10 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
 import { readStatus } from '../../src/core/status/session-status.js';
-import {
-  clearCommentStoreCache,
-  getCommentFileStore,
-} from '../../src/core/comments/comment-file-store.js';
+import { clearCommentStoreCache, getCommentFileStore } from '../../src/core/comments/comment-file-store.js';
 import { saveHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../src/core/sessions/web-state.js';
 
@@ -50,18 +47,14 @@ function markActive(session: WorktreeSession): void {
 describe('computeHookOutput', () => {
   it('returns null when cwd is not a known session', () => {
     saveHistory([]);
-    expect(
-      computeHookOutput({ event: 'prompt-submit', cwd: 'C:/elsewhere' }),
-    ).toBeNull();
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: 'C:/elsewhere' })).toBeNull();
   });
 
   it('returns null when nothing is pending', () => {
     const s = fakeSession();
     saveHistory([s]);
     markActive(s);
-    expect(
-      computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] }),
-    ).toBeNull();
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
   });
 
   it('returns null when session activity is stale (no transcript)', () => {
@@ -69,9 +62,7 @@ describe('computeHookOutput', () => {
     saveHistory([s]);
     // Post a comment but DON'T mark the session active.
     getCommentFileStore(sessionIdFor(s)).post({ body: 'pending' });
-    expect(
-      computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] }),
-    ).toBeNull();
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
   });
 
   it('prompt-submit returns plain text + ids', () => {
@@ -113,9 +104,7 @@ describe('computeHookOutput', () => {
       body: 'claude reply',
       author: 'claude',
     });
-    expect(
-      computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] }),
-    ).toBeNull();
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
   });
 
   it('drafts are not surfaced until submitted', () => {
@@ -126,9 +115,7 @@ describe('computeHookOutput', () => {
       body: 'still working on it',
       status: 'draft',
     });
-    expect(
-      computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] }),
-    ).toBeNull();
+    expect(computeHookOutput({ event: 'prompt-submit', cwd: s.paths[0] })).toBeNull();
   });
 });
 
@@ -140,7 +127,11 @@ describe('runTurnHook (one hook per turn edge)', () => {
     getCommentFileStore(sessionIdFor(s)).post({ body: 'fix this' });
     const out: string[] = [];
     const posts: string[] = [];
-    await runTurnHook(true, { cwd: s.paths[0], prompt: 'go on' }, { write: (t) => void out.push(t), post: async (r) => void posts.push(r) });
+    await runTurnHook(
+      true,
+      { cwd: s.paths[0], prompt: 'go on' },
+      { write: (t) => void out.push(t), post: async (r) => void posts.push(r) },
+    );
     expect(out.join('')).toContain('fix this');
     expect(posts.sort()).toEqual(['api/checkpoint/seal', 'api/status-changed']);
     expect(readStatus(sessionIdFor(s))?.state).toBe('working');

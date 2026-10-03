@@ -23,12 +23,7 @@ import type { StatusHook } from '../platform/config.js';
  * @param sessionName Friendly session name, exposed as $WORK_SESSION.
  * @param hooks       The configured hooks (from WorkConfig.statusHooks).
  */
-export function runStatusHooks(
-  kind: 'idle' | 'needs_input',
-  cwd: string,
-  sessionName: string,
-  hooks: StatusHook[] | undefined,
-): void {
+export function runStatusHooks(kind: 'idle' | 'needs_input', cwd: string, sessionName: string, hooks: StatusHook[] | undefined): void {
   if (!hooks || hooks.length === 0) return;
 
   for (const hook of hooks) {

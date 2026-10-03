@@ -41,7 +41,8 @@ export const claudePermissionTool: ChatPermissionTool = {
     input: args.input ?? {},
     toolUseId: typeof args.tool_use_id === 'string' ? args.tool_use_id : null,
   }),
-  reply: (d) => (d.allow ? { behavior: 'allow', updatedInput: d.input ?? {} } : { behavior: 'deny', message: d.message ?? 'The user denied this.' }),
+  reply: (d) =>
+    d.allow ? { behavior: 'allow', updatedInput: d.input ?? {} } : { behavior: 'deny', message: d.message ?? 'The user denied this.' },
 };
 
 /** How much of the newest transcript the chat shows before it runs. */
@@ -60,7 +61,9 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 export function resultText(content: unknown): string {
   if (typeof content === 'string') return stripAnsi(content);
   if (!Array.isArray(content)) return content == null ? '' : JSON.stringify(content);
-  return stripAnsi(content.map((b) => (isObj(b) ? (b.type === 'text' ? str(b.text) ?? '' : `[${str(b.type) ?? 'block'}]`) : '')).join('\n'));
+  return stripAnsi(
+    content.map((b) => (isObj(b) ? (b.type === 'text' ? (str(b.text) ?? '') : `[${str(b.type) ?? 'block'}]`) : '')).join('\n'),
+  );
 }
 
 function blocksOf(message: unknown): unknown[] {
@@ -129,12 +132,24 @@ export function claudeChatRecords(raw: unknown): ChatRecord[] {
   }
 
   if (type === 'result') {
-    return [{ kind: 'turn-end', ok: raw.is_error !== true && str(raw.subtype) === 'success', subtype: str(raw.subtype) ?? '', durationMs: num(raw.duration_ms), costUsd: num(raw.total_cost_usd) }];
+    return [
+      {
+        kind: 'turn-end',
+        ok: raw.is_error !== true && str(raw.subtype) === 'success',
+        subtype: str(raw.subtype) ?? '',
+        durationMs: num(raw.duration_ms),
+        costUsd: num(raw.total_cost_usd),
+      },
+    ];
   }
   if (type === 'system') {
     const subtype = str(raw.subtype) ?? '';
     if (NOISE_SYSTEM.has(subtype)) return [];
-    return [subtype === 'compact_boundary' ? { kind: 'notice', text: 'Conversation compacted' } : { kind: 'raw', label: `system ${subtype}`, raw }];
+    return [
+      subtype === 'compact_boundary'
+        ? { kind: 'notice', text: 'Conversation compacted' }
+        : { kind: 'raw', label: `system ${subtype}`, raw },
+    ];
   }
   return [{ kind: 'raw', label: type || 'message', raw }];
 }
@@ -148,7 +163,11 @@ export function claudeChatRead(raw: unknown): ChatLineRead {
     case 'control_response':
       return { records: [], acknowledged: true };
     case 'system':
-      return { records: claudeChatRecords(raw), ready: true, ...(raw.subtype === 'init' && typeof raw.session_id === 'string' ? { conversationId: raw.session_id } : {}) };
+      return {
+        records: claudeChatRecords(raw),
+        ready: true,
+        ...(raw.subtype === 'init' && typeof raw.session_id === 'string' ? { conversationId: raw.session_id } : {}),
+      };
     case 'result':
       return { records: claudeChatRecords(raw), turnEnded: true };
     case 'assistant':
@@ -189,14 +208,19 @@ export const claudeChat: AgentChat = {
     return {
       args: ({ resumeId, continueLatest }) => [
         '-p',
-        '--input-format', 'stream-json',
-        '--output-format', 'stream-json',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
         '--verbose',
         '--include-partial-messages',
         '--replay-user-messages',
-        '--permission-prompts', 'host',
-        '--permission-prompt-tool', PERMISSION_TOOL,
-        '--mcp-config', mcpConfig,
+        '--permission-prompts',
+        'host',
+        '--permission-prompt-tool',
+        PERMISSION_TOOL,
+        '--mcp-config',
+        mcpConfig,
         ...(resumeId ? ['--resume', resumeId] : continueLatest ? ['--continue'] : []),
       ],
       userLine: (text) => ({ type: 'user', message: { role: 'user', content: text } }),

@@ -58,7 +58,15 @@ describe('firstPromptOf', () => {
     const open = vi.spyOn(fs, 'openSync');
     expect(firstPromptOf(f, claudeEntries)).toBeNull();
     expect(open).not.toHaveBeenCalled();
-    fs.appendFileSync(f, JSON.stringify({ type: 'user', uuid: 'u1', timestamp: '2026-09-30T10:00:00Z', message: { role: 'user', content: 'Fix the login redirect' } }) + '\n');
+    fs.appendFileSync(
+      f,
+      JSON.stringify({
+        type: 'user',
+        uuid: 'u1',
+        timestamp: '2026-09-30T10:00:00Z',
+        message: { role: 'user', content: 'Fix the login redirect' },
+      }) + '\n',
+    );
     expect(firstPromptOf(f, claudeEntries)).toBe('Fix the login redirect'); // it grew: read again
   });
 });
@@ -78,14 +86,19 @@ describe('throttleTrailing', () => {
     const calls: number[] = [];
     const f = throttleTrailing(() => calls.push(t), 750, { now: () => t, setTimeout: (cb, ms) => timers.push({ at: t + ms, cb }) });
     f(); // t=0: at once
-    t = 100; f();
-    t = 200; f();
-    t = 300; f();
+    t = 100;
+    f();
+    t = 200;
+    f();
+    t = 300;
+    f();
     expect(calls).toEqual([0]);
     expect(timers).toHaveLength(1);
-    t = 750; timers[0].cb();
+    t = 750;
+    timers[0].cb();
     expect(calls).toEqual([0, 750]);
-    t = 2000; f(); // a quiet window later: at once again
+    t = 2000;
+    f(); // a quiet window later: at once again
     expect(calls).toEqual([0, 750, 2000]);
   });
 });
@@ -94,13 +107,15 @@ describe('createSerialQueue', () => {
   it('one job at a time, in order; a failure does not stop the next', async () => {
     const run = createSerialQueue();
     const log: string[] = [];
-    const job = (n: string, fail = false) => async () => {
-      log.push(`${n}+`);
-      await new Promise((r) => setTimeout(r, 5));
-      log.push(`${n}-`);
-      if (fail) throw new Error(n);
-      return n;
-    };
+    const job =
+      (n: string, fail = false) =>
+      async () => {
+        log.push(`${n}+`);
+        await new Promise((r) => setTimeout(r, 5));
+        log.push(`${n}-`);
+        if (fail) throw new Error(n);
+        return n;
+      };
     const a = run(job('a', true));
     const b = run(job('b'));
     await expect(a).rejects.toThrow('a');

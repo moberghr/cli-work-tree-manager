@@ -16,7 +16,9 @@ import { shownState } from '../status/turn-activity.js';
  * on you (the files would move under it), asked again before each repo.
  */
 
-export type SessionUpdate = { ok: true; results: UpdateResult[]; how: 'main' | 'parent' | 'onto-main'; base?: string } | { ok: false; status: 404 | 409; error: string };
+export type SessionUpdate =
+  | { ok: true; results: UpdateResult[]; how: 'main' | 'parent' | 'onto-main'; base?: string }
+  | { ok: false; status: 404 | 409; error: string };
 
 function busy(s: WorktreeSession): string | null {
   const st = shownState(s);

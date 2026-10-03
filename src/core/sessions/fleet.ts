@@ -24,10 +24,7 @@ export interface FleetFilter {
  * `branch` without `target` is ignored for selection but the caller is
  * expected to reject that combination up front (it's ambiguous).
  */
-export function selectSessions(
-  sessions: WorktreeSession[],
-  filter: FleetFilter,
-): WorktreeSession[] {
+export function selectSessions(sessions: WorktreeSession[], filter: FleetFilter): WorktreeSession[] {
   return sessions.filter((s) => {
     if (filter.target && s.target !== filter.target) return false;
     if (filter.branch && s.branch !== filter.branch) return false;

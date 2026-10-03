@@ -5,8 +5,17 @@ import type { PtyInfo } from '../../../src/core/pty/pty-host-protocol.js';
 const NOW = Date.parse('2026-09-30T18:00:00Z');
 const HOUR = 3_600_000;
 const pty = (id: string, over: Partial<PtyInfo> = {}): PtyInfo => ({
-  id, cwd: `/wt/${id}`, pid: 1, exited: false, cols: 80, rows: 24, startedAt: '', restored: false,
-  clients: 0, lastOutputAt: new Date(NOW - 5 * HOUR).toISOString(), ...over,
+  id,
+  cwd: `/wt/${id}`,
+  pid: 1,
+  exited: false,
+  cols: 80,
+  rows: 24,
+  startedAt: '',
+  restored: false,
+  clients: 0,
+  lastOutputAt: new Date(NOW - 5 * HOUR).toISOString(),
+  ...over,
 });
 const idle = () => false;
 

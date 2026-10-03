@@ -10,7 +10,15 @@ import { DISPLAY_LABEL, DISPLAY_MEANING } from '../../state/session-display.js';
  * Keeps the dot's class names (`wd-rail-dot wd-rail-dot-<kind>`): views and
  * tests find a row's status by them.
  */
-export function StatusIcon({ kind, labelled = false, muted = false }: { kind: DisplayKind; labelled?: boolean; /** Snoozed: the shape, greyed. */ muted?: boolean }) {
+export function StatusIcon({
+  kind,
+  labelled = false,
+  muted = false,
+}: {
+  kind: DisplayKind;
+  labelled?: boolean;
+  /** Snoozed: the shape, greyed. */ muted?: boolean;
+}) {
   const a11y = labelled
     ? { role: 'img' as const, 'aria-label': DISPLAY_LABEL[kind], title: `${DISPLAY_LABEL[kind]}: ${DISPLAY_MEANING[kind]}` }
     : { 'aria-hidden': true as const };
@@ -59,7 +67,14 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
   quiet: <circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" strokeWidth="1.8" />,
   // Writing right now, no hook status: a pulse line.
   active: (
-    <path d="M1.5 8.5h3l1.8-4.2 3.2 8 1.9-3.8h3.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M1.5 8.5h3l1.8-4.2 3.2 8 1.9-3.8h3.1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   ),
   // Open at its prompt, no hook status: a ring with a dot.
   open: (

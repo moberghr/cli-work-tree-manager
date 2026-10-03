@@ -78,13 +78,17 @@ export function mountPrReplyRoutes(
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
-    if (typeof b.body !== 'string' || !b.body.trim() || b.body.length > MAX_REPLY_CHARS) return c.json({ error: 'body: the reply text' }, 400);
+    if (typeof b.body !== 'string' || !b.body.trim() || b.body.length > MAX_REPLY_CHARS)
+      return c.json({ error: 'body: the reply text' }, 400);
     const thread = c.req.param('thread');
     const cwd = session.paths.find((p) => p) ?? process.cwd();
     const r = await postReply(id, thread, b.body, { resolve: b.resolve === true, cwd, run });
     if (!r.ok) return c.json({ error: r.error }, 502);
     const act = opts.activity?.start('pr-watch', 'Posting a review reply');
-    act?.note(`${session.target} ${session.branch}: posted your reply${r.resolved ? ' and resolved the thread' : ''}`, { level: 'action', sessionId: id });
+    act?.note(`${session.target} ${session.branch}: posted your reply${r.resolved ? ' and resolved the thread' : ''}`, {
+      level: 'action',
+      sessionId: id,
+    });
     act?.done(r.url);
     changed(id);
     return c.json(r);

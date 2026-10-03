@@ -33,7 +33,11 @@ export function createScopeMapStore(storageKey: string): ScopeMapStore {
   }
 
   function write(map: ScopeMap): void {
-    try { localStorage.setItem(storageKey, JSON.stringify(map)); } catch { /* */ }
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(map));
+    } catch {
+      /* */
+    }
   }
 
   return {

@@ -81,7 +81,14 @@ export function chatItems(messages: readonly ChatMessage[]): ChatItem[] {
           return;
         case 'tool': {
           // An id-less call is identified by its place (unique in the chat), and nothing pairs with it.
-          const item: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', key, id: r.id || `@${key}`, name: r.name, input: r.input, result: null };
+          const item: Extract<ChatItem, { kind: 'tool' }> = {
+            kind: 'tool',
+            key,
+            id: r.id || `@${key}`,
+            name: r.name,
+            input: r.input,
+            result: null,
+          };
           if (r.id) tools.set(r.id, item);
           items.push(item);
           return;

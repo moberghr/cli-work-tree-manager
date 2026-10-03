@@ -13,11 +13,7 @@ type Done = (completions: string[]) => void;
  * argv._ = ['<scriptName>', '<command>', '<arg1>', ...., '<current>']
  * We skip the script name and the trailing current word to get the "completed" args.
  */
-export function completionHandler(
-  current: string,
-  argv: Record<string, unknown>,
-  done: Done,
-): void {
+export function completionHandler(current: string, argv: Record<string, unknown>, done: Done): void {
   const rawArgs = argv._ as string[];
 
   // Skip the script name (first element) and the trailing current word (last element)
@@ -32,9 +28,24 @@ export function completionHandler(
 
   if (!command) {
     done(
-      ['tree', 't', 'remove', 'list', 'status', 'recent', 'resume', 'prune', 'todo', 'attach', 'hydrate', 'diff', 'web', 'init', 'config', 'completion'].filter(
-        (c) => c.startsWith(current),
-      ),
+      [
+        'tree',
+        't',
+        'remove',
+        'list',
+        'status',
+        'recent',
+        'resume',
+        'prune',
+        'todo',
+        'attach',
+        'hydrate',
+        'diff',
+        'web',
+        'init',
+        'config',
+        'completion',
+      ].filter((c) => c.startsWith(current)),
     );
     return;
   }
@@ -57,23 +68,11 @@ export function completionHandler(
   }
 }
 
-function completeConfig(
-  args: string[],
-  current: string,
-  config: NonNullable<ReturnType<typeof loadConfig>>,
-  done: Done,
-): void {
+function completeConfig(args: string[], current: string, config: NonNullable<ReturnType<typeof loadConfig>>, done: Done): void {
   const subAction = args[1] as string | undefined;
 
   if (!subAction) {
-    const actions = [
-      'add',
-      'remove',
-      'list',
-      'group',
-      'show',
-      'edit',
-    ];
+    const actions = ['add', 'remove', 'list', 'group', 'show', 'edit'];
     done(actions.filter((a) => a.startsWith(current)));
     return;
   }
@@ -93,10 +92,7 @@ function completeConfig(
       return;
     }
 
-    if (
-      (groupSub === 'remove' || groupSub === 'regen') &&
-      args.length === 3
-    ) {
+    if ((groupSub === 'remove' || groupSub === 'regen') && args.length === 3) {
       const groups = Object.keys(config.groups);
       done(groups.filter((g) => g.startsWith(current)));
       return;
@@ -104,9 +100,7 @@ function completeConfig(
 
     if (groupSub === 'add' && args.length >= 4) {
       const alreadyUsed = args.slice(3);
-      const aliases = Object.keys(config.repos).filter(
-        (a) => !alreadyUsed.includes(a),
-      );
+      const aliases = Object.keys(config.repos).filter((a) => !alreadyUsed.includes(a));
       done(aliases.filter((a) => a.startsWith(current)));
       return;
     }
@@ -128,10 +122,7 @@ function completeTreeRemoveList(
   const targetName = args[1] as string | undefined;
 
   if (!targetName) {
-    const names = [
-      ...Object.keys(config.repos),
-      ...Object.keys(config.groups),
-    ];
+    const names = [...Object.keys(config.repos), ...Object.keys(config.groups)];
     done(names.filter((n) => n.startsWith(current)));
     return;
   }
@@ -154,12 +145,7 @@ function completeTreeRemoveList(
   done([]);
 }
 
-function completeRepoBranches(
-  alias: string,
-  current: string,
-  config: NonNullable<ReturnType<typeof loadConfig>>,
-  done: Done,
-): void {
+function completeRepoBranches(alias: string, current: string, config: NonNullable<ReturnType<typeof loadConfig>>, done: Done): void {
   const repoPath = config.repos[alias];
   if (!repoPath || !fs.existsSync(repoPath)) {
     done([]);
@@ -167,9 +153,7 @@ function completeRepoBranches(
   }
 
   const worktrees = parseWorktreeList(repoPath);
-  const branches = worktrees
-    .map((wt) => wt.branch)
-    .filter((b): b is string => !!b && b.startsWith(current));
+  const branches = worktrees.map((wt) => wt.branch).filter((b): b is string => !!b && b.startsWith(current));
   done(branches);
 }
 

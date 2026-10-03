@@ -16,7 +16,14 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => ({
 import { CiStrip } from '../../src/web/src/components/Dashboard/CiStrip.js';
 
 const pr = (over: Partial<ShipPr> = {}): ShipPr => ({
-  number: 12, url: 'https://gh/pr/12', state: 'OPEN', isDraft: false, mergeStateStatus: 'CLEAN', checks: 'pass', headSha: 'a', ...over,
+  number: 12,
+  url: 'https://gh/pr/12',
+  state: 'OPEN',
+  isDraft: false,
+  mergeStateStatus: 'CLEAN',
+  checks: 'pass',
+  headSha: 'a',
+  ...over,
 });
 let container: HTMLDivElement;
 let root: Root;

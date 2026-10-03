@@ -54,7 +54,7 @@ describe('DiffStatCache', () => {
     expect(changes).toBe(2);
   });
 
-  it('a change during a refresh is not hidden behind that refresh\'s stale result', async () => {
+  it("a change during a refresh is not hidden behind that refresh's stale result", async () => {
     // The git call is held until we release it, like a slow `git diff`.
     let release!: () => void;
     let result = '1\t0\ta.ts\n';
@@ -84,7 +84,10 @@ describe('DiffStatCache', () => {
 
   it('peek reads the cache without starting a refresh', async () => {
     let n = 0;
-    const counting: CommandRunner = async (...a) => { n++; return run(...a); };
+    const counting: CommandRunner = async (...a) => {
+      n++;
+      return run(...a);
+    };
     const cache = new DiffStatCache({ run: counting });
     expect(cache.peek('p')).toBeNull();
     await cache.idle();
@@ -106,7 +109,15 @@ describe('DiffStatCache', () => {
 
 describe('wantsDiffStat', () => {
   const s = (over: Partial<WorktreeSession>) =>
-    ({ target: 't', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: new Date().toISOString(), ...over }) as WorktreeSession;
+    ({
+      target: 't',
+      branch: 'b',
+      isGroup: false,
+      paths: [],
+      createdAt: '',
+      lastAccessedAt: new Date().toISOString(),
+      ...over,
+    }) as WorktreeSession;
   it('skips archived and long-untouched sessions unless they report a status', () => {
     expect(wantsDiffStat(s({}), false)).toBe(true);
     expect(wantsDiffStat(s({ archivedAt: 'x' }), true)).toBe(false);

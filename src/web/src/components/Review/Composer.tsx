@@ -64,13 +64,7 @@ export function Composer({
   return (
     <div className="wd-comment-form">
       {context && <div className="wd-comment-form-context">{context}</div>}
-      <textarea
-        ref={ref}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={onKeyDown}
-      />
+      <textarea ref={ref} value={value} placeholder={placeholder} onChange={(e) => setValue(e.target.value)} onKeyDown={onKeyDown} />
       <div className="wd-comment-form-actions">
         <button type="button" onClick={onCancel}>
           Cancel
@@ -78,41 +72,21 @@ export function Composer({
         {allowDraft ? (
           reviewStarted ? (
             // Review already in progress — a single action adds to it.
-            <button
-              type="button"
-              className="wd-btn-primary"
-              onClick={() => submit('draft')}
-              disabled={!value.trim()}
-            >
+            <button type="button" className="wd-btn-primary" onClick={() => submit('draft')} disabled={!value.trim()}>
               Add review comment (Ctrl+Enter)
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                className="wd-btn-secondary"
-                onClick={() => submit('published')}
-                disabled={!value.trim()}
-              >
+              <button type="button" className="wd-btn-secondary" onClick={() => submit('published')} disabled={!value.trim()}>
                 {publishLabel}
               </button>
-              <button
-                type="button"
-                className="wd-btn-primary"
-                onClick={() => submit('draft')}
-                disabled={!value.trim()}
-              >
+              <button type="button" className="wd-btn-primary" onClick={() => submit('draft')} disabled={!value.trim()}>
                 {draftLabel} (Ctrl+Enter)
               </button>
             </>
           )
         ) : (
-          <button
-            type="button"
-            className="wd-btn-primary"
-            onClick={() => submit('published')}
-            disabled={!value.trim()}
-          >
+          <button type="button" className="wd-btn-primary" onClick={() => submit('published')} disabled={!value.trim()}>
             {publishLabel} (Ctrl+Enter)
           </button>
         )}

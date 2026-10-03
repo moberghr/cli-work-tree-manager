@@ -144,9 +144,15 @@ test('a finished session notifies only when you are not looking, and the click j
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
 
   await expect
-    .poll(() => page.evaluate(() => (window as unknown as { __notes: Array<{ title: string }> }).__notes.map((n) => n.title)), { timeout: 20_000 })
+    .poll(() => page.evaluate(() => (window as unknown as { __notes: Array<{ title: string }> }).__notes.map((n) => n.title)), {
+      timeout: 20_000,
+    })
     .toContain('Finished — api · feat/invoice-export');
-  await page.evaluate(() => (window as unknown as { __notes: Array<{ title: string; click: () => void }> }).__notes.find((n) => n.title.startsWith('Finished'))!.click());
+  await page.evaluate(() =>
+    (window as unknown as { __notes: Array<{ title: string; click: () => void }> }).__notes
+      .find((n) => n.title.startsWith('Finished'))!
+      .click(),
+  );
   await expect(page.locator('.wd-dash-rail-item[aria-current], .wd-dash-rail-item-active').first()).toContainText('feat/invoice-export');
 });
 
@@ -225,7 +231,9 @@ test('a permission prompt is answered from the inbox, showing the command it all
   await item.getByRole('button', { name: 'Allow' }).click();
   // It leaves "Needs your input" and shows up as working, with what was allowed.
   await expect(page.locator('.wd-inbox-rank-0', { hasText: 'feat/invoice-export' })).toHaveCount(0);
-  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText('Allowed Bash: npm test -- invoices');
+  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText(
+    'Allowed Bash: npm test -- invoices',
+  );
 });
 
 test('"Review all" walks the finished sessions, each on its last turn, and n moves on', async ({ page }) => {
@@ -343,7 +351,9 @@ test('Ctrl+K opens the assistant, which knows the tab you are on', async ({ page
   // again when the view changes. (The terminal draws on a canvas, so its
   // text isn't in the DOM to assert on.)
   const told = page.waitForRequest((r) => r.url().endsWith('/api/assistant/context') && r.postDataJSON()?.tab === 'inbox');
-  await page.evaluate(() => { location.hash = '#/inbox'; });
+  await page.evaluate(() => {
+    location.hash = '#/inbox';
+  });
   await told;
   await expect(panel.locator('.wd-assistant-seeing')).toHaveText('sees: the Inbox tab');
   await panel.locator('.xterm').click();

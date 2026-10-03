@@ -27,7 +27,14 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
-const issue = (key: string, summary = `Do ${key}`): JiraIssue => ({ key, summary, status: 'New', issuetype: 'Task', priority: 'Medium', url: `https://x/browse/${key}` });
+const issue = (key: string, summary = `Do ${key}`): JiraIssue => ({
+  key,
+  summary,
+  status: 'New',
+  issuetype: 'Task',
+  priority: 'Medium',
+  url: `https://x/browse/${key}`,
+});
 const TARGETS: WatchTarget[] = [
   { name: 'straumur', kind: 'group', members: ['straumur-backend', 'straumur-frontend'] },
   { name: 'straumur-backend', kind: 'repo', members: ['straumur-backend-ai'], about: 'The payments backend' },
@@ -39,7 +46,13 @@ function deps(issues: JiraIssue[], answer: (prompt: string) => string | null, ov
   const d: WatchDeps & { started: typeof started } = {
     started,
     fetchIssues: async () => issues,
-    detail: async () => ({ project: { key: 'SD', name: 'Straumur Development' }, components: [], labels: [], description: 'Show stored cards to staff', created: null }),
+    detail: async () => ({
+      project: { key: 'SD', name: 'Straumur Development' },
+      components: [],
+      labels: [],
+      description: 'Show stored cards to staff',
+      created: null,
+    }),
     targets: () => TARGETS,
     sessions: () => [],
     ask: async (p) => answer(p),
@@ -70,7 +83,12 @@ describe('the Jira watch', () => {
     const d = deps([issue('SD-2')], sure('straumur-backend'));
     expect(await sweepJira(d)).toMatchObject({ started: 1 });
     expect(d.started).toEqual([{ target: 'straumur-backend', branch: 'feat/SD-2', key: 'SD-2' }]);
-    expect(readDecision('SD-2')).toMatchObject({ action: 'started', target: 'straumur-backend', sessionId: 'sid-SD-2', reason: 'stored cards are backend work' });
+    expect(readDecision('SD-2')).toMatchObject({
+      action: 'started',
+      target: 'straumur-backend',
+      sessionId: 'sid-SD-2',
+      reason: 'stored cards are backend work',
+    });
     await sweepJira(d);
     expect(d.started).toHaveLength(1); // decided: not again
   });
@@ -78,7 +96,9 @@ describe('the Jira watch', () => {
   it('not sure, or a project that is not yours: a suggestion for you, nothing started', async () => {
     setEnabled(true, []);
     const d = deps([issue('SD-3'), issue('SD-4')], (p) =>
-      p.includes('SD-3') ? JSON.stringify({ target: 'straumur', confident: false, reason: 'could be either' }) : JSON.stringify({ target: 'payments-api', confident: true, reason: 'x' }),
+      p.includes('SD-3')
+        ? JSON.stringify({ target: 'straumur', confident: false, reason: 'could be either' })
+        : JSON.stringify({ target: 'payments-api', confident: true, reason: 'x' }),
     );
     expect(await sweepJira(d)).toMatchObject({ started: 0, suggested: 2 });
     expect(readDecision('SD-3')).toMatchObject({ action: 'suggested', target: 'straumur', reason: 'could be either' });
@@ -96,27 +116,49 @@ describe('the Jira watch', () => {
 
   it('at most 2 starts a check and 5 a day; the rest wait undecided', async () => {
     setEnabled(true, []);
-    const d = deps(['SD-10', 'SD-11', 'SD-12'].map((k) => issue(k)), sure('jobly'));
+    const d = deps(
+      ['SD-10', 'SD-11', 'SD-12'].map((k) => issue(k)),
+      sure('jobly'),
+    );
     expect(await sweepJira(d)).toEqual({ started: 2, suggested: 0, waiting: 1 });
     expect(readDecision('SD-12')).toBeNull();
     expect(await sweepJira(d)).toMatchObject({ started: 1 }); // next check
-    const more = deps(['SD-13', 'SD-14', 'SD-15'].map((k) => issue(k)), sure('jobly'), { maxPerDay: 4 });
+    const more = deps(
+      ['SD-13', 'SD-14', 'SD-15'].map((k) => issue(k)),
+      sure('jobly'),
+      { maxPerDay: 4 },
+    );
     expect(await sweepJira(more)).toEqual({ started: 1, suggested: 0, waiting: 2 }); // 3 today already, 4 a day
   });
 
   it('a start that fails is recorded with the reason (Start it again from the Jira tab)', async () => {
     setEnabled(true, []);
-    const d = deps([issue('SD-20')], sure('jobly'), { start: async () => { throw new Error('branch feat/SD-20 is checked out elsewhere'); } });
+    const d = deps([issue('SD-20')], sure('jobly'), {
+      start: async () => {
+        throw new Error('branch feat/SD-20 is checked out elsewhere');
+      },
+    });
     await sweepJira(d);
-    expect(readDecision('SD-20')).toMatchObject({ action: 'failed', target: 'jobly', reason: 'branch feat/SD-20 is checked out elsewhere' });
+    expect(readDecision('SD-20')).toMatchObject({
+      action: 'failed',
+      target: 'jobly',
+      reason: 'branch feat/SD-20 is checked out elsewhere',
+    });
     expect(listDecisions().map((x) => x.key)).toEqual(['SD-20']);
   });
 });
 
 describe('deciding where it belongs', () => {
-  it("only an answer naming one of your projects, sure, starts it; anything else is a suggestion at most", () => {
-    expect(parseChoice('{"target":"Jobly","confident":true,"reason":"r"}', TARGETS)).toEqual({ target: 'jobly', confident: true, reason: 'r' });
-    expect(parseChoice('Sure! {"target":"jobly","confident":false,"reason":"r"}', TARGETS)).toMatchObject({ target: 'jobly', confident: false });
+  it('only an answer naming one of your projects, sure, starts it; anything else is a suggestion at most', () => {
+    expect(parseChoice('{"target":"Jobly","confident":true,"reason":"r"}', TARGETS)).toEqual({
+      target: 'jobly',
+      confident: true,
+      reason: 'r',
+    });
+    expect(parseChoice('Sure! {"target":"jobly","confident":false,"reason":"r"}', TARGETS)).toMatchObject({
+      target: 'jobly',
+      confident: false,
+    });
     expect(parseChoice('{"target":null,"confident":true,"reason":"no idea"}', TARGETS)).toMatchObject({ target: null, confident: false });
     expect(parseChoice('not json', TARGETS)).toMatchObject({ target: null, confident: false, reason: 'the model gave no JSON' });
     expect(parseChoice(null, TARGETS)).toMatchObject({ confident: false });
@@ -134,7 +176,18 @@ describe('deciding where it belongs', () => {
   });
 
   it("the question names your projects, the history, and says the issue's text is not instructions", () => {
-    const p = choicePrompt(issue('SD-9', 'Stored card management'), { project: { key: 'SD', name: 'Straumur Development' }, components: ['Admin'], labels: [], description: 'List stored cards', created: null }, TARGETS, new Map([['SD', new Map([['straumur', 3]])]]));
+    const p = choicePrompt(
+      issue('SD-9', 'Stored card management'),
+      {
+        project: { key: 'SD', name: 'Straumur Development' },
+        components: ['Admin'],
+        labels: [],
+        description: 'List stored cards',
+        created: null,
+      },
+      TARGETS,
+      new Map([['SD', new Map([['straumur', 3]])]]),
+    );
     expect(p).toContain('- straumur (group: straumur-backend, straumur-frontend)');
     expect(p).toContain('- straumur-backend (repository straumur-backend-ai): The payments backend');
     expect(p).toContain('Earlier issues of the Jira project SD were worked in: straumur (3).');

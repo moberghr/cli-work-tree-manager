@@ -18,11 +18,26 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 
 const STATE: BuildFoldersState = {
-  scanning: false, checked: 1, total: 1, scannedAt: new Date().toISOString(),
-  candidates: [{ sessionId: 's1', target: 'web', branch: 'fix/banner', lastActive: new Date(Date.now() - 9 * 86_400_000).toISOString(), bytes: 2_400_000_000, folders: [{ path: 'C:/wt/web/node_modules', bytes: 2_400_000_000 }] }],
+  scanning: false,
+  checked: 1,
+  total: 1,
+  scannedAt: new Date().toISOString(),
+  candidates: [
+    {
+      sessionId: 's1',
+      target: 'web',
+      branch: 'fix/banner',
+      lastActive: new Date(Date.now() - 9 * 86_400_000).toISOString(),
+      bytes: 2_400_000_000,
+      folders: [{ path: 'C:/wt/web/node_modules', bytes: 2_400_000_000 }],
+    },
+  ],
 };
 
 describe('BuildFolders', () => {
@@ -30,7 +45,10 @@ describe('BuildFolders', () => {
     const api: BuildFoldersApi = {
       state: vi.fn(async () => STATE),
       scan: vi.fn(async () => STATE),
-      apply: vi.fn(async () => ({ results: [{ sessionId: 's1', ok: true, removed: 1, message: 'Removed 1 folder(s)' }], state: { ...STATE, candidates: [] } })),
+      apply: vi.fn(async () => ({
+        results: [{ sessionId: 's1', ok: true, removed: 1, message: 'Removed 1 folder(s)' }],
+        state: { ...STATE, candidates: [] },
+      })),
     };
     act(() => root.render(createElement(BuildFolders, { api })));
     await flush();

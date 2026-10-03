@@ -58,7 +58,12 @@ export function TimelineView({ session, onOpenTurn }: { session: SessionSummary;
     // Again when its conversation moves (a new prompt, a finished turn).
   }, [session.id, session.lastActivity]);
   if (error) return <div className="wd-tab-empty wd-tab-error">{error}</div>;
-  if (!events) return <div className="wd-tab-empty" role="status"><span className="wd-spinner" aria-hidden /> Reading its history…</div>;
+  if (!events)
+    return (
+      <div className="wd-tab-empty" role="status">
+        <span className="wd-spinner" aria-hidden /> Reading its history…
+      </div>
+    );
   return (
     <div className="wd-timeline">
       {byDay(events).map((g) => (
@@ -68,11 +73,18 @@ export function TimelineView({ session, onOpenTurn }: { session: SessionSummary;
             {g.events.map((e, i) => (
               <li key={`${e.at}-${e.kind}-${i}`} className={`wd-timeline-event wd-timeline-${e.kind}`}>
                 <span className="wd-timeline-time">{new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="wd-timeline-icon" aria-hidden>{ICON[e.kind]}</span>
+                <span className="wd-timeline-icon" aria-hidden>
+                  {ICON[e.kind]}
+                </span>
                 <span className="wd-timeline-kind">{KIND_LABEL[e.kind]}</span>
                 <span className="wd-timeline-text">
                   {e.kind === 'turn' && e.checkpoint && onOpenTurn ? (
-                    <button type="button" className="wd-link-button" onClick={() => onOpenTurn(e.checkpoint!)} title="Open what this turn changed">
+                    <button
+                      type="button"
+                      className="wd-link-button"
+                      onClick={() => onOpenTurn(e.checkpoint!)}
+                      title="Open what this turn changed"
+                    >
                       {e.text}
                     </button>
                   ) : e.ref?.startsWith('https://') ? (

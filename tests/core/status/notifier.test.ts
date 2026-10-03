@@ -1,17 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  buildNotifyCommand,
-  notifyDesktop,
-} from '../../../src/core/status/notifier.js';
+import { buildNotifyCommand, notifyDesktop } from '../../../src/core/status/notifier.js';
 
 describe('buildNotifyCommand', () => {
   it('builds an osascript command on darwin', () => {
     const cmd = buildNotifyCommand('feature-login', 'idle', 'darwin');
     expect(cmd?.cmd).toBe('osascript');
     expect(cmd?.args[0]).toBe('-e');
-    expect(cmd?.args[1]).toBe(
-      'display notification "Idle — finished its turn" with title "work: feature-login"',
-    );
+    expect(cmd?.args[1]).toBe('display notification "Idle — finished its turn" with title "work: feature-login"');
   });
 
   it('uses the needs-input message for notification events', () => {
@@ -75,12 +70,11 @@ describe('buildNotifyCommand', () => {
     expect(cmd?.args.join(' ')).toContain('work: bad name');
   });
 
-  it("doubles single quotes for the PowerShell literal", () => {
+  it('doubles single quotes for the PowerShell literal', () => {
     const cmd = buildNotifyCommand("o'brien", 'idle', 'win32');
     expect(cmd?.args.join(' ')).toContain("work: o''brien");
   });
 });
-
 
 describe('notifyDesktop', () => {
   it('is a no-op when not enabled (spawnFn never called)', () => {
@@ -107,11 +101,10 @@ describe('notifyDesktop', () => {
       platform: 'linux',
       spawnFn: spawnFn as never,
     });
-    expect(spawnFn).toHaveBeenCalledWith(
-      'notify-send',
-      ['work: feature-login', 'Idle — finished its turn'],
-      { detached: true, stdio: 'ignore' },
-    );
+    expect(spawnFn).toHaveBeenCalledWith('notify-send', ['work: feature-login', 'Idle — finished its turn'], {
+      detached: true,
+      stdio: 'ignore',
+    });
     expect(child.on).toHaveBeenCalledWith('error', expect.any(Function));
     expect(child.unref).toHaveBeenCalled();
     // The registered async error handler must not throw (swallows ENOENT).
@@ -129,10 +122,7 @@ describe('notifyDesktop', () => {
     });
     expect(spawnFn).toHaveBeenCalledWith(
       'osascript',
-      [
-        '-e',
-        'display notification "Idle — finished its turn" with title "work: feature-login"',
-      ],
+      ['-e', 'display notification "Idle — finished its turn" with title "work: feature-login"'],
       { detached: true, stdio: 'ignore' },
     );
     expect(child.unref).toHaveBeenCalled();
@@ -147,11 +137,7 @@ describe('notifyDesktop', () => {
       spawnFn: spawnFn as never,
     });
     expect(spawnFn).toHaveBeenCalledTimes(1);
-    const [cmd, args, opts] = spawnFn.mock.calls[0] as [
-      string,
-      string[],
-      Record<string, unknown>,
-    ];
+    const [cmd, args, opts] = spawnFn.mock.calls[0] as [string, string[], Record<string, unknown>];
     expect(cmd).toBe('powershell');
     expect(args[0]).toBe('-NoProfile');
     expect(args[1]).toBe('-Command');

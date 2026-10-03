@@ -1,12 +1,6 @@
 import { Fragment, useMemo } from 'react';
 import type { Hunk } from '../../api/client.js';
-import {
-  hunkRows,
-  inlineRows,
-  type InlineRow,
-  type IntraSpan,
-  type SideRow,
-} from '../../utils/intraline.js';
+import { hunkRows, inlineRows, type InlineRow, type IntraSpan, type SideRow } from '../../utils/intraline.js';
 import { useReviewOptional } from '../../state/ReviewProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentLineRow, InlineCommentRow } from '../Review/CommentLineRow.js';
@@ -36,10 +30,7 @@ interface HunkLineHtml {
  * block. "Open file ↗" (FileApp) highlights the whole file and is the escape
  * hatch; widening this would mean fetching full-file context per hunk.
  */
-function buildHunkHighlight(
-  hunk: Hunk,
-  lang: string | null | undefined,
-): HunkLineHtml | null {
+function buildHunkHighlight(hunk: Hunk, lang: string | null | undefined): HunkLineHtml | null {
   if (!lang) return null;
   const oldRows: { num: number; content: string }[] = [];
   const newRows: { num: number; content: string }[] = [];
@@ -52,7 +43,10 @@ function buildHunkHighlight(
     }
   }
   const toMap = (rows: { num: number; content: string }[]): Map<number, string> => {
-    const html = highlightBlock(rows.map((r) => r.content), lang);
+    const html = highlightBlock(
+      rows.map((r) => r.content),
+      lang,
+    );
     const m = new Map<number, string>();
     rows.forEach((r, i) => {
       const h = html[i];
@@ -84,24 +78,12 @@ interface Props {
   showHeading?: boolean;
 }
 
-export function DiffHunk({
-  hunk,
-  review = false,
-  repo,
-  file,
-  lang,
-  reviewed,
-  onToggleReviewed,
-  showHeading = true,
-}: Props) {
+export function DiffHunk({ hunk, review = false, repo, file, lang, reviewed, onToggleReviewed, showHeading = true }: Props) {
   const mode = useDiffMode();
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
   const rows = useMemo(() => hunkRows(hunk), [hunk]);
-  const iRows = useMemo(
-    () => (mode === 'unified' ? inlineRows(hunk) : []),
-    [hunk, mode],
-  );
+  const iRows = useMemo(() => (mode === 'unified' ? inlineRows(hunk) : []), [hunk, mode]);
   // Highlight both sides of the hunk as contiguous blocks (preserves
   // multi-line grammar state), keyed by line number for per-cell lookup.
   const lineHtml = useMemo(() => buildHunkHighlight(hunk, lang), [hunk, lang]);
@@ -128,10 +110,7 @@ export function DiffHunk({
         <tr className={'wd-hunk-row' + (showReviewedAccent ? ' wd-hunk-reviewed' : '')}>
           <td colSpan={headerColSpan} className="wd-hunk-context">
             {showCheckbox && (
-              <label
-                className="wd-hunk-checkbox"
-                title="Mark this hunk as reviewed"
-              >
+              <label className="wd-hunk-checkbox" title="Mark this hunk as reviewed">
                 <input
                   type="checkbox"
                   checked={!!reviewed}
@@ -154,25 +133,13 @@ export function DiffHunk({
       {mode === 'unified'
         ? iRows.map((r, i) => (
             <Fragment key={`${r.kind}-${r.oldNum ?? 'x'}-${r.newNum ?? 'x'}-${i}`}>
-              <DiffInlineRow
-                row={r}
-                review={review}
-                repo={repo}
-                file={file}
-                lineHtml={lineHtml}
-              />
+              <DiffInlineRow row={r} review={review} repo={repo} file={file} lineHtml={lineHtml} />
               {review && repo && file && <InlineCommentForRow row={r} repo={repo} file={file} />}
             </Fragment>
           ))
         : rows.map((r) => (
             <Fragment key={`${r.oldNum ?? 'x'}-${r.newNum ?? 'x'}`}>
-              <DiffSideRow
-                row={r}
-                review={review}
-                repo={repo}
-                file={file}
-                lineHtml={lineHtml}
-              />
+              <DiffSideRow row={r} review={review} repo={repo} file={file} lineHtml={lineHtml} />
               {review && repo && file && (
                 <CommentLineRow
                   repo={repo}
@@ -191,27 +158,11 @@ export function DiffHunk({
 
 /** An inline row's comment side: a deletion comments on the old (left) line,
  *  an addition or context line on the new (right) line. */
-function InlineCommentForRow({
-  row,
-  repo,
-  file,
-}: {
-  row: InlineRow;
-  repo: string;
-  file: string;
-}) {
+function InlineCommentForRow({ row, repo, file }: { row: InlineRow; repo: string; file: string }) {
   const side: 'left' | 'right' = row.kind === 'delete' ? 'left' : 'right';
   const line = side === 'left' ? row.oldNum : row.newNum;
   if (line === null) return null;
-  return (
-    <InlineCommentRow
-      repo={repo}
-      file={file}
-      line={line}
-      side={side}
-      content={row.content}
-    />
-  );
+  return <InlineCommentRow repo={repo} file={file} line={line} side={side} content={row.content} />;
 }
 
 /** One unified-layout row: a single content cell preceded by both line-number
@@ -261,32 +212,13 @@ function DiffInlineRow({
 
   // `wd-add`/`wd-delete`/`wd-context` tint the whole row; the intra-line
   // markup (when present) wins over hljs, same as the split ContentCell.
-  const kindClass =
-    row.kind === 'add' ? 'wd-add' : row.kind === 'delete' ? 'wd-delete' : 'wd-context';
+  const kindClass = row.kind === 'add' ? 'wd-add' : row.kind === 'delete' ? 'wd-delete' : 'wd-context';
 
   return (
     <tr className="wd-row">
-      <LnCell
-        num={row.oldNum}
-        side="old"
-        kindClass={kindClass}
-        clickable={clickable && side === 'left'}
-        onClick={openComposer}
-      />
-      <LnCell
-        num={row.newNum}
-        side="new"
-        kindClass={kindClass}
-        clickable={clickable && side === 'right'}
-        onClick={openComposer}
-      />
-      <ContentCell
-        className={`wd-content ${kindClass}`}
-        text={row.content}
-        spans={row.spans}
-        kind={row.kind}
-        html={html}
-      />
+      <LnCell num={row.oldNum} side="old" kindClass={kindClass} clickable={clickable && side === 'left'} onClick={openComposer} />
+      <LnCell num={row.newNum} side="new" kindClass={kindClass} clickable={clickable && side === 'right'} onClick={openComposer} />
+      <ContentCell className={`wd-content ${kindClass}`} text={row.content} spans={row.spans} kind={row.kind} html={html} />
     </tr>
   );
 }
@@ -371,10 +303,7 @@ function LnCell({
   onClick: () => void;
 }) {
   return (
-    <td
-      className={`wd-ln wd-ln-${side} ${kindClass}` + (clickable ? ' wd-ln-clickable' : '')}
-      onClick={clickable ? onClick : undefined}
-    >
+    <td className={`wd-ln wd-ln-${side} ${kindClass}` + (clickable ? ' wd-ln-clickable' : '')} onClick={clickable ? onClick : undefined}>
       {num ?? ''}
     </td>
   );
@@ -413,12 +342,7 @@ function ContentCell({
     );
   }
   if (html !== null) {
-    return (
-      <td
-        className={className}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <td className={className} dangerouslySetInnerHTML={{ __html: html }} />;
   }
   return <td className={className}>{text || ' '}</td>;
 }

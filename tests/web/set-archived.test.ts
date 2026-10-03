@@ -6,12 +6,19 @@ afterEach(() => vi.unstubAllGlobals());
 
 function fakeServer() {
   const bodies: unknown[] = [];
-  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
-    const body = JSON.parse(init.body) as { force?: boolean };
-    bodies.push(body);
-    if (!body.force) return new Response(JSON.stringify({ error: 'Not archived', blocked: ['2 replies to post on review threads', 'its Claude is working'] }), { status: 409 });
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as { force?: boolean };
+      bodies.push(body);
+      if (!body.force)
+        return new Response(
+          JSON.stringify({ error: 'Not archived', blocked: ['2 replies to post on review threads', 'its Claude is working'] }),
+          { status: 409 },
+        );
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }),
+  );
   return bodies;
 }
 
@@ -27,7 +34,9 @@ describe('setArchived', () => {
 
   it('declined: nothing more is sent, and it says what was waiting', async () => {
     const bodies = fakeServer();
-    await expect(setArchived('s1', true, () => false)).rejects.toThrow('Not archived: 2 replies to post on review threads; its Claude is working');
+    await expect(setArchived('s1', true, () => false)).rejects.toThrow(
+      'Not archived: 2 replies to post on review threads; its Claude is working',
+    );
     expect(bodies).toHaveLength(1);
   });
 });

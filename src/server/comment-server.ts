@@ -1,25 +1,12 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { createCommentStore } from '../core/comments/comment-store.js';
-import {
-  startDiffServer,
-  type DiffServerApi,
-  type DiffServerHandle,
-} from './diff-server.js';
+import { startDiffServer, type DiffServerApi, type DiffServerHandle } from './diff-server.js';
 import type { RepoSpec } from '../core/diff/repo-spec.js';
 import type { Comment } from '../core/comments/comment-types.js';
-import {
-  commentInputSchema,
-  resolveSchema,
-  submitReviewSchema,
-} from '../core/comments/comment-schemas.js';
+import { commentInputSchema, resolveSchema, submitReviewSchema } from '../core/comments/comment-schemas.js';
 
-export type {
-  Comment,
-  CommentAuthor,
-  CommentSide,
-  CommentStatus,
-} from '../core/comments/comment-types.js';
+export type { Comment, CommentAuthor, CommentSide, CommentStatus } from '../core/comments/comment-types.js';
 
 export interface CommentServerOptions {
   repos: RepoSpec[];
@@ -44,9 +31,7 @@ export interface CommentServerHandle {
   stop(): Promise<void>;
 }
 
-export async function startCommentServer(
-  opts: CommentServerOptions,
-): Promise<CommentServerHandle> {
+export async function startCommentServer(opts: CommentServerOptions): Promise<CommentServerHandle> {
   const store = createCommentStore();
   let resolveDone: ((comments: Comment[]) => void) | null = null;
   const donePromise = new Promise<Comment[]>((resolve) => {
@@ -58,29 +43,21 @@ export async function startCommentServer(
 
     routes.get('/api/comments', (c) => c.json({ comments: store.snapshot() }));
 
-    routes.post(
-      '/api/comments',
-      zValidator('json', commentInputSchema),
-      (c) => {
-        try {
-          const input = c.req.valid('json');
-          const comment = store.post(input);
-          if (
-            comment.status === 'published' &&
-            comment.author === 'user' &&
-            opts.onComment
-          ) {
-            opts.onComment(comment);
-          }
-          if (comment.author === 'claude') {
-            api.broadcast('comments-changed', { id: comment.id });
-          }
-          return c.json({ comment, comments: store.snapshot() });
-        } catch (err) {
-          return c.json({ error: (err as Error).message }, 400);
+    routes.post('/api/comments', zValidator('json', commentInputSchema), (c) => {
+      try {
+        const input = c.req.valid('json');
+        const comment = store.post(input);
+        if (comment.status === 'published' && comment.author === 'user' && opts.onComment) {
+          opts.onComment(comment);
         }
-      },
-    );
+        if (comment.author === 'claude') {
+          api.broadcast('comments-changed', { id: comment.id });
+        }
+        return c.json({ comment, comments: store.snapshot() });
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, 400);
+      }
+    });
 
     routes.delete('/api/comments/:id', (c) => {
       const id = c.req.param('id');
@@ -89,42 +66,31 @@ export async function startCommentServer(
       return c.json({ comments: store.snapshot() });
     });
 
-    routes.post(
-      '/api/comments/:id/resolve',
-      zValidator('json', resolveSchema),
-      (c) => {
-        const updated = store.setResolved(
-          c.req.param('id'),
-          c.req.valid('json').resolved,
-        );
-        if (updated) api.broadcast('comments-changed', { id: updated.id });
-        return c.json({ comments: store.snapshot() });
-      },
-    );
+    routes.post('/api/comments/:id/resolve', zValidator('json', resolveSchema), (c) => {
+      const updated = store.setResolved(c.req.param('id'), c.req.valid('json').resolved);
+      if (updated) api.broadcast('comments-changed', { id: updated.id });
+      return c.json({ comments: store.snapshot() });
+    });
 
-    routes.post(
-      '/api/submit-review',
-      zValidator('json', submitReviewSchema),
-      (c) => {
-        const body = c.req.valid('json');
-        const result = store.submit(body.summary);
-        if (opts.onSubmitReviewStart) {
-          opts.onSubmitReviewStart({
-            count: result.drafts.length,
-            summary: result.summary,
-          });
-        }
-        if (result.summary && opts.onComment) opts.onComment(result.summary);
-        if (opts.onComment) {
-          for (const d of result.drafts) opts.onComment(d);
-        }
-        if (opts.onSubmitReviewEnd) opts.onSubmitReviewEnd();
-        return c.json({
+    routes.post('/api/submit-review', zValidator('json', submitReviewSchema), (c) => {
+      const body = c.req.valid('json');
+      const result = store.submit(body.summary);
+      if (opts.onSubmitReviewStart) {
+        opts.onSubmitReviewStart({
           count: result.drafts.length,
-          comments: store.snapshot(),
+          summary: result.summary,
         });
-      },
-    );
+      }
+      if (result.summary && opts.onComment) opts.onComment(result.summary);
+      if (opts.onComment) {
+        for (const d of result.drafts) opts.onComment(d);
+      }
+      if (opts.onSubmitReviewEnd) opts.onSubmitReviewEnd();
+      return c.json({
+        count: result.drafts.length,
+        comments: store.snapshot(),
+      });
+    });
 
     routes.post('/api/discard-review', (c) => {
       const discarded = store.discardDrafts();
@@ -179,7 +145,10 @@ export async function startReadOnlyDiffServer(opts: {
 
 /** Format a single comment as a markdown chunk for stdout. */
 export function formatSingleComment(c: Comment): string {
-  const bodyLines = c.body.split('\n').map((l) => `> ${l}`).join('\n');
+  const bodyLines = c.body
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n');
   const header =
     c.side === 'general'
       ? `**General review comment**`

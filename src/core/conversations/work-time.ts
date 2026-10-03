@@ -29,7 +29,10 @@ function isAgents(e: ConversationEntry): boolean {
  * time of the line before them, when they continue a file already read.
  * Returns the steps and the time of the last line, to continue from.
  */
-export function workSteps(entries: readonly ConversationEntry[], prevMs: number | null = null): { steps: WorkStep[]; lastMs: number | null } {
+export function workSteps(
+  entries: readonly ConversationEntry[],
+  prevMs: number | null = null,
+): { steps: WorkStep[]; lastMs: number | null } {
   const steps: WorkStep[] = [];
   let prev = prevMs;
   for (const e of entries) {

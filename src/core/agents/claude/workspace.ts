@@ -20,7 +20,9 @@ export const claudeWorkspace: AgentWorkspace = {
     fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
     const byEvent: Record<string, Array<{ hooks: Array<{ type: 'command'; command: string; timeout?: number }> }>> = {};
     for (const h of hooks) {
-      (byEvent[CLAUDE_EVENT[h.edge]] ??= []).push({ hooks: [{ type: 'command', command: h.command, ...(h.timeoutSec ? { timeout: h.timeoutSec } : {}) }] });
+      (byEvent[CLAUDE_EVENT[h.edge]] ??= []).push({
+        hooks: [{ type: 'command', command: h.command, ...(h.timeoutSec ? { timeout: h.timeoutSec } : {}) }],
+      });
     }
     const settings = { permissions: { allow: allow.map(claudeAllowRule) }, hooks: byEvent };
     atomicWriteFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings, null, 2) + '\n');

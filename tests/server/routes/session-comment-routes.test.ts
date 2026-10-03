@@ -101,7 +101,12 @@ describe('typeAndSubmit', () => {
   it('types the text, waits, then presses Enter (\\r) in a separate write', async () => {
     const writes: string[] = [];
     const waits: number[] = [];
-    const ok = await typeAndSubmit('s1', 'line one\nline two', async (_id, d) => (writes.push(d), true), async (ms) => void waits.push(ms));
+    const ok = await typeAndSubmit(
+      's1',
+      'line one\nline two',
+      async (_id, d) => (writes.push(d), true),
+      async (ms) => void waits.push(ms),
+    );
     expect(ok).toBe(true);
     expect(writes).toEqual(['line one\nline two', '\r']);
     expect(waits).toEqual([SUBMIT_DELAY_MS]);
@@ -109,7 +114,14 @@ describe('typeAndSubmit', () => {
 
   it("doesn't press Enter when the text couldn't be written", async () => {
     const writes: string[] = [];
-    expect(await typeAndSubmit('s1', 'x', async (_id, d) => (writes.push(d), false), async () => {})).toBe(false);
+    expect(
+      await typeAndSubmit(
+        's1',
+        'x',
+        async (_id, d) => (writes.push(d), false),
+        async () => {},
+      ),
+    ).toBe(false);
     expect(writes).toEqual(['x']);
   });
 });

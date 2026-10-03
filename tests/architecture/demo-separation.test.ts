@@ -82,7 +82,8 @@ describe('demo mode is separated from the real machinery', () => {
       new Set(files.flatMap((f) => [...read(f).matchAll(ROUTE)].map((m) => `${m[1].toUpperCase()} ${m[2]}`)));
     // Every route module, not a hand list: a new *-routes.ts is covered the
     // day it lands (the old list had silently fallen three files behind).
-    const routeModules = fs.readdirSync(path.join(ROOT, 'src/server/routes'))
+    const routeModules = fs
+      .readdirSync(path.join(ROOT, 'src/server/routes'))
       .filter((f) => f.endsWith('-routes.ts') && !NOT_DASHBOARD.has(f))
       .map((f) => `src/server/routes/${f}`);
     const real = routes(['src/server/web-server.ts', ...routeModules]);
@@ -90,7 +91,12 @@ describe('demo mode is separated from the real machinery', () => {
     // by `work hook`, not the SPA) and the SPA fallback itself.
     for (const r of ['POST /api/status-changed', 'GET *']) real.delete(r);
     // The demo's routes may live in any of its files (demo-replies.ts, …).
-    const demo = routes(fs.readdirSync(path.join(ROOT, 'src/server/demo')).filter((f) => f.endsWith('.ts')).map((f) => `src/server/demo/${f}`));
+    const demo = routes(
+      fs
+        .readdirSync(path.join(ROOT, 'src/server/demo'))
+        .filter((f) => f.endsWith('.ts'))
+        .map((f) => `src/server/demo/${f}`),
+    );
     const missing = [...real].filter((r) => !demo.has(r)).sort();
     expect(missing).toEqual([]);
     expect(real.size).toBeGreaterThan(20); // the scan really found the routes

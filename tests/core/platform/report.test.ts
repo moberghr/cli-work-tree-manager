@@ -14,7 +14,10 @@ describe('report', () => {
       report('error', `${tag} 2`);
     };
     await Promise.all([withReporter(a, () => work('a')), withReporter(b, () => work('b'))]);
-    expect(a.entries).toEqual([{ level: 'step', text: 'a 1' }, { level: 'error', text: 'a 2' }]);
+    expect(a.entries).toEqual([
+      { level: 'step', text: 'a 1' },
+      { level: 'error', text: 'a 2' },
+    ]);
     expect(b.errors()).toEqual(['b 2']);
   });
 

@@ -135,7 +135,7 @@ describe('revertFile', () => {
   });
 
   it('refuses a path outside the worktree', () => {
-    const f = { ...fileInDiff('gone.txt') ?? {}, path: '../escape.txt', oldPath: '../escape.txt', status: 'modified' } as never;
+    const f = { ...(fileInDiff('gone.txt') ?? {}), path: '../escape.txt', oldPath: '../escape.txt', status: 'modified' } as never;
     expect(revertFile(root, f)).toMatchObject({ ok: false, status: 400 });
   });
 });
@@ -145,7 +145,10 @@ describe('splitHunks', () => {
     const raw = 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n a\n+b\n c\n@@ -10 +11,0 @@\n-z\n';
     const { header, hunks } = splitHunks(raw);
     expect(header).toBe('diff --git a/x b/x\n--- a/x\n+++ b/x\n');
-    expect(hunks.map((h) => [h.newStart, h.newEnd])).toEqual([[1, 3], [11, 11]]);
+    expect(hunks.map((h) => [h.newStart, h.newEnd])).toEqual([
+      [1, 3],
+      [11, 11],
+    ]);
     expect(header + hunks.map((h) => h.text).join('')).toBe(raw);
   });
 });

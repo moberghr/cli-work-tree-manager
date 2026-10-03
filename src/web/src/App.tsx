@@ -65,10 +65,16 @@ function AppRoutes() {
     }
     let cancelled = false;
     fetchContext().then(
-      (ctx) => { if (!cancelled) setContext(ctx); },
-      (err: Error) => { if (!cancelled) setError(err.message); },
+      (ctx) => {
+        if (!cancelled) setContext(ctx);
+      },
+      (err: Error) => {
+        if (!cancelled) setError(err.message);
+      },
     );
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // Once, at load: the URL it reads is the one the page was opened at.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -93,9 +99,7 @@ function AppRoutes() {
 
 /** Detect `/diff/<hash>` or `/review/<hash>`. Returns `null` for any
  *  other path. */
-function parseScopeFromPath(
-  pathname: string,
-): { kind: 'diff' | 'review'; hash: string } | null {
+function parseScopeFromPath(pathname: string): { kind: 'diff' | 'review'; hash: string } | null {
   const m = pathname.match(/^\/(diff|review)\/([a-zA-Z0-9_-]+)\/?$/);
   if (!m) return null;
   return { kind: m[1] as 'diff' | 'review', hash: m[2] };

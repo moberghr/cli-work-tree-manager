@@ -33,7 +33,11 @@ export interface SyncResult {
 }
 
 /** Bring a session's copy up to date with its transcripts. */
-export async function syncConversation(s: WorktreeSession, root = conversationRoot(), sources = agentOf(s).conversation?.files(s) ?? []): Promise<SyncResult> {
+export async function syncConversation(
+  s: WorktreeSession,
+  root = conversationRoot(),
+  sources = agentOf(s).conversation?.files(s) ?? [],
+): Promise<SyncResult> {
   const dir = conversationDirFor(sessionIdFor(s), root);
   const out: SyncResult = { files: 0, bytes: 0 };
   for (const src of sources) {
@@ -48,7 +52,8 @@ export async function syncConversation(s: WorktreeSession, root = conversationRo
     }
     if (have === src.size) {
       // Complete; only its time may be off (a copy from before times were kept).
-      if (Math.abs(haveMtime - src.mtimeMs) > 1000) await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
+      if (Math.abs(haveMtime - src.mtimeMs) > 1000)
+        await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
       continue;
     }
     await fs.promises.mkdir(dir, { recursive: true });
@@ -94,7 +99,11 @@ async function appendRange(src: string, dest: string, from: number, to: number):
 }
 
 /** Sync many sessions, a few at a time. */
-export async function syncConversations(sessions: WorktreeSession[], root = conversationRoot(), concurrency = 3): Promise<SyncResult & { sessions: number }> {
+export async function syncConversations(
+  sessions: WorktreeSession[],
+  root = conversationRoot(),
+  concurrency = 3,
+): Promise<SyncResult & { sessions: number }> {
   const total = { files: 0, bytes: 0, sessions: 0 };
   let next = 0;
   await Promise.all(

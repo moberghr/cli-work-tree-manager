@@ -65,7 +65,9 @@ describe('TasksTab: editing a task', () => {
 
   it('right-click → Edit edits it too', async () => {
     const row = container.querySelector('.wd-task-row')!;
-    await act(async () => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })));
+    await act(
+      async () => void row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })),
+    );
     const item = container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
     expect(item.textContent).toContain('Edit');
     await act(async () => item.click());

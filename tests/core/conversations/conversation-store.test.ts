@@ -6,7 +6,12 @@ import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import { archiveSession } from '../../../src/core/archive/session-archive.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { claudeProjectsRoot, encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
-import { conversationDirFor, searchConversations, syncConversation, syncConversations } from '../../../src/core/conversations/conversation-store.js';
+import {
+  conversationDirFor,
+  searchConversations,
+  syncConversation,
+  syncConversations,
+} from '../../../src/core/conversations/conversation-store.js';
 import type { TranscriptFile } from '../../../src/core/conversations/context-usage.js';
 
 let tmp: string;
@@ -14,10 +19,19 @@ let root: string;
 let archive: string;
 const line = (o: object) => JSON.stringify(o) + '\n';
 const prompt = (text: string, at = '2026-09-01T10:00:00Z') => line({ type: 'user', timestamp: at, message: { content: text } });
-const reply = (text: string) => line({ type: 'assistant', timestamp: '2026-09-01T10:01:00Z', message: { content: [{ type: 'text', text }] } });
+const reply = (text: string) =>
+  line({ type: 'assistant', timestamp: '2026-09-01T10:01:00Z', message: { content: [{ type: 'text', text }] } });
 
 const session = (branch: string, extra: Partial<WorktreeSession> = {}): WorktreeSession =>
-  ({ target: 'api', branch, isGroup: false, paths: [path.join(tmp, 'wt', branch.replace('/', '-'))], createdAt: '', lastAccessedAt: '', ...extra }) as WorktreeSession;
+  ({
+    target: 'api',
+    branch,
+    isGroup: false,
+    paths: [path.join(tmp, 'wt', branch.replace('/', '-'))],
+    createdAt: '',
+    lastAccessedAt: '',
+    ...extra,
+  }) as WorktreeSession;
 
 const source = (file: string): TranscriptFile => {
   const st = fs.statSync(file);
@@ -112,7 +126,15 @@ describe('searchConversations', () => {
     await kept(
       s,
       prompt('Rotate the terminal encryption keys for stage') +
-        line({ type: 'assistant', message: { content: [{ type: 'text', text: 'The new encryption key identifier is stored per terminal.' }, { type: 'tool_use', name: 'Bash', input: { command: 'encryption keys' } }] } }) +
+        line({
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'text', text: 'The new encryption key identifier is stored per terminal.' },
+              { type: 'tool_use', name: 'Bash', input: { command: 'encryption keys' } },
+            ],
+          },
+        }) +
         line({ type: 'user', isMeta: true, message: { content: 'encryption keys (meta, never shown)' } }),
     );
     await kept(session('feat/csv'), prompt('Add a CSV export'));
@@ -161,7 +183,10 @@ describe('searchConversations', () => {
     });
     const rec = path.join(archive, sessionIdFor(s), 'archive.json');
     const json = JSON.parse(fs.readFileSync(rec, 'utf8'));
-    fs.writeFileSync(rec, JSON.stringify({ ...json, summary: { ...json.summary, written: 'Rotated the encryption keys for every terminal.' } }));
+    fs.writeFileSync(
+      rec,
+      JSON.stringify({ ...json, summary: { ...json.summary, written: 'Rotated the encryption keys for every terminal.' } }),
+    );
     const archived = { ...s, archivedAt: json.archivedAt };
     const [hit] = await searchConversations('encryption keys', { sessions: [archived], root, archive });
     expect(hit).toMatchObject({ archived: true, archivedAt: json.archivedAt, worktreeRemoved: true });

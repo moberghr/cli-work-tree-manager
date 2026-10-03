@@ -36,10 +36,16 @@ export function FileApp({ hash }: Props) {
     // MAX_SAFE_INTEGER as the end line: the server clamps to the real line
     // count, so this returns the whole file in one read.
     fetchFileLines(hash, repo, filePath, 1, Number.MAX_SAFE_INTEGER, ref).then(
-      (r) => { if (!cancelled) setLines(r.lines); },
-      (e: Error) => { if (!cancelled) setError(e.message); },
+      (r) => {
+        if (!cancelled) setLines(r.lines);
+      },
+      (e: Error) => {
+        if (!cancelled) setError(e.message);
+      },
     );
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [hash, repo, filePath, ref]);
 
   useEffect(() => {
@@ -80,10 +86,7 @@ export function FileApp({ hash }: Props) {
               <tr key={i} className="wd-fileview-row">
                 <td className="wd-fileview-ln">{i + 1}</td>
                 {html !== null ? (
-                  <td
-                    className="wd-fileview-content"
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
+                  <td className="wd-fileview-content" dangerouslySetInnerHTML={{ __html: html }} />
                 ) : (
                   <td className="wd-fileview-content">{content || ' '}</td>
                 )}

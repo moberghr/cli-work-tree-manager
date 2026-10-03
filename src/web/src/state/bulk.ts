@@ -39,6 +39,9 @@ export function bulkSummary(verb: string, results: BulkResult[], labelOf: (id: s
   const ok = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok);
   if (failed.length === 0) return `${verb} ${ok}.`;
-  const why = failed.slice(0, 3).map((r) => `${labelOf(r.id)} — ${r.error ?? 'refused'}`).join('; ');
+  const why = failed
+    .slice(0, 3)
+    .map((r) => `${labelOf(r.id)} — ${r.error ?? 'refused'}`)
+    .join('; ');
   return `${verb} ${ok}; ${failed.length} refused: ${why}${failed.length > 3 ? ` (and ${failed.length - 3} more)` : ''}`;
 }

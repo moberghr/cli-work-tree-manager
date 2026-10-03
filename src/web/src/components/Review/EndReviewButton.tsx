@@ -1,17 +1,11 @@
 import { useState } from 'react';
-import {
-  selectDrafts,
-  selectPublishedCount,
-  useReview,
-} from '../../state/ReviewProvider.js';
+import { selectDrafts, selectPublishedCount, useReview } from '../../state/ReviewProvider.js';
 import { Modal } from './Modal.js';
 
 export function EndReviewButton() {
   const review = useReview();
   const [modalOpen, setModalOpen] = useState(false);
-  const [busy, setBusy] = useState<
-    'idle' | 'submitting' | 'ending' | 'ended'
-  >('idle');
+  const [busy, setBusy] = useState<'idle' | 'submitting' | 'ending' | 'ended'>('idle');
   const draftCount = selectDrafts(review.comments).length;
   const publishedCount = selectPublishedCount(review.comments);
 
@@ -25,22 +19,11 @@ export function EndReviewButton() {
   };
 
   const label =
-    busy === 'idle'
-      ? 'End review '
-      : busy === 'submitting'
-        ? 'Submitting… '
-        : busy === 'ending'
-          ? 'Closing… '
-          : 'Review ended ';
+    busy === 'idle' ? 'End review ' : busy === 'submitting' ? 'Submitting… ' : busy === 'ending' ? 'Closing… ' : 'Review ended ';
 
   return (
     <>
-      <button
-        type="button"
-        className="wd-done-bar"
-        onClick={() => setModalOpen(true)}
-        disabled={busy !== 'idle'}
-      >
+      <button type="button" className="wd-done-bar" onClick={() => setModalOpen(true)} disabled={busy !== 'idle'}>
         {label}
         <span className="wd-done-count">{publishedCount}</span>
       </button>
@@ -102,20 +85,15 @@ export function EndReviewButton() {
               </p>
               {publishedCount > 0 && (
                 <p style={{ color: 'var(--muted)', fontSize: 12 }}>
-                  {publishedCount} comment{publishedCount === 1 ? ' was' : 's were'}{' '}
-                  already delivered.
+                  {publishedCount} comment{publishedCount === 1 ? ' was' : 's were'} already delivered.
                 </p>
               )}
             </>
           ) : publishedCount === 0 ? (
-            <p>
-              You have left no comments. Closing the session will exit wd with no
-              further action.
-            </p>
+            <p>You have left no comments. Closing the session will exit wd with no further action.</p>
           ) : (
             <p>
-              Your {publishedCount} comment{publishedCount === 1 ? '' : 's'}{' '}
-              {publishedCount === 1 ? 'has' : 'have'} already been delivered.
+              Your {publishedCount} comment{publishedCount === 1 ? '' : 's'} {publishedCount === 1 ? 'has' : 'have'} already been delivered.
               Closing the session will exit wd. You can then close the tab.
             </p>
           )}

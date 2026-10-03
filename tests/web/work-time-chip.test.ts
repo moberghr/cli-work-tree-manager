@@ -17,7 +17,18 @@ vi.mock('../../src/web/src/api/client.js', async (orig) => ({
 const { WorkTimeChip, worklogLine } = await import('../../src/web/src/components/Dashboard/WorkTimeChip.js');
 
 const session = (over: Partial<SessionSummary> = {}): SessionSummary =>
-  ({ id: 's1', target: 'api', branch: 'feat/x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', activityState: 'stale', lastActivity: 1, ...over }) as SessionSummary;
+  ({
+    id: 's1',
+    target: 'api',
+    branch: 'feat/x',
+    isGroup: false,
+    paths: [],
+    createdAt: '',
+    lastAccessedAt: '',
+    activityState: 'stale',
+    lastActivity: 1,
+    ...over,
+  }) as SessionSummary;
 const today = dayKey(Date.now());
 const time = { workedMs: 95 * 60_000, prompts: 7, byDay: [{ day: today, ms: 50 * 60_000 }], firstAt: null, lastAt: null };
 
@@ -38,8 +49,17 @@ afterEach(() => {
 
 describe('worklogLine', () => {
   it("the latest day's work with the Jira key, rounded up to a quarter hour — never a lifetime total", () => {
-    expect(worklogLine({ jiraKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({ text: 'PAY-12 1h — Retry payments', day: today });
-    const earlier = { ...time, byDay: [{ day: '2026-09-28', ms: 20 * 60_000 }, { day: '2026-09-27', ms: 3 * 3600_000 }] };
+    expect(worklogLine({ jiraKey: 'PAY-12', title: 'Retry payments', branch: 'feat/x' }, time)).toEqual({
+      text: 'PAY-12 1h — Retry payments',
+      day: today,
+    });
+    const earlier = {
+      ...time,
+      byDay: [
+        { day: '2026-09-28', ms: 20 * 60_000 },
+        { day: '2026-09-27', ms: 3 * 3600_000 },
+      ],
+    };
     expect(worklogLine({ branch: 'feat/x', title: null } as never, earlier)).toEqual({ text: '30m — feat/x', day: '2026-09-28' });
     expect(worklogLine({ branch: 'feat/x', title: null } as never, { ...time, byDay: [] })).toBeNull();
   });
@@ -68,7 +88,14 @@ describe('WorkTimeChip', () => {
   });
 
   it("a copy that fails says so (no dead button); nothing to log in two weeks: it can't be clicked", async () => {
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => { throw new Error('denied'); }) }, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error('denied');
+        }),
+      },
+      configurable: true,
+    });
     await act(async () => root.render(createElement(WorkTimeChip, { session: session() })));
     const chip = container.querySelector<HTMLButtonElement>('.wd-work-time')!;
     await act(async () => chip.click());
@@ -84,7 +111,9 @@ describe('WorkTimeChip', () => {
       await act(async () => root.render(createElement(WorkTimeChip, { session: session() })));
       await act(async () => root.render(createElement(WorkTimeChip, { session: session({ lastActivity: 2 }) })));
       expect(api.fetchWorkTime).toHaveBeenCalledTimes(1);
-      await act(async () => { vi.advanceTimersByTime(61_000); });
+      await act(async () => {
+        vi.advanceTimersByTime(61_000);
+      });
       expect(api.fetchWorkTime).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();

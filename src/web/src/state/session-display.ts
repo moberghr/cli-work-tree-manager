@@ -37,9 +37,7 @@ export function isArchived(s: SessionSummary): boolean {
  */
 export function stableSessionOrder(sessions: SessionSummary[]): SessionSummary[] {
   return [...sessions].sort(
-    (a, b) =>
-      a.target.toLowerCase().localeCompare(b.target.toLowerCase()) ||
-      b.lastAccessedAt.localeCompare(a.lastAccessedAt),
+    (a, b) => a.target.toLowerCase().localeCompare(b.target.toLowerCase()) || b.lastAccessedAt.localeCompare(a.lastAccessedAt),
   );
 }
 
@@ -95,7 +93,16 @@ export function railGroups(
 export function sessionMatches(s: SessionSummary, query: string): boolean {
   const words = query.toLowerCase().replace(/\\/g, '/').split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const hay = [s.branch, s.target, ...s.paths, s.title ?? '', s.attention?.summary ?? '', s.jiraKey ?? '', s.archive?.lastSummary ?? '', ...(s.archive?.prompts ?? [])]
+  const hay = [
+    s.branch,
+    s.target,
+    ...s.paths,
+    s.title ?? '',
+    s.attention?.summary ?? '',
+    s.jiraKey ?? '',
+    s.archive?.lastSummary ?? '',
+    ...(s.archive?.prompts ?? []),
+  ]
     .join('\n')
     .toLowerCase()
     .replace(/\\/g, '/');
@@ -135,9 +142,7 @@ export function staleSuggestions(
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
  *  to a sub-repo alias reliably, so any same-branch PR counts for them. */
 export function prsForSession(s: SessionSummary, prs: PrInfo[]): PrInfo[] {
-  return prs.filter(
-    (p) => p.branch === s.branch && (p.repoAlias === s.target || s.isGroup),
-  );
+  return prs.filter((p) => p.branch === s.branch && (p.repoAlias === s.target || s.isGroup));
 }
 
 export type PrLookup = (s: SessionSummary) => PrInfo[];

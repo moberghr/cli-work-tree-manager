@@ -18,11 +18,7 @@ export function isReviewed(scope: string, hunkKey: string): boolean {
   return store.has(scope, hunkKey);
 }
 
-export function setReviewed(
-  scope: string,
-  hunkKey: string,
-  reviewed: boolean,
-): void {
+export function setReviewed(scope: string, hunkKey: string, reviewed: boolean): void {
   store.set(scope, hunkKey, reviewed);
 }
 

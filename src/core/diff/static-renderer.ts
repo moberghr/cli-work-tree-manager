@@ -83,9 +83,7 @@ export function renderStatic(opts: RenderStaticOptions): string {
   let shell = fs.readFileSync(shellPath, 'utf-8');
 
   const uncommitted = buildDiff(opts.uncommitted, 'HEAD');
-  const branch = opts.branch
-    ? buildDiff(opts.branch.specs, opts.branch.resolvedBase)
-    : undefined;
+  const branch = opts.branch ? buildDiff(opts.branch.specs, opts.branch.resolvedBase) : undefined;
   const initialBase: DiffBase = opts.initialBase ?? 'uncommitted';
   const initial = initialBase === 'branch' && branch ? branch : uncommitted;
 
@@ -121,27 +119,21 @@ export function renderStatic(opts: RenderStaticOptions): string {
   // Same `</tag` escape rule as the JS inliner — a literal `</style` in
   // the CSS bundle (CSS-in-JS comment strings, minifier quirks) would
   // close the wrapping <style> tag early and dump the rest into HTML.
-  shell = shell.replace(
-    /<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g,
-    (_match, href) => {
-      const css = readAsset(webRoot, href);
-      if (!css) return '';
-      const escaped = css.replace(/<\/style/gi, '<\\/style');
-      return `<style>${escaped}</style>`;
-    },
-  );
-  shell = shell.replace(
-    /<script\b[^>]*\bsrc="([^"]+)"[^>]*><\/script>/g,
-    (_match, src) => {
-      const js = readAsset(webRoot, src);
-      if (!js) return '';
-      // Any literal `</script>` inside the bundle would terminate the outer
-      // <script> tag early. Browsers match `</script` case-insensitively
-      // with optional whitespace, so escape that form.
-      const escaped = js.replace(/<\/script/gi, '<\\/script');
-      return `<script type="module">${escaped}</script>`;
-    },
-  );
+  shell = shell.replace(/<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g, (_match, href) => {
+    const css = readAsset(webRoot, href);
+    if (!css) return '';
+    const escaped = css.replace(/<\/style/gi, '<\\/style');
+    return `<style>${escaped}</style>`;
+  });
+  shell = shell.replace(/<script\b[^>]*\bsrc="([^"]+)"[^>]*><\/script>/g, (_match, src) => {
+    const js = readAsset(webRoot, src);
+    if (!js) return '';
+    // Any literal `</script>` inside the bundle would terminate the outer
+    // <script> tag early. Browsers match `</script` case-insensitively
+    // with optional whitespace, so escape that form.
+    const escaped = js.replace(/<\/script/gi, '<\\/script');
+    return `<script type="module">${escaped}</script>`;
+  });
 
   return shell;
 }

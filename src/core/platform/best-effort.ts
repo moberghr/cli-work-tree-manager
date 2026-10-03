@@ -30,11 +30,7 @@ export function bestEffort<T>(label: string, fn: () => T, fallback?: T): T | und
 }
 
 /** Async variant; also catches rejections. */
-export async function bestEffortAsync<T>(
-  label: string,
-  fn: () => Promise<T>,
-  fallback?: T,
-): Promise<T | undefined> {
+export async function bestEffortAsync<T>(label: string, fn: () => Promise<T>, fallback?: T): Promise<T | undefined> {
   try {
     return await fn();
   } catch (err) {

@@ -4,8 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const h = vi.hoisted(() => ({ openInTerminal: vi.fn() }));
 
@@ -63,7 +62,10 @@ function render() {
 function deferred<T>() {
   let resolve!: (v: T) => void;
   let reject!: (e: Error) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 }
 
@@ -73,7 +75,14 @@ describe('Open in terminal button', () => {
     expect(button().textContent).toBe('Open in terminal ↗');
     const header = button().closest('.wd-session-detail-header')!;
     const order = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim());
-    expect(order.slice(-6)).toEqual(['Open in terminal ↗', expect.stringContaining('atch me up'), 'Prompts ▾', 'Ship ▾', 'Archive', 'Delete']);
+    expect(order.slice(-6)).toEqual([
+      'Open in terminal ↗',
+      expect.stringContaining('atch me up'),
+      'Prompts ▾',
+      'Ship ▾',
+      'Archive',
+      'Delete',
+    ]);
   });
 
   it('opens the session, showing a busy state until the request settles', async () => {
@@ -86,7 +95,9 @@ describe('Open in terminal button', () => {
     expect(button().textContent).toBe('Opening…');
     expect(button().disabled).toBe(true);
 
-    await act(async () => { d.resolve({ ok: true }); });
+    await act(async () => {
+      d.resolve({ ok: true });
+    });
     expect(button().textContent).toBe('Open in terminal ↗');
     expect(button().disabled).toBe(false);
   });
@@ -95,7 +106,9 @@ describe('Open in terminal button', () => {
     h.openInTerminal.mockRejectedValue(new Error('Only Windows Terminal is supported so far'));
     const button = render();
 
-    await act(async () => { button().click(); });
+    await act(async () => {
+      button().click();
+    });
     expect(button().textContent).toBe('Open in terminal ⚠');
     expect(button().title).toBe('Only Windows Terminal is supported so far');
     expect(button().disabled).toBe(false);
@@ -104,8 +117,12 @@ describe('Open in terminal button', () => {
   it('can retry after a failure', async () => {
     h.openInTerminal.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ ok: true });
     const button = render();
-    await act(async () => { button().click(); });
-    await act(async () => { button().click(); });
+    await act(async () => {
+      button().click();
+    });
+    await act(async () => {
+      button().click();
+    });
     expect(h.openInTerminal).toHaveBeenCalledTimes(2);
     expect(button().textContent).toBe('Open in terminal ↗');
   });

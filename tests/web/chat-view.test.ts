@@ -55,7 +55,13 @@ const snapshot = (over: Partial<ChatSnapshot> = {}): ChatSnapshot => ({
   conversationId: 'c1',
   messages: [
     { seq: 0, records: [{ kind: 'you', text: 'Run the tests' }] },
-    { seq: 1, records: [{ kind: 'text', text: 'Running them.' }, { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } }] },
+    {
+      seq: 1,
+      records: [
+        { kind: 'text', text: 'Running them.' },
+        { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } },
+      ],
+    },
   ],
   partial: null,
   permissions: [],
@@ -77,7 +83,10 @@ describe('ChatView', () => {
 
     FakeEventSource.last!.fire('partial', { type: 'partial', partial: { kind: 'text', text: 'All 12 pass' } });
     expect(container.querySelector('.wd-chat-live')?.textContent).toContain('All 12 pass');
-    FakeEventSource.last!.fire('message', { type: 'message', message: { seq: 2, records: [{ kind: 'tool-result', toolId: 't1', text: '12 passed', isError: false }] } });
+    FakeEventSource.last!.fire('message', {
+      type: 'message',
+      message: { seq: 2, records: [{ kind: 'tool-result', toolId: 't1', text: '12 passed', isError: false }] },
+    });
     expect(container.querySelector('.wd-chat-tool-running')).toBeNull(); // the result arrived
   });
 
@@ -88,7 +97,18 @@ describe('ChatView', () => {
       snapshot: snapshot({
         messages: [
           { seq: 0, records: [{ kind: 'tagged', parts: [{ tag: 'bash-input', text: 'wd' }] }] },
-          { seq: 1, records: [{ kind: 'tagged', parts: [{ tag: 'bash-stdout', text: 'Opening: http://x' }, { tag: 'bash-stderr', text: '' }] }] },
+          {
+            seq: 1,
+            records: [
+              {
+                kind: 'tagged',
+                parts: [
+                  { tag: 'bash-stdout', text: 'Opening: http://x' },
+                  { tag: 'bash-stderr', text: '' },
+                ],
+              },
+            ],
+          },
         ],
       }),
     });
@@ -101,7 +121,10 @@ describe('ChatView', () => {
     mount();
     FakeEventSource.last!.fire('snapshot', {
       type: 'snapshot',
-      snapshot: snapshot({ state: 'needs_input', permissions: [{ id: 'p1', toolName: 'Bash', input: { command: 'npm test' }, toolUseId: 't1', at: 1 }] }),
+      snapshot: snapshot({
+        state: 'needs_input',
+        permissions: [{ id: 'p1', toolName: 'Bash', input: { command: 'npm test' }, toolUseId: 't1', at: 1 }],
+      }),
     });
     const allow = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Allow')!;
     act(() => allow.click());

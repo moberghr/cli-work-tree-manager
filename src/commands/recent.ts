@@ -46,24 +46,20 @@ export const recentCommand: CommandModule = {
 
     if (resume) {
       // Filter to sessions that still exist on disk
-      const valid = recent.filter((s) =>
-        s.paths.some((p) => fs.existsSync(p)),
-      );
+      const valid = recent.filter((s) => s.paths.some((p) => fs.existsSync(p)));
 
       if (valid.length === 0) {
-        console.log(
-          chalk.yellow('No resumable sessions (all paths removed from disk).'),
-        );
+        console.log(chalk.yellow('No resumable sessions (all paths removed from disk).'));
         return;
       }
 
       const choices = valid.map((s) => {
-          const typeTag = s.isGroup ? '[group]' : '[repo]';
-          return {
-            name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(effectiveLastAccessedAt(s))})`,
-            value: s,
-          };
-        });
+        const typeTag = s.isGroup ? '[group]' : '[repo]';
+        return {
+          name: `${typeTag} ${s.target} ${s.branch} (${timeAgo(effectiveLastAccessedAt(s))})`,
+          value: s,
+        };
+      });
 
       const choice = await select({
         message: 'Select a session to resume:',
@@ -89,11 +85,7 @@ export const recentCommand: CommandModule = {
       const tool = agentFor(config, choice).launch.tool(config);
       console.log(chalk.cyan(`Resuming in: ${launchPath}`));
       if (!hasConversation) {
-        console.log(
-          chalk.yellow(
-            `No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`,
-          ),
-        );
+        console.log(chalk.yellow(`No prior ${tool.cmd} conversation found for this worktree — starting a fresh session.`));
       }
       console.log(`Starting ${tool.cmd}...`);
       recordLaunch(choice.target, choice.branch, { unsafe: !!unsafe });
@@ -108,23 +100,15 @@ export const recentCommand: CommandModule = {
     console.log('');
 
     for (const session of recent) {
-      const typeLabel = session.isGroup
-        ? chalk.magenta('[group]')
-        : chalk.blue('[repo]');
+      const typeLabel = session.isGroup ? chalk.magenta('[group]') : chalk.blue('[repo]');
       const exists = session.paths.some((p) => fs.existsSync(p));
       const existsTag = exists ? '' : chalk.red(' [removed]');
 
-      console.log(
-        `${typeLabel} ${chalk.green(session.target)} ${chalk.white(session.branch)}${existsTag}`,
-      );
-      console.log(
-        chalk.gray(`  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`),
-      );
+      console.log(`${typeLabel} ${chalk.green(session.target)} ${chalk.white(session.branch)}${existsTag}`);
+      console.log(chalk.gray(`  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`));
     }
 
     console.log('');
-    console.log(
-      chalk.gray('Use work resume to interactively resume a session.'),
-    );
+    console.log(chalk.gray('Use work resume to interactively resume a session.'));
   },
 };

@@ -26,7 +26,9 @@ function touch(d: Db): void {
 export const dbPtySessions: PtySessionsStore = {
   read() {
     const out: PersistedPtys = {};
-    for (const r of withDb((d) => d.prepare('SELECT session_id, data FROM pty_sessions').all() as Array<{ session_id: string; data: string }>)) {
+    for (const r of withDb(
+      (d) => d.prepare('SELECT session_id, data FROM pty_sessions').all() as Array<{ session_id: string; data: string }>,
+    )) {
       const entry = json.parse(r.data);
       if (isPersistedPty(entry)) out[r.session_id] = entry;
     }

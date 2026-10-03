@@ -20,22 +20,53 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const flush = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 const inMs = (ms: number) => new Date(Date.now() + ms).toISOString();
 
 const RUNNING: ActivityWire = {
-  running: [{ id: 3, kind: 'pr-watch', label: 'Checking pull requests', startedAt: ago(4000), endedAt: null, status: 'running', progress: { done: 5, total: 13 }, summary: null, notes: [] }],
+  running: [
+    {
+      id: 3,
+      kind: 'pr-watch',
+      label: 'Checking pull requests',
+      startedAt: ago(4000),
+      endedAt: null,
+      status: 'running',
+      progress: { done: 5, total: 13 },
+      summary: null,
+      notes: [],
+    },
+  ],
   recent: [
     {
-      id: 2, kind: 'pr-watch', label: 'Checking pull requests', startedAt: ago(200_000), endedAt: ago(190_000), status: 'done', progress: { done: 13, total: 13 },
+      id: 2,
+      kind: 'pr-watch',
+      label: 'Checking pull requests',
+      startedAt: ago(200_000),
+      endedAt: ago(190_000),
+      status: 'done',
+      progress: { done: 13, total: 13 },
       summary: '13 sessions · 6 open PRs · 11 unresolved review threads',
       notes: [
         { at: ago(195_000), level: 'action', text: 'straumur fix/x: archived: every PR merged, nothing uncommitted', sessionId: 's1' },
         { at: ago(195_000), level: 'info', text: 'api feat/y: a PR is merged, but kept: 2 uncommitted files', sessionId: 's2' },
       ],
     },
-    { id: 1, kind: 'jira', label: 'Fetching your Jira issues', startedAt: ago(300_000), endedAt: ago(299_000), status: 'failed', progress: null, summary: 'Jira CLI (acli) not available or not logged in', notes: [] },
+    {
+      id: 1,
+      kind: 'jira',
+      label: 'Fetching your Jira issues',
+      startedAt: ago(300_000),
+      endedAt: ago(299_000),
+      status: 'failed',
+      progress: null,
+      summary: 'Jira CLI (acli) not available or not logged in',
+      notes: [],
+    },
   ],
   schedules: [
     { kind: 'pr-watch', label: 'Pull request check', everyMs: 180_000, nextAt: inMs(95_000), pausedUntil: null, pausedWhy: null },
@@ -60,7 +91,9 @@ describe('ActivityIndicator', () => {
     expect(panel.textContent).toContain('13 sessions · 6 open PRs · 11 unresolved review threads');
     expect(panel.textContent).toContain('kept: 2 uncommitted files');
     expect(panel.querySelector('.wd-activity-run-failed')!.textContent).toContain('Jira CLI (acli) not available');
-    const archived = [...panel.querySelectorAll<HTMLButtonElement>('.wd-activity-note button')].find((b) => b.textContent!.includes('archived'))!;
+    const archived = [...panel.querySelectorAll<HTMLButtonElement>('.wd-activity-note button')].find((b) =>
+      b.textContent!.includes('archived'),
+    )!;
     act(() => archived.click());
     expect(onOpen).toHaveBeenCalledWith('s1');
   });
@@ -69,14 +102,23 @@ describe('ActivityIndicator', () => {
     const resting: ActivityWire = {
       running: [],
       recent: [],
-      schedules: [{ kind: 'pr-watch', label: 'Pull request check', everyMs: 180_000, nextAt: inMs(10_000), pausedUntil: inMs(9 * 60_000), pausedWhy: "GitHub's API limit is spent" }],
+      schedules: [
+        {
+          kind: 'pr-watch',
+          label: 'Pull request check',
+          everyMs: 180_000,
+          nextAt: inMs(10_000),
+          pausedUntil: inMs(9 * 60_000),
+          pausedWhy: "GitHub's API limit is spent",
+        },
+      ],
     };
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => resting })));
     await flush();
     const toggle = container.querySelector<HTMLButtonElement>('.wd-activity-toggle')!;
     expect(toggle.textContent).toBe('⏸ Pull request check resting');
     act(() => toggle.click());
-    expect(container.querySelector('.wd-activity-panel')!.textContent).toContain("resting until");
+    expect(container.querySelector('.wd-activity-panel')!.textContent).toContain('resting until');
     expect(container.querySelector('.wd-activity-panel')!.textContent).toContain("GitHub's API limit is spent");
   });
 

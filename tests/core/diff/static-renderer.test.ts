@@ -4,10 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { parse as acornParse } from 'acorn';
-import {
-  escapeForScriptTag,
-  renderStatic,
-} from '../../../src/core/diff/static-renderer.js';
+import { escapeForScriptTag, renderStatic } from '../../../src/core/diff/static-renderer.js';
 import { resolveWebRoot } from '../../../src/core/platform/web-static.js';
 
 let tmpDir: string;
@@ -31,10 +28,7 @@ beforeEach(() => {
       'window.__bootProbe = typeof window.__WD_BOOT__;',
     ].join('\n'),
   );
-  fs.writeFileSync(
-    path.join(webDir, 'assets', 'index-fake.css'),
-    'body { color: red; }',
-  );
+  fs.writeFileSync(path.join(webDir, 'assets', 'index-fake.css'), 'body { color: red; }');
   fs.writeFileSync(
     path.join(webDir, 'index.html'),
     [
@@ -51,10 +45,7 @@ beforeEach(() => {
   // entrypoint. We force it onto our synthetic dir by pointing process.argv[1]
   // at <tmpDir>/dist/bin.js (which doesn't have to exist).
   const fakeBin = path.join(tmpDir, 'dist', 'bin.js');
-  vi.spyOn(process, 'argv', 'get').mockReturnValue([
-    process.execPath,
-    fakeBin,
-  ]);
+  vi.spyOn(process, 'argv', 'get').mockReturnValue([process.execPath, fakeBin]);
 
   // Tiny git working tree so computeDiff has something to read. The repo
   // produces one modified file: README.md.
@@ -96,18 +87,13 @@ describe('renderStatic', () => {
     const body = extractFirstModuleScript(html);
     // This is the regression test for the `</head>` / `</script>` injection
     // bugs — if either escape is missing, acorn throws.
-    expect(() =>
-      acornParse(body, { ecmaVersion: 'latest', sourceType: 'module' }),
-    ).not.toThrow();
+    expect(() => acornParse(body, { ecmaVersion: 'latest', sourceType: 'module' })).not.toThrow();
   });
 
   it('inlines the bundle byte-for-byte (modulo the </script escape)', () => {
     const html = renderStatic({ scopeLabel: 'repo · HEAD', uncommitted: [{ name: 'repo', root: repoDir, diffArg: 'HEAD' }] });
     const body = extractFirstModuleScript(html);
-    const original = fs.readFileSync(
-      path.join(webDir, 'assets', 'index-fake.js'),
-      'utf-8',
-    );
+    const original = fs.readFileSync(path.join(webDir, 'assets', 'index-fake.js'), 'utf-8');
     // The only difference should be `</script` → `<\/script`. The
     // production code uses /gi so it catches mixed-case variants like
     // </SCRIPT>; the test's un-escape captures the literal case to keep
@@ -131,9 +117,7 @@ describe('renderStatic', () => {
     expect(boot.context.readOnly).toBe(true);
     expect(boot.context.repos).toEqual([{ name: 'repo' }]);
     expect(boot.diff.repos).toHaveLength(1);
-    expect(boot.diff.repos[0].files.some((f) => f.path === 'README.md')).toBe(
-      true,
-    );
+    expect(boot.diff.repos[0].files.some((f) => f.path === 'README.md')).toBe(true);
   });
 
   it('boot script lands outside the bundle, not inside it', () => {
@@ -187,13 +171,9 @@ describe('renderStatic', () => {
     const html = renderStatic({ scopeLabel: 'repo · HEAD', uncommitted: [{ name: 'repo', root: repoDir, diffArg: 'HEAD' }] });
 
     // Every boot script must parse as JS.
-    const boot = html.match(
-      /<script>window\.__WD_BOOT__=([\s\S]*?);<\/script>/,
-    );
+    const boot = html.match(/<script>window\.__WD_BOOT__=([\s\S]*?);<\/script>/);
     expect(boot).not.toBeNull();
-    expect(() =>
-      acornParse(`(${boot![1]})`, { ecmaVersion: 'latest' }),
-    ).not.toThrow();
+    expect(() => acornParse(`(${boot![1]})`, { ecmaVersion: 'latest' })).not.toThrow();
 
     // The literal `</script` must not appear inside the boot tag — it
     // would close the wrapper.
@@ -231,8 +211,7 @@ describe('renderStatic', () => {
     // This test feeds escapeForScriptTag a payload that's already
     // technically invalid JSON (raw LFs inside a string value) and
     // confirms the output is now valid JSON that round-trips.
-    const malformed =
-      '{"a":"line1\nline2","b":"with\rcr","c":"with\x00nul","d":"with\x0bvt","e":"normal"}';
+    const malformed = '{"a":"line1\nline2","b":"with\rcr","c":"with\x00nul","d":"with\x0bvt","e":"normal"}';
     const escaped = escapeForScriptTag(malformed);
     expect(escaped).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f]/);
     expect(escaped).not.toContain('\n');
@@ -246,8 +225,7 @@ describe('renderStatic', () => {
   });
 
   it('escapeForScriptTag still escapes </script, <!--, U+2028, U+2029', () => {
-    const malformed =
-      '{"x":"a</script>b<!--c","y":"line sep end"}';
+    const malformed = '{"x":"a</script>b<!--c","y":"line sep end"}';
     const escaped = escapeForScriptTag(malformed);
     expect(escaped).not.toMatch(/<\/script/i);
     expect(escaped).not.toContain('<!--');
@@ -258,7 +236,7 @@ describe('renderStatic', () => {
     expect(parsed.y).toBe('line sep end');
   });
 
-  it('boot JSON containing $\' is not corrupted by replace() $-magic', () => {
+  it("boot JSON containing $' is not corrupted by replace() $-magic", () => {
     // Regression: String.replace(regex, replacementString) treats `$'` in
     // the replacement as "substring after the match". Diff content that
     // contains `$'` (e.g. a shell regex like `'^(None)?$'`) used to splice
@@ -273,9 +251,7 @@ describe('renderStatic', () => {
       ].join('\n'),
     );
     const html = renderStatic({ scopeLabel: 'repo · HEAD', uncommitted: [{ name: 'repo', root: repoDir, diffArg: 'HEAD' }] });
-    const boot = html.match(
-      /<script>window\.__WD_BOOT__=([\s\S]*?);<\/script>/,
-    );
+    const boot = html.match(/<script>window\.__WD_BOOT__=([\s\S]*?);<\/script>/);
     expect(boot).not.toBeNull();
     // Must be valid strict JSON — the bug produced unbalanced strings.
     const parsed = JSON.parse(boot![1]) as {

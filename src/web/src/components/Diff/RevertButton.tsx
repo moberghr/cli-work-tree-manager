@@ -26,9 +26,12 @@ export function RevertButton({ repo, path, lines }: Props) {
         title={`Undo the uncommitted change to ${what} and tell Claude`}
         onClick={async (e) => {
           e.stopPropagation();
-          if (!confirm(`Revert ${what} back to HEAD?
+          if (
+            !confirm(`Revert ${what} back to HEAD?
 
-This discards the uncommitted change; Claude is told not to reintroduce it.`)) return;
+This discards the uncommitted change; Claude is told not to reintroduce it.`)
+          )
+            return;
           setBusy(true);
           setError(null);
           try {

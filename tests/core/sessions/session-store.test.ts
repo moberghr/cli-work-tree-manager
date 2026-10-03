@@ -57,7 +57,7 @@ function leftovers(id: string): string[] {
 const ALL = (id: string) => [...TABLES, 'comments', `${id}.log`, id, id]; // id: its archive folder, then its kept conversations
 
 describe('session-store purge', () => {
-  it('removeSession deletes every row and file the session owns, and nobody else\'s', async () => {
+  it("removeSession deletes every row and file the session owns, and nobody else's", async () => {
     await upsertSession('api', false, 'feat/x', [path.join(home, 'wt')]);
     const id = seedState('api', 'feat/x');
     expect(leftovers(id)).toEqual(ALL(id));

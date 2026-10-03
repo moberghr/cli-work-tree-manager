@@ -24,7 +24,11 @@ const runClaude: ClaudeRun = (args) => {
 
 /** The last line a command printed, for a failure's reason. */
 const lastLine = (r: { stdout: string; stderr?: string }) =>
-  `${r.stderr ?? ''}\n${r.stdout}`.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
+  `${r.stderr ?? ''}\n${r.stdout}`
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop() ?? '';
 
 /** Whether `claude plugin list --json` (an array of `{ id: "name@marketplace", … }`) lists work's plugin. */
 export function isInstalled(listJson: string): boolean {
@@ -43,14 +47,22 @@ export function claudeSkillsWith(run: ClaudeRun): AgentSkills {
       const list = run(['plugin', 'marketplace', 'list']);
       if (!(list.ok && list.stdout.includes(MARKETPLACE_NAME))) {
         const add = run(['plugin', 'marketplace', 'add', MARKETPLACE_REPO, '--scope', 'user', '--sparse', '.claude-plugin']);
-        if (!add.ok) return { ok: false, message: `could not register the Claude Code plugin marketplace (run \`claude plugin marketplace add ${MARKETPLACE_REPO}\`)` };
+        if (!add.ok)
+          return {
+            ok: false,
+            message: `could not register the Claude Code plugin marketplace (run \`claude plugin marketplace add ${MARKETPLACE_REPO}\`)`,
+          };
       }
       const install = run(['plugin', 'install', PLUGIN_SPEC, '--scope', 'user']);
       if (install.ok) return { ok: true, message: `installed the Claude Code plugin ${PLUGIN_SPEC}` };
       // Installed before is fine (`claude plugin list --json` has it); anything else (offline, a timeout, auth) is a failure, with how to do it by hand.
-      if (isInstalled(run(['plugin', 'list', '--json']).stdout)) return { ok: true, message: `the Claude Code plugin ${PLUGIN_SPEC} is installed` };
+      if (isInstalled(run(['plugin', 'list', '--json']).stdout))
+        return { ok: true, message: `the Claude Code plugin ${PLUGIN_SPEC} is installed` };
       const why = lastLine(install);
-      return { ok: false, message: `could not install the Claude Code plugin${why ? ` (${why})` : ''}: run \`claude plugin install ${PLUGIN_SPEC} --scope user\`` };
+      return {
+        ok: false,
+        message: `could not install the Claude Code plugin${why ? ` (${why})` : ''}: run \`claude plugin install ${PLUGIN_SPEC} --scope user\``,
+      };
     },
   };
 }

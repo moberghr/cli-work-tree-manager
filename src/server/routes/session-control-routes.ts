@@ -56,16 +56,24 @@ function realDeps(app: Hono): ControlDeps {
   };
 }
 
-export function mountSessionControlRoutes(app: Hono, opts: { broadcast: (event: string, data: unknown) => void; deps?: Partial<ControlDeps> }): void {
+export function mountSessionControlRoutes(
+  app: Hono,
+  opts: { broadcast: (event: string, data: unknown) => void; deps?: Partial<ControlDeps> },
+): void {
   const deps: ControlDeps = { ...realDeps(app), ...opts.deps };
-  const body = async (c: { req: { json: () => Promise<unknown> } }) => ((await c.req.json().catch(() => null)) ?? {}) as { text?: unknown; force?: unknown };
+  const body = async (c: { req: { json: () => Promise<unknown> } }) =>
+    ((await c.req.json().catch(() => null)) ?? {}) as { text?: unknown; force?: unknown };
 
   app.post('/api/sessions/:id/send', async (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.text !== 'string') return c.json({ error: 'text is required' }, 400);
-    const r = await sendToSession(id, b.text, deps, { force: b.force === true }).catch((err: Error) => ({ ok: false as const, status: 502 as const, error: err.message }));
+    const r = await sendToSession(id, b.text, deps, { force: b.force === true }).catch((err: Error) => ({
+      ok: false as const,
+      status: 502 as const,
+      error: err.message,
+    }));
     if (!r.ok) return c.json({ error: r.error }, r.status);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ how: r.how, sentAt: r.sentAt } satisfies SendWire);
@@ -79,7 +87,10 @@ export function mountSessionControlRoutes(app: Hono, opts: { broadcast: (event: 
     if (deps.hostRuns(id)) return c.json({ how: 'running' } satisfies AgentControlWire);
     // A second Claude on the same conversation broke the user's own terminal once (terminal-ws.ts).
     if (deps.runningOutside(id) && (await body(c)).force !== true) {
-      return c.json({ error: 'its Claude runs in a terminal outside work; a second one would share its conversation (--force to start one anyway)' }, 409);
+      return c.json(
+        { error: 'its Claude runs in a terminal outside work; a second one would share its conversation (--force to start one anyway)' },
+        409,
+      );
     }
     if (!(await deps.resume(id))) return c.json({ error: 'its Claude could not be started' }, 502);
     opts.broadcast('sessions-changed', { ts: Date.now() });

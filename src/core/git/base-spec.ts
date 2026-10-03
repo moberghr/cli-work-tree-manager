@@ -41,24 +41,18 @@ export function parseBaseSpec(raw: string | string[] | undefined): BaseSpec {
     const eq = v.indexOf('=');
     if (eq === -1) {
       if (spec.default !== undefined && spec.default !== v) {
-        throw new BaseSpecError(
-          `Conflicting default --base values: '${spec.default}' and '${v}'`,
-        );
+        throw new BaseSpecError(`Conflicting default --base values: '${spec.default}' and '${v}'`);
       }
       spec.default = v;
     } else {
       const alias = v.slice(0, eq).trim();
       const branch = v.slice(eq + 1).trim();
       if (!alias || !branch) {
-        throw new BaseSpecError(
-          `Invalid --base '${value}'. Use 'alias=branch' or a bare 'branch'.`,
-        );
+        throw new BaseSpecError(`Invalid --base '${value}'. Use 'alias=branch' or a bare 'branch'.`);
       }
       const prior = spec.perRepo[alias];
       if (prior !== undefined && prior !== branch) {
-        throw new BaseSpecError(
-          `Conflicting --base for '${alias}': '${prior}' and '${branch}'`,
-        );
+        throw new BaseSpecError(`Conflicting --base for '${alias}': '${prior}' and '${branch}'`);
       }
       spec.perRepo[alias] = branch;
     }

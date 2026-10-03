@@ -37,12 +37,7 @@ interface FileTreeProps extends Props {
   viewedAnchors?: Set<string>;
 }
 
-export function FileTree({
-  files,
-  startIndex,
-  selectedAnchor,
-  viewedAnchors,
-}: FileTreeProps) {
+export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors }: FileTreeProps) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
 
@@ -51,33 +46,20 @@ export function FileTree({
   // filtering so anchor ids stay in sync with the diff order.
   const tree = useMemo(() => {
     if (!q) return buildTree(files, startIndex);
-    const kept = files
-      .map((file, i) => ({ file, index: startIndex + i }))
-      .filter((item) => item.file.path.toLowerCase().includes(q));
+    const kept = files.map((file, i) => ({ file, index: startIndex + i })).filter((item) => item.file.path.toLowerCase().includes(q));
     if (kept.length === 0) return [];
     return buildTree(kept);
   }, [files, startIndex, q]);
 
   return (
     <div className="wd-tree-pane">
-      <input
-        className="wd-web-filter"
-        type="search"
-        placeholder="Filter files…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <input className="wd-web-filter" type="search" placeholder="Filter files…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {tree.length === 0 ? (
         <p className="wd-web-empty-list">No matches.</p>
       ) : (
         <ul className="wd-tree-root">
           {tree.map((n, i) => (
-            <TreeNodeView
-              key={i}
-              node={n}
-              selectedAnchor={selectedAnchor ?? null}
-              viewedAnchors={viewedAnchors}
-            />
+            <TreeNodeView key={i} node={n} selectedAnchor={selectedAnchor ?? null} viewedAnchors={viewedAnchors} />
           ))}
         </ul>
       )}
@@ -104,12 +86,7 @@ function TreeNodeView({
           </summary>
           <ul>
             {node.children.map((c, i) => (
-              <TreeNodeView
-                key={i}
-                node={c}
-                selectedAnchor={selectedAnchor}
-                viewedAnchors={viewedAnchors}
-              />
+              <TreeNodeView key={i} node={c} selectedAnchor={selectedAnchor} viewedAnchors={viewedAnchors} />
             ))}
           </ul>
         </details>
@@ -122,18 +99,11 @@ function TreeNodeView({
   const stats =
     node.file.added || node.file.deleted ? (
       <span className="wd-tree-stats">
-        <span className="wd-add">+{node.file.added}</span>{' '}
-        <span className="wd-del">-{node.file.deleted}</span>
+        <span className="wd-add">+{node.file.added}</span> <span className="wd-del">-{node.file.deleted}</span>
       </span>
     ) : null;
   return (
-    <li
-      className={
-        'wd-tree-file' +
-        (active ? ' wd-tree-file-active' : '') +
-        (viewed ? ' wd-tree-file-viewed' : '')
-      }
-    >
+    <li className={'wd-tree-file' + (active ? ' wd-tree-file-active' : '') + (viewed ? ' wd-tree-file-viewed' : '')}>
       <a
         href={`#${anchor}`}
         onClick={(e) => {
@@ -148,24 +118,17 @@ function TreeNodeView({
         }}
         title={node.file.path}
       >
-        <span className={`wd-tree-status wd-status-${node.file.status}`}>
-          {STATUS_LETTER[node.file.status]}
-        </span>
+        <span className={`wd-tree-status wd-status-${node.file.status}`}>{STATUS_LETTER[node.file.status]}</span>
         <span className="wd-tree-name">{node.name}</span>
         {stats}
         {typeof node.file.coverage === 'number' && (
           <span
             className={`wd-coverage-badge wd-coverage-${
-              node.file.coverage >= 80
-                ? 'good'
-                : node.file.coverage >= 50
-                  ? 'fair'
-                  : 'poor'
+              node.file.coverage >= 80 ? 'good' : node.file.coverage >= 50 ? 'fair' : 'poor'
             }${node.file.coverageStale ? ' wd-coverage-stale' : ''}`}
             title={coverageTitle(node.file)}
           >
-            {Math.round(node.file.coverage)}%
-            {node.file.coverageStale ? ' ?' : ''}
+            {Math.round(node.file.coverage)}%{node.file.coverageStale ? ' ?' : ''}
           </span>
         )}
       </a>
