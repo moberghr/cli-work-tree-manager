@@ -39,7 +39,7 @@ For framework-specific guidance, see `.claude/skills/tech-stack-typescript/SKILL
 
 The highest-impact rules. Full standards in `.claude/rules/`.
 
-- **§0.1** YOU MUST suffix relative imports with `.js` even though sources are `.ts`. Extensionless relative imports break at runtime under Node ESM (136 `.js` imports, 0 extensionless). See `.claude/rules/architecture.md` §2.5.
+- **§0.1** YOU MUST suffix relative imports with `.js` even though sources are `.ts` (`npm run typecheck` rejects one without: NodeNext resolution). Extensionless relative imports break at runtime under Node ESM (136 `.js` imports, 0 extensionless). See `.claude/rules/architecture.md` §2.5.
 - **§0.2** Session state lives in `~/.work/state.db` (SQLite, `src/core/platform/db.ts`). WHEN reading-then-writing it, do it inside one `tx()` — concurrent `work` processes (CLI, hooks, work web, PTY host) otherwise lose updates. Files that stay files (`config.json`, `~/.claude/settings.json` edits) keep `withFileLock` + `atomicWriteFile`. See `.claude/rules/data-layer.md` §5.
 - **§0.3** React belongs to the browser SPA (`src/web/`) only; nothing imports Ink (the terminal dashboard was retired in 2.0). See `.claude/rules/architecture.md` §2.3.
 - **§0.4** WHEN building git/shell commands, use `cross-spawn` with an argv array — DO NOT interpolate branch names or paths into a shell string (command-injection risk). See `.claude/rules/security.md` §1.1.

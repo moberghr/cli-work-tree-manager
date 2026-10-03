@@ -5,7 +5,6 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
-    "declaration": false,
     // The desktop build scripts are plain .mjs: their types are inferred, not checked.
     "allowJs": true,
     "checkJs": false,
