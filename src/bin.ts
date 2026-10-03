@@ -48,7 +48,7 @@ process.on('unhandledRejection', handleFatalError);
 const args = process.argv.slice(2);
 if (args[0] === 'hook') {
   const { runHookEvent } = await import('./commands/hook.js');
-  await runHookEvent(args[1]);
+  await runHookEvent(args[1], args.slice(2));
 } else {
   const { run } = await import('./cli.js');
   const { withReporter } = await import('./core/report.js');

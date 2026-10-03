@@ -4,6 +4,7 @@ import { hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.j
 import { withoutParentSession } from '../claude-env.js';
 import { readTranscriptTail } from '../transcript.js';
 import { claudeContextWindow, claudeEntries } from './claude-entries.js';
+import { claudeEvents } from './claude-hooks.js';
 import type { AgentAdapter, ConversationEntry } from './types.js';
 
 export { claudeEntries } from './claude-entries.js';
@@ -47,4 +48,5 @@ export const claudeAgent: AgentAdapter = {
       return got.sort((a, b) => a.at.localeCompare(b.at)).slice(-last);
     },
   },
+  events: claudeEvents,
 };

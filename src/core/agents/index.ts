@@ -5,7 +5,7 @@ import type { WorktreeSession } from '../session-types.js';
 import { claudeAgent } from './claude.js';
 import type { AgentAdapter } from './types.js';
 
-export type { AgentAdapter, AgentLaunch, ConversationEntry } from './types.js';
+export type { AgentAdapter, AgentLaunch, ConversationEntry, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
 
@@ -35,6 +35,11 @@ function plainAgent(id: string): AgentAdapter {
       cleanEnv: (env) => ({ ...env }),
     },
   };
+}
+
+/** Every agent work has an adapter for (whose hooks work web installs, whose running processes it reads). */
+export function knownAgents(): AgentAdapter[] {
+  return [...ADAPTERS.values()];
 }
 
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */

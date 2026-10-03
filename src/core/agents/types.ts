@@ -1,6 +1,7 @@
 import type { WorktreeSession } from '../session-types.js';
 import type { AiToolSpec } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
+import type { StatusEvent } from '../status-event.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -69,6 +70,29 @@ export interface AgentLaunch {
   cleanEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
 }
 
+/** A point in an agent's turn work hooks into: a prompt arrives, the turn ends, the agent notifies (a permission prompt, idle). */
+export type TurnEdge = 'turn-start' | 'turn-end' | 'notify';
+
+/** One of work's hooks: the command (`work hook <edge>`) an agent runs at a turn edge, under an owner (which work web installed it). */
+export interface WorkHook {
+  owner: string;
+  edge: TurnEdge;
+  command: string;
+  timeoutSec?: number;
+}
+
+/** How work hears an agent's turns: hooks the agent runs at each edge, and what it sends them. */
+export interface AgentEvents {
+  /** Install these hooks in the agent's settings in one write, replacing those owners' earlier ones, and removing `remove`. */
+  install(hooks: WorkHook[], remove?: Array<{ owner: string; edge: TurnEdge }>): Promise<void>;
+  /** Remove hooks synchronously (a shutdown handler can't wait). */
+  removeSync(hooks: Array<{ owner: string; edge: TurnEdge }>): void;
+  /** What a hook was sent (its stdin, parsed): the folder it fired in, and the status event it means. */
+  read(edge: TurnEdge, payload: unknown): { cwd?: string; status: StatusEvent | null };
+  /** The hook output that hands `text` (pending notes) to the agent: at a turn's start as more context, at its end as "go on with this". */
+  handOver(edge: 'turn-start' | 'turn-end', text: string): string;
+}
+
 export interface AgentAdapter {
   /** The agent's binary name (`claude`, `codex`, …). */
   id: string;
@@ -77,4 +101,6 @@ export interface AgentAdapter {
   launch: AgentLaunch;
   /** Reading its conversations; absent: work can't for this agent. */
   conversation?: AgentConversation;
+  /** Hearing its turns through hooks; absent: no hook status (the PTY host's output stands in). */
+  events?: AgentEvents;
 }

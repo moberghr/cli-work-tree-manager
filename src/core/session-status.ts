@@ -41,14 +41,8 @@ export interface SessionStatus {
   turnEndedAt?: string;
 }
 
-export type StatusEvent =
-  | { kind: 'prompt'; prompt?: string }
-  | { kind: 'stop'; lastMessage?: string }
-  | { kind: 'notification'; message?: string; request?: PermissionRequest; type?: string }
-  /** The user answered the permission prompt from the dashboard. */
-  | { kind: 'answered'; answer: PermissionAnswer }
-  /** A Stop that handed Claude more to do (pending comments, a PR note): the turn goes on. */
-  | { kind: 'continue'; what?: string };
+export type { StatusEvent } from './status-event.js';
+import type { StatusEvent } from './status-event.js';
 
 /** Claude's Notification hook fires both for permission prompts and for the
  *  "waiting for your input" nudge after ~60 s idle; only the former means

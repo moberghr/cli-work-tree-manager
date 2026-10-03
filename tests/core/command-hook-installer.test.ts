@@ -114,6 +114,7 @@ describe('removeCommandHook', () => {
 describe('syncCommandHooks (work web, one write)', () => {
   it('the full set replaces the old separate hooks, keeps the user’s own, and removes cleanly', async () => {
     const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude.js'); // work's hooks in Claude's settings: its adapter's install
     write({ hooks: { UserPromptSubmit: [userHook] } });
     // What an older work web left (three per event):
     for (const [owner, event, command] of [
@@ -125,12 +126,12 @@ describe('syncCommandHooks (work web, one write)', () => {
       ['web-checkpoint', 'Stop', 'work hook checkpoint'],
     ]) await installCommandHook({ owner, event, command });
     const writes = vi.spyOn(fs, 'renameSync');
-    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
     expect(writes).toHaveBeenCalledTimes(1); // one write, not one per hook
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
     expect(commands('Stop')).toEqual(['work hook turn-end']);
     expect(commands('Notification')).toEqual(['work hook status-notify']);
-    removeCommandHooksSync([...FULL_HOOKS.map(({ owner, event }) => ({ owner, event })), ...LEGACY_HOOKS]);
+    claudeAgent.events!.removeSync([...FULL_HOOKS.map(({ owner, edge }) => ({ owner, edge })), ...LEGACY_HOOKS]);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
     expect(read().hooks?.Stop).toBeUndefined();
   });
@@ -139,6 +140,7 @@ describe('syncCommandHooks (work web, one write)', () => {
 describe('untagged copies of work’s hooks (tags dropped by another writer of settings.json)', () => {
   it('are replaced on install and removed on shutdown; the user’s own hooks — even ones calling work — stay', async () => {
     const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude.js'); // work's hooks in Claude's settings: its adapter's install
     const bare = (command: string, timeout = 5): Entry => ({ hooks: [{ type: 'command', command, timeout }] });
     write({
       hooks: {
@@ -146,7 +148,7 @@ describe('untagged copies of work’s hooks (tags dropped by another writer of s
         Stop: [bare('work hook checkpoint', 15), { hooks: [{ type: 'command', command: 'work hook checkpoint && my-script' }] }],
       },
     });
-    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
     expect(commands('Stop')).toEqual(['work hook checkpoint && my-script', 'work hook turn-end']); // not only ours: kept
     // Something rewrites settings.json and drops our tags…
@@ -154,9 +156,9 @@ describe('untagged copies of work’s hooks (tags dropped by another writer of s
     for (const list of Object.values(s.hooks ?? {})) for (const e of list) for (const k of Object.keys(e)) if (k.startsWith('_work')) delete e[k];
     write(s);
     // …the next start doesn't pile a second copy on.
-    await syncCommandHooks(FULL_HOOKS, LEGACY_HOOKS);
+    await claudeAgent.events!.install(FULL_HOOKS, LEGACY_HOOKS);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter', 'work hook turn-start']);
-    removeCommandHooksSync([...FULL_HOOKS.map(({ owner, event }) => ({ owner, event })), ...LEGACY_HOOKS]);
+    claudeAgent.events!.removeSync([...FULL_HOOKS.map(({ owner, edge }) => ({ owner, edge })), ...LEGACY_HOOKS]);
     expect(commands('UserPromptSubmit')).toEqual(['my-own-linter']);
     expect(commands('Stop')).toEqual(['work hook checkpoint && my-script']);
   });

@@ -1,10 +1,7 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { startWebServer } from '../core/web-server.js';
-import {
-  removeCommandHooksSync,
-  syncCommandHooks,
-} from '../core/command-hook-installer.js';
+import { knownAgents, type TurnEdge, type WorkHook } from '../core/agents/index.js';
 import { openUrl } from '../utils/platform.js';
 import { configurePtyPool, resumePersistedSessions } from '../core/pty-pool.js';
 import { resolveWorkBinPath } from '../utils/work-bin.js';
@@ -31,24 +28,40 @@ import { bestEffort, swallow } from '../core/best-effort.js';
  * Claude on the machine; plus the permission-prompt Notification. Lean
  * (`wd`): checkpoints only.
  */
-export const FULL_HOOKS = [
-  { owner: 'web-turn', event: 'UserPromptSubmit', command: 'work hook turn-start', timeoutSec: 10 },
-  { owner: 'web-turn', event: 'Stop', command: 'work hook turn-end', timeoutSec: 10 },
-  { owner: 'web-status', event: 'Notification', command: 'work hook status-notify', timeoutSec: 5 },
+export const FULL_HOOKS: WorkHook[] = [
+  { owner: 'web-turn', edge: 'turn-start', command: 'work hook turn-start', timeoutSec: 10 },
+  { owner: 'web-turn', edge: 'turn-end', command: 'work hook turn-end', timeoutSec: 10 },
+  { owner: 'web-status', edge: 'notify', command: 'work hook status-notify', timeoutSec: 5 },
 ];
-export const LEAN_HOOKS = [
-  { owner: 'web-checkpoint', event: 'Stop', command: 'work hook checkpoint', timeoutSec: 5 },
-  { owner: 'web-checkpoint', event: 'UserPromptSubmit', command: 'work hook checkpoint-seal', timeoutSec: 5 },
+export const LEAN_HOOKS: WorkHook[] = [
+  { owner: 'web-checkpoint', edge: 'turn-end', command: 'work hook checkpoint', timeoutSec: 5 },
+  { owner: 'web-checkpoint', edge: 'turn-start', command: 'work hook checkpoint-seal', timeoutSec: 5 },
 ];
 /** The separate hooks of before (and lean's, which the full set replaces): removed. */
-export const LEGACY_HOOKS = [
-  { owner: 'web', event: 'UserPromptSubmit' },
-  { owner: 'web', event: 'Stop' },
-  { owner: 'web-status', event: 'UserPromptSubmit' },
-  { owner: 'web-status', event: 'Stop' },
-  { owner: 'web-checkpoint', event: 'UserPromptSubmit' },
-  { owner: 'web-checkpoint', event: 'Stop' },
+export const LEGACY_HOOKS: Array<{ owner: string; edge: TurnEdge }> = [
+  { owner: 'web', edge: 'turn-start' },
+  { owner: 'web', edge: 'turn-end' },
+  { owner: 'web-status', edge: 'turn-start' },
+  { owner: 'web-status', edge: 'turn-end' },
+  { owner: 'web-checkpoint', edge: 'turn-start' },
+  { owner: 'web-checkpoint', edge: 'turn-end' },
 ];
+
+/** The agents whose hooks work web installs: every one it has an adapter with hooks for. */
+const hookedAgents = () => knownAgents().filter((a) => a.events);
+
+/** Install work's hooks in every such agent's settings (full: one per turn edge + notify, and the old ones go; lean: checkpoints). */
+export async function installAgentHooks(lean: boolean, onError: (agent: string) => (err: unknown) => void = () => () => {}): Promise<void> {
+  for (const agent of hookedAgents()) {
+    await agent.events!.install(lean ? LEAN_HOOKS : FULL_HOOKS, lean ? [] : LEGACY_HOOKS).catch(onError(agent.name));
+  }
+}
+
+/** Remove them again, synchronously (shutdown). */
+export function removeAgentHooksSync(lean: boolean): void {
+  const ours = (lean ? LEAN_HOOKS : FULL_HOOKS).map(({ owner, edge }) => ({ owner, edge }));
+  for (const agent of hookedAgents()) bestEffort(`remove ${agent.name} hooks`, () => agent.events!.removeSync([...ours, ...LEGACY_HOOKS]));
+}
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -247,15 +260,12 @@ export const webCommand: CommandModule = {
     // Claude hooks (one write of ~/.claude/settings.json, see HOOKS):
     // the full dashboard puts delivery, status and checkpoints in one hook
     // per turn edge; the lean `wd` server only needs the checkpoints.
-    await syncCommandHooks(lean ? LEAN_HOOKS : FULL_HOOKS, lean ? [] : LEGACY_HOOKS).catch(
-      swallow('install Claude hooks in ~/.claude/settings.json'),
-    );
+    await installAgentHooks(lean, (name) => swallow(`install ${name} hooks`));
 
     shutdown = () => {
       info(chalk.gray('\nStopping work web.'));
       clearWebDiscovery(process.pid);
-      const ours = (lean ? LEAN_HOOKS : FULL_HOOKS).map(({ owner, event }) => ({ owner, event }));
-      bestEffort('remove Claude hooks', () => removeCommandHooksSync([...ours, ...LEGACY_HOOKS]));
+      removeAgentHooksSync(lean);
       void handle.stop().finally(() => process.exit(0));
     };
     process.on('SIGINT', shutdown);
