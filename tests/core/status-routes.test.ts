@@ -283,6 +283,15 @@ describe('POST /api/sessions/:id/answer', () => {
     expect(typed).toEqual(['\r']);
   });
 
+  it('an agent whose dialog work doesn’t know is never answered by keystroke (agents/: input.permissionDialog)', async () => {
+    // The session's agent is opencode (aiCommand; work has no adapter for it, so no dialog to read).
+    fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: home, aiCommand: 'opencode' }));
+    const res = await answer({ answer: 'allow', request: bash });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/can't answer opencode's prompts from here/);
+    expect(typed).toEqual([]);
+  });
+
   it('validates the body and the session', async () => {
     expect((await answer({ answer: 'maybe', request: bash })).status).toBe(400);
     const res = await answerApp.request('/api/sessions/nope/answer', { method: 'POST', body: '{}' });

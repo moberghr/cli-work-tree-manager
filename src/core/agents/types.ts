@@ -2,6 +2,7 @@ import type { WorktreeSession } from '../session-types.js';
 import type { AiToolSpec } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
 import type { StatusEvent } from '../status-event.js';
+import type { PermissionRequest } from '../api-types.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -70,6 +71,20 @@ export interface AgentLaunch {
   cleanEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
 }
 
+/** Whether a keystroke may answer a permission request now (the dialog on its screen is that request's), and if not, why. */
+export type DialogCheck = { ok: true } | { ok: false; reason: 'no-dialog' | 'other-request' | 'not-default' };
+
+/** Typing into its terminal. */
+export interface AgentInput {
+  /** Type `text` into its prompt and submit it (`write`: the PTY; `wait`: a pause, for tests). */
+  submit(write: (data: string) => Promise<boolean>, text: string, wait?: (ms: number) => Promise<void>): Promise<boolean>;
+  /** Its permission dialog on a terminal screen; absent: work can't answer its prompts by keystroke. */
+  permissionDialog?: {
+    check(screen: string, req: PermissionRequest): DialogCheck;
+    keys: { allow: string; deny: string };
+  };
+}
+
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */
 export interface LiveAgent {
   pid: number;
@@ -127,4 +142,6 @@ export interface AgentAdapter {
   events?: AgentEvents;
   /** Its running processes; absent: work sees only the ones the PTY host runs. */
   live?: AgentLive;
+  /** Typing into its terminal (every agent: at least text, a pause, Enter). */
+  input: AgentInput;
 }

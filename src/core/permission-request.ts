@@ -66,9 +66,8 @@ export function screenAnchor(req: PermissionRequest): string {
   return '';
 }
 
-export type DialogCheck =
-  | { ok: true }
-  | { ok: false; reason: 'no-dialog' | 'other-request' | 'not-default' };
+export type { DialogCheck } from './agents/types.js';
+import type { DialogCheck } from './agents/types.js';
 
 /**
  * May we answer by keystroke? Only while the screen shows the permission

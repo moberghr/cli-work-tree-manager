@@ -89,6 +89,23 @@ describe('which agents run now (agents/: `live`)', () => {
   });
 });
 
+describe('typing into an agent (agents/: `input`)', () => {
+  it('text, a pause, then Enter apart (Claude reads a burst as a paste); a plain agent the same, and no dialog it can answer', async () => {
+    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { agentById } = await import('../../src/core/agents/index.js');
+    const writes: string[] = [];
+    const waits: number[] = [];
+    const ok = await agentById('opencode').input.submit(async (d) => (writes.push(d), true), 'run it', async (ms) => void waits.push(ms));
+    expect([ok, writes, waits]).toEqual([true, ['run it', '\r'], [250]]);
+    expect(agentById('opencode').input.permissionDialog).toBeUndefined();
+    expect(claudeAgent.input.permissionDialog!.keys).toEqual({ allow: '\r', deny: '\x1b' });
+    // A write that fails: no Enter.
+    const lost: string[] = [];
+    expect(await claudeAgent.input.submit(async (d) => (lost.push(d), false), 'x', async () => {})).toBe(false);
+    expect(lost).toEqual(['x']);
+  });
+});
+
 describe('work hook --agent', () => {
   it('a hook says which agent runs it; one with no hooks records no status, and notes go as plain text', async () => {
     const { statusEventFor, computeHookOutput } = await import('../../src/commands/hook.js');

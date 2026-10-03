@@ -6,7 +6,7 @@ import { loadConfig } from './config.js';
 import { findSessionForCwd } from './pending-delivery.js';
 import { sessionIdFor, findSession } from './web-state.js';
 import { markSeen, notifyKindForTransition, readStatus, recordStatusEvent } from './session-status.js';
-import { ANSWER_KEYS, checkDialog } from './permission-request.js';
+import { agentFor } from './agents/index.js';
 import { readPtyScreen, writeToPty } from './pty-pool.js';
 import { notifyDesktop } from './notifier.js';
 import { runStatusHooks } from './status-hooks.js';
@@ -163,13 +163,17 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
     if (body.request?.tool !== req.tool || body.request?.detail !== req.detail) {
       return c.json({ error: 'The request changed since you saw it. Look again before answering.' }, 409);
     }
+    // Its agent's dialog: what it looks like on screen, and which keys answer it.
+    const agent = agentFor(loadConfig(), findSession(id));
+    const dialog = agent.input.permissionDialog;
+    if (!dialog) return c.json({ error: `work can't answer ${agent.name}'s prompts from here: answer it in its terminal.` }, 409);
     const screen = await pty.screen(id);
     if (screen === null) {
-      return c.json({ error: 'This Claude is not running in the PTY host, so it can only be answered in its own terminal.' }, 409);
+      return c.json({ error: `This ${agent.name} is not running in the PTY host, so it can only be answered in its own terminal.` }, 409);
     }
-    const check = checkDialog(screen, req);
+    const check = dialog.check(screen, req);
     if (!check.ok) return c.json({ error: DIALOG_REFUSALS[check.reason] }, 409);
-    if (!(await pty.write(id, ANSWER_KEYS[body.answer]))) {
+    if (!(await pty.write(id, dialog.keys[body.answer]))) {
       return c.json({ error: 'Could not reach the session terminal.' }, 409);
     }
     await recordStatusEvent(id, { kind: 'answered', answer: body.answer });

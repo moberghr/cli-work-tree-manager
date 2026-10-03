@@ -6,6 +6,8 @@ import { readTranscriptTail } from '../transcript.js';
 import { claudeContextWindow, claudeEntries } from './claude-entries.js';
 import { claudeEvents } from './claude-hooks.js';
 import { readLiveClaudes } from './claude-live.js';
+import { ANSWER_KEYS, checkDialog } from '../permission-request.js';
+import { typeThenEnter } from './typing.js';
 import type { AgentAdapter, ConversationEntry } from './types.js';
 
 export { claudeEntries } from './claude-entries.js';
@@ -51,4 +53,9 @@ export const claudeAgent: AgentAdapter = {
   },
   events: claudeEvents,
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
+  input: {
+    submit: typeThenEnter,
+    // Its dialog: "Do you want to …?" over a menu with "❯ 1. Yes"; Enter takes Yes, Esc is "No, and tell Claude what to do differently".
+    permissionDialog: { check: checkDialog, keys: { allow: ANSWER_KEYS.allow, deny: ANSWER_KEYS.deny } },
+  },
 };

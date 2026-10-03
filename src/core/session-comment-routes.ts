@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { agentFor } from './agents/index.js';
+import { loadConfig } from './config.js';
 import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from './comment-file-store.js';
 import { findSession } from './web-state.js';
@@ -157,23 +159,15 @@ export function ownedPtyDelivery(sessionId: string, author: string): 'typed' | '
   return readStatus(sessionId)?.state === 'working' ? 'next-turn' : 'typed';
 }
 
-/** Between the text and Enter: Claude Code takes a burst of input as a paste. */
-export const SUBMIT_DELAY_MS = 250;
+export { SUBMIT_DELAY_MS } from './agents/typing.js';
 
-/**
- * Type `text` into the session's Claude prompt and submit it. Enter is `\r`
- * (what the terminal's Enter key sends); a `\n` only adds a line to the
- * prompt, which left every pushed note sitting unsent in the input box.
- * Sent apart from the text: in the same write Claude Code reads the `\r`
- * as part of the pasted block.
- */
+/** Type `text` into the session's agent's prompt and submit it — the way its agent takes input (agents/: `input.submit`). */
 export async function typeAndSubmit(
   sessionId: string,
   text: string,
   write: (id: string, data: string) => Promise<boolean> = writeToPty,
-  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  wait?: (ms: number) => Promise<void>,
 ): Promise<boolean> {
-  if (!(await write(sessionId, text))) return false;
-  await wait(SUBMIT_DELAY_MS);
-  return write(sessionId, '\r');
+  const agent = agentFor(loadConfig(), findSession(sessionId));
+  return agent.input.submit((data) => write(sessionId, data), text, wait);
 }

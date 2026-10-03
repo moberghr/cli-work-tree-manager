@@ -4,6 +4,7 @@ import type { WorkConfig } from '../config.js';
 import type { WorktreeSession } from '../session-types.js';
 import { claudeAgent } from './claude.js';
 import type { AgentAdapter, LiveAgent } from './types.js';
+import { typeThenEnter } from './typing.js';
 
 export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
@@ -34,6 +35,8 @@ function plainAgent(id: string): AgentAdapter {
       resumeLaunch: (s) => ({ launchPath: s.isGroup ? path.dirname(s.paths[0] ?? '') : (s.paths[0] ?? ''), hasConversation: false }),
       cleanEnv: (env) => ({ ...env }),
     },
+    // Text, a pause, Enter — and no dialog to answer by keystroke (its screen is unknown).
+    input: { submit: typeThenEnter },
   };
 }
 
