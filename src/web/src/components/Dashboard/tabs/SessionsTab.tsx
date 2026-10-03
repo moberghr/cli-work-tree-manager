@@ -42,6 +42,8 @@ interface Props {
   bulk?: BulkActions;
   /** The rail's pins and sections: shown on the rows, a filter and a grouping, and the bulk bar's Pin / Move to. */
   layout?: RailLayout;
+  /** "Now / Today" beside the title: Sessions' two views. */
+  viewToggle?: React.ReactNode;
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
@@ -101,6 +103,7 @@ export function SessionsTab({
   prsFor,
   onCleanUp,
   bulk = defaultBulk,
+  viewToggle,
 }: Props) {
   // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
@@ -287,7 +290,7 @@ export function SessionsTab({
     <div className="wd-dash-tab-pane wd-tab-sessions">
       <header className="wd-tab-header">
         <h1>
-          Sessions{' '}
+          Sessions {viewToggle}{' '}
           <span className="wd-tab-header-muted">
             ({counts.needs} need you · {counts.working} working · {counts.idle} idle · {counts.stale} stale)
           </span>

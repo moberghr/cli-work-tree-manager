@@ -6,6 +6,7 @@ import type { ActivityWire } from '../../src/core/api-types.js';
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 import { ActivityIndicator, countdown } from '../../src/web/src/components/Dashboard/ActivityIndicator.js';
+import { VERSION } from '../../src/web/src/version.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,14 +79,18 @@ describe('ActivityIndicator', () => {
   it('says what runs now, with progress, in the top bar', async () => {
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => RUNNING })));
     await flush();
-    expect(container.querySelector('.wd-activity-toggle')!.textContent).toBe('Checking pull requests 5/13');
+    // A grey dot (nothing needs you; the Jira failure never worked here, so it's not set up rather than broken).
+    const dot = container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!;
+    expect(dot.textContent).toBe('');
+    expect(dot.classList.contains('wd-activity-attention')).toBe(false);
+    expect(dot.getAttribute('aria-label')).toBe('Background jobs: Checking pull requests 5/13');
   });
 
   it('the panel shows now, coming up, and recent runs with their decisions; a decision opens its session', async () => {
     const onOpen = vi.fn();
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: onOpen, load: async () => RUNNING })));
     await flush();
-    act(() => container.querySelector<HTMLButtonElement>('.wd-activity-toggle')!.click());
+    act(() => container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!.click());
     const panel = container.querySelector('.wd-activity-panel')!;
     expect(panel.textContent).toContain('Pull request check every 3 min · next in 1:3'); // 1:35, give or take a tick
     expect(panel.textContent).toContain('13 sessions · 6 open PRs · 11 unresolved review threads');
@@ -98,7 +103,7 @@ describe('ActivityIndicator', () => {
     expect(onOpen).toHaveBeenCalledWith('s1');
   });
 
-  it('a resting job shows in the top bar and says until when and why', async () => {
+  it('a resting job colours the dot, and the panel says until when and why', async () => {
     const resting: ActivityWire = {
       running: [],
       recent: [],
@@ -115,11 +120,19 @@ describe('ActivityIndicator', () => {
     };
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => resting })));
     await flush();
-    const toggle = container.querySelector<HTMLButtonElement>('.wd-activity-toggle')!;
-    expect(toggle.textContent).toBe('⏸ Pull request check resting');
+    const toggle = container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!;
+    expect(toggle.classList.contains('wd-activity-attention')).toBe(true);
+    expect(toggle.getAttribute('aria-label')).toBe("Background jobs: Pull request check is resting: GitHub's API limit is spent");
     act(() => toggle.click());
     expect(container.querySelector('.wd-activity-panel')!.textContent).toContain('resting until');
     expect(container.querySelector('.wd-activity-panel')!.textContent).toContain("GitHub's API limit is spent");
+  });
+
+  it('the panel says which version runs', async () => {
+    act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => RUNNING })));
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!.click());
+    expect(container.querySelector('.wd-activity-version')!.textContent).toBe(`work v${VERSION}`);
   });
 
   it('counts down', () => {

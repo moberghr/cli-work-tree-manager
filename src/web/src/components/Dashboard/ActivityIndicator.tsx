@@ -3,6 +3,8 @@ import type { ActivityRun, ActivitySchedule, ActivityWire } from '../../../../co
 import { fetchActivity } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
 import { relativeTime } from '../../utils/time.js';
+import { activityAttention, activityQuietLine, collapseRuns } from '../../state/activity-view.js';
+import { VERSION } from '../../version.js';
 
 interface Props {
   onOpenSession: (id: string) => void;
@@ -23,10 +25,11 @@ const every = (ms: number) => (ms >= 60_000 ? `every ${Math.round(ms / 60_000)} 
 
 /**
  * What work is doing in the background — the PR check, the PR / Jira lists,
- * idle sleep, the Clean up scans — and what it decided. The top bar says
- * what runs now ("Checking pull requests 5/13") or that a job is resting;
- * clicking opens the panel: now, coming up, and recent runs with their
- * decisions (each linked to its session).
+ * idle sleep, the Clean up scans — and what it decided. In the top bar a
+ * small dot, grey unless a job needs you (resting, or failing after it
+ * worked: activity-view.ts); its tooltip says what runs now. Clicking opens
+ * the panel: now, coming up, and recent runs with their decisions (each
+ * linked to its session; uneventful repeats folded into one row).
  */
 export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props) {
   const [data, setData] = useState<ActivityWire | null>(null);
@@ -62,39 +65,21 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
   }, [open]);
 
   const running = data?.running ?? [];
-  const paused = (data?.schedules ?? []).find((s) => s.pausedUntil && Date.parse(s.pausedUntil) > Date.now());
-  const first = running[0];
-  let label: React.ReactNode;
-  if (first) {
-    label = (
-      <>
-        <span className="wd-activity-spinner" aria-hidden />
-        {first.label}
-        {first.progress && first.progress.total > 0 && (
-          <span className="wd-activity-count">
-            {' '}
-            {first.progress.done}/{first.progress.total}
-          </span>
-        )}
-        {running.length > 1 && <span className="wd-activity-count"> +{running.length - 1}</span>}
-      </>
-    );
-  } else if (paused) {
-    label = <>⏸ {paused.label} resting</>;
-  } else {
-    label = <>Activity</>;
-  }
+  const attention = activityAttention(data, Date.now());
+  const line = attention ?? activityQuietLine(data);
 
   return (
     <div className="wd-activity" ref={ref}>
       <button
         type="button"
-        className={'wd-activity-toggle' + (first ? ' wd-activity-busy' : '') + (paused && !first ? ' wd-activity-paused' : '')}
+        className={'wd-activity-dot-btn' + (attention ? ' wd-activity-attention' : '')}
         aria-expanded={open}
-        title="What work is doing in the background, and what it decided"
+        aria-label={`Background jobs: ${line}`}
+        title={`${line}
+Click for what work does in the background, and what it decided`}
         onClick={() => setOpen((o) => !o)}
       >
-        {label}
+        <span className={'wd-activity-dot' + (running.length ? ' wd-activity-dot-busy' : '')} aria-hidden />
       </button>
       {open && (
         <div className="wd-activity-panel" role="dialog" aria-label="Background activity">
@@ -121,9 +106,10 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
             {(data?.recent.length ?? 0) === 0 ? (
               <p className="wd-activity-empty">Nothing yet.</p>
             ) : (
-              data!.recent.map((r) => <RunRow key={r.id} run={r} onOpenSession={onOpenSession} />)
+              collapseRuns(data!.recent).map((r) => <RunRow key={r.id} run={r} onOpenSession={onOpenSession} />)
             )}
           </section>
+          <p className="wd-activity-version">work v{VERSION}</p>
         </div>
       )}
     </div>

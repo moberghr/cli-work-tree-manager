@@ -157,7 +157,7 @@ describe('SessionRail rows', () => {
     container.remove();
   });
 
-  it('shows branch, target · summary, diff size and the PR badge; hides archived', () => {
+  it('one line a row: branch and status; the rest is in its tooltip; hides archived', () => {
     const sessions = [
       s({
         id: 'feat/x',
@@ -182,20 +182,20 @@ describe('SessionRail rows', () => {
     expect(rows).toHaveLength(1);
     const row = rows[0];
     expect(row.querySelector('.wd-dash-rail-name')?.textContent).toBe('feat/x');
-    expect(row.querySelector('.wd-dash-rail-summary')?.textContent).toBe('api · Claude needs your permission to use Bash');
-    expect(row.querySelector('.wd-dash-rail-stat')?.textContent).toBe('+5 −1');
-    const chip = row.querySelector('.wd-pr-chip')!;
-    expect(chip.textContent).toBe('#42');
-    expect(chip.className).not.toMatch(/wd-pr-chip-(failure|success|pending)/); // open or not — no checks colour
+    // Not open: no second line, no chips.
+    expect(row.querySelector('.wd-dash-rail-summary')).toBeNull();
+    expect(row.querySelector('.wd-pr-chip')).toBeNull();
+    expect(row.getAttribute('title')).toContain('Claude needs your permission to use Bash');
+    expect(row.getAttribute('title')).toContain('+5 −1 · #42');
     expect(row.querySelector('.wd-dash-rail-slot')?.className).toContain('wd-rail-slot-needs');
   });
 
-  it('a quiet session shows a relative time and no summary suffix', () => {
+  it('the open session also says where it stands; a quiet one shows a relative time and no summary suffix', () => {
     act(() =>
       root.render(
         createElement(SessionRail, {
-          sessions: [s({ id: 'q', attention: att('idle', true) })],
-          activeSessionId: null,
+          sessions: [s({ id: 'q', attention: att('idle', true) }), s({ id: 'n', attention: att('needs_input', false, 'Allow Bash?') })],
+          activeSessionId: 'q',
           onSelect: () => {},
           onNewWorktree: () => {},
         }),

@@ -32,7 +32,9 @@ import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js'
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { PrsTab } from '../components/Dashboard/tabs/PrsTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
-import { TasksTab, taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
+import { taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
+import { TasksPanel } from '../components/Dashboard/TasksPanel.js';
+import { NowTodayToggle } from '../components/Dashboard/NowTodayToggle.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
 import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
@@ -62,7 +64,6 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   sessions: 'Sessions',
   prs: 'PRs',
   jira: 'Jira',
-  tasks: 'Tasks',
 };
 
 /**
@@ -114,6 +115,8 @@ export function DashboardApp() {
 
   // The Ctrl+K assistant. Mounted from the first open, then only hidden.
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // The top bar's Tasks panel (g t).
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [assistantMounted, setAssistantMounted] = useState(false);
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
@@ -388,6 +391,8 @@ export function DashboardApp() {
     navigate({ tab: route.tab, sessionId: null, sessionSubTab: 'term' });
   }, [navigate, route.tab]);
   const goHome = useCallback(() => goTab('sessions'), [goTab]);
+  // Sessions' two views: Now (the table) and Today (the digest).
+  const sessionsView = useCallback((v: 'now' | 'today') => goTab(v === 'now' ? 'sessions' : 'today'), [goTab]);
 
   // Modal helpers — each tab passes its onPick handler that calls one of
   // these to open the modal with a sensible prefill.
@@ -438,8 +443,12 @@ export function DashboardApp() {
           s: 'sessions',
           p: 'prs',
           j: 'jira',
-          t: 'tasks',
         };
+        if (e.key === 't') {
+          e.preventDefault();
+          setTasksOpen((o) => !o);
+          return;
+        }
         if (map[e.key]) {
           e.preventDefault();
           goTab(map[e.key]);
@@ -540,8 +549,6 @@ export function DashboardApp() {
     document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
   }, [inboxCount]);
 
-  const currentScopeLabel = activeSession ? `${activeSession.target}/${activeSession.branch}` : undefined;
-
   // -- Render --------------------------------------------------------------
   let body: React.ReactNode;
   if (error && sessions.length === 0) {
@@ -584,7 +591,7 @@ export function DashboardApp() {
         body = <InboxTab sessions={sessions} onOpenSession={openSession} prsFor={prsFor} prsKnown={prsKnown} onReviewAll={startReview} />;
         break;
       case 'today':
-        body = <TodayTab onOpenSession={openSession} />;
+        body = <TodayTab onOpenSession={openSession} viewToggle={<NowTodayToggle value="today" onChange={sessionsView} />} />;
         break;
       case 'cleanup':
         body = <CleanupTab onOpenSession={(id) => openSession(id)} />;
@@ -599,6 +606,7 @@ export function DashboardApp() {
             onCleanUp={() => goTab('cleanup')}
             prsFor={prsFor}
             layout={railLayout}
+            viewToggle={<NowTodayToggle value="now" onChange={sessionsView} />}
           />
         );
         break;
@@ -620,9 +628,6 @@ export function DashboardApp() {
           />
         );
         break;
-      case 'tasks':
-        body = <TasksTab onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />;
-        break;
     }
   }
 
@@ -631,7 +636,6 @@ export function DashboardApp() {
       <DashboardLayout
         route={route}
         sessions={sessions}
-        currentScopeLabel={currentScopeLabel}
         onSelectTab={goTab}
         onSelectSession={hopTo}
         sessionOrder={sessionOrder}
@@ -647,6 +651,7 @@ export function DashboardApp() {
         prsFor={prsFor}
         onAssistant={toggleAssistant}
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
+        tasks={<TasksPanel open={tasksOpen} onOpenChange={setTasksOpen} onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />}
         assistantOpen={assistantOpen}
       >
         {body}

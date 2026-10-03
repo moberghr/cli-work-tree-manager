@@ -115,8 +115,8 @@ describe('SessionRail search', () => {
   });
 });
 
-describe('PR pills in the rail', () => {
-  it('open the PR, without selecting the row', () => {
+describe('PRs in the rail', () => {
+  it('are named in the row tooltip, not shown as pills (one line a row)', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const pr = {
       number: 3509,
@@ -130,10 +130,11 @@ describe('PR pills in the rail', () => {
       isMine: true,
       repoAlias: 'jobly',
     } as PrInfo;
-    const onSelect = render({ prsFor: (s) => (s.id === 'b' ? [pr] : []) });
-    const pill = container.querySelector<HTMLElement>('.wd-pr-chip')!;
-    act(() => pill.click());
-    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/3509', '_blank', 'noopener');
-    expect(onSelect).not.toHaveBeenCalled();
+    render({ prsFor: (s) => (s.id === 'b' ? [pr] : []) });
+    // One line a row: the PR is named in the row's tooltip; its pill is on the session page.
+    expect(container.querySelector('.wd-pr-chip')).toBeNull();
+    const row = [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.title.includes('#3509'));
+    expect(row).toBeDefined();
+    expect(open).not.toHaveBeenCalled();
   });
 });

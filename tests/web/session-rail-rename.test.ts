@@ -53,8 +53,9 @@ const render = (onRename = vi.fn(async () => {}), activeSessionId: string | null
   );
   return onRename;
 };
+// A row by its branch: in its tooltip (a named row shows its name, and its branch only while open).
 const row = (branch: string) =>
-  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.textContent?.includes(branch))!;
+  [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.title.includes(` · ${branch}`))!;
 const field = () => container.querySelector<HTMLInputElement>('.wd-dash-rail-rename');
 const key = (el: EventTarget, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 const type = (el: HTMLInputElement, value: string) => {
@@ -120,9 +121,9 @@ describe('SessionRail: renaming a session', () => {
     expect(container.textContent).toContain('renaming failed (500)');
   });
 
-  it('your name is the row’s label, with repo and branch beneath; an automatic one keeps the branch first', () => {
-    render();
-    const named = row('Rotate keys');
+  it('your name is the row’s label, with repo and branch beneath while open; an automatic one keeps the branch first', () => {
+    render(undefined, 'a');
+    const named = row('fix/keys');
     expect(named.querySelector('.wd-dash-rail-name')!.textContent).toBe('Rotate keys');
     expect(named.querySelector('.wd-dash-rail-summary')!.textContent).toBe('api · fix/keys');
     expect(row('feat/csv').querySelector('.wd-dash-rail-name')!.textContent).toBe('feat/csv');

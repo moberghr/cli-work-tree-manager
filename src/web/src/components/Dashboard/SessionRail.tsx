@@ -13,7 +13,7 @@ import {
 import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
-import { ClaudesChip, PrChips, otherBranchText } from './SessionBits.js';
+import { otherBranchText } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
@@ -61,6 +61,22 @@ interface Props {
 
 /** Right-hand status slot: the one thing worth saying about this row. The
  *  status icon on the left says what it is; this says how long, or how many. */
+/**
+ * What a rail row no longer shows on its face, for its tooltip: changes,
+ * PRs, notes waiting for Claude, your note, where its Claude runs. Pure.
+ */
+export function railDetails(s: SessionSummary, stat: string | null, prs: { number: number }[]): string {
+  const c = s.agents ?? s.claudes;
+  const bits = [
+    stat ?? '',
+    prs.length ? prs.map((p) => `#${p.number}`).join(' ') : '',
+    s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
+    s.hasNote ? 'has notes' : '',
+    c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
+  ].filter(Boolean);
+  return bits.length ? `\n${bits.join(' · ')}` : '';
+}
+
 function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
   const since = s.attention?.since ?? s.lastAccessedAt;
   if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
@@ -315,6 +331,7 @@ export function SessionRail({
           title={
             `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
             (summary ? ` — ${summary}` : '') +
+            railDetails(s, stat, prs) +
             (index < 9 ? `\nAlt+${index + 1}` : '')
           }
         >
@@ -324,29 +341,15 @@ export function SessionRail({
               <span className="wd-dash-rail-name">{label}</span>
               <span className={'wd-dash-rail-slot ' + slot.cls}>{slot.text}</span>
             </span>
-            <span className="wd-dash-rail-line wd-dash-rail-sub">
-              <span className="wd-dash-rail-summary">
-                {s.target}
-                {named ? ` · ${s.branch}` : summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
+            {/* One line a row; the open session also says where it stands. */}
+            {isActive && (
+              <span className="wd-dash-rail-line wd-dash-rail-sub">
+                <span className="wd-dash-rail-summary">
+                  {s.target}
+                  {named ? ` · ${s.branch}` : summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
+                </span>
               </span>
-              {!!s.pendingForClaudeCount && s.pendingForClaudeCount > 0 && (
-                <span className="wd-dash-rail-pending" title={`${s.pendingForClaudeCount} pending for Claude`}>
-                  →{s.pendingForClaudeCount}
-                </span>
-              )}
-              {stat && (
-                <span className="wd-dash-rail-stat" title={`${s.diffStat!.files} file(s) changed`}>
-                  {stat}
-                </span>
-              )}
-              <PrChips prs={prs} />
-              {s.hasNote && (
-                <span className="wd-dash-rail-note" title="You have notes on it" aria-label="has notes">
-                  📝
-                </span>
-              )}
-              <ClaudesChip session={s} compact />
-            </span>
+            )}
           </span>
         </button>
       </li>
@@ -357,35 +360,34 @@ export function SessionRail({
   return (
     <aside className="wd-dash-rail" role="navigation" aria-label="Sessions">
       <header className="wd-dash-rail-header">
-        <h2>Sessions</h2>
+        {anySessions && (
+          <input
+            ref={searchRef}
+            className="wd-dash-rail-search"
+            type="search"
+            placeholder="Search sessions   /"
+            title="Filter this list (/). Ctrl+P jumps to any session from anywhere, a terminal included; Alt+1…9 opens the first nine rows."
+            aria-label="Search sessions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setQuery('');
+                e.currentTarget.blur();
+              } else if (e.key === 'Enter' && visible[0]) {
+                onSelect(visible[0].id);
+              } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                listRef.current?.querySelector<HTMLButtonElement>('.wd-dash-rail-item')?.focus();
+              }
+            }}
+          />
+        )}
         <StatusLegend />
         <button type="button" className="wd-dash-rail-new" onClick={onNewWorktree} title="New worktree" aria-label="New worktree">
           +
         </button>
       </header>
-      {anySessions && (
-        <input
-          ref={searchRef}
-          className="wd-dash-rail-search"
-          type="search"
-          placeholder="Search sessions   /"
-          title="Filter this list (/). Ctrl+P jumps to any session from anywhere, a terminal included; Alt+1…9 opens the first nine rows."
-          aria-label="Search sessions"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setQuery('');
-              e.currentTarget.blur();
-            } else if (e.key === 'Enter' && visible[0]) {
-              onSelect(visible[0].id);
-            } else if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              listRef.current?.querySelector<HTMLButtonElement>('.wd-dash-rail-item')?.focus();
-            }
-          }}
-        />
-      )}
       {searching && visible.length === 0 && <p className="wd-dash-rail-empty">No session matches “{query.trim()}”.</p>}
       {!anySessions ? (
         <p className="wd-dash-rail-empty">No worktrees yet. Click + to create one.</p>

@@ -4,11 +4,11 @@
  * Routes:
  *   `#/sessions` (or empty hash)     → Sessions tab (landing)
  *   `#/inbox`                         → Inbox: sessions that need you, in order
- *   `#/today`                         → Today: what each session did (digest)
+ *   `#/today`                         → Sessions · Today: what each session did (digest)
  *   `#/cleanup`                       → Clean up: worktrees that can go (from Sessions)
  *   `#/prs`                           → PRs tab
  *   `#/jira`                          → Jira tab
- *   `#/tasks`                         → Tasks tab
+ *   `#/tasks`                         → (old) Sessions: Tasks is a panel in the top bar now
  *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
  *   `#/s/<sessionId>/term`           → Session detail · terminal
  *   `#/s/<sessionId>/diff`           → Session detail · diff (comments included)
@@ -23,7 +23,7 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'prs' | 'jira' | 'tasks';
+export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'prs' | 'jira';
 export type SessionSubTab = 'diff' | 'term' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */
@@ -64,7 +64,7 @@ export function parseHash(hash: string): DashboardRoute {
   const tab = hash.match(TAB_RE);
   if (tab) {
     return {
-      tab: tab[1] as DashboardTab,
+      tab: tab[1] === 'tasks' ? 'sessions' : (tab[1] as DashboardTab),
       sessionId: null,
       sessionSubTab: 'term',
     };

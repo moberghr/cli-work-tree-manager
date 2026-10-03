@@ -312,6 +312,21 @@ test('Today lists what each session did, and g d gets there', async ({ page }) =
   await expect(page).toHaveURL(/#\/s\/demo-api-feat-invoice-export\/diff$/);
 });
 
+test('Today is a view of Sessions, and Tasks is a panel in the top bar', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await expect(page).toHaveURL(/#\/today$/);
+  await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Now', exact: true }).click();
+  await expect(page).toHaveURL(/#\/sessions$/);
+
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Tasks' });
+  await expect(panel).toContainText('Rate-limit the public invoices API');
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+});
+
 test('a split-view diff lays its columns out at full width', async ({ page }) => {
   // A stray `.wd-context { display: inline-flex }` (the diff's own row class)
   // once shrank every cell to 50 px; the demo's data was fine, so only a

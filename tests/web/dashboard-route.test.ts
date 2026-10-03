@@ -16,7 +16,9 @@ describe('parseHash', () => {
     });
     expect(parseHash('#/prs')).toMatchObject({ tab: 'prs', sessionId: null });
     expect(parseHash('#/jira')).toMatchObject({ tab: 'jira' });
-    expect(parseHash('#/tasks')).toMatchObject({ tab: 'tasks' });
+    expect(parseHash('#/today')).toMatchObject({ tab: 'today' });
+    // Tasks is a panel in the top bar now: an old link lands on Sessions.
+    expect(parseHash('#/tasks')).toMatchObject({ tab: 'sessions', sessionId: null });
   });
 
   it('tolerates a trailing slash on tab hashes', () => {
@@ -79,7 +81,7 @@ describe('toHash', () => {
       { tab: 'sessions' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'prs' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'jira' as const, sessionId: null, sessionSubTab: 'term' as const },
-      { tab: 'tasks' as const, sessionId: null, sessionSubTab: 'term' as const },
+      { tab: 'today' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'diff' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'timeline' as const },

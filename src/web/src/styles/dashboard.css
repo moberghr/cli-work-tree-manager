@@ -17,10 +17,10 @@
 .wd-dash-topnav {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 0 16px;
-  height: 44px;
-  background: var(--header-bg);
+  height: 48px;
+  background: var(--sidebar-bg, var(--header-bg));
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -40,14 +40,6 @@
 .wd-dash-brand:hover {
   background: var(--hover);
 }
-/* Shipped version — quiet monospace tag next to the brand. */
-.wd-dash-version {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
-  color: var(--muted);
-  margin-left: 2px;
-}
-
 .wd-dash-tabs {
   display: flex;
   list-style: none;
@@ -107,18 +99,105 @@
   flex: 1;
 }
 
-.wd-dash-current-scope {
-  font-size: 12px;
+/* A quiet top-bar button (Tasks). */
+.wd-topnav-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-topnav-btn:hover,
+.wd-topnav-btn-on {
+  color: var(--fg);
+  background: var(--hover);
+}
+/* Tasks: a small panel under its button (TasksPanel), the Tasks list in it. */
+.wd-tasks-popover {
+  position: relative;
+}
+.wd-tasks-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - 80px));
+  overflow: auto;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.wd-tasks-panel .wd-dash-tab-pane {
+  padding: 12px 14px;
+}
+.wd-tasks-panel .wd-tab-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.wd-tasks-panel .wd-tab-header h1 {
+  font-size: 14px;
+}
+.wd-tasks-panel .wd-tab-controls {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 10px;
+}
+.wd-tasks-panel .wd-tab-controls label {
   white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-tasks-panel .wd-task-add {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+}
+.wd-tasks-panel .wd-task-add input {
+  flex: 1;
+  min-width: 0;
+}
+.wd-tasks-panel .wd-task-list {
+  margin: 0;
+  padding: 0;
+}
+/* "Now / Today" beside the Sessions title. */
+.wd-segmented {
+  display: inline-flex;
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
+  vertical-align: middle;
+}
+.wd-segmented-btn {
+  appearance: none;
+  background: var(--bg);
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.wd-segmented-btn + .wd-segmented-btn {
+  border-left: 1px solid var(--border);
+}
+.wd-segmented-btn:hover {
+  color: var(--fg);
+}
+.wd-segmented-btn-on {
+  background: var(--hover);
+  color: var(--fg);
+  font-weight: 600;
 }
 
 /* ---- Body: rail + main ---------------------------------------------------*/
@@ -144,28 +223,23 @@
   flex-shrink: 0;
 }
 
+/* Search and + on one row (the top bar already says "Sessions"). */
 .wd-dash-rail-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px 6px;
-}
-.wd-dash-rail-header h2 {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 12px 10px 8px;
 }
 .wd-dash-rail-new {
   appearance: none;
-  background: transparent;
+  flex-shrink: 0;
+  background: var(--bg);
   border: 1px solid var(--border);
-  color: var(--muted);
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
+  color: var(--fg);
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -196,14 +270,14 @@
   border: none;
   color: var(--fg);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   display: flex;
   align-items: flex-start;
   gap: 8px;
   width: 100%;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   margin-bottom: 1px;
   overflow: hidden;
@@ -260,7 +334,8 @@
   font-weight: 600;
 }
 .wd-dash-rail-sub {
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--muted);
 }
 .wd-dash-rail-summary {
@@ -1535,10 +1610,6 @@ a.wd-pr-chip:hover {
     align-items: center;
     justify-content: center;
   }
-  .wd-dash-version,
-  .wd-dash-current-scope {
-    display: none;
-  }
   /* Tabs: one horizontally scrollable strip instead of clipping. */
   .wd-dash-tabs {
     flex: 1;
@@ -2421,10 +2492,12 @@ a.wd-pr-chip:hover {
   cursor: pointer;
 }
 .wd-dash-rail-search {
-  margin: 0 12px 8px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   padding: 5px 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -2526,8 +2599,12 @@ a.wd-pr-chip:hover {
   margin-right: 6px;
 }
 .wd-legend-toggle {
+  width: 22px;
   font-size: 12px;
   font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
 }
 .wd-legend-panel {
   position: fixed;
@@ -2589,34 +2666,42 @@ a.wd-pr-chip:hover {
   position: relative;
   margin-right: 8px;
 }
-.wd-activity-toggle {
+.wd-activity-dot-btn {
   appearance: none;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 280px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  justify-content: center;
   background: transparent;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 6px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 8px;
   cursor: pointer;
 }
-.wd-activity-busy {
-  color: var(--fg);
+.wd-activity-dot-btn:hover,
+.wd-activity-dot-btn[aria-expanded='true'] {
+  background: var(--hover);
 }
-.wd-activity-paused {
-  color: var(--warn-fg);
-  border-color: color-mix(in srgb, var(--warn-fg) 50%, var(--border));
+/* Grey while all is well (busy or not); coloured only when a job needs you. */
+.wd-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.6;
 }
-.wd-activity-count {
+.wd-activity-dot-busy {
+  opacity: 1;
+}
+.wd-activity-attention .wd-activity-dot {
+  background: var(--warn-fg);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
+}
+.wd-activity-version {
+  margin: 8px 0 0;
+  font-size: 11px;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 .wd-activity-spinner {
   width: 10px;

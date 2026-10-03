@@ -11,7 +11,6 @@ import { RAIL_SPEC, ResizeDivider, useResizableSize } from '../Layout/ResizeDivi
 interface Props {
   route: DashboardRoute;
   sessions: SessionSummary[];
-  currentScopeLabel?: string;
   onSelectTab: (tab: DashboardRoute['tab']) => void;
   onSelectSession: (id: string) => void;
   onHome: () => void;
@@ -25,6 +24,8 @@ interface Props {
   assistantOpen?: boolean;
   /** The top bar's background-activity indicator. */
   activity?: React.ReactNode;
+  /** The top bar's Tasks button and panel. */
+  tasks?: React.ReactNode;
   /** The rail's drag order (session ids, top first) and what a drag sets. */
   sessionOrder?: string[];
   onReorderSessions?: (order: string[]) => void;
@@ -40,7 +41,7 @@ interface Props {
 /**
  * Three-region dashboard chrome:
  *   ┌──────────────────────────────────────────────────────┐
- *   │ TopNav (brand · Sessions PRs Jira Tasks · scope)     │
+ *   │ TopNav (brand · Inbox Sessions … · Tasks Ask ●)      │
  *   ├──────┬───────────────────────────────────────────────┤
  *   │ Rail │           main slot (children)                │
  *   │      │                                               │
@@ -54,7 +55,6 @@ interface Props {
 export function DashboardLayout({
   route,
   sessions,
-  currentScopeLabel,
   onSelectTab,
   onSelectSession,
   onHome,
@@ -64,6 +64,7 @@ export function DashboardLayout({
   onAssistant,
   assistantOpen,
   activity,
+  tasks,
   sessionOrder,
   onReorderSessions,
   sessionMenu,
@@ -97,7 +98,6 @@ export function DashboardLayout({
       <TopNav
         active={route.tab}
         onSelect={onSelectTab}
-        currentScopeLabel={currentScopeLabel}
         onHome={onHome}
         inboxCount={inboxCount}
         onToggleRail={() => setRailOpen((o) => !o)}
@@ -105,6 +105,7 @@ export function DashboardLayout({
         onAssistant={onAssistant}
         assistantOpen={assistantOpen}
         activity={activity}
+        tasks={tasks}
       />
       <div
         ref={bodyRef}

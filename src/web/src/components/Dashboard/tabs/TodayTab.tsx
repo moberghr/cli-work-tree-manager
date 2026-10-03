@@ -9,6 +9,8 @@ interface Props {
   /** Test seams; default to the API / the clipboard. */
   load?: (since: Date) => Promise<DigestResponse>;
   copy?: (text: string) => Promise<void>;
+  /** "Now / Today" beside the title: this is Sessions' Today view. */
+  viewToggle?: React.ReactNode;
 }
 
 async function fetchDigest(since: Date): Promise<DigestResponse> {
@@ -38,7 +40,7 @@ function savedWindow(): DigestWindow {
  *  context) rejects instead of throwing out of the click handler. */
 const clipboardCopy = (t: string) => Promise.resolve().then(() => navigator.clipboard.writeText(t));
 
-export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCopy }: Props) {
+export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCopy, viewToggle }: Props) {
   const [win, setWin] = useState<DigestWindow>(savedWindow);
   const [data, setData] = useState<DigestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export function TodayTab({ onOpenSession, load = fetchDigest, copy = clipboardCo
     <div className="wd-dash-tab-pane wd-tab-today">
       <header className="wd-tab-header">
         <h1>
-          {WINDOW_LABEL[win]}{' '}
+          {viewToggle ? <>Sessions {viewToggle} </> : <>{WINDOW_LABEL[win]} </>}
           {t && (
             <span className="wd-tab-header-muted">
               ({t.sessions} session{t.sessions === 1 ? '' : 's'} · {t.prompts} prompt{t.prompts === 1 ? '' : 's'} · {t.turns} turn
