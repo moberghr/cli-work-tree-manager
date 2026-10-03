@@ -356,7 +356,7 @@ async function browserStage(
 }
 
 /**
- * The native terminal (desktop/avalonia): the app benchmarks itself when told to
+ * The native terminal (desktop/avalonia, kept on the spike/avalonia branch): the app benchmarks itself when told to
  * (WORK_DESKTOP_BENCH, see its Views/Bench.cs) — open the session, then type
  * through its input path — and writes the numbers to a file before exiting.
  */

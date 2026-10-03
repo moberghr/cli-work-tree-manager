@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="src/WorkDesktop/WorkDesktop.csproj" />
-  <Project Path="tests/WorkDesktop.Tests/WorkDesktop.Tests.csproj" />
-</Solution>
