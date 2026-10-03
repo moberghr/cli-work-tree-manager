@@ -70,6 +70,28 @@ export interface AgentLaunch {
   cleanEnv(env: Record<string, string | undefined>): Record<string, string | undefined>;
 }
 
+/** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */
+export interface LiveAgent {
+  pid: number;
+  /** Its conversation's id (two on one conversation would both write to it). */
+  conversationId: string;
+  cwd: string;
+  busy: boolean;
+  /** What the agent says it is doing: mid-turn, at its prompt, or waiting on you (a permission, a dialog). */
+  state: 'busy' | 'idle' | 'waiting' | null;
+  /** When that last changed (ms). */
+  stateAt: number | null;
+  /** While waiting: what for ("input needed", "dialog open"). */
+  waitingFor: string | null;
+  startedAt: number | null;
+}
+
+/** Which of its processes run now, wherever they were started (a terminal of yours included). */
+export interface AgentLive {
+  /** `table`: a process table the caller already has (pid → executable). */
+  running(table?: ReadonlyMap<number, string>): LiveAgent[];
+}
+
 /** A point in an agent's turn work hooks into: a prompt arrives, the turn ends, the agent notifies (a permission prompt, idle). */
 export type TurnEdge = 'turn-start' | 'turn-end' | 'notify';
 
@@ -103,4 +125,6 @@ export interface AgentAdapter {
   conversation?: AgentConversation;
   /** Hearing its turns through hooks; absent: no hook status (the PTY host's output stands in). */
   events?: AgentEvents;
+  /** Its running processes; absent: work sees only the ones the PTY host runs. */
+  live?: AgentLive;
 }

@@ -17,7 +17,8 @@ import { NOTE_NUDGE } from './pending-delivery.js';
 import { archiveWaiting } from './session-archive-deps.js';
 import { readContextUsage } from './context-usage.js';
 import { ensurePty, peekPty, ptyPids } from './pty-pool.js';
-import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { claudesBySession } from './live-claudes.js';
+import { liveAgents } from './agents/index.js';
 
 /** The first message of a Claude started for a PR note: the note itself
  *  rides along (the UserPromptSubmit hook adds pending comments). */
@@ -35,7 +36,7 @@ async function wakeForNote(id: string): Promise<WakeResult> {
   if (loadConfig()?.prWatch?.wakeClaude === false) return 'off';
   if (peekPty(id)) return 'running';
   const hostPids = ptyPids();
-  const elsewhere = (claudesBySession(readLiveClaudes(), loadHistory()).get(id) ?? []).filter((c) => !hostPids.has(c.pid));
+  const elsewhere = (claudesBySession(liveAgents(), loadHistory()).get(id) ?? []).filter((c) => !hostPids.has(c.pid));
   if (elsewhere.length) return 'running';
   const url = await ensurePty(id, { initialPrompt: WAKE_PROMPT }).catch(() => null);
   return url ? 'started' : 'failed';

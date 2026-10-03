@@ -1,7 +1,8 @@
 import { defaultCleanupDeps } from './cleanup-deps.js';
 import { normPath } from './cleanup.js';
 import { loadConfig } from './config.js';
-import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { claudesBySession } from './live-claudes.js';
+import { liveAgents } from './agents/index.js';
 import { loadHistory } from './history.js';
 import type { BuildFoldersDeps } from './build-folders-scan.js';
 
@@ -12,7 +13,7 @@ export function defaultBuildFoldersDeps(): BuildFoldersDeps {
   const cleanup = defaultCleanupDeps();
   return {
     sessions: async () => {
-      const running = claudesBySession(readLiveClaudes(), loadHistory());
+      const running = claudesBySession(liveAgents(), loadHistory());
       const repos = new Set(Object.values(loadConfig()?.repos ?? {}).map(normPath));
       return (await cleanup.sessions()).map((s) => ({
         id: s.id, target: s.target, branch: s.branch, paths: s.paths, lastActiveMs: s.lastActiveMs, running: running.has(s.id),

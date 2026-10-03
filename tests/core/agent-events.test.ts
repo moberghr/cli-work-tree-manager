@@ -74,6 +74,21 @@ describe('work web installs work’s hooks in every agent that has them', () => 
   });
 });
 
+describe('which agents run now (agents/: `live`)', () => {
+  it('every known agent’s running processes — Claude’s from its own ~/.claude/sessions files — believed only for a live Claude pid', async () => {
+    fs.mkdirSync(path.join(tmp, '.claude', 'sessions'), { recursive: true });
+    const file = (pid: number, cwd: string) =>
+      fs.writeFileSync(path.join(tmp, '.claude', 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId: `conv-${pid}`, cwd, status: 'busy', statusUpdatedAt: 1 }));
+    file(4242, '/wt/api');
+    file(5151, '/wt/web'); // its pid now runs something else
+    const { liveAgents } = await import('../../src/core/agents/index.js');
+    const table = new Map([[4242, 'claude.exe'], [5151, 'notepad.exe']]);
+    expect(liveAgents(table)).toEqual([
+      { pid: 4242, conversationId: 'conv-4242', cwd: '/wt/api', busy: true, state: 'busy', stateAt: 1, waitingFor: null, startedAt: null },
+    ]);
+  });
+});
+
 describe('work hook --agent', () => {
   it('a hook says which agent runs it; one with no hooks records no status, and notes go as plain text', async () => {
     const { statusEventFor, computeHookOutput } = await import('../../src/commands/hook.js');

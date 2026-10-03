@@ -3,9 +3,9 @@ import { getAiTool } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
 import type { WorktreeSession } from '../session-types.js';
 import { claudeAgent } from './claude.js';
-import type { AgentAdapter } from './types.js';
+import type { AgentAdapter, LiveAgent } from './types.js';
 
-export type { AgentAdapter, AgentLaunch, ConversationEntry, TurnEdge, WorkHook } from './types.js';
+export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
 
@@ -40,6 +40,11 @@ function plainAgent(id: string): AgentAdapter {
 /** Every agent work has an adapter for (whose hooks work web installs, whose running processes it reads). */
 export function knownAgents(): AgentAdapter[] {
   return [...ADAPTERS.values()];
+}
+
+/** Every known agent's running processes, wherever they were started (each agent's `live`). */
+export function liveAgents(table?: ReadonlyMap<number, string>): LiveAgent[] {
+  return knownAgents().flatMap((a) => a.live?.running(table) ?? []);
 }
 
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */

@@ -47,7 +47,8 @@ import { mountSessionOrderRoutes } from './session-order-routes.js';
 import { mountRailRoutes } from './rail-routes.js';
 import { archiveSession, onArchived } from './session-archive.js';
 import { defaultArchiveDeps, archiveMergedSession } from './session-archive-deps.js';
-import { claudeSessionsDir, claudesBySession, readLiveClaudes, summarizeClaudes } from './live-claudes.js';
+import { claudeSessionsDir, claudesBySession, summarizeClaudes } from './live-claudes.js';
+import { liveAgents } from './agents/index.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
 import { sessionIdFor } from './session-id.js';
 import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
@@ -316,7 +317,7 @@ export async function startWebServer(
       // A process table refreshed in the background: listing every process
       // synchronously (tasklist) on each build blocked the server.
       const table = recentProcessTable(5_000) ?? undefined;
-      const running = claudesBySession(readLiveClaudes(undefined, undefined, table), history.filter((s) => !shadow.has(sessionIdFor(s))));
+      const running = claudesBySession(liveAgents(table), history.filter((s) => !shadow.has(sessionIdFor(s))));
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
       const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
       const drafts = draftCounts();

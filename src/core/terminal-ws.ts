@@ -4,7 +4,8 @@ import type { Socket } from 'node:net';
 import type EventEmitter from 'node:events';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ensurePty, peekPty, ptyPids, syncPtyPool } from './pty-pool.js';
-import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { claudesBySession } from './live-claudes.js';
+import { liveAgents } from './agents/index.js';
 import { loadHistory } from './history.js';
 import { refuseReason } from './local-origin.js';
 import { findSession } from './web-state.js';
@@ -87,7 +88,7 @@ async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | 
   const raw = readStatus(sessionId);
   const status = raw ? sessionStatusView(raw, session, activity.lastActivity ?? 0) : null;
   const hostPids = ptyPids();
-  const runningOutside = (claudesBySession(readLiveClaudes(), loadHistory()).get(sessionId) ?? []).filter((c) => !hostPids.has(c.pid));
+  const runningOutside = (claudesBySession(liveAgents(), loadHistory()).get(sessionId) ?? []).filter((c) => !hostPids.has(c.pid));
   return claudeElsewhere({
     hasPty: peekPty(sessionId),
     lastActivityMs: activity.lastActivity,

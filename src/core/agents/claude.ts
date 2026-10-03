@@ -5,6 +5,7 @@ import { withoutParentSession } from '../claude-env.js';
 import { readTranscriptTail } from '../transcript.js';
 import { claudeContextWindow, claudeEntries } from './claude-entries.js';
 import { claudeEvents } from './claude-hooks.js';
+import { readLiveClaudes } from './claude-live.js';
 import type { AgentAdapter, ConversationEntry } from './types.js';
 
 export { claudeEntries } from './claude-entries.js';
@@ -49,4 +50,5 @@ export const claudeAgent: AgentAdapter = {
     },
   },
   events: claudeEvents,
+  live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
 };

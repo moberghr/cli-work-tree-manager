@@ -8,7 +8,8 @@ import { mountChatMcpRoutes } from './chat-mcp-routes.js';
 import { getConfigDir } from './config.js';
 import { latestTranscript } from './context-usage.js';
 import { disposePty, peekPty, ptyPids, spawnSpecFor, syncPtyPool } from './pty-pool.js';
-import { claudesBySession, readLiveClaudes } from './live-claudes.js';
+import { claudesBySession } from './live-claudes.js';
+import { liveAgents } from './agents/index.js';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { readTranscriptTail } from './transcript.js';
 import { findSession } from './web-state.js';
@@ -127,7 +128,7 @@ export function mountChatRoutes(
       // the user, and a second one here would write to the same conversation.
       await syncPtyPool(); // current, not the periodic refresh's
       const hostPids = ptyPids();
-      const outside = (claudesBySession(readLiveClaudes(), loadHistory()).get(id) ?? []).filter((x) => !hostPids.has(x.pid));
+      const outside = (claudesBySession(liveAgents(), loadHistory()).get(id) ?? []).filter((x) => !hostPids.has(x.pid));
       if (outside.length > 0) return c.json({ error: 'running-in-terminal' }, 409);
     }
     if (peekPty(id) && !chats.get(id)?.running) {
