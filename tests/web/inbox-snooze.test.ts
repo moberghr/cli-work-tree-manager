@@ -55,21 +55,17 @@ const button = (label: string, within: ParentNode = container) =>
   [...within.querySelectorAll('button')].find((b) => b.textContent === label)!;
 
 describe('snooze in the inbox', () => {
-  it('a snoozed session leaves its section for Snoozed (with when), and Unsnooze brings it back', async () => {
+  it('a snoozed session leaves the Inbox: counted in the closing line, not listed', () => {
     const sessions = [
       session('done-one', att('idle', false, 'Added the endpoint')),
       session('later', att('idle', false, 'Fixed the flake'), { snoozed: { until: null } }),
     ];
     act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: () => {} })));
     const sections = [...container.querySelectorAll('.wd-inbox-section-title')].map((h) => h.textContent);
-    expect(sections[0]).toContain('Done');
-    expect(sections.at(-1)).toContain('Snoozed');
-    const snoozed = container.querySelector('.wd-inbox-snoozed')!;
-    expect(snoozed.textContent).toContain('later');
-    expect(snoozed.textContent).toContain('until it changes');
+    expect(sections).toEqual(['Done · 1Review all'.replace('Review all', '')]);
+    expect(container.textContent).not.toContain('later');
+    expect(container.querySelector('.wd-inbox-rest')!.textContent).toContain('1 snoozed');
     expect(container.querySelector('.wd-tab-header h1')!.textContent).toContain('1 needs you');
-    await act(async () => button('Unsnooze', snoozed).click());
-    expect(api.unsnoozeSession).toHaveBeenCalledWith('later');
   });
 
   it('Snooze on a row that wants you: pick how long', async () => {

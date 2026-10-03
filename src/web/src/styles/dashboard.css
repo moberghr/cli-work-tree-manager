@@ -12,6 +12,25 @@
   background: var(--bg);
 }
 
+/* A button that reads as a link (Review all, Clean up, Show 1 older…).
+   Panels that want it in their own colour override it (.wd-activity-panel). */
+.wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.wd-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.wd-link-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 /* ---- Top nav -------------------------------------------------------------*/
 
 .wd-dash-topnav {
@@ -1054,87 +1073,70 @@ a.wd-pr-chip:hover {
   text-align: center;
 }
 .wd-inbox-section {
-  padding: 8px 24px 16px;
+  padding: 4px 32px 12px;
+  max-width: 1100px;
 }
 .wd-inbox-section-title {
-  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
   font-weight: 600;
-  margin: 12px 0 6px;
+  margin: 16px 0 6px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
-}
-.wd-inbox-rank-0 .wd-inbox-section-title {
-  color: var(--del-fg, #d1242f);
 }
 .wd-inbox-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+/* One row a session, every row the same width: icon · name · what · when | actions. */
+.wd-inbox-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+.wd-inbox-item:first-child {
+  border-top: none;
+}
+.wd-inbox-item:hover,
+.wd-inbox-item:focus-within {
+  background: var(--hover);
 }
 .wd-inbox-row {
   appearance: none;
   display: grid;
-  grid-template-columns: 10px minmax(120px, 220px) 1fr auto;
+  grid-template-columns: 16px minmax(140px, 240px) minmax(0, 1fr) 56px;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: none;
   background: transparent;
   color: var(--fg);
   font: inherit;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.wd-inbox-row:hover {
-  background: var(--hover);
-  border-color: var(--accent, #0969da);
-}
 .wd-inbox-row:focus-visible {
   outline: 2px solid var(--accent, #0969da);
-  outline-offset: 1px;
-}
-.wd-inbox-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.wd-inbox-dot-needs_input {
-  background: var(--del-fg, #d1242f);
-}
-.wd-inbox-dot-idle {
-  background: var(--accent, #0969da);
-}
-.wd-inbox-dot-review {
-  background: var(--review-fg);
-}
-.wd-inbox-review {
-  color: var(--review-fg);
-}
-.wd-inbox-dot-working {
-  background: #2ea043;
-  animation: wd-inbox-pulse 1.4s ease-in-out infinite;
-}
-@keyframes wd-inbox-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wd-inbox-dot-working {
-    animation: none;
-  }
+  outline-offset: -2px;
 }
 .wd-inbox-name {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
 }
 .wd-inbox-target {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .wd-inbox-branch {
@@ -1148,47 +1150,56 @@ a.wd-pr-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  color: var(--muted);
 }
 .wd-inbox-since {
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
-}
-@media (max-width: 640px) {
-  .wd-inbox-row {
-    grid-template-columns: 10px 1fr auto;
-  }
-  .wd-inbox-summary {
-    grid-column: 2 / -1;
-  }
-}
-
-/* Inbox rows: the row opens the default target; actions sit beside it. */
-.wd-inbox-item {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.wd-inbox-item .wd-inbox-row {
-  margin-bottom: 0;
-  flex: 1;
-  min-width: 0;
-}
-.wd-inbox-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
+  text-align: right;
 }
 .wd-inbox-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
-  /* Same width whether or not a row has "Mark seen", so rows line up —
-     fixed (not min-) width, sized for all three buttons. */
-  flex: 0 0 196px;
   justify-content: flex-end;
+  gap: 6px;
+  padding-right: 12px;
+}
+/* Snooze, Mark seen, Terminal: there when the row is hovered or focused. */
+.wd-inbox-more {
+  display: inline-flex;
+  gap: 10px;
+  margin-right: 4px;
+  font-size: 12px;
+  visibility: hidden;
+}
+.wd-inbox-item:hover .wd-inbox-more,
+.wd-inbox-item:focus-within .wd-inbox-more {
+  visibility: visible;
+}
+/* The rest, in a line, pointing to the rail. */
+.wd-inbox-rest {
+  margin: 20px 32px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .wd-inbox-item {
+    grid-template-columns: 1fr;
+  }
+  .wd-inbox-row {
+    grid-template-columns: 16px 1fr auto;
+  }
+  .wd-inbox-summary {
+    grid-column: 2 / -1;
+  }
+  .wd-inbox-actions {
+    justify-content: flex-start;
+    padding: 0 12px 10px 40px;
+  }
+  .wd-inbox-more {
+    visibility: visible;
+  }
 }
 
 /* Small secondary buttons used on table rows and inbox items. */
@@ -1269,7 +1280,7 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
 }
 .wd-session-table td {
-  padding: 7px 12px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -1299,22 +1310,28 @@ a.wd-pr-chip:hover {
 .wd-session-row-unseen .wd-st-branch {
   font-weight: 600;
 }
+/* Name and repo on one line, then a badge or two only when they matter. */
 .wd-st-session {
-  max-width: 260px;
-}
-.wd-st-branch,
-.wd-st-target {
-  display: block;
+  max-width: 360px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .wd-st-branch {
   font-weight: 500;
 }
 .wd-st-target {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
+}
+/* "84% full": the conversation is past 70%. */
+.wd-st-full {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--warn-fg);
+  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+  border-radius: 999px;
+  padding: 0 6px;
 }
 .wd-st-col-summary {
   width: 40%;
@@ -1327,29 +1344,70 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
   color: var(--fg);
 }
-.wd-st-files {
-  font-size: 11px;
-  color: var(--muted);
-}
 .wd-st-col-changes,
 .wd-st-col-when {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
 }
-.wd-st-col-pr {
-  white-space: nowrap;
-}
-.wd-st-col-pr .wd-pr-chip + .wd-pr-chip {
-  margin-left: 4px;
-}
-.wd-st-col-actions {
-  white-space: nowrap;
+/* ⋯ on hover (or focus): the row's menu. */
+.wd-st-col-more {
+  width: 36px;
   text-align: right;
   cursor: default;
 }
-.wd-st-col-actions .wd-row-action + .wd-row-action {
-  margin-left: 4px;
+.wd-st-more {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  visibility: hidden;
+}
+.wd-session-row:hover .wd-st-more,
+.wd-session-row:focus-within .wd-st-more {
+  visibility: visible;
+}
+.wd-st-more:hover {
+  color: var(--fg);
+  border-color: var(--border);
+  background: var(--bg);
+}
+/* "View ▾": the table's filter, grouping and sort in one popover. */
+.wd-view-menu {
+  position: relative;
+}
+.wd-view-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+}
+.wd-view-menu-panel > label:not(.wd-tab-check) {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.wd-session-older {
+  display: block;
+  margin: 12px 24px;
+  font-size: 13px;
 }
 .wd-session-group .wd-session-table {
   margin-bottom: 8px;
@@ -1665,19 +1723,8 @@ a.wd-pr-chip:hover {
     flex-wrap: wrap;
     gap: 8px 12px;
   }
-  .wd-inbox-actions {
-    flex: 0 0 auto;
-    justify-content: flex-start;
-  }
   .wd-inbox-section {
     padding: 4px 12px 12px;
-  }
-  .wd-inbox-item {
-    flex-direction: column;
-    gap: 4px;
-  }
-  .wd-inbox-actions {
-    padding-left: 22px;
   }
 
   /* Table -> stacked rows: status + session + summary stay, the rest wraps. */
@@ -1721,13 +1768,8 @@ a.wd-pr-chip:hover {
   .wd-st-col-changes {
     grid-column: 1 / 3;
   }
-  .wd-st-col-pr {
-    grid-column: 3;
-    text-align: right;
-  }
-  .wd-st-col-actions {
-    grid-column: 1 / -1;
-    text-align: left;
+  .wd-st-col-more {
+    display: none;
   }
   .wd-st-label {
     display: none;
@@ -1754,10 +1796,6 @@ a.wd-pr-chip:hover {
     min-width: 0;
     width: calc(100vw - 24px);
   }
-  .wd-inbox-actions {
-    justify-content: flex-start;
-  }
-
   /* Session diff: stack the file tree above the diff instead of a
      side-by-side split that leaves the diff a sliver. */
   .wd-session-subtab-body > .wd-web-review-layout {
@@ -1879,25 +1917,16 @@ a.wd-pr-chip:hover {
 
 /* Inbox: what a permission prompt wants to run, answerable in place. */
 .wd-inbox-request {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-.wd-inbox-request-tool {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  flex: 0 0 auto;
-}
-.wd-inbox-request code {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 12px;
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+}
+.wd-inbox-request-tool {
+  font-weight: 600;
+  color: var(--muted);
 }
 .wd-inbox-answer-error {
   color: var(--del-fg);
@@ -1913,10 +1942,10 @@ a.wd-pr-chip:hover {
 
 /* Review queue: a slim bar over the session while walking finished work. */
 .wd-inbox-review-all {
-  margin-left: 10px;
   font-size: 12px;
-  padding: 2px 10px;
-  vertical-align: middle;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .wd-review-queue-bar {
   display: flex;
@@ -2021,11 +2050,10 @@ a.wd-pr-chip:hover {
 .wd-ctx-full .wd-ctx-fill {
   background: var(--del-fg);
 }
-.wd-st-context {
-  margin-top: 2px;
-}
 .wd-st-overlap {
-  margin-top: 2px;
+  margin-left: 6px;
+  color: var(--warn-fg);
+  cursor: help;
 }
 
 /* "Prompts ▾": saved one-click instructions for a session. */
@@ -2898,11 +2926,6 @@ a.wd-pr-chip:hover {
 .wd-reply-actions .wd-link-button:hover {
   text-decoration: underline;
 }
-.wd-inbox-drafts {
-  color: var(--review-fg);
-  font-weight: 600;
-  margin-left: 6px;
-}
 
 /* Renaming a session in the rail (F2 / right-click → Rename). */
 .wd-dash-rail-item-renaming {
@@ -3193,9 +3216,6 @@ a.wd-pr-chip:hover {
 .wd-rail-slot-snoozed {
   color: var(--muted);
   font-style: italic;
-}
-.wd-inbox-snoozed {
-  opacity: 0.8;
 }
 
 /* The Sessions table's ticked rows and the bar acting on them (BulkBar). */

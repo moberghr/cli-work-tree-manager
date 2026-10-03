@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionAttention, SessionSummary } from '../../src/web/src/api/client.js';
-import { InboxTab } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
+import { InboxTab, inboxRestLine } from '../../src/web/src/components/Dashboard/tabs/InboxTab.js';
 import { SessionRail } from '../../src/web/src/components/Dashboard/SessionRail.js';
 import { TopNav } from '../../src/web/src/components/Dashboard/TopNav.js';
 import { ContextChip, OverlapChip, formatTokens } from '../../src/web/src/components/Dashboard/SessionBits.js';
@@ -52,19 +52,25 @@ const SESSIONS = [
 const text = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 describe('InboxTab', () => {
-  it('groups by what you should do, in inbox order, and counts quiet ones', () => {
+  it('only what wants you, in inbox order; the rest is one line pointing to the rail', () => {
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
     const sections = [...container.querySelectorAll('.wd-inbox-section')];
-    expect(sections.map((s) => text(s.querySelector('h2')))).toEqual([
-      'Needs your input (2)',
-      'Done — not looked at yet (1)',
-      'Working (1)',
-    ]);
+    expect(sections.map((s) => text(s.querySelector('h2')))).toEqual(['Needs your input · 2', 'Done · 1']);
     const branches = [...container.querySelectorAll('.wd-inbox-branch')].map((b) => b.textContent);
-    expect(branches).toEqual(['blocked-old', 'blocked-new', 'done', 'working-a']);
-    expect(text(container.querySelector('h1'))).toContain('3 need you · 1 working · 1 quiet');
+    expect(branches).toEqual(['blocked-old', 'blocked-new', 'done']);
+    expect(text(container.querySelector('h1'))).toBe('Inbox 3 need you');
+    expect(text(container)).not.toContain('Press n');
     expect(text(container)).toContain('Claude needs your permission to use Edit');
-    expect(text(container)).toContain('waiting 8m');
+    expect(text(container.querySelector('.wd-inbox-since'))).toBe('8m');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 working, 2 quiet — they're in the list on the left."); // the untracked one is in the rail too
+  });
+
+  it('one action a row: Open for a question, Review for finished work', () => {
+    act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
+    const actions = [...container.querySelectorAll('.wd-inbox-actions')].map((a) =>
+      [...a.querySelectorAll(':scope > button')].map((b) => b.textContent),
+    );
+    expect(actions).toEqual([['Open'], ['Open'], ['Review']]);
   });
 
   it('sessions with unresolved review comments get their own section, and count as needing you', () => {
@@ -76,12 +82,13 @@ describe('InboxTab', () => {
     ];
     act(() => root.render(createElement(InboxTab, { sessions: withReview, onOpenSession: () => {} })));
     const sections = [...container.querySelectorAll('.wd-inbox-section')].map((s) => text(s.querySelector('h2')));
-    expect(sections).toEqual(['Needs your input (2)', 'Done — not looked at yet (1)', 'Review comments (2)', 'Working (2)']);
+    expect(sections).toEqual(['Needs your input · 2', 'Done · 1', 'Review comments · 2']);
     const review = [...container.querySelectorAll('.wd-inbox-section')][2];
-    expect(text(review)).toContain('💬 3 unresolved review comments');
-    expect(text(review)).toContain('💬 1 unresolved review comment');
-    expect(review.querySelector('.wd-inbox-dot-review')).not.toBeNull();
-    expect(text(container.querySelector('h1'))).toContain('5 need you · 2 working');
+    expect(text(review)).toContain('3 open threads');
+    expect(text(review)).toContain('1 open thread');
+    expect(review.querySelector('.wd-rail-dot-review')).not.toBeNull();
+    expect(text(container.querySelector('h1'))).toBe('Inbox 5 need you');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toContain('2 working');
   });
 
   it('opens blocked sessions on the terminal and finished ones on the diff', () => {
@@ -104,6 +111,16 @@ describe('InboxTab', () => {
   it('says so when nothing needs you', () => {
     act(() => root.render(createElement(InboxTab, { sessions: [session('q', att('idle', true, 5))], onOpenSession: () => {} })));
     expect(text(container)).toContain('Nothing needs you right now.');
+    expect(text(container.querySelector('.wd-inbox-rest'))).toBe("1 quiet — it's in the list on the left.");
+  });
+});
+
+describe('inboxRestLine', () => {
+  it('says what the Inbox leaves to the rail, or nothing', () => {
+    expect(inboxRestLine({ working: 1, quiet: 3, snoozed: 2, waiting: 1 })).toBe(
+      "1 working, 3 quiet, 2 snoozed, 1 waiting on others — they're in the list on the left.",
+    );
+    expect(inboxRestLine({ working: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBeNull();
   });
 });
 
@@ -130,7 +147,7 @@ describe('InboxTab: answering a permission prompt', () => {
     act(() => root.render(createElement(InboxTab, { sessions: [blocked(false)], onOpenSession: () => {}, onAnswer: vi.fn() })));
     expect(text(container.querySelector('.wd-inbox-request'))).toContain('npm test -- invoices');
     expect(button('Allow')).toBeUndefined();
-    expect(button('Terminal')).toBeDefined();
+    expect(button('Open')).toBeDefined(); // the terminal, where it's answered
   });
 
   it("shows the server's reason when it refused to type", async () => {

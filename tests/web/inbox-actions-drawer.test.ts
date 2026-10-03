@@ -49,7 +49,7 @@ describe('Inbox row actions', () => {
     s({ id: 'archived-done', attention: att('idle', false, 'x'), archivedAt: minsAgo(1) }),
   ];
 
-  it('Diff / Terminal open the right sub-tab; Mark seen only on finished rows, with progress', async () => {
+  it('Open / Review open the right sub-tab, Terminal is there on hover; Mark seen only on finished rows, with progress', async () => {
     const onOpen = vi.fn();
     let resolve!: () => void;
     const onMarkSeen = vi.fn(
@@ -67,10 +67,13 @@ describe('Inbox row actions', () => {
       [...el.querySelectorAll<HTMLButtonElement>('.wd-inbox-actions button')].find((b) => b.textContent === label);
 
     expect(btn(blocked, 'Mark seen')).toBeUndefined();
-    act(() => btn(blocked, 'Diff')!.click());
+    expect(btn(blocked, 'Terminal')).toBeUndefined(); // it opens there anyway
+    act(() => btn(blocked, 'Open')!.click());
+    act(() => btn(done, 'Review')!.click());
     act(() => btn(done, 'Terminal')!.click());
     expect(onOpen.mock.calls).toEqual([
-      ['blocked', 'diff'],
+      ['blocked', 'term', undefined],
+      ['done', 'diff', { lastTurn: true }],
       ['done', 'term'],
     ]);
 
@@ -82,9 +85,10 @@ describe('Inbox row actions', () => {
     expect(btn(done, 'Mark seen')).toBeDefined();
   });
 
-  it('rows show the diff size', () => {
+  it('rows keep to name, what and when: no diff size or chips', () => {
     act(() => root.render(createElement(InboxTab, { sessions: SESSIONS, onOpenSession: () => {} })));
-    expect(text(container.querySelector('.wd-inbox-item .wd-diffstat'))).toBe('+2 −0');
+    expect(container.querySelector('.wd-inbox-item .wd-diffstat')).toBeNull();
+    expect(text(container.querySelector('.wd-inbox-item .wd-inbox-summary'))).toBe('Needs Bash');
   });
 });
 

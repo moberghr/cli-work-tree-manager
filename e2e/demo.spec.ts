@@ -140,7 +140,9 @@ test('a finished session notifies only when you are not looking, and the click j
     (window as unknown as { Notification: unknown }).Notification = N;
   });
   await page.goto(`${url}#/inbox`);
-  await expect(page.getByText('Notifications on')).toBeVisible();
+  // Granted: nothing left to offer (the Inbox says nothing about it then).
+  await expect(page.locator('.wd-tab-inbox h1')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Enable notifications' })).toHaveCount(0);
 
   // Answer the blocked agent, then look elsewhere while it works.
   await page.locator('.wd-inbox-rank-0 .wd-inbox-row', { hasText: 'feat/invoice-export' }).click();
@@ -242,10 +244,12 @@ test('a permission prompt is answered from the inbox, showing the command it all
   const item = page.locator('.wd-inbox-rank-0 .wd-inbox-item', { hasText: 'feat/invoice-export' });
   await expect(item.locator('.wd-inbox-request')).toHaveText('Bash npm test -- invoices');
   await item.getByRole('button', { name: 'Allow' }).click();
-  // It leaves "Needs your input" and shows up as working, with what was allowed.
+  // It leaves the Inbox (working is the rail's), which says what was allowed.
   await expect(page.locator('.wd-inbox-rank-0', { hasText: 'feat/invoice-export' })).toHaveCount(0);
-  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-item', { hasText: 'feat/invoice-export' })).toContainText(
-    'Allowed Bash: npm test -- invoices',
+  await expect(page.locator('.wd-inbox-rest')).toContainText(/\d+ working/);
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/invoice-export' })).toHaveAttribute(
+    'title',
+    /Allowed Bash: npm test -- invoices/,
   );
 });
 
@@ -358,7 +362,7 @@ test('Today and Inbox scroll when their content is taller than the window', asyn
 
 test('Clean up finds the old merged worktree and removes it after a confirm', async ({ page }) => {
   await page.goto(`${url}#/sessions`);
-  await page.getByRole('button', { name: 'Clean up…' }).first().click();
+  await page.getByRole('button', { name: 'Clean up', exact: true }).click();
   await expect(page).toHaveURL(/#\/cleanup$/);
   const item = page.locator('.wd-cleanup-safe .wd-cleanup-item', { hasText: 'spike/dark-mode' });
   await expect(item).toContainText("Nothing here that isn't in origin/HEAD");

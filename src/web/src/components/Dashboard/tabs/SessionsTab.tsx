@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_RAIL_LAYOUT, groupRail, type RailGroup, type RailLayout } from '../../../../../core/rail/rail-layout.js';
 import { BulkBar, type BulkActions } from './BulkBar.js';
 import { bulkSummary, runBulk } from '../../../state/bulk.js';
@@ -13,7 +13,7 @@ import {
   type ConversationHit,
   type SessionSummary,
 } from '../../../api/client.js';
-import { openInTerminal, removeWorktree } from '../../../api/panes.js';
+import { removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import {
   DISPLAY_LABEL,
@@ -21,21 +21,22 @@ import {
   displayStatus,
   isArchived,
   statusBucket,
-  type PrLookup,
+  CONTEXT_WARN,
   type StatusBucket,
 } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
-import { ContextChip, DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
+import { DiffStatChip, overlapTitle } from '../SessionBits.js';
+import { RowMenu, type MenuItem } from '../RowMenu.js';
 
 interface Props {
   sessions: SessionSummary[];
   onOpenSession: (id: string, sub?: SessionSubTab) => void;
   onNewWorktree: () => void;
   onDeleteSession: (session: SessionSummary) => void;
-  /** Open PRs for a session; rows skip the PR cell without it. */
-  prsFor?: PrLookup;
+  /** A row's ⋯ (and right-click) menu: the rail's. Without it, Archive / Restore and Delete. */
+  menuFor?: (s: SessionSummary) => MenuItem[];
   /** Open the Clean up view. */
   onCleanUp?: () => void;
   /** The bulk bar's calls (tests swap them). */
@@ -100,13 +101,29 @@ export function SessionsTab({
   onOpenSession,
   onNewWorktree,
   onDeleteSession,
-  prsFor,
+  menuFor,
   onCleanUp,
   bulk = defaultBulk,
   viewToggle,
 }: Props) {
   // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
+  // The checkboxes show only while selecting (View ▾ → Select several).
+  const [selecting, setSelectingState] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const setSelecting = (on: boolean) => {
+    setSelectingState(on);
+    if (!on) setPicked(new Set());
+  };
+  const [rowMenu, setRowMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
+  const menuItems = (x: SessionSummary): MenuItem[] =>
+    menuFor
+      ? menuFor(x)
+      : [
+          isArchived(x)
+            ? { label: 'Restore', run: () => void setArchived(x.id, false).catch(() => {}) }
+            : { label: 'Archive', run: () => void setArchived(x.id, true).catch(() => {}) },
+          { label: 'Delete…', run: () => onDeleteSession(x), danger: true, separated: true },
+        ];
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkOutcome, setBulkOutcome] = useState<string | null>(null);
   const toggle = (id: string, on: boolean) =>
@@ -182,8 +199,8 @@ export function SessionsTab({
   const archivedCount = sessions.length - live.length;
 
   const counts = useMemo(() => {
-    const c: Record<StatusBucket, number> = { needs: 0, working: 0, idle: 0, stale: 0 };
-    for (const s of live) c[statusBucket(displayStatus(s))]++;
+    const c: Record<AgeBucket, number> = { now: 0, week: 0, older: 0 };
+    for (const s of live) c[ageBucket(s)]++;
     return c;
   }, [live]);
 
@@ -237,34 +254,35 @@ export function SessionsTab({
   };
 
   const renderTable = (list: SessionSummary[]) => (
-    <table className="wd-session-table">
+    <table className={'wd-session-table' + (selecting ? ' wd-session-table-selecting' : '')}>
       <thead>
         <tr>
-          <th className="wd-st-col-pick">
-            <input
-              type="checkbox"
-              aria-label="Select all shown"
-              checked={list.length > 0 && list.every((s) => picked.has(s.id))}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setPicked((prev) => {
-                  const next = new Set(prev);
-                  for (const s of list) {
-                    if (on) next.add(s.id);
-                    else next.delete(s.id);
-                  }
-                  return next;
-                });
-              }}
-            />
-          </th>
+          {selecting && (
+            <th className="wd-st-col-pick">
+              <input
+                type="checkbox"
+                aria-label="Select all shown"
+                checked={list.length > 0 && list.every((s) => picked.has(s.id))}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setPicked((prev) => {
+                    const next = new Set(prev);
+                    for (const s of list) {
+                      if (on) next.add(s.id);
+                      else next.delete(s.id);
+                    }
+                    return next;
+                  });
+                }}
+              />
+            </th>
+          )}
           <th className="wd-st-col-status">Status</th>
           <th>Session</th>
           <th className="wd-st-col-summary">Summary</th>
           <th className="wd-st-col-changes">Changes</th>
-          <th className="wd-st-col-pr">PR</th>
-          <th className="wd-st-col-when">Last active</th>
-          <th className="wd-st-col-actions">
+          <th className="wd-st-col-when">Active</th>
+          <th className="wd-st-col-more">
             <span className="wd-visually-hidden">Actions</span>
           </th>
         </tr>
@@ -274,9 +292,9 @@ export function SessionsTab({
           <SessionRow
             key={s.id}
             session={s}
-            prs={prsFor?.(s) ?? []}
             onOpen={() => onOpenSession(s.id, defaultSubTab(s))}
-            onDelete={() => onDeleteSession(s)}
+            onMenu={(x, y) => setRowMenu({ s, x, y })}
+            selecting={selecting}
             picked={picked.has(s.id)}
             onPick={(on) => toggle(s.id, on)}
             railTag={railTagFor(s)}
@@ -292,14 +310,20 @@ export function SessionsTab({
         <h1>
           Sessions {viewToggle}{' '}
           <span className="wd-tab-header-muted">
-            ({counts.needs} need you · {counts.working} working · {counts.idle} idle · {counts.stale} stale)
+            {[
+              counts.now ? `${counts.now} now` : '',
+              counts.week ? `${counts.week} this week` : '',
+              counts.older ? `${counts.older} older` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </h1>
         <div className="wd-tab-controls">
           <input
             className="wd-tab-search"
             type="search"
-            placeholder="Search branch, repo, folder…"
+            placeholder="Search branch, repo, words…"
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -307,58 +331,63 @@ export function SessionsTab({
               if (e.key === 'Escape') setQuery('');
             }}
           />
-          <label>
-            Filter{' '}
-            <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
-              {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
-                <option key={f} value={f}>
-                  {FILTER_LABEL[f]}
-                </option>
-              ))}
-            </select>
-          </label>
-          {(rail.sections.length > 0 || Object.keys(rail.places).length > 0) && (
+          <ViewMenu>
             <label>
-              Rail{' '}
-              <select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
-                <option value="any">any</option>
-                <option value="pinned">pinned</option>
-                {rail.sections.map((sec) => (
-                  <option key={sec.id} value={`section:${sec.id}`}>
-                    {sec.name}
+              Show
+              <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)} aria-label="Status filter">
+                {(Object.keys(FILTER_LABEL) as Filter[]).map((f) => (
+                  <option key={f} value={f}>
+                    {FILTER_LABEL[f]}
                   </option>
                 ))}
-                <option value="none">in no section</option>
               </select>
             </label>
-          )}
-          <label>
-            Group{' '}
-            <select value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
-              <option value="age">age</option>
-              <option value="project">project</option>
-              <option value="section">rail section</option>
-              <option value="none">none</option>
-            </select>
-          </label>
-          <label>
-            Sort{' '}
-            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-              <option value="recent">recent</option>
-              <option value="name">name</option>
-            </select>
-          </label>
-          <label className="wd-tab-check">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived
-            {archivedCount > 0 ? ` (${archivedCount})` : ''}
-          </label>
+            {(rail.sections.length > 0 || Object.keys(rail.places).length > 0) && (
+              <label>
+                Rail
+                <select value={railFilter} onChange={(e) => setRailFilter(e.target.value as RailFilter)} aria-label="Rail filter">
+                  <option value="any">any</option>
+                  <option value="pinned">pinned</option>
+                  {rail.sections.map((sec) => (
+                    <option key={sec.id} value={`section:${sec.id}`}>
+                      {sec.name}
+                    </option>
+                  ))}
+                  <option value="none">in no section</option>
+                </select>
+              </label>
+            )}
+            <label>
+              Group
+              <select value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)} aria-label="Group by">
+                <option value="age">age</option>
+                <option value="project">project</option>
+                <option value="section">rail section</option>
+                <option value="none">none</option>
+              </select>
+            </label>
+            <label>
+              Sort
+              <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by">
+                <option value="recent">recent</option>
+                <option value="name">name</option>
+              </select>
+            </label>
+            <label className="wd-tab-check">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived
+              {archivedCount > 0 ? ` (${archivedCount})` : ''}
+            </label>
+            <label className="wd-tab-check">
+              <input type="checkbox" checked={selecting} onChange={(e) => setSelecting(e.target.checked)} /> Select several
+            </label>
+          </ViewMenu>
           {onCleanUp && (
-            <button type="button" className="wd-btn-secondary" onClick={onCleanUp} title="Find worktrees that are safe to remove">
-              Clean up…
+            <button type="button" className="wd-link-button" onClick={onCleanUp} title="Find worktrees that are safe to remove">
+              Clean up
             </button>
           )}
           <button type="button" className="wd-btn-primary" onClick={onNewWorktree}>
-            + New worktree
+            New
           </button>
         </div>
       </header>
@@ -401,26 +430,31 @@ export function SessionsTab({
         </div>
       ) : ages ? (
         <div className="wd-session-groups">
-          {ages.map((g) => {
+          {ages.map((g, _i, all) => {
             // A search shows its matches, the older ones too.
-            const folded = g.key === 'older' && !showOlder && query.trim() === '';
+            const folded = (x: { key: AgeBucket }) => x.key === 'older' && !showOlder && query.trim() === '';
+            if (folded(g)) {
+              return (
+                <button key={g.key} type="button" className="wd-link-button wd-session-older" onClick={() => setShowOlder(true)}>
+                  Show {g.sessions.length} older
+                </button>
+              );
+            }
             return (
               <section key={g.key} className={`wd-session-group wd-session-age wd-session-age-${g.key}`}>
-                <h2 className="wd-session-group-header">
-                  <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
-                  <span className="wd-tab-header-muted">({g.sessions.length})</span>
-                  {g.key === 'older' && (
-                    <button type="button" className="wd-row-action wd-session-age-toggle" onClick={() => setShowOlder((v) => !v)}>
-                      {folded ? 'Show' : 'Hide'}
-                    </button>
-                  )}
-                  {g.key !== 'now' && onCleanUp && (
-                    <button type="button" className="wd-row-action" onClick={onCleanUp} title="Find worktrees that are safe to remove">
-                      Clean up…
-                    </button>
-                  )}
-                </h2>
-                {!folded && renderTable(g.sessions)}
+                {/* A heading only to tell two shown tables apart. */}
+                {all.filter((x) => !folded(x)).length > 1 && (
+                  <h2 className="wd-session-group-header">
+                    <span className="wd-session-group-name">{AGE_LABEL[g.key]}</span>
+                    <span className="wd-tab-header-muted">({g.sessions.length})</span>
+                    {g.key === 'older' && query.trim() === '' && (
+                      <button type="button" className="wd-link-button wd-session-age-toggle" onClick={() => setShowOlder(false)}>
+                        Hide
+                      </button>
+                    )}
+                  </h2>
+                )}
+                {renderTable(g.sessions)}
               </section>
             );
           })}
@@ -453,6 +487,7 @@ export function SessionsTab({
         <div className="wd-session-table-wrap">{renderTable(filtered)}</div>
       )}
       <ConversationHits query={query} onOpen={(id) => onOpenSession(id, 'diff')} />
+      {rowMenu && <RowMenu x={rowMenu.x} y={rowMenu.y} items={menuItems(rowMenu.s)} onClose={() => setRowMenu(null)} />}
     </div>
   );
 }
@@ -530,36 +565,69 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
   );
 }
 
+/**
+ * "View ▾": how the table is cut — status filter, rail filter, grouping,
+ * sort, archived, and selecting several for the bulk bar — in one place
+ * instead of a row of controls.
+ */
+function ViewMenu({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
+  return (
+    <div className="wd-view-menu" ref={ref}>
+      <button type="button" className="wd-btn-secondary" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
+        View ▾
+      </button>
+      {open && (
+        <div className="wd-view-menu-panel" role="group" aria-label="View">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "84% full": the conversation is past the warning line (70%); nothing below it. */
+export function contextFullText(s: SessionSummary): string | null {
+  const c = s.context;
+  if (!c || c.window <= 0) return null;
+  const ratio = Math.min(1, c.used / c.window);
+  return ratio >= CONTEXT_WARN ? `${Math.round(ratio * 100)}% full` : null;
+}
+
 interface RowProps {
   /** 📌, or its rail section's name. */
   railTag?: string | null;
   session: SessionSummary;
-  prs: ReturnType<PrLookup>;
   onOpen: () => void;
-  onDelete: () => void;
+  /** Its ⋯ menu, at (x, y). */
+  onMenu: (x: number, y: number) => void;
+  selecting: boolean;
   picked: boolean;
   onPick: (on: boolean) => void;
 }
 
-function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag }: RowProps) {
+/** One session: status, name, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
+function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag }: RowProps) {
   const kind = displayStatus(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
-  const [busy, setBusy] = useState<null | 'term' | 'archive'>(null);
-  const [error, setError] = useState<string | null>(null);
   const archiving = useArchivePending(s.id); // also one started elsewhere (the session header)
-
-  const run = (what: 'term' | 'archive', fn: () => Promise<unknown>) => {
-    setBusy(what);
-    setError(null);
-    fn().then(
-      () => setBusy(null),
-      (err: Error) => {
-        setBusy(null);
-        setError(err.message);
-      },
-    );
-  };
+  const full = contextFullText(s);
+  const named = s.titleIsYours && !!s.title;
 
   return (
     <tr
@@ -569,6 +637,10 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
         (kind === 'needs_input' || kind === 'done' ? ' wd-session-row-unseen' : '')
       }
       onClick={onOpen}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMenu(e.clientX, e.clientY);
+      }}
       tabIndex={0}
       onKeyDown={(e) => {
         // Ignore keys bubbling up from the row's buttons.
@@ -579,9 +651,16 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
         }
       }}
     >
-      <td className="wd-st-col-pick" onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`Select ${s.target} ${s.branch}`} />
-      </td>
+      {selecting && (
+        <td className="wd-st-col-pick" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={picked}
+            onChange={(e) => onPick(e.target.checked)}
+            aria-label={`Select ${s.target} ${s.branch}`}
+          />
+        </td>
+      )}
       <td className="wd-st-col-status">
         <span className="wd-st-status" title={statusHint(kind)}>
           <StatusIcon kind={kind} muted={!!s.snoozed} />
@@ -589,12 +668,16 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
         </span>
       </td>
       <td className="wd-st-session">
-        <span className="wd-st-branch" title={s.branch}>
-          {s.branch || '(base)'}
-        </span>
-        {s.title && (
-          <span className="wd-st-title" title={s.title}>
-            {s.title}
+        <span className="wd-st-branch" title={named ? `${s.title} (${s.branch})` : s.branch}>
+          {named ? s.title : s.branch || '(base)'}
+        </span>{' '}
+        <span className="wd-st-target">{s.target}</span>
+        {s.isGroup && (
+          <span
+            className="wd-session-group-kind wd-session-group-kind-hint"
+            title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
+          >
+            group
           </span>
         )}
         {railTag && (
@@ -605,33 +688,30 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
             {railTag}
           </span>
         )}
-        <span className="wd-st-target">
-          {s.target}
-          {s.isGroup && (
-            <span
-              className="wd-session-group-kind wd-session-group-kind-hint"
-              title={repos.length ? `Multi-repo group: ${repos.join(', ')}` : 'Multi-repo group'}
-            >
-              group
-            </span>
-          )}
-          {archived && (
-            <span
-              className="wd-archived-pill"
-              title={
-                s.archive
-                  ? s.archive.worktreeRemoved
-                    ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
-                    : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
-                  : 'Archived'
-              }
-            >
-              {s.archive?.worktreeRemoved
-                ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
-                : 'archived'}
-            </span>
-          )}
-        </span>
+        {full && (
+          <span
+            className="wd-st-full"
+            title={`The conversation is ${full}: start fresh for the next task (work tree … --fresh, or /clear)`}
+          >
+            {full}
+          </span>
+        )}
+        {archived && (
+          <span
+            className="wd-archived-pill"
+            title={
+              s.archive
+                ? s.archive.worktreeRemoved
+                  ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
+                  : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
+                : 'Archived'
+            }
+          >
+            {s.archive?.worktreeRemoved
+              ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
+              : 'archived'}
+          </span>
+        )}
       </td>
       <td className="wd-st-col-summary">
         {(() => {
@@ -647,68 +727,28 @@ function SessionRow({ session: s, prs, onOpen, onDelete, picked, onPick, railTag
       </td>
       <td className="wd-st-col-changes">
         <DiffStatChip session={s} />
-        {!!s.diffStat?.files && (
-          <span className="wd-st-files">
-            {' '}
-            · {s.diffStat.files} file{s.diffStat.files === 1 ? '' : 's'}
-          </span>
-        )}
         {s.overlaps?.length ? (
-          <div className="wd-st-overlap">
-            <OverlapChip session={s} />
-          </div>
+          <span className="wd-st-overlap" title={overlapTitle(s)} aria-label="Changes the same files as another session">
+            ⚠
+          </span>
         ) : null}
       </td>
-      <td className="wd-st-col-pr">
-        <PrChips prs={prs} link />
-      </td>
       <td className="wd-st-col-when">
-        {relativeTime(lastActiveAt(s))}
-        {s.context && (
-          <div className="wd-st-context">
-            <ContextChip session={s} />
-          </div>
-        )}
+        {archiving !== undefined ? (archiving ? 'archiving…' : 'restoring…') : relativeTime(lastActiveAt(s))}
       </td>
-      <td className="wd-st-col-actions" onClick={(e) => e.stopPropagation()}>
+      <td className="wd-st-col-more" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
-          className="wd-row-action"
-          disabled={busy !== null}
-          title={error ?? 'Open in a Windows Terminal tab (work attach)'}
-          onClick={() => run('term', () => openInTerminal(s.id))}
+          className="wd-st-more"
+          aria-label={`Actions for ${s.target} ${s.branch}`}
+          title="Archive, snooze, open in a terminal, delete…"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            onMenu(r.left, r.bottom + 4);
+          }}
         >
-          {busy === 'term' ? 'Opening…' : 'Terminal ↗'}
+          ⋯
         </button>
-        <button
-          type="button"
-          className="wd-row-action"
-          disabled={busy !== null || archiving !== undefined}
-          title={
-            archived
-              ? s.archive?.worktreeRemoved
-                ? 'Recreate its worktree from the branch and continue the conversation'
-                : 'Bring it back to the rail and inbox'
-              : 'Stop its Claude and keep the conversation and a summary; the worktree is removed if nothing would be lost (the branch stays)'
-          }
-          onClick={() => run('archive', () => setArchived(s.id, !archived))}
-        >
-          {archiving !== undefined ? (archiving ? 'Archiving…' : 'Restoring…') : archived ? 'Restore' : 'Archive'}
-        </button>
-        <button
-          type="button"
-          className="wd-row-action wd-row-action-danger"
-          title="Delete session…"
-          aria-label={`Delete session ${s.target}/${s.branch}`}
-          onClick={onDelete}
-        >
-          <TrashIcon />
-        </button>
-        {error && (
-          <span className="wd-row-error" role="alert">
-            {error}
-          </span>
-        )}
       </td>
     </tr>
   );

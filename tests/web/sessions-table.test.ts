@@ -85,33 +85,22 @@ function render(onOpen = vi.fn(), onDelete = vi.fn()) {
         onOpenSession: onOpen,
         onNewWorktree: () => {},
         onDeleteSession: onDelete,
-        prsFor: (x) =>
-          x.id === 'done'
-            ? [
-                {
-                  number: 9,
-                  title: 't',
-                  branch: 'done',
-                  url: 'https://x/9',
-                  isDraft: false,
-                  checksStatus: 'SUCCESS',
-                  reviewDecision: 'NONE',
-                  myReview: 'NONE',
-                  isMine: true,
-                  repoAlias: 'api',
-                },
-              ]
-            : [],
       }),
     ),
   );
   return { onOpen, onDelete };
 }
 const rows = () => [...container.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+/** View ▾ holds the table's filter, grouping, sort and checkboxes. */
+const openView = () => act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'View ▾')!.click());
+const viewCheck = (label: string) =>
+  [...container.querySelectorAll<HTMLLabelElement>('.wd-view-menu-panel .wd-tab-check')]
+    .find((l) => l.textContent?.includes(label))!
+    .querySelector('input')!;
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 describe('Sessions table', () => {
-  it('has the status/session/summary/changes/PR/last-active columns and one status vocabulary', () => {
+  it('five columns — status, session, summary, changes, active — and one status vocabulary', () => {
     try {
       localStorage.setItem('work-web:sessions-grouping', 'none');
     } catch {
@@ -119,34 +108,61 @@ describe('Sessions table', () => {
     } // one table
     render();
     expect([...container.querySelectorAll('thead th')].map((th) => text(th))).toEqual([
-      '',
       'Status',
       'Session',
       'Summary',
       'Changes',
-      'PR',
-      'Last active',
-      'Actions', // '': the select-all box
+      'Active',
+      'Actions', // the ⋯ column, named for screen readers
     ]);
-    // Header counts agree with the inbox: blocked + done need you.
-    expect(text(container.querySelector('h1'))).toContain('2 need you · 1 working · 0 idle · 1 stale');
+    expect(text(container.querySelector('h1'))).toBe('Sessions 3 now · 1 this week');
     const first = rows().find((r) => text(r).includes('blocked'))!;
     expect(text(first.querySelector('.wd-st-status'))).toBe('Needs your input');
     expect(text(first.querySelector('.wd-st-col-summary'))).toBe('Needs Bash');
-    expect(text(first.querySelector('.wd-st-col-changes'))).toBe('+4 −2 · 1 file');
-    const done = rows().find((r) => text(r).includes('done'))!;
-    expect(done.querySelector('a.wd-pr-chip')?.getAttribute('href')).toBe('https://x/9');
+    expect(text(first.querySelector('.wd-st-col-changes'))).toBe('+4 −2');
+    // No buttons on a row but its ⋯, and no checkboxes until you select several.
+    expect([...first.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['⋯']);
+    expect(container.querySelector('tbody input[type=checkbox]')).toBeNull();
+  });
+
+  it('a context badge only past 70%, and an overlap as a ⚠ with the files on hover', () => {
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [
+            s({ id: 'full', context: { used: 168_000, window: 200_000 } }),
+            s({ id: 'roomy', context: { used: 20_000, window: 200_000 } }),
+            s({
+              id: 'clash',
+              overlaps: [{ sessionId: 'x', target: 'api', branch: 'feat/x', files: [{ repo: 'api', path: 'src/a.ts' }], count: 1 }],
+            }),
+          ],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    const row = (id: string) => rows().find((r) => text(r.querySelector('.wd-st-branch')) === id)!;
+    expect(text(row('full').querySelector('.wd-st-full'))).toBe('84% full');
+    expect(row('roomy').querySelector('.wd-st-full')).toBeNull();
+    const warn = row('clash').querySelector<HTMLElement>('.wd-st-overlap')!;
+    expect(warn.textContent).toBe('⚠');
+    expect(warn.title).toContain('api/src/a.ts');
   });
 
   it('hides archived sessions until "Show archived" is on', () => {
     render();
     expect(rows().some((r) => text(r).includes('archived'))).toBe(false);
-    const toggle = container.querySelector<HTMLInputElement>('.wd-tab-check input')!;
+    openView();
+    const toggle = viewCheck('Show archived');
     expect(text(toggle.parentElement)).toContain('Show archived (1)');
     act(() => toggle.click());
     const arch = rows().find((r) => r.className.includes('wd-session-row-archived'))!;
     expect(text(arch.querySelector('.wd-archived-pill'))).toBe('archived');
-    expect(text(arch.querySelector('.wd-st-col-actions'))).toContain('Restore');
+    // Its ⋯ offers Restore.
+    act(() => arch.querySelector<HTMLButtonElement>('.wd-st-more')!.click());
+    expect([...document.querySelectorAll('[role=menuitem]')].map((b) => b.textContent)).toContain('Restore');
   });
 
   it('a row click opens the session where you would act on it', () => {
@@ -167,29 +183,32 @@ describe('Sessions table', () => {
     ]);
   });
 
-  it('row actions archive (with progress) and open a terminal without opening the row', async () => {
+  it('⋯ (or a right-click) opens the row menu without opening the row; Archive shows progress in the row', async () => {
     let resolve!: (v: unknown) => void;
     h.setArchived.mockReturnValue(
       new Promise((r) => {
         resolve = r;
       }),
     );
-    const { onOpen } = render();
+    const { onOpen, onDelete } = render();
     const row = rows().find((r) => text(r).includes('working'))!;
-    const archive = [...row.querySelectorAll('button')].find((b) => b.textContent === 'Archive')!;
-    act(() => archive.click());
+    act(() => row.querySelector<HTMLButtonElement>('.wd-st-more')!.click());
+    const item = (label: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')].find((b) => b.textContent === label)!;
+    act(() => item('Archive').click());
     expect(h.setArchived).toHaveBeenCalledWith('working', true);
-    expect(archive.textContent).toBe('Archiving…');
-    expect(archive.disabled).toBe(true);
+    expect(text(row.querySelector('.wd-st-col-when'))).toBe('archiving…');
     await act(async () => resolve({ ok: true }));
-    expect(archive.textContent).toBe('Archive');
-    const term = [...row.querySelectorAll('button')].find((b) => b.textContent === 'Terminal ↗')!;
-    await act(async () => term.click());
-    expect(h.openInTerminal).toHaveBeenCalledWith('working');
+    expect(text(row.querySelector('.wd-st-col-when'))).toBe('3m'); // its last status, 3 minutes ago
+    act(() => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+    });
+    act(() => item('Delete…').click());
+    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'working' }));
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it('groups by age by default: Now, This week, and Older folded until asked', () => {
+  it('groups by age by default: Now, This week, and a "Show N older" link', () => {
     const old = {
       id: 'ancient',
       target: 'api',
@@ -212,16 +231,31 @@ describe('Sessions table', () => {
       ),
     );
     const headers = [...container.querySelectorAll('.wd-session-age h2 .wd-session-group-name')].map((h) => h.textContent);
-    expect(headers).toEqual(['Now', 'This week', 'Older']);
-    const older = container.querySelector('.wd-session-age-older')!;
-    expect(older.querySelector('table')).toBeNull();
-    act(() => [...older.querySelectorAll('button')].find((b) => b.textContent === 'Show')!.click());
+    expect(headers).toEqual(['Now', 'This week']);
+    expect(container.querySelector('.wd-session-age-older')).toBeNull();
+    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Show 1 older')!.click());
     expect(container.querySelector('.wd-session-age-older table')?.textContent).toContain('ancient');
+  });
+
+  it('one table shown (the older folded away): no heading over it', () => {
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [s({ id: 'fresh' }), s({ id: 'ancient', lastAccessedAt: minsAgo(60 * 24 * 30) })],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    expect(container.querySelector('.wd-session-group-header')).toBeNull();
+    expect(text(container.querySelector('.wd-session-older'))).toBe('Show 1 older');
   });
 
   it('filters by bucket', () => {
     render();
-    const select = container.querySelector<HTMLSelectElement>('.wd-tab-controls select')!;
+    openView();
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Status filter"]')!;
     act(() => {
       select.value = 'needs';
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -244,7 +278,7 @@ describe('Sessions tab search', () => {
       setValue.call(box, 'work');
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const branches = () => rows().map((r) => r.querySelector('.wd-session-name, td:nth-child(3)')?.textContent ?? '');
+    const branches = () => rows().map((r) => r.querySelector('.wd-st-branch')?.textContent ?? '');
     expect(rows()).toHaveLength(1);
     expect(branches()[0]).toContain('working');
     act(() => {

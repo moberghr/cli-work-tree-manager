@@ -100,6 +100,14 @@ describe('the Sessions table’s bulk bar', () => {
         }),
       ),
     );
+    // Ticking is for selecting several (View ▾); the bar acts on the ticked rows.
+    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'View ▾')!.click());
+    act(() =>
+      [...container.querySelectorAll('.wd-view-menu-panel label')]
+        .find((l) => l.textContent?.includes('Select several'))!
+        .querySelector('input')!
+        .click(),
+    );
   });
   afterEach(() => {
     act(() => root.unmount());

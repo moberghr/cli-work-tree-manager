@@ -5,7 +5,7 @@ import type { SessionSubTab } from './dashboard-route.js';
 // The status vocabulary (Needs your input / Working / Idle / Stale, the age
 // sections) lives in core, shared with `work sessions`.
 export * from '../../../core/sessions/session-view.js';
-import { displayStatus, lastActiveAt } from '../../../core/sessions/session-view.js';
+import { displayStatus } from '../../../core/sessions/session-view.js';
 import { applyManualOrder } from '../../../core/rail/session-order.js';
 import { groupRail, type RailGroup, type RailLayout } from '../../../core/rail/rail-layout.js';
 
@@ -109,36 +109,6 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
   return words.every((w) => hay.includes(w));
 }
 
-/** A session untouched this long, with no open PR, is worth archiving. */
-export const STALE_SUGGEST_MS = 14 * 24 * 60 * 60_000;
-
-/**
- * Sessions to suggest archiving: untouched two weeks or more, no open PR
- * (a PR waiting on review is still going somewhere), no Claude running, and
- * not snoozed ("Not now") in this window. Oldest first.
- *
- * "No open PR" needs a full answer: before the first PR list arrives, when
- * gh failed, or for a repo it couldn't list in full, an empty list means
- * "don't know", and nothing is suggested (`prsKnown`).
- */
-export function staleSuggestions(
-  sessions: SessionSummary[],
-  prsFor: PrLookup | undefined,
-  now: number = Date.now(),
-  snoozedUntil: Record<string, number> = {},
-  prsKnown: (s: SessionSummary) => boolean = () => false,
-): SessionSummary[] {
-  return sessions
-    .filter((s) => {
-      if (isArchived(s) || s.claudes) return false;
-      if ((snoozedUntil[s.id] ?? 0) > now) return false;
-      if (now - Date.parse(lastActiveAt(s)) < STALE_SUGGEST_MS) return false;
-      if (!prsFor || !prsKnown(s)) return false;
-      return prsFor(s).length === 0;
-    })
-    .sort((a, b) => lastActiveAt(a).localeCompare(lastActiveAt(b)));
-}
-
 /** Open PRs for a session, from the PRs pane data. Groups can't be matched
  *  to a sub-repo alias reliably, so any same-branch PR counts for them. */
 export function prsForSession(s: SessionSummary, prs: PrInfo[]): PrInfo[] {
@@ -146,16 +116,6 @@ export function prsForSession(s: SessionSummary, prs: PrInfo[]): PrInfo[] {
 }
 
 export type PrLookup = (s: SessionSummary) => PrInfo[];
-
-/**
- * Whether the PR list is a full answer for a session: a list arrived, and
- * gh listed its repo in full (`incomplete` = repos it couldn't; null = no
- * full answer yet). A group's sub-repos aren't known here, so it needs every
- * repo listed in full.
- */
-export function prsKnownFrom(incomplete: string[] | null): (s: SessionSummary) => boolean {
-  return (s) => incomplete !== null && (s.isGroup ? incomplete.length === 0 : !incomplete.includes(s.target));
-}
 
 export const CHECKS_GLYPH: Record<PrInfo['checksStatus'], string> = {
   SUCCESS: '✓',

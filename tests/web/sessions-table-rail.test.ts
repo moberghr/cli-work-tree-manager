@@ -49,6 +49,14 @@ beforeEach(() => {
       }),
     ),
   );
+  // Ticking is for selecting several (View ▾); the bar acts on the ticked rows.
+  act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'View ▾')!.click());
+  act(() =>
+    [...container.querySelectorAll('.wd-view-menu-panel label')]
+      .find((l) => l.textContent?.includes('Select several'))!
+      .querySelector('input')!
+      .click(),
+  );
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -106,6 +114,7 @@ describe('the rail in the Sessions table', () => {
         }),
       ),
     );
+    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'View ▾')!.click());
     select('Group', 'section');
     const groups = [...container.querySelectorAll('.wd-session-group')].map((g) => [
       g.querySelector('.wd-session-group-name')!.textContent,

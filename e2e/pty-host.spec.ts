@@ -144,9 +144,10 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
 
   await page.goto(`${work.url}#/inbox`);
   const sections = page.locator('.wd-inbox-section h2');
-  await expect(sections).toHaveText([/Needs your input \(1\)/, /Done — not looked at yet \(1\)/, /Working \(1\)/]);
+  await expect(sections).toHaveText([/Needs your input · 1/, /Done · 1/]);
   await expect(page.locator('.wd-inbox-rank-0 .wd-inbox-row')).toContainText('Claude needs your permission to use Bash');
-  await expect(page.locator('.wd-inbox-rank-3 .wd-inbox-row')).toContainText('Refactor the ledger');
+  // Working is the rail's: the Inbox says how many, in its last line.
+  await expect(page.locator('.wd-inbox-rest')).toContainText('1 working');
   // Badge + browser tab title count the two that want you.
   await expect(page.locator('.wd-dash-tab-badge')).toHaveText('2');
   await expect(page).toHaveTitle('(2) work');
@@ -178,7 +179,8 @@ test('ship: create a PR, merge it after confirming, and the session archives its
   const id = work.sessionId('app', 'feat/ship');
 
   await page.goto(`${work.url}#/s/${id}/diff`);
-  await page.getByRole('button', { name: /^Ship/ }).click();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Ship/ }).click();
   const panel = page.getByRole('dialog', { name: 'Ship session' });
   await expect(panel).toBeVisible();
   // Unpublished branch with a commit, no PR yet: Create PR is offered, Merge isn't.
@@ -213,7 +215,8 @@ test('ship a group in parts: merge backend now, frontend later; archived only wh
   const prState = (cwd: string) => JSON.parse(fs.readFileSync(path.join(work.home, 'gh-state.json'), 'utf-8'))[cwd.toLowerCase()]?.state;
 
   await page.goto(`${work.url}#/s/${id}/diff`);
-  await page.getByRole('button', { name: /^Ship/ }).click();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Ship/ }).click();
   const panel = page.getByRole('dialog', { name: 'Ship session' });
   await panel.getByRole('button', { name: 'Create PR' }).click();
   await expect(panel.locator('.wd-ship-results')).toContainText('frontend');
