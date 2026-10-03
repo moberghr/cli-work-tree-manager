@@ -2,20 +2,19 @@ import path from 'node:path';
 import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ChatSnapshot } from './api-types.js';
-import { ChatSession, newChatToken, writeMcpConfig, type ChatEvent } from './chat-session.js';
+import { ChatSession, newChatToken, type ChatEvent } from './chat-session.js';
 import { mountChatMcpRoutes } from './chat-mcp-routes.js';
 import { getConfigDir } from './config.js';
-import { latestTranscript } from './context-usage.js';
 import { disposePty, peekPty, ptyPids, spawnSpecFor, syncPtyPool } from './pty-pool.js';
 import { claudesBySession } from './live-claudes.js';
 import { liveAgents, agentOf } from './agents/index.js';
 import { loadHistory, type WorktreeSession } from './history.js';
-import { readTranscriptTail } from './transcript.js';
 import { findSession } from './web-state.js';
 
 /**
- * A session's Claude as a chat (spike): headless `claude -p` driven by
- * chat-session.ts, instead of the terminal.
+ * A session's agent as a chat: run headless by chat-session.ts in its
+ * adapter's protocol (agents/types.ts `AgentChat`), instead of the terminal.
+ * An agent without one has the Terminal tab only.
  *
  *   GET  /api/sessions/:id/chat                     snapshot (history from the transcript until it runs)
  *   GET  /api/sessions/:id/chat/events              SSE: snapshot, then message / partial / state / permissions
@@ -29,8 +28,6 @@ import { findSession } from './web-state.js';
  * conversation (--continue).
  */
 
-const HISTORY_BYTES = 1024 * 1024;
-
 export function mountChatRoutes(
   app: Hono,
   opts: { baseUrl: () => string },
@@ -41,13 +38,8 @@ export function mountChatRoutes(
 
   mountChatMcpRoutes(app, { byToken: (t) => byToken.get(t) });
 
-  const historyOf = (session: WorktreeSession): unknown[] => {
-    const file = latestTranscript(session)?.file;
-    return readTranscriptTail(file, HISTORY_BYTES).filter((e) => {
-      if (e.isMeta === true || e.isSidechain === true) return false;
-      return e.type === 'user' || e.type === 'assistant' || (e.type === 'system' && e.subtype === 'compact_boundary');
-    });
-  };
+  // Its conversation so far, read by its adapter (none for an agent without a chat).
+  const historyOf = (session: WorktreeSession) => agentOf(session).chat?.history(session) ?? [];
 
   const snapshotOf = (id: string, session: WorktreeSession): ChatSnapshot => {
     const chat = chats.get(id);
@@ -57,8 +49,8 @@ export function mountChatRoutes(
           sessionId: id,
           state: 'stopped',
           error: null,
-          claudeSessionId: null,
-          messages: historyOf(session).map((raw, seq) => ({ seq, raw })),
+          conversationId: null,
+          messages: historyOf(session).map((records, seq) => ({ seq, records })),
           partial: null,
           permissions: [],
         };
@@ -68,14 +60,15 @@ export function mountChatRoutes(
   const chatFor = (id: string, session: WorktreeSession): ChatSession | null => {
     const existing = chats.get(id);
     if (existing) return existing;
+    const agent = agentOf(session);
     const spec = spawnSpecFor(session);
-    if (!spec) return null;
+    if (!spec || !agent.chat) return null;
     const token = newChatToken();
-    const file = writeMcpConfig(path.join(getConfigDir(), 'chat'), id, `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`);
+    const protocol = agent.chat.open({ sessionId: id, permissionUrl: `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`, dir: path.join(getConfigDir(), 'chat') });
     const chat = new ChatSession(
       id,
-      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agentOf(session).launch.canResume(spec.cwd) },
-      file,
+      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agent.launch.canResume(spec.cwd), cleanEnv: agent.launch.cleanEnv },
+      protocol,
       historyOf(session),
       token,
     );
@@ -122,11 +115,11 @@ export function mountChatRoutes(
     const body = (await c.req.json().catch(() => null)) as { text?: unknown; takeOver?: unknown } | null;
     const text = typeof body?.text === 'string' ? body.text : '';
     if (!text.trim()) return c.json({ error: 'text required' }, 400);
-    // The chat is an agent's headless protocol (Claude's stream-json): one without it has the Terminal tab only.
+    // The chat is an agent's headless protocol (its adapter's `chat`): one without it has the Terminal tab only.
     const agent = agentOf(session);
     if (!agent.chat) return c.json({ error: `${agent.name} has no chat here: use its Terminal tab` }, 409);
     if (!chats.get(id)?.running) {
-      // A Claude in a terminal tab on this conversation: we can't stop it for
+      // Its agent in a terminal on this conversation: we can't stop it for
       // the user, and a second one here would write to the same conversation.
       await syncPtyPool(); // current, not the periodic refresh's
       const hostPids = ptyPids();
@@ -169,7 +162,7 @@ export function mountChatRoutes(
   };
 }
 
-/** Chats to put to sleep: their Claude idle at its prompt for `afterMs`, nobody watching them. */
+/** Chats to put to sleep: their agent idle at its prompt for `afterMs`, nobody watching them. */
 export function idleChats(
   chats: ReadonlyMap<string, Pick<ChatSession, 'state' | 'lastActivityAt'>>,
   watching: (id: string) => number,

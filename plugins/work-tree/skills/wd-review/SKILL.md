@@ -1,6 +1,6 @@
 ---
 name: wd-review
-description: Open the `wd` browser diff viewer so the USER can review changes themselves. Trigger ONLY when the user explicitly references wd or asks to look at the diff themselves — "open wd", "open a wd review", "review with wd", "let me review with wd", "let me look at the diff", "show me the diff". DEFAULT is read-only — run plain `wd` and stop. Drive the interactive `wd -c` loop ONLY when the user explicitly asks for it ("review with wd interactively", "stream my comments back", "wd -c", "drive the review"). Do NOT trigger on a bare "review my changes"/"review the diff" with no mention of wd — that means the user wants Claude to perform a code review (use the code-review skill), not the wd viewer. If the user runs `wd` themselves, do nothing. Note: invoking `/wd-review` by name (slash command) starts INTERACTIVE mode by default; the read-only default applies only to natural-language auto-triggers.
+description: Open the `wd` browser diff viewer so the USER can review changes themselves. Trigger ONLY when the user explicitly references wd or asks to look at the diff themselves — "open wd", "open a wd review", "review with wd", "let me review with wd", "let me look at the diff", "show me the diff". DEFAULT is read-only — run plain `wd` and stop. Drive the interactive `wd -c` loop ONLY when the user explicitly asks for it ("review with wd interactively", "stream my comments back", "wd -c", "drive the review"). Do NOT trigger on a bare "review my changes"/"review the diff" with no mention of wd — that means the user wants you to perform a code review (use the code-review skill), not the wd viewer. If the user runs `wd` themselves, do nothing. Note: invoking `/wd-review` by name (slash command) starts INTERACTIVE mode by default; the read-only default applies only to natural-language auto-triggers.
 ---
 
 ## Pick the mode first — how you were invoked decides the default
@@ -10,13 +10,13 @@ This skill is for the `wd` browser diff viewer. It runs in one of two modes; **h
 - **Invoked explicitly as the `/wd-review` slash command → INTERACTIVE mode.** Typing the skill by name is an opt-in to the full interactive experience: go straight to the `wd -c` lifecycle below (unless the user pairs it with read-only intent like "/wd-review just open it" / "read-only", in which case run plain `wd` and stop).
 - **Auto-triggered from natural language → default to READ-ONLY**, and first rule out a code-review request (next paragraph).
 
-**When auto-triggered, check this isn't a request for Claude to review.** A bare "review my changes", "review the diff", "review the PR", or "can you review this" with **no mention of wd** means the user wants *Claude* to perform a code review — that is the **code-review** skill, not this one. Do not open `wd` for those; let the code-review skill handle them. Auto-trigger this skill only when the user explicitly references `wd` or clearly says they want to look at the diff *themselves* ("open wd", "let me review with wd", "show me the diff", "let me look at it").
+**When auto-triggered, check this isn't a request for you to review.** A bare "review my changes", "review the diff", "review the PR", or "can you review this" with **no mention of wd** means the user wants *you* to perform a code review — that is the **code-review** skill, not this one. Do not open `wd` for those; let the code-review skill handle them. Auto-trigger this skill only when the user explicitly references `wd` or clearly says they want to look at the diff *themselves* ("open wd", "let me review with wd", "show me the diff", "let me look at it").
 
 Once you know the mode applies, the three cases:
 
 - **User already ran `wd` themselves (e.g. `!wd`, or a `wd`/`wd -c` command in the transcript) → do NOTHING.** Seeing the user run `wd` is NOT a request for you to start a review. Do not launch your own `wd`, do not launch `wd -c`, do not start a background task or Monitor. The diff is theirs to review on their own. At most acknowledge in one line and wait for them to ask for a change. Never run a review process in parallel with one the user started.
 - **Read-only.** The auto-trigger default — the user asked you to open the wd viewer ("open wd", "open a wd review", "let me review with wd", "review with wd") without asking for the interactive loop. Just run plain **`wd`** (NOT `wd -c`) — it opens the read-only diff in the browser. Tell the user it's open and **STOP**: do not start a background task, do not tail output with Monitor, do not edit any files. They review on their own and will come back to you if they want changes. The rest of this document does not apply in this mode.
-- **Interactive (`wd -c`).** The default when invoked as `/wd-review`, or when the user clearly wants Claude in the loop: "interactively", "stream my comments", "react to my comments as I write them", "drive the review", "wd -c", or similar. Follow the lifecycle/driving instructions below.
+- **Interactive (`wd -c`).** The default when invoked as `/wd-review`, or when the user clearly wants you in the loop: "interactively", "stream my comments", "react to my comments as I write them", "drive the review", "wd -c", or similar. Follow the lifecycle/driving instructions below.
 
 If you are auto-triggered and unsure which one they mean, default to read-only and ask whether they want the interactive mode.
 
@@ -97,7 +97,7 @@ Anything on `stderr` is just status logging — ignore it.
      - Question → reply via the API (see below). Don't pollute the conversation with a long-form answer; the reply lands inline in the browser.
      - Observation / acknowledgement → reply briefly so the user sees you noticed.
      - Nit you disagree with → reply explaining why, don't change the code.
-   - **Acknowledge per comment in chat** in one short line too, so the user reading Claude Code also sees your reaction.
+   - **Acknowledge per comment in chat** in one short line too, so the user reading your conversation also sees your reaction.
 
 5. **On `--- comment deleted ---`**: the user removed a comment they no longer cared about. Don't undo any work that's already shipped, just acknowledge.
 

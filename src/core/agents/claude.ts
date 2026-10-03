@@ -10,6 +10,9 @@ import { readLiveClaudes } from './claude-live.js';
 import { ANSWER_KEYS, checkDialog } from '../permission-request.js';
 import { typeThenEnter } from './typing.js';
 import { internalClaudeSpawn } from '../internal-claude.js';
+import { claudeChat } from './claude-chat.js';
+import { claudeWorkspace } from './claude-workspace.js';
+import { claudeSkills } from './claude-skills.js';
 
 /** A few words (checkpoint names, once per changed turn): a small model does. */
 export const CLAUDE_SMALL_MODEL = 'haiku';
@@ -71,5 +74,7 @@ export const claudeAgent: AgentAdapter = {
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
   oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
   instructionsFile: 'CLAUDE.md',
-  chat: true,
+  chat: claudeChat,
+  workspace: claudeWorkspace,
+  skills: claudeSkills,
 };

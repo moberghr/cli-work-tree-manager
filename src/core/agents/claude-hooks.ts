@@ -20,7 +20,7 @@ let installer: Installer | null = null;
 const loadInstaller = async (): Promise<Installer> => (installer ??= await import('../command-hook-installer.js'));
 
 /** Claude Code's hook event for each of work's turn edges. */
-const CLAUDE_EVENT: Record<TurnEdge, string> = {
+export const CLAUDE_EVENT: Record<TurnEdge, string> = {
   'turn-start': 'UserPromptSubmit',
   'turn-end': 'Stop',
   notify: 'Notification',

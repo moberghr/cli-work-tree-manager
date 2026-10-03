@@ -21,6 +21,7 @@ import { broadcastCommand } from './commands/broadcast.js';
 import { attachCommand } from './commands/attach.js';
 import { ptyHostCommand } from './commands/pty-host.js';
 import { stateCommand } from './commands/state.js';
+import { installSkillsCommand } from './commands/install-skills.js';
 import { sessionsCommand } from './commands/sessions.js';
 import { digestCommand } from './commands/digest.js';
 import { cleanupCommand } from './commands/cleanup.js';
@@ -165,6 +166,7 @@ export function run(argv: string[]) {
     .command(attachCommand)
     .command(ptyHostCommand)
     .command(stateCommand)
+    .command(installSkillsCommand)
     .command(completionCommand)
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false as any, completionHandler)

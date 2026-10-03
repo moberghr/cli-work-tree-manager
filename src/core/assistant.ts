@@ -4,19 +4,23 @@ import { getConfigDir } from './config.js';
 import { atomicWriteFile } from './fs-safe.js';
 import type { AssistantView, SessionWire } from './api-types.js';
 import { DISPLAY_LABEL, displayStatus } from './session-view.js';
+import type { AgentAdapter, AllowRule, WorkHook } from './agents/types.js';
 
 /**
- * The dashboard assistant (Ctrl+K): a persistent Claude session in the PTY
- * host, like any worktree's, with its own folder under ~/.work/assistant.
+ * The dashboard assistant (Ctrl+K): a persistent agent session in the PTY
+ * host, like any worktree's, with its own folder under ~/.work/assistant. It
+ * runs config `assistantAgent` (Claude Code by default; `assistantAgent()`).
  *
- * That folder is written by work: a CLAUDE.md saying what it is for and how
- * to get the data (the `work … --json` commands), and a project
- * settings.json that pre-allows the read-only ones and installs a
- * UserPromptSubmit hook. The hook adds what the user is looking at in the
- * dashboard to every prompt (`work hook assistant-context`), so "clean these
- * up" or "why is this one blocked?" need no explaining.
+ * That folder is written by work: the agent's instructions file (CLAUDE.md
+ * for Claude) saying what it is for and how to get the data (the
+ * `work … --json` commands), and through its adapter's `workspace` its own
+ * settings: the read-only commands pre-allowed, and a hook at the start of
+ * each turn that adds what the user is looking at in the dashboard to the
+ * prompt (`work hook assistant-context`), so "clean these up" or "why is this
+ * one blocked?" need no explaining. An agent without a workspace gets the
+ * instructions only (it asks before every command, and sees no view).
  *
- * It runs in Claude Code's normal permission mode, never --unsafe: anything
+ * It runs in the agent's normal permission mode, never --unsafe: anything
  * not pre-allowed — `work cleanup --apply`, `work remove`, git — asks first,
  * in the panel (and the Inbox).
  */
@@ -32,24 +36,28 @@ export function assistantDir(): string {
 const contextFile = () => path.join(assistantDir(), 'context.json');
 
 /**
- * Read-only commands it may run without asking. Exact forms for cleanup:
- * a `work cleanup --json:*` prefix rule would also allow `--apply`.
+ * Read-only commands it may run without asking (each agent's adapter writes
+ * them in its own terms). Exact forms for cleanup: a `work cleanup --json`
+ * prefix rule would also allow `--apply`.
  */
-export const ASSISTANT_ALLOW = [
-  'Bash(work sessions:*)',
-  'Bash(work digest:*)',
-  'Bash(work overlaps:*)',
-  'Bash(work search:*)',
-  'Bash(work cleanup --json)',
-  'Bash(work cleanup --json --no-fetch)',
-  'Bash(work cleanup --no-fetch --json)',
-  'Bash(work list:*)',
-  'Bash(work recent:*)',
+export const ASSISTANT_ALLOW: AllowRule[] = [
+  { command: 'work sessions', prefix: true },
+  { command: 'work digest', prefix: true },
+  { command: 'work overlaps', prefix: true },
+  { command: 'work search', prefix: true },
+  { command: 'work cleanup --json' },
+  { command: 'work cleanup --json --no-fetch' },
+  { command: 'work cleanup --no-fetch --json' },
+  { command: 'work list', prefix: true },
+  { command: 'work recent', prefix: true },
 ];
 
-const CLAUDE_MD = `# You are the work dashboard's assistant
+/** Its hook: what the dashboard shows, added at the start of each turn. */
+export const ASSISTANT_HOOKS: WorkHook[] = [{ owner: 'assistant', edge: 'turn-start', command: 'work hook assistant-context', timeoutSec: 5 }];
 
-The user opens you with Ctrl+K in \`work web\`, the dashboard over all their git worktrees and the Claude session in each. Help them make sense of it and act on it: what needs them, what each session did, what can be cleaned up, which sessions will conflict.
+export const ASSISTANT_INSTRUCTIONS = `# You are the work dashboard's assistant
+
+The user opens you with Ctrl+K in \`work web\`, the dashboard over all their git worktrees and the coding agent session in each. Help them make sense of it and act on it: what needs them, what each session did, what can be cleaned up, which sessions will conflict.
 
 ## Getting the data
 
@@ -59,7 +67,7 @@ Use the \`work\` CLI with \`--json\` (see the work-sessions skill) and parse it;
 - \`work digest --json --since today|yesterday|week\` — what each session did (prompts, turns, PRs).
 - \`work overlaps --json\` — live sessions changing the same files.
 - \`work cleanup --json\` — which worktrees can go, and why.
-- \`work search <words> --json\` — sessions whose conversation (live or archived, also older than Claude Code keeps) mentions it, with the matching lines: "what did we do about X?".
+- \`work search <words> --json\` — sessions whose conversation (live or archived, also older than the agent keeps) mentions it, with the matching lines: "what did we do about X?".
 
 Each prompt comes with what the user is looking at in the dashboard (the tab, the selected session). When they say "this", "these" or "here", that is what they mean.
 
@@ -72,20 +80,12 @@ Ask before you change anything, and say exactly what will happen:
 Don't post on GitHub, and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
 `;
 
-/** Write (or refresh) the assistant's folder; returns it. Idempotent. */
-export function prepareAssistantDir(): string {
+/** Write (or refresh) the assistant's folder for the agent it runs; returns it. Idempotent. */
+export function prepareAssistantDir(agent: Pick<AgentAdapter, 'instructionsFile' | 'workspace'>): string {
   const dir = assistantDir();
-  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
-  atomicWriteFile(path.join(dir, 'CLAUDE.md'), CLAUDE_MD);
-  // Project settings are ours; the user's "don't ask again" choices go to
-  // .claude/settings.local.json, which this never touches.
-  const settings = {
-    permissions: { allow: ASSISTANT_ALLOW },
-    hooks: {
-      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'work hook assistant-context', timeout: 5 }] }],
-    },
-  };
-  atomicWriteFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
+  fs.mkdirSync(dir, { recursive: true });
+  atomicWriteFile(path.join(dir, agent.instructionsFile), ASSISTANT_INSTRUCTIONS);
+  agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS });
   return dir;
 }
 

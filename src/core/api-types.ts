@@ -161,12 +161,12 @@ export interface BuildFoldersApplyResult {
   message: string;
 }
 
-// ---- chat (headless Claude, spike) ----------------------------------------
+// ---- chat (a session's agent run headless: chat-session.ts) ---------------
 
 /** stopped: no process (the next message starts one) · exited: it died. */
 export type ChatState = 'stopped' | 'starting' | 'working' | 'needs_input' | 'idle' | 'exited';
 
-/** The content block Claude is writing right now (streamed text). */
+/** What the agent is writing right now (streamed text). */
 export interface ChatPartial {
   kind: 'text' | 'thinking';
   text: string;
@@ -186,12 +186,13 @@ export interface ChatSnapshot {
   sessionId: string;
   state: ChatState;
   error: string | null;
-  claudeSessionId: string | null;
-  /** stream-json lines as Claude wrote them; see core/chat-view.ts. */
+  /** The agent's conversation id, once it runs. */
+  conversationId: string | null;
+  /** What was said, in work's terms (records read by the agent's adapter; core/chat-view.ts). */
   messages: import('./chat-view.js').ChatMessage[];
   partial: ChatPartial | null;
   permissions: ChatPermissionWire[];
-  /** The session's Claude runs in the terminal (PTY host) right now. */
+  /** The session's agent runs in the terminal (PTY host) right now. */
   terminalRunning?: boolean;
 }
 

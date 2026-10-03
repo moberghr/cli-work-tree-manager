@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { agentFor } from './agents/index.js';
-import { claudeAgent } from './agents/claude.js';
+import type { AgentAdapter } from './agents/types.js';
+import { agentFor, assistantAgent } from './agents/index.js';
 import { statusFromOutput, type PtyOutput } from './output-status.js';
 import type { SessionAttention } from './api-types.js';
 import type { HostBeat } from './host-health.js';
@@ -147,6 +147,13 @@ export async function resumePersistedSessions(): Promise<number> {
  */
 export { ASSISTANT_ID };
 
+/** The assistant runs config `assistantAgent` (Claude Code by default), in its folder written for that agent. */
+export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['launch']['tool']> } {
+  const config = loadConfig();
+  const agent = assistantAgent(config);
+  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(config) };
+}
+
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
   const first = session.paths[0];
   if (!first) return null;
@@ -173,7 +180,7 @@ export async function ensurePty(
   if (refused) throw new Error(refused);
   const base =
     sessionId === ASSISTANT_ID
-      ? { cwd: prepareAssistantDir(), tool: claudeAgent.launch.tool(loadConfig()) }
+      ? assistantSpec()
       : session
         ? spawnSpecFor(session)
         : null;

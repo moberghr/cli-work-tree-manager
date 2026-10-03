@@ -16,6 +16,10 @@ import { mountAssistantRoutes } from '../../src/core/assistant-routes.js';
 import { upsertSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import type { SessionWire } from '../../src/core/api-types.js';
+import { claudeAgent } from '../../src/core/agents/claude.js';
+import { agentById, assistantAgent } from '../../src/core/agents/index.js';
+import { claudeAllowRule } from '../../src/core/agents/claude-workspace.js';
+import type { AllowRule } from '../../src/core/agents/types.js';
 
 let home: string;
 beforeEach(() => {
@@ -28,27 +32,54 @@ afterEach(() => {
 });
 
 /** Claude Code's Bash rule matching: `X:*` is a prefix, anything else exact. */
-const allows = (rules: string[], command: string) =>
+const claudeAllows = (rules: string[], command: string) =>
   rules.some((r) => {
     const m = r.match(/^Bash\((.*)\)$/);
     if (!m) return false;
     return m[1].endsWith(':*') ? command.startsWith(m[1].slice(0, -2)) : command === m[1];
   });
+/** work's own rules: exact, or a prefix. */
+const allows = (rules: AllowRule[], command: string) => rules.some((r) => (r.prefix ? command.startsWith(r.command) : command === r.command));
+
+/** What Claude Code would run without asking, from the settings work wrote. */
+const claudeSettingsAllow = (): string[] => JSON.parse(fs.readFileSync(path.join(assistantDir(), '.claude', 'settings.json'), 'utf-8')).permissions.allow;
 
 describe('the assistant folder', () => {
-  it('has a CLAUDE.md, the context hook, and read-only commands pre-allowed', () => {
-    const dir = prepareAssistantDir();
+  it('Claude’s: a CLAUDE.md, the context hook, and the read-only commands in its rule syntax', () => {
+    const dir = prepareAssistantDir(claudeAgent);
     expect(dir).toBe(path.join(home, '.work', 'assistant'));
     expect(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf-8')).toContain('work sessions --json');
     const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf-8'));
-    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe('work hook assistant-context');
-    expect(settings.permissions.allow).toEqual(ASSISTANT_ALLOW);
+    expect(settings.hooks).toEqual({ UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'work hook assistant-context', timeout: 5 }] }] });
+    expect(settings.permissions.allow).toEqual(ASSISTANT_ALLOW.map(claudeAllowRule));
+    expect(settings.permissions.allow).toContain('Bash(work sessions:*)');
+    expect(settings.permissions.allow).toContain('Bash(work cleanup --json)');
     expect(settings.permissions.defaultMode).toBeUndefined(); // never bypass
   });
 
-  it('never pre-allows anything that changes things', () => {
+  it('an agent without a workspace: its own instructions file only — nothing of Claude’s', () => {
+    const dir = prepareAssistantDir(agentById('opencode'));
+    expect(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf-8')).toContain('work sessions --json');
+    expect(fs.existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.claude'))).toBe(false);
+  });
+
+  it('runs config `assistantAgent`, Claude Code by default — started as that agent, in a folder written for it', async () => {
+    expect(assistantAgent(null)).toBe(claudeAgent);
+    expect(assistantAgent({ assistantAgent: 'opencode' }).id).toBe('opencode');
+    fs.mkdirSync(path.join(home, '.work'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: {}, copyFiles: [], assistantAgent: 'opencode' }));
+    const { assistantSpec } = await import('../../src/core/pty-pool.js');
+    const spec = assistantSpec();
+    expect(spec.tool.cmd).toBe('opencode');
+    expect(fs.existsSync(path.join(spec.cwd, 'AGENTS.md'))).toBe(true);
+  });
+
+  it('never pre-allows anything that changes things — in work’s rules, and in what Claude was given', () => {
+    prepareAssistantDir(claudeAgent);
     for (const read of ['work sessions --json', 'work digest --json --since today', 'work cleanup --json', 'work overlaps --json', 'work search encryption keys --json']) {
       expect(allows(ASSISTANT_ALLOW, read), read).toBe(true);
+      expect(claudeAllows(claudeSettingsAllow(), read), read).toBe(true);
     }
     for (const change of [
       'work cleanup --json --apply abc --action delete',
@@ -67,13 +98,14 @@ describe('the assistant folder', () => {
       'work stop',
     ]) {
       expect(allows(ASSISTANT_ALLOW, change), change).toBe(false);
+      expect(claudeAllows(claudeSettingsAllow(), change), change).toBe(false);
     }
   });
 
   it("rewriting it leaves the user's own settings.local.json alone", () => {
-    const dir = prepareAssistantDir();
+    const dir = prepareAssistantDir(claudeAgent);
     fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), '{"mine":true}');
-    prepareAssistantDir();
+    prepareAssistantDir(claudeAgent);
     expect(fs.readFileSync(path.join(dir, '.claude', 'settings.local.json'), 'utf-8')).toBe('{"mine":true}');
   });
 });

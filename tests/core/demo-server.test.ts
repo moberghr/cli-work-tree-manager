@@ -206,14 +206,16 @@ describe('demo server', () => {
 
   it('serves a session as a chat, and a message starts a simulated turn', async () => {
     const id = (await byBranch('feat/invoice-export')).id;
-    const snap = await get<{ state: string; messages: Array<{ raw: { type: string; message?: { content: unknown } } }> }>(`/api/sessions/${id}/chat`);
-    expect(snap.messages[0].raw).toMatchObject({ type: 'user', message: { content: 'Add CSV export to the invoices endpoint' } });
-    expect(snap.messages.some((m) => m.raw.type === 'assistant')).toBe(true);
+    // Chat records (chat-view.ts), as the real route serves them for any agent.
+    type Snap = { state: string; messages: Array<{ records: Array<{ kind: string; text?: string }> }> };
+    const snap = await get<Snap>(`/api/sessions/${id}/chat`);
+    expect(snap.messages[0].records).toEqual([{ kind: 'you', text: 'Add CSV export to the invoices endpoint' }]);
+    expect(snap.messages.some((m) => m.records.some((r) => r.kind === 'text' || r.kind === 'tool'))).toBe(true);
 
     const res = await send('POST', `/api/sessions/${id}/chat/messages`, { text: 'Also add a test' });
     expect(res.status).toBe(200);
-    const after = await get<{ messages: Array<{ raw: { type: string; message?: { content: unknown } } }> }>(`/api/sessions/${id}/chat`);
-    expect(after.messages.map((m) => m.raw.message?.content)).toContain('Also add a test');
+    const after = await get<Snap>(`/api/sessions/${id}/chat`);
+    expect(after.messages.flatMap((m) => m.records).filter((r) => r.kind === 'you').map((r) => r.text)).toContain('Also add a test');
     expect((await send('POST', `/api/sessions/${id}/chat/messages`, { text: ' ' })).status).toBe(400);
   });
 

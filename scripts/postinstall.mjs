@@ -1,57 +1,26 @@
 #!/usr/bin/env node
-// Best-effort: register the work-tree Claude Code plugin marketplace and
-// install the bundled plugin (wd-review skill) when the `claude` CLI is
-// available. Never fails the npm install — every step is optional.
+// Best-effort: give each agent work knows its skills (work-sessions,
+// wd-review) — `work install-skills`, i.e. src/core/skills.ts, where each
+// agent's adapter does it its own way (Claude Code: register the work-tree
+// plugin marketplace and install the plugin). Never fails the npm install —
+// every step is optional.
 
 import { spawnSync } from 'node:child_process';
-
-const MARKETPLACE_REPO = 'moberghr/moberg-plugins';
-const MARKETPLACE_NAME = 'moberg-plugins';
-const PLUGIN_SPEC = 'work-tree@moberg-plugins';
-
-// All argv values below are static literals — nothing user-controlled is
-// interpolated. shell:true is required on Windows where `claude` is a .cmd shim.
-function claude(args) {
-  return spawnSync('claude', args, {
-    stdio: 'pipe',
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-    timeout: 60_000,
-  });
-}
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function main() {
   if (process.env.CI || process.env.WORK_TREE_SKIP_PLUGIN_SETUP) return;
-
-  const probe = claude(['--version']);
-  if (probe.error || probe.status !== 0) return; // claude CLI not installed — skip silently
-
-  const list = claude(['plugin', 'marketplace', 'list']);
-  const known = !list.error && list.status === 0 && (list.stdout ?? '').includes(MARKETPLACE_NAME);
-
-  if (!known) {
-    const add = claude([
-      'plugin', 'marketplace', 'add', MARKETPLACE_REPO,
-      '--scope', 'user',
-      '--sparse', '.claude-plugin',
-    ]);
-    if (add.error || add.status !== 0) {
-      console.log('work-tree: could not register the Claude Code plugin marketplace (run `claude plugin marketplace add ' + MARKETPLACE_REPO + '` manually).');
-      return;
-    }
-    console.log('work-tree: registered Claude Code plugin marketplace "' + MARKETPLACE_NAME + '".');
-  }
-
-  const install = claude(['plugin', 'install', PLUGIN_SPEC, '--scope', 'user']);
-  if (install.error || install.status !== 0) {
-    // Already installed or transient failure — either way, not fatal.
-    return;
-  }
-  console.log('work-tree: installed Claude Code plugin "' + PLUGIN_SPEC + '" (wd-review skill).');
+  // The built CLI next to this script; absent in a fresh clone before `npm run build` — nothing to do yet.
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'bin.js');
+  if (!existsSync(bin)) return;
+  // argv only, no shell: nothing user-controlled reaches a command line.
+  spawnSync(process.execPath, [bin, 'install-skills'], { stdio: 'inherit', timeout: 180_000, windowsHide: true });
 }
 
 try {
   main();
 } catch {
-  // Never break npm install over optional plugin setup.
+  // Never break npm install over optional skill setup.
 }

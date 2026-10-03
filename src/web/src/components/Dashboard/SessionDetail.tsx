@@ -8,7 +8,7 @@ import { CatchUpButton } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
-import { isArchived, agentCan } from '../../state/session-display.js';
+import { isArchived, agentCan, agentName } from '../../state/session-display.js';
 import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
@@ -195,7 +195,7 @@ export function SessionDetail({
             <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
           ))}
         {subTab === 'comments' && <SessionComments sessionId={session.id} />}
-        {subTab === 'chat' && <ChatView sessionId={session.id} />}
+        {subTab === 'chat' && <ChatView sessionId={session.id} agentName={agentName(session)} />}
         {subTab === 'timeline' && <TimelineView session={session} />}
       </div>
     </div>

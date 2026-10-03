@@ -12,10 +12,10 @@ import { typeThenEnter } from './typing.js';
 export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
-type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent'>;
+type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent' | 'assistantAgent'>;
 
 /**
- * The config's agent settings (aiCommand, aiCommandFlags, internalAgent),
+ * The config's agent settings (aiCommand, aiCommandFlags, internalAgent, assistantAgent),
  * read again only when config.json changed (its path, size and mtime): the
  * agent lookups run per session on every session-list build, and a full
  * loadConfig each time was a read and a parse per row.
@@ -38,6 +38,7 @@ export function agentSettings(): AgentSettings {
       ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
       ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object' ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] } : {}),
       ...(typeof p.internalAgent === 'string' && /^[\w.-]+$/.test(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
+      ...(typeof p.assistantAgent === 'string' && /^[\w.-]+$/.test(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
     };
   } catch {
     /* unreadable: the defaults */
@@ -105,6 +106,11 @@ export function knownAgents(): AgentAdapter[] {
 /** Every known agent's running processes, wherever they were started (each agent's `live`). */
 export function liveAgents(table?: ReadonlyMap<number, string>): LiveAgent[] {
   return knownAgents().flatMap((a) => a.live?.running(table) ?? []);
+}
+
+/** The agent the Ctrl+K assistant runs (config `assistantAgent`; Claude Code by default). */
+export function assistantAgent(config: Pick<WorkConfig, 'assistantAgent'> | null): AgentAdapter {
+  return agentById(config?.assistantAgent ?? 'claude');
 }
 
 /** The agent that writes work's own summaries (config `internalAgent`; Claude Code by default). */

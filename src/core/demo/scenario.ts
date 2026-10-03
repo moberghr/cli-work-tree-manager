@@ -1,4 +1,5 @@
 import { createCommentStore, type CommentStore } from '../comment-store.js';
+import type { ChatRecord } from '../chat-view.js';
 import { parseGitDiff, type ParsedFile } from '../diff-parse.js';
 import { findOverlaps } from '../overlap.js';
 import { mergedParent, stackChildCounts, stackParents } from '../stack.js';
@@ -543,37 +544,36 @@ export class DemoScenario {
   }
 
   /**
-   * The session as a chat (the headless-Claude spike): the simulated
-   * terminal's `> ` lines are your messages, `● Tool(args)` lines tool calls,
-   * other `●` lines Claude's text — in the stream-json shapes the real chat
-   * route serves.
+   * The session as a chat: the simulated terminal's `> ` lines are your
+   * messages, `● Tool(args)` lines tool calls, other `●` lines the agent's
+   * text — as the chat records (chat-view.ts) the real chat route serves.
    */
   chatSnapshot(id: string): ChatSnapshot | null {
     const s = this.sessions.get(id);
     if (!s) return null;
-    const raws: unknown[] = [];
+    const lines: ChatRecord[][] = [];
     let n = 0;
     for (const line of s.transcript) {
       if (line.startsWith('> ') && line.length > 2) {
-        raws.push({ type: 'user', message: { role: 'user', content: line.slice(2) } });
+        lines.push([{ kind: 'you', text: line.slice(2) }]);
         continue;
       }
       const tool = /^● (\w+)\((.*)\)$/.exec(line);
       if (tool) {
         const toolId = `demo-tool-${n++}`;
-        raws.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: toolId, name: tool[1], input: { args: tool[2] } }] } });
-        raws.push({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: 'ok (simulated)' }] } });
+        lines.push([{ kind: 'tool', id: toolId, name: tool[1], input: { args: tool[2] } }]);
+        lines.push([{ kind: 'tool-result', toolId, text: 'ok (simulated)', isError: false }]);
         continue;
       }
-      if (line.startsWith('● ')) raws.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: line.slice(2) }] } });
+      if (line.startsWith('● ')) lines.push([{ kind: 'text', text: line.slice(2) }]);
     }
     const state = s.attention?.state === 'working' ? 'working' : s.attention?.state === 'needs_input' ? 'needs_input' : 'idle';
     return {
       sessionId: id,
       state,
       error: null,
-      claudeSessionId: `demo-${id}`,
-      messages: raws.map((raw, seq) => ({ seq, raw })),
+      conversationId: `demo-${id}`,
+      messages: lines.map((records, seq) => ({ seq, records })),
       partial: null,
       permissions: [],
       terminalRunning: false,

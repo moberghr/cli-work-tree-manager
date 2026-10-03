@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { diffLines } from 'diff';
 import type { ChatPartial, ChatPermissionWire, ChatSnapshot, ChatState } from '../../../../core/api-types.js';
 import { chatItems, type ChatItem, type ChatMessage } from '../../../../core/chat-view.js';
@@ -7,6 +7,8 @@ import { Markdown } from '../Markdown.js';
 
 interface Props {
   sessionId: string;
+  /** How to name the session's agent ("Claude Code"). */
+  agentName?: string;
 }
 
 type ChatEventWire =
@@ -16,13 +18,17 @@ type ChatEventWire =
   | { type: 'state'; state: ChatState; error: string | null }
   | { type: 'permissions'; permissions: ChatPermissionWire[] };
 
+/** The agent's name, for the permission bars deep in the list. */
+const AgentName = createContext('Claude');
+
 /**
- * A session's Claude as a conversation (headless `claude -p`, spike). Draws
- * whatever the protocol carries: every tool is a card, whatever the tool;
+ * A session's agent as a conversation (run headless: chat-session.ts). Draws
+ * the chat records its adapter read: every tool is a card, whatever the tool;
  * a few well-known ones get a nicer body when their input has the shape we
  * expect, and fall back to the plain card when it doesn't.
  */
-export function ChatView({ sessionId }: Props) {
+export function ChatView({ sessionId, agentName = 'Claude' }: Props) {
+  const name = agentName;
   const [snap, setSnap] = useState<ChatSnapshot | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -82,7 +88,7 @@ export function ChatView({ sessionId }: Props) {
       const msg = (err as Error).message;
       if (msg === 'terminal-running') setTerminalBlock(text);
       else if (msg === 'running-in-terminal')
-        setSendError("This session's Claude is open in one of your terminal tabs. Type /exit there (or close the tab), then send again — two Claudes would both write to this conversation.");
+        setSendError(`This session's ${name} is open in one of your terminal tabs. Exit it there (or close the tab), then send again — two of them would both write to this conversation.`);
       else setSendError(msg);
     } finally {
       setSending(false);
@@ -96,10 +102,11 @@ export function ChatView({ sessionId }: Props) {
   if (!snap) return <div className="wd-chat wd-chat-loading">Loading the conversation…</div>;
 
   return (
+    <AgentName.Provider value={name}>
     <div className="wd-chat">
       <div className="wd-chat-list" ref={listRef} onScroll={onScroll}>
         {items.length === 0 && !snap.partial && (
-          <div className="wd-chat-empty">No conversation yet. Say what Claude should do.</div>
+          <div className="wd-chat-empty">No conversation yet. Say what {name} should do.</div>
         )}
         {items.map((it) => (
           <Item key={it.key} item={it} permission={it.kind === 'tool' ? permissionFor.get(it.id) : undefined} onAnswer={answer} />
@@ -121,23 +128,23 @@ export function ChatView({ sessionId }: Props) {
       </div>
 
       <div className="wd-chat-status" role="status">
-        {snap.state === 'starting' && 'Starting Claude…'}
+        {snap.state === 'starting' && `Starting ${name}…`}
         {snap.state === 'working' && (
           <>
-            <span className="wd-chat-dot" /> Claude is working
+            <span className="wd-chat-dot" /> {name} is working
             <button type="button" className="wd-btn-secondary wd-chat-stop" onClick={() => void interruptChat(sessionId)}>
               Stop (Esc)
             </button>
           </>
         )}
         {snap.state === 'needs_input' && 'Waiting for you'}
-        {snap.state === 'exited' && <span className="wd-chat-error">Claude stopped: {snap.error ?? 'unknown reason'}. Send a message to resume.</span>}
+        {snap.state === 'exited' && <span className="wd-chat-error">{name} stopped: {snap.error ?? 'unknown reason'}. Send a message to resume.</span>}
         {sendError && <span className="wd-chat-error">{sendError}</span>}
       </div>
 
       {terminalBlock !== null && (
         <div className="wd-chat-takeover">
-          This session&apos;s Claude is running in the terminal. Moving it here stops that one and continues the same
+          This session&apos;s {name} is running in the terminal. Moving it here stops that one and continues the same
           conversation in the chat.
           <button type="button" className="wd-btn-primary" onClick={() => void send(true)} disabled={sending}>
             Move it here and send
@@ -151,7 +158,7 @@ export function ChatView({ sessionId }: Props) {
       <div className="wd-chat-composer">
         <textarea
           value={draft}
-          placeholder={working ? 'Message Claude (it reads it after the current step)…' : 'Message Claude…'}
+          placeholder={working ? `Message ${name} (it reads it after the current step)…` : `Message ${name}…`}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -169,6 +176,7 @@ export function ChatView({ sessionId }: Props) {
         </button>
       </div>
     </div>
+    </AgentName.Provider>
   );
 }
 
@@ -381,7 +389,7 @@ function EditDiff({ before, after }: { before: string; after: string }) {
 function PermissionBar({ p, onAnswer }: { p: ChatPermissionWire; onAnswer: (p: ChatPermissionWire, allow: boolean) => void }) {
   return (
     <div className="wd-chat-permission">
-      <span>Claude wants to use <b>{p.toolName}</b>.</span>
+      <span>{useContext(AgentName)} wants to use <b>{p.toolName}</b>.</span>
       <button type="button" className="wd-btn-primary" onClick={() => onAnswer(p, true)}>Allow</button>
       <button type="button" className="wd-btn-secondary" onClick={() => onAnswer(p, false)}>Deny</button>
     </div>

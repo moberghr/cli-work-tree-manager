@@ -52,10 +52,10 @@ const snapshot = (over: Partial<ChatSnapshot> = {}): ChatSnapshot => ({
   sessionId: 's1',
   state: 'idle',
   error: null,
-  claudeSessionId: 'c1',
+  conversationId: 'c1',
   messages: [
-    { seq: 0, raw: { type: 'user', message: { content: 'Run the tests' } } },
-    { seq: 1, raw: { type: 'assistant', message: { content: [{ type: 'text', text: 'Running them.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } }] } } },
+    { seq: 0, records: [{ kind: 'you', text: 'Run the tests' }] },
+    { seq: 1, records: [{ kind: 'text', text: 'Running them.' }, { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'npm test', description: 'Run tests' } }] },
   ],
   partial: null,
   permissions: [],
@@ -77,7 +77,7 @@ describe('ChatView', () => {
 
     FakeEventSource.last!.fire('partial', { type: 'partial', partial: { kind: 'text', text: 'All 12 pass' } });
     expect(container.querySelector('.wd-chat-live')?.textContent).toContain('All 12 pass');
-    FakeEventSource.last!.fire('message', { type: 'message', message: { seq: 2, raw: { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: '12 passed' }] } } } });
+    FakeEventSource.last!.fire('message', { type: 'message', message: { seq: 2, records: [{ kind: 'tool-result', toolId: 't1', text: '12 passed', isError: false }] } });
     expect(container.querySelector('.wd-chat-tool-running')).toBeNull(); // the result arrived
   });
 
@@ -87,8 +87,8 @@ describe('ChatView', () => {
       type: 'snapshot',
       snapshot: snapshot({
         messages: [
-          { seq: 0, raw: { type: 'user', message: { content: '<bash-input>wd</bash-input>' } } },
-          { seq: 1, raw: { type: 'user', message: { content: '<bash-stdout>\u001b[90mOpening: http://x\u001b[39m</bash-stdout><bash-stderr></bash-stderr>' } } },
+          { seq: 0, records: [{ kind: 'tagged', parts: [{ tag: 'bash-input', text: 'wd' }] }] },
+          { seq: 1, records: [{ kind: 'tagged', parts: [{ tag: 'bash-stdout', text: 'Opening: http://x' }, { tag: 'bash-stderr', text: '' }] }] },
         ],
       }),
     });

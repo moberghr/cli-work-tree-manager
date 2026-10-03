@@ -2,13 +2,14 @@ import type { Hono } from 'hono';
 import type { ChatSession } from './chat-session.js';
 
 /**
- * The permission tool headless Claude asks (--permission-prompt-tool
- * mcp__work_chat__approve): a minimal MCP server over HTTP — JSON-RPC in,
- * one JSON response out, no SSE. A tools/call waits until the user answers
- * in the dashboard, then returns Claude's documented decision shape:
+ * work's permission endpoint for a headless chat: an MCP tool the agent
+ * asks before running a tool (Claude's --permission-prompt-tool
+ * mcp__work_chat__approve, agents/claude-chat.ts). A minimal MCP server over
+ * HTTP — JSON-RPC in, one JSON response out, no SSE. A tools/call waits until the user answers
+ * in the dashboard, then returns the decision (Claude's documented shape):
  * {"behavior":"allow","updatedInput":…} or {"behavior":"deny","message":…}.
  *
- * Called by Claude, not the SPA (so not in the demo's route contract). The
+ * Called by the agent, not the SPA (so not in the demo's route contract). The
  * path carries the chat session's random token: only the process we
  * started, given that URL in its MCP config, can raise a prompt.
  */

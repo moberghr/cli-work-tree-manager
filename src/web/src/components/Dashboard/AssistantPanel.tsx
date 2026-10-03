@@ -11,7 +11,7 @@ interface Props {
 }
 
 /**
- * The Ctrl+K assistant: a real Claude session (in the PTY host, like any
+ * The Ctrl+K assistant: a real agent session (in the PTY host, like any
  * worktree's) that knows what the dashboard shows — each prompt carries it —
  * and reads everything through the `work … --json` commands. Its permission
  * prompts show here; nothing changes without one.

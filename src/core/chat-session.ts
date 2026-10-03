@@ -1,26 +1,27 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import spawn from 'cross-spawn';
 import type { ChatPartial, ChatPermissionWire, ChatSnapshot, ChatState } from './api-types.js';
-import type { ChatMessage } from './chat-view.js';
+import type { ChatMessage, ChatRecord } from './chat-view.js';
+import type { ChatLineRead, ChatPermissionDecision, ChatProtocol } from './agents/types.js';
 import { report } from './report.js';
-import { withoutParentSession } from './claude-env.js';
 
 /**
- * One session's Claude, headless: `claude -p` with stream-json in and out,
- * kept running between turns. Messages go in as JSON lines on stdin; every
- * line Claude prints is kept (except streaming deltas, which only feed the
- * live `partial`) and handed to listeners as it arrives.
+ * One session's agent, headless, kept running between turns: JSON lines in
+ * on its stdin, JSON lines out. What the lines are is its adapter's protocol
+ * (agents/types.ts `ChatProtocol`; Claude's stream-json: agents/claude-chat.ts):
+ * this runs the process and keeps what it said, in work's terms
+ * (`ChatRecord`s), handing each line to listeners as it arrives; streamed
+ * text only feeds the live `partial`.
  *
- * Permission prompts reach us through Claude's documented
- * --permission-prompt-tool: an MCP tool served by work web
- * (chat-mcp-routes.ts) that waits here until the user answers.
+ * Permission prompts arrive at work's permission URL (an MCP tool served by
+ * work web, chat-mcp-routes.ts → `requestPermission`) or in the agent's own
+ * output (`ChatLineRead.permission`, answered with its `answerLine`); either
+ * waits here until the user answers.
  *
- * Interrupt is a control_request on stdin — the SDK's protocol, not a CLI
- * flag — so it is backed by a fallback: if it isn't acknowledged in time
- * the process is stopped, and the next message resumes the conversation.
+ * An interrupt is the protocol's line, backed by a fallback: if it isn't
+ * acknowledged in time (or the agent has none) the process is stopped, and
+ * the next message resumes the conversation.
  */
 
 export interface ChatSpawnSpec {
@@ -30,6 +31,8 @@ export interface ChatSpawnSpec {
   port?: number | null;
   /** Continue the folder's latest conversation on the first start. */
   continueExisting: boolean;
+  /** The agent's environment clean-up (a parent session's variables: `launch.cleanEnv`). */
+  cleanEnv?: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
 }
 
 export type ChatEvent =
@@ -38,17 +41,12 @@ export type ChatEvent =
   | { type: 'state'; state: ChatState; error: string | null }
   | { type: 'permissions'; permissions: ChatPermissionWire[] };
 
-export interface PermissionDecision {
-  behavior: 'allow' | 'deny';
-  message?: string;
-  updatedInput?: unknown;
-}
+export type PermissionDecision = ChatPermissionDecision;
 
 const MAX_MESSAGES = 3000;
 /** History kept for the view, by size too: tool results can be megabytes each. */
 export const MAX_HISTORY_BYTES = 16 * 1024 * 1024;
 const INTERRUPT_GRACE_MS = 4000;
-export const PERMISSION_TOOL = 'mcp__work_chat__approve';
 
 /** The secret in the permission tool's URL (see chat-mcp-routes.ts). */
 export const newChatToken = (): string => crypto.randomBytes(16).toString('hex');
@@ -60,7 +58,10 @@ export class ChatSession {
   lastActivityAt = Date.now();
   private historyBytes = 0;
   private sizes: number[] = [];
-  claudeSessionId: string | null = null;
+  /** The conversation the agent runs (from its first line): resumed after a restart. */
+  conversationId: string | null = null;
+  /** The arguments it was last started with (after the tool's own). */
+  lastArgs: string[] = [];
   private messages: ChatMessage[] = [];
   private seq = 0;
   private partial: ChatPartial | null = null;
@@ -74,11 +75,11 @@ export class ChatSession {
   constructor(
     readonly sessionId: string,
     private readonly spec: ChatSpawnSpec,
-    private readonly mcpConfigFile: string,
-    history: unknown[],
+    private readonly protocol: ChatProtocol,
+    history: ChatRecord[][],
     readonly token: string = newChatToken(),
   ) {
-    for (const raw of history) this.push(raw, false);
+    for (const records of history) this.push(records, false);
   }
 
   subscribe(fn: (e: ChatEvent) => void): () => void {
@@ -91,7 +92,7 @@ export class ChatSession {
       sessionId: this.sessionId,
       state: this.state,
       error: this.error,
-      claudeSessionId: this.claudeSessionId,
+      conversationId: this.conversationId,
       messages: this.messages,
       partial: this.partial,
       permissions: [...this.pending.values()].map((p) => p.wire),
@@ -116,9 +117,9 @@ export class ChatSession {
     this.emit({ type: 'state', state, error });
   }
 
-  private push(raw: unknown, live = true): void {
-    const message = { seq: this.seq++, raw };
-    const size = approxBytes(raw);
+  private push(records: ChatRecord[], live = true): void {
+    const message = { seq: this.seq++, records };
+    const size = approxBytes(records);
     this.messages.push(message);
     this.sizes.push(size);
     this.historyBytes += size;
@@ -134,22 +135,10 @@ export class ChatSession {
   // ------------------------------------------------------------- process
 
   private start(): void {
-    const args = [
-      ...this.spec.baseArgs,
-      '-p',
-      '--input-format', 'stream-json',
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--include-partial-messages',
-      '--replay-user-messages',
-      '--permission-prompts', 'host',
-      '--permission-prompt-tool', PERMISSION_TOOL,
-      '--mcp-config', this.mcpConfigFile,
-    ];
-    if (this.claudeSessionId) args.push('--resume', this.claudeSessionId);
-    else if (this.spec.continueExisting) args.push('--continue');
-
-    const env = { ...withoutParentSession(process.env), ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
+    this.lastArgs = this.protocol.args({ resumeId: this.conversationId, continueLatest: this.spec.continueExisting });
+    const args = [...this.spec.baseArgs, ...this.lastArgs];
+    const clean = this.spec.cleanEnv ?? ((e: NodeJS.ProcessEnv) => e);
+    const env = { ...clean(process.env), ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
     this.stopping = false;
     this.stderrTail = '';
     this.setState('starting');
@@ -200,55 +189,46 @@ export class ChatSession {
       return; // not a protocol line (a stray print): ignore
     }
     if (!raw || typeof raw !== 'object') return;
-    const m = raw as Record<string, unknown>;
-    switch (m.type) {
-      case 'stream_event':
-        this.onStreamEvent(m.event);
-        return;
-      case 'control_response':
-        this.clearInterruptTimer();
-        return;
-      case 'system':
-        if (m.subtype === 'init' && typeof m.session_id === 'string') this.claudeSessionId = m.session_id;
-        if (this.state === 'starting') this.setState(this.turnPending ? 'working' : 'idle');
-        break;
-      case 'result':
-        this.turnPending = false;
-        this.clearInterruptTimer();
-        this.setState(this.pending.size ? 'needs_input' : 'idle');
-        break;
-      case 'assistant':
-      case 'user':
-        if (this.state !== 'needs_input') this.setState('working');
-        break;
-    }
-    this.push(raw);
+    const r = this.protocol.read(raw);
+    if (r.stream) this.onStream(r.stream);
+    if (r.acknowledged) this.clearInterruptTimer();
+    if (r.conversationId) this.conversationId = r.conversationId;
+    if (r.ready && this.state === 'starting') this.setState(this.turnPending ? 'working' : 'idle');
+    if (r.turnEnded) {
+      this.turnPending = false;
+      this.clearInterruptTimer();
+      this.setState(this.pending.size ? 'needs_input' : 'idle');
+    } else if (r.activity && this.state !== 'needs_input') this.setState('working');
+    if (r.permission) this.askInBand(r.permission);
+    if (r.records.length) this.push(r.records);
   }
 
   private turnPending = false;
   private lastPartialEmit = 0;
   private partialTimer: NodeJS.Timeout | null = null;
 
-  /** Only the block being written right now is kept; finished blocks arrive as messages. */
-  private onStreamEvent(ev: unknown): void {
-    if (!ev || typeof ev !== 'object') return;
-    const e = ev as Record<string, unknown>;
-    if (e.type === 'content_block_start') {
-      const block = e.content_block as Record<string, unknown> | undefined;
-      const kind = typeof block?.type === 'string' ? block.type : 'text';
-      this.partial = kind === 'text' || kind === 'thinking' ? { kind, text: '' } : null;
+  /** Only the block being written right now is kept; finished blocks arrive as records. */
+  private onStream(st: NonNullable<ChatLineRead['stream']>): void {
+    if ('start' in st) {
+      this.partial = st.start ? { kind: st.start, text: '' } : null;
       this.emitPartial(true);
-    } else if (e.type === 'content_block_delta' && this.partial) {
-      const d = e.delta as Record<string, unknown> | undefined;
-      const add = typeof d?.text === 'string' ? d.text : typeof d?.thinking === 'string' ? d.thinking : '';
-      if (add) {
-        this.partial = { ...this.partial, text: this.partial.text + add };
-        this.emitPartial(false);
-      }
-    } else if (e.type === 'content_block_stop' || e.type === 'message_stop') {
+    } else if ('delta' in st) {
+      if (!this.partial) return;
+      this.partial = { ...this.partial, text: this.partial.text + st.delta };
+      this.emitPartial(false);
+    } else {
       this.partial = null;
       this.emitPartial(true);
     }
+  }
+
+  /** A permission the agent asked in its own output: held like any other, answered on its stdin. */
+  private askInBand(p: NonNullable<ChatLineRead['permission']>): void {
+    const protocol = this.protocol;
+    if (!protocol.answerLine) return;
+    void this.requestPermission(p.toolName, p.input, p.toolUseId).then((d) => {
+      this.write(protocol.answerLine!(p.requestId, d));
+    });
   }
 
   /** At most ~20 updates a second while text streams. */
@@ -281,7 +261,7 @@ export class ChatSession {
   send(text: string): void {
     if (!this.child) this.start();
     this.turnPending = true;
-    this.write({ type: 'user', message: { role: 'user', content: text } });
+    this.write(this.protocol.userLine(text));
     if (this.state !== 'starting' && this.state !== 'needs_input') this.setState('working');
   }
 
@@ -290,8 +270,14 @@ export class ChatSession {
     for (const [, p] of this.pending) p.resolve({ behavior: 'deny', message: 'The user interrupted.' });
     this.pending.clear();
     this.emit({ type: 'permissions', permissions: [] });
-    this.write({ type: 'control_request', request_id: `int-${Date.now()}`, request: { subtype: 'interrupt' } });
+    const line = this.protocol.interruptLine();
     this.clearInterruptTimer();
+    if (line === null) {
+      // No interrupt in its protocol: stop it; the next message resumes the conversation.
+      this.stop();
+      return;
+    }
+    this.write(line);
     this.interruptTimer = setTimeout(() => {
       // Not acknowledged: stop it; the next message resumes the conversation.
       report('detail', `[chat] ${this.sessionId}: interrupt not acknowledged, stopping the process`);
@@ -325,7 +311,7 @@ export class ChatSession {
     }, 1500);
   }
 
-  /** Called by the permission MCP tool: waits until the user answers. */
+  /** Called by the permission MCP tool (or for one the agent asked in its output): waits until the user answers. */
   requestPermission(toolName: string, input: unknown, toolUseId: string | null): Promise<PermissionDecision> {
     const id = crypto.randomBytes(6).toString('hex');
     const wire: ChatPermissionWire = { id, toolName, input, toolUseId, at: Date.now() };
@@ -354,21 +340,13 @@ export class ChatSession {
     return this.child !== null;
   }
 
-  /** The Claude process's pid while it runs. */
+  /** The agent process's pid while it runs. */
   get pid(): number | null {
     return this.child?.pid ?? null;
   }
 }
 
-/** The MCP config file pointing Claude at our permission tool (under ~/.work/chat). */
-export function writeMcpConfig(dir: string, sessionId: string, url: string): string {
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${sessionId}.mcp.json`);
-  fs.writeFileSync(file, JSON.stringify({ mcpServers: { work_chat: { type: 'http', url } } }, null, 2));
-  return file;
-}
-
-/** About how many bytes a stream-json message holds (its JSON length). */
+/** About how many bytes a message's records hold (their JSON length). */
 function approxBytes(raw: unknown): number {
   try {
     return JSON.stringify(raw)?.length ?? 0;

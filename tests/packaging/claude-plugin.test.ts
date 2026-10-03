@@ -39,5 +39,7 @@ describe('claude plugin packaging', () => {
     expect(pkg.files).toContain('.claude-plugin');
     expect(pkg.files).toContain('plugins');
     expect(existsSync(join(root, 'scripts', 'postinstall.mjs'))).toBe(true);
+    // It hands over to the built CLI, where each agent's adapter installs the skills its own way (core/skills.ts).
+    expect(readFileSync(join(root, 'scripts', 'postinstall.mjs'), 'utf8')).toContain("'install-skills'");
   });
 });
