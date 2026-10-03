@@ -7,7 +7,7 @@ import { sessionIdFor } from './session-id.js';
 import { createInProcess, type CreateWorktree } from './setup-child.js';
 import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, type JiraIssue } from './jira.js';
 import { jiraPrompt } from './jira-prompt.js';
-import { runClaude } from './checkpoint-summary.js';
+import { runInternal } from './checkpoint-summary.js';
 import { startSessionWithPrompt } from './worktree-routes.js';
 import {
   branchFor,
@@ -103,7 +103,7 @@ export function mountJiraWatchRoutes(
           detail: fetchIssueDetail,
           targets: () => watchTargets(),
           sessions: () => loadHistory(),
-          ask: (prompt) => runClaude(prompt, 90_000),
+          ask: (prompt) => runInternal(prompt, 90_000),
           start: (target, branch, issue) => start(target, branch, issue, true),
           note: (text, level, sessionId) => run?.note(text, { level, ...(sessionId ? { sessionId } : {}) }),
           maxPerDay: loadConfig()?.jiraWatch?.maxPerDay,

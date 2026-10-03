@@ -12,7 +12,8 @@ import spawn from 'cross-spawn';
 import path from 'node:path';
 import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';
-import { internalClaudeSpawn } from './internal-claude.js';
+import { internalAgent } from './agents/index.js';
+import { loadConfig } from './config.js';
 import { killTree } from './process.js';
 import { createSerialQueue } from './throttle.js';
 import type { ParsedFile } from './diff-parse.js';
@@ -96,16 +97,22 @@ function heuristicLabel(
   return `${files.length} files · +${added} −${deleted}`;
 }
 
-/** Run `claude -p` with the prompt on stdin; resolve its trimmed stdout, or
- *  null on error/timeout. Async (never blocks the server event loop). */
-/** One internal `claude -p` at a time, however many turns finish together. */
+/** One internal run at a time, however many turns finish together. */
 const internalQueue = createSerialQueue();
 
-export function runClaude(prompt: string, timeoutMs = 25_000, opts: { model?: string } = {}): Promise<string | null> {
-  return internalQueue(() => runClaudeNow(prompt, timeoutMs, opts));
+/**
+ * Run work's summarising agent (config `internalAgent`, Claude Code by
+ * default: agents/ `oneShot`) with the prompt on stdin; resolve its trimmed
+ * stdout, or null on error, timeout, or an agent that has no one-shot runs.
+ * Async (never blocks the server event loop). `small`: a few words wanted.
+ */
+export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: boolean } = {}): Promise<string | null> {
+  const oneShot = internalAgent(loadConfig()).oneShot;
+  if (!oneShot) return Promise.resolve(null);
+  return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
 }
 
-function runClaudeNow(prompt: string, timeoutMs: number, opts: { model?: string }): Promise<string | null> {
+function runNow(prompt: string, timeoutMs: number, run: { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (v: string | null) => {
@@ -117,9 +124,8 @@ function runClaudeNow(prompt: string, timeoutMs: number, opts: { model?: string 
     let child: ReturnType<typeof spawn>;
     try {
       // Text-only, no tools, neutral cwd, tagged internal (so it doesn't
-      // trip work's own hooks) — see internalClaudeSpawn.
-      const run = internalClaudeSpawn(opts);
-      child = spawn('claude', run.args, {
+      // trip work's own hooks) — the agent's oneShot.command.
+      child = spawn(run.cmd, run.args, {
         stdio: ['pipe', 'pipe', 'ignore'],
         windowsHide: true,
         cwd: run.cwd,
@@ -130,8 +136,8 @@ function runClaudeNow(prompt: string, timeoutMs: number, opts: { model?: string 
       return;
     }
     const timer = setTimeout(() => {
-      // The whole tree: on Windows `claude` may be a .cmd shim, and killing
-      // only cmd.exe left the real Claude running, orphaned.
+      // The whole tree: on Windows the agent may be a .cmd shim, and killing
+      // only cmd.exe left the real one running, orphaned.
       if (child.pid) killTree(child.pid);
       else {
         try {
@@ -163,8 +169,6 @@ function runClaudeNow(prompt: string, timeoutMs: number, opts: { model?: string 
   });
 }
 
-/** Checkpoint names are a few words, once per changed turn: a small model does. */
-export const LABEL_MODEL = 'haiku';
 
 /** Normalise Claude's reply to a single terse line. */
 function cleanLabel(raw: string): string {
@@ -195,7 +199,7 @@ export async function summarizeCheckpoint(
     'Summarise this code change in 8 words or fewer, imperative mood, ' +
     'no trailing punctuation. Output ONLY the summary line.\n\n' +
     text;
-  const reply = await runClaude(prompt, 25_000, { model: LABEL_MODEL });
+  const reply = await runInternal(prompt, 25_000, { small: true });
   if (!reply) return fallback;
   const label = cleanLabel(reply);
   return label || fallback;

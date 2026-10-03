@@ -19,7 +19,7 @@ import { stopDev } from './dev-server.js';
 import { buildFoldersOf, clearBuildFolders } from './build-folders.js';
 import { clearCheckpoints } from './checkpoint.js';
 import { scopeHashForPaths } from './scope-manager.js';
-import { runClaude } from './checkpoint-summary.js';
+import { runInternal } from './checkpoint-summary.js';
 import { summarizeArchive } from './archive-summary.js';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -201,7 +201,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       }
       return deleted;
     },
-    summarize: (rec) => summarizeArchive(rec, (prompt) => runClaude(prompt, 60_000)),
+    summarize: (rec) => summarizeArchive(rec, (prompt) => runInternal(prompt, 60_000)),
   };
 }
 

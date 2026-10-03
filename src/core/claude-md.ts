@@ -3,7 +3,7 @@ import path from 'node:path';
 import spawn from 'cross-spawn';
 import type { WorkConfig } from './config.js';
 import { getConfigDir } from './config.js';
-import { internalClaudeSpawn } from './internal-claude.js';
+import { internalAgent } from './agents/index.js';
 import { report } from './report.js';
 
 /**
@@ -69,21 +69,23 @@ export function generateGroupClaudeMd(
   report('step', `Generating combined CLAUDE.md for group '${groupName}'...`);
   report('detail', '(This will call Claude to generate the combined file)');
 
-  // Try claude -p
-  // Text-only, no tools, neutral cwd, tagged internal — see internalClaudeSpawn.
-  const run = internalClaudeSpawn();
-  const result = spawn.sync('claude', run.args, {
-    input: prompt,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    cwd: run.cwd,
-    env: run.env,
-  });
+  // Text-only, no tools, neutral cwd, tagged internal: the summarising agent's one-shot (agents/).
+  const oneShot = internalAgent(config).oneShot;
+  const run = oneShot?.command({}) ?? null;
+  const result = run
+    ? spawn.sync(run.cmd, run.args, {
+        input: prompt,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        cwd: run.cwd,
+        env: run.env,
+      })
+    : null;
 
   let content: string;
 
-  if (result.status !== 0 || !result.stdout?.trim()) {
+  if (!result || result.status !== 0 || !result.stdout?.trim()) {
     report('warn', 'Failed to generate CLAUDE.md via Claude. Creating a basic template instead.');
     content = buildFallbackTemplate(groupName, repoAliases, config);
   } else {

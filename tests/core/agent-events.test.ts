@@ -106,6 +106,28 @@ describe('typing into an agent (agents/: `input`)', () => {
   });
 });
 
+describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', () => {
+  it('Claude’s one-shot: `claude -p`, no tools, no MCP servers, a neutral folder, tagged internal; a small model for a few words', async () => {
+    const { claudeAgent, CLAUDE_SMALL_MODEL } = await import('../../src/core/agents/claude.js');
+    const run = claudeAgent.oneShot!.command({});
+    expect(run).toMatchObject({ cmd: 'claude', args: ['-p', '--tools', '', '--strict-mcp-config'], cwd: os.tmpdir() });
+    expect(run.env.WORK_INTERNAL_CLAUDE).toBe('1');
+    expect(claudeAgent.oneShot!.command({ small: true }).args).toEqual(['-p', '--tools', '', '--strict-mcp-config', '--model', CLAUDE_SMALL_MODEL]);
+  });
+
+  it('the summarising agent is config internalAgent (Claude by default); one without one-shot runs writes nothing — no process started', async () => {
+    const { internalAgent } = await import('../../src/core/agents/index.js');
+    expect(internalAgent(null).id).toBe('claude');
+    expect(internalAgent({ internalAgent: 'opencode' }).oneShot).toBeUndefined();
+    fs.mkdirSync(path.join(tmp, '.work'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify({ worktreesRoot: tmp, repos: {}, groups: {}, copyFiles: [], internalAgent: 'opencode' }));
+    const { runInternal } = await import('../../src/core/checkpoint-summary.js');
+    const started = Date.now();
+    expect(await runInternal('summarise this', 25_000)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000); // answered at once: nothing ran
+  });
+});
+
 describe('work hook --agent', () => {
   it('a hook says which agent runs it; one with no hooks records no status, and notes go as plain text', async () => {
     const { statusEventFor, computeHookOutput } = await import('../../src/commands/hook.js');

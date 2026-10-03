@@ -50,6 +50,11 @@ export function liveAgents(table?: ReadonlyMap<number, string>): LiveAgent[] {
   return knownAgents().flatMap((a) => a.live?.running(table) ?? []);
 }
 
+/** The agent that writes work's own summaries (config `internalAgent`; Claude Code by default). */
+export function internalAgent(config: Pick<WorkConfig, 'internalAgent'> | null): AgentAdapter {
+  return agentById(config?.internalAgent ?? 'claude');
+}
+
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */
 export function agentById(id: string): AgentAdapter {
   return ADAPTERS.get(id) ?? plainAgent(id);

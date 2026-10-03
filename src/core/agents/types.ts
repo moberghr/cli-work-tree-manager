@@ -85,6 +85,19 @@ export interface AgentInput {
   };
 }
 
+/**
+ * A text-only, one-shot run of the agent, for work's own summaries (checkpoint
+ * names, catch-up, archive summaries, the Jira watch's choice, a group's
+ * instructions file): the prompt on stdin, the answer on stdout. The prompt
+ * carries text work doesn't control (diffs, transcripts, issues), so: no
+ * tools, none of the user's MCP servers, a neutral folder, and the env tagged
+ * so the agent's own hooks don't fire into work (internal-claude.ts).
+ */
+export interface AgentOneShot {
+  /** How to start one; `small`: a few words are wanted (a smaller, cheaper model). */
+  command(opts: { small?: boolean }): { cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv };
+}
+
 /** One running agent process, as its adapter reads it (Claude: ~/.claude/sessions/<pid>.json). */
 export interface LiveAgent {
   pid: number;
@@ -144,4 +157,6 @@ export interface AgentAdapter {
   live?: AgentLive;
   /** Typing into its terminal (every agent: at least text, a pause, Enter). */
   input: AgentInput;
+  /** Text-only one-shot runs for work's summaries; absent: work writes none with this agent. */
+  oneShot?: AgentOneShot;
 }
