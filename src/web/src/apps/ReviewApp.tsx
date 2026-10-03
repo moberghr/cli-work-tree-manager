@@ -549,7 +549,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
           {!isEmpty && activeRepo && (
             <>
               <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
-              {!readOnly && <CommentsPanel repoName={activeRepo.name} />}
+              {!readOnly && <CommentsPanel repoName={activeRepo.name} onOpenRepo={setActiveRepoName} />}
             </>
           )}
         </aside>

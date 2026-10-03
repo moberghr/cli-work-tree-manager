@@ -745,6 +745,8 @@ export interface ActivityWire {
   /** Finished runs, newest first. */
   recent: ActivityRun[];
   schedules: ActivitySchedule[];
+  /** When each job last finished well (absent from a server before this): a failing job that worked once needs you. */
+  lastOk?: Partial<Record<ActivityKind, string>>;
 }
 
 /**

@@ -26,6 +26,19 @@ describe('activity log', () => {
     expect(onChange).toHaveBeenCalled();
   });
 
+  it('remembers when each job last finished well, past the recent list (a long outage fills it)', () => {
+    let t = Date.parse('2026-10-04T10:00:00Z');
+    const log = createActivityLog({ now: () => t, keep: 3 });
+    log.start('pr-watch', 'Checking pull requests').done('ok');
+    for (let i = 0; i < 5; i++) {
+      t += 60_000;
+      log.start('pr-watch', 'Checking pull requests').fail('gh: rate limit');
+    }
+    const snap = log.snapshot();
+    expect(snap.recent.every((r) => r.status === 'failed')).toBe(true);
+    expect(snap.lastOk).toEqual({ 'pr-watch': '2026-10-04T10:00:00.000Z' });
+  });
+
   it('keeps the newest runs, newest first; a failure keeps its reason', () => {
     const log = createActivityLog({ keep: 2 });
     for (const n of [1, 2, 3]) log.start('jira', `run ${n}`).done('ok');

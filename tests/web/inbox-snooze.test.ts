@@ -68,6 +68,32 @@ describe('snooze in the inbox', () => {
     expect(container.querySelector('.wd-tab-header h1')!.textContent).toContain('1 needs you');
   });
 
+  it('"1 snoozed" opens the list: until when, and Unsnooze', async () => {
+    const sessions = [
+      session('done-one', att('idle', false, 'Added the endpoint')),
+      session('later', att('idle', false, 'Fixed the flake'), { snoozed: { until: null } }),
+    ];
+    act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: () => {} })));
+    act(() => button('1 snoozed').click());
+    const list = container.querySelector('[aria-label="Snoozed"]')!;
+    expect(list.textContent).toContain('later');
+    expect(list.textContent).toContain('until it changes');
+    await act(async () => button('Unsnooze', list).click());
+    expect(api.unsnoozeSession).toHaveBeenCalledWith('later');
+  });
+
+  it('"1 waiting on others" opens the list: what each waits on', () => {
+    const sessions = [
+      session('done-one', att('idle', false, 'Added the endpoint')),
+      session('blocked', att('idle', true, 'Waiting'), {
+        blockedBy: [{ key: 'session:x', kind: 'session', sessionId: 'x', label: 'feat/x' }],
+      } as Partial<SessionSummary>),
+    ];
+    act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: () => {} })));
+    act(() => button('1 waiting on others').click());
+    expect(container.querySelector('[aria-label="Waiting on others"]')!.textContent).toContain('waits on feat/x');
+  });
+
   it('Snooze on a row that wants you: pick how long', async () => {
     const s = session('done-one', att('idle', false, 'Added the endpoint'));
     act(() => root.render(createElement(InboxTab, { sessions: [s], onOpenSession: () => {} })));

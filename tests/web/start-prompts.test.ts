@@ -38,4 +38,17 @@ describe('start prompts', () => {
     expect(prPrompt(pr())).toContain('Get up to speed');
     expect(prPrompt(pr()).split('\n')[0]).toBe('Continue on PR #42: Add CSV export');
   });
+
+  it('a conflict says to bring the base in, not to look at check logs', () => {
+    const p = prPrompt(pr({ conflicting: true }));
+    expect(p).toContain('conflicts with its base branch');
+    expect(p).not.toContain('checks are failing');
+  });
+
+  it("someone else's PR is reviewed, never changed or posted to", () => {
+    const p = prPrompt(pr({ isMine: false, checksStatus: 'FAILURE', reviewRequested: true }));
+    expect(p.split('\n')[0]).toBe('Review PR #42: Add CSV export');
+    expect(p).toContain("Don't commit, push or post anything on GitHub.");
+    expect(p).not.toContain('fix them');
+  });
 });

@@ -43,6 +43,8 @@ export function createActivityLog(opts: { now?: () => number; onChange?: () => v
   let nextId = 1;
   const running = new Map<number, ActivityRun>();
   let recent: ActivityRun[] = [];
+  // When each job last finished well: kept apart from `recent`, which a job failing for hours fills on its own.
+  const lastOk = new Map<ActivityKind, string>();
   const schedules = new Map<ActivityKind, ActivitySchedule>();
 
   const finish = (run: ActivityRun) => {
@@ -82,6 +84,7 @@ export function createActivityLog(opts: { now?: () => number; onChange?: () => v
         done(summary) {
           if (!open()) return;
           Object.assign(run, { status: 'done', endedAt: iso(), summary });
+          lastOk.set(run.kind, run.endedAt!);
           finish(run);
         },
         fail(error) {
@@ -128,6 +131,7 @@ export function createActivityLog(opts: { now?: () => number; onChange?: () => v
         running: [...running.values()].map(copy),
         recent: recent.map(copy),
         schedules: [...schedules.values()].map(copy),
+        lastOk: Object.fromEntries(lastOk),
       };
     },
   };

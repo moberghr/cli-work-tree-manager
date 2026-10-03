@@ -1304,6 +1304,8 @@ export class DemoScenario {
           reviewDecision: 'REVIEW_REQUIRED',
           myReview: 'NONE',
           isMine: true,
+          conflicting: false,
+          reviewRequested: false,
           repoAlias: s.isGroup ? s.target : s.target,
         });
       }
@@ -1318,7 +1320,24 @@ export class DemoScenario {
       reviewDecision: 'APPROVED',
       myReview: 'APPROVED',
       isMine: false,
+      conflicting: false,
+      reviewRequested: false,
       repoAlias: 'web',
+    });
+    // A teammate's PR that asks for your review (Start: "Waiting for your review").
+    out.push({
+      number: 215,
+      title: 'Show the tax on each invoice line',
+      branch: 'feat/line-tax',
+      url: 'https://github.com/example/api/pull/215',
+      isDraft: false,
+      checksStatus: 'SUCCESS',
+      reviewDecision: 'REVIEW_REQUIRED',
+      myReview: 'NONE',
+      isMine: false,
+      conflicting: false,
+      reviewRequested: true,
+      repoAlias: 'api',
     });
     return out;
   }

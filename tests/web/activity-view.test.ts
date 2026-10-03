@@ -42,6 +42,10 @@ describe('activityAttention: the dot colours only when a job needs you', () => {
       run({ kind: 'jira', label: 'Fetching your Jira issues', status, summary: 'acli missing' });
     expect(activityAttention(wire({ recent: [jira('failed'), jira('failed')] }), NOW)).toBeNull();
     expect(activityAttention(wire({ recent: [jira('failed'), jira('done')] }), NOW)).toBe('Fetching your Jira issues failed: acli missing');
+    // Its success fell out of the recent list in a long outage: the server's lastOk still knows it worked.
+    expect(activityAttention(wire({ recent: [jira('failed'), jira('failed')], lastOk: { jira: '2026-10-03T08:00:00Z' } }), NOW)).toBe(
+      'Fetching your Jira issues failed: acli missing',
+    );
     // Working again: fine.
     expect(activityAttention(wire({ recent: [jira('done'), jira('failed'), jira('done')] }), NOW)).toBeNull();
   });
@@ -50,7 +54,7 @@ describe('activityAttention: the dot colours only when a job needs you', () => {
     const w = wire({ running: [run({ status: 'running', progress: { done: 2, total: 9 } }), run({ status: 'running', kind: 'jira' })] });
     expect(activityAttention(w, NOW)).toBeNull();
     expect(activityQuietLine(w)).toBe('Checking pull requests 2/9 (+1 more)');
-    expect(activityQuietLine(wire({}))).toBe('Background jobs: all quiet');
+    expect(activityQuietLine(wire({}))).toBe('all quiet'); // the dot's label says "Background jobs:" once
   });
 });
 

@@ -28,6 +28,8 @@ import {
 import { relativeTime } from '../../utils/time.js';
 import { moveSession } from '../../../../core/rail/session-order.js';
 import { lastActiveAt } from '../../state/session-display.js';
+import { modalOpen } from '../../state/modal-open.js';
+import { snoozeLabel } from '../../../../core/rail/snooze.js';
 
 interface Props {
   sessions: SessionSummary[];
@@ -59,15 +61,16 @@ interface Props {
   onShownChange?: (ids: string[]) => void;
 }
 
-/** Right-hand status slot: the one thing worth saying about this row. The
- *  status icon on the left says what it is; this says how long, or how many. */
 /**
- * What a rail row no longer shows on its face, for its tooltip: changes,
- * PRs, notes waiting for Claude, your note, where its Claude runs. Pure.
+ * What a rail row no longer shows on its face, for its tooltip: until when
+ * it's snoozed, what it waits on, changes, PRs, notes waiting for Claude,
+ * your note, where its Claude runs. Pure (`now` for the snooze's wording).
  */
-export function railDetails(s: SessionSummary, stat: string | null, prs: { number: number }[]): string {
+export function railDetails(s: SessionSummary, stat: string | null, prs: { number: number }[], now = new Date()): string {
   const c = s.agents ?? s.claudes;
   const bits = [
+    s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
+    s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
     stat ?? '',
     prs.length ? prs.map((p) => `#${p.number}`).join(' ') : '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
@@ -77,6 +80,8 @@ export function railDetails(s: SessionSummary, stat: string | null, prs: { numbe
   return bits.length ? `\n${bits.join(' · ')}` : '';
 }
 
+/** Right-hand status slot: the one thing worth saying about this row. The
+ *  status icon on the left says what it is; this says how long, or how many. */
 function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: string } {
   const since = s.attention?.since ?? s.lastAccessedAt;
   if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
@@ -171,7 +176,7 @@ export function SessionRail({
       if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"]')) return;
+      if (modalOpen() || document.querySelector('[role="menu"]')) return;
       e.preventDefault();
       searchRef.current?.focus();
     };
@@ -192,7 +197,7 @@ export function SessionRail({
       const el = document.activeElement as HTMLElement | null;
       const inTerminal = !!el?.classList.contains('xterm-helper-textarea');
       if (el && !inTerminal && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"]')) return;
+      if (modalOpen() || document.querySelector('[role="menu"]')) return;
       const target = visibleRef.current[Number(n) - 1];
       if (!target) return;
       e.preventDefault();
@@ -211,7 +216,7 @@ export function SessionRail({
       if (e.key !== 'F2' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"]')) return;
+      if (modalOpen() || document.querySelector('[role="menu"]')) return;
       e.preventDefault();
       setRenamingId(activeSessionId);
     };

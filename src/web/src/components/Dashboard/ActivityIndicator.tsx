@@ -75,14 +75,14 @@ export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props
         className={'wd-activity-dot-btn' + (attention ? ' wd-activity-attention' : '')}
         aria-expanded={open}
         aria-label={`Background jobs: ${line}`}
-        title={`${line}
+        title={`Background jobs: ${line}
 Click for what work does in the background, and what it decided`}
         onClick={() => setOpen((o) => !o)}
       >
         <span className={'wd-activity-dot' + (running.length ? ' wd-activity-dot-busy' : '')} aria-hidden />
       </button>
       {open && (
-        <div className="wd-activity-panel" role="dialog" aria-label="Background activity">
+        <div className="wd-activity-panel" role="dialog" data-popover aria-label="Background activity">
           <section>
             <h3 className="wd-legend-title">Now</h3>
             {running.length === 0 ? (

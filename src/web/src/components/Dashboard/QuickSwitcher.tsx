@@ -3,6 +3,7 @@ import type { SessionSummary } from '../../api/client.js';
 import { displayStatus } from '../../state/session-display.js';
 import { switcherLabel, switcherResults } from '../../state/quick-switch.js';
 import { StatusIcon } from './StatusIcon.js';
+import { modalOpen } from '../../state/modal-open.js';
 
 /**
  * Ctrl+P: type a few letters of a session's name, branch or repo and press
@@ -121,7 +122,7 @@ export function useQuickSwitcher(): { open: boolean; close: (picked: boolean) =>
       e.preventDefault(); // never the print dialog
       e.stopPropagation();
       if (openRef.current) return close(false);
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      if (modalOpen()) return;
       focusBefore.current = document.activeElement as HTMLElement | null;
       openRef.current = true;
       setOpen(true);

@@ -48,6 +48,7 @@ export function StatusLegend() {
           id="wd-legend-panel"
           className="wd-legend-panel"
           role="dialog"
+          data-popover
           aria-label="What the icons mean"
           style={{ top: open.top, left: open.left }}
         >

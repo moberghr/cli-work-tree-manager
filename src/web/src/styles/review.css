@@ -131,6 +131,18 @@
   border-top: none;
   margin-top: 0;
 }
+/* No diff to show (all committed): the comments take the whole sidebar. */
+.wd-sidebar-split-bottom.wd-sidebar-comments-only {
+  height: auto;
+  max-height: none;
+  flex: 1;
+  flex-shrink: 1;
+}
+/* A comment on another repo of the group: which one. */
+.wd-comments-panel-repo {
+  color: var(--muted);
+  font-weight: 600;
+}
 .wd-web-review-sidebar-header {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);

@@ -15,7 +15,8 @@ export function activityAttention(data: ActivityWire | null, now: number): strin
     // Newest first: the first finished run of each kind is how it stands now.
     if (seen.has(run.kind) || run.status === 'skipped') continue;
     seen.add(run.kind);
-    const workedBefore = data.recent.some((r) => r.kind === run.kind && r.status === 'done');
+    // The server remembers each job's last success (lastOk); the recent list alone loses it in a long outage.
+    const workedBefore = !!data.lastOk?.[run.kind] || data.recent.some((r) => r.kind === run.kind && r.status === 'done');
     if (run.status === 'failed' && workedBefore) return `${run.label} failed${run.summary ? `: ${run.summary}` : ''}`;
   }
   return null;
@@ -24,7 +25,7 @@ export function activityAttention(data: ActivityWire | null, now: number): strin
 /** What the dot's tooltip says when nothing needs you. */
 export function activityQuietLine(data: ActivityWire | null): string {
   const first = data?.running[0];
-  if (!first) return 'Background jobs: all quiet';
+  if (!first) return 'all quiet';
   const progress = first.progress && first.progress.total > 0 ? ` ${first.progress.done}/${first.progress.total}` : '';
   const more = (data?.running.length ?? 0) > 1 ? ` (+${data!.running.length - 1} more)` : '';
   return `${first.label}${progress}${more}`;

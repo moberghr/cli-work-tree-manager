@@ -1,3 +1,4 @@
+import { branchFor, sessionIsForIssue } from './jira-prompt.js';
 import { json, tx, withDb } from '../platform/db.js';
 import type { JiraIssue, JiraIssueDetail } from './jira.js';
 import type { JiraDecision, JiraWatchState } from '../api-types.js';
@@ -5,9 +6,9 @@ import type { JiraDecision, JiraWatchState } from '../api-types.js';
 /**
  * The Jira watch: when an issue is newly assigned to you, an internal Claude
  * picks the project it belongs to, and — when it is sure — work creates its
- * worktree (`feat/<KEY>`, as the Jira tab does) and starts the session's
- * Claude on it. Unsure, it suggests the project and you start it from the
- * Jira tab. Off until you turn it on there.
+ * worktree (`feat/<KEY>`, as Start does) and starts the session's
+ * Claude on it. Unsure, it suggests the project and you start it from
+ * Start. Off until you turn it on there.
  *
  * Only issues assigned after it was turned on: turning it on records the
  * ones you already have (`baseline`), so your backlog doesn't start a dozen
@@ -191,7 +192,7 @@ export interface WatchDeps {
   now?: () => Date;
 }
 
-export const branchFor = (issue: Pick<JiraIssue, 'key'>): string => `feat/${issue.key}`;
+export { branchFor } from './jira-prompt.js';
 
 /** Started today (local midnight): the daily cap. */
 function startedToday(decisions: JiraDecision[], now: Date): number {
@@ -216,7 +217,7 @@ export async function sweepJira(deps: WatchDeps): Promise<{ started: number; sug
   for (const issue of fresh) {
     const base = { key: issue.key, summary: issue.summary, url: issue.url };
     // Already has a session (you started it by hand): nothing to do.
-    const existing = sessions.find((s) => s.jiraKey === issue.key || s.branch === branchFor(issue));
+    const existing = sessions.find((s) => sessionIsForIssue(s, issue));
     if (existing) {
       saveDecision({ ...base, at: now.toISOString(), action: 'skipped', target: existing.target, reason: 'it already has a session' });
       continue;

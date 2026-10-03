@@ -320,16 +320,21 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
               {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
               {(stale || loading || (checking && !pending)) && <DiffBusyChip label={stale || loading ? 'loading…' : 'checking…'} />}
             </header>
-            {!isEmpty && activeRepo && (
+            {!isEmpty && activeRepo ? (
               <>
                 <div ref={treeScrollRef} className={'wd-sidebar-split-top' + (stale ? ' wd-diff-stale' : '')} inert={stale}>
                   <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
                 </div>
                 <ResizeDivider layoutRef={sidebarRef} size={commentsHeight} onCommit={setCommentsHeight} spec={COMMENTS_SPEC} />
                 <div className="wd-sidebar-split-bottom">
-                  <CommentsPanel repoName={activeRepo.name} />
+                  <CommentsPanel repoName={activeRepo.name} onOpenRepo={setActiveRepoName} />
                 </div>
               </>
+            ) : (
+              // Nothing changed (Claude committed it all): the comments are still here.
+              <div className="wd-sidebar-split-bottom wd-sidebar-comments-only">
+                <CommentsPanel />
+              </div>
             )}
           </aside>
           <ResizeDivider layoutRef={layoutRef} size={sidebarWidth} onCommit={setSidebarWidth} />

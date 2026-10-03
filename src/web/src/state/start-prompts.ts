@@ -12,8 +12,27 @@ export function jiraPrompt(issue: JiraIssue): string {
   return coreJiraPrompt(issue);
 }
 
+/**
+ * Someone else's PR is reviewed, never changed: read it, try it, and tell
+ * me what I'd comment. Your own is continued: fix what's red, answer the
+ * review.
+ */
 export function prPrompt(pr: PrInfo): string {
+  if (!pr.isMine) {
+    return [
+      `Review PR #${pr.number}: ${pr.title}`,
+      pr.url,
+      '',
+      `It isn't mine: read what it changes (gh pr diff ${pr.number}), run what's useful to check it, and tell me what you'd comment and why.`,
+      "Don't commit, push or post anything on GitHub.",
+    ].join('\n');
+  }
   const lines = [`Continue on PR #${pr.number}: ${pr.title}`, pr.url, ''];
+  if (pr.conflicting) {
+    lines.push(
+      `It conflicts with its base branch. Bring the base in (git fetch, then merge it), resolve the conflicts, and run the tests.`,
+    );
+  }
   if (pr.checksStatus === 'FAILURE') {
     lines.push('Its checks are failing. Find out why (gh pr checks, then the failing job logs) and fix them.');
   }

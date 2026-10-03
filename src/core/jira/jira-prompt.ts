@@ -12,6 +12,18 @@ export interface PromptIssue {
   url: string;
 }
 
+/** The branch a session for an issue is made on. */
+export const branchFor = (issue: Pick<PromptIssue, 'key'>): string => `feat/${issue.key}`;
+
+/**
+ * A session is the issue's when it carries its key, or sits on its branch
+ * (`work tree api feat/PAY-12` without --jira-key): the Jira watch skips
+ * such an issue, and Start links to that session instead of offering Start.
+ */
+export function sessionIsForIssue(s: { branch: string; jiraKey?: string }, issue: Pick<PromptIssue, 'key'>): boolean {
+  return s.jiraKey === issue.key || s.branch === branchFor(issue);
+}
+
 export function jiraPrompt(issue: PromptIssue, opts: { automatic?: boolean } = {}): string {
   const lines = [
     `Work on ${issue.key}: ${issue.summary}`,

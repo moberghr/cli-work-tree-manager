@@ -17,14 +17,14 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchJira: async () => ({ issues: api.issues, available: true }),
-  fetchPrs: async () => ({ prs: api.prs, available: true }),
   fetchJiraWatch: async () => api.watch,
   setJiraWatch: (on: boolean) => api.setJiraWatch(on),
   startJiraIssue: (k: string, t: string) => api.startJiraIssue(k, t),
   dismissJiraIssue: (k: string) => api.dismissJiraIssue(k),
 }));
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
-const { StartTab, prState, sessionForPr, sessionForIssue } = await import('../../src/web/src/components/Dashboard/tabs/StartTab.js');
+const { StartTab, prState, sessionForPr, sessionForIssue, waitsForYourReview } =
+  await import('../../src/web/src/components/Dashboard/tabs/StartTab.js');
 
 const issue = (key: string, status: string, statusCategory: JiraIssue['statusCategory']): JiraIssue => ({
   key,
@@ -69,7 +69,16 @@ beforeEach(() => {
   api.prs = [
     pr({ number: 212, title: 'Updated express and zod', branch: 'chore/deps-update', checksStatus: 'FAILURE' }),
     pr({ number: 208, title: 'Cache product images', branch: 'feat/cache', reviewDecision: 'APPROVED' }),
-    pr({ number: 99, title: 'Someone else’s', branch: 'feat/other', isMine: false, reviewDecision: 'REVIEW_REQUIRED' }),
+    pr({
+      number: 99,
+      title: 'Someone else’s',
+      branch: 'feat/other',
+      isMine: false,
+      reviewDecision: 'REVIEW_REQUIRED',
+      reviewRequested: true,
+    }),
+    // Needs a review, but not asked of you: not yours to review.
+    pr({ number: 97, title: 'Asked of someone else', branch: 'feat/y', isMine: false, reviewDecision: 'REVIEW_REQUIRED' }),
     pr({ number: 98, title: 'Not for me', branch: 'feat/x', isMine: false }),
   ];
   api.watch = {
@@ -118,6 +127,7 @@ const button = (label: string) => [...container.querySelectorAll('button')].find
 function render(over: Record<string, unknown> = {}) {
   const props = {
     sessions: SESSIONS,
+    prs: api.prs,
     onNewWorktree: vi.fn(),
     onPickIssue: vi.fn(),
     onPickPr: vi.fn(),
@@ -166,6 +176,9 @@ describe('Start', () => {
     expect(numbers('Your pull requests')).toEqual(['#212', '#208']);
     expect(numbers('Waiting for your review')).toEqual(['#99']);
     expect(container.textContent).not.toContain('Not for me');
+    expect(container.textContent).not.toContain('Asked of someone else');
+    // Someone else's PR is reviewed, not started on.
+    expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Review']);
   });
 
   it('the checkbox turns the watch on', async () => {
@@ -195,7 +208,8 @@ describe('Start', () => {
   it('says so when gh or acli is missing', async () => {
     render({
       loadJira: async () => ({ issues: [], available: false }),
-      loadPrs: async () => ({ prs: [], available: false }),
+      prs: null,
+      prsNote: 'gh isn’t installed or logged in (gh auth login).',
     });
     await flush();
     expect(container.textContent).toContain('acli isn’t available or logged in.');
@@ -219,5 +233,34 @@ describe('prState, and the session already on a PR or an issue', () => {
     expect(sessionForPr(pr({ branch: 'feat/cache' }), SESSIONS)).toBeUndefined(); // archived
     expect(sessionForPr(pr({ branch: 'chore/deps-update', repoAlias: 'web' }), SESSIONS)).toBeUndefined();
     expect(sessionForIssue(issue('SD-3', 'Review', 'indeterminate'), SESSIONS)?.id).toBe('sd3');
+  });
+});
+
+describe('Start: what is already someone’s', () => {
+  it('a session on the issue’s branch (no Jira key) is the issue’s session', () => {
+    const plain = session({ id: 'pay', branch: 'feat/PAY-12' });
+    expect(sessionForIssue(issue('PAY-12', 'To Do', 'new'), [plain])?.id).toBe('pay');
+  });
+
+  it('a group session claims only its own repos’ PRs (when the groups are known)', () => {
+    const group = session({ id: 'g', target: 'platform', branch: 'feat/auth', isGroup: true });
+    const outside = pr({ branch: 'feat/auth', repoAlias: 'billing' });
+    const inside = pr({ branch: 'feat/auth', repoAlias: 'auth-api' });
+    const members = (g: string) => (g === 'platform' ? ['auth-api', 'auth-web'] : undefined);
+    expect(sessionForPr(outside, [group], members)).toBeUndefined();
+    expect(sessionForPr(inside, [group], members)?.id).toBe('g');
+    // Groups not known yet: any same-branch PR, as before.
+    expect(sessionForPr(outside, [group])?.id).toBe('g');
+  });
+
+  it('a merge conflict reads as one, not as failing checks', () => {
+    expect(prState(pr({ conflicting: true, checksStatus: 'SUCCESS' }))).toEqual({ text: 'Merge conflict', tone: 'bad' });
+  });
+
+  it('waiting for your review: asked of you by name, not reviewed yet, not yours', () => {
+    expect(waitsForYourReview(pr({ isMine: false, reviewRequested: true }))).toBe(true);
+    expect(waitsForYourReview(pr({ isMine: false, reviewRequested: true, myReview: 'COMMENTED' }))).toBe(false);
+    expect(waitsForYourReview(pr({ isMine: false, reviewDecision: 'REVIEW_REQUIRED' }))).toBe(false);
+    expect(waitsForYourReview(pr({ isMine: true, reviewRequested: true }))).toBe(false);
   });
 });

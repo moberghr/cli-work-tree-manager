@@ -12,6 +12,10 @@ export interface PullRequestInfo {
   myReview: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'NONE';
   /** Whether the current user is the PR author. */
   isMine: boolean;
+  /** It can't merge as it is: a conflict with its base (checks say nothing about that). */
+  conflicting: boolean;
+  /** Your review was asked for, by name (a team's request isn't known here). */
+  reviewRequested: boolean;
   /** Repo alias this PR belongs to (for distinguishing group PRs). */
   repoAlias: string;
 }
@@ -47,9 +51,11 @@ interface GhPr {
   author?: { login?: string } | null;
   statusCheckRollup?: Array<{ conclusion?: string | null; status?: string | null }> | null;
   reviews?: Array<{ author?: { login?: string } | null; state?: string }> | null;
+  reviewRequests?: Array<{ login?: string } | null> | null;
 }
 
-function parsePrJson(stdout: string, repoAlias: string, currentUser: string): PullRequestInfo[] {
+/** `gh pr list --json …` output as work's PR rows: checks, review, yours or not, conflicts, review asked of you. Pure. */
+export function parsePrJson(stdout: string, repoAlias: string, currentUser: string): PullRequestInfo[] {
   const parsed = JSON.parse(stdout) as unknown;
   const prs: GhPr[] = Array.isArray(parsed) ? (parsed as GhPr[]) : [];
   const results: PullRequestInfo[] = [];
@@ -64,9 +70,6 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
       else if (hasPending) checksStatus = 'PENDING';
       else checksStatus = 'SUCCESS';
     }
-
-    // Merge conflict overrides to failure
-    if (pr.mergeable === 'CONFLICTING') checksStatus = 'FAILURE';
 
     let reviewDecision: PullRequestInfo['reviewDecision'] = 'NONE';
     if (pr.reviewDecision === 'APPROVED') reviewDecision = 'APPROVED';
@@ -98,6 +101,8 @@ function parsePrJson(stdout: string, repoAlias: string, currentUser: string): Pu
       reviewDecision,
       myReview,
       isMine: currentUser ? pr.author?.login?.toLowerCase() === currentUser.toLowerCase() : false,
+      conflicting: pr.mergeable === 'CONFLICTING',
+      reviewRequested: !!currentUser && (pr.reviewRequests ?? []).some((r) => r?.login?.toLowerCase() === currentUser.toLowerCase()),
       repoAlias,
     });
   }
@@ -121,7 +126,7 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
         '--state',
         'open',
         '--json',
-        'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,mergeable,author',
+        'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,reviewRequests,mergeable,author',
         '--limit',
         String(PR_LIST_LIMIT),
       ],

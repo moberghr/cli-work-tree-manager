@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { sendPromptToSession } from '../../api/client.js';
 import type { PromptsResponse, SavedPrompt, SessionSummary } from '../../api/client.js';
 import { promptsForSession } from '../../../../core/sessions/saved-prompts.js';
@@ -28,9 +28,7 @@ const sendPrompt = sendPromptToSession;
  * built-in ones), and where the picked one went.
  */
 export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPrompt, open, onOpenChange }: Props) {
-  const changeRef = useRef(onOpenChange);
-  changeRef.current = onOpenChange;
-  const setOpen = useCallback((o: boolean) => changeRef.current(o), []);
+  const setOpen = onOpenChange;
   const [prompts, setPrompts] = useState<SavedPrompt[] | null>(null);
   const [state, setState] = useState<{ kind: 'sending' | 'sent' | 'error'; text: string } | null>(null);
   const root = useRef<HTMLDivElement>(null);

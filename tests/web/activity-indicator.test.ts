@@ -132,6 +132,7 @@ describe('ActivityIndicator', () => {
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => RUNNING })));
     await flush();
     act(() => container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!.click());
+    expect(container.querySelector('.wd-activity-dot-btn')!.getAttribute('aria-label')).not.toMatch(/Background jobs: Background jobs/);
     expect(container.querySelector('.wd-activity-version')!.textContent).toBe(`work v${VERSION}`);
   });
 

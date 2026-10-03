@@ -333,6 +333,13 @@ test('Today is a view of Sessions, and Tasks is a panel in the top bar', async (
   await expect(panel).toContainText('Rate-limit the public invoices API');
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
+  // g t opens it, and g t closes it again (a popover leaves the shortcuts working).
+  await page.locator('body').press('g');
+  await page.locator('body').press('t');
+  await expect(panel).toBeVisible();
+  await page.locator('body').press('g');
+  await page.locator('body').press('t');
+  await expect(panel).toHaveCount(0);
 });
 
 test('a split-view diff lays its columns out at full width', async ({ page }) => {

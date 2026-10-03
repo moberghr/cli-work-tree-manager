@@ -2,18 +2,21 @@ import { useReview } from '../../state/ReviewProvider.js';
 import type { Comment } from '../../api/client.js';
 
 interface Props {
-  /** Which repo we're showing. General comments are included regardless. */
-  repoName: string;
+  /** The repo on screen (none: the diff is empty). Every repo's comments are listed; another repo's say which. */
+  repoName?: string;
+  /** Show another repo's diff (a click on one of its comments). */
+  onOpenRepo?: (repo: string) => void;
 }
 
-export function CommentsPanel({ repoName }: Props) {
+/**
+ * Every top-level comment of the review (replies render under their
+ * parents inline): general ones, and line / file ones in every repo — not
+ * only the one on screen, and also when the diff is empty (the Comments
+ * tab was folded into the Diff, so this is the one list of them).
+ */
+export function CommentsPanel({ repoName, onOpenRepo }: Props) {
   const review = useReview();
-  // Show top-level comments only (replies render under their parents inline).
-  const entries = review.comments.filter((c) => {
-    if (c.parentId) return false;
-    if (c.side === 'general') return true;
-    return c.repo === repoName;
-  });
+  const entries = review.comments.filter((c) => !c.parentId);
 
   return (
     <div className="wd-comments-panel">
@@ -25,7 +28,7 @@ export function CommentsPanel({ repoName }: Props) {
       ) : (
         <ul className="wd-comments-panel-list">
           {entries.map((c) => (
-            <CommentsPanelRow key={c.id} comment={c} />
+            <CommentsPanelRow key={c.id} comment={c} repoName={repoName} onOpenRepo={onOpenRepo} />
           ))}
         </ul>
       )}
@@ -33,22 +36,16 @@ export function CommentsPanel({ repoName }: Props) {
   );
 }
 
-function CommentsPanelRow({ comment }: { comment: Comment }) {
+function CommentsPanelRow({ comment, repoName, onOpenRepo }: { comment: Comment; repoName?: string; onOpenRepo?: (repo: string) => void }) {
+  const elsewhere = comment.side !== 'general' && !!comment.repo && comment.repo !== repoName;
   function onClick() {
-    if (comment.side === 'general') {
-      const pane = document.querySelector('.wd-general-pane');
-      const details = pane?.querySelector('details');
-      if (details && !details.open) details.open = true;
-      pane?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (elsewhere) {
+      // Its repo first; the jump once that diff is drawn.
+      onOpenRepo?.(comment.repo!);
+      setTimeout(() => jumpTo(comment), 60);
       return;
     }
-    // Find the table row corresponding to this comment's anchor.
-    const file = document.querySelector<HTMLElement>(`article.wd-file[data-path="${cssEscape(comment.file)}"]`);
-    if (!file) return;
-    // Scroll into view and flash the first matching row.
-    file.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // Whole-file comments have no line to flash — the file scroll is enough.
-    if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
+    jumpTo(comment);
   }
   const loc =
     comment.side === 'general' ? 'General' : comment.side === 'file' ? `${comment.file} · whole file` : `${comment.file}:${comment.line}`;
@@ -62,11 +59,30 @@ function CommentsPanelRow({ comment }: { comment: Comment }) {
             ✓{' '}
           </span>
         )}
+        {elsewhere && <span className="wd-comments-panel-repo">{comment.repo} · </span>}
         {loc}
       </div>
       <div className="wd-comments-panel-body">{comment.body.split('\n')[0]}</div>
     </li>
   );
+}
+
+/** Scroll to a comment's place in the diff on screen (the general pane, or its file and line). */
+function jumpTo(comment: Comment) {
+  if (comment.side === 'general') {
+    const pane = document.querySelector('.wd-general-pane');
+    const details = pane?.querySelector('details');
+    if (details && !details.open) details.open = true;
+    pane?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  // Find the table row corresponding to this comment's anchor.
+  const file = document.querySelector<HTMLElement>(`article.wd-file[data-path="${cssEscape(comment.file)}"]`);
+  if (!file) return;
+  // Scroll into view and flash the first matching row.
+  file.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Whole-file comments have no line to flash — the file scroll is enough.
+  if (comment.side !== 'file') flashLine(file, comment.line, comment.side);
 }
 
 function flashLine(file: HTMLElement, line: number, side: 'left' | 'right' | 'general') {

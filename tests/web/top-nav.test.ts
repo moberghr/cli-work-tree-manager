@@ -101,4 +101,12 @@ describe('railDetails: what a one-line rail row keeps for its tooltip', () => {
     expect(railDetails(s, '+5 −1', [{ number: 42 }])).toBe('\n+5 −1 · #42 · 2 waiting for Claude · has notes · running in a terminal');
     expect(railDetails({} as SessionSummary, null, [])).toBe('');
   });
+
+  it('until when it is snoozed, and what it waits on', () => {
+    const s = {
+      snoozed: { until: null },
+      blockedBy: [{ kind: 'pr', url: 'u', label: 'PR #12' }],
+    } as unknown as SessionSummary;
+    expect(railDetails(s, null, [])).toBe('\nsnoozed until it changes · waits on PR #12');
+  });
 });

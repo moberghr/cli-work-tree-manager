@@ -51,7 +51,7 @@ export function TasksPanel({
         Tasks
       </button>
       {open && (
-        <div className="wd-tasks-panel" role="dialog" aria-label="Tasks">
+        <div className="wd-tasks-panel" role="dialog" aria-label="Tasks" data-popover>
           <TasksTab
             onPick={(t) => {
               onOpenChange(false);

@@ -4,7 +4,6 @@ import {
   dismissJiraIssue,
   fetchJira,
   fetchJiraWatch,
-  fetchPrs,
   setJiraWatch,
   startJiraIssue,
   type JiraDecision,
@@ -15,6 +14,7 @@ import {
 import type { SessionSummary } from '../../../api/client.js';
 import { useSse } from '../../../api/events.js';
 import { isArchived, prsForSession } from '../../../state/session-display.js';
+import { sessionIsForIssue } from '../../../../../core/jira/jira-prompt.js';
 import { relativeTime } from '../../../utils/time.js';
 
 interface Props {
@@ -24,14 +24,20 @@ interface Props {
   onPickIssue: (issue: JiraIssue) => void;
   onPickPr: (pr: PrInfo) => void;
   onOpenSession: (id: string) => void;
-  /** Test seams; default to the API. */
+  /** The dashboard's open-PR list (one poll for every view); null until it came. */
+  prs: PrInfo[] | null;
+  /** Why there is no list: gh missing, an error. */
+  prsNote?: string | null;
+  /** The configured groups' repos (a group session claims only their PRs). */
+  membersOf?: (group: string) => string[] | undefined;
+  /** Test seam; defaults to the API. */
   loadJira?: typeof fetchJira;
-  loadPrs?: typeof fetchPrs;
 }
 
 /** A PR in a word or two, and how it reads: "Checks failing", "Approved"… Pure. */
 export function prState(pr: PrInfo): { text: string; tone: 'bad' | 'good' | 'muted' } {
   if (pr.isDraft) return { text: 'Draft', tone: 'muted' };
+  if (pr.conflicting) return { text: 'Merge conflict', tone: 'bad' };
   if (pr.checksStatus === 'FAILURE') return { text: 'Checks failing', tone: 'bad' };
   if (pr.reviewDecision === 'CHANGES_REQUESTED') return { text: 'Changes requested', tone: 'bad' };
   if (pr.reviewDecision === 'APPROVED') return { text: 'Approved', tone: 'good' };
@@ -41,13 +47,22 @@ export function prState(pr: PrInfo): { text: string; tone: 'bad' | 'good' | 'mut
 }
 
 /** The live session already working on this PR's branch, if any. Pure. */
-export function sessionForPr(pr: PrInfo, sessions: SessionSummary[]): SessionSummary | undefined {
-  return sessions.find((s) => !isArchived(s) && prsForSession(s, [pr]).length > 0);
+export function sessionForPr(
+  pr: PrInfo,
+  sessions: SessionSummary[],
+  membersOf?: (group: string) => string[] | undefined,
+): SessionSummary | undefined {
+  return sessions.find((s) => !isArchived(s) && prsForSession(s, [pr], membersOf).length > 0);
+}
+
+/** Someone else's PR that asks for your review (by name), and you haven't reviewed yet. Pure. */
+export function waitsForYourReview(pr: PrInfo): boolean {
+  return !pr.isMine && !!pr.reviewRequested && pr.myReview === 'NONE';
 }
 
 /** The live session made for this issue, if any. Pure. */
 export function sessionForIssue(issue: JiraIssue, sessions: SessionSummary[]): SessionSummary | undefined {
-  return sessions.find((s) => !isArchived(s) && s.jiraKey === issue.key);
+  return sessions.find((s) => !isArchived(s) && sessionIsForIssue(s, issue));
 }
 
 /**
@@ -63,13 +78,13 @@ export function StartTab({
   onPickIssue,
   onPickPr,
   onOpenSession,
+  prs,
+  prsNote: prNote = null,
+  membersOf,
   loadJira = fetchJira,
-  loadPrs = fetchPrs,
 }: Props) {
   const [issues, setIssues] = useState<JiraIssue[] | null>(null);
   const [jiraNote, setJiraNote] = useState<string | null>(null);
-  const [prs, setPrs] = useState<PrInfo[] | null>(null);
-  const [prNote, setPrNote] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -82,14 +97,6 @@ export function StartTab({
         },
         (err: Error) => live && setJiraNote(err.message),
       );
-      loadPrs().then(
-        (r) => {
-          if (!live) return;
-          setPrs(r.prs);
-          setPrNote(r.available === false ? 'gh isn’t installed or logged in (gh auth login).' : (r.error ?? null));
-        },
-        (err: Error) => live && setPrNote(err.message),
-      );
     };
     load();
     const t = setInterval(load, 120_000);
@@ -97,7 +104,7 @@ export function StartTab({
       live = false;
       clearInterval(t);
     };
-  }, [loadJira, loadPrs]);
+  }, [loadJira]);
 
   // The Jira watch: its switch, and what it did with each issue.
   const [watch, setWatch] = useState<JiraWatchState | null>(null);
@@ -134,7 +141,7 @@ export function StartTab({
     return [...open].sort((a, b) => (rank.get(a.status) ?? 0) - (rank.get(b.status) ?? 0));
   }, [issues]);
   const mine = (prs ?? []).filter((p) => p.isMine);
-  const toReview = (prs ?? []).filter((p) => !p.isMine && p.reviewDecision === 'REVIEW_REQUIRED' && p.myReview === 'NONE');
+  const toReview = (prs ?? []).filter(waitsForYourReview);
 
   const existing = (s: SessionSummary | undefined) =>
     s ? (
@@ -197,13 +204,13 @@ export function StartTab({
         {prNote && <p className="wd-start-note">{prNote}</p>}
         {!prNote && prs === null && <p className="wd-start-note">Loading…</p>}
         {!prNote && prs !== null && mine.length === 0 && <p className="wd-start-note">No open pull requests of yours.</p>}
-        <PrList prs={mine} sessions={sessions} onPick={onPickPr} existing={existing} />
+        <PrList prs={mine} sessions={sessions} onPick={onPickPr} existing={existing} membersOf={membersOf} />
       </section>
 
       {toReview.length > 0 && (
         <section className="wd-start-section" aria-label="Waiting for your review">
           <h2 className="wd-start-title">Waiting for your review · GitHub</h2>
-          <PrList prs={toReview} sessions={sessions} onPick={onPickPr} existing={existing} />
+          <PrList prs={toReview} sessions={sessions} onPick={onPickPr} existing={existing} membersOf={membersOf} />
         </section>
       )}
 
@@ -235,11 +242,13 @@ function PrList({
   sessions,
   onPick,
   existing,
+  membersOf,
 }: {
   prs: PrInfo[];
   sessions: SessionSummary[];
   onPick: (pr: PrInfo) => void;
   existing: (s: SessionSummary | undefined) => React.ReactNode;
+  membersOf?: (group: string) => string[] | undefined;
 }) {
   return (
     <ul className="wd-start-list">
@@ -255,9 +264,16 @@ function PrList({
             </span>
             <span className={`wd-start-state wd-start-state-${state.tone}`}>{state.text}</span>
             <span className="wd-start-action">
-              {existing(sessionForPr(pr, sessions)) ?? (
-                <button type="button" className="wd-btn-secondary" onClick={() => onPick(pr)}>
-                  Start
+              {existing(sessionForPr(pr, sessions, membersOf)) ?? (
+                <button
+                  type="button"
+                  className="wd-btn-secondary"
+                  onClick={() => onPick(pr)}
+                  title={
+                    pr.isMine ? 'Continue on it in a worktree' : 'Have Claude review it in a worktree (it changes nothing, posts nothing)'
+                  }
+                >
+                  {pr.isMine ? 'Start' : 'Review'}
                 </button>
               )}
             </span>

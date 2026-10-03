@@ -21,6 +21,10 @@ export interface PrInfo {
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | 'NONE';
   myReview: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'NONE';
   isMine: boolean;
+  /** It conflicts with its base (absent from a server before this). */
+  conflicting?: boolean;
+  /** Your review was asked for, by name. */
+  reviewRequested?: boolean;
   repoAlias: string;
 }
 

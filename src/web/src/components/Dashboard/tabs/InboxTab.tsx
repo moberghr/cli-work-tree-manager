@@ -2,7 +2,15 @@ import { useMemo, useState } from 'react';
 import { SnoozeUntilDialog } from '../SnoozeUntilDialog.js';
 import { RowMenu } from '../RowMenu.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
-import { answerPermission, markSessionSeen, type AnswerRequest, type SessionSummary, snoozeSession } from '../../../api/client.js';
+import {
+  answerPermission,
+  markSessionSeen,
+  type AnswerRequest,
+  type SessionSummary,
+  snoozeSession,
+  unsnoozeSession,
+} from '../../../api/client.js';
+import { snoozeLabel } from '../../../../../core/rail/snooze.js';
 import { isArchived, lastActiveAt, agentCan, agentName } from '../../../state/session-display.js';
 import { StatusIcon } from '../StatusIcon.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
@@ -47,17 +55,25 @@ const SECTIONS: Section[] = [
   },
 ];
 
+type RestCounts = { working: number; quiet: number; snoozed: number; waiting: number };
+
+/** The closing line's parts, each with what it counts ("2 snoozed" can be opened). Pure. */
+export function inboxRestParts(c: RestCounts): Array<{ key: keyof RestCounts; text: string }> {
+  return [
+    { key: 'working' as const, text: `${c.working} working` },
+    { key: 'quiet' as const, text: `${c.quiet} quiet` },
+    { key: 'snoozed' as const, text: `${c.snoozed} snoozed` },
+    { key: 'waiting' as const, text: `${c.waiting} waiting on others` },
+  ].filter((p) => c[p.key] > 0);
+}
+
+/** "they're in the list on the left." (or "it's", for one). */
+const restTail = (c: RestCounts) => `${c.working + c.quiet + c.snoozed + c.waiting === 1 ? "it's" : "they're"} in the list on the left.`;
+
 /** What the Inbox leaves to the rail, in a line: "1 working, 3 quiet — they're in the list on the left." Pure. */
-export function inboxRestLine(c: { working: number; quiet: number; snoozed: number; waiting: number }): string | null {
-  const parts = [
-    c.working ? `${c.working} working` : '',
-    c.quiet ? `${c.quiet} quiet` : '',
-    c.snoozed ? `${c.snoozed} snoozed` : '',
-    c.waiting ? `${c.waiting} waiting on others` : '',
-  ].filter(Boolean);
-  if (!parts.length) return null;
-  const total = c.working + c.quiet + c.snoozed + c.waiting;
-  return `${parts.join(', ')} — ${total === 1 ? "it's" : "they're"} in the list on the left.`;
+export function inboxRestLine(c: RestCounts): string | null {
+  const parts = inboxRestParts(c);
+  return parts.length ? `${parts.map((p) => p.text).join(', ')} — ${restTail(c)}` : null;
 }
 
 /** Browser notifications need a click to ask for permission: offered once, quietly, until granted or refused. */
@@ -111,21 +127,25 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
         }),
       );
   };
-  const { bySection, rest, tracked } = useMemo(() => {
+  const { bySection, rest, tracked, snoozed, waiting } = useMemo(() => {
     const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
     const bySection = new Map<number, SessionSummary[]>();
     const rest = { working: 0, quiet: 0, snoozed: 0, waiting: 0 };
+    const snoozed: SessionSummary[] = [];
+    const waiting: SessionSummary[] = [];
     let tracked = 0;
     for (const s of sorted) {
       const rank = inboxRank(s);
       if (s.attention || rank === 2) tracked++;
-      if (rank === 6) rest.snoozed++;
-      else if (rank === 7) rest.waiting++;
+      if (rank === 6) snoozed.push(s);
+      else if (rank === 7) waiting.push(s);
       else if (rank === 3) rest.working++;
       else if (rank > 3) rest.quiet++;
       else bySection.set(rank, [...(bySection.get(rank) ?? []), s]);
     }
-    return { bySection, rest, tracked };
+    rest.snoozed = snoozed.length;
+    rest.waiting = waiting.length;
+    return { bySection, rest, tracked, snoozed, waiting };
   }, [sessions]);
   const [snoozeMenu, setSnoozeMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
   const [snoozeError, setSnoozeError] = useState<string | null>(null);
@@ -136,7 +156,10 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
   };
 
   const waitingCount = SECTIONS.reduce((n, sec) => n + (bySection.get(sec.rank)?.length ?? 0), 0);
-  const restLine = inboxRestLine(rest);
+  const restParts = inboxRestParts(rest);
+  // "2 snoozed" / "1 waiting on others" open a short list: until when (Unsnooze), and on what.
+  const [restOpen, setRestOpen] = useState<'snoozed' | 'waiting' | null>(null);
+  const name = (s: SessionSummary) => (s.titleIsYours && s.title ? s.title : s.branch);
 
   return (
     <div className="wd-dash-tab-pane wd-tab-inbox">
@@ -278,7 +301,56 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
         ))
       )}
       {snoozeError && <div className="wd-tab-empty wd-tab-error">{snoozeError}</div>}
-      {tracked > 0 && restLine && <p className="wd-inbox-rest">{restLine}</p>}
+      {tracked > 0 && restParts.length > 0 && (
+        <p className="wd-inbox-rest">
+          {restParts.map((p, i) => (
+            <span key={p.key}>
+              {i > 0 && ', '}
+              {p.key === 'snoozed' || p.key === 'waiting' ? (
+                <button
+                  type="button"
+                  className="wd-link-button"
+                  aria-expanded={restOpen === p.key}
+                  onClick={() => setRestOpen((o) => (o === p.key ? null : (p.key as 'snoozed' | 'waiting')))}
+                >
+                  {p.text}
+                </button>
+              ) : (
+                p.text
+              )}
+            </span>
+          ))}{' '}
+          — {restTail(rest)}
+        </p>
+      )}
+      {restOpen === 'snoozed' && snoozed.length > 0 && (
+        <ul className="wd-inbox-rest-list" aria-label="Snoozed">
+          {snoozed.map((s) => (
+            <li key={s.id}>
+              <button type="button" className="wd-link-button" onClick={() => onOpenSession(s.id, 'term')}>
+                {name(s)}
+              </button>{' '}
+              <span className="wd-inbox-target">{s.target}</span> <span className="wd-inbox-since">{snoozeLabel(s.snoozed!)}</span>{' '}
+              <button type="button" className="wd-link-button" onClick={() => runSnooze(() => unsnoozeSession(s.id))}>
+                Unsnooze
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {restOpen === 'waiting' && waiting.length > 0 && (
+        <ul className="wd-inbox-rest-list" aria-label="Waiting on others">
+          {waiting.map((s) => (
+            <li key={s.id}>
+              <button type="button" className="wd-link-button" onClick={() => onOpenSession(s.id, 'term')}>
+                {name(s)}
+              </button>{' '}
+              <span className="wd-inbox-target">{s.target}</span>{' '}
+              <span className="wd-inbox-since">waits on {(s.blockedBy ?? []).map((b) => b.label).join(', ')}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {snoozeMenu && (
         <RowMenu
           x={snoozeMenu.x}

@@ -24,7 +24,7 @@ import { compareInbox, needsAttention, wantsYou } from '../../../core/status/att
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
-import { fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
+import { fetchProjects, fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
 import { defaultSubTab, isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
@@ -55,6 +55,7 @@ import {
   type DashboardTab,
   type SessionSubTab,
 } from '../state/dashboard-route.js';
+import { modalOpen as aModalIsOpen } from '../state/modal-open.js';
 
 const TAB_LABEL: Record<DashboardTab, string> = {
   inbox: 'Inbox',
@@ -249,8 +250,28 @@ export function DashboardApp() {
   // waits on it: every 120 s, plus on session changes at most once a minute
   // (a ship / new branch should show its PR without a reload).
   const [prs, setPrs] = useState<PrInfo[]>([]);
+  // Start shows the same list: whether one came yet, and why not (gh missing, an error).
+  const [prsLoaded, setPrsLoaded] = useState(false);
+  const [prsNote, setPrsNote] = useState<string | null>(null);
   const [prsFetchedAt, setPrsFetchedAt] = useState(0);
-  const takePrs = useCallback((r: Awaited<ReturnType<typeof fetchPrs>>) => setPrs(r.prs ?? []), []);
+  const takePrs = useCallback((r: Awaited<ReturnType<typeof fetchPrs>>) => {
+    setPrs(r.prs ?? []);
+    setPrsLoaded(true);
+    setPrsNote(r.available === false ? 'gh isn’t installed or logged in (gh auth login).' : (r.error ?? null));
+  }, []);
+  const prsFailed = useCallback((err: Error) => {
+    setPrsLoaded(true);
+    setPrsNote(err.message);
+  }, []);
+  // The configured groups' repos, so a group session claims only its own repos' PRs.
+  const [groupMembers, setGroupMembers] = useState<Map<string, string[]>>(() => new Map());
+  useEffect(() => {
+    void fetchProjects().then(
+      (p) => setGroupMembers(new Map(p.groups.map((g) => [g.name, g.members ?? []]))),
+      () => {},
+    );
+  }, []);
+  const membersOf = useCallback((group: string) => groupMembers.get(group), [groupMembers]);
   useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -259,8 +280,8 @@ export function DashboardApp() {
         (r) => {
           if (!cancelled) takePrs(r);
         },
-        () => {
-          /* gh missing / offline — badges just stay empty */
+        (err: Error) => {
+          if (!cancelled) prsFailed(err); // badges just stay empty
         },
       );
     };
@@ -270,14 +291,14 @@ export function DashboardApp() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [takePrs]);
+  }, [takePrs, prsFailed]);
   useEffect(() => {
     if (refreshKey === 0 || Date.now() - prsFetchedAt < PR_MIN_GAP_MS) return;
     setPrsFetchedAt(Date.now());
-    fetchPrs().then(takePrs, () => {});
+    fetchPrs().then(takePrs, prsFailed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
-  const prsFor: PrLookup = useCallback((s) => prsForSession(s, prs), [prs]);
+  const prsFor: PrLookup = useCallback((s) => prsForSession(s, prs, membersOf), [prs, membersOf]);
 
   // -- Navigation handlers --------------------------------------------------
   const goTab = useCallback(
@@ -423,7 +444,7 @@ export function DashboardApp() {
       // Any dialog on screen (Ship, confirm-merge, new worktree, delete…)
       // owns the keyboard: navigating out from under it swapped the Ship
       // panel to another session mid-confirmation.
-      if (document.querySelector('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
+      if (aModalIsOpen()) return;
       // A modal is up — don't navigate out from under it.
       if (modalOpen) return;
       if (pendingG) {
@@ -600,6 +621,9 @@ export function DashboardApp() {
         body = (
           <StartTab
             sessions={sessions}
+            prs={prsLoaded ? prs : null}
+            prsNote={prsNote}
+            membersOf={membersOf}
             onNewWorktree={() => openNew(null)}
             onPickPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })}
             onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
