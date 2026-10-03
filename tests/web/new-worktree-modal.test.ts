@@ -6,7 +6,7 @@ import type { ProjectSummary } from '../../src/web/src/api/panes.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const api = vi.hoisted(() => ({ createWorktree: vi.fn() }));
+const api = vi.hoisted(() => ({ createWorktree: vi.fn(), checkBranch: vi.fn() }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchProjects: async () => ({
     groups: [{ name: 'straumur', kind: 'group', members: ['straumur-backend', 'straumur-frontend'] }],
@@ -17,14 +17,19 @@ vi.mock('../../src/web/src/api/panes.js', () => ({
     ],
   }),
   createWorktree: (req: unknown) => api.createWorktree(req),
+  fetchBranchCheck: (t: string, b: string) => api.checkBranch(t, b),
 }));
-const { NewWorktreeModal } = await import('../../src/web/src/components/Sidebar/NewWorktreeModal.js');
+const { NewWorktreeModal, branchNote, moreLabel } = await import('../../src/web/src/components/Sidebar/NewWorktreeModal.js');
 const { matchProjects } = await import('../../src/web/src/components/Sidebar/ProjectPicker.js');
 
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   api.createWorktree.mockReset().mockResolvedValue({ sessionId: 's1', launchDir: 'x', paths: ['x'] });
+  // By default every branch is new.
+  api.checkBranch
+    .mockReset()
+    .mockImplementation(async (_t: string, b: string) => ({ branch: b, valid: true, exists: false, session: null, free: b }));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -173,5 +178,119 @@ describe('what Claude should do, and the branch it suggests', () => {
     root = createRoot(container);
     await open({ initial: { target: 'jobly', branch: 'feat/x', base: 'dev' } });
     expect(container.textContent).toContain('Base branch (optional)');
+  });
+});
+
+describe('a branch that is not new', () => {
+  const textarea = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+  const typeArea = (value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea(), value);
+    textarea().dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  /** Past the dialog's pause before it asks. */
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+  const button = (label: string | RegExp) =>
+    [...container.querySelectorAll('button')].find((b) =>
+      typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? ''),
+    )!;
+
+  it('a suggestion that is taken gives way to a free name, and says why; that name is what is created', async () => {
+    api.checkBranch.mockImplementation(async (_t: string, b: string) => ({
+      branch: b,
+      valid: true,
+      exists: true,
+      session: null,
+      free: `${b}-2`,
+    }));
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Fix tests'));
+    await settle();
+    expect(api.checkBranch).toHaveBeenCalledWith('jobly', 'fix/tests');
+    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests-2');
+    expect(container.querySelector('.wd-modal-branch-note')!.textContent).toBe('fix/tests is taken, so a new one: fix/tests-2.');
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/tests-2' }));
+  });
+
+  it('created before the check came back: it asks first, so a suggestion never lands on a taken branch', async () => {
+    api.checkBranch.mockImplementation(async (_t: string, b: string) => ({
+      branch: b,
+      valid: true,
+      exists: true,
+      session: null,
+      free: `${b}-2`,
+    }));
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Fix tests'));
+    await submit(); // within the pause
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/tests-2' }));
+  });
+
+  it('a branch you typed that has a session: Create goes on with it, and says so', async () => {
+    api.checkBranch.mockImplementation(async (_t: string, b: string) => ({
+      branch: b,
+      valid: true,
+      exists: true,
+      session: { id: 'old', archived: false },
+      free: `${b}-2`,
+    }));
+    await open({ initial: { target: 'jobly', branch: 'fix/tests' } });
+    await settle();
+    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests'); // yours stays
+    expect(container.querySelector('.wd-modal-branch-note')!.textContent).toContain('already has a session');
+  });
+
+  it('a name git refuses: Create waits for another', async () => {
+    api.checkBranch.mockImplementation(async (_t: string, b: string) => ({
+      branch: b,
+      valid: false,
+      exists: false,
+      session: null,
+      free: null,
+    }));
+    await open({ initial: { target: 'jobly', branch: 'fix/' } });
+    await settle();
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('Ctrl+Enter in the prompt creates; Enter is a new line', async () => {
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Add CSV export'));
+    await act(async () => void textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+    expect(api.createWorktree).not.toHaveBeenCalled();
+    await act(
+      async () =>
+        void textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })),
+    );
+    await settle();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'feat/csv-export', prompt: 'Add CSV export' }));
+  });
+
+  it('folded More options still says what is set in it, and opens when its base is the problem', async () => {
+    await open({ initial: { target: 'jobly', base: 'dev' } });
+    act(() => button(/More options/).click()); // fold it
+    expect(button(/More options/).textContent).toBe('▸ More options: base dev');
+    await submit(); // a base and no branch (no prompt)
+    expect(container.textContent).toContain('A base needs a branch');
+    expect(container.textContent).toContain('Base branch (optional)');
+  });
+});
+
+describe('branchNote and moreLabel', () => {
+  const c = (over: object) => ({ branch: 'b', valid: true, exists: false, session: null, free: 'b', ...over });
+  it('says what Create will do with a branch that is not new', () => {
+    expect(branchNote(c({}), true)).toBeNull();
+    expect(branchNote(c({}), false)).toBeNull();
+    expect(branchNote(c({ free: null, exists: true }), true)).toMatchObject({ blocks: true });
+    expect(branchNote(c({ session: { id: 's', archived: true } }), false)!.text).toContain('restores it');
+    expect(branchNote(c({ exists: true }), false)!.text).toContain('checks it out');
+    expect(branchNote(c({ valid: false, free: null }), false)).toMatchObject({ blocks: true });
+  });
+  it('names what a folded More options holds', () => {
+    expect(moreLabel('', '')).toBe('More options: name, base branch');
+    expect(moreLabel('PDF speed', 'dev')).toBe('More options: name “PDF speed” · base dev');
   });
 });

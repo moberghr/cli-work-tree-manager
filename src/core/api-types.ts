@@ -159,6 +159,21 @@ export interface BuildFoldersApplyResult {
   message: string;
 }
 
+// ---- New worktree: is the branch new? (branch-check.ts) -------------------
+
+/** GET /api/branch-check?target=&branch= */
+export interface BranchCheck {
+  branch: string;
+  /** git takes it as a branch name. */
+  valid: boolean;
+  /** A branch of that name in one of the project's repos (local or origin): Create checks it out. */
+  exists: boolean;
+  /** The session already on it: Create reuses it (an archived one is restored). */
+  session: { id: string; archived: boolean } | null;
+  /** The first free name from it (`branch`, `branch-2`, …); null when none is, or it isn't valid. */
+  free: string | null;
+}
+
 // ---- assistant (Ctrl+K) ---------------------------------------------------
 
 /** POST /api/assistant/context — what the dashboard shows right now, so the

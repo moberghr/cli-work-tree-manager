@@ -56,6 +56,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/rail/blocks.ts', // pure: what a session waits on
       'src/core/conversations/timeline.ts', // pure: a session's history on one line
       'src/core/pty/host-health.ts', // pure: how the PTY host is doing
+      'src/core/worktree/branch-name.ts', // pure: the next free branch name
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

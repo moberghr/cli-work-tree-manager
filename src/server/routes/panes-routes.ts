@@ -3,7 +3,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { loadConfig } from '../../core/platform/config.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
-import type { PromptsResponse } from '../../core/api-types.js';
+import type { BranchCheck, PromptsResponse } from '../../core/api-types.js';
+import { checkBranch } from '../../core/worktree/branch-check.js';
 import { fetchAllPullRequests, type PullRequestInfo } from '../../core/pr/pr.js';
 import { createSharedFetch } from '../shared-fetch.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
@@ -55,6 +56,15 @@ export function mountPanesRoutes(app: Hono, opts: PanesMountOptions): void {
       members: aliases,
     }));
     return c.json({ singles, groups });
+  });
+
+  // Is a branch new for a project (the New worktree dialog, before it creates)? A read: git show-ref.
+  app.get('/api/branch-check', (c) => {
+    const target = c.req.query('target') ?? '';
+    const branch = c.req.query('branch') ?? '';
+    const config = loadConfig();
+    if (!config || !target.trim() || !branch.trim()) return c.json({ error: 'target and branch required' }, 400);
+    return c.json(checkBranch(target.trim(), branch.trim(), config) satisfies BranchCheck);
   });
 
   // -- PRs ---------------------------------------------------------------

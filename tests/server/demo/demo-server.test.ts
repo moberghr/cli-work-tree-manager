@@ -218,6 +218,19 @@ describe('demo server', () => {
     expect(t.events.map((e) => e.kind)).toEqual(expect.arrayContaining(['created', 'commit']));
   });
 
+  it('says whether a branch is new for a project, and the next free name when it is not', async () => {
+    type Check = { exists: boolean; session: { id: string } | null; free: string | null; valid: boolean };
+    const taken = await get<Check>('/api/branch-check?target=api&branch=feat/invoice-export');
+    expect(taken).toMatchObject({ exists: true, valid: true, free: 'feat/invoice-export-2' });
+    expect(taken.session).not.toBeNull();
+    expect(await get<Check>('/api/branch-check?target=api&branch=feat/brand-new')).toMatchObject({
+      exists: false,
+      session: null,
+      free: 'feat/brand-new',
+    });
+    expect(await get<Check>('/api/branch-check?target=api&branch=fix/')).toMatchObject({ valid: false, free: null });
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

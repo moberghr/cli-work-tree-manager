@@ -562,6 +562,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
+  app.get('/api/branch-check', (c) => {
+    const target = c.req.query('target') ?? '';
+    const branch = c.req.query('branch') ?? '';
+    if (!target.trim() || !branch.trim()) return c.json({ error: 'target and branch required' }, 400);
+    return c.json(scenario.branchCheck(target.trim(), branch.trim()));
+  });
   app.get('/api/prompts', (c) => c.json({ prompts: DEFAULT_PROMPTS, configured: false }));
   app.post('/api/assistant/context', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { tab?: unknown; sessionId?: unknown } | null;

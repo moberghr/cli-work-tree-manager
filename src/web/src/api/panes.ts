@@ -63,6 +63,11 @@ async function postJson<T>(path: string, body: unknown, method = 'POST'): Promis
   return res.json() as Promise<T>;
 }
 
+/** Is a branch new for a project (branch-check.ts)? The New worktree dialog asks before it creates. */
+export function fetchBranchCheck(target: string, branch: string): Promise<import('../../../core/api-types.js').BranchCheck> {
+  return getJson(`/api/branch-check?target=${encodeURIComponent(target)}&branch=${encodeURIComponent(branch)}`);
+}
+
 export function fetchProjects(): Promise<{
   singles: ProjectSummary[];
   groups: ProjectSummary[];

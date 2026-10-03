@@ -1,12 +1,14 @@
 import { createCommentStore, type CommentStore } from '../../core/comments/comment-store.js';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { findOverlaps } from '../../core/diff/overlap.js';
+import { firstFreeBranch } from '../../core/worktree/branch-name.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
 import { buildDigest } from '../../core/conversations/digest.js';
 import { cleanupVerdict } from '../../core/cleanup/cleanup-verdict.js';
 import { createPresence, type Presence } from '../presence.js';
 import { ciFixMessage } from '../../core/pr/pr-watch.js';
 import type {
+  BranchCheck,
   ChecksState,
   DevServerState,
   SessionCi,
@@ -1258,6 +1260,21 @@ export class DemoScenario {
   }
 
   // -- side panes -------------------------------------------------------------
+
+  /** Is a branch new for a project? Its sessions are the demo's only branches. */
+  branchCheck(target: string, branch: string): BranchCheck {
+    const all = [...this.sessions.values()].filter((x) => x.target === target);
+    const taken = (name: string) => all.some((x) => x.branch === name);
+    const s = all.find((x) => x.branch === branch);
+    const valid = /^[\w.-]+(\/[\w.-]+)*$/.test(branch) && !branch.startsWith('-') && !branch.endsWith('/');
+    return {
+      branch,
+      valid,
+      exists: !!s,
+      session: s ? { id: s.id, archived: !!s.archivedAt } : null,
+      free: valid ? firstFreeBranch(branch, taken) : null,
+    };
+  }
 
   projects(): {
     singles: Array<{ name: string; kind: 'single'; path: string }>;

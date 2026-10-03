@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectPicker } from './ProjectPicker.js';
-import { createWorktree, fetchProjects, type ProjectSummary } from '../../api/panes.js';
+import { createWorktree, fetchBranchCheck, fetchProjects, type ProjectSummary } from '../../api/panes.js';
+import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
 
 interface Props {
@@ -19,6 +20,29 @@ interface Props {
    *  Claude was started with the prompt (open its terminal). */
   onCreated: (sessionId: string, result?: { started?: 'started' | 'queued' }) => void;
   onClose: () => void;
+  /** Test seam; defaults to GET /api/branch-check. */
+  checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
+}
+
+/** What a branch check means for what you're about to create; null when it's simply new. Pure. */
+export function branchNote(check: BranchCheck, suggested: boolean): { text: string; blocks?: boolean } | null {
+  if (!check.valid) return { text: `${check.branch} isn't a branch name git takes.`, blocks: true };
+  if (suggested) {
+    // A suggestion is swapped for a free name (the dialog shows that one); say why.
+    if (check.free && check.free !== check.branch) return { text: `${check.branch} is taken, so a new one: ${check.free}.` };
+    if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: Edit to name the branch.`, blocks: true };
+    return null;
+  }
+  if (check.session?.archived) return { text: `${check.branch} is an archived session: Create restores it and gives it the prompt.` };
+  if (check.session) return { text: `${check.branch} already has a session: Create opens it and gives it the prompt.` };
+  if (check.exists) return { text: `${check.branch} exists: Create checks it out, with the commits it has.` };
+  return null;
+}
+
+/** "More options" with what's set in it, so a value folded away is never a surprise. Pure. */
+export function moreLabel(name: string, base: string): string {
+  const set = [name.trim() ? `name “${name.trim()}”` : '', base.trim() ? `base ${base.trim()}` : ''].filter(Boolean);
+  return set.length ? `More options: ${set.join(' · ')}` : 'More options: name, base branch';
 }
 
 /**
@@ -31,7 +55,7 @@ interface Props {
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
-export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, onClose }: Props) {
+export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, onClose, checkBranch = fetchBranchCheck }: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
     groups: ProjectSummary[];
@@ -44,8 +68,37 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
-  const branch = branchTyped ?? suggestBranch(prompt);
+  const suggestion = suggestBranch(prompt);
+  const suggested = branchTyped === null;
+  const wanted = branchTyped ?? suggestion;
+  // Is the branch new for this project? Asked as you type (a pause), and again right before creating.
+  const [check, setCheck] = useState<(BranchCheck & { target: string }) | null>(null);
+  const checkFor = check && check.target === target.trim() && check.branch === wanted.trim() ? check : null;
+  // A suggestion that's taken gives way to a free name: new work never lands on an old branch unasked.
+  const branch = suggested && checkFor?.free ? checkFor.free : wanted;
+  const note = checkFor ? branchNote(checkFor, suggested) : null;
   const setBranch = (b: string) => setBranchTyped(b);
+  const checkRef = useRef(checkBranch);
+  checkRef.current = checkBranch;
+  useEffect(() => {
+    const t = target.trim();
+    const b = wanted.trim();
+    if (!t || !b) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      checkRef.current(t, b).then(
+        (r) => live && setCheck({ ...r, target: t }),
+        () => {
+          /* no answer: create as asked; the server still resolves the branch */
+        },
+      );
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [target, wanted]);
+  const formRef = useRef<HTMLFormElement>(null);
   // Created, but Claude didn't start: say so here, then let them go on.
   const [createdNoStart, setCreatedNoStart] = useState<{ id: string; reason: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -94,15 +147,27 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
     }
     if (!branch.trim() && base.trim()) {
       setEditingBranch(true);
+      setMore(true);
       setError('A base needs a branch to fork. Leave both empty to open the project as it is.');
+      return;
+    }
+    if (note?.blocks) {
+      setEditingBranch(true);
+      setError(note.text);
       return;
     }
     setSubmitting(true);
     setError(null);
+    // A suggestion not checked yet (created within the pause): ask now, so it can't land on a taken branch.
+    let finalBranch = branch.trim();
+    if (suggested && finalBranch && !checkFor) {
+      const r = await checkBranch(target.trim(), finalBranch).catch(() => null);
+      if (r?.free) finalBranch = r.free;
+    }
     try {
       const res = await createWorktree({
         target: target.trim(),
-        branch: branch.trim(),
+        branch: finalBranch,
         base: base.trim() || undefined,
         jiraKey: initial?.jiraKey,
         prompt: prompt.trim() || undefined,
@@ -134,7 +199,7 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
         if (e.key === 'Escape') onClose();
       }}
     >
-      <form className="wd-modal" onSubmit={submit}>
+      <form className="wd-modal" onSubmit={submit} ref={formRef}>
         <header className="wd-modal-header">
           <h2>{title}</h2>
           <button type="button" className="wd-modal-close" onClick={onClose} aria-label="Close">
@@ -162,11 +227,18 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
               }}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter is a new line here; Ctrl+Enter (⌘+Enter) creates.
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  formRef.current?.requestSubmit();
+                }
+              }}
               placeholder="Add CSV export to the invoices endpoint"
               rows={prompt.split('\n').length > 3 ? 8 : 4}
               disabled={submitting}
             />
-            <span className="wd-modal-hint">Leave it empty to just make the worktree.</span>
+            <span className="wd-modal-hint">Leave it empty to just make the worktree. Ctrl+Enter creates.</span>
           </label>
           {editingBranch ? (
             <label className="wd-modal-row">
@@ -194,8 +266,13 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
               </button>
             </div>
           )}
+          {note && (
+            <p className={'wd-modal-branch-note' + (note.blocks ? ' wd-modal-branch-note-bad' : '')} role="status">
+              {note.text}
+            </p>
+          )}
           <button type="button" className="wd-link-button wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
-            {more ? '▾' : '▸'} More options: name, base branch
+            {more ? '▾' : '▸'} {more ? 'More options: name, base branch' : moreLabel(name, base)}
           </button>
           {more && (
             <>
@@ -244,7 +321,7 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
               className="wd-btn-primary"
               // Only a project is needed: an empty branch opens a repo as it is,
               // and submit explains the cases that do need one (a group, a base).
-              disabled={submitting || !target.trim()}
+              disabled={submitting || !target.trim() || !!note?.blocks}
             >
               {submitting ? 'Creating…' : prompt.trim() ? 'Create and start' : 'Create'}
             </button>
