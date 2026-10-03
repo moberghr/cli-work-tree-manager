@@ -14,15 +14,17 @@ describe('parseHash', () => {
       sessionId: null,
       sessionSubTab: 'term',
     });
-    expect(parseHash('#/prs')).toMatchObject({ tab: 'prs', sessionId: null });
-    expect(parseHash('#/jira')).toMatchObject({ tab: 'jira' });
+    expect(parseHash('#/start')).toMatchObject({ tab: 'start', sessionId: null });
+    // PRs and Jira are both on Start now: old links land there.
+    expect(parseHash('#/prs')).toMatchObject({ tab: 'start', sessionId: null });
+    expect(parseHash('#/jira')).toMatchObject({ tab: 'start' });
     expect(parseHash('#/today')).toMatchObject({ tab: 'today' });
     // Tasks is a panel in the top bar now: an old link lands on Sessions.
     expect(parseHash('#/tasks')).toMatchObject({ tab: 'sessions', sessionId: null });
   });
 
   it('tolerates a trailing slash on tab hashes', () => {
-    expect(parseHash('#/prs/')).toMatchObject({ tab: 'prs' });
+    expect(parseHash('#/start/')).toMatchObject({ tab: 'start' });
   });
 
   it('parses session URLs with default sub-tab', () => {
@@ -64,12 +66,12 @@ describe('parseHash', () => {
 describe('toHash', () => {
   it('serialises tab routes', () => {
     expect(toHash({ tab: 'sessions', sessionId: null, sessionSubTab: 'diff' })).toBe('#/sessions');
-    expect(toHash({ tab: 'prs', sessionId: null, sessionSubTab: 'diff' })).toBe('#/prs');
+    expect(toHash({ tab: 'start', sessionId: null, sessionSubTab: 'diff' })).toBe('#/start');
   });
 
   it('serialises session routes with the sub-tab', () => {
     expect(toHash({ tab: 'sessions', sessionId: 'abc', sessionSubTab: 'diff' })).toBe('#/s/abc/diff');
-    expect(toHash({ tab: 'prs', sessionId: 'abc', sessionSubTab: 'term' })).toBe('#/s/abc/term');
+    expect(toHash({ tab: 'start', sessionId: 'abc', sessionSubTab: 'term' })).toBe('#/s/abc/term');
   });
 
   it('URL-encodes the session id', () => {
@@ -79,8 +81,7 @@ describe('toHash', () => {
   it('round-trips through parseHash for every variant', () => {
     const cases = [
       { tab: 'sessions' as const, sessionId: null, sessionSubTab: 'term' as const },
-      { tab: 'prs' as const, sessionId: null, sessionSubTab: 'term' as const },
-      { tab: 'jira' as const, sessionId: null, sessionSubTab: 'term' as const },
+      { tab: 'start' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'today' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'diff' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'term' as const },
@@ -107,7 +108,7 @@ describe('last-route resume', () => {
 
   it('never overrides an explicit hash', () => {
     const s = store({ [LAST_ROUTE_KEY]: '#/s/abc/term' });
-    expect(initialHash('#/prs', s)).toBe('#/prs');
+    expect(initialHash('#/start', s)).toBe('#/start');
   });
 
   it('ignores garbage or default saved values, missing and throwing storage', () => {

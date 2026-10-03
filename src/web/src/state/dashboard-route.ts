@@ -6,8 +6,8 @@
  *   `#/inbox`                         → Inbox: sessions that need you, in order
  *   `#/today`                         → Sessions · Today: what each session did (digest)
  *   `#/cleanup`                       → Clean up: worktrees that can go (from Sessions)
- *   `#/prs`                           → PRs tab
- *   `#/jira`                          → Jira tab
+ *   `#/start`                         → Start: new worktree, Jira issues and PRs to start from
+ *   `#/prs`, `#/jira`                 → (old) Start, which has both now
  *   `#/tasks`                         → (old) Sessions: Tasks is a panel in the top bar now
  *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
  *   `#/s/<sessionId>/term`           → Session detail · terminal
@@ -23,7 +23,10 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'prs' | 'jira';
+export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start';
+
+/** Pages that no longer exist, and where their links land now. */
+const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start', jira: 'start' };
 export type SessionSubTab = 'diff' | 'term' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */
@@ -44,7 +47,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
   sessionSubTab: 'term',
 };
 
-const TAB_RE = /^#\/(inbox|today|sessions|cleanup|prs|jira|tasks)\/?$/;
+const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|prs|jira|tasks)\/?$/;
 const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|timeline))?\/?$/;
 
 export function parseHash(hash: string): DashboardRoute {
@@ -64,7 +67,7 @@ export function parseHash(hash: string): DashboardRoute {
   const tab = hash.match(TAB_RE);
   if (tab) {
     return {
-      tab: tab[1] === 'tasks' ? 'sessions' : (tab[1] as DashboardTab),
+      tab: OLD_TAB[tab[1]] ?? (tab[1] as DashboardTab),
       sessionId: null,
       sessionSubTab: 'term',
     };

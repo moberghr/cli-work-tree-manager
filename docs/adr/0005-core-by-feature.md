@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-03
+- Note (2026-10-03): `core/chat` went with the headless chat.
 
 ## Context
 

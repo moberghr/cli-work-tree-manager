@@ -39,9 +39,9 @@ const tabs = () =>
   );
 
 describe('TopNav', () => {
-  it('a short bar: Inbox (with its count), Sessions, PRs, Jira; no version, no scope pill', () => {
+  it('a short bar: Inbox (with its count), Sessions, Start; no version, no scope pill', () => {
     act(() => root.render(createElement(TopNav, { active: 'inbox', onSelect: () => {}, onHome: () => {}, inboxCount: 3 })));
-    expect(tabs()).toEqual(['[Inbox3]', 'Sessions', 'PRs', 'Jira']);
+    expect(tabs()).toEqual(['[Inbox3]', 'Sessions', 'Start']);
     expect(container.querySelector('.wd-dash-version')).toBeNull();
     expect(container.textContent).not.toMatch(/v\d|dev/);
   });

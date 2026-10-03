@@ -33,15 +33,14 @@ interface TabDef {
 const TABS: TabDef[] = [
   { key: 'inbox', label: 'Inbox', hotkey: 'i' },
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
-  { key: 'prs', label: 'PRs', hotkey: 'p' },
-  { key: 'jira', label: 'Jira', hotkey: 'j' },
+  { key: 'start', label: 'Start', hotkey: 'w' },
 ];
 
 /** Pages reached from a tab show that tab as current: Today and Clean up are Sessions' views. */
 const TAB_OF: Partial<Record<DashboardRoute['tab'], DashboardRoute['tab']>> = { today: 'sessions', cleanup: 'sessions' };
 
 /**
- * Top bar, kept short: brand, the tabs, then Tasks, Ask, the background
+ * Top bar, kept short: brand, the tabs (Inbox, Sessions, Start), then Tasks, Ask, the background
  * jobs' dot and the theme toggle (shared, persisted preference — see
  * ThemeProvider). The session list is the rail beside every page; a
  * session's own page opens from it.

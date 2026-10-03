@@ -281,14 +281,18 @@ test('two sessions changing the same file are flagged, and the warning links to 
   await expect(page.locator('.wd-session-strip .wd-overlap')).toContainText('Same files as feat/invoice-export');
 });
 
-test('a Jira issue starts a session with a first prompt, opened on its terminal', async ({ page }) => {
+test('a Jira issue on Start starts a session with a first prompt, opened on its terminal', async ({ page }) => {
+  // The old Jira page's link lands on Start.
   await page.goto(`${url}#/jira`);
-  await page.locator('.wd-jira-card').first().click();
+  await expect(page).toHaveURL(/#\/jira$/);
+  const jira = page.getByRole('region', { name: 'Jira issues assigned to you' });
+  await jira.getByRole('button', { name: 'Start', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   const prompt = dialog.locator('textarea');
   await expect(prompt).toHaveValue(/^Work on [A-Z]+-\d+: /);
+  await expect(dialog.locator('.wd-modal-branch code')).toHaveText(/^feat\/[A-Z]+-\d+$/);
   await prompt.fill('Work on it: add the export button');
-  await dialog.getByRole('button', { name: 'Create & start' }).click();
+  await dialog.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/term$/);
   await expect(page.locator('.wd-session-strip')).toContainText('Work on it: add the export button');
 });

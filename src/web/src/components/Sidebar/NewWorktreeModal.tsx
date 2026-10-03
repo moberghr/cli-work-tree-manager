@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectPicker } from './ProjectPicker.js';
 import { createWorktree, fetchProjects, type ProjectSummary } from '../../api/panes.js';
+import { suggestBranch } from '../../state/branch-suggest.js';
 
 interface Props {
   /** Pre-fill the modal (e.g. when opened from a PR or Jira issue). */
@@ -21,9 +22,10 @@ interface Props {
 }
 
 /**
- * Modal for creating a worktree. Loads the list of configured projects
- * on mount, falls back to a free-text target if the list fails. Branch
- * is required; base is optional (server auto-resolves when blank).
+ * Modal for creating a worktree: a project and what Claude should do. The
+ * branch is suggested from that (branch-suggest.ts; Edit to type your own),
+ * and a name and a base branch are under "More options". Nothing for
+ * Claude: just the worktree; no branch either: the project's own checkout.
  *
  * Reused by every "create worktree from X" flow — PRs (prefill target +
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
@@ -35,15 +37,20 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
     groups: ProjectSummary[];
   } | null>(null);
   const [target, setTarget] = useState(initial?.target ?? '');
-  const [branch, setBranch] = useState(initial?.branch ?? '');
+  // The branch follows what Claude should do until you edit it (or a pick named one).
+  const [branchTyped, setBranchTyped] = useState<string | null>(initial?.branch ?? null);
+  const [editingBranch, setEditingBranch] = useState(false);
   const [base, setBase] = useState(initial?.base ?? '');
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
+  const [more, setMore] = useState(!!initial?.base);
+  const branch = branchTyped ?? suggestBranch(prompt);
+  const setBranch = (b: string) => setBranchTyped(b);
   // Created, but Claude didn't start: say so here, then let them go on.
   const [createdNoStart, setCreatedNoStart] = useState<{ id: string; reason: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | null>(null);
+  const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     fetchProjects().then(
@@ -81,10 +88,12 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
     }
     // No branch: the project as it is, on its own checkout (`work tree <repo>`).
     if (!branch.trim() && isGroup) {
+      setEditingBranch(true);
       setError(`${target} is a group: give it a branch (a group has no one checkout to open).`);
       return;
     }
     if (!branch.trim() && base.trim()) {
+      setEditingBranch(true);
       setError('A base needs a branch to fork. Leave both empty to open the project as it is.');
       return;
     }
@@ -146,57 +155,73 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
             />
           </label>
           <label className="wd-modal-row">
-            <span>Branch {isGroup ? '' : '(optional)'}</span>
-            <input
-              ref={(el) => {
-                if (initial?.target && !initial.branch) firstFocusRef.current = el;
-              }}
-              type="text"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
-              disabled={submitting}
-              required={isGroup}
-            />
-          </label>
-          <label className="wd-modal-row">
-            <span>Name (optional)</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="shown instead of the branch, e.g. PDF generation speed"
-              maxLength={120}
-              disabled={submitting}
-            />
-          </label>
-          <label className="wd-modal-row">
-            <span>Base (optional)</span>
-            <input
-              ref={(el) => {
-                // Fallback focus target when both target AND branch are
-                // prefilled (PR / Jira flows). Without this branch the
-                // ref stays null and `null?.focus()` is a silent no-op,
-                // leaving the modal with no keyboard focus.
-                if (initial?.target && initial.branch) firstFocusRef.current = el;
-              }}
-              type="text"
-              value={base}
-              onChange={(e) => setBase(e.target.value)}
-              placeholder="leave blank to use default"
-              disabled={submitting}
-            />
-          </label>
-          <label className="wd-modal-row">
-            <span>Start Claude with (optional)</span>
+            <span>What should Claude do?</span>
             <textarea
+              ref={(el) => {
+                if (initial?.target) firstFocusRef.current = el;
+              }}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Leave empty to create the worktree only"
-              rows={prompt ? 6 : 2}
+              placeholder="Add CSV export to the invoices endpoint"
+              rows={prompt.split('\n').length > 3 ? 8 : 4}
               disabled={submitting}
             />
+            <span className="wd-modal-hint">Leave it empty to just make the worktree.</span>
           </label>
+          {editingBranch ? (
+            <label className="wd-modal-row">
+              <span>Branch {isGroup ? '' : '(empty: the project as it is)'}</span>
+              <input
+                autoFocus
+                type="text"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
+                disabled={submitting}
+                required={isGroup}
+              />
+            </label>
+          ) : (
+            <div className="wd-modal-branch">
+              Branch{' '}
+              {branch ? (
+                <code>{branch}</code>
+              ) : (
+                <span className="wd-modal-hint">{isGroup ? 'needed for a group' : 'none: the project as it is, on its own checkout'}</span>
+              )}{' '}
+              <button type="button" className="wd-link-button" onClick={() => setEditingBranch(true)} disabled={submitting}>
+                Edit
+              </button>
+            </div>
+          )}
+          <button type="button" className="wd-link-button wd-modal-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+            {more ? '▾' : '▸'} More options: name, base branch
+          </button>
+          {more && (
+            <>
+              <label className="wd-modal-row">
+                <span>Name (optional)</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="shown instead of the branch, e.g. PDF generation speed"
+                  maxLength={120}
+                  disabled={submitting}
+                />
+              </label>
+              <label className="wd-modal-row">
+                <span>Base branch (optional)</span>
+                <input
+                  type="text"
+                  value={base}
+                  onChange={(e) => setBase(e.target.value)}
+                  placeholder="leave blank to use the default"
+                  disabled={submitting}
+                />
+              </label>
+            </>
+          )}
           {error && <p className="wd-modal-error">{error}</p>}
           {createdNoStart && (
             <p className="wd-modal-error" role="alert">
@@ -221,7 +246,7 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
               // and submit explains the cases that do need one (a group, a base).
               disabled={submitting || !target.trim()}
             >
-              {submitting ? 'Creating…' : prompt.trim() ? 'Create & start' : 'Create'}
+              {submitting ? 'Creating…' : prompt.trim() ? 'Create and start' : 'Create'}
             </button>
           )}
         </footer>

@@ -122,3 +122,56 @@ describe('the branch is optional for a repo', () => {
     expect(container.textContent).toContain('A base needs a branch');
   });
 });
+
+describe('what Claude should do, and the branch it suggests', () => {
+  const textarea = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+  const typeArea = (value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea(), value);
+    textarea().dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const button = (label: string | RegExp) =>
+    [...container.querySelectorAll('button')].find((b) =>
+      typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? ''),
+    )!;
+
+  it('two fields: the branch follows the prompt, and the button says it starts Claude', async () => {
+    await open({ initial: { target: 'jobly' } });
+    expect(container.querySelectorAll('.wd-modal-row')).toHaveLength(2); // Project, What should Claude do?
+    expect(container.textContent).toContain('Leave it empty to just make the worktree.');
+    await act(async () => typeArea('Add CSV export to the invoices endpoint'));
+    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/csv-export-invoices');
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent).toBe('Create and start');
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'jobly', branch: 'feat/csv-export-invoices', prompt: 'Add CSV export to the invoices endpoint' }),
+    );
+  });
+
+  it('Edit: your own branch, which the prompt no longer changes', async () => {
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Fix the login redirect'));
+    await act(async () => button('Edit').click());
+    const input = container.querySelector<HTMLInputElement>('input[placeholder^="feat/whatever"]')!;
+    expect(input.value).toBe('fix/login-redirect');
+    await act(async () => type(input, 'fix/sso-loop'));
+    await act(async () => typeArea('Fix the login redirect, and add a test'));
+    expect(input.value).toBe('fix/sso-loop');
+  });
+
+  it('a pick that names its branch (Jira, a PR) keeps it', async () => {
+    await open({ initial: { target: 'jobly', branch: 'feat/PAY-12', prompt: 'Work on PAY-12: retries' } });
+    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/PAY-12');
+  });
+
+  it('name and base wait under More options (open when a pick gave a base)', async () => {
+    await open({ initial: { target: 'jobly' } });
+    expect(container.textContent).not.toContain('Base branch');
+    await act(async () => button(/More options/).click());
+    expect(container.textContent).toContain('Name (optional)');
+    expect(container.textContent).toContain('Base branch (optional)');
+    act(() => root.unmount());
+    root = createRoot(container);
+    await open({ initial: { target: 'jobly', branch: 'feat/x', base: 'dev' } });
+    expect(container.textContent).toContain('Base branch (optional)');
+  });
+});

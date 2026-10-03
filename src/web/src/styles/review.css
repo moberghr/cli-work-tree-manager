@@ -1015,7 +1015,8 @@
   gap: 8px;
   justify-content: flex-end;
 }
-.wd-modal button {
+/* Every dialog button, except the ones that read as links (.wd-link-button). */
+.wd-modal button:not(.wd-link-button) {
   padding: 6px 14px;
   border-radius: 6px;
   border: 1px solid var(--border);

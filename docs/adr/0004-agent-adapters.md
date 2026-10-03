@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10 (recorded 2026-10-03)
+- Note (2026-10-03): the headless chat (`AgentChat`, the Chat tab) was removed; the conversation happens in the Terminal tab. The rest stands.
 
 ## Context
 

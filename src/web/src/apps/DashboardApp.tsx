@@ -30,8 +30,7 @@ import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
-import { PrsTab } from '../components/Dashboard/tabs/PrsTab.js';
-import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
+import { StartTab } from '../components/Dashboard/tabs/StartTab.js';
 import { taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
 import { TasksPanel } from '../components/Dashboard/TasksPanel.js';
 import { NowTodayToggle } from '../components/Dashboard/NowTodayToggle.js';
@@ -62,8 +61,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   today: 'Today',
   cleanup: 'Clean up',
   sessions: 'Sessions',
-  prs: 'PRs',
-  jira: 'Jira',
+  start: 'Start',
 };
 
 /**
@@ -435,8 +433,10 @@ export function DashboardApp() {
           i: 'inbox',
           d: 'today',
           s: 'sessions',
-          p: 'prs',
-          j: 'jira',
+          w: 'start',
+          // Old chords for the PRs and Jira pages: both are on Start.
+          p: 'start',
+          j: 'start',
         };
         if (e.key === 't') {
           e.preventDefault();
@@ -500,14 +500,6 @@ export function DashboardApp() {
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
   }, [goTab, openSession, hopTo, route.sessionId, sessions, sessionOrder, railLayout, modalOpen, reviewQueue]);
-
-  // Set of Jira keys that already have a worktree, for the Jira tab's
-  // "already-has-worktree" badge.
-  const sessionJiraKeys = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sessions) if (s.jiraKey) set.add(s.jiraKey);
-    return set;
-  }, [sessions]);
 
   // Current session (if route points at one).
   const activeSession = route.sessionId ? (sessions.find((s) => s.id === route.sessionId) ?? null) : null;
@@ -604,20 +596,13 @@ export function DashboardApp() {
           />
         );
         break;
-      case 'prs':
-        body = <PrsTab onPick={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })} />;
-        break;
-      case 'jira':
+      case 'start':
         body = (
-          <JiraTab
-            onPick={(issue) =>
-              openNew({
-                branch: `feat/${issue.key}`,
-                jiraKey: issue.key,
-                prompt: jiraPrompt(issue),
-              })
-            }
-            sessionJiraKeys={sessionJiraKeys}
+          <StartTab
+            sessions={sessions}
+            onNewWorktree={() => openNew(null)}
+            onPickPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })}
+            onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
             onOpenSession={(id) => openSession(id)}
           />
         );

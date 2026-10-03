@@ -90,7 +90,7 @@ back in the older JSON layout.
 `work` talks to a coding agent through an adapter (`core/agents/types.ts`):
 how to launch and resume it, read its conversation, hear its turns (hooks),
 see its running processes, type into it and answer its permission dialog,
-run it for one-shot summaries, run it headless as a chat, set up a folder
+run it for one-shot summaries, set up a folder
 for it, and give it work's skills. Each part is optional; the dashboard hides
 what an agent can't do. Claude Code is the one adapter today
 ([ADR 0004](adr/0004-agent-adapters.md)); `tests/core/agents/echo-agent.test.ts`

@@ -656,174 +656,102 @@ a.wd-pr-chip:hover {
   cursor: help;
 }
 
-/* ---- PRs tab: table ------------------------------------------------------*/
+/* ---- Start: where new work comes from (StartTab) --------------------------*/
 
-.wd-pr-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  overflow-y: auto;
+.wd-start-section {
+  padding: 4px 32px 8px;
+  max-width: 1000px;
 }
-.wd-pr-table thead {
-  position: sticky;
-  top: 0;
-  background: var(--header-bg);
-  z-index: 1;
-}
-.wd-pr-table th {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-.wd-pr-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.wd-pr-group-label {
-  background: var(--sidebar-bg, var(--header-bg));
-  font-weight: 600;
+.wd-start-title {
+  margin: 16px 0 6px;
   font-size: 12px;
-  color: var(--fg);
-}
-.wd-pr-row {
-  cursor: pointer;
-}
-.wd-pr-row:hover {
-  background: var(--hover);
-}
-.wd-pr-num {
-  font-family: monospace;
-  color: var(--muted);
-}
-.wd-pr-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-pr-title {
-  font-weight: 500;
-}
-.wd-pr-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-right: 6px;
-  background: var(--border);
-  color: var(--muted);
-}
-.wd-pr-check {
-  font-size: 14px;
-}
-.wd-pr-check-ok {
-  color: #2ea043;
-}
-.wd-pr-check-fail {
-  color: #d1242f;
-}
-.wd-pr-check-pending {
-  color: #d29922;
-}
-.wd-pr-check-none {
-  color: var(--muted);
-}
-.wd-pr-actions {
-  text-align: right;
-}
-.wd-pr-actions a {
-  color: var(--muted);
-  text-decoration: none;
-}
-.wd-pr-actions a:hover {
-  color: var(--accent, #0969da);
-}
-
-/* ---- Jira tab: kanban ----------------------------------------------------*/
-
-.wd-jira-board {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-  padding: 16px 24px;
-  overflow-y: auto;
-}
-.wd-jira-col {
-  background: var(--sidebar-bg, var(--header-bg));
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  max-height: 100%;
-}
-.wd-jira-col-header {
-  display: flex;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.wd-jira-col-list {
+.wd-start-note {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-start-list {
   list-style: none;
   margin: 0;
-  padding: 8px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 0;
 }
-.wd-jira-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-}
-.wd-jira-card:hover {
-  border-color: var(--accent, #0969da);
-}
-.wd-jira-card-header {
-  display: flex;
-  justify-content: space-between;
+/* key · what · state · Start (or the session already on it) */
+.wd-start-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 140px 170px;
   align-items: center;
-  margin-bottom: 4px;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
 }
-.wd-jira-card-key {
-  font-family: monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent, #0969da);
-}
-.wd-jira-card-link {
-  color: var(--muted);
+.wd-start-key {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 13px;
+  color: var(--accent);
   text-decoration: none;
-  font-size: 12px;
 }
-.wd-jira-card-link:hover {
-  color: var(--fg);
+.wd-start-key:hover {
+  text-decoration: underline;
 }
-.wd-jira-card-summary {
-  margin: 0;
-  font-size: 12px;
-  color: var(--fg);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+.wd-start-key-pr {
+  color: var(--muted);
+}
+.wd-start-what {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wd-jira-card-has-session {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: 10px;
-  color: #2ea043;
+.wd-start-repo {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-start-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-start-state-bad {
+  color: var(--del-fg);
+}
+.wd-start-state-good {
+  color: var(--add-fg);
+}
+.wd-start-action {
+  display: flex;
+  justify-content: flex-end;
+}
+.wd-start-existing {
+  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* What the Jira watch did with an issue: under its row, across. */
+.wd-start-row > .wd-jira-watch {
+  grid-column: 2 / -1;
+  margin-top: 0;
+}
+.wd-start-watch {
+  padding: 16px 32px 24px;
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  .wd-start-section {
+    padding: 4px 12px 8px;
+  }
+  .wd-start-row {
+    grid-template-columns: 80px minmax(0, 1fr) auto;
+  }
+  .wd-start-state {
+    display: none;
+  }
 }
 
 /* ---- Tasks tab: flat list ------------------------------------------------*/
@@ -3002,18 +2930,13 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
 }
 
-/* The Jira watch (JiraTab): its switch, and what it did with an issue. */
+/* The Jira watch (StartTab): its switch, and what it did with an issue. */
 .wd-jira-watch-switch {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 13px;
   cursor: pointer;
-}
-.wd-jira-watch-line {
-  margin: 0 24px 8px;
-  font-size: 12px;
-  color: var(--muted);
 }
 .wd-jira-watch {
   display: block;
@@ -3050,6 +2973,32 @@ a.wd-pr-chip:hover {
   display: block;
   color: var(--del-fg);
   margin-top: 2px;
+}
+
+/* The New worktree dialog: the hint under "What should Claude do?", the suggested branch, More options. */
+.wd-modal-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-modal-branch {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 10px;
+}
+.wd-modal-branch code {
+  color: var(--fg);
+  font-size: 12px;
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.wd-modal-more {
+  display: block;
+  text-align: left;
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 /* The New worktree dialog's project field (ProjectPicker): type to narrow it. */
