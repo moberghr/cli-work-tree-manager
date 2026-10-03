@@ -29,6 +29,7 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm run format:check
       # Build before testing: the functional `work attach` test drives the
       # built dist/bin.js (it skips itself when there is no build).
       - run: npm run build

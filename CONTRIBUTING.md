@@ -24,6 +24,7 @@ All of these run in CI, and should pass before a PR:
 |---|---|
 | `npm run typecheck` | the CLI/server, the dashboard, and the tests + e2e specs |
 | `npm run lint` | ESLint: correctness rules (unhandled promises, hook dependencies, …) |
+| `npm run format:check` | Prettier (`npm run format` fixes it; editors pick up `.prettierrc.json`) |
 | `npm test` | vitest; `npm run test:coverage` adds a coverage report (`coverage/`) |
 | `npm run test:e2e` | Playwright against the built binary (the demo dashboard, the PTY host) |
 

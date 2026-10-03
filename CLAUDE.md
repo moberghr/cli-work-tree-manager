@@ -28,8 +28,8 @@
 - **Build command:** `npm run build` (tsup → ESM); dev-run `npm run dev` (tsx)
 - **Test command:** `npm test` (vitest run)
 - **Type check:** `npm run typecheck` — the CLI/server, the SPA (`src/web/tsconfig.json`) and the tests + e2e specs (`tests/tsconfig.json`; vitest and Playwright strip types without checking them). CI runs it.
-- **Lint:** `npm run lint` (ESLint, `eslint.config.js`; CI runs it) — correctness rules only, type-aware: `no-floating-promises` (a promise nobody handles: `void` it on purpose, or catch it), unused names (`_name` = unused on purpose), the rules of hooks + `exhaustive-deps` in the SPA (a deliberate omission needs an `eslint-disable-next-line` with the reason). Not the React Compiler's rules (the SPA doesn't use it), not `no-control-regex` (terminal codes are matched on purpose).
-- **Format:** no formatter configured in this repo (no biome/prettier config). Match surrounding style; do not introduce a formatter without team agreement.
+- **Lint:** `npm run lint` (ESLint, `eslint.config.js`; CI runs it) — correctness rules only (formatting is Prettier's), type-aware: `no-floating-promises` (a promise nobody handles: `void` it on purpose, or catch it), unused names (`_name` = unused on purpose), the rules of hooks + `exhaustive-deps` in the SPA (a deliberate omission needs an `eslint-disable-next-line` with the reason). Not the React Compiler's rules (the SPA doesn't use it), not `no-control-regex` (terminal codes are matched on purpose).
+- **Format:** Prettier (`.prettierrc.json`: 140 columns, single quotes, semicolons, trailing commas, LF). `npm run format` writes, `npm run format:check` checks (CI runs it). Markdown and `docs/` are not formatted. The repo-wide reformat is listed in `.git-blame-ignore-revs` (`git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
 For framework-specific guidance, see `.claude/skills/tech-stack-typescript/SKILL.md`.
 

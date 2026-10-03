@@ -1,0 +1,11 @@
+# Generated, vendored or not code: never formatted.
+dist/
+coverage/
+node_modules/
+playwright-report/
+test-results/
+desktop/src-tauri/target/
+npm-shrinkwrap.json
+*.md
+docs/
+.claude/
