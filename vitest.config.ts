@@ -22,5 +22,14 @@ export default defineConfig({
     // signing, hooks…), and under a throwaway HOME, never the developer's
     // ~/.work or ~/.claude — see tests/setup/.
     setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts'],
+    // `npm run test:coverage` (CI keeps the lcov): what the tests run of src/,
+    // reported, with no threshold yet — the number to watch, not to game.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.d.ts'],
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+    },
   },
 });

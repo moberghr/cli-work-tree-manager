@@ -23,12 +23,25 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      # What a global install gets (`dependencies`) must have no known high or
+      # critical advisory; dev tools are Dependabot's to update.
+      - run: npm audit --omit=dev --audit-level=high
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
       - run: npm run typecheck
       - run: npm run lint
       # Build before testing: the functional `work attach` test drives the
       # built dist/bin.js (it skips itself when there is no build).
       - run: npm run build
       - run: npm test
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) }}
+      # One leg measures coverage (a report, no threshold yet) and keeps the lcov.
+      - run: npm run test:coverage
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        with:
+          name: coverage
+          path: coverage/lcov.info
   package:
     # The installed package on every OS and supported Node: the native
     # modules (better-sqlite3 for state.db, node-pty) must come down as
