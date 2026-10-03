@@ -38,5 +38,5 @@ your browser, a hostile text the agent reads, or another local process, using
   sessions (`hostEnv`) never include names or values that look like secrets;
   the Jira API token is never sent to the dashboard.
 - **Dependencies.** CI fails on a known high or critical advisory in what a
-  global install gets (`npm audit --omit=dev`); Dependabot proposes updates
-  weekly.
+  global install gets (`npm audit --omit=dev`), and every global install gets
+  exactly the versions CI tested (`npm-shrinkwrap.json`).

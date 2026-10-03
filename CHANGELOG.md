@@ -43,5 +43,5 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ### Engineering
 - `src/core` split by feature, the HTTP front-end in `src/server`.
-- Tests are typechecked; ESLint; coverage report; Dependabot; an audit gate on
+- Tests are typechecked; ESLint; coverage report; Prettier; an audit gate on
   shipped dependencies; only what the CLI imports is shipped.
