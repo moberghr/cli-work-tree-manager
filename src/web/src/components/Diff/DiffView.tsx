@@ -349,18 +349,23 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
             style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
           >
             {isEmpty || !activeRepo ? (
-              <div className="wd-web-empty wd-web-empty-diff">
-                <p>{emptyMessage}</p>
-                {!turn && diffBase === 'uncommitted' && (
-                  <p className="wd-web-empty-hint">
-                    Try{' '}
-                    <button type="button" className="wd-web-link-btn" onClick={() => setDiffBase('branch')}>
-                      Since branch
-                    </button>{' '}
-                    to see everything in this worktree.
-                  </p>
-                )}
-              </div>
+              <>
+                {/* Comments live here (the session has no Comments tab): with
+                    nothing changed they still show, and can still be written. */}
+                <GeneralPane />
+                <div className="wd-web-empty wd-web-empty-diff">
+                  <p>{emptyMessage}</p>
+                  {!turn && diffBase === 'uncommitted' && (
+                    <p className="wd-web-empty-hint">
+                      Try{' '}
+                      <button type="button" className="wd-web-link-btn" onClick={() => setDiffBase('branch')}>
+                        Since branch
+                      </button>{' '}
+                      to see everything in this worktree.
+                    </p>
+                  )}
+                </div>
+              </>
             ) : (
               <>
                 <GeneralPane />

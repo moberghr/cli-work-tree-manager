@@ -20,7 +20,7 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => ({
     if (h.fail) throw new Error(h.fail);
   },
 }));
-import { DevChip } from '../../src/web/src/components/Dashboard/DevChip.js';
+import { DevChip, useDevState, type DevHandle } from '../../src/web/src/components/Dashboard/DevChip.js';
 
 const base: DevServerState = {
   port: 3017,
@@ -32,6 +32,7 @@ const base: DevServerState = {
 };
 let container: HTMLDivElement;
 let root: Root;
+let handle: DevHandle;
 beforeEach(() => {
   h.state = { ...base };
   h.actions = [];
@@ -44,28 +45,34 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
+/** What the session header does: one hook, the chip in the status line (Start is in its ⋯ menu). */
+function Header() {
+  handle = useDevState('s1');
+  return createElement(DevChip, { dev: handle });
+}
 const render = async () => {
-  await act(async () => root.render(createElement(DevChip, { sessionId: 's1' })));
+  await act(async () => root.render(createElement(Header)));
   await act(async () => {});
 };
 const btn = (text: RegExp) => [...container.querySelectorAll('button')].find((b) => text.test(b.textContent ?? ''));
 
 describe('DevChip', () => {
-  it('shows the port and offers to start the configured command', async () => {
+  it('says nothing while no dev server runs; the hook starts the configured command', async () => {
     await render();
-    expect(container.textContent).toContain(':3017');
-    expect(container.querySelector('.wd-dev-preview')).toBeNull();
-    await act(async () => btn(/Start dev/)!.click());
+    expect(container.textContent).toBe('');
+    expect(handle.state?.port).toBe(3017);
+    await act(async () => handle.act('start'));
     expect(h.actions).toEqual(['start']);
   });
 
   it('links the preview when something serves on the port, and stops what it started', async () => {
     h.state = { ...base, listening: true, running: { pid: 1, startedAt: '' } };
     await render();
+    expect(container.textContent).toContain(':3017');
     const a = container.querySelector<HTMLAnchorElement>('.wd-dev-preview')!;
     expect(a.href).toBe('http://localhost:3017/');
     expect(a.target).toBe('_blank');
-    expect(btn(/Start dev/)).toBeUndefined();
+    expect(container.querySelector<HTMLAnchorElement>('.wd-dev-log')!.getAttribute('href')).toBe('/api/sessions/s1/dev/log');
     await act(async () => btn(/Stop/)!.click());
     expect(h.actions).toEqual(['stop']);
   });
@@ -80,7 +87,7 @@ describe('DevChip', () => {
   it('shows why a start failed', async () => {
     h.fail = 'already running (pid 9)';
     await render();
-    await act(async () => btn(/Start dev/)!.click());
+    await act(async () => handle.act('start'));
     expect(container.querySelector('[role="alert"]')?.textContent).toBe('already running (pid 9)');
   });
 

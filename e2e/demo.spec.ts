@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 /**
  * `work web --demo` end to end: the built binary, the real SPA, the
@@ -15,6 +15,12 @@ const BIN = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'di
 let home: string;
 let child: ChildProcess;
 let url: string;
+
+/** Ship lives in the session header's ⋯ menu. */
+async function shipFromMenu(page: Page) {
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Ship/ }).click();
+}
 
 test.beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'work-demo-'));
@@ -59,7 +65,7 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
   // Ship half of the group.
   const shopRow = page.locator('.wd-dash-rail-item', { hasText: 'feat/checkout-v2' });
   await shopRow.click();
-  await page.getByRole('button', { name: /^Ship/ }).click();
+  await shipFromMenu(page);
   const panel = page.getByRole('dialog', { name: 'Ship session' });
   await panel.getByRole('button', { name: 'Create PR' }).click();
   await expect(panel.locator('.wd-ship-results')).toContainText('PR opened');
@@ -67,7 +73,7 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
   // Simulated checks go green after a few seconds; reopen to re-check.
   await page.waitForTimeout(7_000);
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /^Ship/ }).click();
+  await shipFromMenu(page);
   await panel.getByLabel('Merge frontend').uncheck();
   await panel.getByRole('button', { name: 'Merge 1…' }).click();
   await panel.getByRole('alertdialog', { name: 'Confirm merge' }).getByRole('button', { name: 'Confirm merge' }).click();
@@ -82,7 +88,7 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
 test('"Last turn" narrows the diff to what the last instruction changed', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
-  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
+  await page.getByRole('tab', { name: /^Diff/ }).click();
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
@@ -102,7 +108,7 @@ test('"Last turn" narrows the diff to what the last instruction changed', async 
 test('revert a file from the diff, and Claude is told', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
-  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
+  await page.getByRole('tab', { name: /^Diff/ }).click();
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
@@ -159,18 +165,25 @@ test('a finished session notifies only when you are not looking, and the click j
 test('start a worktree dev server and get a preview link on its port', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
+  // Nothing runs yet: no chip; ⋯ starts it on the worktree's port.
   const chip = page.locator('.wd-dev-chip');
+  await expect(chip).toHaveCount(0);
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /Start dev server/ }).click();
   await expect(chip).toContainText(/:\d+/);
-  await chip.getByRole('button', { name: /Start dev/ }).click();
   await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveAttribute('href', /^http:\/\/localhost:\d+\/$/, { timeout: 10_000 });
   await chip.getByRole('button', { name: /Stop/ }).click();
   await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveCount(0);
 });
 
-test('failing CI shows under the header, and Claude fixes it on request', async ({ page }) => {
+test('failing CI is one line under the header, and Claude fixes it on request', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'chore/deps-update' }).click();
+  const bar = page.locator('.wd-needs-you');
+  await expect(bar).toContainText('CI failing on #212');
   const strip = page.locator('.wd-ci-strip');
+  await expect(strip).toBeHidden();
+  await bar.getByRole('button', { name: 'Review' }).click();
   await expect(strip).toContainText('CI failing on #212: test (node 22), typecheck');
   await strip.getByRole('button', { name: 'Ask Claude to fix' }).click();
   await expect(strip).toContainText('Sent to Claude ✓');
@@ -185,7 +198,7 @@ test('j/k never navigate while the Ship dialog is open, and a session switch clo
   await page.locator('.wd-dash-rail-item', { hasText: 'feat/checkout-v2' }).click();
   await expect(page).toHaveURL(/#\/s\//);
   const before = page.url();
-  await page.getByRole('button', { name: /^Ship/ }).click();
+  await shipFromMenu(page);
   const panel = page.getByRole('dialog', { name: 'Ship session' });
   await expect(panel).toBeVisible();
 
@@ -214,7 +227,7 @@ test('j/k walk the rail in the order it shows', async ({ page }) => {
   await page.locator('.wd-dash-rail-item').first().click();
   await expect(page.locator('.wd-session-detail-branch')).toHaveText(order[0]);
   // On the terminal, j/k are Claude's; walk from the diff (which j/k keep).
-  await page.getByRole('tab', { name: 'Diff', exact: true }).click();
+  await page.getByRole('tab', { name: /^Diff/ }).click();
   await page.locator('body').click({ position: { x: 5, y: 5 } }); // keys go to the page, not a field
   for (const expected of order.slice(1, 4)) {
     await page.keyboard.press('j');
@@ -276,14 +289,15 @@ test('a Jira issue starts a session with a first prompt, opened on its terminal'
   await expect(page.locator('.wd-session-strip')).toContainText('Work on it: add the export button');
 });
 
-test('a saved prompt is sent to a session from its header, and shows in its comments', async ({ page }) => {
+test('a saved prompt is sent to a session from its ⋯ menu, and shows in its comments on the Diff', async ({ page }) => {
   await page.goto(`${url}#/sessions`);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
-  await page.getByRole('button', { name: 'Prompts ▾' }).click();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Send a prompt…' }).click();
   await page.getByRole('menuitem', { name: 'Add tests' }).click();
   await expect(page.locator('.wd-prompts-state')).toContainText('"Add tests"');
-  await page.getByRole('tab', { name: /Comments/ }).click();
-  await expect(page.locator('.wd-session-detail')).toContainText('Add tests for what changed on this branch');
+  await page.getByRole('tab', { name: /Diff/ }).click();
+  await expect(page.locator('.wd-comments-panel')).toContainText('Add tests for what changed on this branch');
 });
 
 test('Today lists what each session did, and g d gets there', async ({ page }) => {

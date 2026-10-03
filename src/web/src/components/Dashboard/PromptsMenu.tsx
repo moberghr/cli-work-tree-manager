@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendPromptToSession } from '../../api/client.js';
 import type { PromptsResponse, SavedPrompt, SessionSummary } from '../../api/client.js';
 import { promptsForSession } from '../../../../core/sessions/saved-prompts.js';
@@ -8,6 +8,9 @@ interface Props {
   /** Test seams; default to the API. */
   loadPrompts?: () => Promise<PromptsResponse>;
   send?: (sessionId: string, prompt: string) => Promise<unknown>;
+  /** Opened by the session header's ⋯ → Send a prompt…, which holds whether it's open. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 async function fetchPrompts(): Promise<PromptsResponse> {
@@ -20,11 +23,14 @@ async function fetchPrompts(): Promise<PromptsResponse> {
 const sendPrompt = sendPromptToSession;
 
 /**
- * "Prompts ▾" in the session header: the saved one-click instructions that
- * apply to this session (config `prompts`, or the built-in ones).
+ * Send a prompt… (the session header's ⋯ menu): the saved one-click
+ * instructions that apply to this session (config `prompts`, or the
+ * built-in ones), and where the picked one went.
  */
-export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPrompt }: Props) {
-  const [open, setOpen] = useState(false);
+export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPrompt, open, onOpenChange }: Props) {
+  const changeRef = useRef(onOpenChange);
+  changeRef.current = onOpenChange;
+  const setOpen = useCallback((o: boolean) => changeRef.current(o), []);
   const [prompts, setPrompts] = useState<SavedPrompt[] | null>(null);
   const [state, setState] = useState<{ kind: 'sending' | 'sent' | 'error'; text: string } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -52,16 +58,20 @@ export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPr
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   // A switch to another session resets it.
   useEffect(() => {
-    setOpen(false);
     setState(null);
   }, [session.id]);
 
   const repoNames = session.isGroup ? session.paths.map((p) => p.split(/[\\/]/).pop() ?? '') : [];
   const list = prompts ? promptsForSession(prompts, session.target, repoNames) : null;
+  const count = list?.length ?? 0;
+  // Opened from the ⋯ menu: the keyboard goes to the first prompt.
+  useEffect(() => {
+    if (open && count > 0) root.current?.querySelector<HTMLButtonElement>('.wd-prompts-item')?.focus();
+  }, [open, count]);
   // Where it will land: typed into a terminal the dashboard owns, after the
   // current turn, or on the next turn of a Claude running elsewhere.
   const whenDelivered = (label: string) =>
@@ -83,16 +93,6 @@ export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPr
 
   return (
     <div className="wd-prompts" ref={root}>
-      <button
-        type="button"
-        className="wd-session-detail-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        title="Send Claude a saved instruction"
-      >
-        Prompts ▾
-      </button>
       {open && (
         <ul className="wd-prompts-menu" role="menu">
           {list === null ? (

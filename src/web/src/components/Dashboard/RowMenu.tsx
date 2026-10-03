@@ -11,15 +11,27 @@ export interface MenuItem {
   separated?: boolean;
 }
 
+interface RowMenuProps {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  onClose: () => void;
+  /** A muted line under the items (the session header's: how full its context is). */
+  footer?: string;
+  /** 'right': x is the menu's right edge (opened from a button at the right). */
+  anchor?: 'left' | 'right';
+}
+
 /**
- * A row's right-click menu (session rail, Tasks), at the pointer — kept
- * inside the window when opened near an edge. ↑/↓ move, Enter picks; closes
- * on a pick, Esc, Tab, a click elsewhere, the window losing focus or resizing.
+ * A row's right-click menu (session rail, Tasks) at the pointer, or a
+ * button's (the session header's ⋯) — kept inside the window when opened
+ * near an edge. ↑/↓ move, Enter picks; closes on a pick, Esc, Tab, a click
+ * elsewhere, the window losing focus or resizing.
  *
  * Focuses its first item once, on opening: the parent re-renders on every
  * background refresh, and re-running that would snap ↑/↓ back to the top.
  */
-export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
+export function RowMenu({ x, y, items, onClose, footer, anchor = 'left' }: RowMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   // Opened near the bottom or right edge: shift it back in, once it has a size.
@@ -27,11 +39,12 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
+    const left = anchor === 'right' ? x - r.width : x;
     setPos({
-      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+      left: Math.max(4, Math.min(left, window.innerWidth - r.width - 4)),
       top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
     });
-  }, [x, y]);
+  }, [x, y, anchor]);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
@@ -87,6 +100,7 @@ export function RowMenu({ x, y, items, onClose }: { x: number; y: number; items:
           {it.hint && <kbd className="wd-row-menu-hint">{it.hint}</kbd>}
         </button>
       ))}
+      {footer && <p className="wd-row-menu-footer">{footer}</p>}
     </div>
   );
 }

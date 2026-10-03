@@ -811,81 +811,89 @@ a.wd-pr-chip:hover {
 .wd-session-detail-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  padding: 16px 24px 4px;
   flex-shrink: 0;
-}
-.wd-back-link {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-}
-.wd-back-link:hover {
-  color: var(--accent, #0969da);
+  min-width: 0;
 }
 .wd-session-detail h1 {
-  font-size: 16px;
+  font-size: 18px;
   margin: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 500;
+  font-weight: 600;
   min-width: 0;
 }
-.wd-session-detail-action {
-  appearance: none;
-  margin-left: auto;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.wd-session-detail-action:hover:not(:disabled) {
-  color: var(--fg);
-  background: var(--hover);
-}
-/* The action button takes the auto margin; Delete sits right after it. */
-.wd-session-detail-action + .wd-session-detail-delete {
-  margin-left: 0;
-}
-.wd-session-detail-delete {
-  appearance: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.wd-session-detail-delete:hover {
-  color: var(--del-fg);
-  border-color: var(--del-fg);
-  background: var(--hover);
-}
-.wd-session-detail-target {
-  color: var(--muted);
-}
+.wd-session-detail-target,
 .wd-session-detail-sep {
   color: var(--muted);
-  margin: 0 2px;
+  font-weight: 400;
 }
 .wd-session-detail-branch {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Archive (or Restore) and ⋯: the header's only buttons. */
+.wd-session-actions {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wd-session-archive {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.wd-session-archive:hover:not(:disabled) {
+  background: var(--hover);
+}
+.wd-session-archive:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-session-more {
+  appearance: none;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.wd-session-more:hover,
+.wd-session-more[aria-expanded='true'] {
+  border-color: var(--muted);
+}
+.wd-session-action-note {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-session-action-note-error {
+  color: var(--del-fg);
+}
+/* "Send a prompt…" lists under the actions. */
+.wd-session-actions .wd-prompts {
+  position: static;
 }
 
 .wd-session-subtabs {
@@ -917,6 +925,11 @@ a.wd-pr-chip:hover {
   border-bottom-color: var(--accent, #0969da);
   font-weight: 500;
 }
+.wd-session-subtab-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
 .wd-session-subtab-badge {
   background: var(--accent, #0969da);
   color: white;
@@ -946,32 +959,6 @@ a.wd-pr-chip:hover {
 .wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-main {
   height: auto;
   min-height: 0;
-}
-
-.wd-session-comments {
-  list-style: none;
-  margin: 0;
-  padding: 12px 24px;
-  overflow-y: auto;
-}
-.wd-session-comment {
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-bottom: 8px;
-  background: var(--bg);
-}
-.wd-session-comment-header {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.wd-session-comment-body {
-  margin: 0;
-  font-size: 13px;
-  white-space: pre-wrap;
 }
 
 /* ---- Attention inbox ---------------------------------------------------
@@ -1319,23 +1306,59 @@ a.wd-pr-chip:hover {
   opacity: 0.6;
   cursor: default;
 }
-.wd-session-detail-ship {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-}
-.wd-session-detail-btn + .wd-session-detail-delete {
-  margin-left: 0;
-}
 .wd-session-strip {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 6px 24px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  padding: 0 24px 12px;
+  color: var(--muted);
+  font-size: 13px;
   flex-shrink: 0;
   min-width: 0;
+}
+
+/* "Needs you: 1 reply to post · CI failing on #212 [Review]" (NeedsYouBar). */
+.wd-needs-you {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 24px 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--review-fg) 30%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--review-fg) 5%, var(--bg));
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.wd-needs-you-label {
+  font-weight: 600;
+  color: var(--review-fg);
+}
+.wd-needs-you-text {
+  flex: 1;
+  min-width: 0;
+}
+.wd-needs-you-btn {
+  font-size: 12px;
+  padding: 3px 12px;
+}
+/* Folded behind the bar: kept mounted (a draft being edited survives). */
+.wd-ci-strip[hidden],
+.wd-replies[hidden] {
+  display: none;
+}
+
+/* Timeline tab: how long its Claude worked, above the timeline. */
+.wd-timeline-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wd-timeline-head {
+  padding: 12px 24px 0;
+  flex-shrink: 0;
 }
 .wd-status-line {
   display: inline-flex;
@@ -1640,12 +1663,17 @@ a.wd-pr-chip:hover {
   }
 
   .wd-session-detail-header {
-    flex-wrap: wrap;
-    padding: 10px 12px;
+    padding: 12px 12px 4px;
     gap: 8px;
   }
   .wd-session-strip {
-    padding: 6px 12px;
+    padding: 0 12px 10px;
+  }
+  .wd-needs-you,
+  .wd-catch-up,
+  .wd-replies {
+    margin-left: 12px;
+    margin-right: 12px;
   }
   .wd-session-subtabs {
     padding: 0 12px;
@@ -1730,7 +1758,7 @@ a.wd-pr-chip:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 14px;
-  padding: 6px 16px;
+  padding: 6px 24px;
   font-size: 13px;
   border-bottom: 1px solid var(--border);
 }
@@ -2969,7 +2997,7 @@ a.wd-pr-chip:hover {
 
 /* Replies Claude drafted for review threads (ReplyDrafts): posted on your yes. */
 .wd-replies {
-  margin: 6px 16px 8px;
+  margin: 0 24px 12px;
   padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--review-fg) 35%, var(--border));
   border-radius: 8px;
@@ -3091,6 +3119,14 @@ a.wd-pr-chip:hover {
 .wd-row-menu-item:focus-visible {
   background: var(--hover);
   outline: none;
+}
+.wd-row-menu-footer {
+  white-space: nowrap;
+  margin: 4px 0 0;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
 }
 .wd-row-menu-hint {
   color: var(--muted);
@@ -3387,13 +3423,11 @@ a.wd-pr-chip:hover {
 
 /* "Catch me up" (CatchUp.tsx): the summary under the session header. */
 .wd-catch-up-away {
-  border-color: var(--accent);
-  color: var(--accent);
+  font-size: 13px;
 }
 .wd-catch-up {
-  flex-basis: 100%;
-  order: 99;
-  margin: 6px 0 0;
+  flex-shrink: 0;
+  margin: 0 24px 12px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
@@ -3411,10 +3445,6 @@ a.wd-pr-chip:hover {
 }
 .wd-bulk-hidden {
   color: var(--muted);
-}
-/* The header wraps only to make room for a catch-up summary. */
-.wd-session-detail-header:has(.wd-catch-up) {
-  flex-wrap: wrap;
 }
 
 /* Behind main (BehindChip): how far, Update from main, the outcome. */
@@ -3645,7 +3675,7 @@ a.wd-pr-chip:hover {
 
 /* The Timeline tab (TimelineView): a session's history on one line. */
 .wd-timeline {
-  padding: 12px 16px;
+  padding: 12px 24px;
   overflow: auto;
 }
 .wd-timeline-day + .wd-timeline-day {

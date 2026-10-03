@@ -34,14 +34,18 @@ const session = (over: Partial<SessionSummary> = {}) =>
   ({ id: 's1', target: 'api', branch: 'fix/keys', title: 'Rotate the terminal keys', ...over }) as SessionSummary;
 
 describe('SessionTitle', () => {
-  it('shows the automatic name, and renames on Enter', async () => {
+  it("shows only your own name: an automatic one (its first prompt) isn't repeated beside the branch", () => {
     act(() => root.render(createElement(SessionTitle, { session: session() })));
-    const btn = container.querySelector<HTMLButtonElement>('.wd-session-title')!;
-    expect(btn.textContent).toBe('Rotate the terminal keys');
-    expect(btn.title).toContain('first prompt');
-    act(() => btn.click());
+    expect(container.querySelector('.wd-session-title')).toBeNull();
+    act(() => root.render(createElement(SessionTitle, { session: session({ title: 'Key rotation', titleIsYours: true }) })));
+    expect(container.querySelector('.wd-session-title')!.textContent).toBe('Key rotation');
+  });
+
+  it('opened for renaming (⋯ → Rename), it renames on Enter', async () => {
+    act(() => root.render(createElement(SessionTitle, { session: session(), autoEdit: true })));
     const input = container.querySelector<HTMLInputElement>('.wd-session-title-input')!;
     expect(input.value).toBe(''); // an automatic name isn't pre-filled: you type yours
+    expect(input.placeholder).toBe('Rotate the terminal keys');
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
     act(() => {
       setValue.call(input, 'Key rotation');

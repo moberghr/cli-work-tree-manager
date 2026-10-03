@@ -560,8 +560,6 @@ export function DashboardApp() {
           session={activeSession}
           subTab={route.sessionSubTab}
           onSelectSubTab={setSubTab}
-          onBack={backFromSession}
-          backLabel={TAB_LABEL[route.tab]}
           onDelete={() => setDeleting(activeSession)}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}

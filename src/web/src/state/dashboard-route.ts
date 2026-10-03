@@ -9,10 +9,13 @@
  *   `#/prs`                           → PRs tab
  *   `#/jira`                          → Jira tab
  *   `#/tasks`                         → Tasks tab
- *   `#/s/<sessionId>`                → Session detail (default: diff sub-tab)
- *   `#/s/<sessionId>/diff`           → Session detail · diff
+ *   `#/s/<sessionId>`                → Session detail (default: terminal sub-tab)
  *   `#/s/<sessionId>/term`           → Session detail · terminal
- *   `#/s/<sessionId>/comments`       → Session detail · comments
+ *   `#/s/<sessionId>/diff`           → Session detail · diff (comments included)
+ *   `#/s/<sessionId>/timeline`       → Session detail · timeline
+ *
+ * Old links still open: `…/comments` on the Diff (where comments are now),
+ * `…/chat` on the Terminal (the headless chat is gone).
  *
  * `wd`'s deep-link target (`/diff/<hash>`) lands on `ReviewApp`, not
  * here — those scope-hashes are a separate addressing space (the
@@ -21,7 +24,10 @@
  */
 
 export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'prs' | 'jira' | 'tasks';
-export type SessionSubTab = 'chat' | 'diff' | 'term' | 'comments' | 'timeline';
+export type SessionSubTab = 'diff' | 'term' | 'timeline';
+
+/** Sub-tabs that no longer exist, and where their links land now. */
+const OLD_SUB_TAB: Record<string, SessionSubTab> = { comments: 'diff', chat: 'term' };
 
 export interface DashboardRoute {
   tab: DashboardTab;
@@ -46,7 +52,7 @@ export function parseHash(hash: string): DashboardRoute {
   const session = hash.match(SESSION_RE);
   if (session) {
     // A session opens on its terminal unless the link says otherwise.
-    const sub = (session[2] as SessionSubTab | undefined) ?? 'term';
+    const sub = session[2] ? (OLD_SUB_TAB[session[2]] ?? (session[2] as SessionSubTab)) : 'term';
     return {
       // Keep the "tab" carrier so breadcrumb knows where to go back to;
       // default to sessions when entering a session URL cold.

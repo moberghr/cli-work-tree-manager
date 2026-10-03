@@ -6,12 +6,21 @@ import { useSse } from '../../api/events.js';
  *  server Claude (or you, in the terminal) started on $PORT. */
 const POLL_MS = 5_000;
 
+/** The worktree's dev server as the session header knows it, and Start / Stop. */
+export interface DevHandle {
+  sessionId: string;
+  state: DevServerState | null;
+  busy: 'start' | 'stop' | null;
+  error: string | null;
+  act: (a: 'start' | 'stop') => void;
+}
+
 /**
- * The worktree's port in the session header: whether something serves on
- * it, a Preview link when it does, and Start / Stop for the configured
- * dev command (`devCommands` in config.json).
+ * Whether something serves on the worktree's port, and Start / Stop for the
+ * configured dev command (`devCommands` in config.json). The header's ⋯ menu
+ * starts and stops it; the chip shows it while it runs.
  */
-export function DevChip({ sessionId }: { sessionId: string }) {
+export function useDevState(sessionId: string): DevHandle {
   const [state, setState] = useState<DevServerState | null>(null);
   const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,51 +46,55 @@ export function DevChip({ sessionId }: { sessionId: string }) {
     },
   });
 
+  const act = useCallback(
+    (a: 'start' | 'stop') => {
+      setBusy(a);
+      setError(null);
+      devAction(sessionId, a)
+        .catch((err: Error) => setError(err.message))
+        .finally(() => {
+          setBusy(null);
+          load();
+        });
+    },
+    [sessionId, load],
+  );
+  return { sessionId, state, busy, error, act };
+}
+
+/**
+ * The dev server in the session's status line, while there is one: its
+ * port, a Preview link once it answers, Stop and its log. Nothing when no
+ * server runs (Start is in the ⋯ menu), except a failed start or stop.
+ */
+export function DevChip({ dev }: { dev: DevHandle }) {
+  const { sessionId, state, busy, error, act } = dev;
   if (!state || state.port === null) return null;
-  const act = async (a: 'start' | 'stop') => {
-    setBusy(a);
-    setError(null);
-    try {
-      await devAction(sessionId, a);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(null);
-      load();
-    }
-  };
-  const starting = !!state.running && !state.listening;
+  const live = !!state.running || state.listening || busy === 'start';
+  if (!live && !error) return null;
+  const starting = (!!state.running || busy === 'start') && !state.listening;
   const logHref = `/api/sessions/${encodeURIComponent(sessionId)}/dev/log`;
   return (
     <span className={'wd-dev-chip' + (state.listening ? ' wd-dev-live' : '')}>
-      <span
-        className="wd-dev-port"
-        title={
-          state.listening ? `Something is serving on port ${state.port} ($PORT)` : `Nothing is listening on port ${state.port} ($PORT)`
-        }
-      >
-        <span className="wd-dev-dot" aria-hidden="true">
-          {state.listening ? '●' : '○'}
-        </span>{' '}
-        :{state.port}
-      </span>
+      {live && (
+        <span
+          className="wd-dev-port"
+          title={
+            state.listening ? `Something is serving on port ${state.port} ($PORT)` : `Nothing is listening on port ${state.port} ($PORT)`
+          }
+        >
+          <span className="wd-dev-dot" aria-hidden="true">
+            {state.listening ? '●' : '○'}
+          </span>{' '}
+          :{state.port}
+        </span>
+      )}
       {state.listening && state.url && (
         <a className="wd-dev-preview" href={state.url} target="_blank" rel="noopener noreferrer">
           Preview ↗
         </a>
       )}
       {starting && <span className="wd-tab-header-muted">starting…</span>}
-      {state.command && !state.running && !state.listening && (
-        <button
-          type="button"
-          className="wd-dev-btn"
-          disabled={busy !== null}
-          onClick={() => act('start')}
-          title={`Run \`${state.command}\` in ${state.repo} with PORT=${state.port}`}
-        >
-          {busy === 'start' ? 'Starting…' : '▶ Start dev'}
-        </button>
-      )}
       {state.running && (
         <>
           <button type="button" className="wd-dev-btn" disabled={busy !== null} onClick={() => act('stop')} title="Stop the dev server">

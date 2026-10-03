@@ -25,14 +25,35 @@ export function askToReplyPrompt(t: OpenReviewThread): string {
   ].join('\n');
 }
 
+/** What of it needs you, for the session's "Needs you" bar: "1 reply to post · 2 threads with no reply". Pure. */
+export function replyNeeds(drafts: number, waiting: number): string | null {
+  const parts = [
+    drafts ? `${drafts} ${drafts === 1 ? 'reply' : 'replies'} to post` : '',
+    waiting ? `${waiting} thread${waiting === 1 ? '' : 's'} with no reply` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 /**
  * Replies to the PR's review threads, drafted by the session's Claude, for
  * you to post: each shows the reviewer's comment, the draft (editable), and
  * Post & resolve / Post / Discard. Open threads with no draft are listed
  * too (the comment, a link, Ask Claude to reply), so a "1 unresolved" count
- * is never all you see. Nothing reaches GitHub until you click Post.
+ * is never all you see. Nothing reaches GitHub until you click Post. What
+ * waits is reported (`onNeeds`) for the "Needs you" bar, which keeps this
+ * folded (`hidden`, kept mounted so an edited draft survives) until you look.
  */
-export function ReplyDrafts({ sessionId, api = httpReplies }: { sessionId: string; api?: ReplyApi }) {
+export function ReplyDrafts({
+  sessionId,
+  api = httpReplies,
+  onNeeds,
+  hidden = false,
+}: {
+  sessionId: string;
+  api?: ReplyApi;
+  onNeeds?: (text: string | null) => void;
+  hidden?: boolean;
+}) {
   const [replies, setReplies] = useState<PrReply[]>([]);
   const [waiting, setWaiting] = useState<OpenReviewThread[]>([]);
   const load = useCallback(() => {
@@ -57,9 +78,11 @@ export function ReplyDrafts({ sessionId, api = httpReplies }: { sessionId: strin
     },
   });
   const drafts = replies.filter((r) => r.status === 'draft');
+  const needs = replyNeeds(drafts.length, waiting.length);
+  useEffect(() => onNeeds?.(needs), [needs, onNeeds]);
   if (drafts.length === 0 && waiting.length === 0) return null;
   return (
-    <section className="wd-replies" aria-label="Replies to review threads">
+    <section className="wd-replies" aria-label="Replies to review threads" hidden={hidden}>
       {drafts.length > 0 && (
         <h3 className="wd-replies-title">
           ✍ {drafts.length} {drafts.length === 1 ? 'reply' : 'replies'} to post

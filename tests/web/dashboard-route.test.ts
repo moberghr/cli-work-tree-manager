@@ -36,10 +36,15 @@ describe('parseHash', () => {
       sessionId: 'abc',
       sessionSubTab: 'term',
     });
-    expect(parseHash('#/s/abc/comments')).toMatchObject({
+    expect(parseHash('#/s/abc/timeline')).toMatchObject({
       sessionId: 'abc',
-      sessionSubTab: 'comments',
+      sessionSubTab: 'timeline',
     });
+  });
+
+  it('old links land where that tab went: comments on the Diff, chat on the Terminal', () => {
+    expect(parseHash('#/s/abc/comments')).toMatchObject({ sessionId: 'abc', sessionSubTab: 'diff' });
+    expect(parseHash('#/s/abc/chat')).toMatchObject({ sessionId: 'abc', sessionSubTab: 'term' });
   });
 
   it('URL-decodes the session id (worktrees can have slashy ids elsewhere)', () => {
@@ -77,7 +82,7 @@ describe('toHash', () => {
       { tab: 'tasks' as const, sessionId: null, sessionSubTab: 'term' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'diff' as const },
       { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'term' as const },
-      { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'comments' as const },
+      { tab: 'sessions' as const, sessionId: 'xyz', sessionSubTab: 'timeline' as const },
     ];
     for (const route of cases) {
       expect(parseHash(toHash(route))).toEqual(route);
@@ -121,7 +126,7 @@ describe('last-route resume', () => {
 
   it('round-trips through saveLastRoute', () => {
     const s = store();
-    saveLastRoute({ tab: 'sessions', sessionId: 'x y', sessionSubTab: 'comments' }, s);
-    expect(parseHash(initialHash('', s))).toEqual({ tab: 'sessions', sessionId: 'x y', sessionSubTab: 'comments' });
+    saveLastRoute({ tab: 'sessions', sessionId: 'x y', sessionSubTab: 'diff' }, s);
+    expect(parseHash(initialHash('', s))).toEqual({ tab: 'sessions', sessionId: 'x y', sessionSubTab: 'diff' });
   });
 });

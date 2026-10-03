@@ -66,12 +66,8 @@ export function DiffStatChip({ session }: { session: SessionSummary }) {
   );
 }
 
-/** 124000 → "124k". */
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return String(n);
-}
+export { formatTokens } from '../../utils/tokens.js';
+import { formatTokens } from '../../utils/tokens.js';
 
 /** Where a conversation's fill level starts to matter (shared with the PR watch's notes). */
 export { CONTEXT_WARN, CONTEXT_FULL } from '../../state/session-display.js';
@@ -83,12 +79,14 @@ import { CONTEXT_FULL, CONTEXT_WARN } from '../../state/session-display.js';
  * vaguer before that), so past 70% it's worth wrapping up and starting a
  * fresh conversation for the next task.
  */
-export function ContextChip({ session }: { session: SessionSummary }) {
+export function ContextChip({ session, quiet = false }: { session: SessionSummary; quiet?: boolean }) {
   const c = session.context;
   if (!c || c.window <= 0) return null;
   const ratio = Math.min(1, c.used / c.window);
   const pct = Math.round(ratio * 100);
   const level = ratio >= CONTEXT_FULL ? 'full' : ratio >= CONTEXT_WARN ? 'warn' : 'ok';
+  // Quiet (the session header): only once it's worth acting on.
+  if (quiet && level === 'ok') return null;
   const advice =
     level === 'ok'
       ? ''
@@ -128,9 +126,12 @@ export function overlapTitle(session: SessionSummary): string {
  * Where the session's Claude runs right now — your terminal, or the app —
  * and a warning when two run on one conversation. `compact` for the rail.
  */
-export function ClaudesChip({ session, compact }: { session: SessionSummary; compact?: boolean }) {
+export function ClaudesChip({ session, compact, quiet = false }: { session: SessionSummary; compact?: boolean; quiet?: boolean }) {
   const c = session.agents ?? session.claudes;
   if (!c) return null;
+  // Quiet (the session header): running in the dashboard is the normal case;
+  // say so only for two at once, or one in a terminal outside it.
+  if (quiet && !c.duplicate && !c.inTerminal) return null;
   const name = agentName(session);
   const where = [
     c.inTerminal ? `${c.inTerminal > 1 ? `${c.inTerminal}× ` : ''}terminal` : '',

@@ -1,37 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { TimelineView } from './TimelineView.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
-import { CatchUpButton } from './CatchUp.js';
+import { AwayLink, CatchUpPanel, useCatchUp } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
-import { isArchived, agentCan, agentName } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
+import { isArchived } from '../../state/session-display.js';
+import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
-import { DevChip } from './DevChip.js';
+import { DevChip, useDevState } from './DevChip.js';
 import { CiStrip } from './CiStrip.js';
 import { ReplyDrafts } from './ReplyDrafts.js';
-import { useSse } from '../../api/events.js';
+import { NeedsYouBar, needsYouText } from './NeedsYouBar.js';
+import { RowMenu } from './RowMenu.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/PtyView.js';
-import { ChatView } from '../Chat/ChatView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
-import { relativeTime } from '../../utils/time.js';
-import { TrashIcon } from './tabs/SessionsTab.js';
+import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';
 
 interface Props {
   session: SessionSummary;
   subTab: SessionSubTab;
   onSelectSubTab: (sub: SessionSubTab) => void;
-  /** Breadcrumb target — caller decides whether to return to Sessions,
-   *  PRs, Jira, or Tasks. */
-  onBack: () => void;
-  backLabel: string;
   /** Opens the delete-session confirmation. */
   onDelete: () => void;
   /** Open PRs for this session (PRs pane data). */
@@ -48,12 +43,14 @@ interface Props {
 }
 
 /**
- * Drill-in view for a single session, framed by the dashboard chrome
- * (top nav + rail still visible from `DashboardLayout`). Three sub-tabs:
+ * Drill-in view for a single session, beside the rail. A header with one
+ * action (Archive, or Restore) and a ⋯ menu for the rest; a status line
+ * with chips only when they say something; a "Needs you" bar for what waits
+ * on GitHub; then three sub-tabs:
  *
- *   Diff      — what `wd` shows, but inside the dashboard
  *   Terminal  — embedded Claude PTY (work web only — wd doesn't have one)
- *   Comments  — session comments (review thread)
+ *   Diff      — what `wd` shows, comments included
+ *   Timeline  — how it got here, and how long its Claude worked
  *
  * `wd`'s deep-link `/diff/<hash>` route is a *different* view entirely
  * (the bare `ReviewApp`) — this is the dashboard's per-session view,
@@ -63,8 +60,6 @@ export function SessionDetail({
   session,
   subTab,
   onSelectSubTab,
-  onBack,
-  backLabel,
   onDelete,
   prs = [],
   onShipped,
@@ -72,85 +67,20 @@ export function SessionDetail({
   onOpenSession,
   onTermSlot,
 }: Props) {
-  // Which session the Ship panel was opened FOR: it closes itself when the
-  // detail switches to another session (j/k, a notification click), so a
-  // merge confirmation can never end up acting on a different session.
-  const [shipFor, setShipFor] = useState<string | null>(null);
-  const shipOpen = shipFor === session.id;
-  const setShipOpen = (open: boolean) => setShipFor(open ? session.id : null);
-  const archived = isArchived(session);
-  // Notes open for THIS session (they close when the detail switches to another).
-  const [notesFor, setNotesFor] = useState<string | null>(null);
-  const notesOpen = notesFor === session.id;
+  const files = session.diffStat?.files ?? 0;
   return (
     <div className="wd-session-detail">
-      <header className="wd-session-detail-header">
-        <button type="button" className="wd-back-link" onClick={onBack} title={`Back to ${backLabel}`}>
-          ‹ {backLabel}
-        </button>
-        <h1>
-          <span className="wd-session-detail-target">{session.target}</span>
-          <span className="wd-session-detail-sep">·</span>
-          <span className="wd-session-detail-branch">{session.branch}</span>
-          <OtherBranchChip session={session} />
-          <SessionTitle session={session} />
-        </h1>
-        {archived && <span className="wd-archived-pill">archived</span>}
-        <OpenTerminalButton key={`term-${session.id}`} sessionId={session.id} />
-        <CatchUpButton key={`catch-${session.id}`} session={session} />
-        <BehindChip key={`behind-${session.id}`} session={session} />
-        <MergedParentChip key={`merged-${session.id}`} session={session} />
-        <PromptsMenu session={session} />
-        <button
-          type="button"
-          className="wd-session-detail-btn wd-session-detail-ship"
-          onClick={() => setShipOpen(true)}
-          title="Push, open a PR, or merge"
-        >
-          Ship ▾
-        </button>
-        <ArchiveButton key={`archive-${session.id}`} sessionId={session.id} archived={archived} />
-        <button type="button" className="wd-session-detail-delete" onClick={onDelete} title="Delete this session (and its worktree)">
-          <TrashIcon /> Delete
-        </button>
-      </header>
-      <div className="wd-session-strip">
-        <StatusLine session={session} />
-        <DiffStatChip session={session} />
-        <ClaudesChip session={session} />
-        <StackChip session={session} onOpen={onOpenSession} />
-        <BlockedByChip session={session} onOpen={onOpenSession} />
-        <WorkTimeChip session={session} />
-        <OverlapChip session={session} onOpen={onOpenSession} />
-        <ContextChip session={session} />
-        <PrChips prs={prs} link />
-        <DevChip sessionId={session.id} />
-        <NotesChip session={session} open={notesOpen} onToggle={() => setNotesFor(notesOpen ? null : session.id)} />
-        {!session.attention && <span className="wd-tab-header-muted">entered {relativeTime(session.lastAccessedAt)}</span>}
-      </div>
-      {notesOpen && <SessionNotes key={session.id} session={session} onClose={() => setNotesFor(null)} />}
-      <CiStrip sessionId={session.id} isGroup={session.isGroup} />
-      <ReplyDrafts sessionId={session.id} />
-      {shipOpen && (
-        <ShipPanel
-          key={session.id}
-          session={session}
-          onClose={() => setShipOpen(false)}
-          onMerged={() => {
-            setShipOpen(false);
-            onShipped?.();
-          }}
-        />
-      )}
+      {/* Keyed: what's open in the header (Ship, notes, a menu, catch-up)
+          belongs to one session and closes when you switch to another. */}
+      <SessionHeader key={session.id} session={session} prs={prs} onDelete={onDelete} onShipped={onShipped} onOpenSession={onOpenSession} />
       <nav className="wd-session-subtabs" role="tablist">
-        {agentCan(session, 'chat') && <SubTabButton label="Chat" active={subTab === 'chat'} onClick={() => onSelectSubTab('chat')} />}
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
-        <SubTabButton label="Diff" active={subTab === 'diff'} onClick={() => onSelectSubTab('diff')} />
         <SubTabButton
-          label="Comments"
-          active={subTab === 'comments'}
+          label="Diff"
+          meta={files ? `${files} file${files === 1 ? '' : 's'}` : undefined}
+          active={subTab === 'diff'}
           badge={session.commentCount}
-          onClick={() => onSelectSubTab('comments')}
+          onClick={() => onSelectSubTab('diff')}
         />
         <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
       </nav>
@@ -164,22 +94,153 @@ export function SessionDetail({
           ) : (
             <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
           ))}
-        {subTab === 'comments' && <SessionComments sessionId={session.id} />}
-        {subTab === 'chat' && <ChatView sessionId={session.id} agentName={agentName(session)} />}
-        {subTab === 'timeline' && <TimelineView session={session} />}
+        {subTab === 'timeline' && (
+          <div className="wd-timeline-tab">
+            <div className="wd-timeline-head">
+              <WorkTimeChip session={session} />
+            </div>
+            <TimelineView session={session} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+interface HeaderProps {
+  session: SessionSummary;
+  prs: PrInfo[];
+  onDelete: () => void;
+  onShipped?: () => void;
+  onOpenSession?: (id: string) => void;
+}
+
+/** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
+function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: HeaderProps) {
+  const archived = isArchived(session);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [shipOpen, setShipOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [promptsOpen, setPromptsOpen] = useState(false);
+  const [renameKey, setRenameKey] = useState(0);
+  const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
+  const [replies, setReplies] = useState<string | null>(null);
+  const [ci, setCi] = useState<string | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const onReplies = useCallback((t: string | null) => setReplies(t), []);
+  const onCi = useCallback((t: string | null) => setCi(t), []);
+  const dev = useDevState(session.id);
+  const catchUp = useCatchUp(session.id);
+  const needs = needsYouText([replies, ci]);
+  // Folded behind the bar until you look; with nothing waiting they show as they are (checks running).
+  const folded = needs !== null && !reviewOpen;
+
+  const openTerminal = () => {
+    setNote({ text: 'Opening in a terminal…' });
+    openInTerminal(session.id).then(
+      () => setNote(null),
+      (err: Error) => setNote({ text: err.message, error: true }),
+    );
+  };
+  const items = sessionHeaderItems(session, dev.state, {
+    openTerminal,
+    ship: () => setShipOpen(true),
+    catchUp: catchUp.run,
+    sendPrompt: () => setPromptsOpen(true),
+    notes: () => setNotesOpen((o) => !o),
+    devStart: () => dev.act('start'),
+    devStop: () => dev.act('stop'),
+    rename: () => setRenameKey((k) => k + 1),
+    remove: onDelete,
+  });
+
+  return (
+    <>
+      <header className="wd-session-detail-header">
+        <h1>
+          <span className="wd-session-detail-target">{session.target}</span>
+          <span className="wd-session-detail-sep">/</span>
+          <span className="wd-session-detail-branch">{session.branch}</span>
+          <OtherBranchChip session={session} />
+          <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
+        </h1>
+        {archived && <span className="wd-archived-pill">archived</span>}
+        <div className="wd-session-actions">
+          {note && (
+            <span
+              className={'wd-session-action-note' + (note.error ? ' wd-session-action-note-error' : '')}
+              role={note.error ? 'alert' : 'status'}
+            >
+              {note.text}
+            </span>
+          )}
+          <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
+          <ArchiveButton sessionId={session.id} archived={archived} />
+          <button
+            type="button"
+            className="wd-session-more"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={menu !== null}
+            title="More actions"
+            // A click on ⋯ while its menu is open closes it (the menu's own
+            // outside-click handler would otherwise close it and this reopen it).
+            onMouseDown={(e) => {
+              if (menu) e.stopPropagation();
+            }}
+            onClick={(e) => {
+              if (menu) return setMenu(null);
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.right, y: r.bottom + 4 });
+            }}
+          >
+            ⋯
+          </button>
+        </div>
+      </header>
+      {menu && <RowMenu x={menu.x} y={menu.y} anchor="right" items={items} footer={contextFooter(session)} onClose={() => setMenu(null)} />}
+      <div className="wd-session-strip">
+        <StatusLine session={session} />
+        <AwayLink session={session} catchUp={catchUp} />
+        <BehindChip session={session} />
+        <MergedParentChip session={session} />
+        <StackChip session={session} onOpen={onOpenSession} />
+        <BlockedByChip session={session} onOpen={onOpenSession} />
+        <OverlapChip session={session} onOpen={onOpenSession} />
+        <ClaudesChip session={session} quiet />
+        <ContextChip session={session} quiet />
+        <PrChips prs={prs} link />
+        <DevChip dev={dev} />
+        {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
+      </div>
+      <CatchUpPanel catchUp={catchUp} />
+      {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
+      {needs && <NeedsYouBar text={needs} open={reviewOpen} onToggle={() => setReviewOpen((o) => !o)} />}
+      <ReplyDrafts sessionId={session.id} onNeeds={onReplies} hidden={folded} />
+      <CiStrip sessionId={session.id} isGroup={session.isGroup} onNeeds={onCi} hidden={folded} />
+      {shipOpen && (
+        <ShipPanel
+          session={session}
+          onClose={() => setShipOpen(false)}
+          onMerged={() => {
+            setShipOpen(false);
+            onShipped?.();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 /**
- * The session's name beside its branch — yours, or else its first prompt —
- * and renaming it: click, type, Enter (Esc cancels; an empty name goes back
- * to the automatic one).
+ * Your name for the session, beside its branch, and renaming it: click (or
+ * ⋯ → Rename), type, Enter (Esc cancels; an empty name goes back to the
+ * automatic one). An automatic name (its first prompt) isn't shown here:
+ * the branch already says which session this is.
  */
-export function SessionTitle({ session }: { session: SessionSummary }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
+export function SessionTitle({ session, autoEdit = false }: { session: SessionSummary; autoEdit?: boolean }) {
+  const [editing, setEditing] = useState(autoEdit);
+  const [draft, setDraft] = useState(() => (autoEdit && session.titleIsYours ? (session.title ?? '') : ''));
   const [saving, setSaving] = useState(false);
   const start = () => {
     setDraft(session.titleIsYours ? (session.title ?? '') : '');
@@ -212,45 +273,10 @@ export function SessionTitle({ session }: { session: SessionSummary }) {
       />
     );
   }
+  if (!session.titleIsYours || !session.title) return null;
   return (
-    <button
-      type="button"
-      className={'wd-session-title' + (session.title ? '' : ' wd-session-title-empty')}
-      title={session.titleIsYours ? 'Your name for it — click to rename' : 'Named after its first prompt — click to rename'}
-      onClick={start}
-    >
-      {session.title ?? 'Name it…'}
-    </button>
-  );
-}
-
-/** Opens the session in a real Windows Terminal tab (`work attach`), sharing
- *  the same Claude as the Terminal sub-tab — both are views on the PTY
- *  host's session. */
-function OpenTerminalButton({ sessionId }: { sessionId: string }) {
-  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
-  const [error, setError] = useState<string | null>(null);
-  const onClick = () => {
-    setState('busy');
-    openInTerminal(sessionId).then(
-      () => setState('idle'),
-      (err: Error) => {
-        setState('error');
-        setError(err.message);
-      },
-    );
-  };
-  return (
-    <button
-      type="button"
-      className="wd-session-detail-action"
-      onClick={onClick}
-      disabled={state === 'busy'}
-      title={
-        state === 'error' && error ? error : 'Open this session in a Windows Terminal tab (work attach). Same Claude as the Terminal tab.'
-      }
-    >
-      {state === 'busy' ? 'Opening…' : state === 'error' ? 'Open in terminal ⚠' : 'Open in terminal ↗'}
+    <button type="button" className="wd-session-title" title="Your name for it — click to rename" onClick={start}>
+      {session.title}
     </button>
   );
 }
@@ -270,7 +296,7 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
   return (
     <button
       type="button"
-      className="wd-session-detail-btn"
+      className="wd-session-archive"
       onClick={onClick}
       disabled={busy}
       title={
@@ -287,10 +313,12 @@ interface SubTabBtnProps {
   label: string;
   active: boolean;
   onClick: () => void;
+  /** A quiet note after the label ("2 files"). */
+  meta?: string;
   badge?: number;
 }
 
-function SubTabButton({ label, active, onClick, badge }: SubTabBtnProps) {
+function SubTabButton({ label, active, onClick, meta, badge }: SubTabBtnProps) {
   return (
     <button
       type="button"
@@ -300,73 +328,12 @@ function SubTabButton({ label, active, onClick, badge }: SubTabBtnProps) {
       onClick={onClick}
     >
       {label}
-      {badge ? <span className="wd-session-subtab-badge">{badge}</span> : null}
+      {meta && <span className="wd-session-subtab-meta">· {meta}</span>}
+      {badge ? (
+        <span className="wd-session-subtab-badge" title={`${badge} comment${badge === 1 ? '' : 's'}`}>
+          {badge}
+        </span>
+      ) : null}
     </button>
-  );
-}
-
-interface SessionCommentsProps {
-  sessionId: string;
-}
-
-interface SessionComment {
-  id: string;
-  body: string;
-  author?: { kind: string };
-  createdAt: string;
-  status?: string;
-  file?: string;
-  line?: number;
-}
-
-/** Lightweight read-only comment list for the session detail view.
- *  Uses the existing `/api/sessions/:id/comments` endpoint that the
- *  session-comment-routes module already serves. */
-function SessionComments({ sessionId }: SessionCommentsProps) {
-  const [comments, setComments] = useState<SessionComment[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useMemo(
-    () => async () => {
-      try {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/comments`);
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-        const body = (await res.json()) as { comments: SessionComment[] };
-        setComments(body.comments);
-        setError(null);
-      } catch (err) {
-        setError((err as Error).message);
-      }
-    },
-    [sessionId],
-  );
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-  useSse('/events', { events: { 'comments-changed': () => refresh() } });
-
-  if (error) return <div className="wd-tab-error">{error}</div>;
-  if (!comments) return <div className="wd-tab-empty">Loading…</div>;
-  if (comments.length === 0) return <div className="wd-tab-empty">No comments yet.</div>;
-
-  return (
-    <ul className="wd-session-comments">
-      {comments.map((c) => (
-        <li key={c.id} className="wd-session-comment">
-          <header className="wd-session-comment-header">
-            <span>{c.author?.kind ?? 'user'}</span>
-            <span className="wd-tab-header-muted">{relativeTime(c.createdAt)}</span>
-            {c.file && (
-              <span className="wd-tab-header-muted">
-                {c.file}
-                {c.line ? `:${c.line}` : ''}
-              </span>
-            )}
-          </header>
-          <p className="wd-session-comment-body">{c.body}</p>
-        </li>
-      ))}
-    </ul>
   );
 }

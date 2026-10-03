@@ -202,8 +202,6 @@ describe('Session header strip', () => {
           session: s,
           subTab: 'diff',
           onSelectSubTab: () => {},
-          onBack: () => {},
-          backLabel: 'Sessions',
           onDelete: () => {},
           prs: [
             {
@@ -231,7 +229,7 @@ describe('Session header strip', () => {
     const summary = expected.split(' — ')[1];
     renderDetail(session({ attention: att(state, seen, summary), diffStat: { added: 3, deleted: 1, files: 1 } }));
     expect(text(container.querySelector('.wd-status-line'))).toBe(expected);
-    expect(text(container.querySelector('.wd-session-strip .wd-diffstat'))).toBe('+3 −1');
+    expect(text(container.querySelector('.wd-session-subtab-meta'))).toBe('· 1 file');
     expect(container.querySelector('.wd-session-strip a.wd-pr-chip')?.textContent).toBe('#7');
   });
 
@@ -252,10 +250,13 @@ describe('Session header strip', () => {
     expect(button('Restore')).toBeDefined();
   });
 
-  it('Ship ▾ opens the ship panel', async () => {
+  it('⋯ → Ship opens the ship panel', async () => {
     h.fetchShipPreflight.mockResolvedValue({ repos: [repo()] });
     renderDetail(session());
-    await act(async () => button('Ship ▾').click());
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="More actions"]')!.click());
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.startsWith('Ship'))!.click(),
+    );
     expect(container.querySelector('[role="dialog"][aria-label="Ship session"]')).not.toBeNull();
     expect(h.fetchShipPreflight).toHaveBeenCalledWith('sess-1');
   });

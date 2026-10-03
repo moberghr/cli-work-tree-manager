@@ -4,14 +4,33 @@ import { useSse } from '../../api/events.js';
 
 const POLL_MS = 60_000;
 
+const prLabel = (r: SessionCi['repos'][number], isGroup: boolean) => `#${r.pr!.number}${isGroup ? ` ${r.name}` : ''}`;
+
+/** What of it needs you, for the session's "Needs you" bar: "CI failing on #212". Pure. */
+export function ciNeeds(ci: SessionCi | null, isGroup: boolean): string | null {
+  const failing = (ci?.repos ?? []).filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail');
+  return failing.length ? `CI failing on ${failing.map((r) => prLabel(r, isGroup)).join(', ')}` : null;
+}
+
 /**
  * CI and review for the session's open PRs, under the header: open review
  * threads, failing checks by name (linked) with "Ask Claude to fix", or a
  * running marker. Nothing when there's no open PR or all is quiet. work web's PR watch already
  * tells Claude about a new failure by itself (config `prWatch.fixCi`);
- * the button is for asking again.
+ * the button is for asking again. A failure is also reported (`onNeeds`) for
+ * the "Needs you" bar, which keeps this folded (`hidden`) until you look.
  */
-export function CiStrip({ sessionId, isGroup }: { sessionId: string; isGroup: boolean }) {
+export function CiStrip({
+  sessionId,
+  isGroup,
+  onNeeds,
+  hidden = false,
+}: {
+  sessionId: string;
+  isGroup: boolean;
+  onNeeds?: (text: string | null) => void;
+  hidden?: boolean;
+}) {
   const [ci, setCi] = useState<SessionCi | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -35,15 +54,17 @@ export function CiStrip({ sessionId, isGroup }: { sessionId: string; isGroup: bo
     },
   });
 
+  const needs = ciNeeds(ci, isGroup);
+  useEffect(() => onNeeds?.(needs), [needs, onNeeds]);
   const open = (ci?.repos ?? []).filter((r) => r.pr?.state === 'OPEN');
   const failing = open.filter((r) => r.pr!.checks === 'fail');
   const running = open.filter((r) => r.pr!.checks === 'pending');
   const reviewed = open.filter((r) => (r.openThreads ?? 0) > 0);
   if (!failing.length && !running.length && !reviewed.length) return null;
-  const label = (r: (typeof open)[number]) => `#${r.pr!.number}${isGroup ? ` ${r.name}` : ''}`;
+  const label = (r: (typeof open)[number]) => prLabel(r, isGroup);
 
   return (
-    <div className={'wd-ci-strip' + (failing.length ? ' wd-ci-fail' : ' wd-ci-running')} role="status">
+    <div className={'wd-ci-strip' + (failing.length ? ' wd-ci-fail' : ' wd-ci-running')} role="status" hidden={hidden}>
       {reviewed.map((r) => (
         <span
           key={`rv-${r.name}`}
