@@ -486,7 +486,7 @@ Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
 
 ### Build
 
-tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
+tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. The lockfile is `npm-shrinkwrap.json` (in `files`, so it is published): a global install gets the versions CI tested, not whatever the ranges resolve to that day. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
 
 ### Desktop app (`desktop/`, Velopack)
 

@@ -11,7 +11,8 @@
     "dist",
     "scripts/postinstall.mjs",
     ".claude-plugin",
-    "plugins"
+    "plugins",
+    "npm-shrinkwrap.json"
   ],
   "scripts": {
     "build": "npm run build:server && npm run build:web",

@@ -15,7 +15,7 @@ afterEach(() => {
 describe('desktop: staging the work CLI into the app', () => {
   it("ships what the npm package ships, plus its lockfile for npm ci", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-    expect(cliFiles(pkg)).toEqual(['package.json', 'package-lock.json', ...pkg.files]);
+    expect(cliFiles(pkg)).toEqual(['package.json', 'npm-shrinkwrap.json', ...pkg.files]);
     expect(pkg.files).toContain('dist');
   });
 
@@ -31,7 +31,7 @@ describe('desktop: staging the work CLI into the app', () => {
     fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
     fs.writeFileSync(path.join(root, 'dist', 'bin.js'), '');
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version: '9.9.9', files: ['dist'] }));
-    fs.writeFileSync(path.join(root, 'package-lock.json'), '{}');
+    fs.writeFileSync(path.join(root, 'npm-shrinkwrap.json'), '{}');
     const fakeNode = path.join(tmp, 'fake-node');
     fs.writeFileSync(fakeNode, 'node');
     const out = path.join(tmp, 'out');

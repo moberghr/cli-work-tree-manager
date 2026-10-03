@@ -18,10 +18,10 @@ import spawn from 'cross-spawn';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** What goes in: the npm package's `files`, plus the lockfile for `npm ci`. */
+/** What goes in: the npm package's `files`, plus its lockfile for `npm ci` (npm-shrinkwrap.json, which npm also publishes). */
 export function cliFiles(pkg) {
   const files = Array.isArray(pkg.files) ? pkg.files : [];
-  return ['package.json', 'package-lock.json', ...files];
+  return ['package.json', 'npm-shrinkwrap.json', ...files];
 }
 
 export const nodeName = (platform = process.platform) => (platform === 'win32' ? 'node.exe' : 'node');

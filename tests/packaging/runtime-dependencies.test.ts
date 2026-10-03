@@ -65,4 +65,13 @@ describe('runtime dependencies', () => {
     const unused = Object.keys(pkg.dependencies).filter((name) => !nodeSide.has(name));
     expect(unused).toEqual([]);
   });
+
+  it('a global install gets the versions CI tested: npm-shrinkwrap.json, published with the package, is the only lockfile', () => {
+    expect(fs.existsSync(path.join(ROOT, 'package-lock.json'))).toBe(false); // npm would use the shrinkwrap anyway; two would drift
+    const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'npm-shrinkwrap.json'), 'utf8')) as { name: string; version: string; packages: Record<string, { dependencies?: Record<string, string> }> };
+    const pkgFull = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as { name: string; version: string };
+    expect([lock.name, lock.version]).toEqual([pkgFull.name, pkgFull.version]);
+    expect(lock.packages[''].dependencies).toEqual(pkg.dependencies); // in step with package.json
+    expect((pkgFull as { files?: string[] }).files).toContain('npm-shrinkwrap.json'); // with `files` set, npm packs only what it lists
+  });
 });

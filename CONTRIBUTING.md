@@ -53,6 +53,8 @@ The essentials:
 - **A new dependency the CLI or server imports** goes in `dependencies`; one
   only the dashboard uses is a `devDependency` (Vite bundles it). A test
   checks both.
+- **The lockfile is `npm-shrinkwrap.json`** (not package-lock.json): npm
+  publishes it, so a global install gets exactly the versions CI tested.
 
 ## Commits and PRs
 
