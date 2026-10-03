@@ -249,16 +249,14 @@ describe('statusHint', () => {
 });
 
 describe('agentName / agentCan: the session’s agent, and what work can do with it', () => {
-  const echo = { id: 'echo', name: 'Echo', can: { read: true, hooks: false, live: false, answer: false, chat: false } };
+  const echo = { id: 'echo', name: 'Echo', can: { read: true, hooks: false, live: false, answer: false } };
   it('names it and asks its capabilities', () => {
     expect(agentName({ agent: echo })).toBe('Echo');
     expect(agentCan({ agent: echo }, 'read')).toBe(true);
     expect(agentCan({ agent: echo }, 'answer')).toBe(false);
-    expect(agentCan({ agent: echo }, 'chat')).toBe(false);
   });
   it('a row from a server before agents were named: Claude, everything as it was', () => {
     expect(agentName({})).toBe('Claude');
     expect(agentCan({}, 'answer')).toBe(true);
-    expect(agentCan({}, 'chat')).toBe(true);
   });
 });

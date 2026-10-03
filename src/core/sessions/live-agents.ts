@@ -26,7 +26,7 @@ export function agentsBySession(list: LiveAgent[], sessions: WorktreeSession[]):
 
 /**
  * What the dashboard says about a session's running Claudes. `appPids` are
- * the ones the app runs itself (the PTY host's, the chat's); the rest were
+ * the ones the app runs itself (the PTY host's); the rest were
  * started in a terminal. `duplicate`: two or more on one conversation — they
  * would both write to it.
  */

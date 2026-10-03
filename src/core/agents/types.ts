@@ -3,7 +3,6 @@ import type { AiToolSpec } from '../platform/ai-launcher.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { StatusEvent } from '../status/status-event.js';
 import type { PermissionRequest } from '../api-types.js';
-import type { ChatRecord } from '../chat/chat-view.js';
 
 /**
  * What work needs from a coding agent (Claude Code today; Codex, Copilot CLI
@@ -148,72 +147,6 @@ export interface AgentEvents {
   handOver(edge: 'turn-start' | 'turn-end', text: string): string;
 }
 
-/** What a line the agent printed in its headless chat says: what to show, and what it means for the run. */
-export interface ChatLineRead {
-  /** To show (none: a line of protocol, not kept). */
-  records: ChatRecord[];
-  /** The text being written right now: a block starts (text / thinking; null: something not shown live), grows, or ends. */
-  stream?: { start: 'text' | 'thinking' | null } | { delta: string } | { stop: true };
-  /** The conversation it runs (resumed by `args` after a restart). */
-  conversationId?: string;
-  /** It is up and listening. */
-  ready?: boolean;
-  /** It finished the turn. */
-  turnEnded?: boolean;
-  /** It is working on a turn (a message of its own, a tool result). */
-  activity?: boolean;
-  /** It acknowledged an interrupt. */
-  acknowledged?: boolean;
-  /** It asks permission in its own output (rather than through work's permission URL); answered with `answerLine`. */
-  permission?: { requestId: string; toolName: string; input: unknown; toolUseId: string | null };
-}
-
-/** The user's answer to a permission prompt, in work's terms (each protocol encodes it its own way). */
-export interface ChatPermissionDecision {
-  allow: boolean;
-  /** Why not (a denial): told to the agent. */
-  message?: string;
-  /** The call's input as allowed (unchanged: work doesn't edit it). */
-  input?: unknown;
-}
-
-/**
- * A permission prompt asked through work: an MCP tool the agent calls at the
- * chat's permission URL (chat-mcp-routes.ts serves MCP; what the tool is,
- * what it is sent and what it answers are the agent's).
- */
-export interface ChatPermissionTool {
-  /** The tool as MCP `tools/list` describes it. */
-  tool: { name: string; description: string; inputSchema: unknown };
-  /** A call's arguments: which of the agent's tools it wants to run, with what. */
-  request(args: Record<string, unknown>): { toolName: string; input: unknown; toolUseId: string | null };
-  /** The answer as the agent reads it (sent back as the call's text result, JSON). */
-  reply(decision: ChatPermissionDecision): unknown;
-}
-
-/** One headless chat process's protocol: what to run, what to write on its stdin, how to read what it prints (JSON lines both ways). */
-export interface ChatProtocol {
-  /** Arguments after the tool's own: resume this conversation, or continue the folder's latest. */
-  args(o: { resumeId: string | null; continueLatest: boolean }): string[];
-  /** Your message, as the line to write. */
-  userLine(text: string): unknown;
-  /** The line that stops its turn; null: it has none, and work stops the process (the next message resumes). */
-  interruptLine(): unknown | null;
-  read(raw: unknown): ChatLineRead;
-  /** The line answering a permission it asked in its output (`ChatLineRead.permission`); without it such a prompt is shown as one it can't answer. */
-  answerLine?(requestId: string, decision: ChatPermissionDecision): unknown;
-  /** It asks permission through work's permission URL with this tool. */
-  permissionTool?: ChatPermissionTool;
-}
-
-/** Running the agent headless as the dashboard's chat, instead of in a terminal. */
-export interface AgentChat {
-  /** A chat for this session. `permissionUrl`: work's permission endpoint for this chat (an MCP tool; secret token in it); `dir`: a folder for its files. */
-  open(o: { sessionId: string; permissionUrl: string; dir: string }): ChatProtocol;
-  /** Its conversation so far, shown before the process runs (one entry per line, each its records). */
-  history(session: WorktreeSession): ChatRecord[][];
-}
-
 /** A command the agent may run without asking: exactly this, or (`prefix`) this and anything after it. */
 export interface AllowRule {
   command: string;
@@ -256,6 +189,4 @@ export interface AgentAdapter {
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */
   workspace?: AgentWorkspace;
-  /** Running headless as the dashboard's chat (chat-session.ts runs the process; Claude's protocol: claude-chat.ts); absent: the Terminal tab only. */
-  chat?: AgentChat;
 }

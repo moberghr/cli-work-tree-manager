@@ -2,10 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentAdapter, AgentChat, ConversationEntry, WorkHook } from '../../../src/core/agents/types.js';
-import type { ChatRecord } from '../../../src/core/chat/chat-view.js';
+import type { AgentAdapter, ConversationEntry, WorkHook } from '../../../src/core/agents/types.js';
 import { typeThenEnter } from '../../../src/core/agents/typing.js';
-import { killTree } from '../../functional/fixtures/processes.js';
 
 /**
  * The proof that work is ready for another agent: a whole adapter for a
@@ -94,37 +92,6 @@ function echoAgent(): AgentAdapter {
     instructionsFile: 'ECHO.md',
   };
 }
-
-/**
- * Its headless chat (tests/core/fixtures/fake-echo-chat.cjs): {say} in,
- * {said} / {done} out; its history from its own conversation files.
- */
-const FAKE_ECHO = path.join(path.join(__dirname, '..'), 'fixtures', 'fake-echo-chat.cjs');
-const echoChat: AgentChat = {
-  open: () => ({
-    args: ({ resumeId }) => (resumeId ? ['--again', resumeId] : []),
-    userLine: (text) => ({ say: text }),
-    interruptLine: () => null,
-    read(raw) {
-      const m = raw as { hello?: string; said?: string; done?: boolean };
-      if (m.hello) return { records: [], ready: true, conversationId: m.hello };
-      if (typeof m.said === 'string') return { records: [{ kind: 'text', text: m.said }], activity: true };
-      if (m.done) return { records: [{ kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null }], turnEnded: true };
-      return { records: [] };
-    },
-  }),
-  history: (s) =>
-    (echoAgent().conversation!.files(s) ?? []).flatMap((f) =>
-      fs
-        .readFileSync(f.file, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((l): ChatRecord[] => {
-          const e = JSON.parse(l) as { who: string; text: string };
-          return [e.who === 'me' ? { kind: 'you', text: e.text } : { kind: 'text', text: e.text }];
-        }),
-    ),
-};
 
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'echo-agent-'));
@@ -227,7 +194,7 @@ describe('a session on the echo agent, through the real modules — no Claude an
     expect(sessionWire(s).agent).toEqual({
       id: 'echo',
       name: 'Echo',
-      can: { read: true, hooks: true, live: true, answer: false, chat: false },
+      can: { read: true, hooks: true, live: true, answer: false },
     });
   });
 
@@ -240,65 +207,4 @@ describe('a session on the echo agent, through the real modules — no Claude an
     const made = fs.readFileSync(path.join(home, '.work', 'shop.claude.md'), 'utf8');
     expect(made).toContain('# echo notes for api'); // the template: echo writes no summaries (no oneShot)
   });
-
-  it('its chat: the dashboard’s chat routes run its headless protocol, not Claude’s', async () => {
-    const pidsFile = path.join(home, 'pids');
-    process.env.FAKE_CLAUDE_PIDS = pidsFile;
-    // The echo agent with a chat: started as the fake, in its protocol.
-    removeAgent();
-    const { registerAgent } = await import('../../../src/core/agents/index.js');
-    removeAgent = registerAgent({
-      ...echoAgent(),
-      launch: {
-        ...echoAgent().launch,
-        tool: () => ({ cmd: process.execPath, baseArgs: [FAKE_ECHO], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' }),
-      },
-      chat: echoChat,
-    });
-    const { upsertSession, loadHistory } = await import('../../../src/core/sessions/history.js');
-    await upsertSession('api', false, 'feat/x', [wt]);
-    const { sessionIdFor } = await import('../../../src/core/sessions/session-id.js');
-    const id = sessionIdFor(loadHistory()[0]);
-    const { Hono } = await import('hono');
-    const { mountChatRoutes } = await import('../../../src/server/routes/chat-routes.js');
-    const app = new Hono();
-    const chats = mountChatRoutes(app, { baseUrl: () => 'http://127.0.0.1:1/' });
-    try {
-      // Before it runs: its history, read by its adapter.
-      const before = (await (await app.request(`/api/sessions/${id}/chat`)).json()) as {
-        state: string;
-        messages: Array<{ records: ChatRecord[] }>;
-      };
-      expect(before.state).toBe('stopped');
-      expect(before.messages.map((m) => m.records)).toEqual([
-        [{ kind: 'you', text: 'Add the CSV export' }],
-        [{ kind: 'text', text: 'Added it.' }],
-      ]);
-
-      const res = await app.request(`/api/sessions/${id}/chat/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'ping' }),
-      });
-      expect(res.status).toBe(200);
-      const end = Date.now() + 10_000;
-      let snap: { state: string; conversationId: string | null; messages: Array<{ records: ChatRecord[] }> };
-      do {
-        await new Promise((r) => setTimeout(r, 50));
-        snap = (await (await app.request(`/api/sessions/${id}/chat`)).json()) as typeof snap;
-      } while (!(snap.state === 'idle' && snap.messages.some((m) => m.records.some((r) => r.kind === 'turn-end'))) && Date.now() < end);
-      expect(snap.state).toBe('idle');
-      expect(snap.conversationId).toBe('echo-conv-1');
-      expect(snap.messages.slice(2).map((m) => m.records)).toEqual([
-        [{ kind: 'text', text: 'ping' }],
-        [{ kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null }],
-      ]);
-    } finally {
-      chats.stopAll();
-      const pids = fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : [];
-      for (const pid of pids) killTree(pid);
-      await new Promise((r) => setTimeout(r, 300)); // let it exit before its folder goes
-      delete process.env.FAKE_CLAUDE_PIDS;
-    }
-  }, 20_000);
 });

@@ -200,14 +200,14 @@ describe('agentWire: what the dashboard is told an agent can do', () => {
     expect(agentWire(claudeAgent)).toEqual({
       id: 'claude',
       name: 'Claude Code',
-      can: { read: true, hooks: true, live: true, answer: true, chat: true },
+      can: { read: true, hooks: true, live: true, answer: true },
     });
   });
   it('a tool with no adapter: nothing beyond starting it', () => {
     expect(agentWire(agentById('opencode'))).toEqual({
       id: 'opencode',
       name: 'opencode',
-      can: { read: false, hooks: false, live: false, answer: false, chat: false },
+      can: { read: false, hooks: false, live: false, answer: false },
     });
   });
 });

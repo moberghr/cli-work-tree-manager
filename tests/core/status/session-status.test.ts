@@ -423,7 +423,7 @@ describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", 
     expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(9).getTime() }, known).state).toBe('idle');
   });
 
-  it('nothing running anywhere: working / waiting is over at once — unless a PTY or chat of ours runs it, or the process list was not read', () => {
+  it('nothing running anywhere: working / waiting is over at once — unless a PTY of ours runs it, or the process list was not read', () => {
     expect(withLiveClaude(rec('working'), null, known)).toMatchObject({ state: 'idle', stale: true });
     expect(withLiveClaude(rec('needs_input'), null, known).state).toBe('idle');
     expect(withLiveClaude(rec('working'), null, { known: true, hosted: true }).state).toBe('working');

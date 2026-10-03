@@ -143,7 +143,7 @@ export function agentWire(a: AgentAdapter): SessionAgentWire {
   return {
     id: a.id,
     name: a.name,
-    can: { read: !!a.conversation, hooks: !!a.events, live: !!a.live, answer: !!a.input.permissionDialog, chat: !!a.chat },
+    can: { read: !!a.conversation, hooks: !!a.events, live: !!a.live, answer: !!a.input.permissionDialog },
   };
 }
 

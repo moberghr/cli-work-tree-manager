@@ -60,7 +60,7 @@ export async function archiveMergedSession(id: string, deps: ArchiveDeps, onChan
 
 export interface ArchiveDepsOptions {
   /** Release other handles on its folders first (the web server's watchers,
-   *  a chat's Claude): Windows won't delete a folder something holds open. */
+   *  a Claude): Windows won't delete a folder something holds open. */
   release?: (sessionId: string) => Promise<void>;
   /** Its PRs, for the summary (the PR watch's cache). */
   prs?: (sessionId: string) => ArchivedPr[];

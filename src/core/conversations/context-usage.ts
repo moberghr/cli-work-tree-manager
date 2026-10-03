@@ -31,7 +31,7 @@ export function contextUsageFrom(
   return null;
 }
 
-// Claude Code's transcript files, for the callers that still read Claude's own records (chat, turn activity): agents/claude-files.ts.
+// Claude Code's transcript files, for the callers that still read Claude's own records (turn activity): agents/claude-files.ts.
 export type { ConversationFile as TranscriptFile } from '../agents/types.js';
 
 /** Only the tail is read — a usage line is always near the end. */

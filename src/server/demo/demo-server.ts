@@ -464,41 +464,6 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json(rail);
   });
 
-  // The headless-Claude chat (spike): snapshots only, resent on every change.
-  app.get('/api/sessions/:id/chat', (c) => {
-    const snap = scenario.chatSnapshot(c.req.param('id'));
-    return snap ? c.json(snap) : c.json({ error: 'unknown session' }, 404);
-  });
-  app.get('/api/sessions/:id/chat/events', (c) => {
-    const id = c.req.param('id');
-    if (!scenario.chatSnapshot(id)) return c.json({ error: 'unknown session' }, 404);
-    return streamSSE(c, async (stream) => {
-      const send = () => {
-        const snapshot = scenario.chatSnapshot(id);
-        if (snapshot)
-          stream.writeSSE({ event: 'snapshot', data: JSON.stringify({ type: 'snapshot', snapshot }) }).catch(() => {
-            /* gone */
-          });
-      };
-      const off = scenario.subscribe(() => send());
-      send();
-      await new Promise<void>((resolve) =>
-        stream.onAbort(() => {
-          off();
-          resolve();
-        }),
-      );
-    });
-  });
-  app.post('/api/sessions/:id/chat/messages', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { text?: unknown } | null;
-    const text = typeof body?.text === 'string' ? body.text.trim() : '';
-    if (!text) return c.json({ error: 'text required' }, 400);
-    return scenario.chatSend(c.req.param('id'), text) ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
-  });
-  app.post('/api/sessions/:id/chat/interrupt', (c) => c.json({ ok: true }));
-  app.post('/api/sessions/:id/chat/permissions/:pid', (c) => c.json({ error: 'no such prompt (already answered?)' }, 404));
-
   // Driving a session from outside (session-control-routes.ts): a message is a published comment, as for real.
   app.post('/api/sessions/:id/send', async (c) => {
     const id = c.req.param('id');

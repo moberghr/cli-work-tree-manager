@@ -54,8 +54,6 @@ export interface SessionAgentWire {
     live: boolean;
     /** Its permission prompts can be answered from the dashboard. */
     answer: boolean;
-    /** It runs as the headless chat. */
-    chat: boolean;
   };
 }
 
@@ -159,41 +157,6 @@ export interface BuildFoldersApplyResult {
   ok: boolean;
   removed: number;
   message: string;
-}
-
-// ---- chat (a session's agent run headless: chat-session.ts) ---------------
-
-/** stopped: no process (the next message starts one) · exited: it died. */
-export type ChatState = 'stopped' | 'starting' | 'working' | 'needs_input' | 'idle' | 'exited';
-
-/** What the agent is writing right now (streamed text). */
-export interface ChatPartial {
-  kind: 'text' | 'thinking';
-  text: string;
-}
-
-/** A permission prompt waiting for the user. */
-export interface ChatPermissionWire {
-  id: string;
-  toolName: string;
-  input: unknown;
-  toolUseId: string | null;
-  at: number;
-}
-
-/** GET /api/sessions/:id/chat, and the first `snapshot` event of its stream. */
-export interface ChatSnapshot {
-  sessionId: string;
-  state: ChatState;
-  error: string | null;
-  /** The agent's conversation id, once it runs. */
-  conversationId: string | null;
-  /** What was said, in work's terms (records read by the agent's adapter; core/chat-view.ts). */
-  messages: import('./chat/chat-view.js').ChatMessage[];
-  partial: ChatPartial | null;
-  permissions: ChatPermissionWire[];
-  /** The session's agent runs in the terminal (PTY host) right now. */
-  terminalRunning?: boolean;
 }
 
 // ---- assistant (Ctrl+K) ---------------------------------------------------

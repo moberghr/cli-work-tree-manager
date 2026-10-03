@@ -181,7 +181,7 @@ export function effectiveStatus(
  * needs input, idle → a working / needs-input record is over.
  *
  * And with nothing running for the session anywhere (`known`: the process
- * list was read; `hosted`: no PTY or chat of ours either), it can't be working
+ * list was read; `hosted`: no PTY of ours either), it can't be working
  * or waiting: idle at once, not after 15 quiet minutes.
  */
 export function withLiveClaude(

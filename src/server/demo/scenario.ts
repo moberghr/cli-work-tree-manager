@@ -1,5 +1,4 @@
 import { createCommentStore, type CommentStore } from '../../core/comments/comment-store.js';
-import type { ChatRecord } from '../../core/chat/chat-view.js';
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { findOverlaps } from '../../core/diff/overlap.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
@@ -25,7 +24,6 @@ import type {
   CleanupAction,
   CleanupCandidate,
   CleanupState,
-  ChatSnapshot,
 } from '../../core/api-types.js';
 import type { AgentState } from '../../core/status/attention.js';
 import type { PullRequestInfo } from '../../core/pr/pr.js';
@@ -80,7 +78,7 @@ interface DemoSession {
 }
 
 /** The demo's sessions run Claude Code, with everything work can do with it. */
-const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, chat: true } };
+const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true } };
 
 export type DemoEvent = { event: string; data: unknown };
 
@@ -626,51 +624,6 @@ export class DemoScenario {
     s.transcript.push(reply);
     this.emitTerminal(id, `\r\n${reply}\r\n✻ Working…\r\n`);
     this.after(8_000, () => this.finishTurn(id));
-  }
-
-  /**
-   * The session as a chat: the simulated terminal's `> ` lines are your
-   * messages, `● Tool(args)` lines tool calls, other `●` lines the agent's
-   * text — as the chat records (chat-view.ts) the real chat route serves.
-   */
-  chatSnapshot(id: string): ChatSnapshot | null {
-    const s = this.sessions.get(id);
-    if (!s) return null;
-    const lines: ChatRecord[][] = [];
-    let n = 0;
-    for (const line of s.transcript) {
-      if (line.startsWith('> ') && line.length > 2) {
-        lines.push([{ kind: 'you', text: line.slice(2) }]);
-        continue;
-      }
-      const tool = /^● (\w+)\((.*)\)$/.exec(line);
-      if (tool) {
-        const toolId = `demo-tool-${n++}`;
-        lines.push([{ kind: 'tool', id: toolId, name: tool[1], input: { args: tool[2] } }]);
-        lines.push([{ kind: 'tool-result', toolId, text: 'ok (simulated)', isError: false }]);
-        continue;
-      }
-      if (line.startsWith('● ')) lines.push([{ kind: 'text', text: line.slice(2) }]);
-    }
-    const state = s.attention?.state === 'working' ? 'working' : s.attention?.state === 'needs_input' ? 'needs_input' : 'idle';
-    return {
-      sessionId: id,
-      state,
-      error: null,
-      conversationId: `demo-${id}`,
-      messages: lines.map((records, seq) => ({ seq, records })),
-      partial: null,
-      permissions: [],
-      terminalRunning: false,
-    };
-  }
-
-  /** A chat message: the same simulated turn as typing it in the terminal. */
-  chatSend(id: string, text: string): boolean {
-    if (!this.sessions.has(id)) return false;
-    this.input(id, text);
-    this.emit('chat-changed', { sessionId: id });
-    return true;
   }
 
   private terminalListeners = new Map<string, Set<(data: string) => void>>();

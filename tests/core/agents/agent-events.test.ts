@@ -162,7 +162,7 @@ describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', ()
   });
 });
 
-describe('instructions file, restore, chat (agents/)', () => {
+describe('instructions file, restore (agents/)', () => {
   const config = (aiCommand?: string) => ({
     worktreesRoot: tmp,
     repos: { api: path.join(tmp, 'api') },
@@ -232,27 +232,6 @@ describe('instructions file, restore, chat (agents/)', () => {
     fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config()));
     expect(restoreArchivedTranscripts(s)).toBe(1);
     expect(fs.existsSync(path.join(tmp, '.claude', 'projects', encodeProjectDir(path.join(tmp, 'wt', 'r')), 'c.jsonl'))).toBe(true);
-  });
-
-  it('the chat runs only for an agent that has one', async () => {
-    fs.mkdirSync(path.join(tmp, '.work'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config('opencode')));
-    const wt = path.join(tmp, 'wt', 'api', 'feat-x');
-    fs.mkdirSync(wt, { recursive: true });
-    const { saveHistory } = await import('../../../src/core/sessions/history.js');
-    const { sessionIdFor } = await import('../../../src/core/sessions/session-id.js');
-    saveHistory([{ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '' }]);
-    const { Hono } = await import('hono');
-    const { mountChatRoutes } = await import('../../../src/server/routes/chat-routes.js');
-    const app = new Hono();
-    mountChatRoutes(app, { broadcast: () => {}, baseUrl: () => 'http://127.0.0.1:1/' } as never);
-    const res = await app.request(`/api/sessions/${sessionIdFor({ target: 'api', branch: 'feat/x' })}/chat/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'hi' }),
-    });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toMatch(/opencode has no chat here/);
   });
 });
 

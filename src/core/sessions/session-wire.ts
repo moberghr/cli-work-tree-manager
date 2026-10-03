@@ -40,7 +40,7 @@ export interface SessionWireOptions {
   blockedByFor?: (id: string) => BlockerWire[];
   /** The running Claudes were read against a real process list, so "none" means none. */
   liveKnown?: boolean;
-  /** A Claude of ours runs for it (PTY host, chat), whether or not Claude Code's file shows it yet. */
+  /** A Claude of ours runs for it (PTY host), whether or not Claude Code's file shows it yet. */
   hostedLive?: (id: string) => boolean;
   /** A status read from its terminal output, for a tool with no hooks (output-status.ts). */
   outputStatusFor?: (id: string) => SessionAttention | null;

@@ -10,7 +10,6 @@ import { claudeSessionsDir, readLiveClaudes } from './live.js';
 import { ANSWER_KEYS, checkDialog } from './permission.js';
 import { typeThenEnter } from '../typing.js';
 import { internalClaudeSpawn } from './internal.js';
-import { claudeChat } from './chat.js';
 import { claudeWorkspace } from './workspace.js';
 import { claudeSkills } from './skills.js';
 
@@ -77,7 +76,6 @@ export const claudeAgent: AgentAdapter = {
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
   oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
   instructionsFile: 'CLAUDE.md',
-  chat: claudeChat,
   workspace: claudeWorkspace,
   skills: claudeSkills,
 };

@@ -38,7 +38,6 @@ import { mountScopeRoutes } from './routes/scope-routes.js';
 import { mountTerminalRoutes } from './routes/terminal-routes.js';
 import { mountStatusRoutes } from './routes/status-routes.js';
 import { mountShipRoutes } from './routes/ship-routes.js';
-import { mountChatRoutes } from './routes/chat-routes.js';
 import { mountSessionOrderRoutes } from './routes/session-order-routes.js';
 import { mountRailRoutes } from './routes/rail-routes.js';
 import { onArchived } from '../core/archive/session-archive.js';
@@ -316,7 +315,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         liveAgents(table),
         history.filter((s) => !shadow.has(sessionIdFor(s))),
       );
-      const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
+      const appPids = new Set(ptyPids());
       const claudesFor = (id: string) => summarizeAgents(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
       const snoozes = allSnoozes();
@@ -341,7 +340,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
               merged: m ? { id: m.id, branch: m.branch } : null,
             };
           },
-          hostedLive: (id) => peekPty(id) || chatApi.running(id),
+          hostedLive: (id) => peekPty(id),
           outputStatusFor: (id) => outputStatus(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
@@ -492,17 +491,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
       );
     }
-    // Headless chats too: idle that long with no chat view open.
-    const chats = chatApi.idle(sleepAfterMs(minutes));
-    for (const id of chats) {
-      chatApi.stop(id);
-      const s = findSession(id);
-      run.note(
-        `${s ? `${s.target} ${s.branch}` : id}: put its chat's Claude to sleep (idle ${Math.max(minutes, 30)} min, no chat open; your next message resumes it)`,
-        { level: 'action', sessionId: id },
-      );
-    }
-    const slept = ids.length + chats.length;
+    const slept = ids.length;
     run.done(`${ptys.length} Claude${ptys.length === 1 ? '' : 's'} running · ${slept ? `${slept} put to sleep` : 'none idle long enough'}`);
     if (ids.length) broadcast('sessions-changed', { ts: Date.now() });
   };
@@ -774,10 +763,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   });
 
   // Ship (push / PR / merge) + archive.
-  // Before an archive removes a worktree: close our watcher and any chat on it.
+  // Before an archive removes a worktree: close our watcher on it.
   const releaseSession = async (id: string) => {
     await disposeSessionWatcher(id);
-    chatApi.stop(id);
     const s = findSession(id);
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
@@ -804,10 +792,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   hostTick?.unref?.();
   // What a session waits on (and a look straight away: the blocker may be done already).
   mountBlockRoutes(app, { broadcast, changed: () => void sweepBlocksNow() });
-
-  // A session's Claude as a chat: headless, instead of the terminal (spike).
-  let selfUrl = '';
-  const chatApi = mountChatRoutes(app, { baseUrl: () => selfUrl });
 
   app.get('/events', (c) => {
     const wantedSession = c.req.query('session');
@@ -847,7 +831,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   app.get('*', (c) => serveSpa(c, webRoot));
 
   const handle = await launch(app);
-  selfUrl = handle.url;
   const wsBridge = attachTerminalWs(handle.httpServer, handle.port);
   // Pick up PTYs that survived a previous `work web` in the PTY host so
   // their badges show immediately. Never spawns a host.
@@ -870,7 +853,6 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (conversationsTimer) clearInterval(conversationsTimer);
       if (conversationsFirst) clearTimeout(conversationsFirst);
       for (const t of conversationSyncs.values()) clearTimeout(t);
-      chatApi.stopAll();
       clearTimeout(sweepTimer);
       activityWatcher?.stop();
       disposeAllWatchers();

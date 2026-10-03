@@ -21,7 +21,7 @@ export interface ShipRoutesOptions {
   /** Called after git state changed (push/merge) so diff stats refresh. */
   onRepoChanged?: (sessionId: string) => void;
   run?: CommandRunner;
-  /** Let go of a session's folders before its worktree is removed (watchers, a chat). */
+  /** Let go of a session's folders before its worktree is removed (watchers). */
   release?: (sessionId: string) => Promise<void>;
   /** How a removed worktree is made again on Restore (work web: in a child process, setup-child.ts). */
   create?: CreateWorktree;
