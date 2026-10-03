@@ -4,13 +4,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { saveConfig, loadConfig, type WorkConfig } from '../../src/core/config.js';
 
-// Mock generateGroupClaudeMd before importing the config command
-vi.mock('../../src/core/claude-md.js', () => ({
-  generateGroupClaudeMd: vi.fn(),
+// Mock generateGroupInstructions before importing the config command
+vi.mock('../../src/core/group-instructions.js', () => ({
+  generateGroupInstructions: vi.fn(),
 }));
 
 import { configCommand } from '../../src/commands/config.js';
-import { generateGroupClaudeMd } from '../../src/core/claude-md.js';
+import { generateGroupInstructions } from '../../src/core/group-instructions.js';
 
 let tmpDir: string;
 
@@ -58,7 +58,7 @@ describe('config group add', () => {
     const config = loadConfig()!;
     expect(config.groups.fullstack).toEqual(['api', 'web']);
     expect(process.exitCode).toBeUndefined();
-    expect(generateGroupClaudeMd).toHaveBeenCalledWith(
+    expect(generateGroupInstructions).toHaveBeenCalledWith(
       'fullstack',
       ['api', 'web'],
       expect.objectContaining({ repos: expect.any(Object) }),
@@ -184,12 +184,12 @@ describe('config group remove', () => {
 // ─── config group regen ──────────────────────────────────────────
 
 describe('config group regen', () => {
-  it('calls generateGroupClaudeMd for an existing group', () => {
+  it('calls generateGroupInstructions for an existing group', () => {
     seedConfig({ groups: { fullstack: ['api', 'web'] } });
     run('regen', 'fullstack');
 
     expect(process.exitCode).toBeUndefined();
-    expect(generateGroupClaudeMd).toHaveBeenCalledWith(
+    expect(generateGroupInstructions).toHaveBeenCalledWith(
       'fullstack',
       ['api', 'web'],
       expect.objectContaining({ groups: { fullstack: ['api', 'web'] } }),

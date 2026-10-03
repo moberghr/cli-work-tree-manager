@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { WorktreeSession } from './session-types.js';
+import type { WorktreeSession } from '../../session-types.js';
 
 /**
  * Claude Code writes each session as JSONL under
@@ -72,21 +72,6 @@ function latestJsonlMtimeMs(projectDir: string): number {
   return latest;
 }
 
-/**
- * True when a transcript mtime shows Claude wrote within `windowMs` of `nowMs`
- * — i.e. a Claude session is active for that path. Absent/zero activity →
- * false. The scope auto-snapshot timer uses this to stay out of the way while
- * Claude is around (the Stop hook owns checkpoints then); the timer only fires
- * for manual edits when no Claude session is active.
- */
-export function claudeActiveWithin(
-  activityMs: number,
-  nowMs: number,
-  windowMs: number,
-): boolean {
-  return activityMs > 0 && nowMs - activityMs < windowMs;
-}
-
 export function getClaudeActivityMs(launchPath: string): number {
   const dir = path.join(
     os.homedir(),
@@ -153,7 +138,6 @@ export function resolveResumeLaunch(session: WorktreeSession): {
   return { launchPath, hasConversation: bestMs > 0 };
 }
 
-export type { ActivityState } from './api-types.js';
 
 /** Watch root: `~/.claude/projects/`. The web server subscribes to mtime
  *  changes here and re-broadcasts `sessions-changed` so the sidebar

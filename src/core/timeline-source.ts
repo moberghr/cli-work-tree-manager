@@ -7,7 +7,8 @@ import { scopeHashForPaths } from './scope-manager.js';
 import { defaultRunner, type CommandRunner } from './ship.js';
 import type { WorktreeSession } from './session-types.js';
 import { buildTimeline, type TimelineEvent, type TimelineInput } from './timeline.js';
-import { readTranscriptSince } from './transcript.js';
+import { readJsonlSince } from './jsonl.js';
+import { lineTimeOf } from './agents/index.js';
 import type { SessionCi } from './api-types.js';
 
 /**
@@ -47,7 +48,7 @@ export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi
   for (const t of conv?.files(s) ?? []) {
     if (t.mtimeMs < since) continue;
     try {
-      transcripts.push(conv!.entries((await readTranscriptSince(t.file, since, { maxBytes: MAX_TRANSCRIPT_BYTES })).entries));
+      transcripts.push(conv!.entries((await readJsonlSince(t.file, since, lineTimeOf(conv!), { maxBytes: MAX_TRANSCRIPT_BYTES })).lines));
     } catch {
       /* gone or unreadable: the rest still tells the story */
     }

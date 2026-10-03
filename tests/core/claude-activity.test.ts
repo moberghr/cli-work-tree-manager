@@ -7,7 +7,7 @@ import {
   getClaudeActivityMs,
   hasClaudeConversation,
   resolveResumeLaunch,
-} from '../../src/core/claude-activity.js';
+} from '../../src/core/agents/claude/activity.js';
 // A Claude session's activity: its transcripts, read through the Claude adapter.
 import { effectiveLastAccessedAt, readSessionActivity } from '../../src/core/session-activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';

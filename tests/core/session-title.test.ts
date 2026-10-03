@@ -6,10 +6,10 @@ import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const files = vi.hoisted(() => ({ list: [] as Array<{ file: string; mtimeMs: number; size: number }> }));
 // Claude's transcript list (the Claude adapter's files): these files.
-vi.mock('../../src/core/agents/claude-files.js', () => ({ listTranscripts: () => files.list, latestTranscript: () => files.list[0] ?? null }));
+vi.mock('../../src/core/agents/claude/files.js', () => ({ listTranscripts: () => files.list, latestTranscript: () => files.list[0] ?? null }));
 
 import { firstPromptOf, sessionTitle, titleText } from '../../src/core/session-title.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 
 let tmp: string;
 const line = (o: object) => JSON.stringify(o) + '\n';

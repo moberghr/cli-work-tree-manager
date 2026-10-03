@@ -177,9 +177,9 @@ describe('a session on the echo agent, through the real modules — no Claude an
     // Its running process, by session.
     running.push({ pid: 777, cwd: wt });
     const { liveAgents } = await import('../../src/core/agents/index.js');
-    const { claudesBySession, summarizeClaudes } = await import('../../src/core/live-claudes.js');
-    const mine = claudesBySession(liveAgents(), loadHistory()).get(sessionIdFor(s)) ?? [];
-    expect(summarizeClaudes(mine, new Set())).toMatchObject({ inTerminal: 1, busy: false });
+    const { agentsBySession, summarizeAgents } = await import('../../src/core/live-agents.js');
+    const mine = agentsBySession(liveAgents(), loadHistory()).get(sessionIdFor(s)) ?? [];
+    expect(summarizeAgents(mine, new Set())).toMatchObject({ inTerminal: 1, busy: false });
 
     // The wire says which agent, and what work can do with it.
     const { sessionWire } = await import('../../src/core/session-wire.js');
@@ -190,8 +190,8 @@ describe('a session on the echo agent, through the real modules — no Claude an
     fs.mkdirSync(path.join(home, 'repo'), { recursive: true });
     fs.writeFileSync(path.join(home, 'repo', 'ECHO.md'), '# echo notes for api');
     const cfg = JSON.parse(fs.readFileSync(path.join(home, '.work', 'config.json'), 'utf8'));
-    const { generateGroupClaudeMd } = await import('../../src/core/claude-md.js');
-    generateGroupClaudeMd('shop', ['api'], { ...cfg, groups: { shop: ['api'] }, internalAgent: 'echo' });
+    const { generateGroupInstructions } = await import('../../src/core/group-instructions.js');
+    generateGroupInstructions('shop', ['api'], { ...cfg, groups: { shop: ['api'] }, internalAgent: 'echo' });
     const made = fs.readFileSync(path.join(home, '.work', 'shop.claude.md'), 'utf8');
     expect(made).toContain('# echo notes for api'); // the template: echo writes no summaries (no oneShot)
   });

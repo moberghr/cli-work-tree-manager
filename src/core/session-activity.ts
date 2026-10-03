@@ -35,6 +35,16 @@ export function readSessionActivity(session: WorktreeSession, now = Date.now()):
   return { lastActivity: latest, state: age <= ACTIVE_MS ? 'active' : age <= OPEN_MS ? 'open' : 'stale' };
 }
 
+/**
+ * True when an agent wrote within `windowMs` of `nowMs` (0: never). The
+ * scope auto-snapshot timer uses it to stay out of the way while an agent is
+ * at work (its turn-end hook owns checkpoints then); the timer only fires for
+ * hand edits when none is.
+ */
+export function activeWithin(activityMs: number, nowMs: number, windowMs: number): boolean {
+  return activityMs > 0 && nowMs - activityMs < windowMs;
+}
+
 /** When it was last used: the newer of its recorded entry and its agent's last write. */
 export function effectiveLastAccessedAt(session: WorktreeSession): string {
   const recorded = Date.parse(session.lastAccessedAt);

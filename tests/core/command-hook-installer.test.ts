@@ -112,7 +112,7 @@ describe('removeCommandHook', () => {
 describe('syncCommandHooks (work web, one write)', () => {
   it('the full set replaces the old separate hooks, keeps the user’s own, and removes cleanly', async () => {
     const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
-    const { claudeAgent } = await import('../../src/core/agents/claude.js'); // work's hooks in Claude's settings: its adapter's install
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js'); // work's hooks in Claude's settings: its adapter's install
     write({ hooks: { UserPromptSubmit: [userHook] } });
     // What an older work web left (three per event):
     for (const [owner, event, command] of [
@@ -138,7 +138,7 @@ describe('syncCommandHooks (work web, one write)', () => {
 describe('untagged copies of work’s hooks (tags dropped by another writer of settings.json)', () => {
   it('are replaced on install and removed on shutdown; the user’s own hooks — even ones calling work — stay', async () => {
     const { FULL_HOOKS, LEGACY_HOOKS } = await import('../../src/commands/web.js');
-    const { claudeAgent } = await import('../../src/core/agents/claude.js'); // work's hooks in Claude's settings: its adapter's install
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js'); // work's hooks in Claude's settings: its adapter's install
     const bare = (command: string, timeout = 5): Entry => ({ hooks: [{ type: 'command', command, timeout }] });
     write({
       hooks: {

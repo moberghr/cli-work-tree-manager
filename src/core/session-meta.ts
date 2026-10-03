@@ -1,6 +1,6 @@
 import { peekPty } from './pty-pool.js';
 import { sessionStatusView } from './turn-activity.js';
-import { type ActivityState } from './claude-activity.js';
+import type { ActivityState } from './api-types.js';
 import { readSessionActivity } from './session-activity.js';
 import { getCommentFileStore } from './comment-file-store.js';
 import { readPendingForSession } from './pending-delivery.js';

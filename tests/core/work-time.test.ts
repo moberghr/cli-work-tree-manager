@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mergeSteps, STEP_CAP_MS, workedBetween, workedByDay, workSteps } from '../../src/core/work-time.js';
 import { dayKey, formatWorked, worklogTime } from '../../src/core/work-time-view.js';
 import { resetWorkTimeCache, sessionWorkTime } from '../../src/core/work-time-source.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { digestSession, type DigestInput } from '../../src/core/digest.js';
 import { digestMarkdown } from '../../src/core/digest-view.js';
-import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 const T0 = Date.parse('2026-09-30T09:00:00Z');

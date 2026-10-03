@@ -33,7 +33,6 @@ import {
   findSession,
   subscribeSession,
 } from './web-state.js';
-import { claudeProjectsRoot } from './claude-activity.js';
 import { createFsWatcher } from './fs-watcher.js';
 import { mountSessionCommentRoutes } from './session-comment-routes.js';
 import { mountPanesRoutes } from './panes-routes.js';
@@ -47,8 +46,8 @@ import { mountSessionOrderRoutes } from './session-order-routes.js';
 import { mountRailRoutes } from './rail-routes.js';
 import { onArchived } from './session-archive.js';
 import { defaultArchiveDeps, archiveMergedSession } from './session-archive-deps.js';
-import { claudeSessionsDir, claudesBySession, summarizeClaudes } from './live-claudes.js';
-import { liveAgents } from './agents/index.js';
+import { agentsBySession, summarizeAgents } from './live-agents.js';
+import { liveAgents, activityRoots } from './agents/index.js';
 import { branchCheckedOut, shadowedSessions } from './shared-folders.js';
 import { sessionIdFor } from './session-id.js';
 import { DiffStatCache, wantsDiffStat } from './diff-stat.js';
@@ -215,20 +214,18 @@ export async function startWebServer(
   }, 1000);
   revPoll.unref?.();
 
-  // Watch Claude's per-project transcripts so the dashboard sees external
-  // terminals coming alive. Claude writes constantly while it's thinking;
-  // the watcher debounces to 250 ms so we don't spam the sidebar 100×/s
-  // mid-turn. The same broadcast also covers our own PTYs writing here.
-  const projectsRoot = claudeProjectsRoot();
+  // Watch every agent's activity folders (its conversations, its process
+  // state: agents/ `activityRoots`) so the dashboard sees external terminals
+  // coming alive. An agent writes constantly while it's thinking; the watcher
+  // debounces to 250 ms so we don't spam the sidebar 100×/s mid-turn. The
+  // same broadcast also covers our own PTYs writing there.
   let activityWatcher: { stop(): void } | null = null;
   if (!lean) {
     try {
-      if (fs.existsSync(projectsRoot)) {
-        // …and the per-process files, so a Claude opened or closed in a
-        // terminal tab shows at once (live-claudes.ts).
-        const sessionsDir = claudeSessionsDir();
+      const roots = activityRoots().filter((r) => fs.existsSync(r));
+      if (roots.length > 0) {
         activityWatcher = createFsWatcher({
-          roots: fs.existsSync(sessionsDir) ? [projectsRoot, sessionsDir] : [projectsRoot],
+          roots,
           debounceMs: 250,
           onChange: () => broadcast('sessions-changed', { ts: Date.now() }),
         });
@@ -316,9 +313,9 @@ export async function startWebServer(
       // A process table refreshed in the background: listing every process
       // synchronously (tasklist) on each build blocked the server.
       const table = recentProcessTable(5_000) ?? undefined;
-      const running = claudesBySession(liveAgents(table), history.filter((s) => !shadow.has(sessionIdFor(s))));
+      const running = agentsBySession(liveAgents(table), history.filter((s) => !shadow.has(sessionIdFor(s))));
       const appPids = new Set([...ptyPids(), ...chatApi.pids()]);
-      const claudesFor = (id: string) => summarizeClaudes(running.get(id) ?? [], appPids);
+      const claudesFor = (id: string) => summarizeAgents(running.get(id) ?? [], appPids);
       const drafts = draftCounts();
       const snoozes = allSnoozes();
       const noted = sessionsWithNotes();

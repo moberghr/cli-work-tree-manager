@@ -8,6 +8,7 @@
  * label ("3 files · +52 −8") is returned instead so the UI never blocks on
  * an external binary.
  */
+import { internalRunEnv } from './internal-run.js';
 import spawn from 'cross-spawn';
 import path from 'node:path';
 import { computeRangeDiff } from './diff-pipeline.js';
@@ -128,7 +129,7 @@ function runNow(prompt: string, timeoutMs: number, run: { cmd: string; args: str
         stdio: ['pipe', 'pipe', 'ignore'],
         windowsHide: true,
         cwd: run.cwd,
-        env: run.env,
+        env: { ...run.env, ...internalRunEnv() }, // tagged by work, whatever the agent's command says
       });
     } catch {
       finish(null);

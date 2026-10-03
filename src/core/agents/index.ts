@@ -5,8 +5,8 @@ import { getAiTool } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
 import type { WorktreeSession } from '../session-types.js';
 import type { SessionAgentWire } from '../api-types.js';
-import { claudeAgent } from './claude.js';
-import type { AgentAdapter, LiveAgent } from './types.js';
+import { claudeAgent } from './claude/adapter.js';
+import type { AgentAdapter, AgentConversation, LiveAgent } from './types.js';
 import { typeThenEnter } from './typing.js';
 
 export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
@@ -101,6 +101,24 @@ function plainAgent(id: string): AgentAdapter {
 /** Every agent work has an adapter for (whose hooks work web installs, whose running processes it reads). */
 export function knownAgents(): AgentAdapter[] {
   return [...ADAPTERS.values()];
+}
+
+/** The newest write any known agent made to its conversations for work in `cwd` (ms; 0: none). */
+export function agentWriteMs(cwd: string): number {
+  return Math.max(0, ...knownAgents().map((a) => a.conversation?.lastWriteMs?.(cwd) ?? 0));
+}
+
+/** Every known agent's activity folders (`activityRoots`). */
+export function activityRoots(): string[] {
+  return knownAgents().flatMap((a) => a.activityRoots?.() ?? []);
+}
+
+/** A conversation line's time (ms; NaN when it has none), as its agent reads it: what JSON-lines windows are cut by (jsonl.ts). */
+export function lineTimeOf(conv: Pick<AgentConversation, 'entries'>): (line: unknown) => number {
+  return (line) => {
+    const at = conv.entries([line])[0]?.at;
+    return at ? Date.parse(at) : NaN;
+  };
 }
 
 /** Every known agent's running processes, wherever they were started (each agent's `live`). */

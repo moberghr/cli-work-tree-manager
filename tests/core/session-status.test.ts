@@ -1,3 +1,4 @@
+import { lastAssistantText } from '../../src/core/agents/claude/hooks.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +12,6 @@ import {
   STALE_WORKING_MS,
   applyStatusEvent,
   effectiveStatus,
-  lastAssistantText,
   lastTurnEntryMs,
   withLiveClaude,
   markSeen,
@@ -21,7 +21,7 @@ import {
   recordStatusEvent,
   type SessionStatus,
 } from '../../src/core/session-status.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 import { attentionRank, compareAttention, compareInbox, inboxRank, needsAttention, wantsYou } from '../../src/core/attention.js';
 
 const T0 = new Date('2026-09-28T10:00:00Z');

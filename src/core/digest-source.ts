@@ -3,7 +3,8 @@ import { sessionStatusView } from './turn-activity.js';
 import { sessionIdFor } from './session-id.js';
 import { readStatus } from './session-status.js';
 import { readSessionActivity } from './session-activity.js';
-import { readTranscriptSince } from './transcript.js';
+import { readJsonlSince } from './jsonl.js';
+import { lineTimeOf } from './agents/index.js';
 import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import { loadManifest } from './checkpoint.js';
@@ -85,8 +86,8 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
               const hit = cache.get(key);
               const reuse = !!hit && hit.sinceMs <= sinceMs;
               // The agent's work steps come from the whole read, before it is slimmed to prompts.
-              const read = reuse ? null : await readTranscriptSince(t.file, sinceMs);
-              const all = read ? conv!.entries(read.entries) : [];
+              const read = reuse ? null : await readJsonlSince(t.file, sinceMs, lineTimeOf(conv!));
+              const all = read ? conv!.entries(read.lines) : [];
               const win = reuse ? hit.win : { entries: promptEntries(all), partial: read!.partial };
               const steps = reuse ? hit.steps : workSteps(all).steps;
               next.set(key, { sinceMs: reuse ? hit.sinceMs : sinceMs, win, steps });

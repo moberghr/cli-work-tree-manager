@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NAMES_MAX_AGE_MS, projectTranscripts } from '../../src/core/claude-activity.js';
+import { NAMES_MAX_AGE_MS, projectTranscripts } from '../../src/core/agents/claude/activity.js';
 import { firstPromptOf } from '../../src/core/session-title.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 import { recentProcessTable } from '../../src/core/process.js';
 import { createSerialQueue, throttleTrailing } from '../../src/core/throttle.js';
 

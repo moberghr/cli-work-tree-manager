@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { atomicWriteFile } from '../fs-safe.js';
-import { CLAUDE_EVENT } from './claude-hooks.js';
-import type { AgentWorkspace, AllowRule } from './types.js';
+import { atomicWriteFile } from '../../fs-safe.js';
+import { CLAUDE_EVENT } from './hooks.js';
+import type { AgentWorkspace, AllowRule } from '../types.js';
 
 /**
  * Claude Code's side of a folder work runs it in (types.ts `AgentWorkspace`;

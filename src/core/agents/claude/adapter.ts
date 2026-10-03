@@ -1,24 +1,24 @@
 import path from 'node:path';
-import { listTranscripts } from './claude-files.js';
-import { getAiTool } from '../ai-launcher.js';
-import { claudeProjectsRoot, encodeProjectDir, hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.js';
-import { withoutParentSession } from '../claude-env.js';
-import { readTranscriptTail } from '../transcript.js';
-import { claudeContextWindow, claudeEntries } from './claude-entries.js';
-import { claudeEvents } from './claude-hooks.js';
-import { readLiveClaudes } from './claude-live.js';
-import { ANSWER_KEYS, checkDialog } from '../permission-request.js';
-import { typeThenEnter } from './typing.js';
-import { internalClaudeSpawn } from '../internal-claude.js';
-import { claudeChat } from './claude-chat.js';
-import { claudeWorkspace } from './claude-workspace.js';
-import { claudeSkills } from './claude-skills.js';
+import { listTranscripts } from './files.js';
+import { getAiTool } from '../../ai-launcher.js';
+import { claudeProjectsRoot, encodeProjectDir, getClaudeActivityMs, hasClaudeConversation, resolveResumeLaunch } from './activity.js';
+import { withoutParentSession } from './env.js';
+import { readTranscriptTail } from './transcript.js';
+import { claudeContextWindow, claudeEntries } from './entries.js';
+import { claudeEvents } from './hooks.js';
+import { claudeSessionsDir, readLiveClaudes } from './live.js';
+import { ANSWER_KEYS, checkDialog } from './permission.js';
+import { typeThenEnter } from '../typing.js';
+import { internalClaudeSpawn } from './internal.js';
+import { claudeChat } from './chat.js';
+import { claudeWorkspace } from './workspace.js';
+import { claudeSkills } from './skills.js';
 
 /** A few words (checkpoint names, once per changed turn): a small model does. */
 export const CLAUDE_SMALL_MODEL = 'haiku';
-import type { AgentAdapter, ConversationEntry } from './types.js';
+import type { AgentAdapter, ConversationEntry } from '../types.js';
 
-export { claudeEntries } from './claude-entries.js';
+export { claudeEntries } from './entries.js';
 
 /**
  * Claude Code as an agent (types.ts): its conversations are the JSONL
@@ -59,12 +59,15 @@ export const claudeAgent: AgentAdapter = {
       return got.sort((a, b) => a.at.localeCompare(b.at)).slice(-last);
     },
     // Its projects folder for the folder Claude runs in (the worktree, or a group's root): `--continue` finds it there.
+    lastWriteMs: (cwd) => getClaudeActivityMs(cwd),
     restoreDir: (s) => {
       const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
       return cwd ? path.join(claudeProjectsRoot(), encodeProjectDir(cwd)) : null;
     },
   },
   events: claudeEvents,
+  // Its transcripts, and the per-process state files (a Claude opened or closed in a terminal tab shows at once).
+  activityRoots: () => [claudeProjectsRoot(), claudeSessionsDir()],
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
   input: {
     submit: typeThenEnter,

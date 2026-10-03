@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { claudeActiveWithin } from '../../src/core/claude-activity.js';
+import { activeWithin as claudeActiveWithin } from '../../src/core/session-activity.js';
 import { scopeCoversCwd } from '../../src/core/scope-manager.js';
 
-describe('claudeActiveWithin (timer suppression gate)', () => {
+describe('activeWithin (timer suppression gate: an agent wrote lately)', () => {
   it('is true when Claude wrote within the window', () => {
     expect(claudeActiveWithin(1_000, 2_000, 5_000)).toBe(true); // 1s ago
   });

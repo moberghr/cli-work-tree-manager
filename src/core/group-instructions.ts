@@ -14,7 +14,7 @@ import { report } from './report.js';
  * ~/.work/<group>.claude.md (the name it always had) and copied into each
  * group worktree's root.
  */
-export function generateGroupClaudeMd(
+export function generateGroupInstructions(
   groupName: string,
   repoAliases: string[],
   config: WorkConfig,

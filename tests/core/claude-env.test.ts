@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PARENT_SESSION_VARS, withoutParentSession } from '../../src/core/claude-env.js';
+import { PARENT_SESSION_VARS, withoutParentSession } from '../../src/core/agents/claude/env.js';
 import { PtySession } from '../../src/tui/session.js';
 
 describe('withoutParentSession', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { matchingLines, queryWords, snippet } from '../../src/core/archive-search.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 
 const line = (o: object) => JSON.stringify(o);
 

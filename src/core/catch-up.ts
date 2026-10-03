@@ -1,5 +1,6 @@
 import { messageOf } from './archive-search.js';
-import { readTranscriptSince } from './transcript.js';
+import { readJsonlSince } from './jsonl.js';
+import { lineTimeOf } from './agents/index.js';
 import { sessionIdFor } from './session-id.js';
 import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
@@ -115,7 +116,7 @@ export function catchUp(
     const conv = conversationOf(s);
     const entries: ConversationEntry[] = [];
     for (const t of (conv?.files(s) ?? []).filter((x) => x.mtimeMs >= since).sort((a, b) => a.mtimeMs - b.mtimeMs)) {
-      entries.push(...conv!.entries((await readTranscriptSince(t.file, since)).entries));
+      entries.push(...conv!.entries((await readJsonlSince(t.file, since, lineTimeOf(conv!))).lines));
     }
     const timeline = catchUpTimeline(entries, since);
     if (timeline.length === 0) return null;

@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { contextUsageFrom, readContextUsage, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/context-usage.js';
-import { claudeContextWindow, claudeEntries } from '../../src/core/agents/claude-entries.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
-import type { TranscriptEntry } from '../../src/core/transcript.js';
+import { contextUsageFrom, readContextUsage } from '../../src/core/context-usage.js';
+import { claudeContextWindow, claudeEntries, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude/entries.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 /** Claude's lines read as Claude's adapter reads them, then the usage. */

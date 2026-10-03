@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { readContextUsage } from '../../src/core/context-usage.js';
 import { sessionTitle } from '../../src/core/session-title.js';
 import { resetWorkTimeCache, sessionWorkTime } from '../../src/core/work-time-source.js';

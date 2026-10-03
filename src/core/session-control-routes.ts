@@ -2,7 +2,7 @@ import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
 import { loadHistory } from './history.js';
 import { disposePty, ensurePty, peekPty, ptyPids, readPtyScreen } from './pty-pool.js';
-import { claudesBySession } from './live-claudes.js';
+import { agentsBySession } from './live-agents.js';
 import { liveAgents } from './agents/index.js';
 import { readStatus } from './session-status.js';
 import { NOTE_NUDGE } from './pending-delivery.js';
@@ -31,7 +31,7 @@ export interface ControlDeps extends SendDeps {
 function realDeps(app: Hono): ControlDeps {
   const outside = (id: string) => {
     const hostPids = ptyPids();
-    return (claudesBySession(liveAgents(), loadHistory()).get(id) ?? []).some((c) => !hostPids.has(c.pid));
+    return (agentsBySession(liveAgents(), loadHistory()).get(id) ?? []).some((c) => !hostPids.has(c.pid));
   };
   return {
     post: async (id, body) => {

@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/claude-activity.js';
+import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { sessionStatusView } from '../../src/core/turn-activity.js';
-import * as transcript from '../../src/core/transcript.js';
+import * as transcript from '../../src/core/jsonl.js';
 import type { SessionStatus } from '../../src/core/session-status.js';
 import type { WorktreeSession } from '../../src/core/history.js';
 
@@ -42,7 +42,7 @@ describe('sessionStatusView', () => {
 
   it("reads the transcript only when it was written after the turn ended, and once per change", () => {
     fs.writeFileSync(file, line({ type: 'user', timestamp: '2026-10-01T08:50:00Z', message: { content: 'hi' } }));
-    const read = vi.spyOn(transcript, 'readTranscriptTail');
+    const read = vi.spyOn(transcript, 'readJsonlTail');
     const now = Date.parse('2026-10-01T08:50:30Z');
     sessionStatusView(idle, session, Date.parse(ENDED) + 1000, now); // written right at the end of the turn: no read
     expect(read).not.toHaveBeenCalled();

@@ -1,8 +1,7 @@
-import { lastAssistantText } from '../session-status.js';
-import { pendingToolUse } from '../permission-request.js';
-import { readTranscriptTail } from '../transcript.js';
-import type { StatusEvent } from '../status-event.js';
-import type { AgentEvents, TurnEdge, WorkHook } from './types.js';
+import { pendingToolUse } from './permission.js';
+import { contentBlocks, readTranscriptTail } from './transcript.js';
+import type { StatusEvent } from '../../status-event.js';
+import type { AgentEvents, TurnEdge, WorkHook } from '../types.js';
 
 /**
  * Claude Code's side of work's hooks (types.ts `AgentEvents`): command hooks
@@ -15,9 +14,9 @@ import type { AgentEvents, TurnEdge, WorkHook } from './types.js';
  * reading a payload needs none of it.
  */
 
-type Installer = typeof import('../command-hook-installer.js');
+type Installer = typeof import('../../command-hook-installer.js');
 let installer: Installer | null = null;
-const loadInstaller = async (): Promise<Installer> => (installer ??= await import('../command-hook-installer.js'));
+const loadInstaller = async (): Promise<Installer> => (installer ??= await import('../../command-hook-installer.js'));
 
 /** Claude Code's hook event for each of work's turn edges. */
 export const CLAUDE_EVENT: Record<TurnEdge, string> = {
@@ -43,6 +42,24 @@ const asPayload = (p: unknown): ClaudeHookPayload => (p && typeof p === 'object'
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
 /** A Claude hook payload as a status event (the turn edge it came from known). */
+/**
+ * Text of the last assistant message in a Claude Code transcript, for the
+ * "done" summary. Null when unreadable or there's no assistant text yet.
+ */
+export function lastAssistantText(transcriptPath: string | undefined): string | null {
+  const entries = readTranscriptTail(transcriptPath);
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].type !== 'assistant') continue;
+    const text = contentBlocks(entries[i])
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    if (text) return text;
+  }
+  return null;
+}
+
 export function claudeStatusEvent(edge: TurnEdge, payload: unknown): StatusEvent | null {
   const p = asPayload(payload);
   switch (edge) {

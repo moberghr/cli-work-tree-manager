@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { claudeChat, claudeChatRead, claudeChatRecords, claudePermissionTool, PERMISSION_TOOL, resultText } from '../../src/core/agents/claude-chat.js';
-import { claudeAgent } from '../../src/core/agents/claude.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
-import { chatItems } from '../../src/core/chat-view.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+import { claudeChat, claudeChatRead, claudeChatRecords, claudePermissionTool, PERMISSION_TOOL, resultText } from '../../../src/core/agents/claude/chat.js';
+import { claudeAgent } from '../../../src/core/agents/claude/adapter.js';
+import { encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
+import { chatItems } from '../../../src/core/chat-view.js';
+import type { WorktreeSession } from '../../../src/core/history.js';
 
 /** Claude Code's headless chat protocol, read into work's terms (agents/claude-chat.ts). */
 

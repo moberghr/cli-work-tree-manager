@@ -1,5 +1,5 @@
-import { contentBlocks, type TranscriptEntry } from '../transcript-entry.js';
-import type { ConversationEntry } from './types.js';
+import { contentBlocks, type TranscriptEntry } from './transcript-entry.js';
+import type { ConversationEntry } from '../types.js';
 
 /**
  * Claude Code's transcript lines (~/.claude/projects/<folder>/<id>.jsonl) as

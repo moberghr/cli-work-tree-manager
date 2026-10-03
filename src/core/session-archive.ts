@@ -9,7 +9,7 @@ import { getConfigDir } from './config.js';
 import { promptsSince } from './digest.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
-import { readTranscriptTail } from './transcript.js';
+import { readJsonlTail } from './jsonl.js';
 import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 
@@ -222,7 +222,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
       const name = path.basename(file);
       fs.copyFileSync(file, path.join(dir, 'transcripts', name));
       copied.push({ file: name, projectDir: path.basename(path.dirname(file)) });
-      entries.push(toEntries(readTranscriptTail(file, 64 * 1024 * 1024)));
+      entries.push(toEntries(readJsonlTail(file, 64 * 1024 * 1024)));
     }
   } catch (err) {
     return { ok: false, worktreeRemoved: false, keptBecause: null, transcripts: copied.length, message: `Not archived: could not copy its conversation (${(err as Error).message}).` };

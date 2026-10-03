@@ -8,7 +8,7 @@ import { mountCatchUpRoutes } from '../../src/core/catch-up-routes.js';
 import { saveConfig } from '../../src/core/config.js';
 import { saveHistory } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { removeSession } from '../../src/core/history.js';
 
 const config = (w?: Record<string, unknown>) => ({ worktreesRoot: '/w', repos: {}, groups: {}, copyFiles: [], ...(w ? { jiraWorklog: w } : {}) }) as never;

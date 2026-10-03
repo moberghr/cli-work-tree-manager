@@ -11,7 +11,9 @@ vi.mock('../../src/core/process.js', async (orig) => ({
   bootTime: vi.fn(() => 1_000_000),
 }));
 import { processTable } from '../../src/core/process.js';
-import { aliveOnly, claudesBySession, parseLiveClaude, readLiveClaudes, summarizeClaudes, type LiveClaude } from '../../src/core/live-claudes.js';
+import { agentsBySession as claudesBySession, summarizeAgents as summarizeClaudes } from '../../src/core/live-agents.js';
+import { aliveOnly, parseLiveClaude, readLiveClaudes } from '../../src/core/agents/claude/live.js';
+import type { LiveAgent as LiveClaude } from '../../src/core/agents/types.js';
 
 const session = (branch: string, dir: string): WorktreeSession => ({
   target: 'app', branch, isGroup: false, paths: [dir], createdAt: '2026-09-01T00:00:00Z', lastAccessedAt: '2026-09-01T00:00:00Z',

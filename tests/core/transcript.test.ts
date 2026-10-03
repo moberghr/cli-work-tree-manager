@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { readTranscriptSince, readTranscriptTail } from '../../src/core/transcript.js';
+import { readJsonlSince, readJsonlTail, type JsonLine } from '../../src/core/jsonl.js';
+
+/** These lines carry their time in `timestamp` (as an agent's adapter would read it). */
+const timeOf = (l: JsonLine) => (typeof l.timestamp === 'string' ? Date.parse(l.timestamp) : NaN);
+const readTranscriptSince = (f: string, since: number, opts?: { chunkBytes?: number; maxBytes?: number }) => readJsonlSince(f, since, timeOf, opts);
+const readTranscriptTail = readJsonlTail;
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
@@ -20,12 +25,12 @@ beforeAll(() => {
 });
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-describe('readTranscriptSince', () => {
+describe('readJsonlSince', () => {
   it('reads back from the end, growing, until it passes the window start', async () => {
     // Since 30 min before T0: entries 30..39 are in; the read must reach entry 29.
     const w = await readTranscriptSince(file, T0 - 30 * 60_000, { chunkBytes: 300 });
     expect(w.partial).toBe(false);
-    const ids = w.entries.map((e) => e.uuid);
+    const ids = w.lines.map((e) => e.uuid);
     expect(ids.slice(-10)).toEqual(Array.from({ length: 10 }, (_, i) => `u${30 + i}`));
     expect(ids).toContain('u29'); // the first entry older than the window proves coverage
     expect(ids.length).toBeLessThan(40); // …and it did not read the whole file
@@ -34,22 +39,22 @@ describe('readTranscriptSince', () => {
   it('reads the whole file when everything is in the window', async () => {
     const w = await readTranscriptSince(file, T0 - 24 * 3_600_000, { chunkBytes: 300 });
     expect(w.partial).toBe(false);
-    expect(w.entries).toHaveLength(40);
+    expect(w.lines).toHaveLength(40);
   });
 
   it('stops at the byte cap and says the result is partial', async () => {
     const w = await readTranscriptSince(file, T0 - 24 * 3_600_000, { chunkBytes: 300, maxBytes: 1000 });
     expect(w.partial).toBe(true);
-    expect(w.entries.length).toBeGreaterThan(0);
-    expect(w.entries.length).toBeLessThan(40);
+    expect(w.lines.length).toBeGreaterThan(0);
+    expect(w.lines.length).toBeLessThan(40);
   });
 
   it('is empty, not partial, for a missing file', async () => {
-    expect(await readTranscriptSince(path.join(dir, 'nope.jsonl'), T0)).toEqual({ entries: [], partial: false });
+    expect(await readTranscriptSince(path.join(dir, 'nope.jsonl'), T0)).toEqual({ lines: [], partial: false });
   });
 });
 
-describe('readTranscriptTail', () => {
+describe('readJsonlTail', () => {
   it('skips the partial first line of a tail', () => {
     const entries = readTranscriptTail(file, 500);
     expect(entries.length).toBeGreaterThan(0);

@@ -1,4 +1,4 @@
-import { readTranscriptTail } from './transcript.js';
+import { readJsonlTail } from './jsonl.js';
 import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import type { ContextUsage } from './api-types.js';
@@ -15,7 +15,6 @@ export type { ContextUsage } from './api-types.js';
  * worse before that — the dashboard shows when to start fresh.
  */
 
-export { DEFAULT_WINDOW, LARGE_WINDOW } from './agents/claude-entries.js';
 
 /** From conversation entries (oldest first): the newest main-thread usage, in the agent's window (`window`). */
 export function contextUsageFrom(entries: readonly ConversationEntry[], window: (model: string | undefined, used: number) => number): ContextUsage | null {
@@ -31,7 +30,6 @@ export function contextUsageFrom(entries: readonly ConversationEntry[], window: 
 }
 
 // Claude Code's transcript files, for the callers that still read Claude's own records (chat, turn activity): agents/claude-files.ts.
-export { latestTranscript, listTranscripts } from './agents/claude-files.js';
 export type { ConversationFile as TranscriptFile } from './agents/types.js';
 
 /** Only the tail is read — a usage line is always near the end. */
@@ -49,7 +47,7 @@ export function readContextUsage(session: WorktreeSession): ContextUsage | null 
   const id = session.paths.join('|');
   const hit = cache.get(id);
   if (hit?.key === key) return hit.usage;
-  const usage = contextUsageFrom(conv.entries(readTranscriptTail(t.file, USAGE_TAIL_BYTES)), conv.contextWindow);
+  const usage = contextUsageFrom(conv.entries(readJsonlTail(t.file, USAGE_TAIL_BYTES)), conv.contextWindow);
   cache.set(id, { key, usage });
   return usage;
 }

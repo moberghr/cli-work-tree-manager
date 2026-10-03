@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { splitTagged, stripAnsi, type ChatRecord } from '../chat-view.js';
-import { readTranscriptTail } from '../transcript.js';
-import { latestTranscript } from './claude-files.js';
-import type { AgentChat, ChatLineRead, ChatPermissionTool } from './types.js';
+import { splitTagged, stripAnsi, type ChatRecord } from '../../chat-view.js';
+import { readTranscriptTail } from './transcript.js';
+import { latestTranscript } from './files.js';
+import type { AgentChat, ChatLineRead, ChatPermissionTool } from '../types.js';
 
 /**
  * Claude Code's headless chat (types.ts `AgentChat`): `claude -p` with

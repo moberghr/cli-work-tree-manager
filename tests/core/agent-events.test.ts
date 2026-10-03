@@ -27,7 +27,7 @@ const commands = (event: string) =>
 
 describe('Claude’s events', () => {
   it('reads the folder and a status per turn edge from what Claude Code sends', async () => {
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
     const ev = claudeAgent.events!;
     expect(ev.read('turn-start', { cwd: '/wt/x', prompt: 'go' })).toEqual({ cwd: '/wt/x', status: { kind: 'prompt', prompt: 'go' } });
     expect(ev.read('turn-end', {})).toEqual({ cwd: undefined, status: { kind: 'stop', lastMessage: undefined } });
@@ -41,7 +41,7 @@ describe('Claude’s events', () => {
   });
 
   it('hands notes over as Claude Code takes them: added to the prompt; at Stop, `decision: block`', async () => {
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
     expect(claudeAgent.events!.handOver('turn-start', 'note')).toBe('note\n');
     expect(JSON.parse(claudeAgent.events!.handOver('turn-end', 'note'))).toEqual({ decision: 'block', reason: 'note' });
   });
@@ -49,7 +49,7 @@ describe('Claude’s events', () => {
   it('removeSync before any install in the process removes nothing (work web always installs first)', async () => {
     vi.resetModules();
     fs.writeFileSync(settingsFile, JSON.stringify({ hooks: { Stop: [{ _workOwner: 'web-turn', hooks: [{ type: 'command', command: 'work hook turn-end' }] }] } }));
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
     claudeAgent.events!.removeSync([{ owner: 'web-turn', edge: 'turn-end' }]);
     expect(commands('Stop')).toEqual(['work hook turn-end']);
   });
@@ -92,7 +92,7 @@ describe('which agents run now (agents/: `live`)', () => {
 
 describe('typing into an agent (agents/: `input`)', () => {
   it('text, a pause, then Enter apart (Claude reads a burst as a paste); a plain agent the same, and no dialog it can answer', async () => {
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
     const { agentById } = await import('../../src/core/agents/index.js');
     const writes: string[] = [];
     const waits: number[] = [];
@@ -109,7 +109,7 @@ describe('typing into an agent (agents/: `input`)', () => {
 
 describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', () => {
   it('Claude’s one-shot: `claude -p`, no tools, no MCP servers, a neutral folder, tagged internal; a small model for a few words', async () => {
-    const { claudeAgent, CLAUDE_SMALL_MODEL } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent, CLAUDE_SMALL_MODEL } = await import('../../src/core/agents/claude/adapter.js');
     const run = claudeAgent.oneShot!.command({});
     expect(run).toMatchObject({ cmd: 'claude', args: ['-p', '--tools', '', '--strict-mcp-config'], cwd: os.tmpdir() });
     expect(run.env.WORK_INTERNAL_CLAUDE).toBe('1');
@@ -132,7 +132,7 @@ describe('instructions file, restore, chat (agents/)', () => {
   const config = (aiCommand?: string) => ({ worktreesRoot: tmp, repos: { api: path.join(tmp, 'api') }, groups: { shop: ['api'] }, copyFiles: [], ...(aiCommand ? { aiCommand } : {}), internalAgent: 'opencode' });
 
   it('the file an agent reads: CLAUDE.md for Claude, AGENTS.md (the shared convention) for one with no adapter', async () => {
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
     const { agentById } = await import('../../src/core/agents/index.js');
     expect(claudeAgent.instructionsFile).toBe('CLAUDE.md');
     expect(agentById('codex').instructionsFile).toBe('AGENTS.md');
@@ -142,18 +142,18 @@ describe('instructions file, restore, chat (agents/)', () => {
     fs.mkdirSync(path.join(tmp, 'api'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'api', 'AGENTS.md'), '# api agents notes');
     fs.writeFileSync(path.join(tmp, 'api', 'CLAUDE.md'), '# api claude notes');
-    const { generateGroupClaudeMd } = await import('../../src/core/claude-md.js');
+    const { generateGroupInstructions } = await import('../../src/core/group-instructions.js');
     const out = path.join(tmp, '.work', 'shop.claude.md');
     fs.mkdirSync(path.dirname(out), { recursive: true });
-    generateGroupClaudeMd('shop', ['api'], config('opencode') as never);
+    generateGroupInstructions('shop', ['api'], config('opencode') as never);
     expect(fs.readFileSync(out, 'utf8')).toContain('# api agents notes');
-    generateGroupClaudeMd('shop', ['api'], config() as never);
+    generateGroupInstructions('shop', ['api'], config() as never);
     expect(fs.readFileSync(out, 'utf8')).toContain('# api claude notes');
   });
 
   it('an archived conversation goes back where Claude looks (the folder it runs in; a group’s root); an agent without restoreDir: nowhere', async () => {
-    const { claudeAgent } = await import('../../src/core/agents/claude.js');
-    const { encodeProjectDir } = await import('../../src/core/claude-activity.js');
+    const { claudeAgent } = await import('../../src/core/agents/claude/adapter.js');
+    const { encodeProjectDir } = await import('../../src/core/agents/claude/activity.js');
     const group = { target: 'shop', branch: 'b', isGroup: true, paths: [path.join(tmp, 'wt', 'shop', 'b', 'api')], createdAt: '', lastAccessedAt: '' };
     expect(claudeAgent.conversation!.restoreDir!(group)).toBe(path.join(tmp, '.claude', 'projects', encodeProjectDir(path.join(tmp, 'wt', 'shop', 'b'))));
     // A real archive with one conversation file.

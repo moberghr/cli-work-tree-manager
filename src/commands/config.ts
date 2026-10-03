@@ -10,7 +10,7 @@ import {
   ensureConfig,
 } from '../core/config.js';
 import { isGitRepo } from '../core/git.js';
-import { generateGroupClaudeMd } from '../core/claude-md.js';
+import { generateGroupInstructions } from '../core/group-instructions.js';
 import { openInEditor } from '../utils/platform.js';
 
 export const configCommand: CommandModule = {
@@ -240,7 +240,7 @@ function handleAddGroup(args: string[]): void {
   );
 
   // Generate combined CLAUDE.md
-  generateGroupClaudeMd(groupName, repoAliases, config);
+  generateGroupInstructions(groupName, repoAliases, config);
 }
 
 function handleRemoveGroup(args: string[]): void {
@@ -289,7 +289,7 @@ function handleRegenGroup(args: string[]): void {
   }
 
   const repoAliases = config.groups[groupName];
-  generateGroupClaudeMd(groupName, repoAliases, config);
+  generateGroupInstructions(groupName, repoAliases, config);
 }
 
 function handleShow(): void {

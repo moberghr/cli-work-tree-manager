@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_HISTORY_BYTES, ChatSession, type ChatEvent } from '../../src/core/chat-session.js';
-import { claudeChat } from '../../src/core/agents/claude-chat.js';
+import { claudeChat } from '../../src/core/agents/claude/chat.js';
 import type { ChatProtocol } from '../../src/core/agents/types.js';
 import type { ChatRecord } from '../../src/core/chat-view.js';
 import { isAlive, killTree, runAll } from '../functional/fixtures/processes.js';

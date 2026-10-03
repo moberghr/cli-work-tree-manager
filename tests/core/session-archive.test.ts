@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../src/core/history.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { archiveSession, readArchive, readArchivedTranscript, restoreArchivedTranscripts, writeArchiveSummary, type ArchiveDeps } from '../../src/core/session-archive.js';
 import zlib from 'node:zlib';
 import { sessionIdFor } from '../../src/core/session-id.js';

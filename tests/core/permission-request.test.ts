@@ -4,8 +4,8 @@ import {
   describeToolUse,
   pendingToolUse,
   screenAnchor,
-} from '../../src/core/permission-request.js';
-import type { TranscriptEntry } from '../../src/core/transcript.js';
+} from '../../src/core/agents/claude/permission.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript.js';
 
 const use = (id: string, name: string, input: unknown): TranscriptEntry => ({
   type: 'assistant',

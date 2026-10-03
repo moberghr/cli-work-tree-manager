@@ -1,5 +1,4 @@
 import { json, tx, withDb, type Db } from './db.js';
-import { contentBlocks, readTranscriptTail } from './transcript.js';
 import type { ConversationEntry } from './agents/types.js';
 
 /**
@@ -12,7 +11,7 @@ import type { ConversationEntry } from './agents/types.js';
  */
 
 import type { AgentState } from './attention.js';
-import type { PermissionRequest } from './permission-request.js';
+import type { PermissionRequest } from './api-types.js';
 
 export type { AgentState } from './attention.js';
 export { attentionRank, compareAttention, needsAttention } from './attention.js';
@@ -306,26 +305,6 @@ export async function markSeen(sessionId: string): Promise<SessionStatus | null>
     prev && !prev.seen ? { ...prev, seen: true, updatedAt: new Date().toISOString() } : prev,
   );
   return next;
-}
-
-// ---- transcript summary ---------------------------------------------------
-
-/**
- * Text of the last assistant message in a Claude Code transcript (JSONL),
- * for the "done" summary. Null when unreadable or there's no assistant text yet.
- */
-export function lastAssistantText(transcriptPath: string | undefined): string | null {
-  const entries = readTranscriptTail(transcriptPath);
-  for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].type !== 'assistant') continue;
-    const text = contentBlocks(entries[i])
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
-    if (text) return text;
-  }
-  return null;
 }
 
 /**

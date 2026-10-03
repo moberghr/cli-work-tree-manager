@@ -1,9 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import {
-  INTERNAL_CLAUDE_ENV,
-  internalClaudeEnv,
-  isInternalClaude,
-} from '../../src/core/internal-claude.js';
+import { INTERNAL_RUN_ENV as INTERNAL_CLAUDE_ENV, internalRunEnv as internalClaudeEnv, isInternalRun as isInternalClaude } from '../../src/core/internal-run.js';
 
 const original = process.env[INTERNAL_CLAUDE_ENV];
 
@@ -35,7 +31,7 @@ describe('internal-claude marker', () => {
 describe('internalClaudeSpawn', () => {
   it('runs text-only: no tools, a neutral cwd, tagged as internal', async () => {
     const os = await import('node:os');
-    const { internalClaudeSpawn, INTERNAL_CLAUDE_ENV } = await import('../../src/core/internal-claude.js');
+    const { internalClaudeSpawn } = await import('../../src/core/agents/claude/internal.js');
     const run = internalClaudeSpawn();
     // `--tools ""` disables every tool: text in the prompt (a diff, another
     // repo's CLAUDE.md) can't make this run execute anything.

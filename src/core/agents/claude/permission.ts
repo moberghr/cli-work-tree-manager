@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { contentBlocks, type TranscriptEntry } from './transcript.js';
-import type { PermissionRequest } from './api-types.js';
+import type { PermissionRequest } from '../../api-types.js';
 
-export type { PermissionRequest } from './api-types.js';
+export type { PermissionRequest } from '../../api-types.js';
 
 /**
  * "Claude needs your permission to use Bash" says which tool, not what it
@@ -12,8 +12,8 @@ export type { PermissionRequest } from './api-types.js';
  */
 
 // The part of a tool call a person needs to judge it: claude-entries.ts (one reader of Claude's lines).
-export { describeToolUse } from './agents/claude-entries.js';
-import { describeToolUse } from './agents/claude-entries.js';
+export { describeToolUse } from './entries.js';
+import { describeToolUse } from './entries.js';
 
 /**
  * The tool call Claude is waiting on, or null. With parallel calls Claude
@@ -66,8 +66,8 @@ export function screenAnchor(req: PermissionRequest): string {
   return '';
 }
 
-export type { DialogCheck } from './agents/types.js';
-import type { DialogCheck } from './agents/types.js';
+export type { DialogCheck } from '../types.js';
+import type { DialogCheck } from '../types.js';
 
 /**
  * May we answer by keystroke? Only while the screen shows the permission

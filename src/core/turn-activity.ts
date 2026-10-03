@@ -1,4 +1,4 @@
-import { readTranscriptTail } from './transcript.js';
+import { readJsonlTail } from './jsonl.js';
 import { agentOf } from './agents/index.js';
 import { ANSWERED_AFTER_MS, effectiveStatus, idleFrom, lastTurnEntryMs, readStatus, type EffectiveStatus, type SessionStatus } from './session-status.js';
 import type { WorktreeSession } from './session-types.js';
@@ -37,7 +37,7 @@ export function sessionStatusView(
       const hit = cache.get(t.file);
       if (hit?.key === key) turnMs = hit.ms;
       else {
-        turnMs = lastTurnEntryMs(conv.entries(readTranscriptTail(t.file)));
+        turnMs = lastTurnEntryMs(conv.entries(readJsonlTail(t.file)));
         cache.set(t.file, { key, ms: turnMs });
       }
     }

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { bootTime, processTable } from '../process.js';
-import type { LiveAgent } from './types.js';
+import { bootTime, processTable } from '../../process.js';
+import type { LiveAgent } from '../types.js';
 
 /**
  * Claude Code's running processes (the Claude adapter's `live`): which

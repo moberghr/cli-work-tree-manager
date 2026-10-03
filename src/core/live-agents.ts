@@ -11,12 +11,10 @@ import { sessionIdFor } from './session-id.js';
  */
 
 /** A running Claude: the agents' LiveAgent (agents/types.ts). */
-export type LiveClaude = LiveAgent;
-export { aliveOnly, claudeSessionsDir, parseLiveClaude, readLiveClaudes } from './agents/claude-live.js';
 
 /** Group by work session (a Claude outside any session is left out). */
-export function claudesBySession(list: LiveClaude[], sessions: WorktreeSession[]): Map<string, LiveClaude[]> {
-  const out = new Map<string, LiveClaude[]>();
+export function agentsBySession(list: LiveAgent[], sessions: WorktreeSession[]): Map<string, LiveAgent[]> {
+  const out = new Map<string, LiveAgent[]>();
   for (const c of list) {
     const s = findSessionForCwd(c.cwd, sessions);
     if (!s) continue;
@@ -32,7 +30,7 @@ export function claudesBySession(list: LiveClaude[], sessions: WorktreeSession[]
  * started in a terminal. `duplicate`: two or more on one conversation — they
  * would both write to it.
  */
-export function summarizeClaudes(list: LiveClaude[], appPids: ReadonlySet<number>): SessionClaudes | null {
+export function summarizeAgents(list: LiveAgent[], appPids: ReadonlySet<number>): SessionClaudes | null {
   if (list.length === 0) return null;
   const inApp = list.filter((c) => appPids.has(c.pid)).length;
   const perConversation = new Map<string, number>();

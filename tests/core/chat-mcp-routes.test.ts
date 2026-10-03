@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleMcp } from '../../src/core/chat-mcp-routes.js';
-import { claudePermissionTool } from '../../src/core/agents/claude-chat.js';
+import { claudePermissionTool } from '../../src/core/agents/claude/chat.js';
 import type { ChatPermissionTool } from '../../src/core/agents/types.js';
 
 /** work's MCP permission endpoint: MCP is work's, the tool and its answers the agent's (its protocol's `permissionTool`). */

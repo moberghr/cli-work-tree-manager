@@ -19,7 +19,8 @@ import {
   type CheckpointEntry,
 } from './checkpoint.js';
 import { summarizeCheckpoint } from './checkpoint-summary.js';
-import { getClaudeActivityMs, claudeActiveWithin } from './claude-activity.js';
+import { agentWriteMs } from './agents/index.js';
+import { activeWithin } from './session-activity.js';
 import {
   commentStoreIdForScope,
   findScope,
@@ -296,11 +297,8 @@ export function mountScopeRoutes(
       // snapshot pipeline.
       const runSnapshot = async () => {
         snapshotTimers.delete(hash);
-        const claudeMs = scope.paths.reduce(
-          (m, p) => Math.max(m, getClaudeActivityMs(p)),
-          0,
-        );
-        if (claudeActiveWithin(claudeMs, Date.now(), CLAUDE_SESSION_MS)) {
+        const agentMs = scope.paths.reduce((m, p) => Math.max(m, agentWriteMs(p)), 0);
+        if (activeWithin(agentMs, Date.now(), CLAUDE_SESSION_MS)) {
           // A Claude session is active for this scope — the Stop hook is
           // authoritative for checkpoints, so the timer stands down. This
           // is what guarantees the timer can never snapshot before Claude

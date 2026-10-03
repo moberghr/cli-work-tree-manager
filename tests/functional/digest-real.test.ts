@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { upsertSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { disposeAllScopes } from '../../src/core/scope-manager.js';
 import { startWebServer, type WebServerHandle } from '../../src/core/web-server.js';
 import type { DigestResponse } from '../../src/core/api-types.js';

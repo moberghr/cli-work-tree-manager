@@ -1,5 +1,5 @@
 import spawn from 'cross-spawn';
-import type { AgentSkills } from './types.js';
+import type { AgentSkills } from '../types.js';
 
 /**
  * Claude Code's side of work's skills (types.ts `AgentSkills`): they ship as

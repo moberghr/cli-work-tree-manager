@@ -9,7 +9,7 @@ import { sessionTimeline } from '../../src/core/timeline-source.js';
 import { mountTimelineRoutes } from '../../src/core/timeline-routes.js';
 import { saveHistory } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import type { WorktreeSession } from '../../src/core/session-types.js';
 
 describe('buildTimeline (pure)', () => {

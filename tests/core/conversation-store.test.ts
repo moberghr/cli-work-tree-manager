@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorktreeSession } from '../../src/core/history.js';
 import { archiveSession } from '../../src/core/session-archive.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
-import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/claude-activity.js';
+import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import { conversationDirFor, searchConversations, syncConversation, syncConversations } from '../../src/core/conversation-store.js';
 import type { TranscriptFile } from '../../src/core/context-usage.js';
 

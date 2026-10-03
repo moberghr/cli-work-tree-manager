@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDigest, digestSession, promptEntries, promptsSince, HEURISTIC_LABEL_RE, MAX_PROMPTS, type DigestInput } from '../../src/core/digest.js';
-import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 
 const T0 = Date.parse('2026-09-29T08:00:00Z');
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();

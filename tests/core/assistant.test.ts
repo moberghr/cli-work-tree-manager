@@ -16,9 +16,9 @@ import { mountAssistantRoutes } from '../../src/core/assistant-routes.js';
 import { upsertSession } from '../../src/core/history.js';
 import { sessionIdFor } from '../../src/core/session-id.js';
 import type { SessionWire } from '../../src/core/api-types.js';
-import { claudeAgent } from '../../src/core/agents/claude.js';
+import { claudeAgent } from '../../src/core/agents/claude/adapter.js';
 import { agentById, assistantAgent } from '../../src/core/agents/index.js';
-import { claudeAllowRule } from '../../src/core/agents/claude-workspace.js';
+import { claudeAllowRule } from '../../src/core/agents/claude/workspace.js';
 import type { AllowRule } from '../../src/core/agents/types.js';
 
 let home: string;

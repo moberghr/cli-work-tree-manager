@@ -7,7 +7,7 @@ import {
   readPendingForWorktree,
   sessionIdFor,
 } from '../core/pending-delivery.js';
-import { isInternalClaude } from '../core/internal-claude.js';
+import { isInternalRun } from '../core/internal-run.js';
 import { readWebUrl } from '../core/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/session-status.js';
 import { bestEffortAsync } from '../core/best-effort.js';
@@ -269,7 +269,7 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // Claudes inherit the WORK_INTERNAL_CLAUDE marker; without this guard the
     // checkpoint-naming run recursively seals + spawns checkpoints, fragmenting
     // one Claude round into many spurious steps. See internal-claude.ts.
-    if (isInternalClaude()) return;
+    if (isInternalRun()) return;
     const payload = await readStdinJson();
     const agent = agentById(agentId);
     const cwd = hookCwd(payload, agent);

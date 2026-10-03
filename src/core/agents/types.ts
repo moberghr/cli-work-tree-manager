@@ -60,6 +60,8 @@ export interface AgentConversation {
   read(session: WorktreeSession, opts: { last: number }): ConversationEntry[];
   /** Where to put an archived conversation's files back so the agent resumes it in the session's folder; absent: Restore starts fresh (the archive keeps them). */
   restoreDir?(session: WorktreeSession): string | null;
+  /** The newest write to its conversations for work in `cwd` (ms; 0: none): "is it busy in this folder right now?" without a session (a `wd` scope). */
+  lastWriteMs?(cwd: string): number;
 }
 
 /** Starting it: every agent has this. */
@@ -248,6 +250,8 @@ export interface AgentAdapter {
   oneShot?: AgentOneShot;
   /** The project instructions file it reads (CLAUDE.md; Codex, Copilot and opencode read AGENTS.md): a group's combined one is written under this name. */
   instructionsFile: string;
+  /** Folders whose changes mean it did something (its conversations, its process state): work web watches them to refresh the dashboard at once. */
+  activityRoots?(): string[];
   /** Installing work's skills for it (skills.ts); absent: it isn't told about `work`'s commands. */
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */

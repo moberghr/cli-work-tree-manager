@@ -4,10 +4,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { catchUp, catchUpPrompt, catchUpTimeline, cachedCatchUp, forgetCatchUp } from '../../src/core/catch-up.js';
-import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/claude-activity.js';
+import { claudeProjectsRoot, encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
-import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
-import { claudeEntries } from '../../src/core/agents/claude-entries.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript-entry.js';
+import { claudeEntries } from '../../src/core/agents/claude/entries.js';
 
 const day = 24 * 3600_000;
 const NOW = Date.parse('2026-10-01T12:00:00Z');

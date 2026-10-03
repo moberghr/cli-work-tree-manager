@@ -3,11 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { agentById, agentFor, agentOf, agentSettings, agentToRecord, agentWire, isKnownAgent } from '../../src/core/agents/index.js';
-import { claudeAgent, claudeEntries } from '../../src/core/agents/claude.js';
-import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude-entries.js';
-import { encodeProjectDir } from '../../src/core/claude-activity.js';
+import { claudeAgent, claudeEntries } from '../../src/core/agents/claude/adapter.js';
+import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude/entries.js';
+import { encodeProjectDir } from '../../src/core/agents/claude/activity.js';
 import type { WorktreeSession } from '../../src/core/history.js';
-import type { TranscriptEntry } from '../../src/core/transcript-entry.js';
+import type { TranscriptEntry } from '../../src/core/agents/claude/transcript-entry.js';
 
 /** The agent interface's first slice: a session's conversation in work's own terms, read from Claude Code's transcripts. */
 

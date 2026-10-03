@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from '../claude-activity.js';
-import type { WorktreeSession } from '../session-types.js';
-import type { ConversationFile } from './types.js';
+import { claudeProjectsRoot, encodeProjectDir, projectTranscripts } from './activity.js';
+import type { WorktreeSession } from '../../session-types.js';
+import type { ConversationFile } from '../types.js';
 
 /**
  * Where Claude Code keeps a session's conversations: its transcripts under

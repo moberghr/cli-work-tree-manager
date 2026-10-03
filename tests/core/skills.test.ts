@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeSkillsWith, isInstalled, MARKETPLACE_NAME, MARKETPLACE_REPO, PLUGIN_SPEC, type ClaudeRun } from '../../src/core/agents/claude-skills.js';
-import { claudeAgent } from '../../src/core/agents/claude.js';
+import { claudeSkillsWith, isInstalled, MARKETPLACE_NAME, MARKETPLACE_REPO, PLUGIN_SPEC, type ClaudeRun } from '../../src/core/agents/claude/skills.js';
+import { claudeAgent } from '../../src/core/agents/claude/adapter.js';
 import { agentById } from '../../src/core/agents/index.js';
 import type { AgentAdapter } from '../../src/core/agents/types.js';
 import { installSkills, skillsDir } from '../../src/core/skills.js';
