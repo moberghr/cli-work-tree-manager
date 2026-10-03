@@ -414,7 +414,7 @@ wd-bin.ts → forwards argv to `diff`     web,attach,pty-host,config,init,todo,r
                                   └── command-hook-installer.ts ← UserPromptSubmit/Stop hooks
 
                                   core/pty/pty-host.ts          ← PTY host: owns every Claude PTY (survives restarts)
-                                  tui/session.ts            ← node-pty + @xterm/headless (used by the PTY host)
+                                  core/pty/pty-session.ts            ← node-pty + @xterm/headless (used by the PTY host)
 ```
 
 ### Design principles

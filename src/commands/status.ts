@@ -15,7 +15,7 @@ import {
   isBranchMerged,
   getCurrentBranch,
 } from '../core/git/git.js';
-import { timeAgo, shortDateTime } from '../utils/format.js';
+import { timeAgo, shortDateTime } from '../core/platform/format.js';
 
 export const statusCommand: CommandModule = {
   command: 'status [target] [branch]',

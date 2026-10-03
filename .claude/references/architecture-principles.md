@@ -29,7 +29,7 @@ mtk-version: 7.10.0
 - [EXTRACTED] Two front-ends over one core: `src/commands/` (yargs command definitions), `src/server/` (the HTTP front-end, routes in `src/server/routes/`), `src/core/` (all logic, grouped by feature: `sessions/`, `status/`, `diff/`, `pr/`, `pty/`, `platform/`, …), `src/utils/` (helpers). Evidence: CLAUDE.md "Source layout"; `tests/architecture/boundaries.test.ts` enforces the direction.
 - [EXTRACTED] Commands and the server depend on core, not the reverse. Command handlers import from `../core/*`. Evidence: `src/commands/list.ts:5-7` imports `../core/platform/config.js`, `../core/git/git.js`, `../core/worktree/resolve.js`.
 - [EXTRACTED] Two entry points: `src/bin.ts` (the `work` CLI) wires global error handling then calls `run()` from `src/cli.ts`; `src/wd-bin.ts` is the `wd` diff binary. Evidence: `src/bin.ts:4` `import { run } from './cli.js'`, `package.json` bin map.
-- [EXTRACTED] `src/tui/session.ts` is the PTY wrapper (node-pty + headless xterm), used only by the PTY host. The Ink terminal dashboard (`work dash`, `src/tui-ink/`) was removed in 2.0.
+- [EXTRACTED] `src/core/pty/pty-session.ts` is the PTY wrapper (node-pty + headless xterm), used only by the PTY host. The Ink terminal dashboard (`work dash`, `src/tui-ink/`) was removed in 2.0.
 
 ## 3. Design Patterns in Use
 ### 3.1 yargs CommandModule per command
@@ -41,7 +41,7 @@ mtk-version: 7.10.0
 - [EXTRACTED] `tsconfig.json` sets `"jsx": "react-jsx"` for the SPA's `.tsx`; UI tests run the SPA under jsdom (`tests/web/`).
 
 ### 3.3 PTY terminal sessions
-- [EXTRACTED] Interactive terminal sessions are driven by `node-pty`, imported in exactly one place and wrapped by the session layer. Evidence: `grep -rln "from 'node-pty'" src` → only `src/tui/session.ts`; `src/tui/session.ts:1` `import pty, { type IPty } from 'node-pty'`.
+- [EXTRACTED] Interactive terminal sessions are driven by `node-pty`, imported in exactly one place and wrapped by the session layer. Evidence: `grep -rln "from 'node-pty'" src` → only `src/core/pty/pty-session.ts`; `src/core/pty/pty-session.ts:1` `import pty, { type IPty } from 'node-pty'`.
 
 ## 4. API Design
 - Not applicable — this is a local CLI, not a network service. No HTTP server framework, no REST/gRPC surface.
@@ -70,7 +70,7 @@ mtk-version: 7.10.0
 - [EXTRACTED] Color output forced for non-TTY Windows shims unless `NO_COLOR` set. Evidence: `src/bin.ts:14-16`.
 
 ## 9. Inter-Service Communication
-- Not applicable — single local process. The only IPC is the browser-facing local diff/comment server (`node:http`) and PTY child processes. Evidence: `src/server/comment-server.ts`, `src/tui/session.ts`.
+- Not applicable — single local process. The only IPC is the browser-facing local diff/comment server (`node:http`) and PTY child processes. Evidence: `src/server/comment-server.ts`, `src/core/pty/pty-session.ts`.
 
 ## 10. Inconsistencies Found
 - ⚠️ [AMBIGUOUS] State-write durability is inconsistent: `config.json` is written with a bare `fs.writeFileSync` while `history.json`/`tasks.json` go through `atomicWriteFile` + `withFileLock`. Standardize on the atomic+lock path for all persisted JSON state. Evidence: `src/core/platform/config.ts:71` vs `src/core/sessions/history.ts:68`, `src/core/tasks.ts:42`.

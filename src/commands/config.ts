@@ -11,7 +11,7 @@ import {
 } from '../core/platform/config.js';
 import { isGitRepo } from '../core/git/git.js';
 import { generateGroupInstructions } from '../core/agents/group-instructions.js';
-import { openInEditor } from '../utils/platform.js';
+import { openInEditor } from '../core/platform/launch.js';
 
 export const configCommand: CommandModule = {
   command: 'config <action>',

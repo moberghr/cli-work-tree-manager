@@ -9,14 +9,14 @@ import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/s
 vi.mock('@inquirer/prompts', () => ({
   select: vi.fn(),
 }));
-vi.mock('../../src/utils/platform.js', () => ({
+vi.mock('../../src/core/platform/launch.js', () => ({
   launchAi: vi.fn(),
 }));
 
 import { resumeCommand } from '../../src/commands/resume.js';
 import { recentCommand } from '../../src/commands/recent.js';
 import { select } from '@inquirer/prompts';
-import { launchAi } from '../../src/utils/platform.js';
+import { launchAi } from '../../src/core/platform/launch.js';
 
 let tmpDir: string;
 let worktreePath: string;

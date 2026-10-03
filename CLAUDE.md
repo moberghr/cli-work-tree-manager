@@ -218,13 +218,14 @@ src/
     pr/                     gh PRs, review threads + reply drafts, the PR watch, ship
     jira/                   acli issues, the Jira watch, worklogs, the board
     chat/                   the headless chat runner (chat-session) and its view model (chat-view)
-    pty/                    the PTY host (server, registry, client, protocol), the pool, idle sleep
+    pty/                    the PTY host (server, registry, client, protocol), the pool, idle sleep;
+                            pty-session.ts: PtySession (node-pty + @xterm/headless), the PTY host's only
     git/                    git wrapper, HEAD reading, base specs
     platform/               infrastructure: db (state.db), config, fs-safe, fs-watcher, settings
                             editor, hook installer, logger, report, process, web discovery,
-                            build stamp, autostart, internal-run marker, the Activity log
-  tui/session.ts            PtySession (node-pty + @xterm/headless) — used only by the PTY host
-  completions/, utils/      shell completions; small CLI helpers
+                            build stamp, autostart, internal-run marker, the Activity log,
+                            package root, work's own binary (work-bin), launching editors/URLs (launch)
+  completions/              shell completions
   web/src/                  the React SPA (Vite → dist/web): apps/, components/, state/, hooks/
 tests/                      mirrors src/ (tests/core/<feature>/, tests/server/, tests/commands/, …)
 ```
@@ -275,7 +276,7 @@ Claude PTYs are owned by the **PTY host** (`work pty-host`, hidden), a detached 
 
 § A probe that times out is a BUSY host, never a missing one: `findHost` retries with a longer timeout, then throws `PtyHostBusyError`, and every "should I start one?" path treats that as running (a second host restores every session again).
 § WHEN changing the host wire format, bump `PROTOCOL_VERSION` (now 2: the restore list moved into state.db; a v2 host adopts a `pty-sessions.json` written by a v1 host that outlived the upgrade — `adoptLegacyRestoreList`) — the host outlives rebuilds, so clients must detect an old one and tell the user to `work pty-host --restart` rather than misbehave.
-§ WHEN spawning into a PTY, let `resolvePtyCommand` (`tui/session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
+§ WHEN spawning into a PTY, let `resolvePtyCommand` (`core/pty/pty-session.ts`) build the command — never `cmd.exe /c <tool> <args>`: unescaped, `&`/`|`/`%` in a prompt or path run as commands on Windows.
 § WHEN adding a path that spawns Claude for a session, go through `spawnSpecFor` + the host, not `new PtySession` — otherwise that session won't survive restarts or be attachable.
 § A Claude launched directly in a terminal (`--no-host`, config `launchViaHost: false`, or from before 2.0 made host launches the default) is invisible to the host, and the Terminal tab must not put a second one on its conversation: `claudeElsewhere` (`server/terminal-ws.ts`) infers one from a transcript write in the last 5 min, a working/blocked status, or a Stop in the last 30 min (the turn's end, `turnEndedAt`, else `since` — never `updatedAt`, which opening the session moves when it marks it seen), and the tab then explains (with the `--host` hint) instead of spawning; `?force=1` spawns anyway. Quiet longer than that is unknown, and spawning — which resumes the conversation — is what the tab is for.
 

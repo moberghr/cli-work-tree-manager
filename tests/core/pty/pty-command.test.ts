@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { resolvePtyCommand } from '../../src/tui/session.js';
+import { resolvePtyCommand } from '../../../src/core/pty/pty-session.js';
 
-const SHIM = path.resolve(__dirname, '../functional/fixtures/echo-ai.cmd');
+const SHIM = path.resolve(__dirname, '../../functional/fixtures/echo-ai.cmd');
 
 describe('resolvePtyCommand', () => {
   it.skipIf(process.platform === 'win32')('passes argv straight through off Windows', () => {

@@ -4,7 +4,7 @@ import { loadHistory } from '../core/sessions/history.js';
 import { sessionWire, lastActiveMs } from '../core/sessions/session-wire.js';
 import { AGE_LABEL, DISPLAY_LABEL, ageBucket, displayStatus, type AgeBucket, type DisplayKind } from '../core/sessions/session-view.js';
 import { scanChanges } from '../core/diff/overlap-scan.js';
-import { timeAgo } from '../utils/format.js';
+import { timeAgo } from '../core/platform/format.js';
 import { livePtys } from './shared/live-ptys.js';
 import { statusFromOutput } from '../core/pty/output-status.js';
 import type { SessionWire } from '../core/api-types.js';

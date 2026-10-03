@@ -6,8 +6,8 @@ import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/platform/config.js';
 import { loadHistory, getRecentSessions, recordLaunch, upsertSession } from '../core/sessions/history.js';
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
-import { launchAi } from '../utils/platform.js';
-import { timeAgo } from '../utils/format.js';
+import { launchAi } from '../core/platform/launch.js';
+import { timeAgo } from '../core/platform/format.js';
 
 export const resumeCommand: CommandModule = {
   command: 'resume',

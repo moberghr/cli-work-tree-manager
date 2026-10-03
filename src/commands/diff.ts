@@ -1,4 +1,4 @@
-import { resolveWorkBinPath } from '../utils/work-bin.js';
+import { resolveWorkBinPath } from '../core/platform/work-bin.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,7 +20,7 @@ import {
 } from '../server/comment-server.js';
 import { diffReviewSnapshot } from '../core/comments/review-poll.js';
 import { renderStatic } from '../core/diff/static-renderer.js';
-import { openUrl } from '../utils/platform.js';
+import { openUrl } from '../core/platform/launch.js';
 import { spawnDetachedWork } from '../core/platform/process.js';
 import { existingWebDecision, readWebUrl, webUrlPath } from '../core/platform/web-discovery.js';
 
@@ -90,7 +90,7 @@ async function runStop(repoSpecs: RepoSpec[]): Promise<void> {
   }
 }
 
-export { resolveWorkBinPath } from '../utils/work-bin.js';
+export { resolveWorkBinPath } from '../core/platform/work-bin.js';
 
 // Discovery of the running work web lives in core/web-discovery.ts;
 // webServerResponds is re-exported for existing callers/tests.

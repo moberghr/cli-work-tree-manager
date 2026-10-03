@@ -99,8 +99,8 @@ describe('architecture boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('§2.4 node-pty is imported only by src/tui/session.ts', () => {
-    expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/tui/session.ts')).toEqual([]);
+  it('§2.4 node-pty is imported only by src/core/pty/pty-session.ts', () => {
+    expect(violations((f, s) => s === 'node-pty' && f.rel !== 'src/core/pty/pty-session.ts')).toEqual([]);
   });
 
   it('the SQLite engine is loaded only by src/core/platform/db.ts (db-import.ts borrows its types)', () => {
@@ -166,7 +166,7 @@ describe('architecture boundaries', () => {
   it('Claude PTYs for sessions are spawned only by the PTY host', () => {
     // A session PTY created anywhere else would not survive restarts, would
     // not be restorable after a reboot and could not be attached to.
-    const allowed = new Set(['src/core/pty/pty-registry.ts', 'src/tui/session.ts']);
+    const allowed = new Set(['src/core/pty/pty-registry.ts', 'src/core/pty/pty-session.ts']);
     const offenders = files
       .filter((f) => /new PtySession\s*\(/.test(f.text) && !allowed.has(f.rel))
       .map((f) => f.rel);
@@ -180,7 +180,7 @@ describe('architecture boundaries', () => {
           f.rel.startsWith('src/core/') &&
           f.rel !== 'src/core/pty/pty-registry.ts' &&
           s.startsWith('.') &&
-          resolveRel(f.rel, s) === 'src/tui/session.js' &&
+          resolveRel(f.rel, s) === 'src/core/pty/pty-session.js' &&
           // type-only imports are fine (no runtime ownership)
           !new RegExp(`import\\s+type[^;]*['"]${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`).test(f.text),
       ),

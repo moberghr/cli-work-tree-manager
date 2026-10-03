@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { agentById } from '../agents/index.js';
 import { loadConfig } from '../platform/config.js';
-import { PtySession } from '../../tui/session.js';
+import { PtySession } from './pty-session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from '../platform/fs-safe.js';
 import { dbPtySessions, type PtySessionsStore } from './pty-sessions-file.js';
 import { isPersistedPty, keepEnv, type PersistedPty, type PersistedPtys, type PtyInfo, type SpawnSpec } from './pty-host-protocol.js';

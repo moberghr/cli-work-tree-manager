@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** `work tree --no-host`: the direct launch runs the session's own agent, and asks that agent whether it can resume. */
 
-vi.mock('../../src/utils/platform.js', async (orig) => ({ ...(await orig<typeof import('../../src/utils/platform.js')>()), launchAi: vi.fn() }));
-const { launchAi } = await import('../../src/utils/platform.js');
+vi.mock('../../src/core/platform/launch.js', async (orig) => ({ ...(await orig<typeof import('../../src/core/platform/launch.js')>()), launchAi: vi.fn() }));
+const { launchAi } = await import('../../src/core/platform/launch.js');
 const { git } = await import('../../src/core/git/git.js');
 const { saveConfig } = await import('../../src/core/platform/config.js');
 const { loadHistory, saveHistory } = await import('../../src/core/sessions/history.js');

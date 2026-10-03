@@ -4,7 +4,7 @@ import type { WorktreeSession } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/web-state.js';
 import { spawnSpecFor } from '../../core/pty/pty-pool.js';
 import { ensureHost, PtyHostClient } from '../../core/pty/pty-host-client.js';
-import { resolveWorkBinPath } from '../../utils/work-bin.js';
+import { resolveWorkBinPath } from '../../core/platform/work-bin.js';
 
 // Bridges this terminal to a session in the PTY host. Shared by
 // `work attach` and `work tree --host`; it lives here rather than in either

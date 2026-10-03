@@ -9,7 +9,7 @@ import { defaultBuildFoldersDeps } from '../core/cleanup/build-folders-deps.js';
 import { deleteMergedBranches, findMergedBranches } from '../core/cleanup/branch-tidy.js';
 import { defaultBranchTidyDeps } from '../core/cleanup/branch-tidy-deps.js';
 import type { CleanupAction, CleanupCandidate } from '../core/api-types.js';
-import { timeAgo } from '../utils/format.js';
+import { timeAgo } from '../core/platform/format.js';
 
 const ACTIONS: CleanupAction[] = ['delete', 'archive', 'forget'];
 

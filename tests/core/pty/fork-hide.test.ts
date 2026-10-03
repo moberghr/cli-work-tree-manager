@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('node-pty', () => ({ default: {} }));
-import { hideForkConsoles } from '../../src/tui/session.js';
+import { hideForkConsoles } from '../../../src/core/pty/pty-session.js';
 
 describe('hideForkConsoles', () => {
   const fake = () => {

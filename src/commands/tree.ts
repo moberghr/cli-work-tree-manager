@@ -7,7 +7,7 @@ import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
 import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
 import { attachSession } from './shared/attach-session.js';
-import { openVSCode, launchAi } from '../utils/platform.js';
+import { openVSCode, launchAi } from '../core/platform/launch.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
 
 export const treeCommand: CommandModule = {

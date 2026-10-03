@@ -8,7 +8,7 @@ import { killTree } from '../core/platform/process.js';
 import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-host-protocol.js';
 import { loadHistory } from '../core/sessions/history.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
-import { resolveWorkBinPath } from '../utils/work-bin.js';
+import { resolveWorkBinPath } from '../core/platform/work-bin.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');

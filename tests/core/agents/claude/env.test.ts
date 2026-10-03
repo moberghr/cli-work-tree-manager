@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PARENT_SESSION_VARS, withoutParentSession } from '../../../../src/core/agents/claude/env.js';
-import { PtySession } from '../../../../src/tui/session.js';
+import { PtySession } from '../../../../src/core/pty/pty-session.js';
 
 describe('withoutParentSession', () => {
   it("drops the parent Claude session's markers and keeps everything else", () => {
