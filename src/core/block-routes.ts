@@ -1,7 +1,6 @@
 import type { Hono } from 'hono';
-import { addBlocker, prUrl, removeBlocker, type BlockRef } from './session-blocks.js';
-import { findSession, sessionIdFor } from './web-state.js';
-import { loadHistory } from './history.js';
+import { addBlocker, blockRefFrom, removeBlocker } from './session-blocks.js';
+import { findSession } from './web-state.js';
 
 /**
  * "Blocked by" (session-blocks.ts):
@@ -30,17 +29,4 @@ export function mountBlockRoutes(app: Hono, opts: { broadcast: (event: string, d
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true });
   });
-}
-
-/** A request's blocker, checked: a live session (by id), or a GitHub PR URL. */
-export function blockRefFrom(body: { kind?: unknown; id?: unknown; url?: unknown } | null): BlockRef | null {
-  if (body?.kind === 'session' && typeof body.id === 'string') {
-    const s = loadHistory().find((x) => sessionIdFor(x) === body.id && !x.archivedAt);
-    return s ? { kind: 'session', id: body.id, label: s.title && s.title.trim() ? s.title : s.branch } : null;
-  }
-  if (body?.kind === 'pr' && typeof body.url === 'string') {
-    const pr = prUrl(body.url);
-    return pr ? { kind: 'pr', url: pr.url, label: pr.label } : null;
-  }
-  return null;
 }

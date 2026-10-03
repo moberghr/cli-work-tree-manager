@@ -8,7 +8,7 @@ import { createInProcess, type CreateWorktree } from './setup-child.js';
 import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, type JiraIssue } from './jira.js';
 import { jiraPrompt } from './jira-prompt.js';
 import { runInternal } from './checkpoint-summary.js';
-import { startSessionWithPrompt } from './worktree-routes.js';
+import { startSessionWithPrompt } from './session-start.js';
 import {
   branchFor,
   listDecisions,

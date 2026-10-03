@@ -15,12 +15,12 @@ import {
   findSession,
   sessionIdFor,
 } from './web-state.js';
-import { disposePty, ensurePty, getWorkBin, peekPty, spawnSpecFor } from './pty-pool.js';
-import { getCommentFileStore } from './comment-file-store.js';
+import { disposePty, getWorkBin, spawnSpecFor } from './pty-pool.js';
 import { git } from './git.js';
 import { detectParentBranch } from './diff-scope.js';
 import { toBaseSpec } from './base-spec.js';
 import { createInProcess, type CreateWorktree } from './setup-child.js';
+import { startSessionWithPrompt, type StartOutcome } from './session-start.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -30,26 +30,6 @@ export interface WorktreeMutOptions {
   releaseScope?: (paths: string[]) => void;
   /** How a worktree is made: work web runs it in a child process (setup-child.ts), so its git doesn't hold up the server. */
   create?: CreateWorktree;
-}
-
-/** What happened to the first prompt of a created worktree. */
-export type StartOutcome =
-  | 'started' // Claude spawned in the PTY host with it
-  | 'queued'; // the session was already running: delivered on its next turn
-
-/**
- * Default `startSession`: spawn the session's Claude in the PTY host with
- * the prompt as its first message — or, when the worktree already existed
- * and its Claude is running, queue it like a review comment instead of
- * typing into a terminal that may be mid-turn or showing a prompt.
- */
-export async function startSessionWithPrompt(sessionId: string, prompt: string): Promise<StartOutcome> {
-  if (peekPty(sessionId)) {
-    getCommentFileStore(sessionId).post({ side: 'general', status: 'published', author: 'user', body: prompt });
-    return 'queued';
-  }
-  if (!(await ensurePty(sessionId, { initialPrompt: prompt }))) throw new Error('could not start the session');
-  return 'started';
 }
 
 /**

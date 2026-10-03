@@ -1,8 +1,7 @@
 import type { Hono } from 'hono';
 import { findSession } from './web-state.js';
 import { cachedCatchUp, catchUp, type CatchUpFacts } from './catch-up.js';
-import { runInternal } from './checkpoint-summary.js';
-import { readStatus } from './session-status.js';
+import { askCatchUp, catchUpFacts } from './catch-up-deps.js';
 import type { CatchUpWire, WorklogWire, WorkTimeWire } from './api-types.js';
 import { jiraWorklogPoster, loggedDays, logWorkDay, worklogSettings, type WorklogSettings } from './jira-worklog.js';
 import { loadConfig } from './config.js';
@@ -15,15 +14,6 @@ import { sessionWorkTime } from './work-time-source.js';
  *   GET  /api/sessions/:id/catch-up  — the last summary, if the conversation hasn't grown (runs nothing)
  *   POST /api/sessions/:id/catch-up  — write one (an internal Claude, no tools)
  */
-/** The internal Claude that writes them (no tools). */
-export const askCatchUp = (prompt: string) => runInternal(prompt, 90_000);
-
-/** What the summary may say besides the conversation: its status, plus what the caller adds (the uncommitted size). */
-export function catchUpFacts(id: string, extra: CatchUpFacts = {}): CatchUpFacts {
-  const st = readStatus(id);
-  return { ...(st ? { status: `${st.state}${st.summary ? ` (${st.summary})` : ''}` } : {}), ...extra };
-}
-
 export function mountCatchUpRoutes(
   app: Hono,
   opts: {

@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { askCatchUp, catchUpFacts } from '../core/catch-up-routes.js';
+import { askCatchUp, catchUpFacts } from '../core/catch-up-deps.js';
 import { catchUp } from '../core/catch-up.js';
 import { sessionIdFor } from '../core/session-id.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';

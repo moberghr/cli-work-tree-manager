@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { blockRefFrom } from '../core/block-routes.js';
+import { blockRefFrom } from '../core/session-blocks.js';
 import { addBlocker, blockKey, readBlock, removeBlocker } from '../core/session-blocks.js';
 import { findSession, loadHistory } from '../core/history.js';
 import { sessionIdFor } from '../core/session-id.js';

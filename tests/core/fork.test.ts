@@ -119,7 +119,8 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     const { upsertSession, loadHistory } = await import('../../src/core/history.js');
     const { createSingleWorktree } = await import('../../src/core/worktree.js');
     const { sessionIdFor } = await import('../../src/core/session-id.js');
-    const { defaultForkDeps, mountForkRoutes } = await import('../../src/core/fork-routes.js');
+    const { mountForkRoutes } = await import('../../src/core/fork-routes.js');
+    const { defaultForkDeps } = await import('../../src/core/fork-deps.js');
     const repo = path.join(tmp, 'api');
     fs.mkdirSync(repo);
     git(repo, 'init', '-q', '-b', 'main');
@@ -169,7 +170,8 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     const { loadHistory } = await import('../../src/core/history.js');
     const { setupWorktree } = await import('../../src/core/worktree.js');
     const { sessionIdFor } = await import('../../src/core/session-id.js');
-    const { defaultForkDeps, mountForkRoutes } = await import('../../src/core/fork-routes.js');
+    const { mountForkRoutes } = await import('../../src/core/fork-routes.js');
+    const { defaultForkDeps } = await import('../../src/core/fork-deps.js');
     const repos: Record<string, string> = {};
     for (const name of ['backend', 'web']) {
       const dir = path.join(tmp, 'g', name);

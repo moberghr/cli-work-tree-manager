@@ -9,8 +9,8 @@ import { findSession, loadHistory, upsertSession } from '../../src/core/history.
 
 const h = vi.hoisted(() => ({ attach: vi.fn(async () => 0), start: vi.fn(async () => 'started') }));
 vi.mock('../../src/commands/shared/attach-session.js', () => ({ attachSession: h.attach }));
-vi.mock('../../src/core/worktree-routes.js', async (orig) => ({
-  ...(await orig<typeof import('../../src/core/worktree-routes.js')>()),
+vi.mock('../../src/core/session-start.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/core/session-start.js')>()),
   startSessionWithPrompt: h.start,
 }));
 
