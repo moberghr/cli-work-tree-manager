@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { claudeChat, claudeChatRead, claudeChatRecords, PERMISSION_TOOL, resultText } from '../../src/core/agents/claude-chat.js';
+import { claudeChat, claudeChatRead, claudeChatRecords, claudePermissionTool, PERMISSION_TOOL, resultText } from '../../src/core/agents/claude-chat.js';
 import { claudeAgent } from '../../src/core/agents/claude.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
 import { chatItems } from '../../src/core/chat-view.js';
@@ -116,6 +116,7 @@ describe('claudeChat.open: the process and its lines', () => {
     expect(p.userLine('hi')).toEqual({ type: 'user', message: { role: 'user', content: 'hi' } });
     expect(p.interruptLine()).toMatchObject({ type: 'control_request', request: { subtype: 'interrupt' } });
     expect(claudeAgent.chat).toBe(claudeChat);
+    expect(p.permissionTool).toBe(claudePermissionTool); // asked at the URL it was given
   });
 
   it('its history: the newest transcript’s messages, not its file snapshots or summaries', () => {
@@ -132,5 +133,27 @@ describe('claudeChat.open: the process and its lines', () => {
     fs.writeFileSync(path.join(projects, 'c1.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
     const s = { target: 'api', branch: 'feat/x', paths: [wt], isGroup: false } as WorktreeSession;
     expect(claudeChat.history(s)).toEqual([[{ kind: 'you', text: 'Add a test' }], [{ kind: 'text', text: 'Added.' }]]);
+  });
+});
+
+describe('tool calls without an id', () => {
+  it('get none (nothing can name them), and each still has its own card', () => {
+    const idless = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }] } };
+    expect(claudeChatRecords(idless)).toEqual([{ kind: 'tool', id: '', name: 'Bash', input: { command: 'ls' } }]);
+    const its = items(idless, idless, { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: '', content: 'x' }] } });
+    const tools = its.filter((i) => i.kind === 'tool');
+    expect(tools).toHaveLength(2);
+    expect(new Set(tools.map((t) => (t as { id: string }).id)).size).toBe(2); // two cards, two ids
+    expect(tools.every((t) => (t as { result: unknown }).result === null)).toBe(true); // nothing paired with either
+  });
+});
+
+describe('claudePermissionTool: Claude’s --permission-prompt-tool contract', () => {
+  it('reads what Claude sends, and answers allow / deny its way', () => {
+    expect(claudePermissionTool.request({ tool_name: 'Bash', input: { command: 'ls' }, tool_use_id: 't1' })).toEqual({ toolName: 'Bash', input: { command: 'ls' }, toolUseId: 't1' });
+    expect(claudePermissionTool.request({})).toEqual({ toolName: 'tool', input: {}, toolUseId: null });
+    expect(claudePermissionTool.reply({ allow: true, input: { command: 'ls' } })).toEqual({ behavior: 'allow', updatedInput: { command: 'ls' } });
+    expect(claudePermissionTool.reply({ allow: false })).toEqual({ behavior: 'deny', message: 'The user denied this.' });
+    expect(claudePermissionTool.tool.name).toBe('approve'); // `mcp__work_chat__approve` with the server name
   });
 });

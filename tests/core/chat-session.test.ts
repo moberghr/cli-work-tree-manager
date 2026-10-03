@@ -37,13 +37,16 @@ afterEach(async () => {
   delete process.env.FAKE_CLAUDE_PIDS;
 });
 
-function make(history: ChatRecord[][] = [], protocol?: ChatProtocol, script = FAKE): { chat: ChatSession; events: ChatEvent[] } {
-  const p = protocol ?? claudeChat.open({ sessionId: 's1', permissionUrl: 'http://127.0.0.1:1/api/chat-mcp/t', dir });
+/** A chat on the fake; `args` records what each start was given by the protocol. */
+function make(history: ChatRecord[][] = [], protocol?: ChatProtocol, script = FAKE): { chat: ChatSession; events: ChatEvent[]; args: string[][] } {
+  const base = protocol ?? claudeChat.open({ sessionId: 's1', permissionUrl: 'http://127.0.0.1:1/api/chat-mcp/t', dir });
+  const args: string[][] = [];
+  const p: ChatProtocol = { ...base, args: (o) => { const a = base.args(o); args.push(a); return a; } };
   const chat = new ChatSession('s1', { cwd: dir, cmd: process.execPath, baseArgs: [script], continueExisting: true }, p, history);
   chats.push(chat);
   const events: ChatEvent[] = [];
   chat.subscribe((e) => events.push(e));
-  return { chat, events };
+  return { chat, events, args };
 }
 
 const until = async (cond: () => boolean, ms = 8000) => {
@@ -58,7 +61,7 @@ const kinds = (chat: ChatSession) => chat.snapshot().messages.flatMap((m) => m.r
 
 describe('ChatSession running Claude’s protocol (stream-json)', () => {
   it('starts on the first message, streams the reply, and is idle after the result', async () => {
-    const { chat, events } = make([[{ kind: 'you', text: 'earlier' }]]);
+    const { chat, events, args } = make([[{ kind: 'you', text: 'earlier' }]]);
     expect(chat.state).toBe('stopped');
     chat.send('hello');
     await until(() => chat.state === 'idle' && kinds(chat).includes('turn-end'));
@@ -68,11 +71,11 @@ describe('ChatSession running Claude’s protocol (stream-json)', () => {
     expect(partials.at(-1)).toBe('Hi there');
     expect(chat.snapshot().partial).toBeNull();
     // Launched headless with the permission tool, continuing the folder's conversation.
-    expect(chat.lastArgs).toEqual(expect.arrayContaining(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--permission-prompt-tool', 'mcp__work_chat__approve', '--continue']));
+    expect(args[0]).toEqual(expect.arrayContaining(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--permission-prompt-tool', 'mcp__work_chat__approve', '--continue']));
   });
 
   it('interrupts with a control request, and resumes the same conversation after a stop', async () => {
-    const { chat } = make();
+    const { chat, args } = make();
     chat.send('slow');
     await until(() => chat.state === 'working');
     chat.interrupt();
@@ -84,7 +87,7 @@ describe('ChatSession running Claude’s protocol (stream-json)', () => {
     expect(chat.state).toBe('stopped');
     chat.send('hello');
     await until(() => chat.state === 'idle' && kinds(chat).filter((t) => t === 'turn-end').length === 2);
-    expect(chat.lastArgs).toEqual(expect.arrayContaining(['--resume', 'fake-session-1']));
+    expect(args.at(-1)).toEqual(expect.arrayContaining(['--resume', 'fake-session-1']));
   });
 
   it('stops a process that ignores the interrupt', async () => {
@@ -105,7 +108,7 @@ describe('ChatSession running Claude’s protocol (stream-json)', () => {
     const [p] = chat.snapshot().permissions;
     expect(p).toMatchObject({ toolName: 'Bash', toolUseId: 'toolu_9' });
     expect(chat.answer(p.id, false, 'not that folder')).toBe(true);
-    await expect(decision).resolves.toEqual({ behavior: 'deny', message: 'not that folder' });
+    await expect(decision).resolves.toEqual({ allow: false, message: 'not that folder' }); // work's terms; the protocol encodes it
     expect(chat.snapshot().permissions).toEqual([]);
     expect(chat.answer(p.id, true)).toBe(false); // already answered
   });
@@ -149,12 +152,12 @@ const echoProtocol = (): ChatProtocol => ({
     if (m.asks) return { records: [{ kind: 'tool', id: m.asks.id, name: m.asks.tool, input: m.asks.input }], permission: { requestId: m.asks.id, toolName: m.asks.tool, input: m.asks.input, toolUseId: m.asks.id } };
     return { records: [{ kind: 'raw', label: 'echo', raw }] };
   },
-  answerLine: (requestId, d) => ({ answer: requestId, allow: d.behavior === 'allow' }),
+  answerLine: (requestId, d) => ({ answer: requestId, allow: d.allow }),
 });
 
 describe('ChatSession running another agent’s protocol', () => {
   it('its lines, its turn end, its conversation id', async () => {
-    const { chat } = make([], echoProtocol(), FAKE_ECHO);
+    const { chat, args } = make([], echoProtocol(), FAKE_ECHO);
     chat.send('ping');
     await until(() => chat.state === 'idle' && kinds(chat).includes('turn-end'));
     expect(chat.snapshot().messages.flatMap((m) => m.records)).toEqual([
@@ -162,7 +165,7 @@ describe('ChatSession running another agent’s protocol', () => {
       { kind: 'turn-end', ok: true, subtype: 'done', durationMs: null, costUsd: null },
     ]);
     expect(chat.conversationId).toBe('echo-conv-1');
-    expect(chat.lastArgs).toEqual(['--echo']);
+    expect(args).toEqual([['--echo']]);
   });
 
   it('a permission asked in its own output is held, and answered on its stdin', async () => {
@@ -178,7 +181,7 @@ describe('ChatSession running another agent’s protocol', () => {
   });
 
   it('no interrupt in its protocol: an interrupt stops the process, the next message starts it again', async () => {
-    const { chat } = make([], echoProtocol(), FAKE_ECHO);
+    const { chat, args } = make([], echoProtocol(), FAKE_ECHO);
     chat.send('hang');
     await until(() => chat.state === 'working');
     chat.interrupt();
@@ -186,6 +189,49 @@ describe('ChatSession running another agent’s protocol', () => {
     expect(chat.state).toBe('stopped');
     chat.send('again');
     await until(() => chat.state === 'idle' && kinds(chat).includes('turn-end'));
-    expect(chat.lastArgs).toEqual(['--echo', '--again', 'echo-conv-1']); // resumed its conversation
+    expect(args.at(-1)).toEqual(['--echo', '--again', 'echo-conv-1']); // resumed its conversation
   }, 20_000);
+});
+
+describe('ChatSession after a stop (it never writes to a closed stdin)', () => {
+  it('a permission asked in its output, then a stop: the denial is not written, and nothing throws', async () => {
+    const errors: unknown[] = [];
+    const onErr = (e: unknown) => errors.push(e);
+    process.on('uncaughtException', onErr);
+    try {
+      const { chat } = make([], echoProtocol(), FAKE_ECHO);
+      chat.send('ask');
+      await until(() => chat.snapshot().permissions.length === 1);
+      chat.interrupt(); // no interrupt in its protocol: denies the prompt, then stops
+      await until(() => !chat.running, 12_000);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(chat.state).toBe('stopped');
+      expect(errors).toEqual([]);
+    } finally {
+      process.off('uncaughtException', onErr);
+    }
+  }, 20_000);
+
+  it('a message right after a stop goes to a fresh process, and the old one’s exit doesn’t touch it', async () => {
+    const { chat, args } = make();
+    chat.send('hello');
+    await until(() => chat.state === 'idle' && kinds(chat).includes('turn-end'));
+    chat.stop();
+    chat.send('hello'); // the old one is still exiting
+    await until(() => chat.state === 'idle' && kinds(chat).filter((k) => k === 'turn-end').length === 2);
+    expect(args).toHaveLength(2);
+    expect(args[1]).toEqual(expect.arrayContaining(['--resume', 'fake-session-1']));
+    await new Promise((r) => setTimeout(r, 1800)); // past the stop's kill timer and the old one's exit
+    expect(chat.running).toBe(true);
+    expect(chat.state).toBe('idle');
+  }, 20_000);
+
+  it('a permission it can’t answer (no answerLine) is said in the chat, not left hanging unseen', async () => {
+    const { answerLine: _none, ...noAnswer } = echoProtocol();
+    const { chat } = make([], noAnswer, FAKE_ECHO);
+    chat.send('ask');
+    await until(() => kinds(chat).includes('notice'));
+    expect(chat.snapshot().permissions).toEqual([]);
+    expect(chat.snapshot().messages.flatMap((m) => m.records).find((r) => r.kind === 'notice')).toMatchObject({ text: expect.stringContaining('Shell') });
+  });
 });

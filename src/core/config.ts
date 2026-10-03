@@ -151,6 +151,11 @@ export function getConfigDir(): string {
   return dir;
 }
 
+/** An agent named in config (`internalAgent`, `assistantAgent`): an adapter's id, a plain word — never a path or a command line. */
+export function isAgentId(v: unknown): v is string {
+  return typeof v === 'string' && /^[\w.-]+$/.test(v);
+}
+
 export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.json');
 }
@@ -196,8 +201,8 @@ export function loadConfig(): WorkConfig | null {
           }
         : undefined,
       stacks: parsed.stacks && typeof parsed.stacks === 'object' ? { autoUpdate: parsed.stacks.autoUpdate !== false } : undefined,
-      internalAgent: typeof parsed.internalAgent === 'string' && /^[\w.-]+$/.test(parsed.internalAgent) ? parsed.internalAgent : undefined,
-      assistantAgent: typeof parsed.assistantAgent === 'string' && /^[\w.-]+$/.test(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
+      internalAgent: isAgentId(parsed.internalAgent) ? parsed.internalAgent : undefined,
+      assistantAgent: isAgentId(parsed.assistantAgent) ? parsed.assistantAgent : undefined,
       hostEnv: Array.isArray(parsed.hostEnv) ? parsed.hostEnv.filter((n: unknown): n is string => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) : undefined,
       jiraWorklog:
         parsed.jiraWorklog && typeof parsed.jiraWorklog === 'object' && typeof parsed.jiraWorklog.site === 'string' && typeof parsed.jiraWorklog.email === 'string'

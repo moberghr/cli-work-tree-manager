@@ -166,11 +166,27 @@ export interface ChatLineRead {
   permission?: { requestId: string; toolName: string; input: unknown; toolUseId: string | null };
 }
 
-/** The user's answer to a permission prompt. */
+/** The user's answer to a permission prompt, in work's terms (each protocol encodes it its own way). */
 export interface ChatPermissionDecision {
-  behavior: 'allow' | 'deny';
+  allow: boolean;
+  /** Why not (a denial): told to the agent. */
   message?: string;
-  updatedInput?: unknown;
+  /** The call's input as allowed (unchanged: work doesn't edit it). */
+  input?: unknown;
+}
+
+/**
+ * A permission prompt asked through work: an MCP tool the agent calls at the
+ * chat's permission URL (chat-mcp-routes.ts serves MCP; what the tool is,
+ * what it is sent and what it answers are the agent's).
+ */
+export interface ChatPermissionTool {
+  /** The tool as MCP `tools/list` describes it. */
+  tool: { name: string; description: string; inputSchema: unknown };
+  /** A call's arguments: which of the agent's tools it wants to run, with what. */
+  request(args: Record<string, unknown>): { toolName: string; input: unknown; toolUseId: string | null };
+  /** The answer as the agent reads it (sent back as the call's text result, JSON). */
+  reply(decision: ChatPermissionDecision): unknown;
 }
 
 /** One headless chat process's protocol: what to run, what to write on its stdin, how to read what it prints (JSON lines both ways). */
@@ -182,8 +198,10 @@ export interface ChatProtocol {
   /** The line that stops its turn; null: it has none, and work stops the process (the next message resumes). */
   interruptLine(): unknown | null;
   read(raw: unknown): ChatLineRead;
-  /** The line answering a permission it asked in its output (`ChatLineRead.permission`). */
+  /** The line answering a permission it asked in its output (`ChatLineRead.permission`); without it such a prompt is shown as one it can't answer. */
   answerLine?(requestId: string, decision: ChatPermissionDecision): unknown;
+  /** It asks permission through work's permission URL with this tool. */
+  permissionTool?: ChatPermissionTool;
 }
 
 /** Running the agent headless as the dashboard's chat, instead of in a terminal. */
@@ -202,14 +220,14 @@ export interface AllowRule {
 
 /** Setting up a folder work runs the agent in (the Ctrl+K assistant's, ~/.work/assistant). */
 export interface AgentWorkspace {
-  /** Write the agent's own settings for `dir`: what it may run without asking, and work's hooks there. Never the user's own local settings. */
-  write(dir: string, o: { allow: AllowRule[]; hooks: WorkHook[] }): void;
+  /** Write the agent's own settings for `dir`: what it may run without asking, and work's hooks there. Never the user's own local settings. Returns the files it wrote (relative to `dir`), so another agent's can be removed later. */
+  write(dir: string, o: { allow: AllowRule[]; hooks: WorkHook[] }): string[];
 }
 
 /** Giving the agent work's skills (how to use `work` and `wd -c`): SKILL.md folders, the Agent Skills format. */
 export interface AgentSkills {
-  /** Make the skills in `skillsDir` available to it, user-wide. Its outcome in a line; never throws for a missing agent. */
-  install(o: { skillsDir: string }): Promise<{ ok: boolean; message: string }>;
+  /** Make work's skills available to it, user-wide: from `skillsDir` (null: not found next to work — one that needs the files says so). Its outcome in a line; never throws for a missing agent. */
+  install(o: { skillsDir: string | null }): Promise<{ ok: boolean; message: string }>;
 }
 
 export interface AgentAdapter {

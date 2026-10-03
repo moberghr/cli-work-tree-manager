@@ -3,7 +3,7 @@ import path from 'node:path';
 import { splitTagged, stripAnsi, type ChatRecord } from '../chat-view.js';
 import { readTranscriptTail } from '../transcript.js';
 import { latestTranscript } from './claude-files.js';
-import type { AgentChat, ChatLineRead } from './types.js';
+import type { AgentChat, ChatLineRead, ChatPermissionTool } from './types.js';
 
 /**
  * Claude Code's headless chat (types.ts `AgentChat`): `claude -p` with
@@ -20,6 +20,29 @@ import type { AgentChat, ChatLineRead } from './types.js';
 
 /** The permission tool's name as Claude calls it (server `work_chat`, tool `approve`). */
 export const PERMISSION_TOOL = 'mcp__work_chat__approve';
+
+/**
+ * Claude's permission prompt tool (--permission-prompt-tool, an MCP tool):
+ * it is sent the tool Claude wants to run and its input, and answers
+ * `{"behavior":"allow","updatedInput":…}` or `{"behavior":"deny","message":…}`.
+ */
+export const claudePermissionTool: ChatPermissionTool = {
+  tool: {
+    name: 'approve',
+    description: 'Ask the user whether a tool call may run.',
+    inputSchema: {
+      type: 'object',
+      properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },
+      required: ['tool_name', 'input'],
+    },
+  },
+  request: (args) => ({
+    toolName: typeof args.tool_name === 'string' ? args.tool_name : 'tool',
+    input: args.input ?? {},
+    toolUseId: typeof args.tool_use_id === 'string' ? args.tool_use_id : null,
+  }),
+  reply: (d) => (d.allow ? { behavior: 'allow', updatedInput: d.input ?? {} } : { behavior: 'deny', message: d.message ?? 'The user denied this.' }),
+};
 
 /** How much of the newest transcript the chat shows before it runs. */
 const HISTORY_BYTES = 1024 * 1024;
@@ -96,7 +119,8 @@ export function claudeChatRecords(raw: unknown): ChatRecord[] {
       } else if (b.type === 'redacted_thinking') {
         // nothing readable
       } else if (b.type === 'tool_use' || b.type === 'server_tool_use') {
-        out.push({ kind: 'tool', id: str(b.id) ?? `tool-${out.length}`, name: str(b.name) ?? 'tool', input: b.input });
+        // No id (never seen, but possible): '' — no result can name it, and the view keys it by place.
+        out.push({ kind: 'tool', id: str(b.id) ?? '', name: str(b.name) ?? 'tool', input: b.input });
       } else {
         out.push({ kind: 'raw', label: str(b.type) ?? 'block', raw: b });
       }
@@ -178,6 +202,7 @@ export const claudeChat: AgentChat = {
       userLine: (text) => ({ type: 'user', message: { role: 'user', content: text } }),
       interruptLine: () => ({ type: 'control_request', request_id: `int-${Date.now()}`, request: { subtype: 'interrupt' } }),
       read: claudeChatRead,
+      permissionTool: claudePermissionTool,
     };
   },
   history(session) {

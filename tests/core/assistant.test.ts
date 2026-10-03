@@ -64,6 +64,35 @@ describe('the assistant folder', () => {
     expect(fs.existsSync(path.join(dir, '.claude'))).toBe(false);
   });
 
+  it('switching its agent removes what work wrote for the last one — never the user’s own files', () => {
+    const dir = prepareAssistantDir(claudeAgent);
+    fs.writeFileSync(path.join(dir, '.claude', 'settings.local.json'), '{"mine":true}');
+    prepareAssistantDir(agentById('opencode'));
+    expect(fs.existsSync(path.join(dir, 'AGENTS.md'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false); // its instructions…
+    expect(fs.existsSync(path.join(dir, '.claude', 'settings.json'))).toBe(false); // …and its allow rules and hook
+    expect(fs.readFileSync(path.join(dir, '.claude', 'settings.local.json'), 'utf-8')).toBe('{"mine":true}');
+    prepareAssistantDir(claudeAgent); // and back
+    expect(fs.existsSync(path.join(dir, 'AGENTS.md'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.claude', 'settings.json'))).toBe(true);
+  });
+
+  it('a folder from before the list: Claude’s files are known; a list naming anything outside the folder is ignored', () => {
+    const dir = assistantDir();
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'old');
+    fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{}');
+    prepareAssistantDir(agentById('opencode')); // no list yet: what work wrote then was Claude's
+    expect(fs.existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.claude', 'settings.json'))).toBe(false);
+    const outside = path.join(home, 'keep.txt');
+    fs.writeFileSync(outside, 'keep');
+    fs.writeFileSync(path.join(dir, '.work-written.json'), JSON.stringify(['../keep.txt', outside, 'AGENTS.md']));
+    prepareAssistantDir(claudeAgent);
+    expect(fs.readFileSync(outside, 'utf-8')).toBe('keep');
+    expect(fs.existsSync(path.join(dir, 'AGENTS.md'))).toBe(false);
+  });
+
   it('runs config `assistantAgent`, Claude Code by default — started as that agent, in a folder written for it', async () => {
     expect(assistantAgent(null)).toBe(claudeAgent);
     expect(assistantAgent({ assistantAgent: 'opencode' }).id).toBe('opencode');

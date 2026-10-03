@@ -9,8 +9,8 @@ import type { AgentAdapter } from './agents/types.js';
  * are SKILL.md folders under plugins/work-tree/skills, the Agent Skills
  * format. Each agent's adapter makes them available its own way
  * (types.ts `AgentSkills`; Claude's: its plugin marketplace). Run at npm
- * install (scripts/postinstall.mjs → `work install-skills`) and by the
- * desktop app's first start.
+ * install (scripts/postinstall.mjs → dist/install-skills-bin.js) and by the
+ * desktop app's first start; `work install-skills` by hand.
  */
 
 /** The shipped skills folder: next to dist/ in the package, or the repo's in dev. */
@@ -36,10 +36,7 @@ export async function installSkills(agents: AgentAdapter[] = knownAgents(), dir:
   const out: SkillsInstall[] = [];
   for (const a of agents) {
     if (!a.skills) continue;
-    if (!dir) {
-      out.push({ agent: a.name, ok: false, message: 'the skills folder was not found next to work' });
-      continue;
-    }
+    // A missing folder is each agent's to judge: Claude's come from its marketplace, not from here.
     try {
       out.push({ agent: a.name, ...(await a.skills.install({ skillsDir: dir })) });
     } catch (err) {

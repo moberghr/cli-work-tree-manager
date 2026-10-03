@@ -24,5 +24,6 @@ export const claudeWorkspace: AgentWorkspace = {
     }
     const settings = { permissions: { allow: allow.map(claudeAllowRule) }, hooks: byEvent };
     atomicWriteFile(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings, null, 2) + '\n');
+    return [path.join('.claude', 'settings.json')];
   },
 };

@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import spawn from 'cross-spawn';
 import type { ChatPartial, ChatPermissionWire, ChatSnapshot, ChatState } from './api-types.js';
 import type { ChatMessage, ChatRecord } from './chat-view.js';
-import type { ChatLineRead, ChatPermissionDecision, ChatProtocol } from './agents/types.js';
+import type { ChatLineRead, ChatPermissionDecision, ChatPermissionTool, ChatProtocol } from './agents/types.js';
 import { report } from './report.js';
 
 /**
@@ -60,8 +60,6 @@ export class ChatSession {
   private sizes: number[] = [];
   /** The conversation the agent runs (from its first line): resumed after a restart. */
   conversationId: string | null = null;
-  /** The arguments it was last started with (after the tool's own). */
-  lastArgs: string[] = [];
   private messages: ChatMessage[] = [];
   private seq = 0;
   private partial: ChatPartial | null = null;
@@ -135,8 +133,7 @@ export class ChatSession {
   // ------------------------------------------------------------- process
 
   private start(): void {
-    this.lastArgs = this.protocol.args({ resumeId: this.conversationId, continueLatest: this.spec.continueExisting });
-    const args = [...this.spec.baseArgs, ...this.lastArgs];
+    const args = [...this.spec.baseArgs, ...this.protocol.args({ resumeId: this.conversationId, continueLatest: this.spec.continueExisting })];
     const clean = this.spec.cleanEnv ?? ((e: NodeJS.ProcessEnv) => e);
     const env = { ...clean(process.env), ...(this.spec.port ? { PORT: String(this.spec.port) } : {}) };
     this.stopping = false;
@@ -145,10 +142,13 @@ export class ChatSession {
     // argv array, no shell (§1.1): nothing from the user reaches a command line.
     const child = spawn(this.spec.cmd, args, { cwd: this.spec.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child = child;
+    // A write racing its exit (EPIPE, write after end) is an 'error' on stdin: unheard, it would take work web down.
+    child.stdin?.on('error', (err) => report('detail', `[chat] ${this.sessionId}: stdin: ${err.message}`));
 
     let buf = '';
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (d: string) => {
+      if (this.child !== child) return; // let go of (a stop, then a new message): its last words aren't this chat's
       buf += d;
       let i: number;
       while ((i = buf.indexOf('\n')) >= 0) {
@@ -159,24 +159,30 @@ export class ChatSession {
     });
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (d: string) => {
-      this.stderrTail = (this.stderrTail + d).slice(-2000);
+      if (this.child === child) this.stderrTail = (this.stderrTail + d).slice(-2000);
     });
     child.on('error', (err) => {
       report('warn', `[chat] ${this.sessionId}: could not start ${this.spec.cmd}: ${err.message}`);
-      this.onExit(null, err.message);
+      this.onExit(child, null, err.message);
     });
-    child.on('exit', (code) => this.onExit(code, null));
+    child.on('exit', (code) => this.onExit(child, code, null));
   }
 
-  private onExit(code: number | null, spawnError: string | null): void {
-    if (!this.child) return;
+  /** Stop listening to this process: what it held (a partial, open permission prompts) ends with it. */
+  private release(child: ChildProcess): boolean {
+    if (this.child !== child) return false;
     this.child = null;
     this.clearInterruptTimer();
     this.partial = null;
     this.emit({ type: 'partial', partial: null });
-    for (const [, p] of this.pending) p.resolve({ behavior: 'deny', message: 'The session stopped.' });
+    for (const [, p] of this.pending) p.resolve({ allow: false, message: 'The session stopped.' });
     this.pending.clear();
     this.emit({ type: 'permissions', permissions: [] });
+    return true;
+  }
+
+  private onExit(child: ChildProcess, code: number | null, spawnError: string | null): void {
+    if (!this.release(child)) return; // one we let go of already
     if (this.stopping || code === 0) this.setState('stopped');
     else this.setState('exited', spawnError ?? (this.stderrTail.trim().split('\n').slice(-3).join('\n') || `exited with code ${code}`));
   }
@@ -199,8 +205,8 @@ export class ChatSession {
       this.clearInterruptTimer();
       this.setState(this.pending.size ? 'needs_input' : 'idle');
     } else if (r.activity && this.state !== 'needs_input') this.setState('working');
-    if (r.permission) this.askInBand(r.permission);
     if (r.records.length) this.push(r.records);
+    if (r.permission) this.askInBand(r.permission);
   }
 
   private turnPending = false;
@@ -222,12 +228,22 @@ export class ChatSession {
     }
   }
 
-  /** A permission the agent asked in its own output: held like any other, answered on its stdin. */
+  /**
+   * A permission the agent asked in its own output: held like any other,
+   * answered on its stdin — that process's, never one started since. A
+   * protocol that can't answer one says so in the chat instead of leaving
+   * the agent waiting on a prompt nobody sees.
+   */
   private askInBand(p: NonNullable<ChatLineRead['permission']>): void {
-    const protocol = this.protocol;
-    if (!protocol.answerLine) return;
+    const answerLine = this.protocol.answerLine?.bind(this.protocol);
+    if (!answerLine) {
+      report('warn', `[chat] ${this.sessionId}: the agent asked permission for ${p.toolName}, which its chat protocol can't answer`);
+      this.push([{ kind: 'notice', text: `It asked permission to use ${p.toolName}, which this chat can't answer: stop it, and answer in its terminal.` }]);
+      return;
+    }
+    const child = this.child;
     void this.requestPermission(p.toolName, p.input, p.toolUseId).then((d) => {
-      this.write(protocol.answerLine!(p.requestId, d));
+      if (this.child === child) this.write(answerLine(p.requestId, d));
     });
   }
 
@@ -248,17 +264,19 @@ export class ChatSession {
     this.partialTimer = setTimeout(send, wait);
   }
 
+  /** A line to its stdin, unless that is closed or closing (a stop ended it): never a write after end. */
   private write(obj: unknown): boolean {
     const stdin = this.child?.stdin;
-    if (!stdin || stdin.destroyed) return false;
+    if (!stdin || stdin.destroyed || stdin.writableEnded) return false;
     stdin.write(JSON.stringify(obj) + '\n');
     return true;
   }
 
   // -------------------------------------------------------------- actions
 
-  /** Send the user's message; starts (or resumes) the process when needed. */
+  /** Send the user's message; starts (or resumes) the process when needed — also right after a stop, while the old one exits. */
   send(text: string): void {
+    if (this.child && this.stopping) this.release(this.child); // on its way out (the stop kills it): a fresh one takes the message
     if (!this.child) this.start();
     this.turnPending = true;
     this.write(this.protocol.userLine(text));
@@ -267,7 +285,7 @@ export class ChatSession {
 
   interrupt(): void {
     if (!this.child || this.state === 'idle') return;
-    for (const [, p] of this.pending) p.resolve({ behavior: 'deny', message: 'The user interrupted.' });
+    for (const [, p] of this.pending) p.resolve({ allow: false, message: 'The user interrupted.' });
     this.pending.clear();
     this.emit({ type: 'permissions', permissions: [] });
     const line = this.protocol.interruptLine();
@@ -300,8 +318,9 @@ export class ChatSession {
       /* already closed */
     }
     const pid = child.pid;
+    // Still running 1.5 s later (whether or not a new message has started another since): kill it.
     setTimeout(() => {
-      if (this.child !== child || !pid) return;
+      if (!pid || child.exitCode !== null || child.signalCode !== null) return;
       try {
         if (process.platform === 'win32') spawn.sync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
         else process.kill(pid);
@@ -309,6 +328,11 @@ export class ChatSession {
         /* gone */
       }
     }, 1500);
+  }
+
+  /** The tool the agent asks permission through at work's permission URL (its protocol's; none: it doesn't). */
+  get permissionTool(): ChatPermissionTool | undefined {
+    return this.protocol.permissionTool;
   }
 
   /** Called by the permission MCP tool (or for one the agent asked in its output): waits until the user answers. */
@@ -326,11 +350,7 @@ export class ChatSession {
     const p = this.pending.get(permissionId);
     if (!p) return false;
     this.pending.delete(permissionId);
-    p.resolve(
-      allow
-        ? { behavior: 'allow', updatedInput: p.wire.input }
-        : { behavior: 'deny', message: message?.trim() || 'The user denied this.' },
-    );
+    p.resolve(allow ? { allow: true, input: p.wire.input } : { allow: false, message: message?.trim() || 'The user denied this.' });
     this.emit({ type: 'permissions', permissions: [...this.pending.values()].map((q) => q.wire) });
     if (this.pending.size === 0 && this.child) this.setState('working');
     return true;

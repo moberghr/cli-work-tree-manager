@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
 export default defineConfig({
-  entry: ['src/bin.ts', 'src/wd-bin.ts'],
+  // install-skills-bin: npm's postinstall runs only that (scripts/postinstall.mjs), never the whole CLI.
+  entry: ['src/bin.ts', 'src/wd-bin.ts', 'src/install-skills-bin.ts'],
   // Vite owns dist/web/ and it must survive a server-only build. tsup's
   // clean ALWAYS deletes `**/*` in outDir and appends these as extra glob
   // patterns — so they must be negations. (The old list of file names was

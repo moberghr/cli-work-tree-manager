@@ -27,8 +27,7 @@ const AgentName = createContext('Claude');
  * a few well-known ones get a nicer body when their input has the shape we
  * expect, and fall back to the plain card when it doesn't.
  */
-export function ChatView({ sessionId, agentName = 'Claude' }: Props) {
-  const name = agentName;
+export function ChatView({ sessionId, agentName: name = 'Claude' }: Props) {
   const [snap, setSnap] = useState<ChatSnapshot | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);

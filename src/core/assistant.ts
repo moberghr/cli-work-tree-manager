@@ -80,12 +80,40 @@ Ask before you change anything, and say exactly what will happen:
 Don't post on GitHub, and don't send prompts to other sessions, unless the user asks. Keep answers short: the user is in the middle of something.
 `;
 
-/** Write (or refresh) the assistant's folder for the agent it runs; returns it. Idempotent. */
+/** What work wrote in the folder last time (relative paths), so files an earlier agent's setup left can go. */
+const writtenFile = () => path.join(assistantDir(), '.work-written.json');
+/** What a work from before the list wrote: Claude's. */
+const BEFORE_THE_LIST = ['CLAUDE.md', path.join('.claude', 'settings.json')];
+
+function readWritten(): string[] {
+  try {
+    const v = JSON.parse(fs.readFileSync(writtenFile(), 'utf-8')) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? BEFORE_THE_LIST : [];
+  }
+}
+
+/**
+ * Write (or refresh) the assistant's folder for the agent it runs; returns
+ * it. Idempotent. Files work wrote there for another agent before (its
+ * instructions, its settings with their allow rules and hooks) are removed:
+ * after a switch they would be instructions and permissions nothing manages.
+ * Only files work wrote and listed, inside the folder — never the user's own.
+ */
 export function prepareAssistantDir(agent: Pick<AgentAdapter, 'instructionsFile' | 'workspace'>): string {
   const dir = assistantDir();
   fs.mkdirSync(dir, { recursive: true });
+  const before = readWritten();
   atomicWriteFile(path.join(dir, agent.instructionsFile), ASSISTANT_INSTRUCTIONS);
-  agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS });
+  const written = [agent.instructionsFile, ...(agent.workspace?.write(dir, { allow: ASSISTANT_ALLOW, hooks: ASSISTANT_HOOKS }) ?? [])].map((f) => path.normalize(f));
+  const root = path.resolve(dir);
+  for (const old of before.map((f) => path.normalize(f))) {
+    const file = path.resolve(root, old);
+    if (written.includes(old) || path.isAbsolute(old) || !file.startsWith(root + path.sep)) continue; // listed by us, inside the folder: nothing else
+    fs.rmSync(file, { force: true });
+  }
+  atomicWriteFile(writtenFile(), JSON.stringify(written));
   return dir;
 }
 

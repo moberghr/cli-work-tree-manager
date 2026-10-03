@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { getConfigPath } from '../config.js';
+import { getConfigPath, isAgentId } from '../config.js';
 import { getAiTool } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
 import type { WorktreeSession } from '../session-types.js';
@@ -37,8 +37,8 @@ export function agentSettings(): AgentSettings {
     value = {
       ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
       ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object' ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] } : {}),
-      ...(typeof p.internalAgent === 'string' && /^[\w.-]+$/.test(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
-      ...(typeof p.assistantAgent === 'string' && /^[\w.-]+$/.test(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
+      ...(isAgentId(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
+      ...(isAgentId(p.assistantAgent) ? { assistantAgent: p.assistantAgent } : {}),
     };
   } catch {
     /* unreadable: the defaults */

@@ -18,7 +18,7 @@ export type ChatRecord =
   /** The agent's text. */
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
-  /** A tool call; its result comes later as a `tool-result` with this id. */
+  /** A tool call; its result comes later as a `tool-result` with this id ('' when it has none: nothing can pair with it). */
   | { kind: 'tool'; id: string; name: string; input: unknown }
   | { kind: 'tool-result'; toolId: string | null; text: string; isError: boolean }
   /** The end of a turn. */
@@ -80,8 +80,9 @@ export function chatItems(messages: readonly ChatMessage[]): ChatItem[] {
           items.push({ kind: 'user', key, text: r.text });
           return;
         case 'tool': {
-          const item: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', key, id: r.id, name: r.name, input: r.input, result: null };
-          tools.set(r.id, item);
+          // An id-less call is identified by its place (unique in the chat), and nothing pairs with it.
+          const item: Extract<ChatItem, { kind: 'tool' }> = { kind: 'tool', key, id: r.id || `@${key}`, name: r.name, input: r.input, result: null };
+          if (r.id) tools.set(r.id, item);
           items.push(item);
           return;
         }

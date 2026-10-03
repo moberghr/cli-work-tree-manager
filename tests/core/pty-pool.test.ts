@@ -30,7 +30,8 @@ vi.mock('../../src/core/web-state.js', () => ({
   sessionIdFor: (x: { target: string; branch: string }) => `${x.target}:${x.branch}`,
 }));
 const cfg = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
-vi.mock('../../src/core/config.js', () => ({ loadConfig: () => cfg.value, getConfigDir: () => os.tmpdir() }));
+// The real module (agent settings read its path, isAgentId), with the config and its folder ours.
+vi.mock('../../src/core/config.js', async (orig) => ({ ...(await orig<object>()), loadConfig: () => cfg.value, getConfigDir: () => os.tmpdir() }));
 vi.mock('../../src/core/ai-launcher.js', () => ({ getAiTool: (c?: { aiCommand?: string }) => ({ cmd: (c?.aiCommand ?? 'claude').split(' ')[0], baseArgs: [] }) }));
 vi.mock('../../src/core/pty-host-client.js', () => ({
   ensureHost: (...a: unknown[]) => ensureHost(...(a as [])),

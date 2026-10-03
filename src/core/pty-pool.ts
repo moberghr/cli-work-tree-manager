@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { AgentAdapter } from './agents/types.js';
-import { agentFor, assistantAgent } from './agents/index.js';
+import { agentFor, agentSettings, assistantAgent } from './agents/index.js';
 import { statusFromOutput, type PtyOutput } from './output-status.js';
 import type { SessionAttention } from './api-types.js';
 import type { HostBeat } from './host-health.js';
@@ -149,9 +149,9 @@ export { ASSISTANT_ID };
 
 /** The assistant runs config `assistantAgent` (Claude Code by default), in its folder written for that agent. */
 export function assistantSpec(): { cwd: string; tool: ReturnType<AgentAdapter['launch']['tool']> } {
-  const config = loadConfig();
-  const agent = assistantAgent(config);
-  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(config) };
+  const settings = agentSettings();
+  const agent = assistantAgent(settings);
+  return { cwd: prepareAssistantDir(agent), tool: agent.launch.tool(settings) };
 }
 
 export function spawnSpecFor(session: WorktreeSession): SpawnSpec | null {
