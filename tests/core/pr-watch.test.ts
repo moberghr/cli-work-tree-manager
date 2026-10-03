@@ -27,7 +27,7 @@ function harness(repos: RepoShipState[], opts: ReturnType<PrWatchDeps['options']
     sessions: () => [{ id: 's1', session: session(isGroup) }],
     preflight: vi.fn(async () => pre),
     archive: vi.fn(async () => {}),
-    tell: vi.fn(async () => {}),
+    tell: vi.fn(async (_sessionId: string, _text: string) => {}),
     broadcast: vi.fn(),
     options: () => opts,
     told: () => ({ has: (k: string) => told.has(k), add: (k: string) => void told.add(k) }),

@@ -102,7 +102,7 @@ describe('status routes', () => {
     const id = sessionIdFor(session);
     notify({ sessionId: id, kind: 'unblocked', title: 'Unblocked — x' }, 'x');
     expect(order).toEqual(['notify']); // nobody looking: told
-    presence.report({ tabId: 't1', sessionId: id, visible: true, focused: true, canNotify: true });
+    presence.report({ clientId: 't1', sessionId: id, visible: true, focused: true, canNotify: true });
     order.length = 0;
     notify({ sessionId: id, kind: 'unblocked', title: 'Unblocked — x' }, 'x');
     expect(order).toEqual([]);

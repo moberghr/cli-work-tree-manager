@@ -78,7 +78,7 @@ describe('installSkills: every agent that takes them, each its own way', () => {
   });
 
   it('hands each the folder; an agent without skills is skipped; one that throws is reported, the rest still run', async () => {
-    const got: string[] = [];
+    const got: Array<string | null> = [];
     const agent = (name: string, skills?: AgentAdapter['skills']): AgentAdapter => ({ ...agentById(name), name, ...(skills ? { skills } : {}) });
     const out = await installSkills(
       [

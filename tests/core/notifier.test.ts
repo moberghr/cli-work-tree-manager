@@ -140,7 +140,7 @@ describe('notifyDesktop', () => {
 
   it('spawns powershell with the expected argv on win32', () => {
     const child = { on: vi.fn(), unref: vi.fn() };
-    const spawnFn = vi.fn(() => child);
+    const spawnFn = vi.fn((_cmd: string, _args: string[], _opts: Record<string, unknown>) => child);
     notifyDesktop('feature-login', 'needs_input', {
       enabled: true,
       platform: 'win32',

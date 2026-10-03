@@ -10,7 +10,7 @@ import type { ReviewContext } from '../../src/web/src/api/client.js';
 
 // jsdom doesn't implement pointer capture; ResizeDivider calls it on drag start.
 if (!(Element.prototype as { setPointerCapture?: unknown }).setPointerCapture) {
-  (Element.prototype as { setPointerCapture: () => void }).setPointerCapture =
+  (Element.prototype as { setPointerCapture: (pointerId: number) => void }).setPointerCapture =
     () => {};
 }
 

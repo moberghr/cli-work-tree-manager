@@ -70,14 +70,7 @@ afterEach(() => {
 });
 
 function sessionId(): string {
-  return sessionIdFor({
-    target: 'repo',
-    isGroup: false,
-    branch: BRANCH,
-    paths: [wtPath],
-    createdAt: '',
-    lastAccessedAt: '',
-  });
+  return sessionIdFor({ target: 'repo', branch: BRANCH });
 }
 
 async function del(body: Record<string, unknown>) {
@@ -95,7 +88,7 @@ async function del(body: Record<string, unknown>) {
 describe('POST /api/worktrees with a first prompt', () => {
   const create = (a: Hono, body: Record<string, unknown>) =>
     a.request('/api/worktrees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const newId = () => sessionIdFor({ target: 'repo', isGroup: false, branch: 'feat/new', paths: [], createdAt: '', lastAccessedAt: '' });
+  const newId = () => sessionIdFor({ target: 'repo', branch: 'feat/new' });
   beforeEach(() => {
     ensurePty.mockClear();
     peekPty.mockReset().mockReturnValue(false);

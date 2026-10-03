@@ -111,7 +111,7 @@ describe('the rail in groups', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
-    const op = p.onSections.mock.calls[0][0];
+    const op = vi.mocked(p.onSections).mock.calls[0][0];
     expect(op).toMatchObject({ op: 'add', name: 'Hotfixes' }); // one change, not the whole list
     expect(p.onPlace).toHaveBeenLastCalledWith('a', { pinned: false, section: op.id });
   });

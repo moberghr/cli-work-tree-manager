@@ -86,7 +86,7 @@ describe('usePresence', () => {
   }
 
   it('reports what the tab shows, again on change and on blur, and says goodbye', async () => {
-    const beacon = vi.fn(() => true);
+    const beacon = vi.fn((_url: string, _body: string) => true);
     Object.defineProperty(navigator, 'sendBeacon', { value: beacon, configurable: true });
     await act(async () => root.render(createElement(Probe, { id: 's1' })));
     expect(posts.at(-1)).toMatchObject({ sessionId: 's1', focused: true, canNotify: true });
@@ -100,7 +100,7 @@ describe('usePresence', () => {
     expect(posts.at(-1)).toMatchObject({ focused: false });
 
     window.dispatchEvent(new Event('pagehide'));
-    expect(JSON.parse(beacon.mock.calls.at(-1)![1] as string)).toMatchObject({ clientId, gone: true });
+    expect(JSON.parse(beacon.mock.calls.at(-1)![1])).toMatchObject({ clientId, gone: true });
   });
 
   it('one id per tab', () => {

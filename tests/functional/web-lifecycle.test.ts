@@ -77,10 +77,10 @@ const workHooks = () => {
 describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
   it('replaces a lean instance with the full server, and --stop runs its shutdown', async () => {
     startWeb(['--lean']); // what `wd` autostarts
-    const lean = await until(context, (c) => !!c?.lean, 'the lean server');
+    const lean = (await until(context, (c) => !!c?.lean, 'the lean server'))!;
 
     const full = startWeb([]);
-    const ctx = await until(context, (c) => !!c && c.lean === false, 'the full server');
+    const ctx = (await until(context, (c) => !!c && c.lean === false, 'the full server'))!;
     expect(ctx.pid).not.toBe(lean.pid);
     expect(ctx.pid).toBe(full.pid);
     // The full set (one hook per turn edge + Notification), lean's checkpoint hooks replaced.
@@ -97,10 +97,10 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
   it('replaces a server from an older build (or one too old to say) with this one', async () => {
     // The stale dashboard: started at login weeks ago, before a rebuild.
     startWeb([], { WORK_BUILD_STAMP: 'september' });
-    const old = await until(context, (c) => c?.build === 'september', 'the old-build server');
+    const old = (await until(context, (c) => c?.build === 'september', 'the old-build server'))!;
 
     const fresh = startWeb([]);
-    const ctx = await until(context, (c) => !!c && c.pid === fresh.pid, 'the new server');
+    const ctx = (await until(context, (c) => !!c && c.pid === fresh.pid, 'the new server'))!;
     expect(ctx.build).not.toBe('september');
     await until(() => { try { process.kill(old.pid, 0); return false; } catch { return true; } }, (gone) => gone, 'the old server to exit');
 

@@ -27,7 +27,7 @@
 - **Active stack:** typescript (Node CLI), package manager `npm`
 - **Build command:** `npm run build` (tsup → ESM); dev-run `npm run dev` (tsx)
 - **Test command:** `npm test` (vitest run)
-- **Type check:** `npx tsc --noEmit`
+- **Type check:** `npm run typecheck` — the CLI/server, the SPA (`src/web/tsconfig.json`) and the tests + e2e specs (`tests/tsconfig.json`; vitest and Playwright strip types without checking them). CI runs it.
 - **Format:** no formatter configured in this repo (no biome/prettier config). Match surrounding style; do not introduce a formatter without team agreement.
 
 For framework-specific guidance, see `.claude/skills/tech-stack-typescript/SKILL.md`.

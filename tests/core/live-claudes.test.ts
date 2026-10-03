@@ -16,7 +16,7 @@ import { aliveOnly, claudesBySession, parseLiveClaude, readLiveClaudes, summariz
 const session = (branch: string, dir: string): WorktreeSession => ({
   target: 'app', branch, isGroup: false, paths: [dir], createdAt: '2026-09-01T00:00:00Z', lastAccessedAt: '2026-09-01T00:00:00Z',
 } as WorktreeSession);
-const claude = (pid: number, over: Partial<LiveClaude> = {}): LiveClaude => ({ pid, conversationId: `c${pid}`, cwd: '/wt/a', busy: false, startedAt: 2_000_000, ...over });
+const claude = (pid: number, over: Partial<LiveClaude> = {}): LiveClaude => ({ pid, conversationId: `c${pid}`, cwd: '/wt/a', busy: false, state: null, stateAt: null, waitingFor: null, startedAt: 2_000_000, ...over });
 
 describe('parseLiveClaude', () => {
   it("reads Claude Code's per-process file", () => {

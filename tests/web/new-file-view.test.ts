@@ -137,16 +137,15 @@ describe('NewFileView (added files render full-width)', () => {
   it('in review mode, clicking a line number opens the comment composer inline', async () => {
     await act(async () => {
       root.render(
-        createElement(
-          ReviewProvider,
-          { api: stubReviewApi() },
-          createElement(DiffFile, {
+        createElement(ReviewProvider, {
+          api: stubReviewApi(),
+          children: createElement(DiffFile, {
             file: addedFile(),
             anchor: 'a',
             review: true,
             repo: 'myrepo',
           }),
-        ),
+        }),
       );
     });
 

@@ -194,7 +194,7 @@ describe('an old PTY host that outlived the upgrade', () => {
     expect(Object.keys(dbPtySessions.read())).toEqual([id]); // imported
     // The v1 host keeps running: it re-creates the old file and records a
     // session started after the upgrade, having forgotten the first one.
-    const tool = { cmd: 'claude', baseArgs: [] };
+    const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' };
     write('pty-sessions.json', { later: { cwd: '/wt/later', tool, startedAt: 't2' }, junk: 1 });
 
     const { adoptLegacyRestoreList } = await import('../../src/core/pty-sessions-file.js');
@@ -209,7 +209,7 @@ describe('an old PTY host that outlived the upgrade', () => {
   it('a pty-sessions.json OLDER than the database list (a `work state --export` copy) is set aside, not adopted', async () => {
     legacyTree();
     loadHistory(); // first open: imports (and renames) the legacy files
-    const tool = { cmd: 'claude', baseArgs: [] };
+    const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '', promptFileFlag: '', promptFlag: '' };
     write('pty-sessions.json', { stale: { cwd: '/wt/stale', tool, startedAt: 't0' } });
     const old = new Date(Date.now() - 60_000);
     fs.utimesSync(path.join(work, 'pty-sessions.json'), old, old);

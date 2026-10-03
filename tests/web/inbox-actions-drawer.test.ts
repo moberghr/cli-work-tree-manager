@@ -82,8 +82,8 @@ describe('narrow-layout session drawer', () => {
             onSelectSession,
             onHome: () => {},
             onNewWorktree: () => {},
+            children: createElement('div', null, 'main'),
           },
-          createElement('div', null, 'main'),
         ),
       ),
     );
@@ -117,8 +117,8 @@ describe('narrow-layout session drawer', () => {
             onSelectSession: () => {},
             onHome: () => {},
             onNewWorktree: () => {},
+            children: createElement('div', null, 'main'),
           },
-          createElement('div', null, 'main'),
         ),
       ),
     );

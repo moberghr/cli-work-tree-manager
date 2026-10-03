@@ -162,16 +162,15 @@ describe('Unified (inline) diff mode', () => {
         createElement(
           DiffModeProvider,
           null,
-          createElement(
-            ReviewProvider,
-            { api: stubReviewApi() },
-            createElement(DiffFile, {
+          createElement(ReviewProvider, {
+            api: stubReviewApi(),
+            children: createElement(DiffFile, {
               file: modifiedFile(),
               anchor: 'a',
               review: true,
               repo: 'myrepo',
             }),
-          ),
+          }),
         ),
       );
     });
