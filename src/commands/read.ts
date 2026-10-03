@@ -1,7 +1,6 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { agentFor } from '../core/agents/index.js';
-import { loadConfig } from '../core/config.js';
+import { agentOf } from '../core/agents/index.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 import { formatConversation, READ_AS_DATA } from './shared/conversation-format.js';
 
@@ -16,7 +15,7 @@ export const readCommand: CommandModule = {
   handler: (argv) => {
     const s = sessionFromArgs(argv);
     if (!s) return;
-    const agent = agentFor(loadConfig(), s);
+    const agent = agentOf(s);
     if (!agent.conversation) {
       console.error(chalk.red(`work can't read ${agent.name}'s conversations yet.`));
       process.exitCode = 1;

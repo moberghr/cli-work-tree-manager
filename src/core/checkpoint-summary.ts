@@ -12,8 +12,7 @@ import spawn from 'cross-spawn';
 import path from 'node:path';
 import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';
-import { internalAgent } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { internalAgent, agentSettings } from './agents/index.js';
 import { killTree } from './process.js';
 import { createSerialQueue } from './throttle.js';
 import type { ParsedFile } from './diff-parse.js';
@@ -107,7 +106,7 @@ const internalQueue = createSerialQueue();
  * Async (never blocks the server event loop). `small`: a few words wanted.
  */
 export function runInternal(prompt: string, timeoutMs = 25_000, opts: { small?: boolean } = {}): Promise<string | null> {
-  const oneShot = internalAgent(loadConfig()).oneShot;
+  const oneShot = internalAgent(agentSettings()).oneShot;
   if (!oneShot) return Promise.resolve(null);
   return internalQueue(() => runNow(prompt, timeoutMs, oneShot.command(opts)));
 }

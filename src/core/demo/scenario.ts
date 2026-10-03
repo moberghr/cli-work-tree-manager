@@ -78,6 +78,10 @@ interface DemoSession {
   worktreeRemoved?: boolean;
 }
 
+
+/** The demo's sessions run Claude Code, with everything work can do with it. */
+const DEMO_AGENT = { id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, chat: true } };
+
 export type DemoEvent = { event: string; data: unknown };
 
 /** A unified diff split into its per-file blocks (text kept verbatim). */
@@ -666,6 +670,7 @@ export class DemoScenario {
     const comments = s.comments.snapshot();
     const stat = this.diffStat(s);
     return {
+      agent: DEMO_AGENT,
       id: s.id,
       target: s.target,
       branch: s.branch,

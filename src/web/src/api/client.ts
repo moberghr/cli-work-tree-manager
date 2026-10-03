@@ -127,7 +127,11 @@ export interface SessionSummary {
    *  ahead); absent when none. */
   overlaps?: SessionOverlap[];
   /** Claudes running for it right now, wherever they were started. */
+  /** Its agent processes running right now (the same as `claudes`, the old name). */
+  agents?: SessionClaudes;
   claudes?: SessionClaudes;
+  /** The agent it runs, and what work can do with it. */
+  agent?: import('../../../core/api-types.js').SessionAgentWire;
   /** What its archive kept (archived sessions). */
   archive?: SessionArchiveInfo;
   /** Its name: yours, else its first prompt, else its Jira key. */

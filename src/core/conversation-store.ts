@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { getConfigDir, loadConfig } from './config.js';
-import { agentFor } from './agents/index.js';
+import { getConfigDir } from './config.js';
+import { agentOf } from './agents/index.js';
 import { sessionIdFor } from './session-id.js';
 import { archiveRoot, readArchive, readArchivedTranscript } from './session-archive.js';
 import { matchingLines, queryWords, snippet } from './archive-search.js';
@@ -33,7 +33,7 @@ export interface SyncResult {
 }
 
 /** Bring a session's copy up to date with its transcripts. */
-export async function syncConversation(s: WorktreeSession, root = conversationRoot(), sources = agentFor(loadConfig(), s).conversation?.files(s) ?? []): Promise<SyncResult> {
+export async function syncConversation(s: WorktreeSession, root = conversationRoot(), sources = agentOf(s).conversation?.files(s) ?? []): Promise<SyncResult> {
   const dir = conversationDirFor(sessionIdFor(s), root);
   const out: SyncResult = { files: 0, bytes: 0 };
   for (const src of sources) {
@@ -164,7 +164,7 @@ export async function searchConversations(
     const rec = readArchive(id, archive);
     const lastMs = Math.max(0, ...stored.map((t) => t.mtimeMs), rec ? Date.parse(rec.archivedAt) || 0 : 0);
     // Its lines read as its agent writes them; none when work can't read that agent's conversations.
-    const entries = agentFor(loadConfig(), s).conversation?.entries ?? (() => []);
+    const entries = agentOf(s).conversation?.entries ?? (() => []);
     return { s, id, stored, rec, lastMs, entries };
   });
   candidates.sort((a, b) => b.lastMs - a.lastMs);

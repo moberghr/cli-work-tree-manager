@@ -1,6 +1,5 @@
 import { readTranscriptTail } from './transcript.js';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import type { ContextUsage } from './api-types.js';
 import type { WorktreeSession } from './session-types.js';
@@ -41,7 +40,7 @@ const cache = new Map<string, { key: string; usage: ContextUsage | null }>();
 
 /** The session's context usage now, through its agent; re-reads a conversation only after it changed. Null when work can't read its agent's conversations. */
 export function readContextUsage(session: WorktreeSession): ContextUsage | null {
-  const conv = agentFor(loadConfig(), session).conversation;
+  const conv = agentOf(session).conversation;
   if (!conv) return null;
   let t: { file: string; size: number; mtimeMs: number } | null = null;
   for (const f of conv.files(session)) if (!t || f.mtimeMs > t.mtimeMs) t = f;

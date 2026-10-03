@@ -5,12 +5,12 @@ import { clearSnooze } from './snooze-store.js';
 import { whileArchiving } from './archiving.js';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { getConfigDir, loadConfig } from './config.js';
+import { getConfigDir } from './config.js';
 import { promptsSince } from './digest.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
 import { readTranscriptTail } from './transcript.js';
-import { agentFor } from './agents/index.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 
 /**
@@ -214,7 +214,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   //    stops the archive (nothing removed, nothing marked).
   const copied: ArchiveRecord['transcripts'] = [];
   // Read as its agent writes them (none when work can't read that agent's conversations).
-  const toEntries = agentFor(loadConfig(), s).conversation?.entries ?? (() => []);
+  const toEntries = agentOf(s).conversation?.entries ?? (() => []);
   const entries: ConversationEntry[][] = [];
   try {
     fs.mkdirSync(path.join(dir, 'transcripts'), { recursive: true });
@@ -403,7 +403,7 @@ export function restoreArchivedTranscripts(
   s: WorktreeSession,
   root = archiveRoot(),
   /** Where its agent looks for them (agents/: `conversation.restoreDir`; none: it starts fresh, the archive keeps them). */
-  restoreDir: (s: WorktreeSession) => string | null = (x) => agentFor(loadConfig(), x).conversation?.restoreDir?.(x) ?? null,
+  restoreDir: (s: WorktreeSession) => string | null = (x) => agentOf(x).conversation?.restoreDir?.(x) ?? null,
 ): number {
   const id = sessionIdFor(s);
   const rec = readArchive(id, root);

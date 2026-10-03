@@ -1,8 +1,7 @@
 import { messageOf } from './archive-search.js';
 import { readTranscriptSince } from './transcript.js';
 import { sessionIdFor } from './session-id.js';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
 
@@ -80,7 +79,7 @@ const cache = new Map<string, { key: string; value: CatchUp }>();
 const inflight = new Map<string, Promise<CatchUp | null>>();
 
 /** The session's conversation, through its agent (none when work can't read its conversations). */
-const conversationOf = (s: WorktreeSession) => agentFor(loadConfig(), s).conversation;
+const conversationOf = (s: WorktreeSession) => agentOf(s).conversation;
 const transcriptKey = (s: WorktreeSession) =>
   (conversationOf(s)?.files(s) ?? [])
     .map((t) => `${t.file}:${t.size}:${t.mtimeMs}`)

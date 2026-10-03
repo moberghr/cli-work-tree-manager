@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { loadManifest } from './checkpoint.js';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import { promptsSince } from './digest.js';
 import { scopeHashForPaths } from './scope-manager.js';
@@ -44,7 +43,7 @@ export async function sessionTimeline(s: WorktreeSession, deps: { ci?: SessionCi
   const run = deps.run ?? defaultRunner;
   const since = Math.max(Date.parse(s.createdAt) || 0, (deps.now ?? Date.now()) - DAYS * 86_400_000);
   const transcripts: ConversationEntry[][] = [];
-  const conv = agentFor(loadConfig(), s).conversation;
+  const conv = agentOf(s).conversation;
   for (const t of conv?.files(s) ?? []) {
     if (t.mtimeMs < since) continue;
     try {

@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { SessionAttention, SessionSummary } from '../../src/web/src/api/client.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
 import {
+  agentCan,
+  agentName,
   defaultSubTab,
   displayStatus,
   ageBucket,
@@ -210,5 +212,20 @@ describe('statusHint', () => {
     const { statusHint } = await import('../../src/web/src/state/session-display.js');
     for (const k of ['active', 'open', 'recent', 'stale'] as const) expect(statusHint(k)).toMatch(/hooks/);
     for (const k of ['needs_input', 'done', 'working', 'quiet'] as const) expect(statusHint(k)).toBeUndefined();
+  });
+});
+
+describe('agentName / agentCan: the session’s agent, and what work can do with it', () => {
+  const echo = { id: 'echo', name: 'Echo', can: { read: true, hooks: false, live: false, answer: false, chat: false } };
+  it('names it and asks its capabilities', () => {
+    expect(agentName({ agent: echo })).toBe('Echo');
+    expect(agentCan({ agent: echo }, 'read')).toBe(true);
+    expect(agentCan({ agent: echo }, 'answer')).toBe(false);
+    expect(agentCan({ agent: echo }, 'chat')).toBe(false);
+  });
+  it('a row from a server before agents were named: Claude, everything as it was', () => {
+    expect(agentName({})).toBe('Claude');
+    expect(agentCan({}, 'answer')).toBe(true);
+    expect(agentCan({}, 'chat')).toBe(true);
   });
 });

@@ -4,11 +4,11 @@ import { streamSSE } from 'hono/streaming';
 import type { ChatSnapshot } from './api-types.js';
 import { ChatSession, newChatToken, writeMcpConfig, type ChatEvent } from './chat-session.js';
 import { mountChatMcpRoutes } from './chat-mcp-routes.js';
-import { getConfigDir, loadConfig } from './config.js';
+import { getConfigDir } from './config.js';
 import { latestTranscript } from './context-usage.js';
 import { disposePty, peekPty, ptyPids, spawnSpecFor, syncPtyPool } from './pty-pool.js';
 import { claudesBySession } from './live-claudes.js';
-import { agentFor, liveAgents } from './agents/index.js';
+import { liveAgents, agentOf } from './agents/index.js';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { readTranscriptTail } from './transcript.js';
 import { findSession } from './web-state.js';
@@ -74,7 +74,7 @@ export function mountChatRoutes(
     const file = writeMcpConfig(path.join(getConfigDir(), 'chat'), id, `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`);
     const chat = new ChatSession(
       id,
-      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agentFor(loadConfig(), session).launch.canResume(spec.cwd) },
+      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agentOf(session).launch.canResume(spec.cwd) },
       file,
       historyOf(session),
       token,
@@ -123,7 +123,7 @@ export function mountChatRoutes(
     const text = typeof body?.text === 'string' ? body.text : '';
     if (!text.trim()) return c.json({ error: 'text required' }, 400);
     // The chat is an agent's headless protocol (Claude's stream-json): one without it has the Terminal tab only.
-    const agent = agentFor(loadConfig(), session);
+    const agent = agentOf(session);
     if (!agent.chat) return c.json({ error: `${agent.name} has no chat here: use its Terminal tab` }, 409);
     if (!chats.get(id)?.running) {
       // A Claude in a terminal tab on this conversation: we can't stop it for

@@ -4,8 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
-  formatDiffStat,
-} from '../../state/session-display.js';
+  formatDiffStat, agentName } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
 
@@ -97,7 +96,7 @@ export function ContextChip({ session }: { session: SessionSummary }) {
   const advice =
     level === 'ok'
       ? ''
-      : '\nNearly full: Claude will compact it soon. For the next task, start fresh (work tree … --fresh, or /clear).';
+      : `\nNearly full: ${agentName(session)} will compact it soon. For the next task, start fresh (work tree … --fresh, or /clear).`;
   return (
     <span
       className={`wd-ctx wd-ctx-${level}`}
@@ -132,18 +131,19 @@ export function overlapTitle(session: SessionSummary): string {
  * and a warning when two run on one conversation. `compact` for the rail.
  */
 export function ClaudesChip({ session, compact }: { session: SessionSummary; compact?: boolean }) {
-  const c = session.claudes;
+  const c = session.agents ?? session.claudes;
   if (!c) return null;
+  const name = agentName(session);
   const where = [c.inTerminal ? `${c.inTerminal > 1 ? `${c.inTerminal}× ` : ''}terminal` : '', c.inApp ? `${c.inApp > 1 ? `${c.inApp}× ` : ''}app` : '']
     .filter(Boolean)
     .join(' + ');
   const title = c.duplicate
-    ? 'More than one Claude is running on this conversation. They would both write to it: close all but one (/exit in its terminal tab).'
-    : `Claude is running (${c.busy ? 'busy' : 'at its prompt'}) in ${where}.`;
+    ? `More than one ${name} is running on this conversation. They would both write to it: close all but one (/exit in its terminal tab).`
+    : `${name} is running (${c.busy ? 'busy' : 'at its prompt'}) in ${where}.`;
   if (c.duplicate) {
     return (
       <span className="wd-claudes wd-claudes-dup" title={title}>
-        <span aria-hidden>⚠</span> {compact ? '2 Claudes' : `Two Claudes on one conversation (${where})`}
+        <span aria-hidden>⚠</span> {compact ? `2× ${name}` : `Two of ${name} on one conversation (${where})`}
       </span>
     );
   }

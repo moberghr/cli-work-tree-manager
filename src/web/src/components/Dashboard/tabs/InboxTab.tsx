@@ -4,7 +4,7 @@ import { RowMenu } from '../RowMenu.js';
 import { snoozeLabel } from '../../../../../core/snooze.js';
 import { useNotificationPermission } from '../../../hooks/use-presence.js';
 import { answerPermission, markSessionSeen, setArchived, type AnswerRequest, type SessionSummary, snoozeSession, unsnoozeSession } from '../../../api/client.js';
-import { defaultSubTab, isArchived, lastActiveAt, staleSuggestions, type PrLookup } from '../../../state/session-display.js';
+import { defaultSubTab, isArchived, lastActiveAt, staleSuggestions, type PrLookup, agentCan, agentName } from '../../../state/session-display.js';
 import { DiffStatChip, OverlapChip, PrChips } from '../SessionBits.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/attention.js';
@@ -237,7 +237,7 @@ export function InboxTab({
                     </span>
                   </button>
                   <span className="wd-inbox-actions">
-                    {sec.rank === 0 && s.attention!.request && s.ptyStatus === 'running' ? (
+                    {sec.rank === 0 && s.attention!.request && s.ptyStatus === 'running' && agentCan(s, 'answer') ? (
                       <>
                         <button
                           type="button"
@@ -253,7 +253,7 @@ export function InboxTab({
                           className="wd-row-action wd-row-action-danger"
                           disabled={!!answering[s.id]}
                           onClick={() => answer(s, 'deny')}
-                          title="Say No; Claude stops and waits for you to say what to do instead"
+                          title={`Say No; ${agentName(s)} stops and waits for you to say what to do instead`}
                         >
                           {answering[s.id] === 'deny' ? 'Denying…' : 'Deny'}
                         </button>

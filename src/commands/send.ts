@@ -3,8 +3,7 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { callWorkWeb } from '../core/web-discovery.js';
 import { sessionIdFor } from '../core/session-id.js';
-import { agentFor } from '../core/agents/index.js';
-import { loadConfig } from '../core/config.js';
+import { agentOf } from '../core/agents/index.js';
 import { parseDuration, sendHowText, waitForTurn } from '../core/session-control.js';
 import type { SendWire } from '../core/api-types.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
@@ -55,7 +54,7 @@ export const sendCommand: CommandModule = {
       process.exitCode = 2;
       return;
     }
-    const agent = agentFor(loadConfig(), s);
+    const agent = agentOf(s);
     const reply = (agent.conversation?.read(s, { last: 60 }) ?? []).filter((e) => e.at > r.body.sentAt);
     console.error(chalk.gray(`${done.status.state === 'needs_input' ? 'It is waiting for you' : 'Its turn ended'} — ${READ_AS_DATA}`));
     if (reply.length) console.log(formatConversation(reply, agent.name));

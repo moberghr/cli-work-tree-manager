@@ -15,6 +15,16 @@ export function defaultSubTab(s: SessionSummary): SessionSubTab {
   return displayStatus(s) === 'done' ? 'diff' : 'term';
 }
 
+/** The session's agent as you'd name it ("Claude Code"); a row from a server before agents had names: Claude. */
+export function agentName(s: Pick<SessionSummary, 'agent'>): string {
+  return s.agent?.name ?? 'Claude';
+}
+
+/** Whether work can do this with the session's agent (a row from before: what Claude could). */
+export function agentCan(s: Pick<SessionSummary, 'agent'>, what: keyof NonNullable<SessionSummary['agent']>['can']): boolean {
+  return s.agent ? s.agent.can[what] : true;
+}
+
 export function isArchived(s: SessionSummary): boolean {
   return !!s.archivedAt;
 }

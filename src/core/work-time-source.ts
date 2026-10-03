@@ -1,6 +1,5 @@
 import fs from 'node:fs';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
 import { mergeSteps, workedBetween, workedByDay, workSteps, type WorkStep } from './work-time.js';
@@ -100,7 +99,7 @@ export async function sessionWorkTime(s: WorktreeSession, now = Date.now()): Pro
   let prompts = 0;
   let firstMs: number | null = null;
   let lastMs: number | null = null;
-  const conv = agentFor(loadConfig(), s).conversation;
+  const conv = agentOf(s).conversation;
   for (const t of conv?.files(s) ?? []) {
     let st = files.get(t.file);
     if (!st || st.offset !== t.size || st.mtimeMs !== t.mtimeMs) {

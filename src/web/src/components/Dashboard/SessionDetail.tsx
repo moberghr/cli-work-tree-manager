@@ -8,7 +8,7 @@ import { CatchUpButton } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
-import { isArchived } from '../../state/session-display.js';
+import { isArchived, agentCan } from '../../state/session-display.js';
 import { ClaudesChip, ContextChip, DiffStatChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
@@ -155,11 +155,13 @@ export function SessionDetail({
         />
       )}
       <nav className="wd-session-subtabs" role="tablist">
-        <SubTabButton
-          label="Chat"
-          active={subTab === 'chat'}
-          onClick={() => onSelectSubTab('chat')}
-        />
+        {agentCan(session, 'chat') && (
+          <SubTabButton
+            label="Chat"
+            active={subTab === 'chat'}
+            onClick={() => onSelectSubTab('chat')}
+          />
+        )}
         <SubTabButton
           label="Terminal"
           active={subTab === 'term'}

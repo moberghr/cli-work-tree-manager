@@ -4,8 +4,7 @@ import { sessionIdFor } from './session-id.js';
 import { readStatus } from './session-status.js';
 import { readSessionActivity } from './session-activity.js';
 import { readTranscriptSince } from './transcript.js';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import { loadManifest } from './checkpoint.js';
 import { scopeHashForPaths } from './scope-manager.js';
@@ -79,7 +78,7 @@ export function createDigestSource(deps: DigestDeps = {}): DigestSource {
             const work: WorkStep[][] = [];
             let partial = false;
             // Its conversations, as its agent keeps them (none when work can't read them).
-            const conv = agentFor(loadConfig(), s).conversation;
+            const conv = agentOf(s).conversation;
             for (const t of conv?.files(s) ?? []) {
               if (t.mtimeMs < sinceMs) continue;
               const key = `${t.file}:${t.size}:${t.mtimeMs}`;

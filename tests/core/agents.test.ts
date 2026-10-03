@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentById, agentFor, agentToRecord, isKnownAgent } from '../../src/core/agents/index.js';
+import { agentById, agentFor, agentOf, agentSettings, agentToRecord, agentWire, isKnownAgent } from '../../src/core/agents/index.js';
 import { claudeAgent, claudeEntries } from '../../src/core/agents/claude.js';
 import { claudeContextWindow, DEFAULT_WINDOW, LARGE_WINDOW } from '../../src/core/agents/claude-entries.js';
 import { encodeProjectDir } from '../../src/core/claude-activity.js';
@@ -134,6 +134,49 @@ describe('agentFor', () => {
     expect(isKnownAgent('claude')).toBe(true);
     expect(isKnownAgent('opencode')).toBe(false);
     expect(agentById('claude')).toBe(claudeAgent);
+  });
+});
+
+describe('agentSettings / agentOf: the config read once, again when it changes', () => {
+  let home: string;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-settings-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    fs.mkdirSync(path.join(home, '.work'), { recursive: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const write = (cfg: object) => fs.writeFileSync(path.join(home, '.work', 'config.json'), JSON.stringify(cfg));
+
+  it('no config: the defaults (Claude Code)', () => {
+    expect(agentSettings()).toEqual({});
+    expect(agentOf({})).toBe(claudeAgent);
+  });
+
+  it('reads aiCommand, its flags and internalAgent; a changed file is read again', () => {
+    write({ aiCommand: 'opencode', internalAgent: 'claude', repos: {} });
+    expect(agentSettings()).toEqual({ aiCommand: 'opencode', internalAgent: 'claude' });
+    expect(agentOf({}).id).toBe('opencode');
+    expect(agentOf({ agent: 'claude' })).toBe(claudeAgent); // the session's own agent wins
+    write({ aiCommand: 'claude --model opus', internalAgent: 'bad name!', repos: { api: '/x' } }); // another size: re-read
+    expect(agentSettings()).toEqual({ aiCommand: 'claude --model opus' }); // an unsafe internalAgent is dropped
+    expect(agentOf({})).toBe(claudeAgent);
+  });
+
+  it('an unreadable config gives the defaults, never a throw', () => {
+    fs.writeFileSync(path.join(home, '.work', 'config.json'), '{ not json');
+    expect(agentSettings()).toEqual({});
+  });
+});
+
+describe('agentWire: what the dashboard is told an agent can do', () => {
+  it('Claude Code: everything', () => {
+    expect(agentWire(claudeAgent)).toEqual({ id: 'claude', name: 'Claude Code', can: { read: true, hooks: true, live: true, answer: true, chat: true } });
+  });
+  it('a tool with no adapter: nothing beyond starting it', () => {
+    expect(agentWire(agentById('opencode'))).toEqual({ id: 'opencode', name: 'opencode', can: { read: false, hooks: false, live: false, answer: false, chat: false } });
   });
 });
 

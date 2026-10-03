@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { agentOf, agentWire } from './agents/index.js';
 import { readStatus } from './session-status.js';
 import { snoozeActive, type Snooze } from './snooze.js';
 import { withLiveClaude } from './session-status.js';
@@ -75,7 +76,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     lastActivity: shadowed ? null : meta.lastActivity,
     // A running Claude is open even when it writes nothing (idle at its prompt).
     activityState: shadowed ? 'stale' : claudes ? (claudes.busy ? 'active' : meta.activityState === 'active' ? 'active' : 'open') : meta.activityState,
-    ...(claudes ? { claudes } : {}),
+    ...(claudes ? { agents: claudes, claudes } : {}),
+    agent: agentWire(agentOf(s)),
     ...(s.archivedAt ? archiveInfo(id) : {}),
     title: bestEffort(`title of ${s.target}:${s.branch}`, () => sessionTitle(s, s.archivedAt ? readArchive(id)?.summary.prompts[0]?.text : null), null),
     ...(s.title ? { titleIsYours: true } : {}),

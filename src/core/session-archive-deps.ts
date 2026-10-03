@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkedOutBranch } from './git-head.js';
 import { loadConfig } from './config.js';
-import { agentFor } from './agents/index.js';
+import { agentOf } from './agents/index.js';
 import { examineWorktree, normPath, type CleanupSession } from './cleanup.js';
 import { loadHistory, setSessionArchived, type WorktreeSession } from './history.js';
 import { disposePty } from './pty-pool.js';
@@ -123,7 +123,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       return teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths);
     },
     setArchived: (s) => setSessionArchived(s.target, s.branch, true),
-    transcripts: (s: WorktreeSession) => (agentFor(loadConfig(), s).conversation?.files(s) ?? []).map((t) => t.file),
+    transcripts: (s: WorktreeSession) => (agentOf(s).conversation?.files(s) ?? []).map((t) => t.file),
     prs: opts.prs,
     lastSummary: (id) => readStatus(id)?.summary ?? null,
     waiting: archiveWaiting,

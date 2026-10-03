@@ -39,6 +39,26 @@ export interface AnswerRequest {
   request: PermissionRequest;
 }
 
+/** A session's agent on the wire: who, and which of its adapter's capabilities exist (agents/types.ts). */
+export interface SessionAgentWire {
+  /** Its binary name (`claude`). */
+  id: string;
+  /** How to name it to you ("Claude Code"). */
+  name: string;
+  can: {
+    /** Its conversation can be read (context %, digest, search, `work read`…). */
+    read: boolean;
+    /** Its turns are heard through hooks (working / done / needs input). */
+    hooks: boolean;
+    /** Its running processes are seen outside work's own terminals. */
+    live: boolean;
+    /** Its permission prompts can be answered from the dashboard. */
+    answer: boolean;
+    /** It runs as the headless chat. */
+    chat: boolean;
+  };
+}
+
 /** Hook-driven agent status as sent to the dashboard (attention inbox). */
 export interface SessionAttention extends AttentionLike {
   /** One line: prompt while working, last message when done, the
@@ -374,9 +394,13 @@ export interface SessionWire {
   archivedAt: string | null;
   /** This worktree's dev-server port ($PORT), when it has one. */
   port: number | null;
-  /** Claudes running for this session right now (core/live-claudes.ts);
+  /** Its agent processes running right now (agents/: `live`, grouped by core/live-claudes.ts);
    *  absent when none. */
+  agents?: SessionClaudes;
+  /** @deprecated The same as `agents` (its old name; kept for `work sessions --json` readers for one version). */
   claudes?: SessionClaudes;
+  /** The agent it runs, and what work can do with it (a feature it can't is hidden, not shown broken). */
+  agent?: SessionAgentWire;
   /** What its archive kept (archived sessions; session-archive.ts). */
   archive?: SessionArchiveInfo;
   /** Its name: the one you gave it, else its first prompt, else its Jira key. */

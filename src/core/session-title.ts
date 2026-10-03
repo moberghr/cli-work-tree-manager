@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import { promptsSince } from './digest.js';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ConversationEntry } from './agents/types.js';
 import type { WorktreeSession } from './session-types.js';
 
@@ -77,7 +76,7 @@ export function titleText(prompt: string): string | null {
 /** The session's name: yours, else its first prompt, else its Jira key. */
 export function sessionTitle(s: WorktreeSession, fallbackPrompt?: string | null): string | null {
   if (s.title?.trim()) return s.title.trim();
-  const conv = agentFor(loadConfig(), s).conversation;
+  const conv = agentOf(s).conversation;
   const oldestFirst = (conv?.files(s) ?? []).sort((a, b) => a.mtimeMs - b.mtimeMs);
   for (const t of oldestFirst) {
     const p = firstPromptOf(t.file, conv!.entries);

@@ -6,7 +6,7 @@ import { loadConfig } from './config.js';
 import { findSessionForCwd } from './pending-delivery.js';
 import { sessionIdFor, findSession } from './web-state.js';
 import { markSeen, notifyKindForTransition, readStatus, recordStatusEvent } from './session-status.js';
-import { agentFor } from './agents/index.js';
+import { agentOf } from './agents/index.js';
 import { readPtyScreen, writeToPty } from './pty-pool.js';
 import { notifyDesktop } from './notifier.js';
 import { runStatusHooks } from './status-hooks.js';
@@ -164,7 +164,7 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
       return c.json({ error: 'The request changed since you saw it. Look again before answering.' }, 409);
     }
     // Its agent's dialog: what it looks like on screen, and which keys answer it.
-    const agent = agentFor(loadConfig(), findSession(id));
+    const agent = agentOf(findSession(id));
     const dialog = agent.input.permissionDialog;
     if (!dialog) return c.json({ error: `work can't answer ${agent.name}'s prompts from here: answer it in its terminal.` }, 409);
     const screen = await pty.screen(id);

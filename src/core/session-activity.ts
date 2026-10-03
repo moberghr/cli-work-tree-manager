@@ -1,5 +1,4 @@
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import type { ActivityState } from './api-types.js';
 import type { WorktreeSession } from './session-types.js';
 
@@ -25,7 +24,7 @@ export interface SessionActivity {
 /** The newest write to any of the session's conversation files, ms (0: none). */
 export function lastConversationWriteMs(session: WorktreeSession): number {
   let latest = 0;
-  for (const f of agentFor(loadConfig(), session).conversation?.files(session) ?? []) if (f.mtimeMs > latest) latest = f.mtimeMs;
+  for (const f of agentOf(session).conversation?.files(session) ?? []) if (f.mtimeMs > latest) latest = f.mtimeMs;
   return latest;
 }
 

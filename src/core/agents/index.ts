@@ -1,7 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { getConfigPath } from '../config.js';
 import { getAiTool } from '../ai-launcher.js';
 import type { WorkConfig } from '../config.js';
 import type { WorktreeSession } from '../session-types.js';
+import type { SessionAgentWire } from '../api-types.js';
 import { claudeAgent } from './claude.js';
 import type { AgentAdapter, LiveAgent } from './types.js';
 import { typeThenEnter } from './typing.js';
@@ -9,9 +12,61 @@ import { typeThenEnter } from './typing.js';
 export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
+type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent'>;
+
+/**
+ * The config's agent settings (aiCommand, aiCommandFlags, internalAgent),
+ * read again only when config.json changed (its path, size and mtime): the
+ * agent lookups run per session on every session-list build, and a full
+ * loadConfig each time was a read and a parse per row.
+ */
+let settingsCache: { key: string; value: AgentSettings } | null = null;
+export function agentSettings(): AgentSettings {
+  const file = getConfigPath();
+  let key: string;
+  try {
+    const st = fs.statSync(file);
+    key = `${file}|${st.size}|${st.mtimeMs}`;
+  } catch {
+    return {};
+  }
+  if (settingsCache?.key === key) return settingsCache.value;
+  let value: AgentSettings = {};
+  try {
+    const p = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    value = {
+      ...(typeof p.aiCommand === 'string' ? { aiCommand: p.aiCommand } : {}),
+      ...(p.aiCommandFlags && typeof p.aiCommandFlags === 'object' ? { aiCommandFlags: p.aiCommandFlags as AgentSettings['aiCommandFlags'] } : {}),
+      ...(typeof p.internalAgent === 'string' && /^[\w.-]+$/.test(p.internalAgent) ? { internalAgent: p.internalAgent } : {}),
+    };
+  } catch {
+    /* unreadable: the defaults */
+  }
+  settingsCache = { key, value };
+  return value;
+}
+
+/** The agent a session runs, with the config's settings (cached): `agentFor(agentSettings(), session)`. */
+export function agentOf(session?: Pick<WorktreeSession, 'agent'> | null): AgentAdapter {
+  return agentFor(agentSettings(), session);
+}
 
 /** The agents work has an adapter for, by binary name. */
-const ADAPTERS: ReadonlyMap<string, AgentAdapter> = new Map([[claudeAgent.id, claudeAgent]]);
+const ADAPTERS = new Map<string, AgentAdapter>([[claudeAgent.id, claudeAgent]]);
+
+/**
+ * Add an adapter (another agent — Codex, Copilot CLI — or a test's): from
+ * then on sessions created with it record it, and every reader, hook and
+ * launch path uses it. Returns a function that takes it out again.
+ */
+export function registerAgent(a: AgentAdapter): () => void {
+  const before = ADAPTERS.get(a.id);
+  ADAPTERS.set(a.id, a);
+  return () => {
+    if (before) ADAPTERS.set(a.id, before);
+    else ADAPTERS.delete(a.id);
+  };
+}
 
 /** work has an adapter for this agent (it can be recorded on a session and read). */
 export function isKnownAgent(id: string | undefined): id is string {
@@ -55,6 +110,15 @@ export function liveAgents(table?: ReadonlyMap<number, string>): LiveAgent[] {
 /** The agent that writes work's own summaries (config `internalAgent`; Claude Code by default). */
 export function internalAgent(config: Pick<WorkConfig, 'internalAgent'> | null): AgentAdapter {
   return agentById(config?.internalAgent ?? 'claude');
+}
+
+/** An agent as the dashboard is told about it: its name and which capabilities its adapter has. */
+export function agentWire(a: AgentAdapter): SessionAgentWire {
+  return {
+    id: a.id,
+    name: a.name,
+    can: { read: !!a.conversation, hooks: !!a.events, live: !!a.live, answer: !!a.input.permissionDialog, chat: !!a.chat },
+  };
 }
 
 /** The adapter for an agent by its binary name (`claude`; anything else: a plain one). */

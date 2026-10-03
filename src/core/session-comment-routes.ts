@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
-import { agentFor } from './agents/index.js';
-import { loadConfig } from './config.js';
+import { agentOf } from './agents/index.js';
 import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from './comment-file-store.js';
 import { findSession } from './web-state.js';
@@ -168,6 +167,6 @@ export async function typeAndSubmit(
   write: (id: string, data: string) => Promise<boolean> = writeToPty,
   wait?: (ms: number) => Promise<void>,
 ): Promise<boolean> {
-  const agent = agentFor(loadConfig(), findSession(sessionId));
+  const agent = agentOf(findSession(sessionId));
   return agent.input.submit((data) => write(sessionId, data), text, wait);
 }
