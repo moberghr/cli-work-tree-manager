@@ -12,3 +12,7 @@ tasks/todo.md
 .claude/references.index
 playwright-report/
 test-results/
+
+# Tool output, never source: Claude Code agent worktrees, Playwright MCP snapshots
+.claude/worktrees/
+.playwright-mcp/
