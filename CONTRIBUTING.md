@@ -2,7 +2,7 @@
 
 ## Setup
 
-Node 22 or newer (CI runs 22 and 24; `.nvmrc` pins the dev version), git, and
+Node 22.13 or newer (CI runs the latest 22 and 24; `.nvmrc` pins the dev version), git, and
 for the dashboard's GitHub and Jira features `gh` and `acli`.
 
 ```bash
