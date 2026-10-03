@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { agentFor } from './agents/index.js';
 import { restoreArchivedUncommitted } from './archive-restore.js';
 import path from 'node:path';
 import { debug } from './logger.js';
@@ -584,18 +585,19 @@ async function setupGroupWorktree(
     }
   }
 
-  // Copy group CLAUDE.md
+  // Copy the group's instructions file, under the name its agent reads (CLAUDE.md, AGENTS.md…).
   const configDir = getConfigDir();
   const claudeMdSrc = path.join(configDir, `${groupName}.claude.md`);
-  const claudeMdDest = path.join(groupWorktreePath, 'CLAUDE.md');
+  const instructionsFile = agentFor(config, findSession(loadHistory(), groupName, branchName)).instructionsFile;
+  const claudeMdDest = path.join(groupWorktreePath, instructionsFile);
 
   if (fs.existsSync(claudeMdSrc)) {
     fs.copyFileSync(claudeMdSrc, claudeMdDest);
     report('info', '');
-    report('success', 'Copied group CLAUDE.md to worktree root');
+    report('success', `Copied the group's ${instructionsFile} to the worktree root`);
   } else {
     report('info', '');
-    report('warn', `Warning: Group CLAUDE.md not found at ${claudeMdSrc}`);
+    report('warn', `Warning: the group's ${instructionsFile} not found at ${claudeMdSrc}`);
     report('warn', `Run 'work config regengroup ${groupName}' to generate it.`);
   }
 
@@ -732,8 +734,8 @@ export function teardownWorktree(
       }
     }
 
-    // Clean up group CLAUDE.md and empty parent dir
-    const claudeMd = path.join(groupWorktreePath, 'CLAUDE.md');
+    // Clean up the group's instructions file (its agent's name) and empty parent dir
+    const claudeMd = path.join(groupWorktreePath, agentFor(config, findSession(loadHistory(), target, branch)).instructionsFile);
     try { if (fs.existsSync(claudeMd)) fs.unlinkSync(claudeMd); } catch { /* */ }
     try {
       if (fs.existsSync(groupWorktreePath) && fs.readdirSync(groupWorktreePath).length === 0) {

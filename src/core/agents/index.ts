@@ -37,6 +37,8 @@ function plainAgent(id: string): AgentAdapter {
     },
     // Text, a pause, Enter — and no dialog to answer by keystroke (its screen is unknown).
     input: { submit: typeThenEnter },
+    // The shared convention (Codex, Copilot CLI, opencode read it).
+    instructionsFile: 'AGENTS.md',
   };
 }
 

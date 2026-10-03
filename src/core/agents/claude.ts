@@ -1,6 +1,7 @@
+import path from 'node:path';
 import { listTranscripts } from './claude-files.js';
 import { getAiTool } from '../ai-launcher.js';
-import { hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.js';
+import { claudeProjectsRoot, encodeProjectDir, hasClaudeConversation, resolveResumeLaunch } from '../claude-activity.js';
 import { withoutParentSession } from '../claude-env.js';
 import { readTranscriptTail } from '../transcript.js';
 import { claudeContextWindow, claudeEntries } from './claude-entries.js';
@@ -54,6 +55,11 @@ export const claudeAgent: AgentAdapter = {
       }
       return got.sort((a, b) => a.at.localeCompare(b.at)).slice(-last);
     },
+    // Its projects folder for the folder Claude runs in (the worktree, or a group's root): `--continue` finds it there.
+    restoreDir: (s) => {
+      const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
+      return cwd ? path.join(claudeProjectsRoot(), encodeProjectDir(cwd)) : null;
+    },
   },
   events: claudeEvents,
   live: { running: (table) => readLiveClaudes(undefined, undefined, table) },
@@ -64,4 +70,6 @@ export const claudeAgent: AgentAdapter = {
   },
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
   oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
+  instructionsFile: 'CLAUDE.md',
+  chat: true,
 };

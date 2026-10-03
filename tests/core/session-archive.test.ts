@@ -17,6 +17,8 @@ let session: WorktreeSession;
 let transcript: string;
 
 const line = (o: object) => JSON.stringify(o) + '\n';
+/** Where Claude looks for a session's conversation under a projects root (its adapter's restoreDir, rooted in the test's folder). */
+const claudeDirIn = (projectsRoot: string) => (x: WorktreeSession) => path.join(projectsRoot, encodeProjectDir(x.isGroup ? path.dirname(x.paths[0]) : x.paths[0]));
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'archive-'));
@@ -173,13 +175,13 @@ describe('restoreArchivedTranscripts', () => {
   it('puts the conversation back where Claude looks for it, leaving files that are there', async () => {
     await archiveSession(session, deps());
     fs.rmSync(path.join(projects, encodeProjectDir(wt)), { recursive: true, force: true }); // Claude Code cleaned it up
-    expect(restoreArchivedTranscripts(session, root, projects)).toBe(1);
+    expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(1);
     expect(fs.existsSync(transcript)).toBe(true);
-    expect(restoreArchivedTranscripts(session, root, projects)).toBe(0); // already there
+    expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(0); // already there
   });
 
   it('does nothing for a session that was never archived with a copy', () => {
-    expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, projects)).toBe(0);
+    expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, claudeDirIn(projects))).toBe(0);
     expect(vi.isMockFunction(restoreArchivedTranscripts)).toBe(false);
   });
 });
@@ -235,7 +237,7 @@ describe('archiveSession: what it does around the copy', () => {
     fs.rmSync(plain);
     expect(readArchivedTranscript(id, 'conv-1.jsonl', root)).toBe(text);
     fs.rmSync(transcript);
-    expect(restoreArchivedTranscripts(session, root, projects)).toBe(1);
+    expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(1);
     expect(fs.readFileSync(transcript, 'utf8')).toBe(text);
   });
 });

@@ -14,6 +14,7 @@ let settingsFile: string;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-events-'));
   fs.mkdirSync(path.join(tmp, '.claude'));
+  fs.mkdirSync(path.join(tmp, '.work'));
   settingsFile = path.join(tmp, '.claude', 'settings.json');
   vi.spyOn(os, 'homedir').mockReturnValue(tmp);
 });
@@ -119,12 +120,74 @@ describe('work’s own summaries (agents/: `oneShot`, config internalAgent)', ()
     const { internalAgent } = await import('../../src/core/agents/index.js');
     expect(internalAgent(null).id).toBe('claude');
     expect(internalAgent({ internalAgent: 'opencode' }).oneShot).toBeUndefined();
-    fs.mkdirSync(path.join(tmp, '.work'), { recursive: true });
     fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify({ worktreesRoot: tmp, repos: {}, groups: {}, copyFiles: [], internalAgent: 'opencode' }));
     const { runInternal } = await import('../../src/core/checkpoint-summary.js');
     const started = Date.now();
     expect(await runInternal('summarise this', 25_000)).toBeNull();
     expect(Date.now() - started).toBeLessThan(1000); // answered at once: nothing ran
+  });
+});
+
+describe('instructions file, restore, chat (agents/)', () => {
+  const config = (aiCommand?: string) => ({ worktreesRoot: tmp, repos: { api: path.join(tmp, 'api') }, groups: { shop: ['api'] }, copyFiles: [], ...(aiCommand ? { aiCommand } : {}), internalAgent: 'opencode' });
+
+  it('the file an agent reads: CLAUDE.md for Claude, AGENTS.md (the shared convention) for one with no adapter', async () => {
+    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { agentById } = await import('../../src/core/agents/index.js');
+    expect(claudeAgent.instructionsFile).toBe('CLAUDE.md');
+    expect(agentById('codex').instructionsFile).toBe('AGENTS.md');
+  });
+
+  it('a group’s combined file is made from each repo’s file of that name, and says which (the template, when no agent writes it)', async () => {
+    fs.mkdirSync(path.join(tmp, 'api'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'api', 'AGENTS.md'), '# api agents notes');
+    fs.writeFileSync(path.join(tmp, 'api', 'CLAUDE.md'), '# api claude notes');
+    const { generateGroupClaudeMd } = await import('../../src/core/claude-md.js');
+    const out = path.join(tmp, '.work', 'shop.claude.md');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    generateGroupClaudeMd('shop', ['api'], config('opencode') as never);
+    expect(fs.readFileSync(out, 'utf8')).toContain('# api agents notes');
+    generateGroupClaudeMd('shop', ['api'], config() as never);
+    expect(fs.readFileSync(out, 'utf8')).toContain('# api claude notes');
+  });
+
+  it('an archived conversation goes back where Claude looks (the folder it runs in; a group’s root); an agent without restoreDir: nowhere', async () => {
+    const { claudeAgent } = await import('../../src/core/agents/claude.js');
+    const { encodeProjectDir } = await import('../../src/core/claude-activity.js');
+    const group = { target: 'shop', branch: 'b', isGroup: true, paths: [path.join(tmp, 'wt', 'shop', 'b', 'api')], createdAt: '', lastAccessedAt: '' };
+    expect(claudeAgent.conversation!.restoreDir!(group)).toBe(path.join(tmp, '.claude', 'projects', encodeProjectDir(path.join(tmp, 'wt', 'shop', 'b'))));
+    // A real archive with one conversation file.
+    const s = { target: 'api', branch: 'feat/r', isGroup: false, paths: [path.join(tmp, 'wt', 'r')], createdAt: '', lastAccessedAt: '' };
+    const { sessionIdFor } = await import('../../src/core/session-id.js');
+    const { writeArchiveRecord, archiveRoot, restoreArchivedTranscripts } = await import('../../src/core/session-archive.js');
+    const id = sessionIdFor(s);
+    fs.mkdirSync(path.join(archiveRoot(), id, 'transcripts'), { recursive: true });
+    fs.writeFileSync(path.join(archiveRoot(), id, 'transcripts', 'c.jsonl'), '{}\n');
+    writeArchiveRecord({ sessionId: id, target: 'api', branch: 'feat/r', isGroup: false, paths: s.paths, archivedAt: 'x', worktreeRemoved: true, keptBecause: null, transcripts: [{ file: 'c.jsonl', projectDir: 'p' }], summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null } });
+    // The session's agent is opencode: nowhere to put it back (the archive keeps it).
+    fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config('opencode')));
+    expect(restoreArchivedTranscripts(s)).toBe(0);
+    // Claude's: back in its projects folder for that worktree.
+    fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config()));
+    expect(restoreArchivedTranscripts(s)).toBe(1);
+    expect(fs.existsSync(path.join(tmp, '.claude', 'projects', encodeProjectDir(path.join(tmp, 'wt', 'r')), 'c.jsonl'))).toBe(true);
+  });
+
+  it('the chat runs only for an agent that has one', async () => {
+    fs.mkdirSync(path.join(tmp, '.work'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.work', 'config.json'), JSON.stringify(config('opencode')));
+    const wt = path.join(tmp, 'wt', 'api', 'feat-x');
+    fs.mkdirSync(wt, { recursive: true });
+    const { saveHistory } = await import('../../src/core/history.js');
+    const { sessionIdFor } = await import('../../src/core/session-id.js');
+    saveHistory([{ target: 'api', branch: 'feat/x', isGroup: false, paths: [wt], createdAt: '', lastAccessedAt: '' }]);
+    const { Hono } = await import('hono');
+    const { mountChatRoutes } = await import('../../src/core/chat-routes.js');
+    const app = new Hono();
+    mountChatRoutes(app, { broadcast: () => {}, baseUrl: () => 'http://127.0.0.1:1/' } as never);
+    const res = await app.request(`/api/sessions/${sessionIdFor({ target: 'api', branch: 'feat/x' })}/chat/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hi' }) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/opencode has no chat here/);
   });
 });
 

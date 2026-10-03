@@ -2,14 +2,13 @@ import path from 'node:path';
 import type { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ChatSnapshot } from './api-types.js';
-import { hasClaudeConversation } from './claude-activity.js';
 import { ChatSession, newChatToken, writeMcpConfig, type ChatEvent } from './chat-session.js';
 import { mountChatMcpRoutes } from './chat-mcp-routes.js';
-import { getConfigDir } from './config.js';
+import { getConfigDir, loadConfig } from './config.js';
 import { latestTranscript } from './context-usage.js';
 import { disposePty, peekPty, ptyPids, spawnSpecFor, syncPtyPool } from './pty-pool.js';
 import { claudesBySession } from './live-claudes.js';
-import { liveAgents } from './agents/index.js';
+import { agentFor, liveAgents } from './agents/index.js';
 import { loadHistory, type WorktreeSession } from './history.js';
 import { readTranscriptTail } from './transcript.js';
 import { findSession } from './web-state.js';
@@ -75,7 +74,7 @@ export function mountChatRoutes(
     const file = writeMcpConfig(path.join(getConfigDir(), 'chat'), id, `${opts.baseUrl().replace(/\/$/, '')}/api/chat-mcp/${token}`);
     const chat = new ChatSession(
       id,
-      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: hasClaudeConversation(spec.cwd) },
+      { cwd: spec.cwd, cmd: spec.tool.cmd, baseArgs: spec.tool.baseArgs, port: spec.port, continueExisting: agentFor(loadConfig(), session).launch.canResume(spec.cwd) },
       file,
       historyOf(session),
       token,
@@ -123,6 +122,9 @@ export function mountChatRoutes(
     const body = (await c.req.json().catch(() => null)) as { text?: unknown; takeOver?: unknown } | null;
     const text = typeof body?.text === 'string' ? body.text : '';
     if (!text.trim()) return c.json({ error: 'text required' }, 400);
+    // The chat is an agent's headless protocol (Claude's stream-json): one without it has the Terminal tab only.
+    const agent = agentFor(loadConfig(), session);
+    if (!agent.chat) return c.json({ error: `${agent.name} has no chat here: use its Terminal tab` }, 409);
     if (!chats.get(id)?.running) {
       // A Claude in a terminal tab on this conversation: we can't stop it for
       // the user, and a second one here would write to the same conversation.

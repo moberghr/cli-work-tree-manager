@@ -170,8 +170,12 @@ describe('archive deps (real git)', () => {
       const group = { ...config, repos: { api: repo, web }, groups: { shop: ['api', 'web'] } } as WorkConfig;
       saveConfig(group);
 
+      // The group's combined instructions file, as `work config group` keeps it.
+      fs.writeFileSync(path.join(home, '.work', 'shop.claude.md'), '# shop');
       const made = await setupWorktree('shop', 'feat/merged', group, undefined, undefined, { pull: false });
       const [apiWt, webWt] = ['repo', 'web'].map((n) => made!.paths.find((p) => path.basename(p) === n)!);
+      // In the group root under the name its agent reads (Claude: CLAUDE.md).
+      expect(fs.readFileSync(path.join(path.dirname(apiWt), 'CLAUDE.md'), 'utf8')).toBe('# shop');
       fs.writeFileSync(path.join(apiWt, 'a'), 'api edit');
       fs.writeFileSync(path.join(webWt, 'w'), 'web edit');
       fs.writeFileSync(path.join(webWt, 'new.css'), 'body {}');
@@ -179,6 +183,7 @@ describe('archive deps (real git)', () => {
 
       const out = await archiveSession(s, deps(), { merged: true });
       expect(out).toMatchObject({ ok: true, worktreeRemoved: true, message: expect.stringContaining('3 uncommitted files saved') });
+      expect(fs.existsSync(path.join(path.dirname(apiWt), 'CLAUDE.md'))).toBe(false); // gone with the worktree
       const rec = (await import('../../src/core/session-archive.js')).readArchive(sessionIdFor(s));
       expect(Object.keys(rec!.uncommitted!).sort()).toEqual(['api', 'web']);
 

@@ -6,7 +6,6 @@ import { whileArchiving } from './archiving.js';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { getConfigDir, loadConfig } from './config.js';
-import { claudeProjectsRoot, encodeProjectDir } from './claude-activity.js';
 import { promptsSince } from './digest.js';
 import type { WorktreeSession } from './session-types.js';
 import { sessionIdFor } from './session-id.js';
@@ -400,14 +399,17 @@ function isArchiveRecord(x: unknown): x is ArchiveRecord {
  * folder of the session's worktree), so `--continue` picks it up. Files that
  * are already there are left alone. Returns how many were restored.
  */
-export function restoreArchivedTranscripts(s: WorktreeSession, root = archiveRoot(), projectsRoot = claudeProjectsRoot()): number {
+export function restoreArchivedTranscripts(
+  s: WorktreeSession,
+  root = archiveRoot(),
+  /** Where its agent looks for them (agents/: `conversation.restoreDir`; none: it starts fresh, the archive keeps them). */
+  restoreDir: (s: WorktreeSession) => string | null = (x) => agentFor(loadConfig(), x).conversation?.restoreDir?.(x) ?? null,
+): number {
   const id = sessionIdFor(s);
   const rec = readArchive(id, root);
   if (!rec) return 0;
-  // Where Claude runs for it: the worktree, or a group's root.
-  const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
-  if (!cwd) return 0;
-  const dest = path.join(projectsRoot, encodeProjectDir(cwd));
+  const dest = restoreDir(s);
+  if (!dest) return 0;
   let n = 0;
   for (const t of rec.transcripts) {
     const to = path.join(dest, t.file);

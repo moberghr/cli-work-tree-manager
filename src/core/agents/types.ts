@@ -57,6 +57,8 @@ export interface AgentConversation {
   contextWindow(model: string | undefined, used: number): number;
   /** The newest `last` messages — yours, its, its tool calls — oldest first. */
   read(session: WorktreeSession, opts: { last: number }): ConversationEntry[];
+  /** Where to put an archived conversation's files back so the agent resumes it in the session's folder; absent: Restore starts fresh (the archive keeps them). */
+  restoreDir?(session: WorktreeSession): string | null;
 }
 
 /** Starting it: every agent has this. */
@@ -159,4 +161,8 @@ export interface AgentAdapter {
   input: AgentInput;
   /** Text-only one-shot runs for work's summaries; absent: work writes none with this agent. */
   oneShot?: AgentOneShot;
+  /** The project instructions file it reads (CLAUDE.md; Codex, Copilot and opencode read AGENTS.md): a group's combined one is written under this name. */
+  instructionsFile: string;
+  /** It can run as the dashboard's headless chat (Claude's stream-json protocol: chat-session.ts); absent: the Terminal tab only. */
+  chat?: true;
 }
