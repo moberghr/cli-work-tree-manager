@@ -264,3 +264,19 @@ export const saveGroup = (name: string, members: string[], creating: boolean) =>
   repoCall('POST', '/api/groups', { name, members, creating });
 export const deleteGroup = (name: string, force = false) =>
   repoCall('DELETE', `/api/groups/${encodeURIComponent(name)}${force ? '?force=1' : ''}`);
+
+// ---- first run (the Welcome page) ----
+
+export function fetchSetup(fresh = false): Promise<import('../../../core/api-types.js').SetupWire> {
+  return getJson(`/api/setup${fresh ? '?fresh=1' : ''}`);
+}
+
+/** Set where repos are and where worktrees go (config.json made when there is none). */
+export async function saveSetupFolders(worktreesRoot: string, reposFolder: string): Promise<void> {
+  const res = await fetch('/api/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worktreesRoot, reposFolder }),
+  });
+  if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `${res.status} saving folders`);
+}

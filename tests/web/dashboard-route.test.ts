@@ -20,6 +20,7 @@ describe('parseHash', () => {
     expect(parseHash('#/jira')).toMatchObject({ tab: 'start' });
     expect(parseHash('#/today')).toMatchObject({ tab: 'today' });
     expect(parseHash('#/repos')).toMatchObject({ tab: 'repos', sessionId: null });
+    expect(parseHash('#/welcome')).toMatchObject({ tab: 'welcome', sessionId: null });
     // Tasks is a panel in the top bar now: an old link lands on Sessions.
     expect(parseHash('#/tasks')).toMatchObject({ tab: 'sessions', sessionId: null });
   });

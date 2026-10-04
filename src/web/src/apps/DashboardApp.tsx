@@ -25,6 +25,9 @@ import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
+import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
+import { fetchSetup } from '../api/panes.js';
+import { needsSetup } from '../state/setup.js';
 import { fetchProjects, fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
 import { defaultSubTab, isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
@@ -65,6 +68,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   sessions: 'Sessions',
   start: 'Start',
   repos: 'Repos',
+  welcome: 'Welcome',
 };
 
 /**
@@ -309,6 +313,17 @@ export function DashboardApp() {
     },
     [navigate],
   );
+  // First run: nothing set up, or no repo and no session yet — open on
+  // Welcome (once, at load; a link to a session wins).
+  const routeAtLoad = useRef(route);
+  useEffect(() => {
+    if (routeAtLoad.current.sessionId) return;
+    void fetchSetup()
+      .then((s) => {
+        if (needsSetup(s)) goTab('welcome');
+      })
+      .catch(() => {});
+  }, [goTab]);
   // The one session whose diff should open on "Last turn" (set when it is
   // opened to review finished work: the queue, or its inbox row).
   const [lastTurnFor, setLastTurnFor] = useState<string | null>(null);
@@ -642,6 +657,9 @@ export function DashboardApp() {
         break;
       case 'repos':
         body = <ReposTab />;
+        break;
+      case 'welcome':
+        body = <WelcomeTab onNewWorktree={() => openNew(null)} onDone={() => goTab('start')} />;
         break;
     }
   }

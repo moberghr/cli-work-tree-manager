@@ -24,6 +24,7 @@ import type {
   UpdateFromMainWire,
   WorkTimeWire,
   DiffSeen,
+  SetupWire,
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
@@ -620,6 +621,30 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return repoAnswer(c, () => repoModel.saveGroup(b.name as string, members, b.creating === true));
   });
   app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
+  // First run: the demo is set up already (its folders are pretend).
+  app.get('/api/setup', (c) =>
+    c.json({
+      configured: true,
+      worktreesRoot: '~/worktrees',
+      reposFolder: '~/repos',
+      repos: repoModel.projects().singles.length,
+      sessions: scenario.list().filter((w) => !w.archivedAt).length,
+      suggested: { reposFolder: '~/repos', worktreesRoot: '~/worktrees' },
+      tools: [
+        { id: 'git', label: 'git', needed: true, ok: true, detail: 'git version 2.47.0' },
+        { id: 'claude', label: 'Claude Code', needed: true, ok: true, detail: '2.1.0 (Claude Code)' },
+        { id: 'gh', label: 'GitHub CLI', needed: false, ok: true, detail: 'Logged in to github.com' },
+        {
+          id: 'acli',
+          label: 'Atlassian CLI',
+          needed: false,
+          ok: false,
+          detail: 'Optional: install acli to start sessions from your Jira issues.',
+        },
+      ],
+    } satisfies SetupWire),
+  );
+  app.post('/api/setup', (c) => c.json({ error: 'Demo mode: the folders are pretend.' }, 400));
   app.get('/api/branch-check', (c) => {
     const target = c.req.query('target') ?? '';
     const branch = c.req.query('branch') ?? '';

@@ -202,6 +202,34 @@ export interface ReposWire {
   groups: GroupRow[];
 }
 
+// ---- First run (first-run.ts, the Welcome page) -----------------------------
+
+/** A tool work leans on, and whether it answers here. */
+export interface ToolCheck {
+  id: 'git' | 'claude' | 'gh' | 'acli';
+  label: string;
+  /** work can't do without it (git, Claude Code); the others add features. */
+  needed: boolean;
+  ok: boolean;
+  /** Its version when it answers; what to do when it doesn't. */
+  detail: string;
+}
+
+/** GET /api/setup */
+export interface SetupWire {
+  /** config.json exists, with a worktrees folder. */
+  configured: boolean;
+  worktreesRoot: string | null;
+  /** The folder scanned for repos (config scanRoots[0], else the one holding the worktrees). */
+  reposFolder: string | null;
+  repos: number;
+  /** Live sessions. */
+  sessions: number;
+  /** Folders to offer when none are set. */
+  suggested: { reposFolder: string | null; worktreesRoot: string };
+  tools: ToolCheck[];
+}
+
 // ---- Diff: since you last looked (diff-seen.ts) -----------------------------
 
 /** GET/POST /api/sessions/:id/diff-seen: the newest turn (checkpoint id) on screen the last time you looked at its diff. */

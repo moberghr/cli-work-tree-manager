@@ -386,6 +386,15 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
 });
 
+test('Welcome walks the first run: folders, repos inline, the tools, then New worktree', async ({ page }) => {
+  await page.goto(`${url}#/welcome`);
+  await expect(page.getByRole('heading', { name: 'Welcome to work' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Your repos' }).locator('.wd-repos-row').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Tools' })).toContainText('Claude Code');
+  await page.getByRole('region', { name: 'Start' }).getByRole('button', { name: 'New worktree' }).click();
+  await expect(page.locator('.wd-modal')).toBeVisible();
+});
+
 test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {
   await page.goto(`${url}#/start`);
   await page.getByRole('button', { name: 'Repos & groups' }).click();

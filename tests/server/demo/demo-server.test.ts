@@ -252,6 +252,15 @@ describe('demo server', () => {
     expect(after.prStage?.seen).toBe(true);
   });
 
+  it('first run: the demo is set up already, and its folders are pretend', async () => {
+    expect(await get('/api/setup')).toMatchObject({
+      configured: true,
+      repos: 4,
+      tools: expect.arrayContaining([expect.objectContaining({ id: 'claude', ok: true })]),
+    });
+    expect((await send('POST', '/api/setup', { worktreesRoot: '/x', reposFolder: '/y' })).status).toBe(400);
+  });
+
   it('the Repos page: enrol a found repo, make a group of it, and undo both', async () => {
     type Inv = { repos: { folder: string; status: string; suggestedAlias?: string }[]; groups: { name: string; sessions: number }[] };
     const before = await get<Inv>('/api/repos');

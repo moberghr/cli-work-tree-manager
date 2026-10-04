@@ -770,6 +770,101 @@ a.wd-pr-chip:hover {
   }
 }
 
+/* ---- Welcome (first run) -------------------------------------------------*/
+
+.wd-welcome-intro,
+.wd-welcome-step {
+  padding: 0 32px;
+  max-width: 1100px;
+}
+.wd-welcome-intro {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.wd-welcome-step {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-welcome-step .wd-tab-repos {
+  margin: 0 -32px;
+}
+.wd-welcome-step .wd-tab-repos .wd-tab-header h1 {
+  font-size: 15px;
+}
+.wd-welcome-ok {
+  margin-left: 6px;
+  color: var(--add-fg);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wd-welcome-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.wd-welcome-field > span {
+  width: 130px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.wd-welcome-field input {
+  flex: 1;
+  max-width: 520px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-welcome-tools {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.wd-welcome-tools li {
+  display: grid;
+  grid-template-columns: 18px 120px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.wd-welcome-tool-ok .wd-welcome-tool-mark {
+  color: var(--add-fg);
+}
+.wd-welcome-tool-bad .wd-welcome-tool-mark,
+.wd-welcome-tool-bad .wd-welcome-tool-detail {
+  color: var(--del-fg);
+}
+.wd-welcome-tool-detail,
+.wd-welcome-tool-optional .wd-welcome-tool-mark {
+  color: var(--muted);
+}
+.wd-welcome-start {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0;
+}
+@media (max-width: 720px) {
+  .wd-welcome-intro,
+  .wd-welcome-step {
+    padding: 0 12px;
+  }
+  .wd-welcome-step .wd-tab-repos {
+    margin: 0 -12px;
+  }
+  .wd-welcome-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .wd-welcome-tools li {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .wd-welcome-tool-detail {
+    grid-column: 2;
+  }
+}
+
 /* ---- Repos page: the scanned folders' repos, and the groups ------------*/
 
 .wd-repos-roots,
