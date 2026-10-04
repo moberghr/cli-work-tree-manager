@@ -37,7 +37,7 @@ const TABS: TabDef[] = [
 ];
 
 /** Pages reached from a tab show that tab as current: Today and Clean up are Sessions' views. */
-const TAB_OF: Partial<Record<DashboardRoute['tab'], DashboardRoute['tab']>> = { today: 'sessions', cleanup: 'sessions' };
+const TAB_OF: Partial<Record<DashboardRoute['tab'], DashboardRoute['tab']>> = { today: 'sessions', cleanup: 'sessions', repos: 'start' };
 
 /**
  * Top bar, kept short: brand, the tabs (Inbox, Sessions, Start), then Tasks, Ask, the background

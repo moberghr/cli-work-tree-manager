@@ -241,6 +241,28 @@ describe('demo server', () => {
     expect(d.repos.length).toBeGreaterThan(0);
   });
 
+  it('the Repos page: enrol a found repo, make a group of it, and undo both', async () => {
+    type Inv = { repos: { folder: string; status: string; suggestedAlias?: string }[]; groups: { name: string; sessions: number }[] };
+    const before = await get<Inv>('/api/repos');
+    expect(before.repos.find((r) => r.folder === 'billing')).toMatchObject({ status: 'new', suggestedAlias: 'billing' });
+    expect((await send('POST', '/api/repos', { alias: 'billing', path: '~/repos/billing' })).status).toBe(200);
+    expect((await send('POST', '/api/repos', { alias: 'api', path: '~/repos/hangfire' })).status).toBe(400);
+    expect((await send('POST', '/api/groups', { name: 'money', members: ['api', 'billing'], creating: true })).status).toBe(200);
+    expect((await get<Inv>('/api/repos')).groups.map((g) => g.name)).toContain('money');
+    expect((await send('POST', '/api/groups', { name: 'money', members: ['api'], creating: false })).status).toBe(400);
+    expect((await send('DELETE', '/api/groups/money')).status).toBe(200);
+    expect((await send('DELETE', '/api/repos/billing')).status).toBe(200);
+    expect((await get<Inv>('/api/repos')).repos.find((r) => r.folder === 'billing')?.status).toBe('new');
+    // A group with live sessions is refused, naming them, unless forced.
+    const shop = before.groups.find((g) => g.name === 'shop')!;
+    if (shop.sessions > 0) {
+      const res = await send('DELETE', '/api/groups/shop');
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { sessions: string[] }).sessions.length).toBeGreaterThan(0);
+    }
+    expect((await send('POST', '/api/repos/roots', { path: 'C:/x', on: true })).status).toBe(400);
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

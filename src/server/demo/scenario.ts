@@ -2,6 +2,7 @@ import { createCommentStore, type CommentStore } from '../../core/comments/comme
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { findOverlaps } from '../../core/diff/overlap.js';
 import { firstFreeBranch } from '../../core/worktree/branch-name.js';
+import { createDemoRepos } from './demo-repos.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
 import { buildDigest } from '../../core/conversations/digest.js';
 import { cleanupVerdict } from '../../core/cleanup/cleanup-verdict.js';
@@ -249,6 +250,8 @@ export class DemoScenario {
   /** Which demo tabs are looking at what (POST /api/presence). */
   readonly presence: Presence;
   readonly sessions = new Map<string, DemoSession>();
+  /** The Repos page's pretend ~/repos; the projects New worktree offers come from it. */
+  readonly repos = createDemoRepos(() => [...this.sessions.values()].filter((x) => !x.archivedAt).map((x) => x.target));
   private readonly listeners = new Set<(e: DemoEvent) => void>();
   private readonly now: () => number;
 
@@ -1280,13 +1283,7 @@ export class DemoScenario {
     singles: Array<{ name: string; kind: 'single'; path: string }>;
     groups: Array<{ name: string; kind: 'group'; members: string[] }>;
   } {
-    return {
-      singles: [
-        { name: 'api', kind: 'single', path: '~/repos/api' },
-        { name: 'web', kind: 'single', path: '~/repos/web' },
-      ],
-      groups: [{ name: 'shop', kind: 'group', members: ['backend', 'frontend'] }],
-    };
+    return this.repos.projects();
   }
 
   prs(): PullRequestInfo[] {

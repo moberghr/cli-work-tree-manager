@@ -24,6 +24,7 @@ import { compareInbox, needsAttention, wantsYou } from '../../../core/status/att
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
+import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
 import { fetchProjects, fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
 import { defaultSubTab, isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
@@ -63,6 +64,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   cleanup: 'Clean up',
   sessions: 'Sessions',
   start: 'Start',
+  repos: 'Repos',
 };
 
 /**
@@ -628,8 +630,12 @@ export function DashboardApp() {
             onPickPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })}
             onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
             onOpenSession={(id) => openSession(id)}
+            onManageRepos={() => goTab('repos')}
           />
         );
+        break;
+      case 'repos':
+        body = <ReposTab />;
         break;
     }
   }
@@ -677,6 +683,11 @@ export function DashboardApp() {
           onClose={() => {
             setNewOpen(false);
             setNewInitial(null);
+          }}
+          onManageRepos={() => {
+            setNewOpen(false);
+            setNewInitial(null);
+            goTab('repos');
           }}
         />
       )}

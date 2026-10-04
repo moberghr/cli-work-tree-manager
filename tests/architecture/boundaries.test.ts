@@ -169,6 +169,7 @@ describe('architecture boundaries', () => {
       'src/core/rail/blocks.js',
       'src/core/conversations/timeline.js',
       'src/core/pty/host-health.js',
+      'src/core/worktree/repo-rules.js',
     ]);
     expect(
       violations(
@@ -201,6 +202,7 @@ describe('architecture boundaries', () => {
       'src/core/rail/blocks.ts',
       'src/core/conversations/timeline.ts',
       'src/core/pty/host-health.ts',
+      'src/core/worktree/repo-rules.ts',
     ]) {
       const f = files.find((x) => x.rel === rel);
       expect(f, rel).toBeDefined();

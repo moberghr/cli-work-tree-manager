@@ -228,3 +228,39 @@ export function openInTerminal(sessionId: string): Promise<{ ok: true }> {
 export function openInEditor(sessionId: string): Promise<{ ok: true; opened: string }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, {});
 }
+
+// ---- Repos and groups (the Repos page; repo-admin.ts) ----------------------
+
+/** A refusal from the Repos routes; `sessions` names the live sessions a 409 could be forced past. */
+export class RepoChangeError extends Error {
+  constructor(
+    message: string,
+    readonly sessions: string[] = [],
+  ) {
+    super(message);
+  }
+}
+
+async function repoCall(method: string, url: string, body?: unknown): Promise<void> {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (res.ok) return;
+  const b = (await res.json().catch(() => ({}))) as { error?: string; sessions?: string[] };
+  throw new RepoChangeError(b.error ?? `${res.status} ${res.statusText}`, b.sessions ?? []);
+}
+
+export function fetchRepos(): Promise<import('../../../core/api-types.js').ReposWire> {
+  return getJson('/api/repos');
+}
+export const enrollRepo = (alias: string, path: string) => repoCall('POST', '/api/repos', { alias, path });
+export const removeRepo = (alias: string, force = false) =>
+  repoCall('DELETE', `/api/repos/${encodeURIComponent(alias)}${force ? '?force=1' : ''}`);
+export const ignoreRepo = (path: string, ignored: boolean) => repoCall('POST', '/api/repos/ignore', { path, ignored });
+export const setScanRoot = (path: string, on: boolean) => repoCall('POST', '/api/repos/roots', { path, on });
+export const saveGroup = (name: string, members: string[], creating: boolean) =>
+  repoCall('POST', '/api/groups', { name, members, creating });
+export const deleteGroup = (name: string, force = false) =>
+  repoCall('DELETE', `/api/groups/${encodeURIComponent(name)}${force ? '?force=1' : ''}`);

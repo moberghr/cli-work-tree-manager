@@ -24,6 +24,8 @@ interface Props {
   onPickIssue: (issue: JiraIssue) => void;
   onPickPr: (pr: PrInfo) => void;
   onOpenSession: (id: string) => void;
+  /** The Repos page (which repos work knows, groups). */
+  onManageRepos?: () => void;
   /** The dashboard's open-PR list (one poll for every view); null until it came. */
   prs: PrInfo[] | null;
   /** Why there is no list: gh missing, an error. */
@@ -78,6 +80,7 @@ export function StartTab({
   onPickIssue,
   onPickPr,
   onOpenSession,
+  onManageRepos,
   prs,
   prsNote: prNote = null,
   membersOf,
@@ -155,6 +158,11 @@ export function StartTab({
       <header className="wd-tab-header">
         <h1>Start work</h1>
         <div className="wd-tab-controls">
+          {onManageRepos && (
+            <button type="button" className="wd-btn-secondary" onClick={onManageRepos}>
+              Repos & groups
+            </button>
+          )}
           <button type="button" className="wd-btn-primary" onClick={onNewWorktree}>
             New worktree
           </button>

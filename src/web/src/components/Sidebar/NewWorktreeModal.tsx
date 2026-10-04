@@ -20,6 +20,8 @@ interface Props {
    *  Claude was started with the prompt (open its terminal). */
   onCreated: (sessionId: string, result?: { started?: 'started' | 'queued' }) => void;
   onClose: () => void;
+  /** The Repos page, for a project that isn't in the list yet. */
+  onManageRepos?: () => void;
   /** Test seam; defaults to GET /api/branch-check. */
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
 }
@@ -55,7 +57,14 @@ export function moreLabel(name: string, base: string): string {
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
-export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, onClose, checkBranch = fetchBranchCheck }: Props) {
+export function NewWorktreeModal({
+  initial,
+  title = 'New worktree',
+  onCreated,
+  onClose,
+  onManageRepos,
+  checkBranch = fetchBranchCheck,
+}: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
     groups: ProjectSummary[];
@@ -219,6 +228,11 @@ export function NewWorktreeModal({ initial, title = 'New worktree', onCreated, o
               }}
             />
           </label>
+          {onManageRepos && (
+            <button type="button" className="wd-link-button wd-modal-aside" onClick={onManageRepos}>
+              Not in the list? Repos & groups…
+            </button>
+          )}
           <label className="wd-modal-row">
             <span>What should Claude do?</span>
             <textarea

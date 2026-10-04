@@ -3,9 +3,11 @@ import path from 'node:path';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { loadConfig, saveConfig, getConfigPath, getConfigDir, ensureConfig } from '../core/platform/config.js';
-import { isGitRepo } from '../core/git/git.js';
 import { generateGroupInstructions } from '../core/agents/group-instructions.js';
 import { openInEditor } from '../core/platform/launch.js';
+import { enrollRepo, RepoAdminError, repoInventory } from '../core/worktree/repo-admin.js';
+import { scanForRepos } from '../core/worktree/repo-scan.js';
+import { loadHistory } from '../core/sessions/history.js';
 
 export const configCommand: CommandModule = {
   command: 'config <action>',
@@ -15,24 +17,28 @@ export const configCommand: CommandModule = {
       .showHelpOnFail(true)
       .positional('action', {
         describe: 'Config action to perform',
-        choices: ['add', 'remove', 'list', 'group', 'show', 'edit'] as const,
+        choices: ['add', 'remove', 'list', 'group', 'scan', 'show', 'edit'] as const,
         type: 'string',
         demandOption: true,
       })
+      .option('json', { type: 'boolean', describe: 'scan: the inventory as JSON (the Repos page’s /api/repos)' })
       .option('args', {
         type: 'array',
         string: true,
         hidden: true,
       })
       .strict(false),
-  handler: (argv) => {
+  handler: async (argv) => {
     const action = argv.action as string;
     // Collect all extra positional args after the action
     const extra = (argv._ as string[]).slice(1); // slice off 'config'
 
     switch (action) {
       case 'add':
-        handleAdd(extra);
+        await handleAdd(extra);
+        break;
+      case 'scan':
+        handleScan(extra, argv.json === true);
         break;
       case 'remove':
         handleRemove(extra);
@@ -55,7 +61,7 @@ export const configCommand: CommandModule = {
   },
 };
 
-function handleAdd(args: string[]): void {
+async function handleAdd(args: string[]): Promise<void> {
   const [alias, repoPath] = args;
   if (!alias || !repoPath) {
     console.error('Usage: work config add <alias> <path>');
@@ -69,16 +75,50 @@ function handleAdd(args: string[]): void {
     return;
   }
 
-  if (!isGitRepo(repoPath)) {
-    console.error(`Path is not a git repository: ${repoPath}`);
+  // The Repos page's rules: a free alias, the repo's own top folder, a folder name no other repo has.
+  try {
+    await enrollRepo(alias, repoPath);
+  } catch (err) {
+    if (!(err instanceof RepoAdminError)) throw err;
+    console.error(err.message);
     process.exitCode = 1;
     return;
   }
+  console.log(chalk.green(`Added: ${alias} -> ${path.resolve(repoPath)}`));
+}
 
+/**
+ * `work config scan [folder] [--json]`: the git repos in your scanned
+ * folders (or in `folder`), enrolled or not — what the Repos page lists.
+ */
+function handleScan(args: string[], json: boolean): void {
   const config = ensureConfig();
-  config.repos[alias] = repoPath;
-  saveConfig(config);
-  console.log(chalk.green(`Added: ${alias} -> ${repoPath}`));
+  const [folder] = args;
+  const inv = folder
+    ? repoInventory(config, loadHistory(), scanForRepos(folder, { skip: [config.worktreesRoot] }))
+    : repoInventory(config, loadHistory());
+  if (json) {
+    console.log(JSON.stringify(inv, null, 2));
+    return;
+  }
+  console.log(chalk.dim(`Scanned: ${inv.roots.length ? (folder ?? inv.roots.join(', ')) : '(no folder: set worktreesRoot, or pass one)'}`));
+  const fresh = inv.repos.filter((r) => r.status === 'new');
+  console.log(chalk.bold(`\nNot enrolled (${fresh.length})`));
+  for (const r of fresh) {
+    const how = r.problem ? chalk.yellow(r.problem) : chalk.dim(`work config add ${r.suggestedAlias} "${r.path}"`);
+    console.log(`  ${r.folder.padEnd(28)} ${(r.origin ?? '').padEnd(32)} ${how}`);
+  }
+  const odd = inv.repos.filter((r) => r.status === 'missing' || r.sharedWith?.length);
+  if (odd.length) {
+    console.log(chalk.bold(`\nTo look at (${odd.length})`));
+    for (const r of odd)
+      console.log(
+        `  ${r.alias!.padEnd(28)} ${r.status === 'missing' ? chalk.red('folder gone: ' + r.path) : chalk.yellow(`same folder as ${r.sharedWith!.join(', ')}`)}`,
+      );
+  }
+  const ignored = inv.repos.filter((r) => r.status === 'ignored').length;
+  const enrolled = inv.repos.filter((r) => r.status === 'enrolled').length;
+  console.log(chalk.dim(`\n${enrolled} enrolled · ${ignored} ignored · the dashboard's Repos page adds, removes and ignores them.`));
 }
 
 function handleRemove(args: string[]): void {

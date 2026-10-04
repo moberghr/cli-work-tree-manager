@@ -20,6 +20,10 @@ export interface WorkConfig {
   repos: Record<string, string>;
   groups: Record<string, string[]>;
   copyFiles: string[];
+  /** Folders the Repos page scans for git repos (repo-scan.ts); default: the one the worktrees root sits in. */
+  scanRoots?: string[];
+  /** Repos you chose not to enrol (paths), so the Repos page stops offering them. */
+  ignoredRepos?: string[];
   /** The Jira watch (jira-watch.ts; turned on and off in the Jira tab): at most this many automatic starts a day (default 5). */
   jiraWatch?: { maxPerDay?: number };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
@@ -165,6 +169,11 @@ function validateDevCommands(raw: unknown): Record<string, string> | undefined {
   return out;
 }
 
+/** A list of non-empty strings, or undefined (not a list). */
+function stringList(raw: unknown): string[] | undefined {
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : undefined;
+}
+
 export function loadConfig(): WorkConfig | null {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
@@ -179,6 +188,8 @@ export function loadConfig(): WorkConfig | null {
       repos: parsed.repos ?? {},
       groups: parsed.groups ?? {},
       copyFiles: parsed.copyFiles ?? [],
+      scanRoots: stringList(parsed.scanRoots),
+      ignoredRepos: stringList(parsed.ignoredRepos),
       aiCommand: parsed.aiCommand,
       aiCommandFlags: parsed.aiCommandFlags,
       editor: parsed.editor,

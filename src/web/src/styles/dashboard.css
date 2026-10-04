@@ -754,6 +754,204 @@ a.wd-pr-chip:hover {
   }
 }
 
+/* ---- Repos page: the scanned folders' repos, and the groups ------------*/
+
+.wd-repos-roots,
+.wd-repos-confirm,
+.wd-tab-repos > .wd-repos-list,
+.wd-tab-repos > .wd-tab-empty,
+.wd-repos-groups {
+  padding-left: 32px;
+  padding-right: 32px;
+  max-width: 1100px;
+}
+.wd-repos-roots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  padding-bottom: 8px;
+  font-size: 13px;
+}
+.wd-repos-root {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-repos-root-add input {
+  width: 240px;
+  font-size: 12px;
+}
+.wd-repos-cost,
+.wd-repos-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-repos-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 13px;
+  color: var(--warn-fg);
+}
+.wd-repos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* folder + path · origin · alias / groups / sessions · actions */
+.wd-repos-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) 140px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.wd-repos-group {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) 140px;
+}
+.wd-repos-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wd-repos-folder {
+  font-weight: 600;
+}
+.wd-repos-path,
+.wd-repos-origin {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-repos-state,
+.wd-repos-members,
+.wd-repos-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wd-repos-alias {
+  width: 100%;
+  max-width: 220px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-repos-alias-name {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--accent);
+}
+.wd-repos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: default;
+}
+.wd-repos-chip input {
+  margin: 0;
+}
+.wd-repos-pick .wd-repos-chip {
+  cursor: pointer;
+}
+.wd-repos-chip-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wd-repos-chip-bad {
+  border-color: var(--del-fg);
+  color: var(--del-fg);
+}
+.wd-repos-warn {
+  font-size: 12px;
+  color: var(--warn-fg);
+}
+.wd-repos-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.wd-repos-remove {
+  color: var(--del-fg);
+}
+.wd-repos-error {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--del-fg);
+}
+.wd-repos-ignored .wd-repos-folder {
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-repos-groups {
+  padding-bottom: 32px;
+}
+.wd-repos-newgroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 4px;
+}
+.wd-repos-newgroup > input {
+  width: 180px;
+}
+.wd-repos-newgroup .wd-repos-error {
+  flex-basis: 100%;
+}
+.wd-modal-aside {
+  align-self: flex-start;
+  margin: -4px 0 4px;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .wd-repos-roots,
+  .wd-repos-confirm,
+  .wd-tab-repos > .wd-repos-list,
+  .wd-tab-repos > .wd-tab-empty,
+  .wd-repos-groups {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .wd-repos-row,
+  .wd-repos-group {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .wd-repos-origin {
+    display: none;
+  }
+  .wd-repos-state,
+  .wd-repos-members {
+    grid-column: 1 / -1;
+  }
+  .wd-repos-actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}
+
 /* ---- Tasks tab: flat list ------------------------------------------------*/
 
 .wd-task-list {

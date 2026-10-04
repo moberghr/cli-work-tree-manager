@@ -159,6 +159,49 @@ export interface BuildFoldersApplyResult {
   message: string;
 }
 
+// ---- Repos and groups (repo-admin.ts; the Repos page) ----------------------
+
+/** A repo the Repos page lists: enrolled (by alias), found in a scanned folder and not yet, or ignored. */
+export interface RepoRow {
+  path: string;
+  folder: string;
+  /** `owner/name` of its origin, when it has one. */
+  origin: string | null;
+  /** missing: enrolled, but the folder is gone. */
+  status: 'enrolled' | 'new' | 'ignored' | 'missing';
+  /** Its alias, when enrolled. */
+  alias: string | null;
+  /** For a new one: the alias it would get. */
+  suggestedAlias?: string;
+  /** For a new one: why it can't be enrolled as suggested (pick another alias, or it can't be at all). */
+  problem?: string | null;
+  /** Other aliases on the same folder (an old duplicate). */
+  sharedWith?: string[];
+  /** Groups it is in. */
+  groups: string[];
+  /** Live sessions on it. */
+  sessions: number;
+}
+
+export interface GroupRow {
+  name: string;
+  members: string[];
+  /** Members that are no longer enrolled. */
+  missing: string[];
+  /** Live sessions on the group. */
+  sessions: number;
+  /** What's wrong with it as it is (fewer than two repos, …); null when fine. */
+  problem: string | null;
+}
+
+/** GET /api/repos */
+export interface ReposWire {
+  /** The folders scanned (config `scanRoots`, else the worktrees root's). */
+  roots: string[];
+  repos: RepoRow[];
+  groups: GroupRow[];
+}
+
 // ---- Diff: since you last looked (diff-seen.ts) -----------------------------
 
 /** GET/POST /api/sessions/:id/diff-seen: the newest turn (checkpoint id) on screen the last time you looked at its diff. */
@@ -710,7 +753,8 @@ export type ActivityKind =
   | 'server'
   | 'jira-watch'
   | 'stacks'
-  | 'blocks';
+  | 'blocks'
+  | 'groups';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

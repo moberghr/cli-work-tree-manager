@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { snoozeActive, snoozeFor, snoozeUntil, type Snooze } from '../../core/rail/snooze.js';
 import { streamSSE } from 'hono/streaming';
 import { WebSocketServer } from 'ws';
@@ -34,6 +34,7 @@ import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
+import { DemoRepoError } from './demo-repos.js';
 
 /**
  * `work web --demo`: the real dashboard SPA against an in-memory API.
@@ -580,6 +581,40 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // -- side panes --------------------------------------------------------------
   app.get('/api/projects', (c) => c.json(scenario.projects()));
+
+  // The Repos page: a pretend ~/repos, changed in memory by the real rules (demo-repos.ts).
+  const repoModel = scenario.repos;
+  const repoAnswer = (c: Context, fn: () => void) => {
+    try {
+      fn();
+      broadcast({ event: 'repos-changed', data: { ts: Date.now() } });
+      return c.json({ ok: true });
+    } catch (err) {
+      if (err instanceof DemoRepoError) return c.json({ error: err.message, sessions: err.sessions }, err.sessions.length ? 409 : 400);
+      throw err;
+    }
+  };
+  const repoBody = async (c: Context) => ((await c.req.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+  app.get('/api/repos', (c) => c.json(repoModel.inventory()));
+  app.post('/api/repos', async (c) => {
+    const b = await repoBody(c);
+    if (typeof b.alias !== 'string' || typeof b.path !== 'string') return c.json({ error: 'expected {alias, path}' }, 400);
+    return repoAnswer(c, () => repoModel.enroll(b.alias as string, b.path as string));
+  });
+  app.delete('/api/repos/:alias', (c) => repoAnswer(c, () => repoModel.remove(c.req.param('alias'), c.req.query('force') === '1')));
+  app.post('/api/repos/ignore', async (c) => {
+    const b = await repoBody(c);
+    if (typeof b.path !== 'string' || typeof b.ignored !== 'boolean') return c.json({ error: 'expected {path, ignored}' }, 400);
+    return repoAnswer(c, () => repoModel.ignore(b.path as string, b.ignored as boolean));
+  });
+  app.post('/api/repos/roots', (c) => c.json({ error: 'Demo mode: the scanned folder is pretend, ~/repos only.' }, 400));
+  app.post('/api/groups', async (c) => {
+    const b = await repoBody(c);
+    const members = Array.isArray(b.members) ? b.members.filter((m): m is string => typeof m === 'string') : null;
+    if (typeof b.name !== 'string' || !members) return c.json({ error: 'expected {name, members, creating}' }, 400);
+    return repoAnswer(c, () => repoModel.saveGroup(b.name as string, members, b.creating === true));
+  });
+  app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
   app.get('/api/branch-check', (c) => {
     const target = c.req.query('target') ?? '';
     const branch = c.req.query('branch') ?? '';

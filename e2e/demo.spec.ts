@@ -371,6 +371,31 @@ test('Today and Inbox scroll when their content is taller than the window', asyn
   }
 });
 
+test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {
+  await page.goto(`${url}#/start`);
+  await page.getByRole('button', { name: 'Repos & groups' }).click();
+  await expect(page).toHaveURL(/#\/repos$/);
+  const billing = page.locator('.wd-repos-row').filter({ has: page.locator('.wd-repos-folder', { hasText: /^billing$/ }) });
+  await expect(billing.getByRole('textbox', { name: 'Alias for billing' })).toHaveValue('billing');
+  await billing.getByRole('button', { name: 'Add' }).click();
+  await expect(billing).toHaveCount(0);
+
+  const groups = page.getByRole('region', { name: 'Groups' });
+  await groups.getByRole('textbox', { name: 'New group name' }).fill('money');
+  await groups.getByRole('checkbox', { name: 'api' }).check();
+  await groups.getByRole('checkbox', { name: 'billing' }).check();
+  await groups.getByRole('button', { name: 'Create group' }).click();
+  await expect(groups.locator('.wd-repos-group', { hasText: 'money' })).toContainText('billing');
+
+  await page.getByRole('button', { name: 'New worktree' }).first().click();
+  const project = page.locator('.wd-modal').getByRole('combobox');
+  await project.fill('mon');
+  await expect(page.getByRole('option', { name: /money/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /Repos & groups…/ }).click();
+  await expect(page).toHaveURL(/#\/repos$/);
+});
+
 test('Clean up finds the old merged worktree and removes it after a confirm', async ({ page }) => {
   await page.goto(`${url}#/sessions`);
   await page.getByRole('button', { name: 'Clean up', exact: true }).click();
