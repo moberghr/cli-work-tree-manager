@@ -1,6 +1,7 @@
 import type { SessionSummary } from '../api/client.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
+import { sessionKey } from './shortcuts.js';
 
 /**
  * A session's right-click menu, after Rename (which the rail adds itself):
@@ -27,7 +28,9 @@ export interface SessionMenuActions {
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
   const archived = !!s.archivedAt;
   return [
-    archived ? { label: 'Restore', run: () => a.setArchived(s, false) } : { label: 'Archive', run: () => a.setArchived(s, true) },
+    archived
+      ? { label: 'Restore', hint: sessionKey('archive'), run: () => a.setArchived(s, false) }
+      : { label: 'Archive', hint: sessionKey('archive'), run: () => a.setArchived(s, true) },
     // Snooze: out of the Inbox for a while (an archived one isn't in it).
     ...(archived
       ? []
@@ -38,17 +41,19 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
             { label: 'Snooze until tomorrow 9:00', run: () => a.snooze(s, 'tomorrow') },
             { label: 'Snooze until it changes', run: () => a.snooze(s, 'change') },
             ...(a.snoozeUntil ? [{ label: 'Snooze until…', run: () => a.snoozeUntil!(s) }] : []),
-            ...(a.blockBy ? [{ label: s.blockedBy?.length ? 'Waiting on more…' : 'Blocked by…', run: () => a.blockBy!(s) }] : []),
+            ...(a.blockBy
+              ? [{ label: s.blockedBy?.length ? 'Waiting on more…' : 'Blocked by…', hint: sessionKey('block'), run: () => a.blockBy!(s) }]
+              : []),
           ]),
     // An archived one's Claude is stopped and its folder may be gone: Restore first.
     ...(archived
       ? []
       : [
-          { label: 'Open in terminal', run: () => a.openTerminal(s), separated: true },
-          { label: 'Open in editor', run: () => a.openEditor(s) },
-          ...(a.fork ? [{ label: 'Fork…', hint: 'new branch from here', run: () => a.fork!(s) }] : []),
+          { label: 'Open in terminal', hint: sessionKey('terminal'), run: () => a.openTerminal(s), separated: true },
+          { label: 'Open in editor', hint: sessionKey('editor'), run: () => a.openEditor(s) },
+          ...(a.fork ? [{ label: 'Fork…', hint: sessionKey('fork'), run: () => a.fork!(s) }] : []),
         ]),
-    { label: 'Copy branch name', run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },
-    { label: 'Delete…', run: () => a.remove(s), danger: true, separated: true },
+    { label: 'Copy branch name', hint: sessionKey('copy'), run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },
+    { label: 'Delete…', hint: sessionKey('delete'), run: () => a.remove(s), danger: true, separated: true },
   ];
 }

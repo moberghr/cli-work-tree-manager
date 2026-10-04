@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { TimelineView } from './TimelineView.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
@@ -142,6 +143,30 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
       (err: Error) => setNote({ text: err.message, error: true }),
     );
   };
+  // The keys the dashboard hands to the open session's header (state/shortcuts.ts): what its buttons and ⋯ menu do.
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const act = useRef<(a: SessionAction) => void>(() => {});
+  act.current = (a) => {
+    const live = !archived;
+    if (a === 'menu') {
+      const r = moreRef.current?.getBoundingClientRect();
+      if (r) setMenu({ x: r.right, y: r.bottom + 4 });
+    } else if (a === 'prompt' && live) setPromptsOpen(true);
+    else if (a === 'catchup') catchUp.run();
+    else if (a === 'notes') setNotesOpen((o) => !o);
+    else if (a === 'ship' && live) setShipOpen(true);
+    else if (a === 'terminal' && live) openTerminal();
+    else if (a === 'dev' && live && dev.state?.port != null && (dev.state.command || dev.state.running))
+      dev.act(dev.state.running ? 'stop' : 'start');
+  };
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<SessionActionDetail>).detail;
+      if (d?.id === session.id) act.current(d.action);
+    };
+    window.addEventListener(SESSION_ACTION_EVENT, on);
+    return () => window.removeEventListener(SESSION_ACTION_EVENT, on);
+  }, [session.id]);
   const items = sessionHeaderItems(session, dev.state, {
     openTerminal,
     ship: () => setShipOpen(true),
@@ -177,6 +202,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
           <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
           <ArchiveButton sessionId={session.id} archived={archived} />
           <button
+            ref={moreRef}
             type="button"
             className="wd-session-more"
             aria-label="More actions"

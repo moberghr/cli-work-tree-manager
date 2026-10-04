@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
+import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
+import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
+import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
+import type { SnoozeFor } from '../../../core/rail/snooze.js';
 import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } from '../api/client.js';
 import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
@@ -153,37 +157,41 @@ export function DashboardApp() {
   // Session being marked as waiting on other work.
   const [blocking, setBlocking] = useState<SessionSummary | null>(null);
   const { toast, show: showToast, hide: hideToast } = useToast();
-  // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
-  const sessionMenu = useCallback(
-    (s: SessionSummary) =>
-      sessionMenuItems(s, {
-        setArchived: (x, archived) =>
-          void setArchived(x.id, archived).then(
-            () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
-            (err: Error) => showToast({ text: err.message, kind: 'error' }),
-          ),
-        openTerminal: (x) =>
-          void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),
-        openEditor: (x) =>
-          void openInEditor(x.id).catch((err: Error) => showToast({ text: `Couldn't open the editor: ${err.message}`, kind: 'error' })),
-        copyBranch: (x) =>
-          void navigator.clipboard.writeText(x.branch).then(
-            () => showToast({ text: `Copied ${x.branch}` }),
-            () => showToast({ text: "Couldn't copy to the clipboard", kind: 'error' }),
-          ),
-        remove: (x) => setDeleting(x),
-        fork: (x) => setForking(x),
-        snooze: (x, choice) =>
-          void snoozeSession(x, choice).then(
-            () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
-            (err: Error) => showToast({ text: err.message, kind: 'error' }),
-          ),
-        unsnooze: (x) => void unsnoozeSession(x.id).catch((err: Error) => showToast({ text: err.message, kind: 'error' })),
-        snoozeUntil: (x) => setSnoozingUntil(x),
-        blockBy: (x) => setBlocking(x),
-      }),
+  // `?`: every shortcut. And the menu a key opened (z: snooze), where the header is.
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [keyMenu, setKeyMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
+  // What a rail row's menu does — the same for the keys on the open session.
+  const menuActions = useMemo(
+    () => ({
+      setArchived: (x: SessionSummary, archived: boolean) =>
+        void setArchived(x.id, archived).then(
+          () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
+          (err: Error) => showToast({ text: err.message, kind: 'error' }),
+        ),
+      openTerminal: (x: SessionSummary) =>
+        void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),
+      openEditor: (x: SessionSummary) =>
+        void openInEditor(x.id).catch((err: Error) => showToast({ text: `Couldn't open the editor: ${err.message}`, kind: 'error' })),
+      copyBranch: (x: SessionSummary) =>
+        void navigator.clipboard.writeText(x.branch).then(
+          () => showToast({ text: `Copied ${x.branch}` }),
+          () => showToast({ text: "Couldn't copy to the clipboard", kind: 'error' }),
+        ),
+      remove: (x: SessionSummary) => setDeleting(x),
+      fork: (x: SessionSummary) => setForking(x),
+      snooze: (x: SessionSummary, choice: SnoozeFor) =>
+        void snoozeSession(x, choice).then(
+          () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
+          (err: Error) => showToast({ text: err.message, kind: 'error' }),
+        ),
+      unsnooze: (x: SessionSummary) => void unsnoozeSession(x.id).catch((err: Error) => showToast({ text: err.message, kind: 'error' })),
+      snoozeUntil: (x: SessionSummary) => setSnoozingUntil(x),
+      blockBy: (x: SessionSummary) => setBlocking(x),
+    }),
     [showToast],
   );
+  // A rail row's right-click menu (after Rename): the header's and table's buttons, on the row.
+  const sessionMenu = useCallback((s: SessionSummary) => sessionMenuItems(s, menuActions), [menuActions]);
 
   // Sync route ↔ URL hash. Listen to back/forward; push when we navigate.
   useEffect(() => {
@@ -472,6 +480,8 @@ export function DashboardApp() {
           d: 'today',
           s: 'sessions',
           w: 'start',
+          r: 'repos',
+          c: 'cleanup',
           // Old chords for the PRs and Jira pages: both are on Start.
           p: 'start',
           j: 'start',
@@ -486,6 +496,16 @@ export function DashboardApp() {
           goTab(map[e.key]);
           return;
         }
+      }
+      if (e.key === '?') {
+        e.preventDefault();
+        setHelpOpen((o) => !o);
+        return;
+      }
+      if (e.key === 'c') {
+        e.preventDefault();
+        openNew(null);
+        return;
       }
       if (e.key === 'g') {
         pendingG = true;
@@ -530,14 +550,57 @@ export function DashboardApp() {
           e.preventDefault();
           hopTo(next.id);
         }
+        return;
       }
+      // The open session's keys (state/shortcuts.ts): what the header's buttons and its row's menu do.
+      const s = route.sessionId ? sessions.find((x) => x.id === route.sessionId) : undefined;
+      const action = s ? sessionActionFor(e) : null;
+      if (!s || !action) return;
+      e.preventDefault();
+      const near = () => {
+        const r = document.querySelector('.wd-session-more')?.getBoundingClientRect();
+        return r ? { x: r.right, y: r.bottom + 4 } : { x: window.innerWidth - 16, y: 64 };
+      };
+      runSessionKey(
+        action,
+        { archived: isArchived(s) },
+        {
+          tab: setSubTab,
+          setArchived: (archived) => menuActions.setArchived(s, archived),
+          snoozeMenu: () => {
+            const items = sessionMenu(s).filter((i) => /^(Snooze|Unsnooze)/.test(i.label));
+            setKeyMenu({ items: items.map((i) => ({ ...i, separated: false })), ...near() });
+          },
+          blockBy: () => menuActions.blockBy(s),
+          openEditor: () => menuActions.openEditor(s),
+          copyBranch: () => menuActions.copyBranch(s),
+          fork: () => menuActions.fork(s),
+          remove: () => menuActions.remove(s),
+          header: (a) =>
+            window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: s.id, action: a } })),
+        },
+      );
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
       if (pendingGTimer) clearTimeout(pendingGTimer);
     };
-  }, [goTab, openSession, hopTo, route.sessionId, sessions, sessionOrder, railLayout, modalOpen, reviewQueue]);
+  }, [
+    goTab,
+    openSession,
+    hopTo,
+    route.sessionId,
+    sessions,
+    sessionOrder,
+    railLayout,
+    modalOpen,
+    reviewQueue,
+    openNew,
+    setSubTab,
+    menuActions,
+    sessionMenu,
+  ]);
 
   // Current session (if route points at one).
   const activeSession = route.sessionId ? (sessions.find((s) => s.id === route.sessionId) ?? null) : null;
@@ -718,6 +781,8 @@ export function DashboardApp() {
       <HostHealthBanner health={hostHealth} />
       <Toast toast={toast} onClose={hideToast} />
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
+      {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
+      {keyMenu && <RowMenu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
       {blocking && (
         <BlockedByDialog
           session={blocking}

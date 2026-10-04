@@ -2881,6 +2881,66 @@ a.wd-pr-chip:hover {
   background: transparent;
   border-color: transparent;
 }
+/* The `?` list of keyboard shortcuts (ShortcutsHelp): centred, over everything, a popover. */
+.wd-shortcuts {
+  position: fixed;
+  z-index: 60;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  padding: 12px 18px 16px;
+  font-size: 13px;
+}
+.wd-shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wd-shortcuts-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.wd-shortcuts-note {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-shortcuts-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 6px 28px;
+}
+.wd-shortcuts-group dl {
+  margin: 0;
+}
+.wd-shortcuts-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  padding: 2px 0;
+}
+.wd-shortcuts-row dt,
+.wd-shortcuts-row dd {
+  margin: 0;
+}
+.wd-shortcuts kbd {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 .wd-legend-panel {
   position: fixed;
   z-index: 50;

@@ -30,7 +30,7 @@ const labels = (s: SessionSummary, d: DevServerState | null) => sessionHeaderIte
 
 describe('session header ⋯ menu', () => {
   it('a running dev server is stopped from it; one with no command and nothing running is left out', () => {
-    expect(labels(session(), dev({ running: { pid: 1, startedAt: '' } }))).toContain('Stop dev server:3028');
+    expect(labels(session(), dev({ running: { pid: 1, startedAt: '' } }))).toContain('Stop dev server:3028 · ⇧D');
     expect(labels(session(), dev({ command: null })).some((l) => l.includes('dev server'))).toBe(false);
     expect(labels(session(), dev({ port: null })).some((l) => l.includes('dev server'))).toBe(false);
     expect(labels(session(), null).some((l) => l.includes('dev server'))).toBe(false);

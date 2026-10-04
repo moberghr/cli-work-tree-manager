@@ -65,13 +65,13 @@ export function StatusLegend() {
           <h3 className="wd-legend-title">On a row</h3>
           <ul className="wd-legend-list wd-legend-marks">
             <li>
-              <b>Bold</b> — it wants you (needs input, done, review comments). The Inbox lists these in order; <kbd>n</kbd> jumps to the
-              next.
+              <b>Bold</b> — it wants you (needs input, done, review comments, its pull request). The Inbox lists these in order;{' '}
+              <kbd>n</kbd> jumps to the next.
             </li>
             <li>
               On the right: <span className="wd-rail-slot-needs">4m</span> waiting that long for you ·{' '}
               <span className="wd-rail-slot-done">4m</span> finished that long ago · <span className="wd-rail-slot-review">2</span>{' '}
-              unresolved review comments
+              unresolved review comments · <span className="wd-rail-slot-review">merge</span> its PR is ready to merge
             </li>
             <li>
               <span className="wd-pr-chip">#212</span> an open pull request (click to open it)
@@ -80,6 +80,9 @@ export function StatusLegend() {
               <span className="wd-legend-overlap">⚠</span> another session changes the same files
             </li>
           </ul>
+          <p className="wd-legend-keys">
+            <kbd>?</kbd> lists every keyboard shortcut.
+          </p>
         </div>
       )}
     </div>

@@ -395,6 +395,29 @@ test('Welcome walks the first run: folders, repos inline, the tools, then New wo
   await expect(page.locator('.wd-modal')).toBeVisible();
 });
 
+test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session takes 2, . and e', async ({ page }) => {
+  await page.goto(`${url}#/sessions`);
+  await page.locator('body').press('?');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Ship (push, PR, merge)…');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('c');
+  await expect(page.locator('.wd-modal')).toBeVisible();
+  // Esc closes the project field's list first, then the dialog.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.wd-modal')).toHaveCount(0);
+
+  await page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).click();
+  await page.locator('.wd-session-detail-header h1').click(); // out of the terminal
+  await page.keyboard.press('2');
+  await expect(page).toHaveURL(/\/diff$/);
+  await page.keyboard.press('.');
+  await expect(page.getByRole('menuitem', { name: /Catch me up/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('e');
+  await expect(page.locator('.wd-archived-pill')).toBeVisible();
+});
+
 test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {
   await page.goto(`${url}#/start`);
   await page.getByRole('button', { name: 'Repos & groups' }).click();

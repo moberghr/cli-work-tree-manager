@@ -34,6 +34,7 @@ vi.mock('../../src/web/src/components/Terminal/PtyView.js', () => ({ PtyView: ()
 vi.mock('../../src/web/src/components/Dashboard/TimelineView.js', () => ({ TimelineView: () => null }));
 
 import { SessionDetail } from '../../src/web/src/components/Dashboard/SessionDetail.js';
+import { SESSION_ACTION_EVENT, type SessionAction } from '../../src/web/src/state/shortcuts.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -100,7 +101,8 @@ describe('session header', () => {
     await render({ ...base, archivedAt: '2026-09-02T00:00:00Z' });
     expect(buttonsIn(header())).toEqual(['Restore', '⋯']);
     act(() => more().click());
-    expect(menuItems()).toEqual(['Catch me up', 'Notes', 'RenameF2', 'Delete…']);
+    // Each with its key (state/shortcuts.ts).
+    expect(menuItems()).toEqual(['Catch me upr', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
   });
 
   it('⋯ lists the rest, with how full the context is at the bottom; a second click closes it', async () => {
@@ -108,14 +110,14 @@ describe('session header', () => {
     await render({ ...base, context: { used: 24_000, window: 200_000 } });
     act(() => more().click());
     expect(menuItems()).toEqual([
-      'Open in terminal',
-      'Ship (push, PR, merge)…',
-      'Catch me up',
-      'Send a prompt…',
-      'Notes',
-      'Start dev server:3017',
+      'Open in terminal⇧T',
+      'Ship (push, PR, merge)…⇧S',
+      'Catch me upr',
+      'Send a prompt…p',
+      'Notes⇧N',
+      'Start dev server:3017 · ⇧D',
       'RenameF2',
-      'Delete…',
+      'Delete…⇧Del',
     ]);
     expect(document.querySelector('.wd-row-menu-footer')!.textContent).toBe('Context 12% · 24k of 200k tokens');
     act(() => {
@@ -238,5 +240,27 @@ describe('sub-tabs', () => {
     await render({ ...base, diffStat: { files: 2, added: 10, deleted: 1 }, commentCount: 3 } as SessionSummary);
     const tabs = [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
     expect(tabs).toEqual(['Terminal', 'Diff· 2 files3', 'Timeline']);
+  });
+
+  it('the keys the dashboard hands it: . opens ⋯, ⇧T a terminal, ⇧D the dev server — only for its own session, not when archived', async () => {
+    h.dev = { port: 3017, listening: false, url: null, command: 'npm run dev', repo: 'repo', running: null };
+    const key = (id: string, action: SessionAction) =>
+      act(() => void window.dispatchEvent(new CustomEvent(SESSION_ACTION_EVENT, { detail: { id, action } })));
+    await render();
+    key('other', 'menu');
+    expect(menuItems()).toEqual([]);
+    key('sess-1', 'menu');
+    expect(menuItems().length).toBeGreaterThan(0);
+    h.openInTerminal.mockResolvedValue(undefined);
+    key('sess-1', 'terminal');
+    expect(h.openInTerminal).toHaveBeenCalledWith('sess-1');
+    key('sess-1', 'dev');
+    await act(async () => {});
+    expect(h.devActions).toEqual(['start']);
+
+    h.openInTerminal.mockReset();
+    await render({ ...base, archivedAt: '2026-09-02T00:00:00Z' });
+    key('sess-1', 'terminal');
+    expect(h.openInTerminal).not.toHaveBeenCalled();
   });
 });
