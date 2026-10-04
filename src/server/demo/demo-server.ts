@@ -23,6 +23,7 @@ import type {
   NoteWire,
   UpdateFromMainWire,
   WorkTimeWire,
+  DiffSeen,
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
@@ -232,11 +233,28 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return entries ? c.json({ scopeHash: `demo-${c.req.param('id')}`, entries }) : notFound(c);
   });
 
+  // How far you have looked at a session's diff: in memory, moving forward only (as diff-seen.ts).
+  const diffSeen = new Map<string, DiffSeen>();
+  app.get('/api/sessions/:id/diff-seen', (c) =>
+    scenario.checkpoints(c.req.param('id')) ? c.json({ seen: diffSeen.get(c.req.param('id')) ?? null }) : notFound(c),
+  );
+  app.post('/api/sessions/:id/diff-seen', async (c) => {
+    const id = c.req.param('id');
+    if (!scenario.checkpoints(id)) return notFound(c);
+    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown } | null;
+    const cp = body?.checkpointId;
+    if (typeof cp !== 'number' || !Number.isInteger(cp) || cp < 0) return c.json({ error: 'expected {checkpointId}' }, 400);
+    const old = diffSeen.get(id);
+    if (!old || old.checkpointId < cp) diffSeen.set(id, { checkpointId: cp, at: new Date().toISOString() });
+    return c.json({ seen: diffSeen.get(id)! });
+  });
+
   app.get('/api/sessions/:id/diff', (c) => {
     const from = c.req.query('from');
     const to = c.req.query('to');
     if (from !== undefined && to !== undefined) {
-      const d = scenario.rangeDiff(c.req.param('id'), Number(from), Number(to));
+      // 'working': up to the working tree, the newest there is.
+      const d = scenario.rangeDiff(c.req.param('id'), Number(from), to === 'working' ? Number.MAX_SAFE_INTEGER : Number(to));
       return d ? c.json(d) : notFound(c);
     }
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';

@@ -159,6 +159,14 @@ export interface BuildFoldersApplyResult {
   message: string;
 }
 
+// ---- Diff: since you last looked (diff-seen.ts) -----------------------------
+
+/** GET/POST /api/sessions/:id/diff-seen: the newest turn (checkpoint id) on screen the last time you looked at its diff. */
+export interface DiffSeen {
+  checkpointId: number;
+  at: string;
+}
+
 // ---- New worktree: is the branch new? (branch-check.ts) -------------------
 
 /** GET /api/branch-check?target=&branch= */

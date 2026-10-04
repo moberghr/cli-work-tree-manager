@@ -231,6 +231,16 @@ describe('demo server', () => {
     expect(await get<Check>('/api/branch-check?target=api&branch=fix/')).toMatchObject({ valid: false, free: null });
   });
 
+  it('remembers how far you looked at a diff, forward only, and serves the range up to the working tree', async () => {
+    const id = (await byBranch('fix/login-redirect')).id;
+    expect(await get<{ seen: unknown }>(`/api/sessions/${id}/diff-seen`)).toEqual({ seen: null });
+    expect((await send('POST', `/api/sessions/${id}/diff-seen`, { checkpointId: 2 })).status).toBe(200);
+    await send('POST', `/api/sessions/${id}/diff-seen`, { checkpointId: 1 });
+    expect((await get<{ seen: { checkpointId: number } }>(`/api/sessions/${id}/diff-seen`)).seen.checkpointId).toBe(2);
+    const d = await get<{ repos: unknown[] }>(`/api/sessions/${id}/diff?from=1&to=working`);
+    expect(d.repos.length).toBeGreaterThan(0);
+  });
+
   it('keeps the sessions list order', async () => {
     expect(await get('/api/session-order')).toEqual({ order: [] });
     expect((await send('PUT', '/api/session-order', { order: ['b', 'a'] })).status).toBe(200);

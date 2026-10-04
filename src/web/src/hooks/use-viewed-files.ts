@@ -1,9 +1,33 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { readScope, setViewed } from '../state/viewed-files.js';
+
+/**
+ * Which files a tick says are viewed, from the stored keys: `path#signature`
+ * (the file's change when it was ticked: fileSignature) holds while the
+ * file's change is still that one; a bare `path` (ticked before signatures)
+ * holds as it is. Without `signatures` every tick holds. Pure.
+ */
+export function viewedFrom(keys: Set<string>, signatures?: Map<string, string>): Set<string> {
+  const out = new Set<string>();
+  for (const k of keys) {
+    const at = k.lastIndexOf('#');
+    if (at < 0) {
+      out.add(k);
+      continue;
+    }
+    const path = k.slice(0, at);
+    if (!signatures || signatures.get(path) === k.slice(at + 1)) out.add(path);
+  }
+  return out;
+}
 
 /**
  * Track which file paths are marked "viewed" within a given scope (a wd -c
  * review scope label or a session id). Persists to localStorage.
+ *
+ * With `signatures` (path → the file's change, the dashboard's diff), a tick
+ * holds only while the file still has the change it was given for: a file
+ * Claude touched again is unticked, as GitHub does.
  *
  * Returns:
  *   viewedPaths — Set of `file.path`s currently marked viewed.
@@ -14,29 +38,30 @@ import { readScope, setViewed } from '../state/viewed-files.js';
 export function useViewedFiles(
   scopeKey: string,
   pathToAnchor: Map<string, string>,
+  signatures?: Map<string, string>,
 ): {
   viewedPaths: Set<string>;
   viewedAnchors: Set<string>;
   toggle: (path: string, next: boolean) => void;
 } {
-  const [viewedPaths, setViewedPaths] = useState<Set<string>>(() => readScope(scopeKey));
+  const [keys, setKeys] = useState<Set<string>>(() => readScope(scopeKey));
 
   // Reload from disk when the scope key changes.
   useEffect(() => {
-    setViewedPaths(readScope(scopeKey));
+    setKeys(readScope(scopeKey));
   }, [scopeKey]);
+
+  const viewedPaths = useMemo(() => viewedFrom(keys, signatures), [keys, signatures]);
 
   const toggle = useCallback(
     (path: string, next: boolean) => {
-      setViewed(scopeKey, path, next);
-      setViewedPaths((prev) => {
-        const out = new Set(prev);
-        if (next) out.add(path);
-        else out.delete(path);
-        return out;
-      });
+      // One tick per file: drop the old one (its old change, or a bare path) first.
+      for (const k of readScope(scopeKey)) if (k === path || k.startsWith(`${path}#`)) setViewed(scopeKey, k, false);
+      const sig = signatures?.get(path);
+      if (next) setViewed(scopeKey, sig ? `${path}#${sig}` : path, true);
+      setKeys(readScope(scopeKey));
     },
-    [scopeKey],
+    [scopeKey, signatures],
   );
 
   const viewedAnchors = new Set<string>();

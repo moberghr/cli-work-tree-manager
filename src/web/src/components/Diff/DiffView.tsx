@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  fetchDiffSeen,
   fetchSessionCheckpoints,
   fetchSessionDiff,
+  markDiffSeen,
   revertChange,
   turnsFrom,
   type CheckpointEntry,
@@ -26,6 +28,13 @@ import { useViewedFiles } from '../../hooks/use-viewed-files.js';
 import { useCommentJump } from '../../hooks/use-comment-jump.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import { COMMENTS_SPEC, ResizeDivider, useResizableSize, useSidebarWidth } from '../Layout/ResizeDivider.js';
+import { useLookedFor } from '../../hooks/use-looked.js';
+import { fileSignature, newestCheckpoint, sinceLookAvailable } from '../../state/diff-seen.js';
+import type { DiffSeen } from '../../../../core/api-types.js';
+import { relativeTime } from '../../utils/time.js';
+
+/** Looked at this long (visible, focused) and the diff counts as seen. */
+const LOOKED_MS = 5000;
 
 interface Props {
   session: SessionSummary;
@@ -65,12 +74,37 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     };
     fetchSessionCheckpoints(id).then(apply, () => apply([]));
   };
+  // "Since you looked": how far you had looked when this visit began (kept for
+  // the whole visit; looking now moves the server's mark, not this one).
+  const [seenAtOpen, setSeenAtOpen] = useState<DiffSeen | null | undefined>(undefined);
+  const [sinceLook, setSinceLook] = useState(false);
   useEffect(() => {
     setTurnTo(null);
     setCheckpoints([]);
+    setSeenAtOpen(undefined);
+    setSinceLook(false);
     loadCheckpoints();
+    const id = session.id;
+    fetchDiffSeen(id).then(
+      (s) => checkpointsFor.current === id && setSeenAtOpen(s),
+      () => checkpointsFor.current === id && setSeenAtOpen(null),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+  const newest = newestCheckpoint(checkpoints);
+  const canSinceLook = sinceLookAvailable(seenAtOpen, checkpoints);
+  // Once per visit: open on what changed since you last looked, when Claude
+  // finished a turn after it (not when asked to open on the last turn).
+  const sinceLookApplied = useRef<string | null>(null);
+  useEffect(() => {
+    if (startOnLastTurn || seenAtOpen === undefined || checkpoints.length === 0 || sinceLookApplied.current === session.id) return;
+    sinceLookApplied.current = session.id;
+    if (canSinceLook) setSinceLook(true);
+  }, [startOnLastTurn, seenAtOpen, checkpoints.length, canSinceLook, session.id]);
+  // Looked at it for a few seconds: that's how far you have seen, for next time.
+  useLookedFor(newest === null ? null : `${session.id}:${newest}`, LOOKED_MS, () => {
+    if (newest !== null) void markDiffSeen(session.id, newest).catch(() => {});
+  });
   // Once per session: jump to its newest turn as soon as the turns load.
   // Only once — after that the scope buttons are the user's.
   const lastTurnApplied = useRef<string | null>(null);
@@ -94,8 +128,13 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     reload,
     checkForUpdates,
   } = useDeferredDiffLoad(
-    () => (turn ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to }) : fetchSessionDiff(session.id, diffBase)),
-    [session.id, diffBase, turn?.from, turn?.to],
+    () =>
+      sinceLook && seenAtOpen
+        ? fetchSessionDiff(session.id, 'uncommitted', { from: seenAtOpen.checkpointId, to: 'working' })
+        : turn
+          ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to })
+          : fetchSessionDiff(session.id, diffBase),
+    [session.id, diffBase, turn?.from, turn?.to, sinceLook, seenAtOpen?.checkpointId],
   );
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
@@ -147,7 +186,9 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   const scopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}` : `session:${session.id}:_pending`;
   const hunkScopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}:hunks` : '';
-  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor);
+  // A Viewed tick holds while the file's change is the one you ticked (fileSignature).
+  const signatures = useMemo(() => new Map((activeRepo?.files ?? []).map((f) => [f.path, fileSignature(f)])), [activeRepo]);
+  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor, signatures);
   const activeAnchor = useScrollspy(`${session.id}:${activeRepo?.name ?? '_pending'}`);
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const { size: commentsHeight, setSize: setCommentsHeight } = useResizableSize(COMMENTS_SPEC);
@@ -177,7 +218,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
   // Revert is for the Uncommitted scope only: that's the diff against the
   // working tree it undoes. (A turn or the branch diff would mean undoing
   // committed or partial history.)
-  const canRevert = !turn && diffBase === 'uncommitted';
+  const canRevert = !sinceLook && !turn && diffBase === 'uncommitted';
   const revertApi = useMemo<RevertApi | null>(
     () =>
       canRevert
@@ -210,7 +251,9 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
   //   - branch mode, resolvedBase is a real branch → there genuinely
   //     are no commits past it. The branch is up to date or merged.
   let emptyMessage: string;
-  if (turn) {
+  if (sinceLook) {
+    emptyMessage = 'Nothing changed since you last looked.';
+  } else if (turn) {
     emptyMessage = 'This turn changed no files.';
   } else if (diffBase === 'uncommitted') {
     emptyMessage = 'No uncommitted changes.';
@@ -259,9 +302,12 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={!turn && diffBase === 'uncommitted'}
-                  className={'wd-web-diff-scope-btn' + (!turn && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')}
+                  aria-selected={!sinceLook && !turn && diffBase === 'uncommitted'}
+                  className={
+                    'wd-web-diff-scope-btn' + (!sinceLook && !turn && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')
+                  }
                   onClick={() => {
+                    setSinceLook(false);
                     setTurnTo(null);
                     setDiffBase('uncommitted');
                   }}
@@ -272,9 +318,12 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={!turn && diffBase === 'branch'}
-                  className={'wd-web-diff-scope-btn' + (!turn && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
+                  aria-selected={!sinceLook && !turn && diffBase === 'branch'}
+                  className={
+                    'wd-web-diff-scope-btn' + (!sinceLook && !turn && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')
+                  }
                   onClick={() => {
+                    setSinceLook(false);
                     setTurnTo(null);
                     setDiffBase('branch');
                   }}
@@ -289,10 +338,13 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={!!turn}
-                  className={'wd-web-diff-scope-btn' + (turn ? ' wd-web-diff-scope-btn-active' : '')}
+                  aria-selected={!sinceLook && !!turn}
+                  className={'wd-web-diff-scope-btn' + (!sinceLook && turn ? ' wd-web-diff-scope-btn-active' : '')}
                   disabled={turns.length === 0}
-                  onClick={() => setTurnTo(turns[0]?.to ?? null)}
+                  onClick={() => {
+                    setSinceLook(false);
+                    setTurnTo(turns[0]?.to ?? null);
+                  }}
                   title={
                     turns.length
                       ? "Only what Claude's last instruction changed"
@@ -301,8 +353,20 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 >
                   Last turn
                 </button>
+                {(canSinceLook || sinceLook) && seenAtOpen && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sinceLook}
+                    className={'wd-web-diff-scope-btn' + (sinceLook ? ' wd-web-diff-scope-btn-active' : '')}
+                    onClick={() => setSinceLook(true)}
+                    title={`Everything that changed after you last looked at this diff (${relativeTime(seenAtOpen.at)}${relativeTime(seenAtOpen.at) === 'just now' ? '' : ' ago'}), over every turn since`}
+                  >
+                    Since you looked
+                  </button>
+                )}
               </div>
-              {turn && turns.length > 1 && (
+              {!sinceLook && turn && turns.length > 1 && (
                 <label className="wd-web-turn-pick">
                   <span className="wd-web-muted">Turn</span>{' '}
                   <select value={turn.to} onChange={(e) => setTurnTo(Number(e.target.value))} aria-label="Which turn">
@@ -315,7 +379,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                   </select>
                 </label>
               )}
-              {turn && turns.length === 1 && turn.label && <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>}
+              {!sinceLook && turn && turns.length === 1 && turn.label && <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>}
               <DiffModeToggle />
               {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
               {(stale || loading || (checking && !pending)) && <DiffBusyChip label={stale || loading ? 'loading…' : 'checking…'} />}

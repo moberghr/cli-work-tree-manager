@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS rail_place (session_id TEXT PRIMARY KEY, data TEXT NO
 CREATE TABLE IF NOT EXISTS session_notes (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS session_blocks (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS worklogs (session_id TEXT NOT NULL, day TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (session_id, day));
+
+-- How far you have looked at a session's diff: the Diff tab's "Since you last looked" (diff-seen.ts). (v8)
+CREATE TABLE IF NOT EXISTS diff_seen (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
@@ -257,6 +260,7 @@ export function purgeSessionRows(d: Db, sessionId: string): void {
     'session_notes',
     'session_blocks',
     'worklogs',
+    'diff_seen',
   ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }

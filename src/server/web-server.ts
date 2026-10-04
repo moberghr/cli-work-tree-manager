@@ -18,6 +18,7 @@ import { createInChild, oneAtATime, type CreateWorktree } from '../core/worktree
 import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
+import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
 import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
 import { mountBlockRoutes } from './routes/block-routes.js';
@@ -777,6 +778,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  // How far you have looked at a session's diff (its Diff tab's "Since you looked").
+  mountDiffSeenRoutes(app);
   // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
   app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
   let lastHostState = hostHealth(hostBeat()).state;

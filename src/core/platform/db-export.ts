@@ -41,10 +41,11 @@ const TABLES = [
   'session_notes',
   'session_blocks',
   'worklogs',
+  'diff_seen',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
-const NEWER_BY_SESSION = ['session_snooze', 'rail_place', 'session_notes', 'session_blocks'];
+const NEWER_BY_SESSION = ['session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'diff_seen'];
 /** meta rows that are state, not counters. */
 const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch'];
 

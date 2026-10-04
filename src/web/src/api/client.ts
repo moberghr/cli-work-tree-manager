@@ -514,10 +514,27 @@ export interface SessionDiff {
   repos: RepoData[];
 }
 
+/** How far you have looked at a session's diff (diff-seen.ts): the newest turn on screen then. */
+export function fetchDiffSeen(sessionId: string): Promise<import('../../../core/api-types.js').DiffSeen | null> {
+  return getJson<{ seen: import('../../../core/api-types.js').DiffSeen | null }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`,
+  ).then((r) => r.seen);
+}
+
+/** You looked as far as this turn (only moves forward). */
+export async function markDiffSeen(sessionId: string, checkpointId: number): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ checkpointId }),
+  });
+  if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
+}
+
 export function fetchSessionDiff(
   sessionId: string,
   base: DiffBase = 'uncommitted',
-  range?: { from: number; to: number },
+  range?: { from: number; to: number | 'working' },
 ): Promise<SessionDiff> {
   const q = range ? `?from=${range.from}&to=${range.to}` : base === 'branch' ? '?base=branch' : '';
   return getJson<SessionDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`);
