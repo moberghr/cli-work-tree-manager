@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QuickSwitcher, useQuickSwitcher } from '../components/Dashboard/QuickSwitcher.js';
 import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
+import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
+import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
+import { useUpdates } from '../hooks/use-updates.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
@@ -161,6 +164,21 @@ export function DashboardApp() {
   const { toast, show: showToast, hide: hideToast } = useToast();
   // `?`: every shortcut. And the menu a key opened (z: snooze), where the header is.
   const [helpOpen, setHelpOpen] = useState(false);
+  // Updates and release notes: the strip, the Activity panel's line, What's new —
+  // which opens by itself once after an upgrade (on its version), and then counts as seen.
+  const upd = useUpdates();
+  const [whatsNew, setWhatsNew] = useState<{ focus: string | null } | null>(null);
+  const shownWhatsNew = useRef<string | null>(null);
+  useEffect(() => {
+    const v = upd.updates?.whatsNew;
+    if (!v || shownWhatsNew.current === v) return;
+    shownWhatsNew.current = v;
+    setWhatsNew({ focus: v });
+  }, [upd.updates?.whatsNew]);
+  const closeWhatsNew = () => {
+    if (upd.updates?.whatsNew) upd.seen(upd.updates.whatsNew);
+    setWhatsNew(null);
+  };
   const [keyMenu, setKeyMenu] = useState<{ items: MenuItem[]; x: number; y: number } | null>(null);
   // What a rail row's menu does — the same for the keys on the open session.
   const menuActions = useMemo(
@@ -756,7 +774,16 @@ export function DashboardApp() {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
-        activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
+        activity={
+          <ActivityIndicator
+            onOpenSession={(id) => openSession(id)}
+            updates={upd.updates}
+            onCheck={upd.check}
+            checking={upd.checking}
+            note={upd.note}
+            onWhatsNew={() => setWhatsNew({ focus: null })}
+          />
+        }
         tasks={<TasksPanel open={tasksOpen} onOpenChange={setTasksOpen} onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />}
         assistantOpen={assistantOpen}
       >
@@ -792,6 +819,12 @@ export function DashboardApp() {
       <Toast toast={toast} onClose={hideToast} />
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
       {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
+      <UpdateStrip
+        updates={upd.updates}
+        onRestart={upd.restart}
+        onWhatsNew={() => setWhatsNew({ focus: upd.updates?.available?.version ?? null })}
+      />
+      {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}
       {keyMenu && <RowMenu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
       {blocking && (
         <BlockedByDialog

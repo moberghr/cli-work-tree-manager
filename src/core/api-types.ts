@@ -202,6 +202,28 @@ export interface ReposWire {
   groups: GroupRow[];
 }
 
+// ---- Updates and release notes (core/updates/) --------------------------------
+
+export type { ReleaseNote, InstallKind, DesktopUpdate, AvailableUpdate } from './updates/updates.js';
+
+/** GET /api/updates */
+export interface UpdateWire {
+  /** This work's version ("dev" for an unbuilt run). */
+  running: string;
+  install: import('./updates/updates.js').InstallKind;
+  /** The newest published release, when the list was read. */
+  latest: string | null;
+  checkedAt: string | null;
+  /** Why the release list couldn't be read, the last time. */
+  checkError: string | null;
+  /** The desktop app's updater, while the app runs. */
+  desktop: import('./updates/updates.js').DesktopUpdate | null;
+  /** An update to offer, and how it's had. */
+  available: import('./updates/updates.js').AvailableUpdate | null;
+  /** The version whose notes to open by themselves (once after an upgrade), or null. */
+  whatsNew: string | null;
+}
+
 // ---- First run (first-run.ts, the Welcome page) -----------------------------
 
 /** A tool work leans on, and whether it answers here. */
@@ -790,7 +812,8 @@ export type ActivityKind =
   | 'jira-watch'
   | 'stacks'
   | 'blocks'
-  | 'groups';
+  | 'groups'
+  | 'updates';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

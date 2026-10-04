@@ -257,7 +257,7 @@ fn main() {
     }
     app.run();
     let first_run = first_run.get();
-    updates::spawn(log);
+    updates::spawn(log, work_dir());
 
     tauri::Builder::default()
         .setup(move |app| {

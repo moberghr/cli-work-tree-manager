@@ -3072,9 +3072,104 @@ a.wd-pr-chip:hover {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
 }
 .wd-activity-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
   margin: 8px 0 0;
   font-size: 11px;
   color: var(--muted);
+}
+.wd-activity-version-actions {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: auto;
+}
+.wd-activity-version .wd-link-button {
+  font-size: 11px;
+}
+.wd-activity-update {
+  color: var(--accent);
+}
+.wd-activity-update-note {
+  flex-basis: 100%;
+}
+
+/* A newer work (UpdateStrip): a small card at the bottom right, only when there is one. */
+.wd-update-strip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1500;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.wd-update-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.wd-update-command code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--hover);
+}
+.wd-update-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+/* What's new: the release notes, newest first. */
+.wd-whats-new {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.wd-whats-new-list {
+  overflow-y: auto;
+}
+.wd-whats-new-release {
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-whats-new-release:last-child {
+  border-bottom: none;
+}
+.wd-whats-new-release h3 {
+  margin: 10px 0 4px;
+  font-size: 15px;
+}
+.wd-whats-new-focus h3 {
+  color: var(--accent);
+}
+.wd-whats-new-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-whats-new-body h1,
+.wd-whats-new-body h2,
+.wd-whats-new-body h3 {
+  font-size: 14px;
+  margin: 10px 0 4px;
+}
+.wd-whats-new-body ul {
+  padding-left: 20px;
 }
 .wd-activity-spinner {
   width: 10px;

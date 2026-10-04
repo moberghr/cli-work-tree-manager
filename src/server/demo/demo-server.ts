@@ -25,6 +25,8 @@ import type {
   WorkTimeWire,
   DiffSeen,
   SetupWire,
+  UpdateWire,
+  ReleaseNote,
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
@@ -621,6 +623,45 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return repoAnswer(c, () => repoModel.saveGroup(b.name as string, members, b.creating === true));
   });
   app.delete('/api/groups/:name', (c) => repoAnswer(c, () => repoModel.deleteGroup(c.req.param('name'), c.req.query('force') === '1')));
+  // Updates: the demo is current, with two releases' notes to read.
+  const demoNotes: ReleaseNote[] = [
+    {
+      version: '2.1.0',
+      name: 'work 2.1.0',
+      body: '## In review\n\nA pull request waiting on reviewers keeps its session out of the Inbox; it comes back when it is **approved**, conflicts or fails its checks.\n\n- Jira has its own tab again\n- PR pills on the session list\n- `work move` takes your sessions to another computer',
+      publishedAt: '2026-10-05T09:00:00Z',
+      url: 'https://github.com/moberghr/cli-work-tree-manager/releases/tag/v2.1.0',
+    },
+    {
+      version: '2.0.0',
+      name: 'work 2.0.0',
+      body: 'The PTY host: Claudes survive restarts.\n\n- `work attach`\n- the browser dashboard replaces `work dash`',
+      publishedAt: '2026-09-20T09:00:00Z',
+      url: 'https://github.com/moberghr/cli-work-tree-manager/releases/tag/v2.0.0',
+    },
+  ];
+  let demoSeen = '2.1.0';
+  const demoUpdates = (): UpdateWire => ({
+    running: '2.1.0',
+    install: 'desktop',
+    latest: '2.1.0',
+    checkedAt: new Date(scenario.clockMs()).toISOString(),
+    checkError: null,
+    desktop: { appVersion: '2.1.0', state: 'current' },
+    available: null,
+    whatsNew: demoSeen === '2.1.0' ? null : '2.1.0',
+  });
+  app.get('/api/updates', (c) => c.json(demoUpdates()));
+  app.post('/api/updates/check', (c) => c.json(demoUpdates()));
+  app.post('/api/updates/restart', (c) => c.json({ error: 'No downloaded update to restart into.' }, 409));
+  app.get('/api/updates/notes', (c) => c.json({ releases: demoNotes, checkError: null }));
+  app.post('/api/updates/seen', async (c) => {
+    const b = (await c.req.json().catch(() => null)) as { version?: unknown } | null;
+    if (typeof b?.version !== 'string') return c.json({ error: 'expected {version}' }, 400);
+    demoSeen = b.version;
+    return c.json({ ok: true });
+  });
+
   // First run: the demo is set up already (its folders are pretend).
   app.get('/api/setup', (c) =>
     c.json({

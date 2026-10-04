@@ -6,7 +6,17 @@ import { relativeTime } from '../../utils/time.js';
 import { activityAttention, activityQuietLine, collapseRuns } from '../../state/activity-view.js';
 import { VERSION } from '../../version.js';
 
-interface Props {
+/** The version line's update part (useUpdates). */
+export interface VersionLineProps {
+  updates?: import('../../../../core/api-types.js').UpdateWire | null;
+  onCheck?: () => void;
+  checking?: boolean;
+  /** How the last check went. */
+  note?: string | null;
+  onWhatsNew?: () => void;
+}
+
+interface Props extends VersionLineProps {
   onOpenSession: (id: string) => void;
   /** Injectable for tests. */
   load?: () => Promise<ActivityWire>;
@@ -31,7 +41,7 @@ const every = (ms: number) => (ms >= 60_000 ? `every ${Math.round(ms / 60_000)} 
  * the panel: now, coming up, and recent runs with their decisions (each
  * linked to its session; uneventful repeats folded into one row).
  */
-export function ActivityIndicator({ onOpenSession, load = fetchActivity }: Props) {
+export function ActivityIndicator({ onOpenSession, load = fetchActivity, ...versionLine }: Props) {
   const [data, setData] = useState<ActivityWire | null>(null);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -109,7 +119,7 @@ Click for what work does in the background, and what it decided`}
               collapseRuns(data!.recent).map((r) => <RunRow key={r.id} run={r} onOpenSession={onOpenSession} />)
             )}
           </section>
-          <p className="wd-activity-version">work v{VERSION}</p>
+          <VersionLine {...versionLine} />
         </div>
       )}
     </div>
@@ -188,6 +198,44 @@ function RunRow({ run, onOpenSession }: { run: ActivityRun; onOpenSession: (id: 
           )}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** The panel's last line: which work runs, and Check for updates / What's new. */
+export function VersionLine({ updates, onCheck, checking, note, onWhatsNew }: VersionLineProps) {
+  const running = updates?.running ?? VERSION;
+  const d = updates?.desktop;
+  const status = updates?.available
+    ? updates.available.how === 'restart'
+      ? `${updates.available.version} is ready to install`
+      : updates.available.how === 'downloading'
+        ? `downloading ${updates.available.version}`
+        : `${updates.available.version} is out`
+    : d?.state === 'failed'
+      ? `couldn't update: ${d.error ?? 'unknown'}`
+      : null;
+  return (
+    <div className="wd-activity-version">
+      <span>
+        work v{running}
+        {status && <span className="wd-activity-update"> · {status}</span>}
+      </span>
+      {(onCheck || onWhatsNew) && (
+        <span className="wd-activity-version-actions">
+          {onCheck && (
+            <button type="button" className="wd-link-button" disabled={checking} onClick={onCheck}>
+              {checking ? 'Checking…' : 'Check for updates'}
+            </button>
+          )}
+          {onWhatsNew && (
+            <button type="button" className="wd-link-button" onClick={onWhatsNew}>
+              What&apos;s new
+            </button>
+          )}
+        </span>
+      )}
+      {note && <span className="wd-activity-update-note">{note}</span>}
     </div>
   );
 }

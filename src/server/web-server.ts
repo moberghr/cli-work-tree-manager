@@ -20,6 +20,8 @@ import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
+import { mountAppUpdateRoutes } from './routes/app-update-routes.js';
+import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
 import { mountRepoRoutes } from './routes/repo-routes.js';
 import { mountTimelineRoutes } from './routes/timeline-routes.js';
 import { allBlocks, blockerDone, blockKey, sweepBlocks, unblockedPrompt } from '../core/rail/session-blocks.js';
@@ -810,6 +812,28 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // The Repos page: the repos in your folders, and the groups.
   mountRepoRoutes(app, { broadcast, activity, workBin: getWorkBin });
   mountSetupRoutes(app, { broadcast });
+
+  // Updates and release notes (core/updates/): the release list a little
+  // after start and every six hours, and the desktop app's updater as it
+  // reports itself (its file, watched): each change is an updates-changed.
+  const updates = createUpdates();
+  mountAppUpdateRoutes(app, { updates, broadcast });
+  const UPDATES_EVERY_MS = 6 * 3600_000;
+  const updatesSchedule = lean ? null : activity.schedule('updates', 'Release notes and updates', UPDATES_EVERY_MS);
+  const lookNow = () => {
+    updatesSchedule?.next(Date.now() + UPDATES_EVERY_MS);
+    void lookForUpdates(updates, activity.start('updates', 'Looking for a newer work'), () =>
+      broadcast('updates-changed', { ts: Date.now() }),
+    );
+  };
+  const updatesFirst = lean ? null : setTimeout(lookNow, 30_000);
+  updatesFirst?.unref?.();
+  updatesSchedule?.next(Date.now() + 30_000);
+  const updatesTimer = lean ? null : setInterval(lookNow, UPDATES_EVERY_MS);
+  updatesTimer?.unref?.();
+  const desktopFile = desktopUpdatePath();
+  const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });
+  if (!lean) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate);
   // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
   app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
   let lastHostState = hostHealth(hostBeat()).state;
@@ -885,6 +909,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (sleepTimer) clearInterval(sleepTimer);
       if (conversationsTimer) clearInterval(conversationsTimer);
       if (conversationsFirst) clearTimeout(conversationsFirst);
+      if (updatesFirst) clearTimeout(updatesFirst);
+      if (updatesTimer) clearInterval(updatesTimer);
+      fs.unwatchFile(desktopFile, onDesktopUpdate);
       for (const t of conversationSyncs.values()) clearTimeout(t);
       clearTimeout(sweepTimer);
       activityWatcher?.stop();

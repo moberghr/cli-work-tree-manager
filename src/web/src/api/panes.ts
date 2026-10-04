@@ -280,3 +280,28 @@ export async function saveSetupFolders(worktreesRoot: string, reposFolder: strin
   });
   if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `${res.status} saving folders`);
 }
+
+// ---- updates and release notes ----
+
+type UpdateWire = import('../../../core/api-types.js').UpdateWire;
+type ReleaseNote = import('../../../core/api-types.js').ReleaseNote;
+
+export function fetchUpdates(): Promise<UpdateWire> {
+  return getJson('/api/updates');
+}
+
+async function postUpdates<T>(path: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const b = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(b.error ?? `${res.status} ${res.statusText}`);
+  return b;
+}
+
+/** Check for updates now: the release list, and the desktop app's updater. */
+export const checkForUpdates = () => postUpdates<UpdateWire>('/api/updates/check');
+/** Restart the desktop app into the update it downloaded. */
+export const restartToUpdate = () => postUpdates<{ ok: true }>('/api/updates/restart');
+export const markNotesSeen = (version: string) => postUpdates<{ ok: true }>('/api/updates/seen', { version });
+export function fetchReleaseNotes(): Promise<{ releases: ReleaseNote[]; checkError: string | null }> {
+  return getJson('/api/updates/notes');
+}

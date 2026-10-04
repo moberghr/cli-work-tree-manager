@@ -252,6 +252,14 @@ describe('demo server', () => {
     expect(after.prStage?.seen).toBe(true);
   });
 
+  it('updates: the demo is current, with release notes to read; seen is remembered', async () => {
+    expect(await get('/api/updates')).toMatchObject({ running: '2.1.0', available: null, whatsNew: null });
+    const notes = await get<{ releases: Array<{ version: string }> }>('/api/updates/notes');
+    expect(notes.releases.map((r) => r.version)).toEqual(['2.1.0', '2.0.0']);
+    expect((await send('POST', '/api/updates/restart')).status).toBe(409);
+    expect((await send('POST', '/api/updates/seen', { version: '2.1.0' })).status).toBe(200);
+  });
+
   it('first run: the demo is set up already, and its folders are pretend', async () => {
     expect(await get('/api/setup')).toMatchObject({
       configured: true,
