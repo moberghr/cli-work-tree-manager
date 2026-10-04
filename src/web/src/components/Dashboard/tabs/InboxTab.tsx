@@ -11,7 +11,7 @@ import {
   unsnoozeSession,
 } from '../../../api/client.js';
 import { snoozeLabel } from '../../../../../core/rail/snooze.js';
-import { isArchived, lastActiveAt, agentCan, agentName } from '../../../state/session-display.js';
+import { isArchived, lastActiveAt, agentCan, agentName, displayStatus } from '../../../state/session-display.js';
 import { StatusIcon } from '../StatusIcon.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
 import { compareInbox, inboxRank } from '../../../../../core/status/attention.js';
@@ -26,7 +26,7 @@ interface Props {
   onReviewAll?: () => void;
   /** Clear a finished session's unseen flag without opening it. Defaults
    *  to the API call; injectable for tests. */
-  onMarkSeen?: (id: string) => Promise<unknown>;
+  onMarkSeen?: (id: string, prStage?: { kind: string; key: string } | null) => Promise<unknown>;
   /** Allow / Deny a permission prompt. Defaults to the API call. */
   onAnswer?: (id: string, req: AnswerRequest) => Promise<unknown>;
 }
@@ -35,7 +35,7 @@ interface Section {
   rank: number;
   title: string;
   hint: string;
-  kind: 'needs_input' | 'done' | 'review';
+  kind: 'needs_input' | 'done' | 'review' | 'pr';
   /** Where a row opens, and its one action's name. */
   open: SessionSubTab;
   action: string;
@@ -47,20 +47,21 @@ const SECTIONS: Section[] = [
   { rank: 1, title: 'Done', hint: 'Finished a turn since you last opened it', kind: 'done', open: 'diff', action: 'Review' },
   {
     rank: 2,
-    title: 'Review comments',
-    hint: 'Reviewers left comments on its PR that nobody has answered or resolved',
+    title: 'Pull requests',
+    hint: 'Reviewers left comments nobody has answered or resolved, or the PR is ready to merge, conflicts or fails its checks',
     kind: 'review',
     open: 'diff',
     action: 'Open',
   },
 ];
 
-type RestCounts = { working: number; quiet: number; snoozed: number; waiting: number };
+type RestCounts = { working: number; inReview: number; quiet: number; snoozed: number; waiting: number };
 
 /** The closing line's parts, each with what it counts ("2 snoozed" can be opened). Pure. */
 export function inboxRestParts(c: RestCounts): Array<{ key: keyof RestCounts; text: string }> {
   return [
     { key: 'working' as const, text: `${c.working} working` },
+    { key: 'inReview' as const, text: `${c.inReview} in review` },
     { key: 'quiet' as const, text: `${c.quiet} quiet` },
     { key: 'snoozed' as const, text: `${c.snoozed} snoozed` },
     { key: 'waiting' as const, text: `${c.waiting} waiting on others` },
@@ -68,7 +69,8 @@ export function inboxRestParts(c: RestCounts): Array<{ key: keyof RestCounts; te
 }
 
 /** "they're in the list on the left." (or "it's", for one). */
-const restTail = (c: RestCounts) => `${c.working + c.quiet + c.snoozed + c.waiting === 1 ? "it's" : "they're"} in the list on the left.`;
+const restTail = (c: RestCounts) =>
+  `${c.working + c.inReview + c.quiet + c.snoozed + c.waiting === 1 ? "it's" : "they're"} in the list on the left.`;
 
 /** What the Inbox leaves to the rail, in a line: "1 working, 3 quiet — they're in the list on the left." Pure. */
 export function inboxRestLine(c: RestCounts): string | null {
@@ -114,10 +116,10 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       .finally(() => setAnswering(({ [s.id]: _, ...rest }) => rest));
   };
   const [marking, setMarking] = useState<Set<string>>(new Set());
-  const markSeen = (id: string) => {
+  const markSeen = (id: string, prStage: { kind: string; key: string } | null = null) => {
     setMarking((m) => new Set(m).add(id));
     // A failed mark leaves the row as it was; the next refresh shows the truth.
-    onMarkSeen(id)
+    onMarkSeen(id, prStage)
       .catch(() => {})
       .finally(() =>
         setMarking((m) => {
@@ -130,7 +132,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
   const { bySection, rest, tracked, snoozed, waiting } = useMemo(() => {
     const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
     const bySection = new Map<number, SessionSummary[]>();
-    const rest = { working: 0, quiet: 0, snoozed: 0, waiting: 0 };
+    const rest = { working: 0, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 };
     const snoozed: SessionSummary[] = [];
     const waiting: SessionSummary[] = [];
     let tracked = 0;
@@ -140,6 +142,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       if (rank === 6) snoozed.push(s);
       else if (rank === 7) waiting.push(s);
       else if (rank === 3) rest.working++;
+      else if (rank > 3 && displayStatus(s) === 'in_review') rest.inReview++;
       else if (rank > 3) rest.quiet++;
       else bySection.set(rank, [...(bySection.get(rank) ?? []), s]);
     }
@@ -201,16 +204,20 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
               {bySection.get(sec.rank)!.map((s) => {
                 const request = sec.rank === 0 ? s.attention!.request : undefined;
                 const canAnswer = !!request && s.ptyStatus === 'running' && agentCan(s, 'answer');
-                const open = () => onOpenSession(s.id, sec.open, sec.rank === 1 ? { lastTurn: true } : undefined);
+                // A pull request that wants you (not review comments) opens on its terminal: there's nothing new in the diff.
+                const prRow = sec.rank === 2 && !s.openReviewThreads && !!s.prStage;
+                const kind = prRow ? 'pr' : sec.kind;
+                const opensOn = prRow ? 'term' : sec.open;
+                const open = () => onOpenSession(s.id, opensOn, sec.rank === 1 ? { lastTurn: true } : undefined);
                 return (
                   <li key={s.id} className="wd-inbox-item">
                     <button
                       type="button"
                       className="wd-inbox-row"
                       onClick={open}
-                      title={`Open ${s.target} · ${s.branch} (${sec.open === 'term' ? 'terminal' : 'diff'})`}
+                      title={`Open ${s.target} · ${s.branch} (${opensOn === 'term' ? 'terminal' : 'diff'})`}
                     >
-                      <StatusIcon kind={sec.kind} />
+                      <StatusIcon kind={kind} />
                       <span className="wd-inbox-name">
                         <span className="wd-inbox-branch">{s.titleIsYours && s.title ? s.title : s.branch}</span>
                         <span className="wd-inbox-target">{s.target}</span>
@@ -220,6 +227,8 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                           <span className="wd-inbox-answer-error" role="alert">
                             {answerError[s.id]}
                           </span>
+                        ) : prRow ? (
+                          s.prStage!.text
                         ) : sec.rank === 2 ? (
                           <>
                             {s.openReviewThreads} open thread{s.openReviewThreads === 1 ? '' : 's'}
@@ -238,12 +247,12 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                     <span className="wd-inbox-actions">
                       {/* On hover: what you do now and then. */}
                       <span className="wd-inbox-more">
-                        {sec.rank === 1 && (
+                        {(sec.rank === 1 || prRow) && (
                           <button
                             type="button"
                             className="wd-link-button"
                             disabled={marking.has(s.id)}
-                            onClick={() => markSeen(s.id)}
+                            onClick={() => markSeen(s.id, prRow ? s.prStage : null)}
                             title="Clear it from the inbox without opening it"
                           >
                             {marking.has(s.id) ? 'Marking…' : 'Mark seen'}
@@ -260,7 +269,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
                         >
                           Snooze
                         </button>
-                        {sec.open !== 'term' && (
+                        {opensOn !== 'term' && (
                           <button type="button" className="wd-link-button" onClick={() => onOpenSession(s.id, 'term')}>
                             Terminal
                           </button>

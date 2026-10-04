@@ -42,6 +42,36 @@ const s = (over: Partial<SessionSummary> & { id: string }): SessionSummary => ({
 });
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
+describe('Inbox: a pull request that wants you', () => {
+  const stage = (kind: 'ready' | 'in_review', text: string) => ({
+    kind,
+    text,
+    key: `${kind}:api@abc`,
+    prs: [{ repo: 'api', number: 209, url: 'https://github.com/o/api/pull/209' }],
+  });
+
+  it('ready to merge is a row of its own (its stage, the terminal, Mark seen with the stage); in review only counts in the closing line', () => {
+    const onOpen = vi.fn();
+    const onMarkSeen = vi.fn(() => Promise.resolve());
+    const sessions = [
+      s({ id: 'ready', attention: att('idle', true), prStage: stage('ready', 'PR #209 · approved, ready to merge') }),
+      s({ id: 'waiting', attention: att('idle', true), prStage: stage('in_review', 'PR #210 · waiting for review') }),
+    ];
+    act(() => root.render(createElement(InboxTab, { sessions, onOpenSession: onOpen, onMarkSeen })));
+    const items = [...container.querySelectorAll('.wd-inbox-item')];
+    expect(items).toHaveLength(1);
+    expect(text(items[0])).toContain('PR #209 · approved, ready to merge');
+    expect(items[0].querySelector('.wd-rail-dot-pr')).not.toBeNull();
+    const btn = (label: string) =>
+      [...items[0].querySelectorAll<HTMLButtonElement>('.wd-inbox-actions button')].find((b) => b.textContent === label)!;
+    act(() => btn('Open').click());
+    expect(onOpen).toHaveBeenCalledWith('ready', 'term', undefined);
+    act(() => btn('Mark seen').click());
+    expect(onMarkSeen).toHaveBeenCalledWith('ready', expect.objectContaining({ kind: 'ready', key: 'ready:api@abc' }));
+    expect(text(container.querySelector('.wd-inbox-rest'))).toContain('1 in review');
+  });
+});
+
 describe('Inbox row actions', () => {
   const SESSIONS = [
     s({ id: 'blocked', attention: att('needs_input', false, 'Needs Bash'), diffStat: { added: 2, deleted: 0, files: 1 } }),
@@ -78,7 +108,7 @@ describe('Inbox row actions', () => {
     ]);
 
     act(() => btn(done, 'Mark seen')!.click());
-    expect(onMarkSeen).toHaveBeenCalledWith('done');
+    expect(onMarkSeen).toHaveBeenCalledWith('done', null);
     const marking = [...done.querySelectorAll('button')].find((b) => b.textContent === 'Marking…')!;
     expect(marking.disabled).toBe(true);
     await act(async () => resolve());

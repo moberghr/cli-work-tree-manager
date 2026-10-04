@@ -154,6 +154,8 @@ export interface SessionSummary {
   openReviewThreads?: number;
   /** Replies its Claude drafted on those threads, for you to post. */
   replyDrafts?: number;
+  /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
+  prStage?: import('../../../core/api-types.js').PrStageWire;
 }
 
 // ---- Ship / archive ---------------------------------------------------
@@ -569,9 +571,13 @@ export function reportAssistantView(view: AssistantView): Promise<{ ok: true }> 
 }
 
 /** Out of the Inbox for 2 hours, until tomorrow 9:00, or until its status changes (snooze.ts). */
-export function snoozeSession(s: Pick<SessionSummary, 'id' | 'openReviewThreads'>, choice: SnoozeChoice): Promise<{ ok: true }> {
+export function snoozeSession(
+  s: Pick<SessionSummary, 'id' | 'openReviewThreads' | 'prStage'>,
+  choice: SnoozeChoice,
+): Promise<{ ok: true }> {
   const what = typeof choice === 'string' ? { for: choice } : { until: choice.until };
-  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { ...what, openReviewThreads: s.openReviewThreads ?? 0 });
+  const stage = s.prStage ? { prStage: { kind: s.prStage.kind, key: s.prStage.key } } : {};
+  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { ...what, openReviewThreads: s.openReviewThreads ?? 0, ...stage });
 }
 
 export async function unsnoozeSession(sessionId: string): Promise<void> {
@@ -617,9 +623,12 @@ export async function catchUpSession(sessionId: string): Promise<{ text: string;
   return body.catchUp;
 }
 
-/** The user opened a session that wanted attention — clear its unseen flag. */
-export function markSessionSeen(sessionId: string): Promise<{ ok: true }> {
-  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, {});
+/** The user opened a session that wanted attention — clear its unseen flag (and its PR stage's, when that brought it back). */
+export function markSessionSeen(sessionId: string, prStage?: { kind: string; key: string } | null): Promise<{ ok: true }> {
+  return postJson(
+    `/api/sessions/${encodeURIComponent(sessionId)}/seen`,
+    prStage ? { prStage: { kind: prStage.kind, key: prStage.key } } : {},
+  );
 }
 
 /** Allow / Deny the permission prompt a session is blocked on. Throws with

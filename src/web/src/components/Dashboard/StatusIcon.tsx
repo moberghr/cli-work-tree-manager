@@ -63,6 +63,28 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
       fill="currentColor"
     />
   ),
+  // Its PR wants you (ready to merge, a conflict, failing checks): a pull request in a filled disc.
+  pr: (
+    <>
+      <circle cx="8" cy="8" r="7" fill="currentColor" />
+      <g fill="none" stroke={cut} strokeWidth="1.3" strokeLinecap="round">
+        <circle cx="5.4" cy="4.7" r="1.2" />
+        <circle cx="5.4" cy="11.3" r="1.2" />
+        <circle cx="10.6" cy="11.3" r="1.2" />
+        <path d="M5.4 5.9v4.2M10.6 10.1V6.8a1.5 1.5 0 0 0-1.5-1.5H7.5" />
+      </g>
+    </>
+  ),
+  // Its PR waits on reviewers or checks: an hourglass.
+  in_review: (
+    <path
+      d="M4.3 2.4h7.4M4.3 13.6h7.4M5.2 2.4c0 3.2 5.6 3.4 5.6 5.6s-5.6 2.4-5.6 5.6M10.8 2.4c0 3.2-5.6 3.4-5.6 5.6s5.6 2.4 5.6 5.6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  ),
   // Finished and seen: an empty ring.
   quiet: <circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" strokeWidth="1.8" />,
   // Writing right now, no hook status: a pulse line.

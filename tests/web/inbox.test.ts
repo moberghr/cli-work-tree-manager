@@ -82,7 +82,7 @@ describe('InboxTab', () => {
     ];
     act(() => root.render(createElement(InboxTab, { sessions: withReview, onOpenSession: () => {} })));
     const sections = [...container.querySelectorAll('.wd-inbox-section')].map((s) => text(s.querySelector('h2')));
-    expect(sections).toEqual(['Needs your input · 2', 'Done · 1', 'Review comments · 2']);
+    expect(sections).toEqual(['Needs your input · 2', 'Done · 1', 'Pull requests · 2']);
     const review = [...container.querySelectorAll('.wd-inbox-section')][2];
     expect(text(review)).toContain('3 open threads');
     expect(text(review)).toContain('1 open thread');
@@ -117,10 +117,10 @@ describe('InboxTab', () => {
 
 describe('inboxRestLine', () => {
   it('says what the Inbox leaves to the rail, or nothing', () => {
-    expect(inboxRestLine({ working: 1, quiet: 3, snoozed: 2, waiting: 1 })).toBe(
-      "1 working, 3 quiet, 2 snoozed, 1 waiting on others — they're in the list on the left.",
+    expect(inboxRestLine({ working: 1, inReview: 2, quiet: 3, snoozed: 2, waiting: 1 })).toBe(
+      "1 working, 2 in review, 3 quiet, 2 snoozed, 1 waiting on others — they're in the list on the left.",
     );
-    expect(inboxRestLine({ working: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBeNull();
+    expect(inboxRestLine({ working: 0, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 })).toBeNull();
   });
 });
 

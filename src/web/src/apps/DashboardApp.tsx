@@ -20,7 +20,7 @@ import {
 } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
-import { compareInbox, needsAttention, wantsYou } from '../../../core/status/attention.js';
+import { compareInbox, needsAttention, prWantsYou, wantsYou } from '../../../core/status/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
@@ -543,13 +543,19 @@ export function DashboardApp() {
   // you can see it: a minimised or unfocused window left on a session used
   // to clear every "Done" that landed there.
   const looking = useLooking();
+  // Its PR's stage counts too: ready to merge, a conflict or failing checks
+  // brought it back, and looking at it sends it out again until the stage changes.
+  const doneUnseen = !!activeSession && needsAttention(activeSession.attention) && activeSession.attention!.state === 'idle';
+  const stageUnseen = !!activeSession && prWantsYou(activeSession);
   const seenKey =
-    activeSession && needsAttention(activeSession.attention) && activeSession.attention!.state === 'idle'
-      ? `${activeSession.id}@${activeSession.attention!.since}`
+    activeSession && (doneUnseen || stageUnseen)
+      ? `${activeSession.id}@${doneUnseen ? activeSession.attention!.since : ''}@${stageUnseen ? activeSession.prStage!.key : ''}`
       : null;
+  const seenStage = stageUnseen ? (activeSession?.prStage ?? null) : null;
   useEffect(() => {
     if (!seenKey || !looking) return;
-    void markSessionSeen(seenKey.slice(0, seenKey.indexOf('@'))).catch(() => {});
+    void markSessionSeen(seenKey.slice(0, seenKey.indexOf('@')), seenStage).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seenKey carries the stage's key: once per stage, not per row refresh
   }, [seenKey, looking]);
 
   // Unread count in the browser tab, so a pinned tab shows it at a glance.

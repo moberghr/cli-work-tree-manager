@@ -447,7 +447,13 @@ export interface SessionWire {
   openReviewThreads?: number;
   /** Replies its Claude drafted for you to post on those threads (pr-replies.ts). */
   replyDrafts?: number;
+  /** Where its pull request stands (pr-stage.ts, the PR watch's last check); `seen` once you
+   *  opened the session at this stage. Absent with no PR or before the first check. */
+  prStage?: PrStageWire;
 }
+
+/** A session's PR stage, as the dashboard gets it. */
+export type PrStageWire = import('./pr/pr-stage.js').PrStage & { seen?: boolean };
 
 // ---- ship -----------------------------------------------------------------
 
@@ -469,6 +475,8 @@ export interface ShipPr {
   updatedAt?: string;
   /** Checks that failed (name + link), when `checks` is 'fail'. */
   failing?: FailingCheck[];
+  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or '' when the repo requires no review (gh's reviewDecision). */
+  reviewDecision?: string;
 }
 
 export interface FailingCheck {
@@ -569,7 +577,7 @@ export interface PresenceReport {
 /** SSE `notify` — a session wants the user and nobody is looking at it. */
 export interface NotifyEvent {
   sessionId: string;
-  kind: 'idle' | 'needs_input' | 'unblocked';
+  kind: 'idle' | 'needs_input' | 'unblocked' | 'pr';
   title: string;
   body?: string;
 }

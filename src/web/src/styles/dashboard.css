@@ -407,9 +407,13 @@
 .wd-rail-dot-open {
   background: #d29922;
 } /* amber */
-.wd-rail-dot-review {
+.wd-rail-dot-review,
+.wd-rail-dot-pr {
   background: var(--review-fg);
-} /* purple: reviewers are waiting on you */
+} /* purple: reviewers are waiting on you, or the PR is */
+.wd-rail-dot-in_review {
+  background: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
+}
 .wd-rail-dot-quiet,
 .wd-rail-dot-recent,
 .wd-rail-dot-stale {
@@ -451,8 +455,12 @@
 .wd-status-icon.wd-rail-dot-open {
   color: #d29922;
 }
-.wd-status-icon.wd-rail-dot-review {
+.wd-status-icon.wd-rail-dot-review,
+.wd-status-icon.wd-rail-dot-pr {
   color: var(--review-fg);
+}
+.wd-status-icon.wd-rail-dot-in_review {
+  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
 }
 .wd-status-icon.wd-rail-dot-stale {
   color: #6e7681;
@@ -497,6 +505,14 @@ a.wd-pr-chip:hover {
 }
 .wd-pr-chip-draft {
   border-style: dashed;
+}
+.wd-pr-stage-good {
+  border-color: var(--add-fg);
+  color: var(--add-fg);
+}
+.wd-pr-stage-bad {
+  border-color: var(--del-fg);
+  color: var(--del-fg);
 }
 
 .wd-dash-rail-pending {

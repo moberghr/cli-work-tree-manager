@@ -371,6 +371,21 @@ test('Today and Inbox scroll when their content is taller than the window', asyn
   }
 });
 
+test('an approved, green PR comes back to the Inbox as ready to merge, and leaves once you have looked; one in review stays out', async ({
+  page,
+}) => {
+  await page.goto(`${url}#/inbox`);
+  const ready = page.locator('.wd-inbox-rank-2 .wd-inbox-item', { hasText: 'feat/order-history' });
+  await expect(ready).toContainText('PR #209 · approved, ready to merge');
+  await expect(page.locator('.wd-inbox-item', { hasText: 'feat/tax-report' })).toHaveCount(0);
+  await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
+  await ready.getByRole('button', { name: 'Open' }).click();
+  await expect(page.locator('.wd-session-strip .wd-pr-stage')).toHaveText('PR #209 · approved, ready to merge');
+  await page.goto(`${url}#/inbox`);
+  await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
+});
+
 test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {
   await page.goto(`${url}#/start`);
   await page.getByRole('button', { name: 'Repos & groups' }).click();

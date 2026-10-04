@@ -12,6 +12,8 @@
  * session by snooze-store.ts.
  */
 
+import { STAGE_WANTS_YOU, type PrStageKind } from '../pr/pr-stage.js';
+
 export type SnoozeFor = '2h' | 'tomorrow' | 'change';
 /** One of the choices, or until a time (ISO). */
 export type SnoozeChoice = SnoozeFor | { until: string };
@@ -24,9 +26,19 @@ export interface Snooze {
   at: string;
 }
 
-/** What "its status changed" compares: Claude's state and since, and the review threads waiting. */
-export function statusKey(s: { attention?: { state: string; since: string } | null; openReviewThreads?: number }): string {
-  return `${s.attention?.state ?? '-'}@${s.attention?.since ?? '-'}#${s.openReviewThreads ?? 0}`;
+/**
+ * What "its status changed" compares: Claude's state and since, the review
+ * threads waiting, and a PR stage that wants you (only then, so a snooze
+ * taken before stages existed still holds).
+ */
+export function statusKey(s: {
+  attention?: { state: string; since: string } | null;
+  openReviewThreads?: number;
+  prStage?: { kind: PrStageKind; key: string } | null;
+}): string {
+  const base = `${s.attention?.state ?? '-'}@${s.attention?.since ?? '-'}#${s.openReviewThreads ?? 0}`;
+  const pr = s.prStage && STAGE_WANTS_YOU.has(s.prStage.kind);
+  return pr ? `${base}|${s.prStage!.key}` : base;
 }
 
 /** The snooze to store for a choice, made at `now` (local time for "tomorrow"). */

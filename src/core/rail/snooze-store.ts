@@ -1,4 +1,5 @@
 import { json, withDb } from '../platform/db.js';
+import type { PrStageKind } from '../pr/pr-stage.js';
 import { snoozeFor, snoozeUntil, type Snooze } from './snooze.js';
 import { readStatus } from '../status/session-status.js';
 
@@ -56,11 +57,17 @@ export function cleanSnoozeRequest(raw: unknown): SnoozeRequest | null {
 export function requestSnooze(
   sessionId: string,
   req: SnoozeRequest,
-  openReviewThreads = 0,
+  shown: { openReviewThreads?: number; prStage?: { kind: PrStageKind; key: string } | null } = {},
   now = new Date(),
 ): { ok: true; snooze: Snooze } | { ok: false; error: string } {
   const snooze =
-    'until' in req ? snoozeUntil(req.until, now) : snoozeFor(req.for, { attention: readStatus(sessionId), openReviewThreads }, now);
+    'until' in req
+      ? snoozeUntil(req.until, now)
+      : snoozeFor(
+          req.for,
+          { attention: readStatus(sessionId), openReviewThreads: shown.openReviewThreads ?? 0, prStage: shown.prStage },
+          now,
+        );
   if (!snooze) return { ok: false, error: 'not a time to snooze until: give one in the next 30 days' };
   saveSnooze(sessionId, snooze);
   return { ok: true, snooze };

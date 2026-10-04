@@ -1,5 +1,8 @@
 import path from 'node:path';
 import { snoozeActive } from '../../core/rail/snooze.js';
+import { cleanStageRef } from '../../core/pr/pr-stage.js';
+import { createSeenStores } from '../../core/pr/pr-watch-store.js';
+import { stageSeenKey } from '../../core/sessions/session-wire.js';
 import { clearSnooze, cleanSnoozeRequest, readSnooze, requestSnooze } from '../../core/rail/snooze-store.js';
 import type { Hono } from 'hono';
 import { loadConfig } from '../../core/platform/config.js';
@@ -105,14 +108,14 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
   // Snooze: out of the Inbox for a while, or until its status changes (snooze.ts).
   app.post('/api/sessions/:id/snooze', async (c) => {
     const id = c.req.param('id');
-    const body = (await c.req.json().catch(() => null)) as { openReviewThreads?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { openReviewThreads?: unknown; prStage?: unknown } | null;
     const req = cleanSnoozeRequest(body);
     if (!req) return c.json({ error: "for: '2h', 'tomorrow' or 'change', or until: a time" }, 400);
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
-    // "Until it changes" compares against what the dashboard shows now (review threads come from the PR watch).
+    // "Until it changes" compares against what the dashboard shows now (review threads and the PR stage come from the PR watch).
     const threads = typeof body?.openReviewThreads === 'number' ? body.openReviewThreads : 0;
-    const r = requestSnooze(id, req, threads);
+    const r = requestSnooze(id, req, { openReviewThreads: threads, prStage: cleanStageRef(body?.prStage) });
     if (!r.ok) return c.json({ error: r.error }, 400);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true, snooze: r.snooze });
@@ -179,6 +182,10 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
   app.post('/api/sessions/:id/seen', async (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    // Seen at its PR's stage too (ready to merge, a conflict…): out of the Inbox until the stage changes.
+    const body = (await c.req.json().catch(() => null)) as { prStage?: unknown } | null;
+    const stage = cleanStageRef(body?.prStage);
+    if (stage) createSeenStores()(id).add(stageSeenKey(stage.key));
     const status = await markSeen(id);
     opts.broadcast('sessions-changed', { ts: Date.now() });
     return c.json({ ok: true, status });

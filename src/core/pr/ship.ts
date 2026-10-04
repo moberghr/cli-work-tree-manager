@@ -241,7 +241,13 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
     ? { code: 1, stdout: '', stderr: 'no pull requests found (not asked: never pushed)' }
     : await run(
         'gh',
-        ['pr', 'view', branch, '--json', 'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup'],
+        [
+          'pr',
+          'view',
+          branch,
+          '--json',
+          'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision',
+        ],
         repo.path,
       );
   if (view.code === 0) {
@@ -256,6 +262,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         mergedAt?: string | null;
         updatedAt?: string;
         statusCheckRollup?: CheckRollupItem[];
+        reviewDecision?: string | null;
       };
       pr = {
         number: j.number,
@@ -267,6 +274,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         headSha: j.headRefOid,
         ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
         ...(j.updatedAt ? { updatedAt: j.updatedAt } : {}),
+        ...(typeof j.reviewDecision === 'string' ? { reviewDecision: j.reviewDecision } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {

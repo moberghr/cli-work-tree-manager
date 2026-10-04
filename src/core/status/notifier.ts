@@ -12,12 +12,13 @@
 
 import spawn from 'cross-spawn';
 
-export type NotifyKind = 'idle' | 'needs_input' | 'unblocked';
+export type NotifyKind = 'idle' | 'needs_input' | 'unblocked' | 'pr';
 
 const MESSAGES: Record<NotifyKind, string> = {
   idle: 'Idle — finished its turn',
   needs_input: 'Needs your input',
   unblocked: 'No longer waiting — what it waited on is done',
+  pr: 'Its pull request needs you',
 };
 
 /** Drop control characters that could break notifier argument parsing. */

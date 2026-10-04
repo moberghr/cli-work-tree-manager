@@ -32,7 +32,9 @@ describe('saved prompts', () => {
   });
 
   it('ships sensible defaults', () => {
-    expect(DEFAULT_PROMPTS.map((p) => p.label)).toContain('Add tests');
+    expect(DEFAULT_PROMPTS.map((p) => p.label)).toEqual(
+      expect.arrayContaining(['Review your changes', 'Add tests', 'Open a pull request']),
+    );
     for (const p of DEFAULT_PROMPTS) expect(p.prompt.length).toBeGreaterThan(20);
   });
 });

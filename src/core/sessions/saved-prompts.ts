@@ -32,6 +32,11 @@ export const DEFAULT_PROMPTS: SavedPrompt[] = [
     prompt: "Commit the current changes with a clear message in this repo's commit style. Don't push.",
   },
   {
+    label: 'Open a pull request',
+    prompt:
+      'Push this branch and open a pull request for it with `gh pr create`. Write the title and description yourself from what we did in this conversation: what changed and why, how it was tested, anything a reviewer should look at first. Put the Jira key in the title if the branch or our conversation has one. Open it ready for review, not as a draft, and give me its link.',
+  },
+  {
     label: 'Rebase on the default branch',
     prompt:
       "Fetch, then rebase this branch on origin's default branch. Resolve conflicts keeping both sides' intent, run the tests, and tell me about any conflict you weren't sure of.",

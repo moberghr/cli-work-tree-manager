@@ -9,7 +9,7 @@ import { useArchivePending } from '../../api/archive-pending.js';
 import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
-import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, StatusLine } from './SessionBits.js';
+import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, PrStageChip, StatusLine } from './SessionBits.js';
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
@@ -209,7 +209,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ClaudesChip session={session} quiet />
         <ContextChip session={session} quiet />
-        <PrChips prs={prs} link />
+        {session.prStage ? <PrStageChip session={session} /> : <PrChips prs={prs} link />}
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
       </div>

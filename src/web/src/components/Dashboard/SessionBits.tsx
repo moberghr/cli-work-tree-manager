@@ -11,6 +11,33 @@ import { lastActiveAt, statusHint } from '../../state/session-display.js';
  * the same thing the same way.
  */
 
+/**
+ * Where its pull request stands, in a line: "PR #212 · waiting for review",
+ * linked to the PR. The session header shows it in place of the plain
+ * PR numbers when the PR watch has looked (pr-stage.ts).
+ */
+export function PrStageChip({ session }: { session: SessionSummary }) {
+  const st = session.prStage;
+  if (!st) return null;
+  const tone =
+    st.kind === 'ready'
+      ? ' wd-pr-stage-good'
+      : st.kind === 'conflict' || st.kind === 'checks_failing' || st.kind === 'changes'
+        ? ' wd-pr-stage-bad'
+        : '';
+  return (
+    <a
+      className={`wd-pr-chip wd-pr-stage${tone}${st.kind === 'draft' ? ' wd-pr-chip-draft' : ''}`}
+      href={st.prs[0].url}
+      target="_blank"
+      rel="noreferrer"
+      title={st.prs.length > 1 ? st.prs.map((p) => `${p.repo} #${p.number}`).join(', ') : `Open #${st.prs[0].number} on GitHub`}
+    >
+      {st.text}
+    </a>
+  );
+}
+
 export function PrChips({ prs, link = false }: { prs: PrInfo[]; link?: boolean }) {
   if (prs.length === 0) return null;
   return (

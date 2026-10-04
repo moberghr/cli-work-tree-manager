@@ -10,9 +10,18 @@ import { sessionIdFor } from './web-state.js';
 import { readContextUsage } from '../conversations/context-usage.js';
 import { bestEffort } from '../platform/best-effort.js';
 import type { WorktreeSession } from './history.js';
-import type { DiffStat, SessionArchiveInfo, SessionAttention, SessionClaudes, SessionWire, BlockerWire } from '../api-types.js';
+import type {
+  DiffStat,
+  SessionArchiveInfo,
+  SessionAttention,
+  SessionClaudes,
+  SessionWire,
+  BlockerWire,
+  PrStageWire,
+} from '../api-types.js';
 import { keptList, readArchive } from '../archive/session-archive.js';
 import { sessionTitle } from '../conversations/session-title.js';
+import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -34,6 +43,8 @@ export interface SessionWireOptions {
   reviewThreadsFor?: (id: string) => number;
   /** Reply drafts its Claude wrote for you to post (pr-replies.ts). */
   replyDraftsFor?: (id: string) => number;
+  /** Where its PR stands (pr-stage.ts over the PR watch's last check), and whether you've seen it there. */
+  prStageFor?: (id: string) => PrStageWire | null;
   /** You have notes on it (session-notes.ts). */
   hasNote?: (id: string) => boolean;
   /** What it waits on that isn't done yet (session-blocks.ts). */
@@ -63,6 +74,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const claudes = shadowed ? null : (opts.claudesFor?.(id) ?? null);
   const reviewThreads = s.archivedAt ? 0 : (opts.reviewThreadsFor?.(id) ?? 0);
   const replyDrafts = s.archivedAt ? 0 : (opts.replyDraftsFor?.(id) ?? 0);
+  const prStage = s.archivedAt ? null : (opts.prStageFor?.(id) ?? null);
   const wire: SessionWire = {
     id,
     target: s.target,
@@ -109,6 +121,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     context: s.archivedAt ? null : bestEffort(`context usage for ${s.target}:${s.branch}`, () => readContextUsage(s), null),
     ...(reviewThreads > 0 ? { openReviewThreads: reviewThreads } : {}),
     ...(replyDrafts > 0 ? { replyDrafts } : {}),
+    ...(prStage ? { prStage } : {}),
     ...otherBranches(s),
   };
   // Snoozed: only while it holds (a time not yet reached, or the status it
@@ -116,7 +129,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   // snooze was taken against — not the shown one, which a live Claude's state
   // file can override (that would end a snooze the moment it was set).
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
-  if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads }))
+  if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads, prStage: wire.prStage }))
     wire.snoozed = { until: snooze.until };
   const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
   if (behind && behind.commits > 0) wire.behind = behind;
@@ -151,6 +164,22 @@ export function otherBranches(s: Pick<WorktreeSession, 'branch' | 'paths' | 'tar
 /** A session's unresolved review threads, from the PR watch's per-repo counts (open PRs only). */
 export function reviewThreadsOf(ci: { repos: Array<{ pr: { state: string } | null; openThreads?: number }> } | null | undefined): number {
   return (ci?.repos ?? []).reduce((n, r) => n + (r.pr?.state === 'OPEN' ? (r.openThreads ?? 0) : 0), 0);
+}
+
+/** The `pr_watch_seen` key that says you saw a session at a PR stage. */
+export const stageSeenKey = (stageKey: string) => `stage:${stageKey}`;
+
+/**
+ * A session's PR stage from the PR watch's last check, with `seen` read only
+ * for a stage that would bring it back to the Inbox (one lookup, not one per row).
+ */
+export function prStageWire(
+  ci: { repos: Array<{ name: string; pr: StagePr | null }> } | null | undefined,
+  seen: (key: string) => boolean,
+): PrStageWire | null {
+  const stage = prStageOf(ci?.repos ?? []);
+  if (!stage) return null;
+  return STAGE_WANTS_YOU.has(stage.kind) && seen(stageSeenKey(stage.key)) ? { ...stage, seen: true } : stage;
 }
 
 /** Saved uncommitted files a Restore hasn't put back yet. */

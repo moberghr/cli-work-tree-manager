@@ -34,6 +34,7 @@ import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
+import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { DemoRepoError } from './demo-repos.js';
 
 /**
@@ -374,7 +375,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
 
   // -- status / ship / archive -----------------------------------------------
-  app.post('/api/sessions/:id/seen', (c) => (scenario.markSeen(c.req.param('id')) ? c.json({ ok: true }) : notFound(c)));
+  app.post('/api/sessions/:id/seen', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { prStage?: unknown } | null;
+    const stage = cleanStageRef(body?.prStage);
+    return scenario.markSeen(c.req.param('id'), stage?.key) ? c.json({ ok: true }) : notFound(c);
+  });
   // Build folders in idle worktrees (simulated sizes; nothing on disk).
   let demoFolders: BuildFolderCandidate[] = [
     {

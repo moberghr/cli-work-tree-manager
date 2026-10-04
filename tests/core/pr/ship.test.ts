@@ -129,6 +129,15 @@ describe('preflight', () => {
     expect(r).toMatchObject({ hasUpstream: true, tracksRemote: true, ahead: 0, done: false, mergeBlockers: [] });
   });
 
+  it('reads the review decision with the PR (the PR stage: in review, approved), in the same gh call', async () => {
+    const { run, calls } = fakeRunner({ [P('api')]: ready({ pr: pr({ reviewDecision: 'APPROVED' }) }) });
+    const [r] = (await shipPreflight(single(), run)).repos;
+    expect(r.pr?.reviewDecision).toBe('APPROVED');
+    expect(calls.filter((c) => c.cmd === 'gh').length).toBe(1);
+    const none = fakeRunner({ [P('api')]: ready({ pr: pr({ reviewDecision: null }) }) });
+    expect((await shipPreflight(single(), none.run)).repos[0].pr?.reviewDecision).toBeUndefined();
+  });
+
   it('askGh: a repo the caller says not to ask about makes no gh call and reads as no PR (no error)', async () => {
     const { run, calls } = fakeRunner({ [P('api')]: ready({ remote: false }) });
     const asked: Array<{ name: string; hasUpstream: boolean }> = [];

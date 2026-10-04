@@ -3,6 +3,7 @@ import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { findOverlaps } from '../../core/diff/overlap.js';
 import { firstFreeBranch } from '../../core/worktree/branch-name.js';
 import { createDemoRepos } from './demo-repos.js';
+import { prStageOf, STAGE_WANTS_YOU } from '../../core/pr/pr-stage.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
 import { buildDigest } from '../../core/conversations/digest.js';
 import { cleanupVerdict } from '../../core/cleanup/cleanup-verdict.js';
@@ -19,6 +20,7 @@ import type {
   RepoShipState,
   SessionAttention,
   SessionWire,
+  PrStageWire,
   ShipPr,
   ShipPreflight,
   ShipResult,
@@ -185,6 +187,14 @@ const SEARCH_FILTERS = diffEdit(
   ['    <Page title="Search">'],
 );
 
+const ORDER_HISTORY = diffNew('src/orders/OrderHistory.tsx', [
+  "import { usePaged } from '../hooks/usePaged';",
+  '',
+  'export function OrderHistory() {',
+  "  const page = usePaged('/api/orders', 20);",
+  '  return <OrderList orders={page.items} onMore={page.next} />;',
+  '}',
+]);
 const CHECKOUT_BACKEND = diffNew('src/checkout/steps.ts', [
   "export type Step = 'address' | 'payment';",
   '',
@@ -250,6 +260,8 @@ export class DemoScenario {
   /** Which demo tabs are looking at what (POST /api/presence). */
   readonly presence: Presence;
   readonly sessions = new Map<string, DemoSession>();
+  /** `<session id>:<stage key>` you looked at (the PR watch's pr_watch_seen). */
+  private readonly stageSeen = new Set<string>();
   /** The Repos page's pretend ~/repos; the projects New worktree offers come from it. */
   readonly repos = createDemoRepos(() => [...this.sessions.values()].filter((x) => !x.archivedAt).map((x) => x.target));
   private readonly listeners = new Set<(e: DemoEvent) => void>();
@@ -496,10 +508,58 @@ export class DemoScenario {
     );
     taxes.archivedAt = this.iso(60 * 20);
     taxes.worktreeRemoved = true;
+    // Approved with green checks: back in the Inbox as ready to merge (pr-stage.ts).
+    this.add(
+      'web',
+      'feat/order-history',
+      [
+        {
+          name: 'web',
+          uncommitted: '',
+          sinceBranch: ORDER_HISTORY,
+          published: true,
+          pr: {
+            number: 209,
+            url: 'https://github.com/example/web/pull/209',
+            state: 'OPEN',
+            isDraft: false,
+            mergeStateStatus: 'CLEAN',
+            checks: 'pass',
+            headSha: 'ord3r5h1st0',
+            reviewDecision: 'APPROVED',
+          },
+        },
+      ],
+      { state: 'idle', seen: true, summary: 'Opened PR #209: order history page with paging.', minutesAgo: 60 * 26 },
+      claudeScreen('Open a PR for the order history page', [
+        '● Bash(gh pr create --fill)',
+        '',
+        '● Opened PR #209: order history page with paging.',
+      ]),
+      60 * 26,
+    );
+    // Its PR waits on reviewers: in review, out of the Inbox.
     this.add(
       'api',
       'feat/tax-report',
-      [{ name: 'api' }],
+      [
+        {
+          name: 'api',
+          uncommitted: '',
+          sinceBranch: '',
+          published: true,
+          pr: {
+            number: 216,
+            url: 'https://github.com/example/api/pull/216',
+            state: 'OPEN',
+            isDraft: false,
+            mergeStateStatus: 'BLOCKED',
+            checks: 'pass',
+            headSha: 'taxr3p0rt01',
+            reviewDecision: 'REVIEW_REQUIRED',
+          },
+        },
+      ],
       { state: 'idle', seen: true, summary: 'Tax report endpoint ready; built on the tax rates branch.', minutesAgo: 60 * 3 },
       claudeScreen('Add a tax report on top of the new rates', [
         '● Write(src/tax/report.ts)',
@@ -739,7 +799,16 @@ export class DemoScenario {
         ? { used: Math.round(DEMO_CONTEXT[s.branch] * 200_000), window: 200_000, model: 'claude-sonnet-5' }
         : null,
       ...(this.reviewThreads(s) > 0 ? { openReviewThreads: this.reviewThreads(s) } : {}),
+      ...this.stage(s),
     };
+  }
+
+  /** Where its PR stands, as the PR watch would say (pr-stage.ts), seen once you looked at it there. */
+  private stage(s: DemoSession): { prStage?: PrStageWire } {
+    if (s.archivedAt) return {};
+    const stage = prStageOf(s.repos.map((r) => ({ name: s.isGroup ? r.name : s.target, pr: r.pr })));
+    if (!stage) return {};
+    return { prStage: STAGE_WANTS_YOU.has(stage.kind) && this.stageSeen.has(`${s.id}:${stage.key}`) ? { ...stage, seen: true } : stage };
   }
 
   /** Unresolved review threads on its open PRs, as the PR watch counts them. */
@@ -1028,9 +1097,13 @@ export class DemoScenario {
     });
   }
 
-  markSeen(id: string): boolean {
+  markSeen(id: string, stageKey?: string): boolean {
     const s = this.sessions.get(id);
     if (!s) return false;
+    if (stageKey && !this.stageSeen.has(`${id}:${stageKey}`)) {
+      this.stageSeen.add(`${id}:${stageKey}`);
+      this.changed();
+    }
     if (s.attention && !s.attention.seen) {
       s.attention = { ...s.attention, seen: true };
       this.changed();

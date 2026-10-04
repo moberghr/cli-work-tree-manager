@@ -54,6 +54,19 @@ export interface InboxSubject {
   openReviewThreads?: number;
   /** What it waits on that isn't done yet (session-blocks.ts): out of the Inbox meanwhile. */
   blockedBy?: readonly unknown[];
+  /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
+  prStage?: { kind: string; seen?: boolean } | null;
+}
+
+/**
+ * The PR stages that bring a session back (pr-stage.ts STAGE_WANTS_YOU; a
+ * test keeps the two equal — this module imports nothing).
+ */
+export const PR_STAGES_WANTING = ['ready', 'conflict', 'checks_failing'] as const;
+
+/** Its PR wants you and you haven't looked since: ready to merge, a conflict, failing checks. */
+export function prWantsYou(s: Pick<InboxSubject, 'prStage'>): boolean {
+  return !!s.prStage && !s.prStage.seen && (PR_STAGES_WANTING as readonly string[]).includes(s.prStage.kind);
 }
 
 /**
@@ -62,7 +75,8 @@ export interface InboxSubject {
  *   0 needs input      — blocked on you
  *   1 done, unseen     — finished a turn you haven't looked at
  *   2 review comments  — reviewers left unresolved comments on its PR(s),
- *                        and its Claude isn't mid-turn
+ *                        or its PR is ready to merge, conflicts or fails its
+ *                        checks (unseen), and its Claude isn't mid-turn
  *   3 working
  *   4 quiet
  *   5 no status, no review comments
@@ -75,7 +89,7 @@ export function inboxRank(s: InboxSubject): number {
   if (s.blockedBy?.length && a?.state !== 'needs_input') return 7;
   if (a?.state === 'needs_input') return 0;
   if (a?.state === 'idle' && !a.seen) return 1;
-  if (a?.state !== 'working' && (s.openReviewThreads ?? 0) > 0) return 2;
+  if (a?.state !== 'working' && ((s.openReviewThreads ?? 0) > 0 || prWantsYou(s))) return 2;
   if (a?.state === 'working') return 3;
   return a ? 4 : 5;
 }
@@ -90,7 +104,7 @@ export function compareInbox(a: InboxSubject, b: InboxSubject): number {
   return ra <= 2 ? ta - tb : tb - ta;
 }
 
-/** Wants you now — what the Inbox badge counts: needs input, done unseen, review comments. */
+/** Wants you now — what the Inbox badge counts: needs input, done unseen, review comments, a PR that wants you. */
 export function wantsYou(s: InboxSubject): boolean {
   return inboxRank(s) <= 2;
 }

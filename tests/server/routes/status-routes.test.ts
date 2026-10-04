@@ -14,6 +14,10 @@ import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/hi
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import { readStatus, recordStatusEvent } from '../../../src/core/status/session-status.js';
 import { createPresence, PRESENCE_TTL_MS, type Presence } from '../../../src/server/presence.js';
+import { createSeenStores } from '../../../src/core/pr/pr-watch-store.js';
+import { stageSeenKey } from '../../../src/core/sessions/session-wire.js';
+import { readSnooze } from '../../../src/core/rail/snooze-store.js';
+import { snoozeActive } from '../../../src/core/rail/snooze.js';
 
 let home: string;
 let wt: string;
@@ -163,6 +167,25 @@ describe('status routes', () => {
     expect(res.status).toBe(200);
     expect(readStatus(id)?.seen).toBe(true);
     expect((await post('/api/sessions/nope/seen')).status).toBe(404);
+  });
+
+  it('seen at a PR stage: the stage it was shown at is kept (pr_watch_seen), a made-up one is ignored', async () => {
+    const id = sessionIdFor(session);
+    expect((await post(`/api/sessions/${id}/seen`, { prStage: { kind: 'ready', key: 'ready:api@abc' } })).status).toBe(200);
+    await post(`/api/sessions/${id}/seen`, { prStage: { kind: 'nonsense', key: 'x' } });
+    const seen = createSeenStores()(id);
+    expect(seen.has(stageSeenKey('ready:api@abc'))).toBe(true);
+    expect(seen.has(stageSeenKey('x'))).toBe(false);
+  });
+
+  it('a snooze "until it changes" is taken against the PR stage shown, so it holds until that moves', async () => {
+    const id = sessionIdFor(session);
+    await recordStatusEvent(id, { kind: 'stop', lastMessage: 'done' });
+    const prStage = { kind: 'ready', key: 'ready:api@abc' };
+    expect((await post(`/api/sessions/${id}/snooze`, { for: 'change', prStage })).status).toBe(200);
+    const z = readSnooze(id)!;
+    expect(snoozeActive(z, { attention: readStatus(id), prStage: { kind: 'ready', key: 'ready:api@abc' } })).toBe(true);
+    expect(snoozeActive(z, { attention: readStatus(id), prStage: { kind: 'ready', key: 'ready:api@def' } })).toBe(false);
   });
 });
 

@@ -51,7 +51,9 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
 import { findOverlaps } from '../core/diff/overlap.js';
 import { buildStamp } from '../core/platform/build-stamp.js';
-import { reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
+import { prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
+import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
+import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
 import { mountCleanupRoutes } from './routes/cleanup-routes.js';
@@ -346,6 +348,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
           outputStatusFor: (id) => outputStatus(id),
           shadowed: (id) => shadow.has(id),
           reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+          prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
           replyDraftsFor: (id) => drafts.get(id) ?? 0,
           hasNote: (id) => noted.has(id),
           blockedByFor: (id) =>
@@ -447,16 +450,29 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // tell a session's Claude when its CI fails. Polls gh, so full mode only.
   // A session's unresolved review threads colour it in every list, so a
   // change in that count is a sessions change too.
+  // So is its PR's stage (pr-stage.ts): a change shows, and one that wants you
+  // (ready to merge, a conflict, failing checks) is told, like a finished turn.
   const threadsShown = new Map<string, number>();
+  const stageNewsFor = createStageTracker();
+  const stageSeen = createSeenStores();
   const prWatch = mountCiRoutes(app, {
     broadcast: (event, data) => {
       broadcast(event, data);
       const id = event === 'ci-changed' ? (data as { sessionId?: string }).sessionId : undefined;
       if (!id) return;
       const n = reviewThreadsOf(prWatch.state(id));
-      if (n === (threadsShown.get(id) ?? 0)) return;
+      const threadsMoved = n !== (threadsShown.get(id) ?? 0);
       threadsShown.set(id, n);
-      broadcast('sessions-changed', { ts: Date.now() });
+      const stage = prStageOf(prWatch.state(id)?.repos ?? []);
+      const news = stageNewsFor(id, stage);
+      if (threadsMoved || news !== 'none') broadcast('sessions-changed', { ts: Date.now() });
+      if (news === 'notify' && stage) {
+        const s = findSession(id);
+        const name = s ? `${s.target} · ${s.branch}` : id;
+        const event = { sessionId: id, kind: 'pr', title: `${stage.text} — ${name}` } satisfies NotifyEvent;
+        if (statusNotify) statusNotify.notify(event, name);
+        else broadcast('notify', event);
+      }
     },
     activity,
     // The PR merged: nothing waiting in it holds it up — the archive keeps it.

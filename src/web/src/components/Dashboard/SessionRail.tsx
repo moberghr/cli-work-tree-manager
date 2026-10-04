@@ -72,7 +72,8 @@ export function railDetails(s: SessionSummary, stat: string | null, prs: { numbe
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
     stat ?? '',
-    prs.length ? prs.map((p) => `#${p.number}`).join(' ') : '',
+    // Its PR's stage says the most ("PR #212 · waiting for review"); the plain numbers only without one.
+    s.prStage ? s.prStage.text : prs.length ? prs.map((p) => `#${p.number}`).join(' ') : '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
     c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
@@ -89,6 +90,8 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
   if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
   if (kind === 'review') return { text: String(s.openReviewThreads), cls: 'wd-rail-slot-review' };
+  if (kind === 'pr')
+    return { text: s.prStage!.kind === 'ready' ? 'merge' : s.prStage!.kind === 'conflict' ? 'conflict' : 'CI', cls: 'wd-rail-slot-review' };
   return { text: relativeTime(lastActiveAt(s)), cls: '' };
 }
 

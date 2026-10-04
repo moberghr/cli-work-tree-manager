@@ -1,4 +1,5 @@
 import type { SessionAttention, ActivityState } from '../api-types.js';
+import { stageWaiting, stageWantsYou, type PrStageKind } from '../pr/pr-stage.js';
 
 /** What the status vocabulary reads from a session: a dashboard row or
  *  a `work sessions` row (both are SessionWire-shaped). */
@@ -9,6 +10,8 @@ export interface SessionLike {
   attention?: SessionAttention | null;
   /** Unresolved review threads on its open PRs (SessionWire). */
   openReviewThreads?: number;
+  /** Where its pull request stands (SessionWire, pr-stage.ts). */
+  prStage?: { kind: PrStageKind; text: string; seen?: boolean } | null;
 }
 
 /**
@@ -23,13 +26,17 @@ export interface SessionLike {
  *   working     — mid-turn
  *   review      — nothing running for you to answer, but reviewers left
  *                 unresolved comments on its open PR(s)
+ *   pr          — its PR wants you: approved with checks passing (ready
+ *                 to merge), a merge conflict or failing checks; unseen
+ *   in_review   — finished, its PR waits on reviewers or checks
  *   quiet       — finished, and you've seen it
  *   active/open/recent/stale — no hook status yet (its Claude has not
  *     taken a turn since the dashboard's hooks went in, or runs a tool
  *     without them): transcript activity only. Active ≤ 30 s, Open ≤ 5 min,
  *     Idle (recent) within a day, Stale after that.
  */
-export type DisplayKind = 'needs_input' | 'done' | 'working' | 'review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
+export type DisplayKind =
+  'needs_input' | 'done' | 'working' | 'review' | 'pr' | 'in_review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -50,6 +57,8 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
     if (!a.seen) return 'done';
   }
   if ((s.openReviewThreads ?? 0) > 0) return 'review';
+  if (stageWantsYou(s.prStage)) return 'pr';
+  if (stageWaiting(s.prStage)) return 'in_review';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
@@ -61,6 +70,8 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   done: 'Done',
   working: 'Working',
   review: 'Review comments',
+  pr: 'Pull request',
+  in_review: 'In review',
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
@@ -74,6 +85,9 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   done: "Its Claude finished a turn you haven't looked at yet.",
   working: 'Its Claude is working on your last instruction right now.',
   review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
+  pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks.',
+  in_review:
+    'Its pull request is open and waiting on reviewers or checks. It comes back to the Inbox when comments arrive, checks fail, or it is approved.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
   active: "Its Claude wrote in the last 30 seconds (it isn't reporting its status, so this is from its transcript).",
   open: 'Its Claude wrote in the last 5 minutes, or is open and idle at its prompt.',
@@ -82,7 +96,18 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
 };
 
 /** The legend's rows, most urgent first. Idle covers `quiet` and `recent` (same colour, same word). */
-export const LEGEND_KINDS: readonly DisplayKind[] = ['needs_input', 'done', 'review', 'working', 'active', 'open', 'quiet', 'stale'];
+export const LEGEND_KINDS: readonly DisplayKind[] = [
+  'needs_input',
+  'done',
+  'review',
+  'pr',
+  'working',
+  'in_review',
+  'active',
+  'open',
+  'quiet',
+  'stale',
+];
 
 /**
  * How full a Claude conversation may get before it matters: past WARN the
@@ -108,7 +133,15 @@ export const WEEK_MS = 7 * 24 * 3_600_000;
  *  used within 7 days. Older: everything else — cleanup material. */
 export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
   const kind = displayStatus(s, now);
-  if (kind === 'needs_input' || kind === 'done' || kind === 'working' || kind === 'review' || kind === 'active' || kind === 'open')
+  if (
+    kind === 'needs_input' ||
+    kind === 'done' ||
+    kind === 'working' ||
+    kind === 'review' ||
+    kind === 'pr' ||
+    kind === 'active' ||
+    kind === 'open'
+  )
     return 'now';
   const age = now - Date.parse(lastActiveAt(s));
   if (age < RECENT_MS) return 'now';
@@ -123,11 +156,13 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
     case 'needs_input':
     case 'done':
     case 'review':
+    case 'pr':
       return 'needs';
     case 'working':
     case 'active':
       return 'working';
     case 'quiet':
+    case 'in_review':
     case 'open':
     case 'recent':
       return 'idle';

@@ -241,6 +241,17 @@ describe('demo server', () => {
     expect(d.repos.length).toBeGreaterThan(0);
   });
 
+  it('PR stages: an approved green PR wants you until seen at that stage; one waiting on reviewers is in review', async () => {
+    type Row = { id: string; branch: string; prStage?: { kind: string; key: string; seen?: boolean; text: string } };
+    const rows = (await get<{ sessions: Row[] }>('/api/sessions')).sessions;
+    const ready = rows.find((r) => r.branch === 'feat/order-history')!;
+    expect(ready.prStage).toMatchObject({ kind: 'ready', text: 'PR #209 · approved, ready to merge' });
+    expect(rows.find((r) => r.branch === 'feat/tax-report')!.prStage).toMatchObject({ kind: 'in_review' });
+    expect((await send('POST', `/api/sessions/${ready.id}/seen`, { prStage: ready.prStage })).status).toBe(200);
+    const after = (await get<{ sessions: Row[] }>('/api/sessions')).sessions.find((r) => r.id === ready.id)!;
+    expect(after.prStage?.seen).toBe(true);
+  });
+
   it('the Repos page: enrol a found repo, make a group of it, and undo both', async () => {
     type Inv = { repos: { folder: string; status: string; suggestedAlias?: string }[]; groups: { name: string; sessions: number }[] };
     const before = await get<Inv>('/api/repos');
