@@ -37,7 +37,10 @@ export function ownerRepo(url: string): string | null {
 export function originUrl(configText: string): string | null {
   const section = /\[remote "origin"\]([\s\S]*?)(?=\n\[|$)/.exec(configText);
   const url = section ? /^\s*url\s*=\s*(.+)$/m.exec(section[1]) : null;
-  return url ? url[1].trim() : null;
+  if (!url) return null;
+  // As git writes a value: maybe quoted, with \\ and \" escaped (a Windows path).
+  const v = url[1].trim().replace(/^"(.*)"$/, '$1');
+  return v.replace(/\\(["\\])/g, '$1');
 }
 
 /** What a folder's `.git` says it is: a repo, a linked worktree or a submodule (a `.git` file), or nothing. */

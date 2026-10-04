@@ -177,6 +177,8 @@ work web --demo                                    # The real dashboard SPA agai
 work attach|a [target] [branch]                    # Attach THIS terminal to a session's Claude in the PTY host (default: session for cwd). Ctrl+] detaches; Claude keeps running. Same PTY as the web Terminal tab.
 work pty-host [--status|--stop|--restart]          # Internal/hidden — the long-lived process that owns every Claude PTY. --restart after upgrading (sessions come back via --continue).
 work state [--export <dir>]                        # What ~/.work/state.db holds; --export writes it back as the pre-SQLite JSON files (rollback / inspection)
+work move export <dir> [--force]                   # A bundle to take work to another computer (core/move/move.ts): refuses while anything is uncommitted or unpushed (worktrees come back from origin)
+work move import <dir> [--repos-root p] [--worktrees-root p] [--clone] [--force]  # On the other computer, with work web and the PTY host stopped: paths moved, missing repos cloned, worktrees recreated, conversations put back
 work hook <event>                                  # Internal — invoked by Claude Code via ~/.claude/settings.json (hidden)
 work install-skills                                # Internal — give each agent work's skills its own way (hidden; npm's postinstall and the desktop app run the same as dist/install-skills-bin.js, never the whole CLI, so an install writes nothing to ~/.work)
 ```
@@ -216,6 +218,7 @@ src/
                             catch-up, Today digest, timeline, work time
     archive/                archive + restore, uncommitted saves, retention, search, summaries
     cleanup/                what can go (worktrees, build folders, merged branches)
+    move/                   moving to another computer: the export bundle and its import
     pr/                     gh PRs, review threads + reply drafts, the PR watch, ship
     jira/                   acli issues, the Jira watch, worklogs, the board
     pty/                    the PTY host (server, registry, client, protocol), the pool, idle sleep;
@@ -492,6 +495,10 @@ First open (`PRAGMA user_version` 0) creates the schema and imports the pre-SQLi
 
 § WHEN reading-then-writing state, do it in one `tx()`. A transaction can't span an `await`, so async work (port probing in `upsertSessionWithPort`) goes optimistic: compute outside, re-check inside, retry.
 § Tests run with `WORK_DB_EPHEMERAL=1` (tests/setup): the connection closes after each outermost call so temp HOMEs can be deleted on Windows. A test that doesn't mock `os.homedir()` must not reach `db.ts` (it would write the developer's real state.db); inject a store instead, as the PTY registry does with `sessionsPath`.
+
+### Moving to another computer (`work move`)
+
+`core/move/move.ts`. **Export** (`exportBundle`) writes a folder you carry over (OneDrive, a stick): a `state.db` snapshot (`snapshotDb`: `VACUUM INTO`, consistent while others write), `config.json`, `conversations/`, `archive/`, the groups' `*.claude.md` (`instructions/`), every live session's agent transcripts (`transcripts/<session id>/`, through `conversation.files`), and `manifest.json` (old home, platform, worktrees root, each repo's path and origin — `originUrl`, which unescapes git's quoting). Before it, `unsavedWork` lists uncommitted files and commits not on origin per live session's repo, and the CLI refuses without `--force`, since the other computer gets worktrees from origin. **Import** (`importBundle`) refuses while work web or the PTY host runs (`runningHere`: they hold the database) and over existing sessions without `--force`; moves paths by `remapRules` / `remapPath` (pure: the worktrees root and each repo to `--worktrees-root` / `--repos-root` + its folder name, else the same place under the new home; anything else under the old home with it; longest prefix first, case-blind for a Windows bundle), writes config.json as raw JSON (unknown keys kept), puts the snapshot in place (`replaceDb`), moves each session's paths and per-repo bases (`remapSession`), empties the PTY restore list, copies work's folders, clones missing repos from their origin (`--clone`), recreates live sessions' worktrees (`createInProcess`, a repo's own checkout excepted), and puts transcripts back in each session's `conversation.restoreDir`, so `--continue` resumes them. Checkpoint refs and wd's review scopes (keyed by old paths) stay behind. § Never keep `~/.work` live in a synced folder: a synced SQLite file corrupts, and two computers would both run the PR and Jira watches.
 
 ### Configuration
 

@@ -229,6 +229,23 @@ export function tx<T>(fn: (d: Db) => T): T {
   return withDb((d) => (d.inTransaction ? d.transaction(() => fn(d))() : d.transaction(() => fn(d)).immediate()));
 }
 
+/** A consistent copy of the whole database in one file (moving to another
+ *  computer): `VACUUM INTO`, safe while other processes write. */
+export function snapshotDb(dest: string): void {
+  withDb((d) => d.prepare('VACUUM INTO ?').run(dest));
+}
+
+/** Put a snapshot in place of the database. Only while no other work
+ *  process has it open (the caller checks): their connections would keep
+ *  the old file. */
+export function replaceDb(snapshot: string): void {
+  closeDb();
+  const file = dbPath();
+  for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.copyFileSync(snapshot, file);
+}
+
 /** Close the cached connection (process shutdown, tests). */
 export function closeDb(): void {
   if (conn && depth === 0) {

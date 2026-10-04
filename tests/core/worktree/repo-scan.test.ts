@@ -62,6 +62,15 @@ describe('origins and paths', () => {
     expect(ownerRepo('git@github.com:moberghr/work-tree.git')).toBe('moberghr/work-tree');
     expect(originUrl('[remote "upstream"]\n\turl = a\n[remote "origin"]\n\turl = b\n')).toBe('b');
     expect(originUrl('[core]\n')).toBeNull();
+    // As git writes a Windows path: backslashes escaped, maybe quoted.
+    expect(
+      originUrl(String.raw`[remote "origin"]
+	url = C:\\x\\o.git`),
+    ).toBe(String.raw`C:\x\o.git`);
+    expect(
+      originUrl(String.raw`[remote "origin"]
+	url = "C:\\my repos\\o.git"`),
+    ).toBe(String.raw`C:\my repos\o.git`);
   });
 
   it('one key for a path however it is written (case only on Windows)', () => {
