@@ -29,7 +29,8 @@ export interface PrStage {
   kind: PrStageKind;
   /** "PR #212 · approved, ready to merge" */
   text: string;
-  prs: Array<{ repo: string; number: number; url: string }>;
+  /** Each PR with its own stage: a group's are shown (and opened) one by one. */
+  prs: Array<{ repo: string; number: number; url: string; kind: PrStageKind }>;
   /** Changes when the stage or a PR's head does: what "seen" and a snooze compare. */
   key: string;
 }
@@ -100,7 +101,7 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
   // `ready` is the least pressing open stage, so the loop above already
   // picked anything less ready that another repo has.
   if (!open.length && withPr.some((r) => r.pr.state === 'MERGED')) kind = 'merged';
-  const prs = shown.map((r) => ({ repo: r.name, number: r.pr.number, url: r.pr.url }));
+  const prs = shown.map((r) => ({ repo: r.name, number: r.pr.number, url: r.pr.url, kind: stageOfPr(r.pr) }));
   const which = prs.length === 1 ? `PR #${prs[0].number}` : `PRs ${prs.map((p) => `${p.repo} #${p.number}`).join(', ')}`;
   return {
     kind,
@@ -108,6 +109,16 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
     prs,
     key: `${kind}:${shown.map((r) => `${r.name}@${r.pr.headSha}`).join(',')}`,
   };
+}
+
+/** A stage in a word or two, for one PR's pill: "waiting for review", "ready to merge"… */
+export const stagePhrase = (kind: PrStageKind): string => (kind === 'ready' ? 'ready to merge' : PHRASE[kind]);
+
+/** How a stage reads at a glance: good (ready), bad (a conflict, failing checks, changes asked), draft, or plain. */
+export function stageTone(kind: PrStageKind): 'good' | 'bad' | 'draft' | 'plain' {
+  if (kind === 'ready') return 'good';
+  if (kind === 'conflict' || kind === 'checks_failing' || kind === 'changes') return 'bad';
+  return kind === 'draft' ? 'draft' : 'plain';
 }
 
 /** It wants you: a stage that brings it back, not looked at since it got there. */

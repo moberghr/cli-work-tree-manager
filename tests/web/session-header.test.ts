@@ -263,4 +263,24 @@ describe('sub-tabs', () => {
     key('sess-1', 'terminal');
     expect(h.openInTerminal).not.toHaveBeenCalled();
   });
+
+  it('a group with two PRs: one pill each, linked to its own PR, with its own state', async () => {
+    const prStage = {
+      kind: 'in_review' as const,
+      text: 'PRs backend #12, frontend #8 · waiting for review',
+      key: 'k',
+      prs: [
+        { repo: 'backend', number: 12, url: 'https://gh/backend/12', kind: 'ready' as const },
+        { repo: 'frontend', number: 8, url: 'https://gh/frontend/8', kind: 'checks_failing' as const },
+      ],
+    };
+    await render({ ...base, isGroup: true, prStage });
+    const pills = [...container.querySelectorAll<HTMLAnchorElement>('.wd-session-strip a.wd-pr-stage')];
+    expect(pills.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['backend #12 · ready to merge', 'https://gh/backend/12'],
+      ['frontend #8 · checks failing', 'https://gh/frontend/8'],
+    ]);
+    expect(pills[0].className).toContain('wd-pr-stage-good');
+    expect(pills[1].className).toContain('wd-pr-stage-bad');
+  });
 });

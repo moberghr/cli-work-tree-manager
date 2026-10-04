@@ -62,7 +62,13 @@ interface Pending {
  * A group's name is final (its sessions and worktree folders carry it);
  * its repos can change, for new sessions.
  */
-export function ReposTab({ api = httpRepos }: { api?: ReposApi }) {
+export function ReposTab({
+  api = httpRepos,
+  onBack,
+}: {
+  api?: ReposApi;
+  /** Back to Start (the page it's reached from). */ onBack?: () => void;
+}) {
   const [data, setData] = useState<ReposWire | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter | null>(null);
@@ -126,6 +132,11 @@ export function ReposTab({ api = httpRepos }: { api?: ReposApi }) {
     <div className="wd-dash-tab-pane wd-tab-repos">
       <header className="wd-tab-header">
         <h1>
+          {onBack && (
+            <button type="button" className="wd-link-button wd-tab-back" onClick={onBack} title="Back to Start">
+              ← Start
+            </button>
+          )}
           Repos{' '}
           <span className="wd-tab-header-muted">
             {counts.enrolled} enrolled · {counts.new} new · {counts.ignored} ignored

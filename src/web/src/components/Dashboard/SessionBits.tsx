@@ -4,6 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
+import { stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
 
 /**
  * Small shared pieces of a session's at-a-glance state, used by the rail,
@@ -11,30 +12,79 @@ import { lastActiveAt, statusHint } from '../../state/session-display.js';
  * the same thing the same way.
  */
 
+const toneClass = (kind: PrStageKind) => {
+  const t = stageTone(kind);
+  return t === 'good' ? ' wd-pr-stage-good' : t === 'bad' ? ' wd-pr-stage-bad' : t === 'draft' ? ' wd-pr-chip-draft' : '';
+};
+
 /**
- * Where its pull request stands, in a line: "PR #212 · waiting for review",
- * linked to the PR. The session header shows it in place of the plain
- * PR numbers when the PR watch has looked (pr-stage.ts).
+ * Where its pull requests stand, one pill per PR: "#212 · waiting for
+ * review" (a group's say their repo: "backend #12 · ready to merge"), each
+ * linked to its PR. The session header shows them in place of the plain
+ * PR numbers once the PR watch has looked (pr-stage.ts).
  */
 export function PrStageChip({ session }: { session: SessionSummary }) {
   const st = session.prStage;
   if (!st) return null;
-  const tone =
-    st.kind === 'ready'
-      ? ' wd-pr-stage-good'
-      : st.kind === 'conflict' || st.kind === 'checks_failing' || st.kind === 'changes'
-        ? ' wd-pr-stage-bad'
-        : '';
+  const many = st.prs.length > 1;
   return (
-    <a
-      className={`wd-pr-chip wd-pr-stage${tone}${st.kind === 'draft' ? ' wd-pr-chip-draft' : ''}`}
-      href={st.prs[0].url}
-      target="_blank"
-      rel="noreferrer"
-      title={st.prs.length > 1 ? st.prs.map((p) => `${p.repo} #${p.number}`).join(', ') : `Open #${st.prs[0].number} on GitHub`}
-    >
-      {st.text}
-    </a>
+    <>
+      {st.prs.map((p) => (
+        <a
+          key={`${p.repo}#${p.number}`}
+          className={`wd-pr-chip wd-pr-stage${toneClass(p.kind)}`}
+          href={p.url}
+          target="_blank"
+          rel="noreferrer"
+          title={`Open ${p.repo} #${p.number} on GitHub`}
+        >
+          {many ? `${p.repo} #${p.number}` : `#${p.number}`} · {stagePhrase(p.kind)}
+        </a>
+      ))}
+    </>
+  );
+}
+
+/**
+ * The rail's PR pills: "#212" per PR, coloured by where it stands, and a
+ * click opens it (the row itself is a button, so not a link). From the PR
+ * watch when it has looked, else the dashboard's PR list.
+ */
+export function RailPrPills({ session, prs }: { session: SessionSummary; prs: PrInfo[] }) {
+  const pills = session.prStage
+    ? session.prStage.prs.map((p) => ({
+        key: `${p.repo}#${p.number}`,
+        url: p.url,
+        label: `#${p.number}`,
+        cls: toneClass(p.kind),
+        title: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
+      }))
+    : prs.map((p) => ({
+        key: `${p.repoAlias}#${p.number}`,
+        url: p.url,
+        label: `#${p.number}`,
+        cls: p.isDraft ? ' wd-pr-chip-draft' : '',
+        title: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
+      }));
+  if (pills.length === 0) return null;
+  return (
+    <span className="wd-rail-prs">
+      {pills.map((p) => (
+        <span
+          key={p.key}
+          className={'wd-pr-chip wd-pr-chip-open' + p.cls}
+          role="link"
+          tabIndex={-1}
+          title={`${p.title}\nClick to open it on GitHub`}
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(p.url, '_blank', 'noopener');
+          }}
+        >
+          {p.label}
+        </span>
+      ))}
+    </span>
   );
 }
 

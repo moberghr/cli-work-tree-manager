@@ -23,10 +23,10 @@
  * `/api/context` returning `{mode:'review'}` to pick `ReviewApp`.
  */
 
-export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'repos' | 'welcome';
+export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' | 'jira' | 'repos' | 'welcome';
 
 /** Pages that no longer exist, and where their links land now. */
-const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start', jira: 'start' };
+const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
 export type SessionSubTab = 'diff' | 'term' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */

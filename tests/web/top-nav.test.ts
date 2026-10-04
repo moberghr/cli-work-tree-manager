@@ -39,9 +39,9 @@ const tabs = () =>
   );
 
 describe('TopNav', () => {
-  it('a short bar: Inbox (with its count), Sessions, Start; no version, no scope pill', () => {
+  it('a short bar: Inbox (with its count), Sessions, Start, Jira; no version, no scope pill', () => {
     act(() => root.render(createElement(TopNav, { active: 'inbox', onSelect: () => {}, onHome: () => {}, inboxCount: 3 })));
-    expect(tabs()).toEqual(['[Inbox3]', 'Sessions', 'Start']);
+    expect(tabs()).toEqual(['[Inbox3]', 'Sessions', 'Start', 'Jira']);
     expect(container.querySelector('.wd-dash-version')).toBeNull();
     expect(container.textContent).not.toMatch(/v\d|dev/);
   });
@@ -98,8 +98,9 @@ describe('railDetails: what a one-line rail row keeps for its tooltip', () => {
       hasNote: true,
       agents: { total: 1, inTerminal: 1, inApp: 0, busy: false, duplicate: false },
     } as unknown as SessionSummary;
-    expect(railDetails(s, '+5 −1', [{ number: 42 }])).toBe('\n+5 −1 · #42 · 2 waiting for Claude · has notes · running in a terminal');
-    expect(railDetails({} as SessionSummary, null, [])).toBe('');
+    // Not its +/− lines (the Diff tab's), nor the PR numbers (the row's pills).
+    expect(railDetails(s)).toBe('\n2 waiting for Claude · has notes · running in a terminal');
+    expect(railDetails({} as SessionSummary)).toBe('');
   });
 
   it('until when it is snoozed, and what it waits on', () => {
@@ -107,6 +108,6 @@ describe('railDetails: what a one-line rail row keeps for its tooltip', () => {
       snoozed: { until: null },
       blockedBy: [{ kind: 'pr', url: 'u', label: 'PR #12' }],
     } as unknown as SessionSummary;
-    expect(railDetails(s, null, [])).toBe('\nsnoozed until it changes · waits on PR #12');
+    expect(railDetails(s)).toBe('\nsnoozed until it changes · waits on PR #12');
   });
 });

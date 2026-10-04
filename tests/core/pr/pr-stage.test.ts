@@ -67,6 +67,8 @@ describe('prStageOf', () => {
     ])!;
     expect(st.kind).toBe('in_review');
     expect(st.text).toBe('PRs backend #12, frontend #8 · waiting for review');
+    // Each PR keeps its own stage: the dashboard shows (and links) them one by one.
+    expect(st.prs.map((p) => `${p.repo} #${p.number} ${p.kind}`)).toEqual(['backend #12 ready', 'frontend #8 in_review']);
     expect(
       prStageOf([
         { name: 'backend', pr: { ...ready, number: 12 } },

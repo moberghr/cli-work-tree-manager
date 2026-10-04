@@ -506,6 +506,18 @@ a.wd-pr-chip:hover {
 .wd-pr-chip-draft {
   border-style: dashed;
 }
+/* A rail row's PR pills: after the name, before the time; small, never squeezed. */
+.wd-rail-prs {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+  margin-left: 4px;
+}
+.wd-rail-prs .wd-pr-chip {
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 4px;
+}
 .wd-pr-stage-good {
   border-color: var(--add-fg);
   color: var(--add-fg);
@@ -1006,6 +1018,12 @@ a.wd-pr-chip:hover {
 }
 .wd-repos-remove {
   color: var(--del-fg);
+}
+.wd-tab-back {
+  margin-right: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  vertical-align: middle;
 }
 .wd-repos-error {
   grid-column: 1 / -1;
@@ -2471,15 +2489,35 @@ a.wd-pr-chip:hover {
   }
 }
 
-/* Today and Inbox lay their content straight into the pane (overflow:
-   hidden, for the tabs that own a scroll region like the Sessions table),
-   so they scroll the pane itself; the header stays put. */
+/* The pages that lay their content straight into the pane (overflow:
+   hidden, for the tabs that own a scroll region like the Sessions table)
+   scroll the pane itself; the header stays put. */
 .wd-tab-today,
-.wd-tab-inbox {
+.wd-tab-inbox,
+.wd-tab-start,
+.wd-tab-jira,
+.wd-tab-repos,
+.wd-tab-welcome {
   overflow-y: auto;
 }
+/* Its sections keep their height (a flex column would squeeze them instead of scrolling). */
+.wd-tab-start > *,
+.wd-tab-jira > *,
+.wd-tab-repos > *,
+.wd-tab-welcome > * {
+  flex-shrink: 0;
+}
+/* Repos inside Welcome: the Welcome page scrolls, not it. */
+.wd-tab-welcome .wd-tab-repos {
+  overflow: visible;
+  height: auto;
+}
 .wd-tab-today > .wd-tab-header,
-.wd-tab-inbox > .wd-tab-header {
+.wd-tab-inbox > .wd-tab-header,
+.wd-tab-start > .wd-tab-header,
+.wd-tab-jira > .wd-tab-header,
+.wd-tab-repos > .wd-tab-header,
+.wd-tab-welcome > .wd-tab-header {
   position: sticky;
   top: 0;
   z-index: 2;

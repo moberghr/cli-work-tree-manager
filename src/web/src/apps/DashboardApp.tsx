@@ -29,6 +29,7 @@ import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
+import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
 import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
@@ -71,6 +72,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   cleanup: 'Clean up',
   sessions: 'Sessions',
   start: 'Start',
+  jira: 'Jira',
   repos: 'Repos',
   welcome: 'Welcome',
 };
@@ -482,9 +484,9 @@ export function DashboardApp() {
           w: 'start',
           r: 'repos',
           c: 'cleanup',
-          // Old chords for the PRs and Jira pages: both are on Start.
+          j: 'jira',
+          // The old chord for the PRs page: they're on Start.
           p: 'start',
-          j: 'start',
         };
         if (e.key === 't') {
           e.preventDefault();
@@ -712,14 +714,22 @@ export function DashboardApp() {
             membersOf={membersOf}
             onNewWorktree={() => openNew(null)}
             onPickPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })}
-            onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
             onOpenSession={(id) => openSession(id)}
             onManageRepos={() => goTab('repos')}
           />
         );
         break;
+      case 'jira':
+        body = (
+          <JiraTab
+            sessions={sessions}
+            onPickIssue={(issue) => openNew({ branch: `feat/${issue.key}`, jiraKey: issue.key, prompt: jiraPrompt(issue) })}
+            onOpenSession={(id) => openSession(id)}
+          />
+        );
+        break;
       case 'repos':
-        body = <ReposTab />;
+        body = <ReposTab onBack={() => goTab('start')} />;
         break;
       case 'welcome':
         body = <WelcomeTab onNewWorktree={() => openNew(null)} onDone={() => goTab('start')} />;

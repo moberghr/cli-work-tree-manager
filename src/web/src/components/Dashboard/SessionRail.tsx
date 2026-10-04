@@ -13,12 +13,11 @@ import {
 import { newSectionId, railMenuItems } from '../../state/rail-menu.js';
 import { StatusIcon } from './StatusIcon.js';
 import type { SessionSummary } from '../../api/client.js';
-import { otherBranchText } from './SessionBits.js';
+import { otherBranchText, RailPrPills } from './SessionBits.js';
 import { StatusLegend } from './StatusLegend.js';
 import {
   DISPLAY_LABEL,
   displayStatus,
-  formatDiffStat,
   railGroups,
   railSessions,
   sessionMatches,
@@ -62,18 +61,17 @@ interface Props {
 }
 
 /**
- * What a rail row no longer shows on its face, for its tooltip: until when
- * it's snoozed, what it waits on, changes, PRs, notes waiting for Claude,
- * your note, where its Claude runs. Pure (`now` for the snooze's wording).
+ * What a rail row doesn't show on its face, for its tooltip: until when
+ * it's snoozed, what it waits on, where its PRs stand (the pills show which
+ * are open), notes waiting for Claude, your note, where its Claude runs.
+ * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording).
  */
-export function railDetails(s: SessionSummary, stat: string | null, prs: { number: number }[], now = new Date()): string {
+export function railDetails(s: SessionSummary, now = new Date()): string {
   const c = s.agents ?? s.claudes;
   const bits = [
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
-    stat ?? '',
-    // Its PR's stage says the most ("PR #212 · waiting for review"); the plain numbers only without one.
-    s.prStage ? s.prStage.text : prs.length ? prs.map((p) => `#${p.number}`).join(' ') : '',
+    s.prStage?.text ?? '',
     s.pendingForClaudeCount ? `${s.pendingForClaudeCount} waiting for Claude` : '',
     s.hasNote ? 'has notes' : '',
     c?.duplicate ? 'two Claudes on one conversation' : c?.inTerminal ? 'running in a terminal' : '',
@@ -264,7 +262,6 @@ export function SessionRail({
     const other = otherBranchText(s);
     const behind = behindText(s);
     const slot = statusSlot(s, kind);
-    const stat = formatDiffStat(s);
     const prs = prsFor?.(s) ?? [];
     const summary = s.attention?.summary;
     if (onRename && renamingId === s.id) {
@@ -339,7 +336,7 @@ export function SessionRail({
           title={
             `${s.target} · ${s.branch}${other ? ` (${other})` : ''}${s.stackedOn ? ` · stacked on ${s.stackedOn.branch}` : ''}${behind ? ` · ${behind}` : ''}${s.title ? `\n${s.title}` : ''}\n${DISPLAY_LABEL[kind]}` +
             (summary ? ` — ${summary}` : '') +
-            railDetails(s, stat, prs) +
+            railDetails(s) +
             (index < 9 ? `\nAlt+${index + 1}` : '')
           }
         >
@@ -347,6 +344,7 @@ export function SessionRail({
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
               <span className="wd-dash-rail-name">{label}</span>
+              <RailPrPills session={s} prs={prs} />
               <span className={'wd-dash-rail-slot ' + slot.cls}>{slot.text}</span>
             </span>
             {/* One line a row; the open session also says where it stands. */}

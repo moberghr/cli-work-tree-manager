@@ -116,7 +116,7 @@ describe('SessionRail search', () => {
 });
 
 describe('PRs in the rail', () => {
-  it('are named in the row tooltip, not shown as pills (one line a row)', () => {
+  it('show as a pill on the row, which opens the PR', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const pr = {
       number: 3509,
@@ -131,10 +131,10 @@ describe('PRs in the rail', () => {
       repoAlias: 'jobly',
     } as PrInfo;
     render({ prsFor: (s) => (s.id === 'b' ? [pr] : []) });
-    // One line a row: the PR is named in the row's tooltip; its pill is on the session page.
-    expect(container.querySelector('.wd-pr-chip')).toBeNull();
-    const row = [...container.querySelectorAll<HTMLButtonElement>('.wd-dash-rail-item')].find((b) => b.title.includes('#3509'));
-    expect(row).toBeDefined();
-    expect(open).not.toHaveBeenCalled();
+    // A pill per open PR on its row: a click opens the PR, not the session.
+    const pill = container.querySelector<HTMLElement>('.wd-pr-chip')!;
+    expect(pill.textContent).toBe('#3509');
+    act(() => pill.click());
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/3509', '_blank', 'noopener');
   });
 });

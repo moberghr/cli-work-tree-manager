@@ -112,6 +112,7 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
         { keys: 'g s', label: 'Sessions' },
         { keys: 'g d', label: 'Today' },
         { keys: 'g w', label: 'Start' },
+        { keys: 'g j', label: 'Jira' },
         { keys: 'g r', label: 'Repos & groups' },
         { keys: 'g c', label: 'Clean up' },
         { keys: 'g t', label: 'Tasks (open / close)' },

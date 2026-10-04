@@ -47,7 +47,7 @@ describe('Inbox: a pull request that wants you', () => {
     kind,
     text,
     key: `${kind}:api@abc`,
-    prs: [{ repo: 'api', number: 209, url: 'https://github.com/o/api/pull/209' }],
+    prs: [{ repo: 'api', number: 209, url: 'https://github.com/o/api/pull/209', kind }],
   });
 
   it('ready to merge is a row of its own (its stage, the terminal, Mark seen with the stage); in review only counts in the closing line', () => {

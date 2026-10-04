@@ -380,7 +380,9 @@ test('an approved, green PR comes back to the Inbox as ready to merge, and leave
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/tax-report' })).toHaveCount(0);
   await expect(page.locator('.wd-inbox-rest')).toContainText('in review');
   await ready.getByRole('button', { name: 'Open' }).click();
-  await expect(page.locator('.wd-session-strip .wd-pr-stage')).toHaveText('PR #209 · approved, ready to merge');
+  await expect(page.locator('.wd-session-strip .wd-pr-stage')).toHaveText('#209 · ready to merge');
+  // Its row on the left carries the PR as a pill.
+  await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/order-history' }).locator('.wd-pr-chip')).toHaveText('#209');
   await page.goto(`${url}#/inbox`);
   await expect(page.locator('.wd-inbox-item', { hasText: 'feat/order-history' })).toHaveCount(0);
   await expect(page.locator('.wd-dash-rail-item', { hasText: 'feat/tax-report' }).locator('.wd-rail-dot-in_review')).toHaveCount(1);
@@ -416,6 +418,24 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await page.keyboard.press('Escape');
   await page.keyboard.press('e');
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
+});
+
+test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 420 });
+  await page.goto(`${url}#/start`);
+  await page.getByRole('tab', { name: 'Jira' }).click();
+  await expect(page).toHaveURL(/#\/jira$/);
+  await expect(page.getByRole('region', { name: 'Jira issues assigned to you' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Start' }).click();
+  await page.getByRole('button', { name: 'Repos & groups' }).click();
+  const repos = page.locator('.wd-tab-repos');
+  await expect(repos.locator('.wd-repos-row').first()).toBeVisible();
+  // Taller than the window: it scrolls, its header stays.
+  await expect.poll(() => repos.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await repos.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect.poll(() => repos.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: '← Start' }).click();
+  await expect(page).toHaveURL(/#\/start$/);
 });
 
 test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {

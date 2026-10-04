@@ -23,8 +23,8 @@ vi.mock('../../src/web/src/api/panes.js', () => ({
   dismissJiraIssue: (k: string) => api.dismissJiraIssue(k),
 }));
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
-const { StartTab, prState, sessionForPr, sessionForIssue, waitsForYourReview } =
-  await import('../../src/web/src/components/Dashboard/tabs/StartTab.js');
+const { StartTab, prState, sessionForPr, waitsForYourReview } = await import('../../src/web/src/components/Dashboard/tabs/StartTab.js');
+const { JiraTab, sessionForIssue } = await import('../../src/web/src/components/Dashboard/tabs/JiraTab.js');
 
 const issue = (key: string, status: string, statusCategory: JiraIssue['statusCategory']): JiraIssue => ({
   key,
@@ -129,7 +129,6 @@ function render(over: Record<string, unknown> = {}) {
     sessions: SESSIONS,
     prs: api.prs,
     onNewWorktree: vi.fn(),
-    onPickIssue: vi.fn(),
     onPickPr: vi.fn(),
     onOpenSession: vi.fn(),
     ...over,
@@ -137,15 +136,27 @@ function render(over: Record<string, unknown> = {}) {
   act(() => root.render(createElement(StartTab, props)));
   return props;
 }
+function renderJira(over: Record<string, unknown> = {}) {
+  const props = { sessions: SESSIONS, onPickIssue: vi.fn(), onOpenSession: vi.fn(), ...over };
+  act(() => root.render(createElement(JiraTab, props)));
+  return props;
+}
 const rowOf = (key: string) =>
   [...container.querySelectorAll('.wd-start-row')].find((r) => r.querySelector('.wd-start-key')?.textContent === key)!;
 
 describe('Start', () => {
-  it('New worktree on top; Jira issues in workflow order (done ones left out)', async () => {
+  it('New worktree on top; no Jira here (it has its own page)', async () => {
     const p = render();
     await flush();
     act(() => button('New worktree').click());
     expect(p.onNewWorktree).toHaveBeenCalled();
+    expect(container.querySelector('section[aria-label="Jira issues assigned to you"]')).toBeNull();
+    expect(container.querySelector('.wd-jira-watch-switch')).toBeNull();
+  });
+
+  it('Jira: issues in workflow order (done ones left out)', async () => {
+    renderJira();
+    await flush();
     const keys = [...container.querySelectorAll('section[aria-label="Jira issues assigned to you"] .wd-start-key')].map(
       (k) => k.textContent,
     );
@@ -153,14 +164,16 @@ describe('Start', () => {
   });
 
   it('each issue and PR: Start, or a link to the session already on it', async () => {
-    const p = render();
+    const j = renderJira();
     await flush();
     act(() => rowOf('SD-1').querySelector<HTMLButtonElement>('button')!.click());
-    expect(p.onPickIssue).toHaveBeenCalledWith(expect.objectContaining({ key: 'SD-1' }));
+    expect(j.onPickIssue).toHaveBeenCalledWith(expect.objectContaining({ key: 'SD-1' }));
     const sd3 = rowOf('SD-3').querySelector<HTMLButtonElement>('.wd-start-existing')!;
     expect(sd3.textContent).toBe('feat/SD-3 →');
     act(() => sd3.click());
-    expect(p.onOpenSession).toHaveBeenCalledWith('sd3');
+    expect(j.onOpenSession).toHaveBeenCalledWith('sd3');
+    const p = render();
+    await flush();
     // #212 has a session; #208's was archived, so it's Start again.
     expect(rowOf('#212').querySelector('.wd-start-existing')!.textContent).toBe('chore/deps-update →');
     act(() => [...rowOf('#208').querySelectorAll('button')].find((b) => b.textContent === 'Start')!.click());
@@ -181,8 +194,8 @@ describe('Start', () => {
     expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Review']);
   });
 
-  it('the checkbox turns the watch on', async () => {
-    render();
+  it('Jira: the checkbox turns the watch on', async () => {
+    renderJira();
     await flush();
     const box = [...container.querySelectorAll<HTMLLabelElement>('.wd-jira-watch-switch')][0].querySelector('input')!;
     expect(box.checked).toBe(false);
@@ -191,8 +204,8 @@ describe('Start', () => {
     expect(api.setJiraWatch).toHaveBeenCalledWith(true);
   });
 
-  it('a watch suggestion: pick a project and Start in it (no dialog); a started one opens its session', async () => {
-    const p = render();
+  it('Jira: a watch suggestion: pick a project and Start in it (no dialog); a started one opens its session', async () => {
+    const p = renderJira();
     await flush();
     expect(container.textContent).toContain('not sure where it belongs — maybe straumur');
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Project for SD-1"]')!;
@@ -206,14 +219,12 @@ describe('Start', () => {
   });
 
   it('says so when gh or acli is missing', async () => {
-    render({
-      loadJira: async () => ({ issues: [], available: false }),
-      prs: null,
-      prsNote: 'gh isn’t installed or logged in (gh auth login).',
-    });
+    render({ prs: null, prsNote: 'gh isn’t installed or logged in (gh auth login).' });
+    await flush();
+    expect(container.textContent).toContain('gh isn’t installed or logged in');
+    renderJira({ loadJira: async () => ({ issues: [], available: false }) });
     await flush();
     expect(container.textContent).toContain('acli isn’t available or logged in.');
-    expect(container.textContent).toContain('gh isn’t installed or logged in');
   });
 });
 

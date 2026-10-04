@@ -182,11 +182,12 @@ describe('SessionRail rows', () => {
     expect(rows).toHaveLength(1);
     const row = rows[0];
     expect(row.querySelector('.wd-dash-rail-name')?.textContent).toBe('feat/x');
-    // Not open: no second line, no chips.
+    // Not open: no second line; its PR as a pill, at a glance.
     expect(row.querySelector('.wd-dash-rail-summary')).toBeNull();
-    expect(row.querySelector('.wd-pr-chip')).toBeNull();
+    expect(row.querySelector('.wd-pr-chip')?.textContent).toBe('#42');
     expect(row.getAttribute('title')).toContain('Claude needs your permission to use Bash');
-    expect(row.getAttribute('title')).toContain('+5 −1 · #42');
+    // Its +/− lines are the Diff tab's, not the list's.
+    expect(row.getAttribute('title')).not.toContain('+5');
     expect(row.querySelector('.wd-dash-rail-slot')?.className).toContain('wd-rail-slot-needs');
   });
 

@@ -15,9 +15,9 @@ describe('parseHash', () => {
       sessionSubTab: 'term',
     });
     expect(parseHash('#/start')).toMatchObject({ tab: 'start', sessionId: null });
-    // PRs and Jira are both on Start now: old links land there.
+    // PRs are on Start now: old links land there. Jira has its own page.
     expect(parseHash('#/prs')).toMatchObject({ tab: 'start', sessionId: null });
-    expect(parseHash('#/jira')).toMatchObject({ tab: 'start' });
+    expect(parseHash('#/jira')).toMatchObject({ tab: 'jira' });
     expect(parseHash('#/today')).toMatchObject({ tab: 'today' });
     expect(parseHash('#/repos')).toMatchObject({ tab: 'repos', sessionId: null });
     expect(parseHash('#/welcome')).toMatchObject({ tab: 'welcome', sessionId: null });
