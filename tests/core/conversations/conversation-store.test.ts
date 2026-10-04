@@ -7,7 +7,9 @@ import { archiveSession } from '../../../src/core/archive/session-archive.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { claudeProjectsRoot, encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
 import {
+  compressQuietCopies,
   conversationDirFor,
+  PACK_QUIET_MS,
   searchConversations,
   syncConversation,
   syncConversations,
@@ -195,5 +197,48 @@ describe('searchConversations', () => {
     await kept(s, prompt('rotate the encryption keys once more'));
     const [live] = await searchConversations('once more', { sessions: [s], root, archive });
     expect(live).toMatchObject({ archived: false, worktreeRemoved: false });
+  });
+});
+
+describe('compressQuietCopies', () => {
+  const DAY = 24 * 3600_000;
+
+  it('gzips a copy quiet for two days, keeping its time; search still finds it; a recent one stays plain', async () => {
+    const old = session('fix/old');
+    const src = await kept(old, prompt('the quokka migration') + reply('Done.'));
+    const quietSince = Date.now() - 3 * DAY;
+    fs.utimesSync(src, new Date(), new Date(quietSince));
+    const plain = path.join(conversationDirFor(sessionIdFor(old), root), path.basename(src));
+    fs.utimesSync(plain, new Date(), new Date(quietSince));
+    const fresh = session('fix/fresh');
+    await kept(fresh, prompt('something new'));
+
+    const r = await compressQuietCopies(root);
+    expect(r.files).toBe(1);
+    expect(fs.existsSync(plain)).toBe(false);
+    expect(Math.abs(fs.statSync(`${plain}.gz`).mtimeMs - quietSince)).toBeLessThan(1000);
+    expect(fs.readdirSync(conversationDirFor(sessionIdFor(fresh), root))).toEqual([expect.stringMatching(/\.jsonl$/)]);
+    const hits = await searchConversations('quokka', { sessions: [old, fresh], root, archive });
+    expect(hits.map((h) => h.branch)).toEqual(['fix/old']);
+    expect(await compressQuietCopies(root)).toEqual({ files: 0, bytesSaved: 0 });
+  });
+
+  it('a packed copy stays packed while its conversation is quiet, and is unpacked and caught up when it goes on', async () => {
+    const s = session('fix/resumed');
+    const src = await kept(s, prompt('one'));
+    const dir = conversationDirFor(sessionIdFor(s), root);
+    const plain = path.join(dir, path.basename(src));
+    const then = new Date(Date.now() - PACK_QUIET_MS - 60_000);
+    fs.utimesSync(src, new Date(), then);
+    fs.utimesSync(plain, new Date(), then);
+    await compressQuietCopies(root);
+    expect(await syncConversation(s, root, [source(src)])).toEqual({ files: 0, bytes: 0 });
+    expect(fs.existsSync(`${plain}.gz`)).toBe(true);
+
+    const added = prompt('two');
+    fs.appendFileSync(src, added);
+    expect(await syncConversation(s, root, [source(src)])).toEqual({ files: 1, bytes: Buffer.byteLength(added) });
+    expect(fs.existsSync(`${plain}.gz`)).toBe(false);
+    expect(fs.readFileSync(plain, 'utf8')).toBe(fs.readFileSync(src, 'utf8'));
   });
 });

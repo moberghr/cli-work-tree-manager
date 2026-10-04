@@ -42,6 +42,11 @@ export async function syncConversation(
   const out: SyncResult = { files: 0, bytes: 0 };
   for (const src of sources) {
     const dest = path.join(dir, path.basename(src.file));
+    // Packed while it was quiet (compressQuietCopies): unchanged since, it
+    // stays packed; the conversation went on, so unpack it and copy the rest.
+    const packed = await packedState(dest, src.mtimeMs);
+    if (packed === 'current') continue;
+    if (packed === 'stale') await unpack(dest);
     let have = 0;
     let haveMtime = 0;
     try {
@@ -68,6 +73,76 @@ export async function syncConversation(
     // it: search orders by it, and shows it.
     await fs.promises.utimes(dest, new Date(), new Date(src.mtimeMs)).catch(() => undefined);
     out.files++;
+  }
+  return out;
+}
+
+/** A copy kept gzipped: its time is the conversation's last write, so a newer source means it went on. */
+async function packedState(dest: string, srcMtimeMs: number): Promise<'none' | 'current' | 'stale'> {
+  try {
+    const st = await fs.promises.stat(`${dest}.gz`);
+    return srcMtimeMs <= st.mtimeMs + 1000 ? 'current' : 'stale';
+  } catch {
+    return 'none';
+  }
+}
+
+/** Back to a plain copy (the conversation went on): written beside it, then put in place. */
+async function unpack(dest: string): Promise<void> {
+  const gz = `${dest}.gz`;
+  const tmp = `${dest}.unpack-${process.pid}`;
+  await fs.promises.writeFile(tmp, zlib.gunzipSync(await fs.promises.readFile(gz)));
+  await fs.promises.rename(tmp, dest);
+  await fs.promises.rm(gz, { force: true });
+}
+
+/** How long a conversation stays untouched before its copy is gzipped. */
+export const PACK_QUIET_MS = 2 * 24 * 3600_000;
+
+/**
+ * Gzip the copies of conversations nobody has written to for a while
+ * (JSON lines shrink about tenfold). Lossless: search reads `.gz`, and a
+ * sync unpacks one whose conversation goes on. Written beside it and
+ * renamed, so a reader never sees half a file; its time stays the
+ * conversation's last write.
+ */
+export async function compressQuietCopies(
+  root = conversationRoot(),
+  now = Date.now(),
+  quietMs = PACK_QUIET_MS,
+): Promise<{ files: number; bytesSaved: number }> {
+  const out = { files: 0, bytesSaved: 0 };
+  let dirs: string[];
+  try {
+    dirs = await fs.promises.readdir(root);
+  } catch {
+    return out;
+  }
+  for (const d of dirs) {
+    const dir = path.join(root, d);
+    let names: string[];
+    try {
+      names = (await fs.promises.readdir(dir)).filter((n) => n.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    for (const n of names) {
+      const file = path.join(dir, n);
+      try {
+        const st = await fs.promises.stat(file);
+        if (now - st.mtimeMs < quietMs) continue;
+        const packed = zlib.gzipSync(await fs.promises.readFile(file));
+        const tmp = `${file}.gz.tmp-${process.pid}`;
+        await fs.promises.writeFile(tmp, packed);
+        await fs.promises.utimes(tmp, new Date(), new Date(st.mtimeMs));
+        await fs.promises.rename(tmp, `${file}.gz`);
+        await fs.promises.rm(file, { force: true });
+        out.files++;
+        out.bytesSaved += st.size - packed.length;
+      } catch {
+        /* busy or gone: next sweep */
+      }
+    }
   }
   return out;
 }

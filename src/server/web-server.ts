@@ -64,7 +64,7 @@ import { recentProcessTable } from '../core/platform/process.js';
 import { throttleTrailing } from '../core/platform/throttle.js';
 import { mountPrReplyRoutes, openThreadsOfCi } from './routes/pr-reply-routes.js';
 import { applyArchiveRetention } from '../core/archive/archive-retention.js';
-import { syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
+import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
 import { bestEffort } from '../core/platform/best-effort.js';
 import { loadManifest } from '../core/diff/checkpoint.js';
@@ -558,10 +558,19 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     try {
       // An archived session's Claude is stopped: its archive has the rest.
       const r = await syncConversations(loadHistory().filter((s) => !s.archivedAt));
+      // Copies of conversations quiet for two days are gzipped (a resumed one is unpacked by its next sync).
+      const packed = await compressQuietCopies();
       run.done(
-        r.files
-          ? `${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.files} transcript${r.files === 1 ? '' : 's'} · ${Math.round(r.bytes / 1e3)} KB copied`
-          : 'all up to date',
+        [
+          r.files
+            ? `${r.sessions} session${r.sessions === 1 ? '' : 's'} · ${r.files} transcript${r.files === 1 ? '' : 's'} · ${Math.round(r.bytes / 1e3)} KB copied`
+            : 'all up to date',
+          packed.files
+            ? `${packed.files} quiet one${packed.files === 1 ? '' : 's'} compressed · ${Math.round(packed.bytesSaved / 1e6)} MB freed`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
       );
     } catch (err) {
       run.fail((err as Error).message);
