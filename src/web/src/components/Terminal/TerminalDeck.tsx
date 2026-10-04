@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { PtyView } from './PtyView.js';
+import { PtyView } from './LazyPtyView.js';
 import type { SessionSummary } from '../../api/client.js';
 
 /** How many terminals stay connected in the background. Each holds a

@@ -256,6 +256,7 @@ test('a permission prompt is answered from the inbox, showing the command it all
 test('"Review all" walks the finished sessions, each on its last turn, and n moves on', async ({ page }) => {
   await page.goto(`${url}#/inbox`);
   const done = page.locator('.wd-inbox-rank-1 .wd-inbox-item');
+  await expect(done.first()).toBeVisible();
   const total = await done.count();
   expect(total).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Review all' }).click();

@@ -1,4 +1,4 @@
-import spawn from 'cross-spawn';
+import spawn from './spawn.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
 
 /** Get the platform-appropriate default editor. */

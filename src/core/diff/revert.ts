@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 import { git } from '../git/git.js';
 import type { ParsedFile } from './diff-parse.js';
 

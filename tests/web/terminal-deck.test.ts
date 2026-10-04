@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
@@ -39,6 +39,20 @@ const session = (id: string, over: Partial<SessionSummary> = {}): SessionSummary
 let container: HTMLDivElement;
 let root: Root;
 let slot: HTMLDivElement;
+// The terminal's code loads on first use (LazyPtyView): load it once, as the
+// dashboard's preload does, so each test sees the deck as a user would.
+beforeAll(async () => {
+  const at = document.createElement('div');
+  const r = createRoot(at);
+  await act(async () => {
+    r.render(createElement(TerminalDeck, { activeId: 'warm', slot: document.createElement('div'), sessions: [session('warm')] }));
+  });
+  await act(async () => {
+    await new Promise((res) => setTimeout(res, 0));
+  });
+  act(() => r.unmount());
+});
+
 beforeEach(() => {
   life.mounts.length = 0;
   life.unmounts.length = 0;

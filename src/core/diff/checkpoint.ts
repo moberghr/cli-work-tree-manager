@@ -36,7 +36,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 import { atomicWriteFile, ensureFile, withFileLock } from '../platform/fs-safe.js';
 import { runGitAsync, writeTempTreeAsync } from './git-tree-snapshot.js';
 

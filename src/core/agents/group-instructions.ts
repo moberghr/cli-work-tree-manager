@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 import type { WorkConfig } from '../platform/config.js';
 import { getConfigDir } from '../platform/config.js';
 import { agentFor, internalAgent } from './index.js';

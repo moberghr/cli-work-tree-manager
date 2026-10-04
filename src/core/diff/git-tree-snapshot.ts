@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 
 export interface TempTreeResult {
   /** Tree sha written from the temp index. */

@@ -158,6 +158,9 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   // `n` jumps to the most urgent one, on its terminal.
   await page.keyboard.press('n');
   await expect(page).toHaveURL(new RegExp(`#/s/${work.sessionId('app', 'feat/b')}/term$`));
+  // Its terminal is up (the terminal's code loads on first use): its tool now runs in
+  // the host, which is what keeps a session waiting on you when no Claude reports itself.
+  await expect(page.locator('.xterm').first()).toBeVisible();
 
   // Opening the finished one (from the inbox) marks it seen.
   await page.goto(`${work.url}#/inbox`);

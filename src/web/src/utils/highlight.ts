@@ -1,4 +1,4 @@
-import hljs from 'highlight.js';
+import hljs from 'highlight.js/lib/core';
 import { languageForPath } from './language.js';
 
 // Importing language.js (above) runs its side-effect grammar registration

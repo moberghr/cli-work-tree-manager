@@ -19,7 +19,7 @@ import type {
   BlockerWire,
   PrStageWire,
 } from '../api-types.js';
-import { keptList, readArchive } from '../archive/session-archive.js';
+import { archiveDirFor, keptList, readArchive } from '../archive/session-archive.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 
@@ -214,4 +214,34 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
  *  `work tree` entry — the same rule as the dashboard's "Last active". */
 export function lastActiveMs(w: Pick<SessionWire, 'lastAccessedAt' | 'lastActivity' | 'attention'>): number {
   return Math.max(Date.parse(w.lastAccessedAt) || 0, w.lastActivity ?? 0, w.attention ? Date.parse(w.attention.updatedAt) || 0 : 0);
+}
+
+/**
+ * Archived sessions' rows, kept between builds of the list: an archived
+ * session doesn't change — its Claude is stopped, its worktree mostly gone —
+ * and building its row reads its archive (2/3 of /api/sessions' time with
+ * fifty of them). A row is built again when its archive file was written
+ * (the summary lands after archiving, a Restore records what came back), it
+ * was renamed or entered, or your note on it came or went.
+ */
+export function createArchivedRows(
+  archiveFile: (id: string) => string = (id) => path.join(archiveDirFor(id), 'archive.json'),
+): (s: WorktreeSession, extra: { hasNote: boolean }, build: () => SessionWire) => SessionWire {
+  const rows = new Map<string, { key: string; row: SessionWire }>();
+  return (s, extra, build) => {
+    if (!s.archivedAt) return build();
+    const id = sessionIdFor(s);
+    let mtime = 0;
+    try {
+      mtime = fs.statSync(archiveFile(id)).mtimeMs;
+    } catch {
+      /* none yet */
+    }
+    const key = `${s.archivedAt}|${mtime}|${s.title ?? ''}|${s.lastAccessedAt}|${extra.hasNote}`;
+    const hit = rows.get(id);
+    if (hit?.key === key) return hit.row;
+    const row = build();
+    rows.set(id, { key, row });
+    return row;
+  };
 }

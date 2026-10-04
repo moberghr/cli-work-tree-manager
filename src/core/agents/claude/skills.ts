@@ -1,4 +1,4 @@
-import spawn from 'cross-spawn';
+import spawn from '../../platform/spawn.js';
 import type { AgentSkills } from '../types.js';
 
 /**

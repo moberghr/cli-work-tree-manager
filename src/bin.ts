@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
 import { installConsoleLogger, debug } from './core/platform/logger.js';
 import { getConfigDir } from './core/platform/config.js';
 
@@ -9,12 +8,6 @@ installConsoleLogger();
 // Not for hooks: Claude runs several per turn in every session, and a
 // banner each made most of the log. What a hook actually logs still lands.
 if (process.argv[2] !== 'hook') debug('--- work started', process.argv.slice(2).join(' '), '---');
-
-// Force color support — this is an interactive CLI, and some Windows terminals
-// (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims.
-if (!process.env.NO_COLOR && chalk.level === 0) {
-  chalk.level = 1;
-}
 
 function handleFatalError(err: unknown): void {
   if (err instanceof Error && err.name === 'ExitPromptError') {
@@ -55,10 +48,15 @@ if (args[0] === 'hook') {
   const { runHookEvent } = await import('./commands/hook.js');
   await runHookEvent(args[1], args.slice(2));
 } else {
+  // Force color support — this is an interactive CLI, and some Windows terminals
+  // (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims. (Not
+  // for hooks: they print JSON, and chalk is one more module on every turn.)
+  const { default: chalk } = await import('chalk');
+  if (!process.env.NO_COLOR && chalk.level === 0) chalk.level = 1;
   const { run } = await import('./cli.js');
   const { withReporter } = await import('./core/platform/report.js');
   const { consoleReporter, reportStreamFor } = await import('./commands/shared/console-reporter.js');
   // Core never prints; in a terminal, what it reports is shown here — on
   // stderr for --json, so stdout stays the data.
-  withReporter(consoleReporter(reportStreamFor(args)), () => run(args));
+  await withReporter(consoleReporter(reportStreamFor(args)), () => run(args));
 }

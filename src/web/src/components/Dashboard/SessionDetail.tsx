@@ -19,7 +19,7 @@ import { ReplyDrafts } from './ReplyDrafts.js';
 import { NeedsYouBar, needsYouText } from './NeedsYouBar.js';
 import { RowMenu } from './RowMenu.js';
 import { DiffView } from '../Diff/DiffView.js';
-import { PtyView } from '../Terminal/PtyView.js';
+import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';

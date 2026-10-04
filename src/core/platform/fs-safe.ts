@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import lockfile from 'proper-lockfile';
+import { createRequire } from 'node:module';
+import type ProperLockfile from 'proper-lockfile';
+
+/** proper-lockfile, loaded on the first lock: most `work` processes (a hook) never take one. */
+let lockfileModule: typeof ProperLockfile | null = null;
+const lockfile = () => (lockfileModule ??= createRequire(import.meta.url)('proper-lockfile') as typeof ProperLockfile);
 
 /**
  * Resolve a path through any symlinks so a tmp-file + rename write replaces
@@ -92,7 +97,7 @@ export function ensureFile(filePath: string, initialContent: string): void {
  * ensuring the target file exists first (see `ensureFile`).
  */
 export async function withFileLock<T>(filePath: string, fn: () => T | Promise<T>): Promise<T> {
-  const release = await lockfile.lock(filePath, {
+  const release = await lockfile().lock(filePath, {
     retries: { retries: 20, minTimeout: 25, maxTimeout: 500, factor: 2 },
     stale: 10_000,
   });
@@ -119,7 +124,7 @@ export function withFileLockSync<T>(filePath: string, fn: () => T): T {
   let release: (() => void) | undefined;
   for (let attempt = 0; ; attempt++) {
     try {
-      release = lockfile.lockSync(filePath, { stale: 10_000 });
+      release = lockfile().lockSync(filePath, { stale: 10_000 });
       break;
     } catch (err) {
       const code = (err as { code?: string }).code;

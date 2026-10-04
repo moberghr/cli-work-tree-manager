@@ -16,7 +16,10 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 };
-const IMPORT_RE = /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+// Static imports, dynamic import(), and a module loaded on first use with
+// `createRequire(import.meta.url)('pkg')` (core/platform/spawn.ts, fs-safe.ts).
+const IMPORT_RE =
+  /(?:^|\n)\s*(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)|\bcreateRequire\(import\.meta\.url\)\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -36,7 +39,7 @@ function packagesImported(files: string[]): Map<string, string> {
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(IMPORT_RE)) {
-      const spec = m[1] ?? m[2];
+      const spec = m[1] ?? m[2] ?? m[3];
       if (!spec || spec.startsWith('.') || spec.startsWith('node:') || builtinModules.includes(spec)) continue;
       if (/^\s*(?:import|export)\s+type\b/.test(m[0].trimStart())) continue;
       if (!found.has(packageOf(spec))) found.set(packageOf(spec), path.relative(ROOT, file));

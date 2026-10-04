@@ -1,52 +1,70 @@
 import chalk from 'chalk';
 import yargs from 'yargs';
-import { configCommand } from './commands/config.js';
-import { initCommand } from './commands/init.js';
-import { treeCommand } from './commands/tree.js';
-import { removeCommand } from './commands/remove.js';
-import { listCommand } from './commands/list.js';
-import { statusCommand } from './commands/status.js';
-import { recentCommand } from './commands/recent.js';
-import { resumeCommand } from './commands/resume.js';
-import { pruneCommand } from './commands/prune.js';
-import { syncCommand } from './commands/sync.js';
-import { completionCommand } from './commands/completion.js';
-import { todoCommand } from './commands/todo.js';
-import { hydrateCommand } from './commands/hydrate.js';
-import { diffCommand } from './commands/diff.js';
-import { webCommand } from './commands/web.js';
-import { hookCommand } from './commands/hook.js';
-import { runCommand } from './commands/run.js';
-import { broadcastCommand } from './commands/broadcast.js';
-import { attachCommand } from './commands/attach.js';
-import { ptyHostCommand } from './commands/pty-host.js';
-import { stateCommand } from './commands/state.js';
-import { moveCommand } from './commands/move.js';
-import { installSkillsCommand } from './commands/install-skills.js';
-import { sessionsCommand } from './commands/sessions.js';
-import { digestCommand } from './commands/digest.js';
-import { cleanupCommand } from './commands/cleanup.js';
-import { overlapsCommand } from './commands/overlaps.js';
-import { searchCommand } from './commands/search.js';
-import { prCommand } from './commands/pr.js';
-import { forkCommand } from './commands/fork.js';
-import { snoozeCommand } from './commands/snooze.js';
-import { pinCommand } from './commands/pin.js';
-import { sectionCommand } from './commands/section.js';
-import { catchupCommand } from './commands/catchup.js';
-import { updateCommand } from './commands/update.js';
-import { noteCommand } from './commands/note.js';
-import { blockCommand } from './commands/block.js';
-import { timeCommand } from './commands/time.js';
-import { readCommand } from './commands/read.js';
-import { screenCommand } from './commands/screen.js';
-import { sendCommand } from './commands/send.js';
-import { waitCommand } from './commands/wait.js';
-import { startCommand } from './commands/start.js';
-import { stopCommand } from './commands/stop.js';
-import { answerCommand } from './commands/answer.js';
+import type { CommandModule } from 'yargs';
 import { completionHandler } from './completions/index.js';
 import { VERSION } from './version.js';
+
+/**
+ * Every command, in the order `work --help` lists them, by the words that
+ * run it. `work <verb>` imports only that verb's module: loading all of them
+ * (node-pty, the servers, SQLite, the prompts) made every command — and
+ * Claude's `work sessions --json` — start in ~430 ms. Help, completion and
+ * anything unknown load them all. A test keeps the words equal to the
+ * commands' own names and aliases.
+ */
+export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModule> }> = [
+  { names: ['init'], load: async () => (await import('./commands/init.js')).initCommand },
+  { names: ['config'], load: async () => (await import('./commands/config.js')).configCommand },
+  { names: ['tree', 't'], load: async () => (await import('./commands/tree.js')).treeCommand },
+  { names: ['remove'], load: async () => (await import('./commands/remove.js')).removeCommand },
+  { names: ['fork'], load: async () => (await import('./commands/fork.js')).forkCommand },
+  { names: ['update'], load: async () => (await import('./commands/update.js')).updateCommand },
+  { names: ['catchup'], load: async () => (await import('./commands/catchup.js')).catchupCommand },
+  { names: ['snooze'], load: async () => (await import('./commands/snooze.js')).snoozeCommand },
+  { names: ['pin'], load: async () => (await import('./commands/pin.js')).pinCommand },
+  { names: ['section'], load: async () => (await import('./commands/section.js')).sectionCommand },
+  { names: ['note'], load: async () => (await import('./commands/note.js')).noteCommand },
+  { names: ['block'], load: async () => (await import('./commands/block.js')).blockCommand },
+  { names: ['time'], load: async () => (await import('./commands/time.js')).timeCommand },
+  { names: ['read'], load: async () => (await import('./commands/read.js')).readCommand },
+  { names: ['screen'], load: async () => (await import('./commands/screen.js')).screenCommand },
+  { names: ['send'], load: async () => (await import('./commands/send.js')).sendCommand },
+  { names: ['wait'], load: async () => (await import('./commands/wait.js')).waitCommand },
+  { names: ['start'], load: async () => (await import('./commands/start.js')).startCommand },
+  { names: ['stop'], load: async () => (await import('./commands/stop.js')).stopCommand },
+  { names: ['answer'], load: async () => (await import('./commands/answer.js')).answerCommand },
+  { names: ['list'], load: async () => (await import('./commands/list.js')).listCommand },
+  { names: ['status'], load: async () => (await import('./commands/status.js')).statusCommand },
+  { names: ['recent'], load: async () => (await import('./commands/recent.js')).recentCommand },
+  { names: ['resume'], load: async () => (await import('./commands/resume.js')).resumeCommand },
+  { names: ['sessions'], load: async () => (await import('./commands/sessions.js')).sessionsCommand },
+  { names: ['digest'], load: async () => (await import('./commands/digest.js')).digestCommand },
+  { names: ['cleanup'], load: async () => (await import('./commands/cleanup.js')).cleanupCommand },
+  { names: ['overlaps'], load: async () => (await import('./commands/overlaps.js')).overlapsCommand },
+  { names: ['search'], load: async () => (await import('./commands/search.js')).searchCommand },
+  { names: ['pr'], load: async () => (await import('./commands/pr.js')).prCommand },
+  { names: ['prune'], load: async () => (await import('./commands/prune.js')).pruneCommand },
+  { names: ['sync'], load: async () => (await import('./commands/sync.js')).syncCommand },
+  { names: ['todo'], load: async () => (await import('./commands/todo.js')).todoCommand },
+  { names: ['hydrate'], load: async () => (await import('./commands/hydrate.js')).hydrateCommand },
+  { names: ['diff'], load: async () => (await import('./commands/diff.js')).diffCommand },
+  { names: ['web'], load: async () => (await import('./commands/web.js')).webCommand },
+  { names: ['hook'], load: async () => (await import('./commands/hook.js')).hookCommand },
+  { names: ['run'], load: async () => (await import('./commands/run.js')).runCommand },
+  { names: ['broadcast'], load: async () => (await import('./commands/broadcast.js')).broadcastCommand },
+  { names: ['attach', 'a'], load: async () => (await import('./commands/attach.js')).attachCommand },
+  { names: ['pty-host'], load: async () => (await import('./commands/pty-host.js')).ptyHostCommand },
+  { names: ['state'], load: async () => (await import('./commands/state.js')).stateCommand },
+  { names: ['move'], load: async () => (await import('./commands/move.js')).moveCommand },
+  { names: ['install-skills'], load: async () => (await import('./commands/install-skills.js')).installSkillsCommand },
+  { names: ['completion'], load: async () => (await import('./commands/completion.js')).completionCommand },
+];
+
+/** The commands to register for these arguments: the one named, else all. */
+export async function commandsFor(argv: string[]): Promise<CommandModule[]> {
+  const one = COMMANDS.find((c) => c.names.includes(argv[0] ?? ''));
+  return Promise.all((one ? [one] : COMMANDS).map((c) => c.load()));
+}
 
 function showHelp() {
   console.log('');
@@ -115,61 +133,16 @@ function showHelp() {
   console.log('');
 }
 
-export function run(argv: string[]) {
+export async function run(argv: string[]): Promise<void> {
   // Show custom colored help when no args given
   if (argv.length === 0) {
     showHelp();
     return;
   }
 
-  const cli = yargs(argv)
-    .scriptName('work')
-    .usage('$0 <command> [options]')
-    .command(initCommand)
-    .command(configCommand)
-    .command(treeCommand)
-    .command(removeCommand)
-    .command(forkCommand)
-    .command(updateCommand)
-    .command(catchupCommand)
-    .command(snoozeCommand)
-    .command(pinCommand)
-    .command(sectionCommand)
-    .command(noteCommand)
-    .command(blockCommand)
-    .command(timeCommand)
-    .command(readCommand)
-    .command(screenCommand)
-    .command(sendCommand)
-    .command(waitCommand)
-    .command(startCommand)
-    .command(stopCommand)
-    .command(answerCommand)
-    .command(listCommand)
-    .command(statusCommand)
-    .command(recentCommand)
-    .command(resumeCommand)
-    .command(sessionsCommand)
-    .command(digestCommand)
-    .command(cleanupCommand)
-    .command(overlapsCommand)
-    .command(searchCommand)
-    .command(prCommand)
-    .command(pruneCommand)
-    .command(syncCommand)
-    .command(todoCommand)
-    .command(hydrateCommand)
-    .command(diffCommand)
-    .command(webCommand)
-    .command(hookCommand)
-    .command(runCommand)
-    .command(broadcastCommand)
-    .command(attachCommand)
-    .command(ptyHostCommand)
-    .command(stateCommand)
-    .command(moveCommand)
-    .command(installSkillsCommand)
-    .command(completionCommand)
+  let cli = yargs(argv).scriptName('work').usage('$0 <command> [options]');
+  for (const c of await commandsFor(argv)) cli = cli.command(c);
+  cli = cli
     // Hidden: yargs uses this internally for --get-yargs-completions
     .completion('__completions', false, completionHandler)
     .demandCommand(1, 'You need to specify a command. Run work --help for usage.')

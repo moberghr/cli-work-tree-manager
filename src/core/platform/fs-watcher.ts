@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { report } from './report.js';
-import chokidar from 'chokidar';
+
+/** chokidar, loaded when a watch starts (Linux only uses it): every `work` process
+ *  that imports this module — a hook, on each Claude turn — would otherwise load it too. */
+const loadChokidar = () => createRequire(import.meta.url)('chokidar') as typeof import('chokidar');
 
 export interface FsWatcherOptions {
   /** Working-tree roots to watch. .git/ subdirs are filtered out. */
@@ -119,7 +123,7 @@ export function createFsWatcher(opts: FsWatcherOptions): FsWatcher {
     };
   }
 
-  const watcher = chokidar.watch(opts.roots, {
+  const watcher = loadChokidar().watch(opts.roots, {
     ignored: (filePath) => isIgnoredWatchPath(opts.roots, filePath),
     ignoreInitial: true,
     persistent: true,

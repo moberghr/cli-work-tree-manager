@@ -77,3 +77,13 @@ describe('highlightToLines', () => {
     expect(resolveHighlightLang('build.csx')).toBe('csharp');
   });
 });
+
+describe('the languages highlight.js knows here (core + the ones mapped)', () => {
+  it('every extension the map names is highlighted: its language is registered', async () => {
+    const { EXT_TO_LANG } = await import('../../src/web/src/utils/language.js');
+    const { resolveHighlightLang } = await import('../../src/web/src/utils/highlight.js');
+    const missing = Object.keys(EXT_TO_LANG).filter((ext) => resolveHighlightLang(`file.${ext}`) === null);
+    expect(missing).toEqual([]);
+    expect(resolveHighlightLang('Dockerfile')).toBe('dockerfile');
+  });
+});

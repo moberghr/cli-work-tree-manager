@@ -21,4 +21,4 @@ process.on('unhandledRejection', (err) => {
 });
 
 // wd's stdout carries data only (the review markdown): core's reports go to stderr.
-withReporter(consoleReporter('stderr'), () => run(['diff', ...process.argv.slice(2)]));
+await withReporter(consoleReporter('stderr'), () => run(['diff', ...process.argv.slice(2)]));

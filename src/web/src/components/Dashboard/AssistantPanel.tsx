@@ -1,4 +1,4 @@
-import { PtyView } from '../Terminal/PtyView.js';
+import { PtyView } from '../Terminal/LazyPtyView.js';
 
 /** The assistant's session id (core/assistant.ts ASSISTANT_ID). */
 export const ASSISTANT_SESSION = 'assistant';

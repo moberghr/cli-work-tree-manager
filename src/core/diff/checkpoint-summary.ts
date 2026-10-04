@@ -9,7 +9,7 @@
  * an external binary.
  */
 import { internalRunEnv } from '../platform/internal-run.js';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 import path from 'node:path';
 import { computeRangeDiff } from './diff-pipeline.js';
 import { loadManifest } from './checkpoint.js';

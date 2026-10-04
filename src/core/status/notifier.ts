@@ -10,7 +10,7 @@
  * throws back to the caller.
  */
 
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 
 export type NotifyKind = 'idle' | 'needs_input' | 'unblocked' | 'pr';
 

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../platform/spawn.js';
 import type { WorktreeSession } from '../sessions/history.js';
 import type {
   ChecksState,

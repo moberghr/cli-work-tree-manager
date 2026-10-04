@@ -51,6 +51,7 @@ import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
 import { AssistantPanel } from '../components/Dashboard/AssistantPanel.js';
 import { TerminalDeck } from '../components/Terminal/TerminalDeck.js';
+import { preloadTerminal } from '../components/Terminal/LazyPtyView.js';
 import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../state/review-queue.js';
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
@@ -254,6 +255,8 @@ export function DashboardApp() {
       // The first load is immediate.
       firstLoad.current = false;
       fetchSessions().then(setSessions, (err: Error) => setError(err.message));
+      // The terminal's code (xterm) is loaded apart: fetch it once the list is up.
+      setTimeout(preloadTerminal, 0);
       return;
     }
     refetch.trigger();
@@ -266,6 +269,8 @@ export function DashboardApp() {
   useSse('/events', {
     // (Re)connected: whatever changed while the stream was down (work web
     // restarting, the laptop asleep) was never sent — fetch it now.
+    // Changes may have been missed while not connected — on a reconnect, and
+    // between the first load and this first connect: fetch again (coalesced).
     onOpen: () => setRefreshKey((n) => n + 1),
     events: {
       'session-order-changed': () => void fetchSessionOrder().then(setSessionOrder, () => {}),

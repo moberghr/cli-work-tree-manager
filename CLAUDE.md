@@ -520,6 +520,13 @@ Stored at `~/.work/config.json`. Schema in `core/platform/config.ts`:
 
 tsup bundles two entry points: `src/bin.ts` → `dist/bin.js` (the `work` binary) and `src/wd-bin.ts` → `dist/wd-bin.js` (the `wd` shim that forwards argv to the `diff` subcommand). Both ship as ESM with shebangs. All npm dependencies are **external** (not bundled) — resolved from `node_modules` at runtime. This is important: adding a dependency requires both `npm install` and rebuild. The lockfile is `npm-shrinkwrap.json` (in `files`, so it is published): a global install gets the versions CI tested, not whatever the ranges resolve to that day. `package.json` declares both binaries under `"bin"` so `npm link` registers `work` and `wd` globally.
 
+### Startup and load costs (keep them low)
+
+- **`work <verb>` loads only that verb** (`COMMANDS` in `cli.ts`: names → a dynamic import; help, completion and unknown words load all). A command module added to `src/commands/` goes in that table (`tests/cli-commands.test.ts` checks the words match the commands' own names and aliases). `work hook` goes straight to `commands/hook.ts` before `bin.ts` loads chalk or the CLI.
+- **Heavy packages load on first use** where a hook would otherwise pay for them: `cross-spawn` through `core/platform/spawn.ts` (same function and `.sync`; the PTY host's `pty-session.ts` imports it directly, it needs `_parse`), `proper-lockfile` in `fs-safe.ts`, `chokidar` in `fs-watcher.ts` (Linux only watches with it) — `createRequire(import.meta.url)('pkg')`, which `tests/packaging/runtime-dependencies.test.ts` counts as an import.
+- **`/api/sessions` keeps archived rows** between builds (`createArchivedRows`, `session-wire.ts`): rebuilt when its `archive.json` is written, it's renamed or entered, or a note comes or goes. Archived rows were 2/3 of a build.
+- **The SPA**: highlight.js is its core plus the languages `EXT_TO_LANG` names (`utils/language.ts`; a test checks each is registered), and the terminal (xterm) is its own chunk (`LazyPtyView`), preloaded once the session list is up. § Not the diff view: `wd --static` inlines the main bundle into one file, which can't fetch more chunks.
+
 ### Desktop app (`desktop/`, Velopack)
 
 The Tauri app shows work web in its own window (`desktop/src-tauri/src/main.rs`): it finds the running work web or starts one, and follows it across restarts. It ships through **Velopack** on the same GitHub Release as npm (`vX.Y.Z`; the `desktop` job of `release.yml` runs `desktop/scripts/velopack.mjs` on Windows, macOS arm64 and Linux), modeled on bearing:

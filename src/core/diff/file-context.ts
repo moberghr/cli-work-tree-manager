@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import spawn from 'cross-spawn';
+import spawn from '../platform/spawn.js';
 import { isInsideRoot } from './diff-pipeline.js';
 
 export interface ContextLinesOptions {

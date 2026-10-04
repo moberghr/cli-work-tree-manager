@@ -1,5 +1,5 @@
 import path from 'node:path';
-import crossSpawn from 'cross-spawn';
+import crossSpawn from '../platform/spawn.js';
 import type { BaseSpec } from '../git/base-spec.js';
 import type { WorkConfig } from '../platform/config.js';
 import { findSession, loadHistory } from '../sessions/history.js';

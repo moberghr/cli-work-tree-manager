@@ -54,7 +54,7 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
 import { findOverlaps } from '../core/diff/overlap.js';
 import { buildStamp } from '../core/platform/build-stamp.js';
-import { prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
+import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
@@ -308,6 +308,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const diffStatFor = (id: string, s: WorktreeSession, hasStatus: boolean) =>
     wantsDiffStat(s, hasStatus) ? diffStats.get(id, s.paths, repoNames(s)) : null;
 
+  // Archived sessions' rows don't change: kept between builds (createArchivedRows).
+  const archivedRow = createArchivedRows();
   app.get('/api/sessions', (c) => {
     if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
       const history = loadHistory();
@@ -332,38 +334,40 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
       const sessions = history.map((s) =>
-        sessionWire(s, {
-          diffStatFor,
-          claudesFor,
-          liveKnown: !!table && table.size > 0,
-          snoozeFor: (id) => snoozes.get(id) ?? null,
-          behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
-          stackFor: (id) => {
-            const p = stacks.parentOf.get(id);
-            const m = stacks.mergedParentOf.get(id);
-            return {
-              parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
-              children: stacks.children.get(id) ?? 0,
-              merged: m ? { id: m.id, branch: m.branch } : null,
-            };
-          },
-          hostedLive: (id) => peekPty(id),
-          outputStatusFor: (id) => outputStatus(id),
-          shadowed: (id) => shadow.has(id),
-          reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
-          prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
-          replyDraftsFor: (id) => drafts.get(id) ?? 0,
-          hasNote: (id) => noted.has(id),
-          blockedByFor: (id) =>
-            (blocks.get(id)?.by ?? [])
-              .filter((b) => !blockerDone(b, (x) => !live.has(x)))
-              .map((b) => ({
-                key: blockKey(b),
-                kind: b.kind,
-                label: b.label,
-                ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
-              })),
-        }),
+        archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
+          sessionWire(s, {
+            diffStatFor,
+            claudesFor,
+            liveKnown: !!table && table.size > 0,
+            snoozeFor: (id) => snoozes.get(id) ?? null,
+            behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
+            stackFor: (id) => {
+              const p = stacks.parentOf.get(id);
+              const m = stacks.mergedParentOf.get(id);
+              return {
+                parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
+                children: stacks.children.get(id) ?? 0,
+                merged: m ? { id: m.id, branch: m.branch } : null,
+              };
+            },
+            hostedLive: (id) => peekPty(id),
+            outputStatusFor: (id) => outputStatus(id),
+            shadowed: (id) => shadow.has(id),
+            reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+            prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
+            replyDraftsFor: (id) => drafts.get(id) ?? 0,
+            hasNote: (id) => noted.has(id),
+            blockedByFor: (id) =>
+              (blocks.get(id)?.by ?? [])
+                .filter((b) => !blockerDone(b, (x) => !live.has(x)))
+                .map((b) => ({
+                  key: blockKey(b),
+                  kind: b.kind,
+                  label: b.label,
+                  ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
+                })),
+          }),
+        ),
       );
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
