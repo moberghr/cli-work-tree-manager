@@ -160,3 +160,15 @@ export function createStageTracker(): (sessionId: string, stage: PrStage | null)
     return news;
   };
 }
+
+/**
+ * The session's open PRs the stage doesn't hold. The PR watch knows one PR
+ * per repo (`gh pr view <branch>`), and a branch may have more — one into
+ * main and one into dev — which the dashboard's PR list still has: those are
+ * shown beside the stage's pills, as plainly open (or draft).
+ */
+export function prsBeyondStage<T extends { url: string }>(stage: Pick<PrStage, 'prs'> | null | undefined, prs: T[]): T[] {
+  if (!stage) return prs;
+  const known = new Set(stage.prs.map((p) => p.url));
+  return prs.filter((p) => !known.has(p.url));
+}

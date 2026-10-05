@@ -4,7 +4,7 @@ import type { PrInfo } from '../../api/panes.js';
 import { DISPLAY_LABEL, displayStatus, formatDiffStat, agentName } from '../../state/session-display.js';
 import { relativeTime } from '../../utils/time.js';
 import { lastActiveAt, statusHint } from '../../state/session-display.js';
-import { stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
+import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../../../core/pr/pr-stage.js';
 
 /**
  * Small shared pieces of a session's at-a-glance state, used by the rail,
@@ -21,9 +21,11 @@ const toneClass = (kind: PrStageKind) => {
  * Where its pull requests stand, one pill per PR: "#212 · waiting for
  * review" (a group's say their repo: "backend #12 · ready to merge"), each
  * linked to its PR. The session header shows them in place of the plain
- * PR numbers once the PR watch has looked (pr-stage.ts).
+ * PR numbers once the PR watch has looked (pr-stage.ts). A PR the watch
+ * doesn't hold — a second one from the same branch, into another base —
+ * follows as a plain pill from the dashboard's list (`prs`).
  */
-export function PrStageChip({ session }: { session: SessionSummary }) {
+export function PrStageChip({ session, prs = [] }: { session: SessionSummary; prs?: PrInfo[] }) {
   const st = session.prStage;
   if (!st) return null;
   const many = st.prs.length > 1;
@@ -41,6 +43,7 @@ export function PrStageChip({ session }: { session: SessionSummary }) {
           {many ? `${p.repo} #${p.number}` : `#${p.number}`} · {stagePhrase(p.kind)}
         </a>
       ))}
+      <PrChips prs={prsBeyondStage(st, prs)} link />
     </>
   );
 }
@@ -48,24 +51,27 @@ export function PrStageChip({ session }: { session: SessionSummary }) {
 /**
  * The rail's PR pills: "#212" per PR, coloured by where it stands, and a
  * click opens it (the row itself is a button, so not a link). From the PR
- * watch when it has looked, else the dashboard's PR list.
+ * watch when it has looked, and from the dashboard's PR list for the rest
+ * (all of them before the watch has looked; after, a second PR from the same
+ * branch, which the watch doesn't hold).
  */
 export function RailPrPills({ session, prs }: { session: SessionSummary; prs: PrInfo[] }) {
-  const pills = session.prStage
-    ? session.prStage.prs.map((p) => ({
-        key: `${p.repo}#${p.number}`,
-        url: p.url,
-        label: `#${p.number}`,
-        cls: toneClass(p.kind),
-        title: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
-      }))
-    : prs.map((p) => ({
-        key: `${p.repoAlias}#${p.number}`,
-        url: p.url,
-        label: `#${p.number}`,
-        cls: p.isDraft ? ' wd-pr-chip-draft' : '',
-        title: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
-      }));
+  const pills = [
+    ...(session.prStage?.prs ?? []).map((p) => ({
+      key: `${p.repo}#${p.number}`,
+      url: p.url,
+      label: `#${p.number}`,
+      cls: toneClass(p.kind),
+      title: `${p.repo} #${p.number} · ${stagePhrase(p.kind)}`,
+    })),
+    ...prsBeyondStage(session.prStage, prs).map((p) => ({
+      key: `${p.repoAlias}#${p.number}`,
+      url: p.url,
+      label: `#${p.number}`,
+      cls: p.isDraft ? ' wd-pr-chip-draft' : '',
+      title: `${p.repoAlias} #${p.number} · ${p.isDraft ? 'draft' : 'open'}`,
+    })),
+  ];
   if (pills.length === 0) return null;
   return (
     <span className="wd-rail-prs">

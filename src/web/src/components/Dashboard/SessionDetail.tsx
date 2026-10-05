@@ -235,7 +235,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
         <OverlapChip session={session} onOpen={onOpenSession} />
         <ClaudesChip session={session} quiet />
         <ContextChip session={session} quiet />
-        {session.prStage ? <PrStageChip session={session} /> : <PrChips prs={prs} link />}
+        {session.prStage ? <PrStageChip session={session} prs={prs} /> : <PrChips prs={prs} link />}
         <DevChip dev={dev} />
         {(session.hasNote || notesOpen) && <NotesChip session={session} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
       </div>

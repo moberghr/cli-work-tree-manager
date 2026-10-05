@@ -3,6 +3,7 @@ import {
   cleanStageRef,
   createStageTracker,
   prStageOf,
+  prsBeyondStage,
   stageNews,
   stageOfPr,
   stageWaiting,
@@ -165,5 +166,15 @@ describe('news from a check', () => {
     expect(cleanStageRef({ kind: 'toString', key: 'k' })).toBeNull();
     expect(cleanStageRef({ kind: 'ready' })).toBeNull();
     expect(cleanStageRef('ready')).toBeNull();
+  });
+});
+
+describe('prsBeyondStage', () => {
+  const url = (n: number) => `https://github.com/o/r/pull/${n}`;
+  it("a second PR from the same branch, which the watch doesn't hold, is left over; no stage leaves them all", () => {
+    const stage = { prs: [{ repo: 'api', number: 3530, url: url(3530), kind: 'in_review' as const }] };
+    const listed = [{ url: url(3529) }, { url: url(3530) }];
+    expect(prsBeyondStage(stage, listed)).toEqual([{ url: url(3529) }]);
+    expect(prsBeyondStage(undefined, listed)).toEqual(listed);
   });
 });
