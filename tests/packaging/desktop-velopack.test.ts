@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cliFiles, foreignPrebuilds, nodeName, stageCli } from '../../desktop/scripts/stage-cli.mjs';
 import { PACK_ID, requiredAssets, target } from '../../desktop/scripts/velopack.mjs';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 let tmp: string | null = null;
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   tmp = null;
 });
@@ -49,6 +50,8 @@ describe('desktop: staging the work CLI into the app', () => {
   });
 
   it('stages the package files, this Node, and VERSION last (runtime.rs takes a cli/ with one as complete)', () => {
+    // Not from a release job's WORK_VERSION (the tag): this package's own version.
+    vi.stubEnv('WORK_VERSION', '');
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'stage-cli-'));
     const root = path.join(tmp, 'pkg');
     fs.mkdirSync(path.join(root, 'dist'), { recursive: true });

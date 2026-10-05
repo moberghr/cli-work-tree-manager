@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { versionFromDescribe, workVersion } from '../../scripts/version.mjs';
 
@@ -34,8 +35,10 @@ describe('the version: the release tag, as in bearing', () => {
   });
 
   it("package.json keeps a placeholder: the number isn't kept in two places", () => {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')) as { version: string };
-    expect(pkg.version).toBe('0.0.0-dev');
+    // As committed: a release job sets the working copy's from the tag before the tests run.
+    const committed = spawnSync('git', ['show', 'HEAD:package.json'], { cwd: path.join(__dirname, '../..'), encoding: 'utf8' });
+    const text = committed.status === 0 ? committed.stdout : fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8');
+    expect((JSON.parse(text) as { version: string }).version).toBe('0.0.0-dev');
   });
 
   it('release.yml sets the version from the tag before anything is built or packed, in both jobs', () => {
