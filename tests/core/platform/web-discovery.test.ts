@@ -10,7 +10,6 @@ import {
   findDevWeb,
   existingWebDecision,
   probeWeb,
-  readDevWeb,
   readWebUrl,
   writeDevWebDiscovery,
 } from '../../../src/core/platform/web-discovery.js';
@@ -127,18 +126,16 @@ describe('discoveryCheck', () => {
 
 describe("the dev server's discovery files (work web --dev)", () => {
   afterEach(() => vi.restoreAllMocks());
-  it('its own files: nothing that looks for work web finds it; cleared only by its owner; a dead pid reads as none', () => {
+  it('its own files: nothing that looks for work web finds it; cleared only by its owner', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-disc-'));
     vi.spyOn(os, 'homedir').mockReturnValue(home);
     writeDevWebDiscovery('http://127.0.0.1:5000/', process.pid);
-    expect(readDevWeb()).toEqual({ url: 'http://127.0.0.1:5000/', pid: process.pid });
+    expect(fs.readFileSync(devWebUrlPath(), 'utf-8')).toBe('http://127.0.0.1:5000/');
     expect(readWebUrl()).toBeNull(); // the real work web's discovery knows nothing of it
     clearDevWebDiscovery(process.pid + 1); // someone else's: left alone
-    expect(readDevWeb()).not.toBeNull();
+    expect(fs.existsSync(devWebUrlPath())).toBe(true);
     clearDevWebDiscovery(process.pid);
     expect(fs.existsSync(devWebUrlPath())).toBe(false);
-    writeDevWebDiscovery('http://127.0.0.1:5000/', 2_000_000_000); // no such process
-    expect(readDevWeb()).toBeNull();
     fs.rmSync(home, { recursive: true, force: true });
   });
 });

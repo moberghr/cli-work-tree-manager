@@ -120,6 +120,18 @@ describe('UpdateStrip', () => {
     expect(button('Restart')).toBeUndefined();
   });
 
+  it('a Restart that failed (no Restart on offer any more) is forgotten: the next ready shows Restart again', () => {
+    const props = { onRestart: vi.fn(async () => ({})), onWhatsNew: vi.fn() };
+    act(() => root.render(createElement(UpdateStrip, { ...props, updates: wire({ available: { version: '2.0.3', how: 'restart' } }) })));
+    act(() => button('Restart')!.click());
+    expect(container.textContent).toContain('Installing work 2.0.3…');
+    // Applying failed: the app reports no update for a while…
+    act(() => root.render(createElement(UpdateStrip, { ...props, updates: wire({}) })));
+    // …then ready again.
+    act(() => root.render(createElement(UpdateStrip, { ...props, updates: wire({ available: { version: '2.0.3', how: 'restart' } }) })));
+    expect(button('Restart')).toBeDefined();
+  });
+
   it('ready: says what Restart does', () => {
     act(() =>
       root.render(

@@ -52,3 +52,13 @@ export function createPresence(now: () => number = Date.now): Presence {
     live: () => live().map(({ at: _at, ...r }) => r),
   };
 }
+
+/**
+ * A dev dashboard's presence (`work web --dev`), as the real work web is told
+ * it: only the real one notifies, and it must know you're already looking at
+ * a session in the dev app. Its tabs are named apart, and never the place to
+ * raise a notification (they're not on the real one's event stream). Pure.
+ */
+export function devPresence<T extends { clientId?: unknown; canNotify?: unknown }>(body: T): T {
+  return { ...body, clientId: `dev:${String(body.clientId)}`, canNotify: false };
+}

@@ -317,7 +317,17 @@ async function runDev(open: boolean): Promise<void> {
     info(chalk.yellow(`A dev server (PID ${found.pid}) runs but isn't answering. Try again in a moment, or end that process.`));
     process.exit(1);
   }
-  const pending = pendingMigration();
+  let pending: ReturnType<typeof pendingMigration>;
+  try {
+    pending = pendingMigration();
+  } catch (err) {
+    info(chalk.red(`Couldn't read state.db: ${(err as Error).message}. Try again in a moment.`));
+    process.exit(1);
+  }
+  if (pending?.from === 0) {
+    info(chalk.red("There's no state.db yet: the installed work makes it. Start it (its app or `work web`) once, then the dev server."));
+    process.exit(1);
+  }
   if (pending) {
     info(
       chalk.red(
@@ -363,10 +373,23 @@ async function stopDev(): Promise<boolean> {
     .then((r) => r.ok)
     .catch(() => false);
   // Gone before the next start, or that start would find it still there and reuse the old build.
-  const until = Date.now() + 10_000;
-  while (asked && Date.now() < until && isPidAlive(found.pid)) await new Promise((r) => setTimeout(r, 100));
+  const waitGone = async (ms: number) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until && isPidAlive(found.pid)) await new Promise((r) => setTimeout(r, 100));
+  };
+  if (asked) await waitGone(10_000);
+  // Still there: end it, as `work web --stop` does. It is ours — it answered as the dev server with this pid.
+  if (isPidAlive(found.pid)) {
+    try {
+      process.kill(found.pid);
+    } catch {
+      /* gone meanwhile, or not ours to end */
+    }
+    await waitGone(3000);
+  }
   const gone = !isPidAlive(found.pid);
-  info(chalk.gray(gone ? 'Stopped the dev server.' : `The dev server (PID ${found.pid}) did not stop.`));
+  if (gone) clearDevWebDiscovery(found.pid);
+  info(gone ? chalk.gray('Stopped the dev server.') : chalk.red(`The dev server (PID ${found.pid}) did not stop.`));
   return gone;
 }
 

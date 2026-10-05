@@ -69,8 +69,9 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
     goRef.current(`${ASK_URL}${what}`);
   }, []);
 
-  // A dev build of the app runs no updater (`unmanaged`): the server's view stands.
-  if (!inApp || update?.state === 'unmanaged') return null;
+  // Until the app's updater has said where it stands (or when it runs none: a dev build,
+  // `unmanaged`) the server's view stands, and Check / Restart go the server's way.
+  if (!inApp || !update || update.state === 'unmanaged') return null;
   return { update, note, ask };
 }
 

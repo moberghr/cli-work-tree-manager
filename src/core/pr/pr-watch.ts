@@ -73,8 +73,9 @@ export interface PrWatchDeps {
   /** It's a repo's own checkout (`work tree <repo>`, no branch): never archived by the watch —
    *  that's where you go on working after a PR merges, on the next branch. */
   ownCheckout?: (session: WorktreeSession) => boolean;
-  /** Look, never act (the dev server, `work web --dev`, next to the real one): checks keep
-   *  the PR state current for its dashboard, but tell no Claude, archive nothing, wake nobody. */
+  /** Look, never act on its own (the dev server, `work web --dev`, next to the real one): checks
+   *  keep the PR state current for its dashboard, but tell no Claude, archive nothing, wake nobody.
+   *  What you click (Fix CI) still happens. */
   lookOnly?: boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
@@ -499,8 +500,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       states.set(id, ci);
       deps.broadcast('ci-changed', { sessionId: id });
     },
+    // Your click, not a sweep: a look-only watch does it too (the told-keys are shared, so no one repeats it).
     async fixNow(id) {
-      if (deps.lookOnly) return false;
       const s = sessionOf(id);
       const ci = s ? await check(id, s.session, false) : null;
       if (!s || !ci) return false;

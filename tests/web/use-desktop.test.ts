@@ -41,6 +41,7 @@ describe('useDesktop (the app tells its window, the window asks the app)', () =>
     const go = vi.fn();
     act(() => root.render(createElement(Probe, { go })));
     expect(go).toHaveBeenCalledWith(`${ASK_URL}hello`);
+    expect(seen).toBeNull(); // the updater hasn't said where it stands yet: the server's view
     send({ appVersion: '2.0.2', state: 'downloading', target: '2.0.3', progress: 45 });
     expect(seen!.update).toMatchObject({ state: 'downloading', progress: 45 });
     act(() => seen!.ask('restart'));

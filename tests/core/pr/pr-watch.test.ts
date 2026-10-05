@@ -269,8 +269,13 @@ describe('PR watch', () => {
     await h.watch.tick();
     await h.watch.refresh('s1', { act: true });
     expect(h.deps.archive).not.toHaveBeenCalled();
-    expect(await h.watch.fixNow('s1')).toBe(false);
     expect(h.deps.tell).not.toHaveBeenCalled();
+  });
+
+  it('look-only still does what you click: Fix CI tells its Claude', async () => {
+    const h = harness([repo('api', failing())], ON, false, null, { lookOnly: true });
+    expect(await h.watch.fixNow('s1')).toBe(true);
+    expect(h.deps.tell).toHaveBeenCalledTimes(1);
   });
 
   describe('GitHub calls', () => {

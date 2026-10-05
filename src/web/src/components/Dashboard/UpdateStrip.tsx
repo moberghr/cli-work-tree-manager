@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { UpdateWire } from '../../../../core/api-types.js';
 
 const LATER_KEY = 'work:update-later';
@@ -36,6 +36,10 @@ export function UpdateStrip({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const a = updates?.available;
+  // A Restart that didn't happen (applying failed): nothing to install now, so the card's own click is over.
+  useEffect(() => {
+    if (a?.how !== 'restart') setRestarting(false);
+  }, [a?.how, a?.version]);
   // What Later hides: this version — or only its download, so the Restart card still comes when it's ready.
   const laterKey = a ? (a.how === 'downloading' ? `${a.version}:downloading` : a.version) : '';
   if (!a || (later === laterKey && !restarting)) return null;

@@ -208,18 +208,21 @@ let depth = 0;
  * Read without opening it the usual way, which migrates. For the dev server
  * (`work web --dev`): it runs a checkout's build on the real database next
  * to the installed work, and must not move the database past what that one
- * reads. Null when there's nothing to move: no database yet, or one at this
- * schema or newer.
+ * reads. No database yet counts as one to make (`from: 0`): the installed
+ * work makes it, importing what it finds — not a checkout. Null when there's
+ * nothing to move. A database busy past the wait throws, with the reason.
  */
 export function pendingMigration(file: string = dbPath()): { from: number; to: number } | null {
-  if (!fs.existsSync(file)) return null;
-  const d = new Database(file, { readonly: true, fileMustExist: true });
-  try {
-    const from = d.pragma('user_version', { simple: true }) as number;
-    return from < SCHEMA_VERSION ? { from, to: SCHEMA_VERSION } : null;
-  } finally {
-    d.close();
-  }
+  if (!fs.existsSync(file)) return { from: 0, to: SCHEMA_VERSION };
+  const from = retryBusy(() => {
+    const d = new Database(file, { readonly: true, fileMustExist: true });
+    try {
+      return d.pragma('user_version', { simple: true }) as number;
+    } finally {
+      d.close();
+    }
+  });
+  return from < SCHEMA_VERSION ? { from, to: SCHEMA_VERSION } : null;
 }
 
 /** Run `fn` with the database. */

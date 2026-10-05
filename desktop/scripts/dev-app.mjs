@@ -67,7 +67,11 @@ if (demo) {
   console.log(`demo at ${env.WORK_DESKTOP_URL}`);
 } else {
   // A dev server still running serves the build it started with: the app starts a fresh one.
-  spawn.sync(process.execPath, [BIN, 'web', '--dev', '--stop'], { stdio: 'inherit' });
+  const stopped = spawn.sync(process.execPath, [BIN, 'web', '--dev', '--stop'], { stdio: 'inherit' });
+  if (stopped.status !== 0) {
+    console.error('The running dev server did not stop, so the app would show its old build. End it, then run this again.');
+    process.exit(1);
+  }
 }
 
 const app = spawn('npx', ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json', '--features', 'dev'], {

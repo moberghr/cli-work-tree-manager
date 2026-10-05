@@ -158,7 +158,8 @@ describe('first open imports the JSON state', () => {
   });
 
   it('pendingMigration: whether this build would move the database (the dev server must not), read without moving it', () => {
-    expect(pendingMigration(path.join(os.tmpdir(), 'no-such-state.db'))).toBeNull(); // nothing to move
+    // None yet: one to make — the installed work's job, not a checkout's.
+    expect(pendingMigration(path.join(os.tmpdir(), 'no-such-state.db'))).toEqual({ from: 0, to: SCHEMA_VERSION });
     expect(loadHistory()).toEqual([]); // creates it, at this build's schema
     expect(pendingMigration()).toBeNull();
     withDb((d) => void d.pragma('user_version = 5'));

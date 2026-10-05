@@ -13,7 +13,7 @@ import { mountStatusRoutes } from '../../../src/server/routes/status-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import { readStatus, recordStatusEvent } from '../../../src/core/status/session-status.js';
-import { createPresence, PRESENCE_TTL_MS, type Presence } from '../../../src/server/presence.js';
+import { createPresence, devPresence, PRESENCE_TTL_MS, type Presence } from '../../../src/server/presence.js';
 import { createSeenStores } from '../../../src/core/pr/pr-watch-store.js';
 import { stageSeenKey } from '../../../src/core/sessions/session-wire.js';
 import { readSnooze } from '../../../src/core/rail/snooze-store.js';
@@ -340,5 +340,30 @@ describe('POST /api/sessions/:id/answer', () => {
     expect((await answer({ answer: 'maybe', request: bash })).status).toBe(400);
     const res = await answerApp.request('/api/sessions/nope/answer', { method: 'POST', body: '{}' });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("the dev server's presence (work web --dev): the real work web, which alone notifies, hears where you look", () => {
+  it('each report is also handed on, as it came', async () => {
+    const forwarded: unknown[] = [];
+    const app = new Hono();
+    mountStatusRoutes(app, { broadcast: () => {}, forwardPresence: (b) => void forwarded.push(b) });
+    const body = { clientId: 'tab1', sessionId: 's1', visible: true, focused: true, canNotify: true };
+    const r = await app.request('/api/presence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(r.status).toBe(200);
+    expect(forwarded).toEqual([body]);
+  });
+
+  it('devPresence: its tabs named apart, and never the place to raise a notification (not on the real one’s stream)', () => {
+    expect(devPresence({ clientId: 'tab1', sessionId: 's1', focused: true, canNotify: true })).toEqual({
+      clientId: 'dev:tab1',
+      sessionId: 's1',
+      focused: true,
+      canNotify: false,
+    });
   });
 });

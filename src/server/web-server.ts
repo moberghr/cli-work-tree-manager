@@ -55,6 +55,8 @@ import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
 import { findOverlaps } from '../core/diff/overlap.js';
 import { buildStamp } from '../core/platform/build-stamp.js';
 import { afterArchive } from '../core/archive/after-archive.js';
+import { devPresence } from './presence.js';
+import { readWebUrl } from '../core/platform/web-discovery.js';
 import { VERSION } from '../version.js';
 import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
@@ -817,6 +819,21 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // a turn touched files, so the row's +N −M refreshes too.
   statusNotify = mountStatusRoutes(app, {
     broadcast,
+    // The dev server's tabs: the real work web notifies, so it hears where you look.
+    ...(dev
+      ? {
+          forwardPresence: (body) => {
+            const real = readWebUrl();
+            if (!real) return;
+            void fetch(`${real}api/presence`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(devPresence(body)),
+              signal: AbortSignal.timeout(2000),
+            }).catch(() => {});
+          },
+        }
+      : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
       if (jobs) void syncStacksAfter(id);
@@ -855,7 +872,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // after start and every six hours, and the desktop app's updater as it
   // reports itself (its file, watched): each change is an updates-changed.
   const updates = createUpdates();
-  mountAppUpdateRoutes(app, { updates, broadcast });
+  mountAppUpdateRoutes(app, { updates, broadcast, dev });
   const UPDATES_EVERY_MS = 6 * 3600_000;
   const updatesSchedule = !jobs ? null : activity.schedule('updates', 'Release notes and updates', UPDATES_EVERY_MS);
   const lookNow = () => {
@@ -871,7 +888,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   updatesTimer?.unref?.();
   const desktopFile = desktopUpdatePath();
   const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });
-  if (!lean) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate);
+  if (jobs) fs.watchFile(desktopFile, { interval: 3000 }, onDesktopUpdate); // the installed app's: not the dev server's business
   // How the PTY host is doing (host-health.ts): the dashboard warns when it's slow or not answering.
   app.get('/api/pty-host/health', (c) => c.json(hostHealth(hostBeat()) satisfies HostHealth));
   let lastHostState = hostHealth(hostBeat()).state;
@@ -886,7 +903,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       }, 5_000);
   hostTick?.unref?.();
   // What a session waits on (and a look straight away: the blocker may be done already).
-  mountBlockRoutes(app, { broadcast, changed: () => void sweepBlocksNow() });
+  // A block set or cleared is swept at once — by the real work web (the dev server leaves it to that one's 3-minute sweep).
+  mountBlockRoutes(app, { broadcast, changed: () => void (jobs && sweepBlocksNow()) });
 
   app.get('/events', (c) => {
     const wantedSession = c.req.query('session');

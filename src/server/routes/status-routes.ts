@@ -22,6 +22,8 @@ export interface StatusRoutesOptions {
   onStatusChanged?: (sessionId: string) => void;
   /** Who's watching (tests inject one with a fake clock). */
   presence?: Presence;
+  /** The dev server: each tab's presence also goes to the real work web, which alone notifies (devPresence). */
+  forwardPresence?: (body: Partial<PresenceReport>) => void;
   /** The session's PTY in the host (tests inject a fake screen). */
   pty?: {
     screen: (sessionId: string) => Promise<string | null>;
@@ -139,6 +141,7 @@ export function mountStatusRoutes(app: Hono, opts: StatusRoutesOptions): { notif
         focused: body.focused === true,
         canNotify: body.canNotify === true,
       });
+    opts.forwardPresence?.(body);
     return c.json({ ok: true });
   });
 

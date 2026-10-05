@@ -76,7 +76,9 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
             work v{running}
             {status && <span className="wd-help-status"> · {status}</span>}
           </p>
-          {updates?.available?.how === 'downloading' && <ProgressBar value={updates.available.progress ?? null} />}
+          {updates?.available?.how === 'downloading' && typeof updates.available.progress === 'number' && (
+            <ProgressBar value={updates.available.progress} />
+          )}
           {canRestart && (
             <button type="button" className="wd-row-menu-item wd-help-restart" onClick={pick(onRestart)}>
               Restart to update

@@ -84,6 +84,12 @@ describe('HelpMenu (the top bar)', () => {
     expect(panel()!.querySelector('[role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('45');
   });
 
+  it('downloading with no percentage (a guess): no bar', () => {
+    act(() => root.render(createElement(HelpMenu, { updates: wire({ available: { version: '2.0.3', how: 'downloading' } }) })));
+    act(() => helpButton().click());
+    expect(panel()!.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
   it('while checking, the item says so and waits; Esc and a click elsewhere close it', () => {
     act(() => root.render(createElement(HelpMenu, { updates: wire({}), onCheck: vi.fn(), checking: true })));
     act(() => helpButton().click());

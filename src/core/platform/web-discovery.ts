@@ -89,12 +89,6 @@ export const clearWebDiscovery = (ownerPid?: number): void => clearFiles('web', 
  */
 export const devWebUrlPath = (): string => fileOf('web-dev', 'url');
 
-/** The recorded dev server's url and pid, or null (none recorded, or its process is gone). Not proof it's ours: probe it. */
-export function readDevWeb(): { url: string; pid: number } | null {
-  const url = readUrl('web-dev');
-  const pid = readPid('web-dev');
-  return url && pid !== null && isPidAlive(pid) ? { url, pid } : null;
-}
 export const writeDevWebDiscovery = (url: string, pid: number): void => writeFiles('web-dev', url, pid);
 /** Remove them, only while they still name `ownerPid`. */
 export const clearDevWebDiscovery = (ownerPid: number): void => clearFiles('web-dev', ownerPid, true);
