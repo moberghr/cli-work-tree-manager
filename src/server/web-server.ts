@@ -631,6 +631,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     broadcast,
     activity,
     openThreads: (id) => openThreadsOfCi(prWatch.state(id)),
+    watch: prWatch,
   });
 
   // Clean up view: which worktrees can go (scan), and removing them.

@@ -274,7 +274,8 @@ describe('reviewMessage', () => {
     expect(msg).toContain('`work pr reply <thread id> "<reply>"`');
     expect(msg).toContain('show me the drafts');
     expect(msg).toContain('Once I say yes to them');
-    expect(msg).toContain('`work pr post <thread id>… --resolve`');
+    expect(msg).toContain('`work pr post <thread id>…`, which resolves each thread');
+    expect(msg).toContain('`--no-resolve` only where your reply asks a person a question');
     expect(msg).toContain("Never post one I haven't said yes to");
     expect(msg).toContain("Don't write on GitHub any other way");
   });

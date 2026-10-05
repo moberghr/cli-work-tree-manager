@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { autoArchiveVerdict, createPrWatch, ciFixMessage, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
+import { autoArchiveVerdict, createPrWatch, ciFixMessage, withoutThread, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
 import { createActivityLog } from '../../../src/core/platform/activity.js';
 import type { RepoShipState, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -199,6 +199,65 @@ describe('PR watch', () => {
     expect(h.watch.state('s1')?.repos[0].threads).toEqual([
       { threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix' },
     ]);
+  });
+
+  it('a thread you answered leaves the last check at once, and comes back if the reviewer answers', async () => {
+    const t = (id: string, comments: Array<{ author: string; at: string }>) => ({
+      id,
+      isResolved: false,
+      isOutdated: false,
+      path: 'a.ts',
+      line: 1,
+      comments: comments.map((c, i) => ({
+        id: `${id}-${i}`,
+        author: c.author,
+        association: 'MEMBER',
+        body: 'fix',
+        url: `u-${id}-${i}`,
+        at: c.at,
+      })),
+    });
+    let fb = {
+      viewer: 'me',
+      reviews: [],
+      comments: [],
+      threads: [t('t1', [{ author: 'rev', at: ENTERED }]), t('t2', [{ author: 'rev', at: ENTERED }])],
+    } as unknown as ReviewFeedback;
+    let updatedAt = '2026-09-30T11:00:00Z';
+    const h = harness([repo('api', pr({ state: 'OPEN', updatedAt }))], ON, false, null, { reviewFeedback: vi.fn(async () => fb) });
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].openThreads).toBe(2);
+    h.deps.broadcast.mockClear();
+    h.watch.answered('s1', 't1');
+    expect(h.watch.state('s1')?.repos[0]).toMatchObject({ openThreads: 1, threads: [{ threadId: 't2' }] });
+    expect(h.deps.broadcast).toHaveBeenCalledWith('ci-changed', { sessionId: 's1' });
+    h.deps.broadcast.mockClear();
+    h.watch.answered('s1', 't1'); // already out: nothing changes, nothing is broadcast
+    h.watch.answered('nobody', 't1');
+    expect(h.deps.broadcast).not.toHaveBeenCalled();
+    // The reviewer answers your reply: the next check reads GitHub, and t1 waits on you again.
+    fb = {
+      ...fb,
+      threads: [
+        t('t1', [
+          { author: 'rev', at: ENTERED },
+          { author: 'me', at: ENTERED },
+          { author: 'rev', at: ENTERED },
+        ]),
+        fb.threads[1],
+      ],
+    } as ReviewFeedback;
+    updatedAt = '2026-09-30T12:00:00Z';
+    h.set([repo('api', pr({ state: 'OPEN', updatedAt }))]);
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].openThreads).toBe(2);
+  });
+
+  it('withoutThread: the same check when the thread is not in it; the last thread out leaves no list', () => {
+    const th = (threadId: string) => ({ threadId, repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'r', excerpt: 'e' });
+    const ci = { checkedAt: 'x', repos: [{ name: 'api', pr: pr(), done: false, openThreads: 1, threads: [th('t1')] }] };
+    expect(withoutThread(ci, 'nope')).toBe(ci);
+    expect(withoutThread(ci, 't1').repos[0]).toEqual({ name: 'api', pr: pr(), done: false, openThreads: 0 });
   });
 
   describe('GitHub calls', () => {

@@ -3,7 +3,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { discardReply, draftCounts, listReplies, postDrafts, postReply, rememberSent, saveDraft } from '../../../src/core/pr/pr-replies.js';
+import {
+  discardReply,
+  draftCounts,
+  listReplies,
+  markPostedAnswered,
+  postDrafts,
+  postReply,
+  postedSince,
+  rememberSent,
+  saveDraft,
+} from '../../../src/core/pr/pr-replies.js';
+import type { SessionCi } from '../../../src/core/api-types.js';
 import { mountPrReplyRoutes, openThreadsOfCi } from '../../../src/server/routes/pr-reply-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -195,5 +206,76 @@ describe('reply routes', () => {
     expect((await send(a, 'DELETE', `/api/sessions/${id}/replies/${T2}`)).status).toBe(200);
     expect(events).toContain('replies-changed');
     expect((await send(a, 'POST', '/api/replies-changed', { sessionId: id })).status).toBe(200);
+  });
+
+  /** A PR watch whose last check (at `checkedAt`) still lists both threads as waiting. */
+  function fakeWatch(id: string, checkedAt: string) {
+    const answered: string[] = [];
+    const ci: SessionCi = { checkedAt, repos: [] };
+    return {
+      answered,
+      watch: { state: (sid: string) => (sid === id ? ci : null), answered: (_sid: string, t: string) => void answered.push(t) },
+    };
+  }
+
+  it('a reply posted from the dashboard leaves the PR watch’s check at once: the thread no longer waits on you', async () => {
+    session.paths = [home];
+    saveHistory([session]);
+    const id = sessionIdFor(session);
+    rememberSent(id, [thread(T1), thread(T2)]);
+    const w = fakeWatch(id, new Date(Date.now() - 60_000).toISOString());
+    const a = new Hono();
+    mountPrReplyRoutes(a, { broadcast: () => {}, run: gh().run, watch: w.watch });
+    expect((await send(a, 'POST', `/api/sessions/${id}/replies/${T1}/post`, { body: 'Fixed', resolve: true })).status).toBe(200);
+    expect(w.answered).toEqual([T1]);
+  });
+
+  it('a reply `work pr post` posted (it calls /api/replies-changed) leaves it too — read from what was posted, not the request', async () => {
+    session.paths = [home];
+    saveHistory([session]);
+    const id = sessionIdFor(session);
+    rememberSent(id, [thread(T1), thread(T2)]);
+    const w = fakeWatch(id, new Date(Date.now() - 60_000).toISOString());
+    const a = new Hono();
+    mountPrReplyRoutes(a, { broadcast: () => {}, watch: w.watch });
+    // Nothing posted yet: a nudge answers nothing.
+    expect((await send(a, 'POST', '/api/replies-changed', { sessionId: id })).status).toBe(200);
+    expect(w.answered).toEqual([]);
+    saveDraft(id, T2, 'Leaving it: it was already so before.');
+    await postDrafts(
+      session,
+      listReplies(id).filter((r) => r.status === 'draft'),
+      true,
+      gh().run,
+    );
+    expect((await send(a, 'POST', '/api/replies-changed', { sessionId: id })).status).toBe(200);
+    expect(w.answered).toEqual([T2]);
+  });
+});
+
+describe('postedSince / markPostedAnswered', () => {
+  const reply = (threadId: string, status: 'draft' | 'posted', postedAt?: string) =>
+    ({ threadId, status, ...(postedAt ? { postedAt } : {}) }) as never;
+  it('only replies posted after the watch last read GitHub: one it has seen since is its own to judge', () => {
+    const replies = [reply('A', 'posted', '2026-10-05T13:03:21Z'), reply('B', 'posted', '2026-10-05T12:00:00Z'), reply('C', 'draft')];
+    expect(postedSince(replies, '2026-10-05T13:00:00Z')).toEqual(['A']);
+    expect(postedSince(replies, '2026-10-05T13:05:00Z')).toEqual([]);
+    expect(postedSince(replies, null)).toEqual(['A', 'B']);
+  });
+
+  it('marks each with the watch, and says which', async () => {
+    const s: WorktreeSession = { target: 'api', branch: 'feat/y', isGroup: false, paths: [home], createdAt: 'x', lastAccessedAt: 'x' };
+    saveHistory([s]);
+    const id = sessionIdFor(s);
+    rememberSent(id, [thread(T1)]);
+    saveDraft(id, T1, 'Fixed');
+    await postDrafts(s, listReplies(id), true, gh().run);
+    const marked: string[] = [];
+    const watch = {
+      state: () => ({ checkedAt: '2026-01-01T00:00:00Z', repos: [] }),
+      answered: (_i: string, t: string) => void marked.push(t),
+    };
+    expect(markPostedAnswered(id, watch)).toEqual([T1]);
+    expect(marked).toEqual([T1]);
   });
 });

@@ -6,6 +6,7 @@ playwright-report/
 test-results/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+desktop/artifacts/
 npm-shrinkwrap.json
 *.md
 docs/

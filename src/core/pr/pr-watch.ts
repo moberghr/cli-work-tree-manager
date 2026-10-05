@@ -95,6 +95,8 @@ export interface PrWatch {
   state(id: string): SessionCi | null;
   /** Ask the session's Claude to fix its failing checks, now. */
   fixNow(id: string): Promise<boolean>;
+  /** You replied to (or resolved) a review thread: it no longer waits on you, before the next check reads GitHub again. */
+  answered(id: string, threadId: string): void;
   start(intervalMs: number, firstDelayMs?: number): () => void;
 }
 
@@ -199,6 +201,32 @@ export function autoArchiveVerdict(
   return waiting
     ? { archive: false, why: 'you opened it after the merge; archiving once it has been left alone for a day' }
     : { archive: false, why: "the merged PR is older work on this branch name, not what's checked out" };
+}
+
+/**
+ * The check with one review thread taken out, as answered: its repo's open
+ * count goes down by one. The watch's thread list is GitHub as of its last
+ * check (every 3 minutes), so a reply just posted would otherwise leave the
+ * thread "with no reply" — in the session's Needs you line, its review count
+ * and the Inbox — until then. The next check reads GitHub again: a reviewer
+ * who answers brings the thread back. The same check, unchanged, when the
+ * thread isn't in it. Pure.
+ */
+export function withoutThread(ci: SessionCi, threadId: string): SessionCi {
+  if (!ci.repos.some((r) => r.threads?.some((t) => t.threadId === threadId))) return ci;
+  return {
+    ...ci,
+    repos: ci.repos.map((r) => {
+      if (!r.threads?.some((t) => t.threadId === threadId)) return r;
+      const threads = r.threads.filter((t) => t.threadId !== threadId);
+      const { threads: _old, ...rest } = r;
+      return {
+        ...rest,
+        ...(r.openThreads !== undefined ? { openThreads: Math.max(0, r.openThreads - 1) } : {}),
+        ...(threads.length ? { threads } : {}),
+      };
+    }),
+  };
 }
 
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
@@ -460,6 +488,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       return s ? check(id, s.session, opts?.act ?? true) : null;
     },
     state: (id) => states.get(id) ?? null,
+    answered(id, threadId) {
+      const was = states.get(id);
+      if (!was) return;
+      const ci = withoutThread(was, threadId);
+      if (ci === was) return;
+      states.set(id, ci);
+      deps.broadcast('ci-changed', { sessionId: id });
+    },
     async fixNow(id) {
       const s = sessionOf(id);
       const ci = s ? await check(id, s.session, false) : null;

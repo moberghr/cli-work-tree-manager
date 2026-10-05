@@ -1,6 +1,14 @@
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
-import { discardReply, listReplies, MAX_REPLY_CHARS, postReply, saveDraft, THREAD_ID } from '../../core/pr/pr-replies.js';
+import {
+  discardReply,
+  listReplies,
+  markPostedAnswered,
+  MAX_REPLY_CHARS,
+  postReply,
+  saveDraft,
+  THREAD_ID,
+} from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import type { OpenReviewThread, PrReply, RepliesWire, SessionCi } from '../../core/api-types.js';
@@ -23,7 +31,7 @@ export function threadsWithoutDraft(open: OpenReviewThread[], replies: PrReply[]
  *   PUT    /api/sessions/:id/replies/:thread          — {body}: your edit of a draft
  *   DELETE /api/sessions/:id/replies/:thread          — discard (nothing is posted)
  *   POST   /api/sessions/:id/replies/:thread/post     — {body, resolve}: post it from your account
- *   POST   /api/replies-changed                       — {sessionId}: `work pr reply` saved a draft
+ *   POST   /api/replies-changed                       — {sessionId}: `work pr reply` saved a draft, or `work pr post` posted
  *
  * Posting is the only thing that writes to GitHub: here on your click, or
  * `work pr post` from the session's Claude once you said yes to the drafts.
@@ -36,10 +44,13 @@ export function mountPrReplyRoutes(
     activity?: ActivityLog;
     /** The session's unresolved review threads (the PR watch's last read). */
     openThreads?: (sessionId: string) => OpenReviewThread[];
+    /** The PR watch: a posted reply takes its thread out of the last check (`markPostedAnswered`). */
+    watch?: { state(id: string): SessionCi | null; answered(id: string, threadId: string): void };
   },
 ): void {
   const run = opts.run ?? defaultRunner;
   const changed = (sessionId: string) => {
+    if (opts.watch) markPostedAnswered(sessionId, opts.watch);
     opts.broadcast('replies-changed', { sessionId });
     opts.broadcast('sessions-changed', { ts: Date.now() });
   };
@@ -94,7 +105,7 @@ export function mountPrReplyRoutes(
     return c.json(r);
   });
 
-  // `work pr reply` (in the session's Claude) saved a draft: refresh the views.
+  // `work pr reply` (in the session's Claude) saved a draft, or `work pr post` posted: refresh the views.
   app.post('/api/replies-changed', async (c) => {
     const b = await body(c);
     if (typeof b.sessionId !== 'string' || !findSession(b.sessionId)) return c.json({ ok: false }, 404);

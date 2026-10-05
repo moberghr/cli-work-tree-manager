@@ -32,8 +32,9 @@ function sessionHere() {
  * `work pr reply <thread> "<text>"` — for the session's Claude: draft the
  * answer to a review thread it was handed (the PR feedback note names each
  * thread). The dashboard shows the draft to you, editable.
- * `work pr post <thread…> [--all] [--resolve]` — posts the drafts as they
- * stand, which Claude runs only after you said yes to them.
+ * `work pr post <thread…> [--all] [--no-resolve]` — posts the drafts as they
+ * stand and resolves each thread (`--no-resolve`: left open for a person's
+ * answer), which Claude runs only after you said yes to them.
  * `work pr replies [--json]` lists the threads and drafts.
  */
 export const prCommand: CommandModule = {
@@ -73,7 +74,11 @@ export const prCommand: CommandModule = {
           b
             .positional('threads', { type: 'string', array: true, describe: 'Thread ids (PRRT_…) whose drafts to post' })
             .option('all', { type: 'boolean', default: false, describe: 'Every draft of this session' })
-            .option('resolve', { type: 'boolean', default: false, describe: 'Also resolve each thread (for comments you fixed)' }),
+            .option('resolve', {
+              type: 'boolean',
+              default: true,
+              describe: 'Resolve each thread once answered (--no-resolve: leave it open, for a question a person should answer)',
+            }),
         async (argv) => {
           const s = sessionHere();
           const id = sessionIdFor(s);
@@ -86,7 +91,7 @@ export const prCommand: CommandModule = {
             if (!unknown.length) console.error(chalk.red('Nothing to post: name the threads, or --all.'));
             process.exit(1);
           }
-          const r = await postDrafts(s, drafts, argv.resolve === true, defaultRunner);
+          const r = await postDrafts(s, drafts, argv.resolve !== false, defaultRunner);
           await nudgeWeb(id);
           for (const p of r.posted)
             console.log(`Posted to @${p.reviewer}'s thread on PR #${p.prNumber}${p.resolved ? ' (resolved)' : ''}: ${p.url}`);

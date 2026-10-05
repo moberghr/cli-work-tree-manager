@@ -1,5 +1,5 @@
 import { json, tx, withDb } from '../platform/db.js';
-import type { PrReply } from '../api-types.js';
+import type { PrReply, SessionCi } from '../api-types.js';
 import type { CommandRunner } from './ship.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 
@@ -189,4 +189,28 @@ export async function postDrafts(
     else failed.push({ threadId: d.threadId, error: r.error });
   }
   return { posted, failed };
+}
+
+/**
+ * The replies posted after the PR watch last read GitHub (`checkedAt`): the
+ * threads they answer still look unanswered in its check. Pure.
+ */
+export function postedSince(replies: PrReply[], checkedAt: string | null | undefined): string[] {
+  const since = checkedAt ? Date.parse(checkedAt) : 0;
+  return replies.filter((r) => r.status === 'posted' && r.postedAt && Date.parse(r.postedAt) > since).map((r) => r.threadId);
+}
+
+/**
+ * A reply went out (your Post, or `work pr post` from the session's
+ * Claude): take the threads it answered out of the PR watch's last check,
+ * so the session stops saying a thread waits on you before the watch reads
+ * GitHub again. Read from what was posted, not from the request.
+ */
+export function markPostedAnswered(
+  sessionId: string,
+  watch: { state(id: string): SessionCi | null; answered(id: string, threadId: string): void },
+): string[] {
+  const threads = postedSince(listReplies(sessionId), watch.state(sessionId)?.checkedAt);
+  for (const t of threads) watch.answered(sessionId, t);
+  return threads;
 }
