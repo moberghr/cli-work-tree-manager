@@ -11,8 +11,11 @@
 //! Installed through Velopack, the app carries its own `work` CLI: it runs
 //! from a copy under `~/.work/runtime` (runtime.rs), `work` / `wd` on PATH
 //! point at it (path_setup.rs), and updates come from GitHub Releases
-//! (updates.rs). A dev build has no bundled CLI and runs the `work` on PATH,
-//! as does `WORK_DESKTOP_CLI=path`.
+//! (updates.rs). It runs its own work web: one of another version that is
+//! already running (a dev checkout's, the one before an update) is replaced,
+//! its Claudes untouched in the PTY host (`replace_other_version`). A dev
+//! build has no bundled CLI and runs the `work` on PATH, following whatever
+//! work web runs, as does `WORK_DESKTOP_CLI=path`.
 //!
 //! `WORK_DESKTOP_URL` points it at a specific server instead (the latency
 //! script uses a throwaway one).
@@ -102,6 +105,74 @@ fn responds(url: &str) -> bool {
     matches!(s.read(&mut head), Ok(n) if n >= 12 && head[..n].starts_with(b"HTTP/1.1 200"))
 }
 
+/// GET /api/context's body, or None when it doesn't answer 200.
+fn context_body(url: &str) -> Option<String> {
+    let (host, addr) = host_of(url)?;
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()?;
+    let _ = s.set_read_timeout(Some(Duration::from_secs(3)));
+    let req = format!("GET /api/context HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes()).ok()?;
+    let mut buf = Vec::new();
+    let _ = s.take(64 * 1024).read_to_end(&mut buf);
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    if !text.starts_with("HTTP/1.1 200") {
+        return None;
+    }
+    Some(text.split_once("\r\n\r\n").map(|(_, body)| body.to_string()).unwrap_or_default())
+}
+
+/// The `version` in /api/context's JSON (`"version":"2.0.1"`); None from a
+/// work web too old to say, or one that says something that isn't a version.
+fn context_version(body: &str) -> Option<String> {
+    const KEY: &str = "\"version\":\"";
+    let rest = &body[body.find(KEY)? + KEY.len()..];
+    let v = &rest[..rest.find('"')?];
+    runtime::valid_version(v).then(|| v.to_string())
+}
+
+/// Is the work web found another version than this app's own CLI (or too old to say)?
+fn other_version(own: &str, theirs: Option<&str>) -> bool {
+    theirs != Some(own)
+}
+
+/// The installed app runs its own work web: one of another version (a dev
+/// checkout's, an older install's) is stopped through the bundled CLI
+/// (`work web --stop`, which checks the pid is that server), so the window,
+/// its version and its updates are this app's. Stopping work web never stops
+/// a Claude: they live in the PTY host, which the new work web reconnects to.
+/// True when it is gone and the caller should start this app's own.
+fn replace_other_version(rt: &runtime::Runtime, url: &str) -> bool {
+    let theirs = context_body(url).and_then(|b| context_version(&b));
+    if !other_version(&rt.version, theirs.as_deref()) {
+        return false;
+    }
+    log(&format!(
+        "work web at {url} is {}, this app is {}: replacing it with its own",
+        theirs.as_deref().unwrap_or("an older version"),
+        rt.version
+    ));
+    let mut cmd = Command::new(&rt.node);
+    cmd.arg(&rt.entry).args(["web", "--stop"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    if let Err(e) = cmd.status() {
+        log(&format!("could not stop it ({e}): following it"));
+        return false;
+    }
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if !responds(url) {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    log("it is still answering: following it");
+    false
+}
+
 /// `work web --no-open`, from the bundled CLI's copy when there is one, else
 /// the `work` on PATH.
 fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
@@ -154,7 +225,11 @@ fn find_or_start_web(rt: Option<&runtime::Runtime>) -> Result<String, String> {
         return Ok(url);
     }
     if let Some(url) = recorded_url().filter(|u| responds(u)) {
-        return Ok(url);
+        // The installed app shows its own version (a dev build, or
+        // WORK_DESKTOP_CLI=path, has no bundled CLI: it follows any).
+        if !rt.is_some_and(|rt| replace_other_version(rt, &url)) {
+            return Ok(url);
+        }
     }
     // Its process still runs: it is busy (a build, a big git scan), not gone.
     // Starting another then left two servers once the first recovered.
@@ -369,4 +444,28 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the work window");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_version_work_web_says() {
+        let body = r#"{"mode":"dashboard","pid":20340,"lean":false,"build":"1791189563337","version":"2.0.1"}"#;
+        assert_eq!(context_version(body).as_deref(), Some("2.0.1"));
+        assert_eq!(context_version(r#"{"version":"2.0.2-dev.3+aeed538"}"#).as_deref(), Some("2.0.2-dev.3+aeed538"));
+        // From before it said, or something that isn't a version: none.
+        assert_eq!(context_version(r#"{"mode":"dashboard","pid":1}"#), None);
+        assert_eq!(context_version(r#"{"version":"../../x"}"#), None);
+        assert_eq!(context_version(r#"{"version":"2.0.1"#), None);
+    }
+
+    #[test]
+    fn replaces_any_other_version_and_one_too_old_to_say() {
+        assert!(!other_version("2.0.1", Some("2.0.1")));
+        assert!(other_version("2.0.1", Some("2.0.0")));
+        assert!(other_version("2.0.1", Some("2.0.2-dev.1+a121d9c")));
+        assert!(other_version("2.0.1", None));
+    }
 }

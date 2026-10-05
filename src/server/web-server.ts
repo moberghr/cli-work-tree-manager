@@ -54,6 +54,7 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
 import { findOverlaps } from '../core/diff/overlap.js';
 import { buildStamp } from '../core/platform/build-stamp.js';
+import { VERSION } from '../version.js';
 import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
@@ -277,7 +278,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
 
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp() }));
+  // `version`: the desktop app replaces a work web that isn't its own version (desktop/src-tauri/src/main.rs).
+  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp(), version: VERSION }));
   app.get('/api/activity', (c) => c.json(activity.snapshot() satisfies ActivityWire));
 
   // Graceful stop, for `work web --stop`: on Windows killing the process is

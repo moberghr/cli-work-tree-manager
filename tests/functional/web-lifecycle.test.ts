@@ -67,7 +67,7 @@ const context = async () => {
   const url = read('web.url');
   if (!url) return null;
   return fetch(`${url}api/context`)
-    .then((r) => r.json() as Promise<{ pid: number; lean: boolean; build?: string }>)
+    .then((r) => r.json() as Promise<{ pid: number; lean: boolean; build?: string; version?: string }>)
     .catch(() => null);
 };
 const workHooks = () => {
@@ -88,6 +88,8 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     const ctx = (await until(context, (c) => !!c && c.lean === false, 'the full server'))!;
     expect(ctx.pid).not.toBe(lean.pid);
     expect(ctx.pid).toBe(full.pid);
+    // Its version, as `work --version` says it: the desktop app replaces a work web that isn't its own.
+    expect(ctx.version).toBe(spawnSync(process.execPath, [BIN, '--version'], { env, encoding: 'utf-8' }).stdout.trim());
     // The full set (one hook per turn edge + Notification), lean's checkpoint hooks replaced.
     await until(workHooks, (n) => n === 3, "the full server's Claude hooks in settings.json");
     expect(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf-8')).toContain('work hook turn-end');
