@@ -482,6 +482,50 @@ describe('PtyView', () => {
     }
   });
 
+  it('a try again that fails (the GPU still resetting) waits and tries once more; it gives up at the fourth loss and says so', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      const badgeTitle = () => container.querySelector('.wd-pty-latency')!.getAttribute('title')!;
+      act(() => h.webgls[0].loseContext());
+      expect(badgeTitle()).toContain('tried again by itself');
+      h.setWebglThrows(true);
+      act(() => void vi.advanceTimersByTime(WEBGL_RETRY_MS[0]));
+      expect(h.webgls).toHaveLength(1);
+      h.setWebglThrows(false);
+      act(() => void vi.advanceTimersByTime(WEBGL_RETRY_MS[1]));
+      expect(h.webgls).toHaveLength(2);
+      expect(container.querySelector('.wd-pty-latency')).toBeNull();
+      // Lost again (third), retried after the last pause, lost a fourth time: DOM for good.
+      act(() => h.webgls[1].loseContext());
+      act(() => void vi.advanceTimersByTime(WEBGL_RETRY_MS[2]));
+      expect(h.webgls).toHaveLength(3);
+      act(() => h.webgls[2].loseContext());
+      act(() => void vi.advanceTimersByTime(10 * 60_000));
+      expect(h.webgls).toHaveLength(3);
+      expect(badgeTitle()).toContain('reloading the page');
+      expect(badgeTitle()).not.toContain('tried again by itself');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refits after the renderer changes (the two measure a cell differently)', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 10, rows: 5 }));
+    ws.sent.length = 0;
+    // The DOM renderer's cells are a little wider: one column fewer fits.
+    h.FIT.cols = 99;
+    try {
+      act(() => h.webgls[0].loseContext());
+      expect(term.cols).toBe(99);
+      expect(ws.sent).toContainEqual({ type: 'resize', cols: 99, rows: h.FIT.rows });
+    } finally {
+      h.FIT.cols = 100;
+    }
+  });
+
   it('a retry pending at unmount never loads WebGL into the disposed terminal', () => {
     vi.useFakeTimers();
     try {

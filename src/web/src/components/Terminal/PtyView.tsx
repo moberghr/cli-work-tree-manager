@@ -73,7 +73,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   // How long a keystroke takes to come back (median), once measured.
   const [latency, setLatency] = useState<number | null>(null);
   // Which renderer draws it: shown in the corner when it's the slow one.
-  const [renderer, setRenderer] = useState<'webgl' | 'dom'>('webgl');
+  // 'retrying': on DOM after a lost context, WebGL to be tried again; 'dom': for good.
+  const [renderer, setRenderer] = useState<'webgl' | 'retrying' | 'dom'>('webgl');
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
@@ -124,23 +125,43 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     const recovery = new WebglRecovery();
     let webglRetry: ReturnType<typeof setTimeout> | undefined;
     let disposed = false;
-    const loadWebgl = () => {
+    // A lost context, or a try again that failed (the GPU still resetting):
+    // wait and try again, or stay on the DOM renderer.
+    const lostWebgl = () => {
+      const wait = recovery.lost(Date.now());
+      setRenderer(wait === null ? 'dom' : 'retrying');
+      if (wait !== null) webglRetry = setTimeout(() => loadWebgl(true), wait);
+    };
+    // The two renderers measure a cell differently: refit after a swap, or
+    // the grid is a column off until the next resize.
+    const rendererChanged = () => onResize();
+    const loadWebgl = (retry: boolean) => {
       if (disposed) return;
+      let webgl: WebglAddon | null = null;
       try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
-          webgl.dispose();
-          setRenderer('dom');
-          const wait = recovery.lost(Date.now());
-          if (wait !== null) webglRetry = setTimeout(loadWebgl, wait);
+        webgl = new WebglAddon();
+        const addon = webgl;
+        addon.onContextLoss(() => {
+          addon.dispose();
+          lostWebgl();
+          rendererChanged();
         });
-        term.loadAddon(webgl);
+        term.loadAddon(addon);
         setRenderer('webgl');
+        if (retry) rendererChanged();
       } catch {
-        setRenderer('dom');
+        // xterm registers an addon before activating it: one whose
+        // activate threw stays attached unless disposed.
+        try {
+          webgl?.dispose();
+        } catch {
+          /* half-built */
+        }
+        if (retry) lostWebgl();
+        else setRenderer('dom'); // no WebGL here at all: nothing to wait for
       }
     };
-    loadWebgl();
+    loadWebgl(false);
     fit.fit();
     // Take the keyboard: you land here to answer Claude (Inbox "needs your
     // input", `n`, a notification click). Without focus your answer went to
@@ -377,6 +398,7 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     setGeneration((g) => g + 1);
   };
   const hostHint = target ? `work tree ${target}${branch ? ` ${branch}` : ''}` : 'work tree <target> <branch>';
+  const badge = cornerBadge(latency, renderer);
   return (
     <>
       {elsewhere && (
@@ -407,22 +429,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       )}
       <div className="wd-pty-frame" style={elsewhere ? { display: 'none' } : undefined}>
         <div ref={hostRef} className="wd-pty-host" />
-        {(latency !== null || renderer === 'dom') && (
-          <span
-            className={'wd-pty-latency' + ((latency ?? 0) > 100 || renderer === 'dom' ? ' wd-pty-latency-slow' : '')}
-            title={
-              (latency !== null
-                ? "A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20."
-                : '') +
-              (renderer === 'dom'
-                ? (latency !== null ? ' ' : '') +
-                  'Drawn without the GPU (WebGL unavailable or lost), which is slower while Claude works; it tries the GPU again by itself, or reload the page.'
-                : '')
-            }
-          >
-            {latency !== null && `⌁ ${Math.round(latency)} ms`}
-            {latency !== null && renderer === 'dom' && ' · '}
-            {renderer === 'dom' && 'DOM'}
+        {badge && (
+          <span className={'wd-pty-latency' + (badge.slow ? ' wd-pty-latency-slow' : '')} title={badge.title}>
+            {badge.text}
           </span>
         )}
         {phase !== 'ready' && !elsewhere && (
@@ -433,4 +442,23 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       </div>
     </>
   );
+}
+
+/** The terminal's corner: how long a keystroke takes, and whether it draws without the GPU. Null: nothing to say. */
+function cornerBadge(
+  latency: number | null,
+  renderer: 'webgl' | 'retrying' | 'dom',
+): { text: string; title: string; slow: boolean } | null {
+  const dom = renderer !== 'webgl';
+  if (latency === null && !dom) return null;
+  const text = [latency !== null && `⌁ ${Math.round(latency)} ms`, dom && 'DOM'].filter(Boolean).join(' · ');
+  const title = [
+    latency !== null && "A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20.",
+    dom && 'Drawn without the GPU, which is slower while Claude works.',
+    renderer === 'retrying' && 'The GPU renderer was lost; it is tried again by itself.',
+    renderer === 'dom' && 'WebGL is unavailable here, or kept getting lost; reloading the page tries it again.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return { text, title, slow: dom || (latency ?? 0) > 100 };
 }
