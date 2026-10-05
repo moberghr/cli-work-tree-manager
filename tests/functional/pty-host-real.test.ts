@@ -81,7 +81,9 @@ function collect(reg: PtyRegistry, id: string) {
     },
   );
   cleanup.push(() => att?.detach());
-  return { out, replay: att?.replay };
+  // As the host does: the settled screen first, then the output held since.
+  void att?.ready.then(() => att.start());
+  return { out, replay: att?.replay, ready: att?.ready };
 }
 
 describe('PTY registry on a real ConPTY / pty', () => {

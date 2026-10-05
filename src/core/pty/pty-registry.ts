@@ -29,6 +29,9 @@ export interface PtyLike {
   /** Serialized screen state (see PtySession.serialize). Optional so test
    *  fakes can fall back to the raw replay buffer. */
   serialize?(): string;
+  /** The serialized screen once everything written so far is parsed (see
+   *  PtySession.serializeSettled). Optional: a fake's screen is its raw buffer. */
+  serializeSettled?(): Promise<string>;
   /** Visible screen as plain text (PtySession.screenText). */
   screenText?(): string;
 }
@@ -247,31 +250,57 @@ export class PtyRegistry {
     e.pty.resize(cols, rows);
   }
 
-  /** Attach a client: returns the screen snapshot plus a disposer. */
+  /**
+   * Attach a client: the screen snapshot, a disposer, and — for a real
+   * session — `ready`, the snapshot once the screen has parsed everything
+   * that arrived before this attach, then `start()` once it was sent.
+   *
+   * Output reaches clients the moment it arrives, but the screen parses it a
+   * moment later (xterm's write is queued). A client attaching in between got
+   * a snapshot without that output and subscribed too late to be sent it: it
+   * was lost (a Linux PTY answers fast enough to land there). So output
+   * arriving from the attach on is held for this client until `start()`, and
+   * `ready` is the screen exactly as of the attach — nothing lost, nothing
+   * twice. `replay` (taken at once) is for screens with no parsing step.
+   */
   attach(
     id: string,
     onData: (data: string) => void,
     onExit: (code: number) => void,
-  ): { replay: ReplaySnapshot; detach: () => void; exitedWith: number | null } | null {
+  ): {
+    replay: ReplaySnapshot;
+    ready: Promise<ReplaySnapshot>;
+    start: () => void;
+    detach: () => void;
+    exitedWith: number | null;
+  } | null {
     const e = this.entries.get(id);
     if (!e) return null;
     // Attaching to one that already exited (inside the linger window): its
     // exit subscribers have fired, so tell this client now — otherwise it
     // would sit on a dead screen, its input silently dropped.
     const exitedWith = e.pty.exited ? (e.exitCode ?? 0) : null;
+    const settled = e.pty.serializeSettled;
+    // Held output while the settled snapshot is taken; null = passed straight on.
+    let held: string[] | null = settled ? [] : null;
+    const sub = (d: string) => (held ? held.push(d) : onData(d));
     if (exitedWith === null) {
-      e.subscribers.add(onData);
+      e.subscribers.add(sub);
       e.exitSubscribers.add(onExit);
     }
+    const snapshot = (data: string): ReplaySnapshot => ({ data, cols: e.cols, rows: e.rows });
+    const replay = snapshot(e.pty.serialize?.() || e.replay);
     return {
       exitedWith,
-      replay: {
-        data: e.pty.serialize?.() || e.replay,
-        cols: e.cols,
-        rows: e.rows,
+      replay,
+      ready: settled ? settled.call(e.pty).then((d) => snapshot(d || e.replay)) : Promise.resolve(replay),
+      start: () => {
+        const q = held;
+        held = null;
+        for (const d of q ?? []) onData(d);
       },
       detach: () => {
-        e.subscribers.delete(onData);
+        e.subscribers.delete(sub);
         e.exitSubscribers.delete(onExit);
       },
     };

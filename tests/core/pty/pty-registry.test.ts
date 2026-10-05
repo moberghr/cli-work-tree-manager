@@ -338,3 +338,55 @@ describe('attaching to a PTY that already exited (reviewed bug)', () => {
     expect(onExit).toHaveBeenCalledWith(0);
   });
 });
+
+describe('attaching while the screen is still parsing (a late attacher must not lose output)', () => {
+  /** A PTY whose screen parses later, as xterm's does: serializeSettled resolves when told. */
+  class ParsingPty extends FakePty {
+    screen = 'before';
+    settle: (screen: string) => void = () => {};
+    serialize() {
+      return this.screen;
+    }
+    serializeSettled() {
+      return new Promise<string>((r) => (this.settle = r));
+    }
+  }
+
+  it('the snapshot is the screen as of the attach; output after it is held, then handed over once, in order', async () => {
+    const pty = new ParsingPty();
+    const reg = new PtyRegistry({ spawner: () => pty, hasConversation: () => false, sessionsPath, cwdExists: () => true });
+    reg.spawn('a', { cwd: '/x', tool });
+    const got: string[] = [];
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+    )!;
+    // Arrives after the attach, while the snapshot is being taken: not sent yet (the snapshot goes first).
+    pty.emit('after-1');
+    expect(got).toEqual([]);
+    // The screen has parsed what came before the attach — including output a plain
+    // serialize() would have missed.
+    pty.settle('before + just-arrived');
+    expect((await att.ready).data).toBe('before + just-arrived');
+    expect(got).toEqual([]);
+    att.start();
+    pty.emit('after-2');
+    expect(got).toEqual(['after-1', 'after-2']);
+  });
+
+  it('a screen with no parsing step streams at once, its replay the raw buffer', async () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    spawned[0].pty.emit('hello ');
+    const got: string[] = [];
+    const att = reg.attach(
+      'a',
+      (d) => got.push(d),
+      () => {},
+    )!;
+    expect((await att.ready).data).toBe('hello ');
+    spawned[0].pty.emit('world');
+    expect(got).toEqual(['world']);
+  });
+});

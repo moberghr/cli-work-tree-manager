@@ -162,21 +162,26 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
         return;
       }
       // Always first, even when empty: clients hold input and their own
-      // resize until they've drawn it (see HostControlFrame 'replay').
-      try {
-        ws.send(JSON.stringify({ type: 'replay', ...attached.replay }));
-      } catch {
-        /* */
-      }
-      if (attached.exitedWith !== null) {
+      // resize until they've drawn it (see HostControlFrame 'replay'). The
+      // screen as of the attach, then what came since (registry.attach).
+      void attached.ready.then((replay) => {
         try {
-          ws.send(JSON.stringify({ type: 'exit', code: attached.exitedWith }));
-          ws.close(1000);
+          ws.send(JSON.stringify({ type: 'replay', ...replay }));
         } catch {
           /* */
         }
-        return;
-      }
+        if (attached.exitedWith !== null) {
+          try {
+            ws.send(JSON.stringify({ type: 'exit', code: attached.exitedWith }));
+            ws.close(1000);
+          } catch {
+            /* */
+          }
+          return;
+        }
+        attached.start();
+      });
+      if (attached.exitedWith !== null) return;
       ws.on('message', (raw, isBinary) => {
         if (isBinary) return;
         let msg: ClientFrame;

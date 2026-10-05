@@ -207,6 +207,21 @@ export class PtySession {
     }
   }
 
+  /**
+   * serialize(), once the screen has parsed everything written to it so far:
+   * xterm queues writes, and a write's callback runs right after that write
+   * is parsed — before any written later. What a new client is sent first.
+   */
+  serializeSettled(): Promise<string> {
+    return new Promise((resolve) => {
+      try {
+        this.terminal.write('', () => resolve(this.serialize()));
+      } catch {
+        resolve(this.serialize());
+      }
+    });
+  }
+
   /** The visible screen as plain text, one line per row (no colors).
    *  What the dashboard checks before answering a prompt by keystroke. */
   screenText(): string {
