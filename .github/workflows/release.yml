@@ -10,10 +10,11 @@
 # Required repository secrets:
 #   HOMEBREW_TAP_TOKEN - PAT (contents:write) on moberghr/homebrew-work-tree
 #
-# Release flow: bump package.json version + merge to main, then create a GitHub
-# Release whose tag matches that version (e.g. v1.5.2). This workflow verifies
-# the tag matches package.json, publishes the exact packed tarball to npm, then
-# points the tap's Formula/work.rb at the new url + sha256.
+# Release flow: create a GitHub Release tagged vX.Y.Z on main — the tag is the
+# version (scripts/version.mjs; package.json keeps 0.0.0-dev, nothing to bump).
+# This workflow sets the version from the tag in each job before anything is
+# built, publishes the exact packed tarball to npm, then points the tap's
+# Formula/work.rb at the new url + sha256.
 # Then the desktop job packs the app for Windows, macOS (arm64) and Linux and
 # uploads each installer + update feed to the same release; the macOS one
 # also writes the tap's Casks/work-desktop.rb for that zip.
