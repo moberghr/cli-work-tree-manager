@@ -12,6 +12,7 @@ import type { PtyStatus } from '../api-types.js';
 
 export interface SessionMeta {
   draftCount: number;
+  /** Open comment threads (top-level, not resolved): the Diff tab's badge. */
   commentCount: number;
   /** Comments authored by claude — used by the client to compute unread. */
   claudeCount: number;
@@ -42,16 +43,19 @@ export function readSessionMeta(sessionId: string, session: WorktreeSession): Se
   const comments = getCommentFileStore(sessionId).snapshot();
   let drafts = 0;
   let claude = 0;
+  let open = 0;
   for (const c of comments) {
     if (c.status === 'draft') drafts++;
     if (c.author === 'claude') claude++;
+    // The Diff tab's badge: threads still open. One Claude worked through is resolved (resolveAddressed).
+    if (!c.parentId && !c.resolved) open++;
   }
   const activity = readSessionActivity(session);
   const pending = readPendingForSession(sessionId).length;
   const status = readStatus(sessionId);
   return {
     draftCount: drafts,
-    commentCount: comments.length,
+    commentCount: open,
     claudeCount: claude,
     ptyStatus: peekPty(sessionId) ? 'running' : 'idle',
     lastActivity: activity.lastActivity,

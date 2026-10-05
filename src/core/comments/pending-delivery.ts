@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
-import { readStoreComments } from './comment-file-store.js';
+import { getCommentFileStore, readStoreComments } from './comment-file-store.js';
 import { scopeHashFor } from '../diff/repo-spec.js';
 import { tx, withDb, type Db } from '../platform/db.js';
 import type { Comment } from './comment-types.js';
@@ -158,6 +158,32 @@ export function readPendingForWorktree(session: WorktreeSession): Comment[] {
   collect(sessionId);
   for (const storeId of scopeStoreIdsForPaths(session.paths)) collect(storeId);
   return out;
+}
+
+/**
+ * What was handed to Claude is done once its turn really ends: your review
+ * comments and work's notes to it (PR feedback, CI, a prompt you sent) —
+ * every top-level comment of yours it was given, in the session's store and
+ * any `wd` scope store over its paths — are marked resolved. Left open, they
+ * piled up on the Diff tab's badge (three PR-watch notes read as "3"), to
+ * resolve or delete by hand. Resolved threads stay listed (dimmed) and can
+ * be reopened. Claude's own replies are left as they are. Returns the ids
+ * resolved.
+ */
+export function resolveAddressed(session: WorktreeSession): string[] {
+  const sessionId = sessionIdFor(session);
+  const delivered = withDb((d) => deliveredIds(d, sessionId));
+  if (delivered.size === 0) return [];
+  const done: string[] = [];
+  for (const storeId of [sessionId, ...scopeStoreIdsForPaths(session.paths)]) {
+    const open = readStoreComments(storeId).filter(
+      (c) => delivered.has(c.id) && c.author === 'user' && c.status === 'published' && !c.parentId && !c.resolved,
+    );
+    if (open.length === 0) continue;
+    const store = getCommentFileStore(storeId);
+    for (const c of open) if (store.setResolved(c.id, true)) done.push(c.id);
+  }
+  return done;
 }
 
 /** Persist a delivery batch, so these ids are never surfaced again. */

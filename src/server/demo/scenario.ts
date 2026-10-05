@@ -784,7 +784,7 @@ export class DemoScenario {
       createdAt: s.createdAt,
       lastAccessedAt: s.lastAccessedAt,
       draftCount: comments.filter((c) => c.status === 'draft').length,
-      commentCount: comments.length,
+      commentCount: comments.filter((c) => !c.parentId && !c.resolved).length,
       claudeCount: comments.filter((c) => c.author === 'claude').length,
       ptyStatus: s.attention?.state === 'working' || s.attention?.state === 'needs_input' ? 'running' : 'idle',
       lastActivity: s.attention ? Date.parse(s.attention.updatedAt) : null,

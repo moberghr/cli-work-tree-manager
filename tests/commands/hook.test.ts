@@ -190,3 +190,47 @@ describe("a repo's own checkout: its Claude stays on its branch", () => {
     expect(isOwnCheckout({ paths: ['C:/work/worktrees/repo/feat-x'] }, repos)).toBe(false);
   });
 });
+
+describe('what Claude was handed is resolved when its turn really ends', () => {
+  const noop = { write: () => {}, post: async () => {} };
+  const byId = (s: WorktreeSession, id: string) =>
+    getCommentFileStore(sessionIdFor(s))
+      .snapshot()
+      .find((c) => c.id === id)!;
+
+  it('a note and a review comment Claude got are resolved at the real Stop; not at the Stop that hands it more', async () => {
+    const s = fakeSession();
+    saveHistory([s]);
+    markActive(s);
+    const store = getCommentFileStore(sessionIdFor(s));
+    const note = store.post({ body: 'New review feedback on GitHub …' });
+    const line = store.post({ body: 'rename this', side: 'right', file: 'a.ts', line: 3, repo: 'repo' });
+    // Turn start hands both over.
+    await runTurnHook(true, { cwd: s.paths[0], prompt: 'go' }, noop);
+    expect(byId(s, note.id).resolved).toBeUndefined();
+    // A comment arrives mid-turn; the Stop hands it on (decision: block): no end yet, nothing resolved.
+    const late = store.post({ body: 'and the docs' });
+    const out: string[] = [];
+    await runTurnHook(false, { cwd: s.paths[0] }, { write: (t) => void out.push(t), post: async () => {} });
+    expect(JSON.parse(out.join(''))).toMatchObject({ decision: 'block' });
+    expect(byId(s, note.id).resolved).toBeUndefined();
+    // The real end: all three were worked through.
+    await runTurnHook(false, { cwd: s.paths[0] }, noop);
+    for (const c of [note, line, late]) expect(byId(s, c.id).resolved).toBe(true);
+  });
+
+  it("leaves what Claude hasn't had, drafts, and Claude's own replies", async () => {
+    const s = fakeSession();
+    saveHistory([s]);
+    markActive(s);
+    const store = getCommentFileStore(sessionIdFor(s));
+    const draft = store.post({ body: 'still writing', status: 'draft' });
+    const reply = store.post({ body: 'done', author: 'claude' });
+    await runTurnHook(false, { cwd: s.paths[0] }, noop); // nothing was handed over before this Stop
+    const fresh = store.post({ body: 'posted after the turn ended' });
+    await runTurnHook(false, { cwd: s.paths[0] }, noop); // hands `fresh` on: not resolved
+    expect(byId(s, draft.id).resolved).toBeUndefined();
+    expect(byId(s, reply.id).resolved).toBeUndefined();
+    expect(byId(s, fresh.id).resolved).toBeUndefined();
+  });
+});

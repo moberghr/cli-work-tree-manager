@@ -463,6 +463,7 @@ export interface SessionWire {
   createdAt: string;
   lastAccessedAt: string;
   draftCount: number;
+  /** Open comment threads (top-level, not resolved): the Diff tab's badge. */
   commentCount: number;
   claudeCount: number;
   ptyStatus: PtyStatus;

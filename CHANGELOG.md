@@ -3,6 +3,20 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.2
+
+- The desktop app installs an update in seconds, not a minute and a half: it
+  carries the CLI as one archive (and half the files it had), unpacked once
+  under `~/.work/runtime`. Restart says it's installing until the app is back.
+- The app runs its own work web: one of another version that is already
+  running (a dev checkout's, the one from before an update) is replaced, so
+  its version and updates are the app's. Your Claudes keep running.
+- Comments and work's notes to a session's Claude are resolved once its turn
+  ends, and the Diff tab's badge counts only open ones: no more resolving or
+  deleting them by hand.
+- The version comes from the release tag: `package.json` keeps `0.0.0-dev`,
+  and a local build says what it is (`2.0.2-dev.3+aeed538`).
+
 ## 2.0.1 — 2026-10-05
 
 - A review reply posted from a session (`work pr post`, or Post in the

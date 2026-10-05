@@ -5,6 +5,7 @@ import {
   formatPendingForPrompt,
   claimForDelivery,
   readPendingForWorktree,
+  resolveAddressed,
   sessionIdFor,
 } from '../core/comments/pending-delivery.js';
 import { isInternalRun } from '../core/platform/internal-run.js';
@@ -12,7 +13,7 @@ import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js
 import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
-import { bestEffortAsync } from '../core/platform/best-effort.js';
+import { bestEffort, bestEffortAsync } from '../core/platform/best-effort.js';
 import { readAssistantContext } from '../core/agents/assistant.js';
 import { agentById, type AgentAdapter, type TurnEdge } from '../core/agents/index.js';
 
@@ -258,6 +259,13 @@ export async function runTurnHook(
   // end of the turn: Claude goes on with them, and its real Stop comes later
   // (recorded as a stop then, so you hear when it is done).
   const handedOn = !start && !!result?.sessionId;
+  // The turn's real end: what Claude was handed is done — resolved, not left
+  // to pile up on the Diff tab (resolveAddressed). Before the status nudge,
+  // so the refresh it causes shows it.
+  if (!start && !handedOn) {
+    const session = findSessionForCwd(cwd);
+    if (session) bestEffort(`resolve addressed comments for ${session.target}:${session.branch}`, () => resolveAddressed(session));
+  }
   await Promise.all([
     io.post(start ? 'api/checkpoint/seal' : 'api/checkpoint', cwd),
     handedOn
