@@ -87,17 +87,30 @@ const h = vi.hoisted(() => {
     }
   }
 
+  const webgls: FakeWebgl[] = [];
   class FakeWebgl {
+    disposed = false;
+    private lossCb: (() => void) | null = null;
     constructor() {
       if (webglThrows) throw new Error('no webgl');
+      webgls.push(this);
     }
-    onContextLoss() {}
-    dispose() {}
+    onContextLoss(cb: () => void) {
+      this.lossCb = cb;
+    }
+    dispose() {
+      this.disposed = true;
+    }
+    /** Simulate a GPU reset. */
+    loseContext() {
+      this.lossCb?.();
+    }
   }
 
   return {
     FIT,
     terms,
+    webgls,
     FakeTerminal,
     FakeFit,
     FakeWebgl,
@@ -162,6 +175,7 @@ class FakeWebSocket {
 }
 
 import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
+import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -169,6 +183,7 @@ const realWebSocket = globalThis.WebSocket;
 
 beforeEach(() => {
   h.terms.length = 0;
+  h.webgls.length = 0;
   h.setWebglThrows(false);
   FakeWebSocket.instances = [];
   (globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket;
@@ -439,6 +454,45 @@ describe('PtyView', () => {
     ws.serverOpen();
     act(() => ws.control({ type: 'replay', data: 'x', cols: 10, rows: 5 }));
     expect(term.writes).toContain('x');
+  });
+
+  it('without WebGL says so in the corner: drawn by the DOM renderer, the slow one', () => {
+    h.setWebglThrows(true);
+    mount();
+    const badge = container.querySelector('.wd-pty-latency')!;
+    expect(badge.textContent).toBe('DOM');
+    expect(badge.className).toContain('wd-pty-latency-slow');
+    expect(badge.getAttribute('title')).toContain('without the GPU');
+  });
+
+  it('a lost WebGL context is tried again after a pause (not left on the DOM renderer until a reload)', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      expect(container.querySelector('.wd-pty-latency')).toBeNull();
+      const first = h.webgls[0];
+      act(() => first.loseContext());
+      expect(first.disposed).toBe(true);
+      expect(container.querySelector('.wd-pty-latency')!.textContent).toBe('DOM');
+      act(() => void vi.advanceTimersByTime(WEBGL_RETRY_MS[0]));
+      expect(h.webgls).toHaveLength(2);
+      expect(container.querySelector('.wd-pty-latency')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a retry pending at unmount never loads WebGL into the disposed terminal', () => {
+    vi.useFakeTimers();
+    try {
+      mount();
+      act(() => h.webgls[0].loseContext());
+      act(() => root.render(createElement('div')));
+      act(() => void vi.advanceTimersByTime(WEBGL_RETRY_MS[0]));
+      expect(h.webgls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('says what it is waiting for until the first screen: connecting, then starting Claude', () => {

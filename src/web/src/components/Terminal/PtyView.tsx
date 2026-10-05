@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { LatencyMeter } from '../../state/keystroke-latency.js';
+import { WebglRecovery } from '../../state/webgl-recovery.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -71,6 +72,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
   const force = useRef(false);
   // How long a keystroke takes to come back (median), once measured.
   const [latency, setLatency] = useState<number | null>(null);
+  // Which renderer draws it: shown in the corner when it's the slow one.
+  const [renderer, setRenderer] = useState<'webgl' | 'dom'>('webgl');
   const [checking, setChecking] = useState(false);
   useEffect(() => {
     setElsewhere(null);
@@ -116,15 +119,28 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.open(hostRef.current);
     // GPU renderer: the DOM renderer is what makes a busy Claude feel
     // sluggish (every spinner frame re-lays out spans). Must load after
-    // open(). Falls back to DOM if WebGL is unavailable or the context is
-    // lost (GPU reset, too many contexts).
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {
-      /* DOM renderer fallback */
-    }
+    // open(). Falls back to DOM if WebGL is unavailable; a lost context (GPU
+    // reset, too many contexts) is tried again after a pause (webgl-recovery.ts).
+    const recovery = new WebglRecovery();
+    let webglRetry: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    const loadWebgl = () => {
+      if (disposed) return;
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          setRenderer('dom');
+          const wait = recovery.lost(Date.now());
+          if (wait !== null) webglRetry = setTimeout(loadWebgl, wait);
+        });
+        term.loadAddon(webgl);
+        setRenderer('webgl');
+      } catch {
+        setRenderer('dom');
+      }
+    };
+    loadWebgl();
     fit.fit();
     // Take the keyboard: you land here to answer Claude (Inbox "needs your
     // input", `n`, a notification click). Without focus your answer went to
@@ -320,7 +336,9 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     term.textarea?.addEventListener('focus', onFocus);
 
     return () => {
+      disposed = true;
       clearTimeout(slowStart);
+      clearTimeout(webglRetry);
       term.textarea?.removeEventListener('paste', onPaste, true);
       term.textarea?.removeEventListener('focus', onFocus);
       shown.current = null;
@@ -389,12 +407,22 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       )}
       <div className="wd-pty-frame" style={elsewhere ? { display: 'none' } : undefined}>
         <div ref={hostRef} className="wd-pty-host" />
-        {latency !== null && (
+        {(latency !== null || renderer === 'dom') && (
           <span
-            className={'wd-pty-latency' + (latency > 100 ? ' wd-pty-latency-slow' : '')}
-            title="A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20"
+            className={'wd-pty-latency' + ((latency ?? 0) > 100 || renderer === 'dom' ? ' wd-pty-latency-slow' : '')}
+            title={
+              (latency !== null
+                ? "A keystroke's way to the screen and back (browser → work web → PTY host → Claude): the median of the last 20."
+                : '') +
+              (renderer === 'dom'
+                ? (latency !== null ? ' ' : '') +
+                  'Drawn without the GPU (WebGL unavailable or lost), which is slower while Claude works; it tries the GPU again by itself, or reload the page.'
+                : '')
+            }
           >
-            ⌁ {Math.round(latency)} ms
+            {latency !== null && `⌁ ${Math.round(latency)} ms`}
+            {latency !== null && renderer === 'dom' && ' · '}
+            {renderer === 'dom' && 'DOM'}
           </span>
         )}
         {phase !== 'ready' && !elsewhere && (
