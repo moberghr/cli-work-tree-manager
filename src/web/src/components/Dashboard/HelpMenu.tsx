@@ -28,7 +28,7 @@ export function updateStatus(updates: UpdateWire | null | undefined): string | n
 }
 
 /**
- * The top bar's Help button (as bearing's Help menu): which work runs and
+ * The top bar's version, a button (as bearing's Help menu): which work runs and
  * where an update stands, Check for updates, What's new, the keyboard
  * shortcuts. A dot on the button when an update is there. A popover
  * (`data-popover`): Esc or a click elsewhere closes it, shortcuts keep working.
@@ -67,7 +67,7 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
         title={`work v${running}${status ? ` · ${status}` : ''}\nHelp: updates, what's new, keyboard shortcuts`}
         onClick={() => setOpen((o) => !o)}
       >
-        ?
+        v{running}
       </button>
       {open && (
         <div className="wd-help-panel" role="dialog" data-popover aria-label="Help">

@@ -46,6 +46,8 @@ describe('HelpMenu (the top bar)', () => {
       ),
     );
     expect(panel()).toBeNull();
+    // The version is on the top bar itself.
+    expect(helpButton().textContent).toBe('v2.0.0');
     expect(helpButton().getAttribute('aria-label')).toBe('Help: work v2.0.0');
     act(() => helpButton().click());
     expect(container.querySelector('.wd-help-version')!.textContent).toBe('work v2.0.0');

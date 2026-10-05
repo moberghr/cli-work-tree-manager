@@ -49,7 +49,7 @@ const TAB_OF: Partial<Record<DashboardRoute['tab'], DashboardRoute['tab']>> = {
 
 /**
  * Top bar, kept short: brand, the tabs (Inbox, Sessions, Start, Jira), then Tasks, Ask, the background
- * jobs' dot, Help (version and updates) and the theme toggle (shared, persisted preference — see
+ * jobs' dot, the version (Help: updates, what's new, shortcuts) and the theme toggle (shared, persisted preference — see
  * ThemeProvider). The session list is the rail beside every page; a
  * session's own page opens from it.
  */

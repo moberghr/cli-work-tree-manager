@@ -3071,7 +3071,7 @@ a.wd-pr-chip:hover {
   opacity: 1;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
 }
-/* Help (HelpMenu): version, updates, what's new, shortcuts — the top bar's "?". */
+/* Help (HelpMenu): version, updates, what's new, shortcuts — the top bar's "v2.0.0". */
 .wd-help {
   position: relative;
   margin-right: 8px;
@@ -3079,15 +3079,16 @@ a.wd-pr-chip:hover {
 .wd-help-btn {
   appearance: none;
   position: relative;
-  width: 24px;
   height: 24px;
+  padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 50%;
+  border-radius: 12px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 .wd-help-btn:hover,
