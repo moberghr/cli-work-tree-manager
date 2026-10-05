@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { UpdateWire } from '../../../../core/api-types.js';
 import { VERSION } from '../../version.js';
+import { ProgressBar } from './UpdateStrip.js';
 
 export interface HelpMenuProps {
   updates?: UpdateWire | null;
@@ -21,7 +22,7 @@ export function updateStatus(updates: UpdateWire | null | undefined): string | n
     return a.how === 'restart'
       ? `${a.version} is ready to install`
       : a.how === 'downloading'
-        ? `downloading ${a.version}`
+        ? `downloading ${a.version}${typeof a.progress === 'number' ? ` (${a.progress}%)` : ''}`
         : `${a.version} is out`;
   const d = updates?.desktop;
   return d?.state === 'failed' ? `couldn't update: ${d.error ?? 'unknown'}` : null;
@@ -75,6 +76,7 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
             work v{running}
             {status && <span className="wd-help-status"> · {status}</span>}
           </p>
+          {updates?.available?.how === 'downloading' && <ProgressBar value={updates.available.progress ?? null} />}
           {canRestart && (
             <button type="button" className="wd-row-menu-item wd-help-restart" onClick={pick(onRestart)}>
               Restart to update

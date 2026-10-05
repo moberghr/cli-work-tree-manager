@@ -332,7 +332,7 @@ fn main() {
     }
     app.run();
     let first_run = first_run.get();
-    updates::spawn(log, work_dir());
+    let asks = updates::spawn(log, work_dir());
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -347,6 +347,25 @@ fn main() {
                 .on_new_window(|url, _features| {
                     open_in_browser(&url);
                     tauri::webview::NewWindowResponse::Deny
+                })
+                // The page knows it's in the app (and asks for the update status once it's up).
+                .initialization_script(updates::PAGE_MARKER)
+                // The page's asks to the app: a navigation to http://work-desktop.invalid/<ask>,
+                // cancelled here — Check for updates, Restart, or "send me the status".
+                .on_navigation(move |url| match updates::page_ask(url.host_str(), url.path()) {
+                    Some(updates::PageAsk::Hello) => {
+                        updates::repeat_latest();
+                        false
+                    }
+                    Some(updates::PageAsk::Check) => {
+                        let _ = asks.send(updates::Request::Check);
+                        false
+                    }
+                    Some(updates::PageAsk::Restart) => {
+                        let _ = asks.send(updates::Request::Restart);
+                        false
+                    }
+                    None => url.host_str() != Some(updates::ASK_HOST),
                 });
             // For scripts/terminal-latency.ts: a DevTools port to drive the page through. Tauri sets
             // WebView2's browser arguments itself, which overrides WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS,
@@ -363,6 +382,11 @@ fn main() {
                 }
             }
             let window = builder.build()?;
+            // Where an update stands, straight to this window: the card and the version are the app's.
+            let pushed = window.clone();
+            updates::on_change(move |json| {
+                let _ = pushed.eval(&updates::page_script(json));
+            });
             let bin_dir = bin_dir.clone();
             thread::spawn(move || {
                 // The bundled CLI's copy (after an update this copies the new

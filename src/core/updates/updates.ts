@@ -23,8 +23,11 @@ export type InstallKind = 'desktop' | 'npm' | 'dev';
 /** The desktop app's updater, as it reports itself (desktop-update.json). */
 export interface DesktopUpdate {
   appVersion: string;
-  state: 'unmanaged' | 'checking' | 'current' | 'downloading' | 'ready' | 'failed';
+  /** installing: Restart was asked; the app closes and Velopack puts `target` in place. */
+  state: 'unmanaged' | 'checking' | 'current' | 'downloading' | 'ready' | 'installing' | 'failed';
   target?: string;
+  /** While downloading: how far, 0-100 (Velopack's progress). */
+  progress?: number;
   error?: string;
   at?: number;
 }
@@ -75,6 +78,8 @@ export interface AvailableUpdate {
   /** restart: the desktop app has it; downloading: the app is getting it; command: run this. */
   how: 'restart' | 'downloading' | 'command';
   command?: string;
+  /** While downloading: how far, 0-100, when the app says. */
+  progress?: number;
 }
 
 export const NPM_UPDATE = 'npm install -g @moberg_hr/work-tree@latest';
@@ -95,10 +100,38 @@ export function availableUpdate(i: {
   const d = i.desktop;
   if (d?.state === 'ready' && d.target && compareVersions(d.target, d.appVersion || i.running) > 0)
     return { version: d.target, how: 'restart' };
-  if (d?.state === 'downloading' && d.target) return { version: d.target, how: 'downloading' };
+  if (d?.state === 'downloading' && d.target) return downloading(d);
   if (!i.latest || !parseVersion(i.running) || compareVersions(i.latest, i.running) <= 0) return null;
   if (i.install === 'desktop') return { version: i.latest, how: 'downloading' };
   return { version: i.latest, how: 'command', command: i.install === 'npm' ? NPM_UPDATE : DEV_UPDATE };
+}
+
+const downloading = (d: DesktopUpdate): AvailableUpdate => ({
+  version: d.target!,
+  how: 'downloading',
+  ...(typeof d.progress === 'number' ? { progress: d.progress } : {}),
+});
+
+/**
+ * The update state as the desktop app's own window shows it. The app tells
+ * its window its version and where its update stands directly (an event,
+ * desktop/src-tauri/src/updates.rs), so inside the app those are the app's —
+ * never the version of whatever work web the window happens to show, which
+ * once was a dev checkout's. The server adds only what the app doesn't know:
+ * the release notes. Pure.
+ */
+export function inAppUpdates<
+  W extends { running: string; install: InstallKind; desktop: DesktopUpdate | null; available: AvailableUpdate | null },
+>(server: W, app: DesktopUpdate): W {
+  const running = app.appVersion || server.running;
+  const target = app.target && compareVersions(app.target, running) > 0 ? app.target : null;
+  const available: AvailableUpdate | null =
+    target && (app.state === 'ready' || app.state === 'installing')
+      ? { version: target, how: 'restart' }
+      : target && app.state === 'downloading'
+        ? downloading(app)
+        : null;
+  return { ...server, running, install: 'desktop', desktop: app, available };
 }
 
 /**
@@ -130,12 +163,13 @@ export function parseDesktopUpdate(text: string): DesktopUpdate | null {
     return null;
   }
   const d = o as Partial<DesktopUpdate> | null;
-  const states = ['unmanaged', 'checking', 'current', 'downloading', 'ready', 'failed'];
+  const states = ['unmanaged', 'checking', 'current', 'downloading', 'ready', 'installing', 'failed'];
   if (!d || typeof d !== 'object' || typeof d.state !== 'string' || !states.includes(d.state)) return null;
   return {
     appVersion: typeof d.appVersion === 'string' ? d.appVersion : '',
     state: d.state,
     ...(typeof d.target === 'string' ? { target: d.target } : {}),
+    ...(typeof d.progress === 'number' && d.progress >= 0 && d.progress <= 100 ? { progress: Math.round(d.progress) } : {}),
     ...(typeof d.error === 'string' ? { error: d.error } : {}),
     ...(typeof d.at === 'number' ? { at: d.at } : {}),
   };

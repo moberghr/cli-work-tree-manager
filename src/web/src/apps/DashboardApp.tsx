@@ -4,6 +4,7 @@ import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
 import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
+import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
@@ -196,6 +197,11 @@ export function DashboardApp() {
   // Updates and release notes: the strip, the Activity panel's line, What's new —
   // which opens by itself once after an upgrade (on its version), and then counts as seen.
   const upd = useUpdates();
+  // Inside the desktop app, its version and update come from the app itself (use-desktop.ts).
+  const desk = useDesktop();
+  const updates = desk ? desktopWire(upd.updates, desk.update) : upd.updates;
+  const checkUpdates = desk ? () => desk.ask('check') : upd.check;
+  const restartToUpdate = desk ? async () => desk.ask('restart') : upd.restart;
   const [whatsNew, setWhatsNew] = useState<{ focus: string | null } | null>(null);
   const shownWhatsNew = useRef<string | null>(null);
   useEffect(() => {
@@ -826,13 +832,13 @@ export function DashboardApp() {
         activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
         help={
           <HelpMenu
-            updates={upd.updates}
-            onCheck={upd.check}
-            checking={upd.checking}
-            note={upd.note}
+            updates={updates}
+            onCheck={checkUpdates}
+            checking={desk ? desk.update?.state === 'checking' : upd.checking}
+            note={desk ? desk.note : upd.note}
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
-            onRestart={upd.restart}
+            onRestart={() => void restartToUpdate()}
           />
         }
         tasks={<TasksPanel open={tasksOpen} onOpenChange={setTasksOpen} onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />}
@@ -871,10 +877,10 @@ export function DashboardApp() {
       {switcherOpen && <QuickSwitcher sessions={sessions} onOpen={(id) => openSession(id)} onClose={closeSwitcher} />}
       {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
       <UpdateStrip
-        updates={upd.updates}
-        onRestart={upd.restart}
-        restarting={upd.restarting}
-        onWhatsNew={() => setWhatsNew({ focus: upd.updates?.available?.version ?? null })}
+        updates={updates}
+        onRestart={restartToUpdate}
+        restarting={desk ? desk.update?.state === 'installing' : upd.restarting}
+        onWhatsNew={() => setWhatsNew({ focus: updates?.available?.version ?? null })}
       />
       {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}
       {keyMenu && <RowMenu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}

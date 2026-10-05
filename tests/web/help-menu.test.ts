@@ -75,6 +75,15 @@ describe('HelpMenu (the top bar)', () => {
     expect(onRestart).toHaveBeenCalled();
   });
 
+  it('downloading: how far, in the status and a bar', () => {
+    act(() =>
+      root.render(createElement(HelpMenu, { updates: wire({ available: { version: '2.0.3', how: 'downloading', progress: 45 } }) })),
+    );
+    act(() => helpButton().click());
+    expect(container.querySelector('.wd-help-version')!.textContent).toBe('work v2.0.0 · downloading 2.0.3 (45%)');
+    expect(panel()!.querySelector('[role="progressbar"]')!.getAttribute('aria-valuenow')).toBe('45');
+  });
+
   it('while checking, the item says so and waits; Esc and a click elsewhere close it', () => {
     act(() => root.render(createElement(HelpMenu, { updates: wire({}), onCheck: vi.fn(), checking: true })));
     act(() => helpButton().click());

@@ -44,65 +44,109 @@ export function UpdateStrip({
     }
     setLater(a.version);
   };
+  const restartButton = (
+    <button
+      type="button"
+      className="wd-btn-primary"
+      disabled={restarting}
+      title="The app closes and comes back on it; your Claudes keep running"
+      onClick={() => {
+        setRestarting(true);
+        setError(null);
+        onRestart().catch((err: Error) => {
+          setRestarting(false);
+          setError(err.message);
+        });
+      }}
+    >
+      {restarting ? 'Restarting…' : 'Restart'}
+    </button>
+  );
+  const whatsNew = (
+    <button type="button" className="wd-link-button" onClick={onWhatsNew}>
+      What&apos;s new
+    </button>
+  );
+  const pct = a.how === 'downloading' && typeof a.progress === 'number' ? a.progress : null;
   return (
     <div className="wd-update-strip" role="status" aria-label="Update">
-      <span className="wd-update-text">
-        {restarting
-          ? `Installing work ${a.version}: the app closes and comes back on it in a moment. Your Claudes keep running.`
-          : a.how === 'restart'
-            ? `work ${a.version} is ready.`
-            : a.how === 'downloading'
-              ? `work ${a.version} is on its way: the app is downloading it.`
-              : `work ${a.version} is out.`}
-      </span>
-      {a.how === 'command' && a.command && (
-        <span className="wd-update-command">
-          <code>{a.command}</code>
-          <button
-            type="button"
-            className="wd-link-button"
-            onClick={() =>
-              void navigator.clipboard.writeText(a.command!).then(
-                () => setCopied(true),
-                () => setError("Couldn't copy to the clipboard"),
-              )
-            }
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </span>
+      {restarting ? (
+        <>
+          <span className="wd-update-text">Installing work {a.version}…</span>
+          <ProgressBar />
+          <span className="wd-update-sub">The app closes and comes back in a few seconds. Your Claudes keep running.</span>
+        </>
+      ) : a.how === 'downloading' ? (
+        <>
+          <span className="wd-update-text">
+            Downloading work {a.version}
+            {pct !== null && ` · ${pct}%`}
+          </span>
+          <span className="wd-update-actions">{whatsNew}</span>
+          <ProgressBar value={pct} />
+          <span className="wd-update-sub">You can keep working; it installs when you restart.</span>
+        </>
+      ) : a.how === 'restart' ? (
+        <>
+          <span className="wd-update-text">work {a.version} is ready.</span>
+          <span className="wd-update-actions">
+            {whatsNew}
+            <button type="button" className="wd-link-button" onClick={dismiss}>
+              Later
+            </button>
+            {restartButton}
+          </span>
+          <span className="wd-update-sub">The app closes and comes back on {a.version} in a few seconds. Your Claudes keep running.</span>
+        </>
+      ) : (
+        <>
+          <span className="wd-update-text">work {a.version} is out.</span>
+          {a.command && (
+            <span className="wd-update-command">
+              <code>{a.command}</code>
+              <button
+                type="button"
+                className="wd-link-button"
+                onClick={() =>
+                  void navigator.clipboard.writeText(a.command!).then(
+                    () => setCopied(true),
+                    () => setError("Couldn't copy to the clipboard"),
+                  )
+                }
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </span>
+          )}
+          <span className="wd-update-actions">
+            {whatsNew}
+            <button type="button" className="wd-link-button" onClick={dismiss}>
+              Later
+            </button>
+          </span>
+        </>
       )}
-      <span className="wd-update-actions">
-        <button type="button" className="wd-link-button" onClick={onWhatsNew}>
-          What&apos;s new
-        </button>
-        {a.how === 'restart' && (
-          <button
-            type="button"
-            className="wd-btn-primary"
-            disabled={restarting}
-            title="The app closes and comes back on it; your Claudes keep running"
-            onClick={() => {
-              setRestarting(true);
-              setError(null);
-              onRestart().catch((err: Error) => {
-                setRestarting(false);
-                setError(err.message);
-              });
-            }}
-          >
-            {restarting ? 'Restarting…' : 'Restart'}
-          </button>
-        )}
-        <button type="button" className="wd-link-button" onClick={dismiss}>
-          Later
-        </button>
-      </span>
       {error && (
         <span className="wd-repos-error" role="alert">
           {error}
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * How far a download is (0-100), or a bar that moves without a number while
+ * the amount isn't known (the install after Restart). Shared with HelpMenu.
+ */
+export function ProgressBar({ value = null }: { value?: number | null }) {
+  return value === null ? (
+    <span className="wd-update-bar wd-update-bar-moving" role="progressbar" aria-label="In progress">
+      <i />
+    </span>
+  ) : (
+    <span className="wd-update-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}>
+      <i style={{ width: `${value}%` }} />
+    </span>
   );
 }

@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- The desktop app shows an update's download as it happens: a progress bar
+  with the percentage, on the card and in the version menu, then Restart, then
+  "Installing…" until the app is back. The app tells its own window directly,
+  so what it shows is always the app's own version and update.
+
 ## 2.0.2
 
 - The desktop app installs an update in seconds, not a minute and a half: it

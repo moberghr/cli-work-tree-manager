@@ -48,9 +48,43 @@ describe('UpdateStrip', () => {
     act(() => root.render(createElement(UpdateStrip, props)));
     act(() => button('Restart')!.click());
     expect(props.onRestart).toHaveBeenCalled();
-    expect(button('Restarting…')).toBeDefined();
-    expect(container.textContent).toContain('Installing work 2.1.0: the app closes and comes back on it in a moment');
-    expect(container.textContent).toContain('Your Claudes keep running');
+    expect(container.textContent).toContain('Installing work 2.1.0…');
+    expect(container.textContent).toContain('The app closes and comes back in a few seconds. Your Claudes keep running.');
+    // A bar that moves without a number: the install can't be counted from here.
+    const bar = container.querySelector('[role="progressbar"]')!;
+    expect(bar.classList.contains('wd-update-bar-moving')).toBe(true);
+    expect(bar.hasAttribute('aria-valuenow')).toBe(false);
+  });
+
+  it('downloading in the app: how far, with a bar; you can keep working', () => {
+    act(() =>
+      root.render(
+        createElement(UpdateStrip, {
+          updates: wire({ available: { version: '2.0.3', how: 'downloading', progress: 45 } }),
+          onRestart: vi.fn(),
+          onWhatsNew: vi.fn(),
+        }),
+      ),
+    );
+    expect(container.textContent).toContain('Downloading work 2.0.3 · 45%');
+    expect(container.textContent).toContain('You can keep working; it installs when you restart.');
+    const bar = container.querySelector('[role="progressbar"]')!;
+    expect(bar.getAttribute('aria-valuenow')).toBe('45');
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('45%');
+    expect(button('Restart')).toBeUndefined();
+  });
+
+  it('ready: says what Restart does', () => {
+    act(() =>
+      root.render(
+        createElement(UpdateStrip, {
+          updates: wire({ available: { version: '2.0.3', how: 'restart' } }),
+          onRestart: vi.fn(),
+          onWhatsNew: vi.fn(),
+        }),
+      ),
+    );
+    expect(container.textContent).toContain('The app closes and comes back on 2.0.3 in a few seconds. Your Claudes keep running.');
   });
 
   it('Restart from Help (restarting) says so too, even after Later hid the card', () => {

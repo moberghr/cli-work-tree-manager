@@ -6,6 +6,7 @@ import {
   availableUpdate,
   compareVersions,
   DEV_UPDATE,
+  inAppUpdates,
   installKindOf,
   NPM_UPDATE,
   parseDesktopUpdate,
@@ -76,6 +77,43 @@ describe('availableUpdate', () => {
     expect(availableUpdate({ ...base, install: 'desktop', desktop: app('current') })).toEqual({ version: '2.1.0', how: 'downloading' });
     // Ready for a version it already runs: nothing to restart into.
     expect(availableUpdate({ ...base, latest: '2.0.0', desktop: { appVersion: '2.1.0', state: 'ready', target: '2.1.0' } })).toBeNull();
+  });
+});
+
+describe('inAppUpdates (the desktop app tells its window)', () => {
+  // What a dev checkout's work web would say: its own version, a git command.
+  const server = {
+    running: '2.0.0',
+    install: 'dev' as const,
+    latest: '2.0.3',
+    desktop: null,
+    available: { version: '2.0.3', how: 'command' as const, command: DEV_UPDATE },
+    whatsNew: null,
+  };
+
+  it("inside the app, the app's version and the app's update — never the server's", () => {
+    const v = inAppUpdates(server, { appVersion: '2.0.2', state: 'current' });
+    expect(v).toMatchObject({ running: '2.0.2', install: 'desktop', available: null, latest: '2.0.3' });
+  });
+
+  it('downloading carries how far; ready and installing offer Restart', () => {
+    expect(inAppUpdates(server, { appVersion: '2.0.2', state: 'downloading', target: '2.0.3', progress: 45 }).available).toEqual({
+      version: '2.0.3',
+      how: 'downloading',
+      progress: 45,
+    });
+    for (const state of ['ready', 'installing'] as const)
+      expect(inAppUpdates(server, { appVersion: '2.0.2', state, target: '2.0.3' }).available).toEqual({ version: '2.0.3', how: 'restart' });
+    // A target that isn't newer is no update.
+    expect(inAppUpdates(server, { appVersion: '2.0.3', state: 'ready', target: '2.0.3' }).available).toBeNull();
+  });
+
+  it('the app file carries progress and installing; a progress out of range is dropped', () => {
+    expect(parseDesktopUpdate('{"appVersion":"2.0.2","state":"downloading","target":"2.0.3","progress":44.6}')).toMatchObject({
+      progress: 45,
+    });
+    expect(parseDesktopUpdate('{"appVersion":"2.0.2","state":"installing","target":"2.0.3"}')?.state).toBe('installing');
+    expect(parseDesktopUpdate('{"appVersion":"2.0.2","state":"downloading","progress":400}')).not.toHaveProperty('progress');
   });
 });
 
