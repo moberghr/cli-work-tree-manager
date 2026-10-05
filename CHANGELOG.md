@@ -3,6 +3,14 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.1 — 2026-10-05
+
+- A review reply posted from a session (`work pr post`, or Post in the
+  dashboard) no longer leaves the session saying a thread waits on you: the
+  thread leaves the Needs you line, the review count and the Inbox at once.
+- `work pr post` resolves each thread it answers; `--no-resolve` leaves one
+  open, for a question a person should answer.
+
 ## 2.0.0 — 2026-10-05
 
 ### Upgrading
