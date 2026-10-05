@@ -62,11 +62,14 @@ The essentials:
 - Branches: `feat/…`, `fix/…`, `docs/…`.
 - Commit subjects are imperative and say what changed ("Archive saves
   uncommitted work"), no `type:` prefixes.
-- PRs go to `main`. A user-facing change bumps `package.json`'s version.
+- PRs go to `main`. The version isn't edited: it comes from the release tag.
 
 ## Releases
 
-Publishing a GitHub Release whose tag matches `package.json` (`vX.Y.Z`) runs
-`release.yml`: npm (trusted publishing, no token), the Homebrew tap, and the
-desktop installers on the same release. Never `npm publish` locally. Note the
-release in [`CHANGELOG.md`](CHANGELOG.md).
+The release tag is the version (`scripts/version.mjs`, as bearing's MinVer):
+`package.json` keeps `0.0.0-dev`. Publishing a GitHub Release tagged `vX.Y.Z`
+runs `release.yml`, which sets that version from the tag and publishes npm
+(trusted publishing, no token), the Homebrew tap, and the desktop installers on
+the same release. A local build is `git describe`'s: on a tag, that version;
+past one, the next patch as a dev build (`2.0.2-dev.3+aeed538`). Never
+`npm publish` locally. Note the release in [`CHANGELOG.md`](CHANGELOG.md).

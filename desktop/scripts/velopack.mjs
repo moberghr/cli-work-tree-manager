@@ -22,6 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
 import { smokeTest, stageCli } from './stage-cli.mjs';
+import { workVersion } from '../../scripts/version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DESKTOP = path.join(ROOT, 'desktop');
@@ -71,7 +72,8 @@ function capture(cmd, args) {
 
 function main() {
   const t = target();
-  const version = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  // The release tag (WORK_VERSION, set by release.yml), else git describe: scripts/version.mjs.
+  const version = workVersion(ROOT);
   const tag = `v${version}`;
   const work = path.join(DESKTOP, 'artifacts', 'velopack', t.rid);
   const packDir = path.join(work, 'pack');

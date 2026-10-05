@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsup';
-import { readFileSync } from 'node:fs';
+// The release tag is the version (scripts/version.mjs): WORK_VERSION in a release, else git describe.
+import { workVersion } from './scripts/version.mjs';
 
-const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
+const version = workVersion();
 
 export default defineConfig({
   // install-skills-bin: npm's postinstall runs only that (scripts/postinstall.mjs), never the whole CLI.
@@ -19,7 +20,7 @@ export default defineConfig({
   // every command and its native modules.
   splitting: true,
   define: {
-    __WORK2_VERSION__: JSON.stringify(pkg.version),
+    __WORK2_VERSION__: JSON.stringify(version),
   },
   external: [
     'chalk',

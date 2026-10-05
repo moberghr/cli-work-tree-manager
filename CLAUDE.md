@@ -53,7 +53,7 @@ The highest-impact rules. Full standards in `.claude/rules/`.
 - **Data layer:** session state in SQLite at `~/.work/state.db` (`src/core/platform/db.ts`, transactions); `config.json` and discovery files stay JSON
 - **Build tool:** tsup (ESM, node22 target — Node 22.13 is the supported floor (`engines`: yargs 18 and @inquirer/prompts 8 need it); dev/CI on Node 24); dev via tsx
 - **Test stack:** Vitest (`tests/` mirrors `src/`)
-- **Hosting:** npm package, plus the desktop app (Velopack installers on the same GitHub Release, see Desktop app). CI: `.github/workflows/ci.yml` (typecheck + test + build on push/PR). Release: publishing a GitHub Release whose tag matches `package.json` (`vX.Y.Z`) runs `release.yml` → npm via Trusted Publishing (OIDC, no token) + Homebrew tap bump. Never `npm publish` locally.
+- **Hosting:** npm package, plus the desktop app (Velopack installers on the same GitHub Release, see Desktop app). CI: `.github/workflows/ci.yml` (typecheck + test + build on push/PR). Release: the tag is the version (`scripts/version.mjs`; `package.json` keeps `0.0.0-dev`, a local build is `git describe`'s, e.g. `2.0.2-dev.3+sha`) — publishing a GitHub Release tagged `vX.Y.Z` runs `release.yml` → npm via Trusted Publishing (OIDC, no token) + Homebrew tap bump. Never `npm publish` locally.
 
 ---
 

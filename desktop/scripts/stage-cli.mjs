@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
+import { workVersion } from '../../scripts/version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -83,8 +84,10 @@ export function stageCli(out, { root = ROOT, node = process.execPath, install = 
   fs.copyFileSync(node, path.join(out, nodeName()));
   fs.chmodSync(path.join(out, nodeName()), 0o755);
   // Written last: runtime.rs takes a cli/ with a VERSION as complete.
-  fs.writeFileSync(path.join(out, 'VERSION'), pkg.version);
-  return pkg.version;
+  // The same version the build put into the CLI (scripts/version.mjs): the smoke test compares them.
+  const version = workVersion(root);
+  fs.writeFileSync(path.join(out, 'VERSION'), version);
+  return version;
 }
 
 /** The staged CLI runs, with its native modules, on its own Node. */
