@@ -70,6 +70,9 @@ export interface PrWatchDeps {
   wake?: (sessionId: string) => Promise<WakeResult>;
   /** Its Claude is in the middle of a turn: not archived until the turn ends. */
   busy?: (sessionId: string) => boolean;
+  /** It's a repo's own checkout (`work tree <repo>`, no branch): never archived by the watch —
+   *  that's where you go on working after a PR merges, on the next branch. */
+  ownCheckout?: (session: WorktreeSession) => boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
@@ -364,7 +367,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       }
     }
     if (opts.autoArchive) {
-      const verdict = autoArchiveVerdict(pre, session, now());
+      const verdict = deps.ownCheckout?.(session) ? null : autoArchiveVerdict(pre, session, now());
       // Merged work decides it: drafts, notes and questions are kept with
       // the archive, not waited for. Only a turn in progress is.
       if (verdict?.archive && deps.busy?.(id)) note('every PR merged; archiving once its Claude finishes this turn');

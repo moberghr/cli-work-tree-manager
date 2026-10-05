@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { computeHookOutput, runTurnHook } from '../../src/commands/hook.js';
+import { isOwnCheckout, ownCheckoutNote } from '../../src/core/worktree/own-checkout.js';
 import { readStatus } from '../../src/core/status/session-status.js';
 import { clearCommentStoreCache, getCommentFileStore } from '../../src/core/comments/comment-file-store.js';
 import { saveHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
@@ -155,5 +156,37 @@ describe('runTurnHook (one hook per turn edge)', () => {
     const elsewhere: string[] = [];
     await runTurnHook(false, { cwd: path.join(tmpDir, 'not-a-session') }, { write: () => {}, post: async (r) => void elsewhere.push(r) });
     expect(elsewhere).toEqual(['api/checkpoint']);
+  });
+});
+
+describe("a repo's own checkout: its Claude stays on its branch", () => {
+  it('turn-start tells it, every turn; a worktree is told nothing, and turn-end never', async () => {
+    const own = { ...fakeSession(), branch: 'main' };
+    saveHistory([own]);
+    const write = (out: string[]) => (t: string) => void out.push(t);
+    const out: string[] = [];
+    await runTurnHook(
+      true,
+      { cwd: own.paths[0] },
+      { write: write(out), post: async () => {}, ownCheckoutNote: () => ownCheckoutNote(own) },
+    );
+    expect(out.join('')).toContain("This folder is repo's own checkout, which work keeps on main");
+    expect(out.join('')).toContain('`work tree repo <branch>`');
+    const end: string[] = [];
+    await runTurnHook(
+      false,
+      { cwd: own.paths[0] },
+      { write: write(end), post: async () => {}, ownCheckoutNote: () => ownCheckoutNote(own) },
+    );
+    expect(end.join('')).not.toContain('own checkout');
+    const wt: string[] = [];
+    await runTurnHook(true, { cwd: own.paths[0] }, { write: write(wt), post: async () => {}, ownCheckoutNote: () => null });
+    expect(wt.join('')).toBe('');
+  });
+
+  it("isOwnCheckout: the repo's folder however it is written, never a worktree of it", () => {
+    const repos = { repo: String.raw`C:\work\repo\ `.trim() };
+    expect(isOwnCheckout({ paths: ['c:/work/repo'] }, repos)).toBe(true);
+    expect(isOwnCheckout({ paths: ['C:/work/worktrees/repo/feat-x'] }, repos)).toBe(false);
   });
 });

@@ -86,6 +86,13 @@ describe('PR watch', () => {
     expect(h.deps.archive).toHaveBeenCalledWith('s1');
   });
 
+  it("never archives a repo's own checkout: you go on working there after its PR merges", async () => {
+    const h = harness([repo('api', merged(), true)]);
+    h.deps.ownCheckout = () => true;
+    await h.watch.tick();
+    expect(h.deps.archive).not.toHaveBeenCalled();
+  });
+
   it('a report-only refresh (the GET) posts no notes and archives nothing', async () => {
     const h = harness([repo('api', merged(), true)]);
     const h2 = harness([repo('api', failing())]);

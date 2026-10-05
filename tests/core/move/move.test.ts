@@ -109,7 +109,7 @@ describe('moving to another computer (real git, two homes)', () => {
     fs.writeFileSync(path.join(projects, 'conv.jsonl'), '{"type":"user","message":{"content":"build it"}}\n');
     fs.mkdirSync(path.join(oldHome, '.work', 'conversations', sessionIdFor(session)), { recursive: true });
     fs.writeFileSync(path.join(oldHome, '.work', 'conversations', sessionIdFor(session), 'conv.jsonl'), 'copy\n');
-  });
+  }, 120_000); // real git: repos, a clone, a worktree, pushes — slow on a CI runner
   afterAll(() => {
     home.mockRestore();
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -152,7 +152,7 @@ describe('moving to another computer (real git, two homes)', () => {
     expect(fs.existsSync(path.join(claudeProjectsRoot(), encodeProjectDir(s.paths[0]), 'conv.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(newHome, '.work', 'conversations', sessionIdFor(s), 'conv.jsonl'))).toBe(true);
     expect(withDb((d) => (d.prepare('SELECT COUNT(*) AS n FROM pty_sessions').get() as { n: number }).n)).toBe(0);
-  });
+  }, 120_000);
 
   it('refuses to import over sessions already here, unless forced; a folder that is no bundle says so', async () => {
     await expect(importBundle(bundle)).rejects.toThrow(/sessions already/);

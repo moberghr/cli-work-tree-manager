@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import type { Hono } from 'hono';
 import { loadConfig } from '../../core/platform/config.js';
+import { isOwnCheckout } from '../../core/worktree/own-checkout.js';
 import { createSeenStores } from '../../core/pr/pr-watch-store.js';
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
@@ -87,6 +88,8 @@ export function mountCiRoutes(
     runsUnsafe: (id) => dbPtySessions.read()[id]?.unsafe === true,
     ...(opts.activity ? { activity: opts.activity } : {}),
     busy: midTurn,
+    // A repo's own checkout isn't archived when its PR merges: you go on working there.
+    ownCheckout: (s) => isOwnCheckout(s, loadConfig()?.repos ?? {}),
     archive: opts.archive,
     tell: async (id, body) => {
       const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {

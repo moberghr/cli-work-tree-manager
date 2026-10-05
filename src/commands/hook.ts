@@ -8,6 +8,8 @@ import {
   sessionIdFor,
 } from '../core/comments/pending-delivery.js';
 import { isInternalRun } from '../core/platform/internal-run.js';
+import { isOwnCheckout, ownCheckoutNote } from '../core/worktree/own-checkout.js';
+import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
 import { bestEffortAsync } from '../core/platform/best-effort.js';
@@ -221,6 +223,16 @@ export const hookCommand: CommandModule = {
 export interface TurnHookIo {
   write: (text: string) => void;
   post: (route: string, cwd: string) => Promise<void>;
+  /** The own-checkout note for a folder (tests); default: from the session and config. */
+  ownCheckoutNote?: (cwd: string) => string | null;
+}
+
+/** The note for a turn starting in a repo's own checkout (the session for that folder), or null. */
+export function ownCheckoutNoteFor(cwd: string): string | null {
+  const session = findSessionForCwd(cwd);
+  if (!session || session.isGroup) return null;
+  const repos = loadConfig()?.repos ?? {};
+  return isOwnCheckout(session, repos) ? ownCheckoutNote(session) : null;
 }
 
 /**
@@ -237,6 +249,11 @@ export async function runTurnHook(
   const cwd = hookCwd(payload, agent);
   const result = computeHookOutput({ event: start ? 'prompt-submit' : 'stop', cwd }, claimForDelivery, agent);
   if (result?.sessionId) io.write(result.stdout);
+  // On a repo's own checkout: stay on its branch — branches are work's (own-checkout.ts).
+  if (start) {
+    const note = io.ownCheckoutNote ? io.ownCheckoutNote(cwd) : ownCheckoutNoteFor(cwd);
+    if (note) io.write(note + '\n');
+  }
   // A Stop that just handed Claude your comments (`decision: block`) is no
   // end of the turn: Claude goes on with them, and its real Stop comes later
   // (recorded as a stop then, so you hear when it is done).
