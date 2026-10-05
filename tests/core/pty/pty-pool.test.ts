@@ -151,7 +151,8 @@ describe('ensurePty', () => {
   it("the dev server (startHost: false) uses the running host and never starts one from its checkout's build", async () => {
     const pool = await freshPool();
     pool.configurePtyPool({ workBin: '/checkout/dist/bin.js', startHost: false });
-    expect(await pool.ensurePty('single')).toBeNull(); // none running: nothing started
+    // None running: nothing started, and it says why (not "unknown session").
+    await expect(pool.ensurePty('single')).rejects.toThrow(/No PTY host is running, and the dev server doesn't start one/);
     expect(ensureHost).not.toHaveBeenCalled();
     hostRunning = true;
     expect(await pool.ensurePty('single')).toBe('ws://host/single'); // the running one is used

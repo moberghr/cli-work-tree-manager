@@ -33,11 +33,17 @@ function startDemo() {
   const proc = spawn(process.execPath, [BIN, 'web', '--demo', '--no-open'], { stdio: ['ignore', 'inherit', 'pipe'] });
   const url = new Promise((resolve, reject) => {
     let seen = '';
+    let found = false;
     proc.stderr.on('data', (d) => {
       process.stderr.write(d);
+      if (found) return;
       seen += d;
-      const m = /DEMO at (http:\/\/[^\s\u001b]+)/.exec(seen);
-      if (m) resolve(m[1]);
+      // Only once the line is whole: a chunk can end inside the address.
+      const m = /DEMO at (http:\/\/[^\s\u001b]+)[\s\u001b]/.exec(seen);
+      if (m) {
+        found = true;
+        resolve(m[1]);
+      }
     });
     proc.on('exit', (code) => reject(new Error(`the demo exited (${code}) before it said where it runs`)));
     setTimeout(() => reject(new Error('the demo did not start within 30 s')), 30_000).unref();

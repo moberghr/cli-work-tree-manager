@@ -69,6 +69,10 @@ async function getClient(spawnIfMissing: boolean): Promise<PtyHostClient | null>
     return client;
   }
   const info = spawnIfMissing && mayStartHost ? await ensureHost(workBin) : await findHost();
+  if (!info && spawnIfMissing && !mayStartHost)
+    throw new Error(
+      "No PTY host is running, and the dev server doesn't start one: start the installed work (its app or `work web`) first.",
+    );
   if (!info) return null;
   client = new PtyHostClient(info);
   startRefresh();

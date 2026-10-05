@@ -31,18 +31,21 @@ export function UpdateStrip({
 }) {
   const [later, setLater] = useState<string | null>(laterFor);
   const [clicked, setRestarting] = useState(false);
-  const restarting = clicked || restartAsked;
+  // Installing: asked here, from Help, or by the app itself (a browser tab hears it through the server).
+  const restarting = clicked || restartAsked || updates?.desktop?.state === 'installing';
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const a = updates?.available;
-  if (!a || (later === a.version && !restarting)) return null;
+  // What Later hides: this version — or only its download, so the Restart card still comes when it's ready.
+  const laterKey = a ? (a.how === 'downloading' ? `${a.version}:downloading` : a.version) : '';
+  if (!a || (later === laterKey && !restarting)) return null;
   const dismiss = () => {
     try {
-      localStorage.setItem(LATER_KEY, a.version);
+      localStorage.setItem(LATER_KEY, laterKey);
     } catch {
       /* this time only */
     }
-    setLater(a.version);
+    setLater(laterKey);
   };
   const restartButton = (
     <button
@@ -96,7 +99,7 @@ export function UpdateStrip({
       ) : a.how === 'downloading' ? (
         // No percentage (a browser tab, or an app that stopped saying): nothing to draw a bar from.
         <>
-          <span className="wd-update-text">work {a.version} is on its way: the app is downloading it.</span>
+          <span className="wd-update-text">work {a.version} is out. The app gets it by itself and says when it&apos;s ready.</span>
           <span className="wd-update-actions">
             {whatsNew}
             {laterButton}

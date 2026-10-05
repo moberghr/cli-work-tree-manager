@@ -38,15 +38,21 @@ function readPid(stem: Stem): number | null {
 
 function writeFiles(stem: Stem, url: string, pid: number): void {
   fs.mkdirSync(path.dirname(fileOf(stem, 'url')), { recursive: true });
-  fs.writeFileSync(fileOf(stem, 'url'), url);
+  // The pid first: a server leaving at the same moment clears only files that name it,
+  // so it never takes the url of the one that just started.
   fs.writeFileSync(fileOf(stem, 'pid'), String(pid));
+  fs.writeFileSync(fileOf(stem, 'url'), url);
 }
 
-/** Remove a server's files; with `ownerPid`, only while they still name that server. */
-function clearFiles(stem: Stem, ownerPid?: number): void {
+/**
+ * Remove a server's files; with `ownerPid`, only while they still name that
+ * server. `strict`: not when the pid can't be read either (the dev server's:
+ * another may be writing its own).
+ */
+function clearFiles(stem: Stem, ownerPid?: number, strict = false): void {
   if (ownerPid !== undefined) {
     const current = readPid(stem);
-    if (current !== null && current !== ownerPid) return;
+    if (current === null ? strict : current !== ownerPid) return;
   }
   for (const ext of ['pid', 'url'] as const) {
     try {
@@ -91,7 +97,36 @@ export function readDevWeb(): { url: string; pid: number } | null {
 }
 export const writeDevWebDiscovery = (url: string, pid: number): void => writeFiles('web-dev', url, pid);
 /** Remove them, only while they still name `ownerPid`. */
-export const clearDevWebDiscovery = (ownerPid: number): void => clearFiles('web-dev', ownerPid);
+export const clearDevWebDiscovery = (ownerPid: number): void => clearFiles('web-dev', ownerPid, true);
+
+/** Where the dev server stands, for `work web --dev` (start, reuse, stop). */
+export type DevWebState =
+  | { kind: 'running'; url: string; pid: number }
+  /** Its process runs but it didn't answer in time: busy, never proof it's gone (as findHost). */
+  | { kind: 'busy'; url: string; pid: number }
+  | { kind: 'none' };
+
+/**
+ * The recorded dev server, only when it answers /api/context with the
+ * recorded pid and says it's the dev server: files that outlived a crash
+ * can name a reused pid, and their port another work web — the real one,
+ * which `--dev --stop` (run by every `npm run app:dev`) would then shut
+ * down. Files that name no live dev server are removed.
+ */
+export async function findDevWeb(probe: typeof probeWeb = probeWeb, alive: (pid: number) => boolean = isPidAlive): Promise<DevWebState> {
+  const url = readUrl('web-dev');
+  const pid = readPid('web-dev');
+  if (!url || pid === null) return { kind: 'none' };
+  if (!alive(pid)) {
+    clearFiles('web-dev', pid, true);
+    return { kind: 'none' };
+  }
+  const p = await probe(url, 3000);
+  if (p.kind === 'timeout') return { kind: 'busy', url, pid };
+  if (p.kind === 'ours' && p.pid === pid && p.dev) return { kind: 'running', url, pid };
+  clearFiles('web-dev', pid, true);
+  return { kind: 'none' };
+}
 
 export type WebProbe =
   | {

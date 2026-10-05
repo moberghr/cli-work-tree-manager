@@ -54,6 +54,7 @@ import { sessionIdFor } from '../core/sessions/session-id.js';
 import { DiffStatCache, wantsDiffStat } from '../core/diff/diff-stat.js';
 import { findOverlaps } from '../core/diff/overlap.js';
 import { buildStamp } from '../core/platform/build-stamp.js';
+import { afterArchive } from '../core/archive/after-archive.js';
 import { VERSION } from '../version.js';
 import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
@@ -761,13 +762,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // server keeps it too (an archive done from its dashboard has no other listener).
   const offArchived = lean
     ? () => {}
-    : onArchived((s) => {
-        void retargetChildrenOf(sessionIdFor(s), stackDeps)
-          .then((n) => n && broadcast('sessions-changed', { ts: Date.now() }))
-          .catch((err) => logSwallowed('moving stacked sessions onto main', err));
-        // A session others wait on is done.
-        void sweepBlocksNow();
-      });
+    : onArchived((s) =>
+        afterArchive(s, {
+          retarget: (id) => retargetChildrenOf(id, stackDeps),
+          changed: () => broadcast('sessions-changed', { ts: Date.now() }),
+          ...(jobs ? { sweepBlocks: sweepBlocksNow } : {}),
+        }),
+      );
 
   // Update from main (behind-main.ts): its numbers move, so look again.
   mountUpdateRoutes(app, {

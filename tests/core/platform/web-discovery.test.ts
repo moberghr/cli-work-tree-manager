@@ -7,6 +7,7 @@ import {
   clearDevWebDiscovery,
   devWebUrlPath,
   discoveryCheck,
+  findDevWeb,
   existingWebDecision,
   probeWeb,
   readDevWeb,
@@ -139,5 +140,49 @@ describe("the dev server's discovery files (work web --dev)", () => {
     writeDevWebDiscovery('http://127.0.0.1:5000/', 2_000_000_000); // no such process
     expect(readDevWeb()).toBeNull();
     fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe('findDevWeb (work web --dev: start, reuse, stop)', () => {
+  let home: string;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+  const setup = () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-find-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    writeDevWebDiscovery('http://127.0.0.1:5000/', 4242);
+  };
+  const probe = (r: Awaited<ReturnType<typeof probeWeb>>) => async () => r;
+  const ours = (pid: number, dev: boolean) => probe({ kind: 'ours', pid, lean: false, build: 'b', dev });
+
+  it('running only when it answers with the recorded pid and says it is the dev server', async () => {
+    setup();
+    expect(await findDevWeb(ours(4242, true), () => true)).toEqual({ kind: 'running', url: 'http://127.0.0.1:5000/', pid: 4242 });
+  });
+
+  it('the real work web on a reused port and pid is not it: none, and the stale files go', async () => {
+    setup();
+    expect(await findDevWeb(ours(4242, false), () => true)).toEqual({ kind: 'none' });
+    expect(fs.existsSync(devWebUrlPath())).toBe(false);
+    setup();
+    expect(await findDevWeb(ours(1, true), () => true)).toEqual({ kind: 'none' }); // another pid
+  });
+
+  it('a dead pid: none, and its files go; a busy one (timed out) is busy, never gone', async () => {
+    setup();
+    expect(await findDevWeb(ours(4242, true), () => false)).toEqual({ kind: 'none' });
+    expect(fs.existsSync(devWebUrlPath())).toBe(false);
+    setup();
+    expect(await findDevWeb(probe({ kind: 'timeout' }), () => true)).toMatchObject({ kind: 'busy', pid: 4242 });
+    expect(fs.existsSync(devWebUrlPath())).toBe(true);
+  });
+
+  it("a leaving server clears only files that name it — not a newer one's whose pid can't be read yet", () => {
+    setup();
+    fs.unlinkSync(path.join(home, '.work', 'web-dev.pid'));
+    clearDevWebDiscovery(1);
+    expect(fs.existsSync(devWebUrlPath())).toBe(true);
   });
 });

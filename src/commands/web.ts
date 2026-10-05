@@ -13,8 +13,8 @@ import {
   clearDevWebDiscovery,
   clearWebDiscovery,
   discoveryCheck,
+  findDevWeb,
   probeWeb,
-  readDevWeb,
   readWebPid,
   readWebUrl,
   existingWebDecision,
@@ -307,11 +307,15 @@ export const webCommand: CommandModule = {
  * (startWebServer's `dev`). One at a time: a second start reuses it.
  */
 async function runDev(open: boolean): Promise<void> {
-  const running = await findDevServer();
-  if (running) {
-    info(chalk.gray(`work web --dev already running at ${running.url} (PID ${running.pid}).`));
-    if (open) openUrl(running.url);
+  const found = await findDevWeb();
+  if (found.kind === 'running') {
+    info(chalk.gray(`work web --dev already running at ${found.url} (PID ${found.pid}).`));
+    if (open) openUrl(found.url);
     process.exit(0);
+  }
+  if (found.kind === 'busy') {
+    info(chalk.yellow(`A dev server (PID ${found.pid}) runs but isn't answering. Try again in a moment, or end that process.`));
+    process.exit(1);
   }
   const pending = pendingMigration();
   if (pending) {
@@ -344,34 +348,26 @@ async function runDev(open: boolean): Promise<void> {
   await new Promise(() => {});
 }
 
-/**
- * The recorded dev server, only when it answers /api/context with the
- * recorded pid and says it's the dev server: files that outlived a crash
- * can name a reused pid, and the port another work web — the real one,
- * which `--dev --stop` (run by every `npm run app:dev`) would then shut
- * down. Stale files are removed.
- */
-async function findDevServer(): Promise<{ url: string; pid: number } | null> {
-  const running = readDevWeb();
-  if (!running) return null;
-  const probe = await probeWeb(running.url, 3000);
-  if (probe.kind === 'ours' && probe.pid === running.pid && probe.dev) return running;
-  if (probe.kind !== 'timeout') clearDevWebDiscovery(running.pid);
-  return null;
-}
-
-/** `work web --dev --stop`: ask the dev server to shut down (only it: findDevServer). */
+/** `work web --dev --stop`: ask the dev server to shut down (only it: findDevWeb), and wait until it has. */
 async function stopDev(): Promise<boolean> {
-  const running = await findDevServer();
-  if (!running) {
+  const found = await findDevWeb();
+  if (found.kind === 'none') {
     info(chalk.gray('No dev server running.'));
     return true;
   }
-  const asked = await fetch(`${running.url}api/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) })
+  if (found.kind === 'busy') {
+    info(chalk.yellow(`The dev server (PID ${found.pid}) isn't answering. Nothing was stopped: try again in a moment.`));
+    return false;
+  }
+  const asked = await fetch(`${found.url}api/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) })
     .then((r) => r.ok)
     .catch(() => false);
-  info(chalk.gray(asked ? 'Stopped the dev server.' : `The dev server (PID ${running.pid}) did not answer.`));
-  return asked;
+  // Gone before the next start, or that start would find it still there and reuse the old build.
+  const until = Date.now() + 10_000;
+  while (asked && Date.now() < until && isPidAlive(found.pid)) await new Promise((r) => setTimeout(r, 100));
+  const gone = !isPidAlive(found.pid);
+  info(chalk.gray(gone ? 'Stopped the dev server.' : `The dev server (PID ${found.pid}) did not stop.`));
+  return gone;
 }
 
 /**

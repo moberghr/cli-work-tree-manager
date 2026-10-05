@@ -84,10 +84,40 @@ describe('UpdateStrip', () => {
         }),
       ),
     );
-    expect(container.textContent).toContain('work 2.0.3 is on its way: the app is downloading it.');
+    expect(container.textContent).toContain("work 2.0.3 is out. The app gets it by itself and says when it's ready.");
     expect(container.querySelector('[role="progressbar"]')).toBeNull();
     act(() => button('Later')!.click());
     expect(container.textContent).toBe('');
+  });
+
+  it('Later on a download hides the download only: the Restart card still comes when it is ready', () => {
+    const props = { onRestart: vi.fn(), onWhatsNew: vi.fn() };
+    act(() =>
+      root.render(
+        createElement(UpdateStrip, { ...props, updates: wire({ available: { version: '2.0.3', how: 'downloading', progress: 40 } }) }),
+      ),
+    );
+    act(() => button('Later')!.click());
+    expect(container.textContent).toBe('');
+    act(() => root.render(createElement(UpdateStrip, { ...props, updates: wire({ available: { version: '2.0.3', how: 'restart' } }) })));
+    expect(container.textContent).toContain('work 2.0.3 is ready.');
+  });
+
+  it('the app installing (a browser tab hears it through the server) shows Installing, not another Restart', () => {
+    act(() =>
+      root.render(
+        createElement(UpdateStrip, {
+          updates: wire({
+            available: { version: '2.0.3', how: 'restart' },
+            desktop: { appVersion: '2.0.2', state: 'installing', target: '2.0.3' },
+          }),
+          onRestart: vi.fn(),
+          onWhatsNew: vi.fn(),
+        }),
+      ),
+    );
+    expect(container.textContent).toContain('Installing work 2.0.3…');
+    expect(button('Restart')).toBeUndefined();
   });
 
   it('ready: says what Restart does', () => {
