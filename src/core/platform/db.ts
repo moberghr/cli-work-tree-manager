@@ -203,7 +203,6 @@ const ephemeral = () => process.env.WORK_DB_EPHEMERAL === '1';
 let conn: { file: string; db: Db } | null = null;
 let depth = 0;
 
-/** Run `fn` with the database. */
 /**
  * Would this build migrate state.db (its schema newer than the database's)?
  * Read without opening it the usual way, which migrates. For the dev server
@@ -223,6 +222,7 @@ export function pendingMigration(file: string = dbPath()): { from: number; to: n
   }
 }
 
+/** Run `fn` with the database. */
 export function withDb<T>(fn: (d: Db) => T): T {
   const file = dbPath();
   if (!conn || conn.file !== file) {

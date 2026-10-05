@@ -60,6 +60,19 @@ describe('useDesktop (the app tells its window, the window asks the app)', () =>
     expect(seen!.note).toBe('You have the newest work (2.0.2).');
   });
 
+  it("a Check asked during a download is answered by the check, not by the download's progress", () => {
+    w.__workDesktop = { app: true, update: { appVersion: '2.0.2', state: 'downloading', target: '2.0.3', progress: 10 } };
+    act(() => root.render(createElement(Probe, { go: vi.fn() })));
+    act(() => seen!.ask('check'));
+    const now = Math.floor(Date.now() / 1000);
+    send({ appVersion: '2.0.2', state: 'downloading', target: '2.0.3', progress: 60, at: now });
+    expect(seen!.note).toBeNull();
+    send({ appVersion: '2.0.2', state: 'ready', target: '2.0.3', at: now - 3600 }); // from before the ask
+    expect(seen!.note).toBeNull();
+    send({ appVersion: '2.0.2', state: 'ready', target: '2.0.3', at: now });
+    expect(seen!.note).toBe('work 2.0.3 is out.');
+  });
+
   it('a dev build of the app (no updater) leaves updates to the server', () => {
     w.__workDesktop = { app: true, update: { appVersion: '', state: 'unmanaged' } };
     act(() => root.render(createElement(Probe, { go: vi.fn() })));

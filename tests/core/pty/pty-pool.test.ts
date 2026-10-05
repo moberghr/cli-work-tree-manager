@@ -148,6 +148,16 @@ describe('ensurePty', () => {
     expect(pool.peekPty('single')).toBe(true);
   });
 
+  it("the dev server (startHost: false) uses the running host and never starts one from its checkout's build", async () => {
+    const pool = await freshPool();
+    pool.configurePtyPool({ workBin: '/checkout/dist/bin.js', startHost: false });
+    expect(await pool.ensurePty('single')).toBeNull(); // none running: nothing started
+    expect(ensureHost).not.toHaveBeenCalled();
+    hostRunning = true;
+    expect(await pool.ensurePty('single')).toBe('ws://host/single'); // the running one is used
+    expect(ensureHost).not.toHaveBeenCalled();
+  });
+
   it('the dashboard assistant spawns in its own folder, written first — not a worktree', async () => {
     const pool = await freshPool();
     expect(await pool.ensurePty('assistant')).toBe('ws://host/assistant');

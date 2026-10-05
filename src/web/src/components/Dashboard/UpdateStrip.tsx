@@ -67,6 +67,11 @@ export function UpdateStrip({
       What&apos;s new
     </button>
   );
+  const laterButton = (
+    <button type="button" className="wd-link-button" onClick={dismiss}>
+      Later
+    </button>
+  );
   const pct = a.how === 'downloading' && typeof a.progress === 'number' ? a.progress : null;
   return (
     <div className="wd-update-strip" role="status" aria-label="Update">
@@ -76,24 +81,33 @@ export function UpdateStrip({
           <ProgressBar />
           <span className="wd-update-sub">The app closes and comes back in a few seconds. Your Claudes keep running.</span>
         </>
-      ) : a.how === 'downloading' ? (
+      ) : a.how === 'downloading' && pct !== null ? (
         <>
           <span className="wd-update-text">
-            Downloading work {a.version}
-            {pct !== null && ` · ${pct}%`}
+            Downloading work {a.version} · {pct}%
           </span>
-          <span className="wd-update-actions">{whatsNew}</span>
+          <span className="wd-update-actions">
+            {whatsNew}
+            {laterButton}
+          </span>
           <ProgressBar value={pct} />
           <span className="wd-update-sub">You can keep working; it installs when you restart.</span>
+        </>
+      ) : a.how === 'downloading' ? (
+        // No percentage (a browser tab, or an app that stopped saying): nothing to draw a bar from.
+        <>
+          <span className="wd-update-text">work {a.version} is on its way: the app is downloading it.</span>
+          <span className="wd-update-actions">
+            {whatsNew}
+            {laterButton}
+          </span>
         </>
       ) : a.how === 'restart' ? (
         <>
           <span className="wd-update-text">work {a.version} is ready.</span>
           <span className="wd-update-actions">
             {whatsNew}
-            <button type="button" className="wd-link-button" onClick={dismiss}>
-              Later
-            </button>
+            {laterButton}
             {restartButton}
           </span>
           <span className="wd-update-sub">The app closes and comes back on {a.version} in a few seconds. Your Claudes keep running.</span>
@@ -120,9 +134,7 @@ export function UpdateStrip({
           )}
           <span className="wd-update-actions">
             {whatsNew}
-            <button type="button" className="wd-link-button" onClick={dismiss}>
-              Later
-            </button>
+            {laterButton}
           </span>
         </>
       )}

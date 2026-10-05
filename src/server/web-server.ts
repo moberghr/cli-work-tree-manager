@@ -757,7 +757,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const blocksTimer = !jobs ? null : setInterval(() => void sweepBlocksNow(), BLOCKS_EVERY_MS);
   blocksTimer?.unref?.();
 
-  const offArchived = !jobs
+  // Not a background job: it fires only in the process that archived, so the dev
+  // server keeps it too (an archive done from its dashboard has no other listener).
+  const offArchived = lean
     ? () => {}
     : onArchived((s) => {
         void retargetChildrenOf(sessionIdFor(s), stackDeps)

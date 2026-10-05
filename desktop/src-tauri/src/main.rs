@@ -524,8 +524,9 @@ mod tests {
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert!(args[0].replace('\\', "/").ends_with("/dist/bin.js"));
         assert_eq!(&args[1..], ["web", "--dev", "--no-open"]);
-        // The tests build the installed app (no `dev` feature): the real discovery files.
-        assert_eq!((discovery_file("url"), discovery_file("pid")), ("web.url", "web.pid"));
+        // The installed app reads the real work web's files; the dev app (`--features dev`) the dev server's.
+        let want = if DEV { ("web-dev.url", "web-dev.pid") } else { ("web.url", "web.pid") };
+        assert_eq!((discovery_file("url"), discovery_file("pid")), want);
     }
 
     #[test]

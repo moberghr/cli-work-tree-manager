@@ -98,7 +98,7 @@ export function availableUpdate(i: {
   desktop: DesktopUpdate | null;
 }): AvailableUpdate | null {
   const d = i.desktop;
-  if (d?.state === 'ready' && d.target && compareVersions(d.target, d.appVersion || i.running) > 0)
+  if ((d?.state === 'ready' || d?.state === 'installing') && d.target && compareVersions(d.target, d.appVersion || i.running) > 0)
     return { version: d.target, how: 'restart' };
   if (d?.state === 'downloading' && d.target) return downloading(d);
   if (!i.latest || !parseVersion(i.running) || compareVersions(i.latest, i.running) <= 0) return null;

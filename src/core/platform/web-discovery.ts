@@ -15,35 +15,57 @@ import { isPidAlive } from './process.js';
 
 // os.homedir() per call (not getConfigDir, which creates the dir): tests
 // mock homedir, and readers must not create ~/.work as a side effect.
-export function webUrlPath(): string {
-  return path.join(os.homedir(), '.work', 'web.url');
-}
-export function webPidPath(): string {
-  return path.join(os.homedir(), '.work', 'web.pid');
-}
+// One pair of files per server: `web` (the real one) or `web-dev` (the dev server).
+type Stem = 'web' | 'web-dev';
+const fileOf = (stem: Stem, ext: 'url' | 'pid') => path.join(os.homedir(), '.work', `${stem}.${ext}`);
 
-export function readWebUrl(): string | null {
+function readUrl(stem: Stem): string | null {
   try {
-    return fs.readFileSync(webUrlPath(), 'utf-8').trim() || null;
+    return fs.readFileSync(fileOf(stem, 'url'), 'utf-8').trim() || null;
   } catch {
     return null;
   }
 }
 
-export function readWebPid(): number | null {
+function readPid(stem: Stem): number | null {
   try {
-    const n = Number(fs.readFileSync(webPidPath(), 'utf-8').trim());
+    const n = Number(fs.readFileSync(fileOf(stem, 'pid'), 'utf-8').trim());
     return Number.isFinite(n) && n > 0 ? n : null;
   } catch {
     return null;
   }
 }
 
-export function writeWebDiscovery(url: string, pid: number): void {
-  fs.mkdirSync(path.dirname(webUrlPath()), { recursive: true });
-  fs.writeFileSync(webUrlPath(), url);
-  fs.writeFileSync(webPidPath(), String(pid));
+function writeFiles(stem: Stem, url: string, pid: number): void {
+  fs.mkdirSync(path.dirname(fileOf(stem, 'url')), { recursive: true });
+  fs.writeFileSync(fileOf(stem, 'url'), url);
+  fs.writeFileSync(fileOf(stem, 'pid'), String(pid));
 }
+
+/** Remove a server's files; with `ownerPid`, only while they still name that server. */
+function clearFiles(stem: Stem, ownerPid?: number): void {
+  if (ownerPid !== undefined) {
+    const current = readPid(stem);
+    if (current !== null && current !== ownerPid) return;
+  }
+  for (const ext of ['pid', 'url'] as const) {
+    try {
+      fs.unlinkSync(fileOf(stem, ext));
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+export function webUrlPath(): string {
+  return fileOf('web', 'url');
+}
+export function webPidPath(): string {
+  return fileOf('web', 'pid');
+}
+export const readWebUrl = (): string | null => readUrl('web');
+export const readWebPid = (): number | null => readPid('web');
+export const writeWebDiscovery = (url: string, pid: number): void => writeFiles('web', url, pid);
 
 /**
  * Remove the discovery files. With `ownerPid`, only if they still name that
@@ -51,22 +73,7 @@ export function writeWebDiscovery(url: string, pid: number): void {
  * its own in the meantime, and deleting those hides it from every client —
  * `wd`, the CLI, the Claude hooks.
  */
-export function clearWebDiscovery(ownerPid?: number): void {
-  if (ownerPid !== undefined) {
-    const current = readWebPid();
-    if (current !== null && current !== ownerPid) return;
-  }
-  try {
-    fs.unlinkSync(webPidPath());
-  } catch {
-    /* already gone */
-  }
-  try {
-    fs.unlinkSync(webUrlPath());
-  } catch {
-    /* already gone */
-  }
-}
+export const clearWebDiscovery = (ownerPid?: number): void => clearFiles('web', ownerPid);
 
 /**
  * The dev server's (`work web --dev`): a checkout's build next to the
@@ -74,48 +81,26 @@ export function clearWebDiscovery(ownerPid?: number): void {
  * that looks for work web (`wd`, the CLI, the Claude hooks, the installed
  * app) reads them, so it never takes the dev server for the real one.
  */
-export function devWebUrlPath(): string {
-  return path.join(os.homedir(), '.work', 'web-dev.url');
-}
-function devWebPidPath(): string {
-  return path.join(os.homedir(), '.work', 'web-dev.pid');
-}
+export const devWebUrlPath = (): string => fileOf('web-dev', 'url');
 
-/** The running dev server's url and pid, or null (none recorded, or its process is gone). */
+/** The recorded dev server's url and pid, or null (none recorded, or its process is gone). Not proof it's ours: probe it. */
 export function readDevWeb(): { url: string; pid: number } | null {
-  try {
-    const url = fs.readFileSync(devWebUrlPath(), 'utf-8').trim();
-    const pid = Number(fs.readFileSync(devWebPidPath(), 'utf-8').trim());
-    return url && Number.isFinite(pid) && pid > 0 && isPidAlive(pid) ? { url, pid } : null;
-  } catch {
-    return null;
-  }
+  const url = readUrl('web-dev');
+  const pid = readPid('web-dev');
+  return url && pid !== null && isPidAlive(pid) ? { url, pid } : null;
 }
-
-export function writeDevWebDiscovery(url: string, pid: number): void {
-  fs.mkdirSync(path.dirname(devWebUrlPath()), { recursive: true });
-  fs.writeFileSync(devWebUrlPath(), url);
-  fs.writeFileSync(devWebPidPath(), String(pid));
-}
-
+export const writeDevWebDiscovery = (url: string, pid: number): void => writeFiles('web-dev', url, pid);
 /** Remove them, only while they still name `ownerPid`. */
-export function clearDevWebDiscovery(ownerPid: number): void {
-  try {
-    if (Number(fs.readFileSync(devWebPidPath(), 'utf-8').trim()) !== ownerPid) return;
-  } catch {
-    return;
-  }
-  for (const f of [devWebPidPath(), devWebUrlPath()]) {
-    try {
-      fs.unlinkSync(f);
-    } catch {
-      /* already gone */
-    }
-  }
-}
+export const clearDevWebDiscovery = (ownerPid: number): void => clearFiles('web-dev', ownerPid);
 
 export type WebProbe =
-  | { kind: 'ours'; pid: number | null; lean: boolean; /** null: a build before stamps. */ build: string | null }
+  | {
+      kind: 'ours';
+      pid: number | null;
+      lean: boolean;
+      /** null: a build before stamps. */ build: string | null;
+      /** The dev server (`work web --dev`). */ dev: boolean;
+    }
   /** Nothing listens there (or something that isn't work web answered). */
   | { kind: 'gone' }
   /** No answer in time — possibly just busy; never proof it's gone. */
@@ -125,13 +110,14 @@ export async function probeWeb(url: string, timeoutMs = 1500): Promise<WebProbe>
   try {
     const res = await fetch(`${url}api/context`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { kind: 'gone' };
-    const body = (await res.json().catch(() => ({}))) as { mode?: unknown; pid?: unknown; lean?: unknown; build?: unknown };
+    const body = (await res.json().catch(() => ({}))) as { mode?: unknown; pid?: unknown; lean?: unknown; build?: unknown; dev?: unknown };
     if (typeof body.mode !== 'string') return { kind: 'gone' };
     return {
       kind: 'ours',
       pid: typeof body.pid === 'number' ? body.pid : null,
       lean: body.lean === true,
       build: typeof body.build === 'string' ? body.build : null,
+      dev: body.dev === true,
     };
   } catch (err) {
     const name = (err as { name?: string }).name;

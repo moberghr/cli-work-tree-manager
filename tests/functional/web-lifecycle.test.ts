@@ -151,6 +151,18 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     expect(workHooks()).toBe(3);
   }, 90_000);
 
+  it('--dev --stop never stops the real work web, even when stale dev files name it (a reused pid, a reused port)', async () => {
+    startWeb([]);
+    const real = (await until(context, (c) => !!c && c.lean === false, 'the real server'))!;
+    fs.writeFileSync(path.join(home, '.work', 'web-dev.url'), read('web.url')!);
+    fs.writeFileSync(path.join(home, '.work', 'web-dev.pid'), String(real.pid)); // alive, answers — not the dev server
+    const stop = spawnSync(process.execPath, [BIN, 'web', '--dev', '--stop'], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(stop.status).toBe(0);
+    expect(stop.stdout + stop.stderr).toMatch(/No dev server running/);
+    expect((await context())?.pid).toBe(real.pid);
+    expect(read('web-dev.url')).toBeNull(); // the stale files are gone
+  }, 90_000);
+
   it('--dev refuses a build that would migrate state.db (the installed work would then read a newer one)', () => {
     // A database from an older work: schema 1.
     const mk = spawnSync(

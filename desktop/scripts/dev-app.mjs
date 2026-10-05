@@ -28,12 +28,13 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} exited with ${r.status}`);
 }
 
-/** The demo's address, from its first lines ("work web DEMO at http://…"). */
+/** The demo's address, from its first lines ("work web DEMO at http://…", on stderr like all its messages). */
 function startDemo() {
-  const proc = spawn(process.execPath, [BIN, 'web', '--demo', '--no-open'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const proc = spawn(process.execPath, [BIN, 'web', '--demo', '--no-open'], { stdio: ['ignore', 'inherit', 'pipe'] });
   const url = new Promise((resolve, reject) => {
     let seen = '';
-    proc.stdout.on('data', (d) => {
+    proc.stderr.on('data', (d) => {
+      process.stderr.write(d);
       seen += d;
       const m = /DEMO at (http:\/\/[^\s\u001b]+)/.exec(seen);
       if (m) resolve(m[1]);

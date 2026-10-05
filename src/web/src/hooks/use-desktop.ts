@@ -30,7 +30,8 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
   const [inApp] = useState(inDesktopApp);
   const [update, setUpdate] = useState<DesktopUpdate | null>(() => parse(marker()?.update));
   const [note, setNote] = useState<string | null>(null);
-  const checkAsked = useRef(false);
+  /** When a Check was asked (the app's `at`, in seconds), or null. */
+  const checkAsked = useRef<number | null>(null);
   const goRef = useRef(go);
   goRef.current = go;
 
@@ -45,8 +46,10 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
 
   // How a Check for updates went, once the app has looked.
   useEffect(() => {
-    if (!checkAsked.current || !update || update.state === 'checking') return;
-    checkAsked.current = false;
+    // A download's progress isn't the check's answer: the check runs after it (one updater loop).
+    if (checkAsked.current === null || !update || update.state === 'checking' || update.state === 'downloading') return;
+    if (typeof update.at === 'number' && update.at < checkAsked.current) return; // from before the ask
+    checkAsked.current = null;
     setNote(
       update.state === 'failed'
         ? `Couldn't check: ${update.error ?? 'unknown'}`
@@ -60,7 +63,7 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
 
   const ask = useCallback((what: Exclude<DesktopAsk, 'hello'>) => {
     if (what === 'check') {
-      checkAsked.current = true;
+      checkAsked.current = Math.floor(Date.now() / 1000);
       setNote(null);
     }
     goRef.current(`${ASK_URL}${what}`);

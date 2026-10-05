@@ -54,9 +54,18 @@ describe('probeWeb', () => {
       pid: 7,
       lean: false,
       build: '1727600000000',
+      dev: false,
     });
+    // The dev server says so (work web --dev): its stop and reuse act only on it.
+    expect(await probeWeb(await server(0, { mode: 'dashboard', pid: 8, dev: true }))).toMatchObject({ kind: 'ours', pid: 8, dev: true });
     // What a work web from before September's build stamps answers.
-    expect(await probeWeb(await server(0, { mode: 'dashboard' }))).toEqual({ kind: 'ours', pid: null, lean: false, build: null });
+    expect(await probeWeb(await server(0, { mode: 'dashboard' }))).toEqual({
+      kind: 'ours',
+      pid: null,
+      lean: false,
+      build: null,
+      dev: false,
+    });
   });
 });
 
@@ -92,7 +101,7 @@ describe('existingWebDecision', () => {
 describe('discoveryCheck', () => {
   const self = { pid: 100, url: 'http://127.0.0.1:1111/' };
   const other = 'http://127.0.0.1:2222/';
-  const ours = (pid: number) => async () => ({ kind: 'ours' as const, pid, lean: false, build: 'b' });
+  const ours = (pid: number) => async () => ({ kind: 'ours' as const, pid, lean: false, build: 'b', dev: false });
 
   it('keeps running when web.pid names it', async () => {
     expect(await discoveryCheck(self, { readPid: () => 100 })).toBe('keep');

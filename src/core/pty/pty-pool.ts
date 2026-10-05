@@ -29,6 +29,8 @@ import { ASSISTANT_ID, prepareAssistantDir } from '../agents/assistant.js';
  */
 
 let workBin = process.argv[1] ?? '';
+/** Whether this server may start the PTY host when none runs (not the dev server: see configurePtyPool). */
+let mayStartHost = true;
 let client: PtyHostClient | null = null;
 let live = new Set<string>();
 /** The pids of those PTYs' processes (the Claudes the app runs). */
@@ -47,8 +49,12 @@ const REFRESH_MS = 2000;
 
 /** Called by `work web` at startup with the resolved `work` binary path,
  *  which is what the host is spawned from. */
-export function configurePtyPool(opts: { workBin: string }): void {
+export function configurePtyPool(opts: { workBin: string; startHost?: boolean }): void {
   workBin = opts.workBin;
+  // The dev server (`work web --dev`) uses the host that runs and never starts one: started
+  // from a checkout's build, the long-lived host that owns every Claude would outlive it,
+  // and the installed work would become a client of the checkout's code.
+  mayStartHost = opts.startHost ?? true;
 }
 
 /** The `work` binary path, for routes that launch `work attach`. */
@@ -62,7 +68,7 @@ async function getClient(spawnIfMissing: boolean): Promise<PtyHostClient | null>
     // as a failed call, which resets `client` below.
     return client;
   }
-  const info = spawnIfMissing ? await ensureHost(workBin) : await findHost();
+  const info = spawnIfMissing && mayStartHost ? await ensureHost(workBin) : await findHost();
   if (!info) return null;
   client = new PtyHostClient(info);
   startRefresh();

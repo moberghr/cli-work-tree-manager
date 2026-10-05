@@ -192,6 +192,7 @@ describe('archive deps (real git)', () => {
       expect(git(repo, 'for-each-ref', 'refs/work/archive/')).toBe(''); // the ref went once they were back
     });
 
+    // Two real repos through archive and Restore: ~9 s alone, past the default 20 s under a full parallel run.
     it('a group: each repo’s changes saved on its own, and each put back in its own folder', async () => {
       // A second repo, `web`, with feat/merged merged into its main too.
       const webOrigin = path.join(home, 'web.git');
@@ -235,7 +236,7 @@ describe('archive deps (real git)', () => {
       expect(fs.readFileSync(path.join(webWt, 'w'), 'utf8')).toBe('web edit');
       expect(fs.readFileSync(path.join(webWt, 'new.css'), 'utf8')).toBe('body {}');
       expect(fs.existsSync(path.join(apiWt, 'new.css'))).toBe(false); // not mixed up between repos
-    });
+    }, 60_000);
 
     it('commits not in main still keep the worktree: nothing saved, nothing left behind', async () => {
       const made = await setupWorktree('api', 'feat/squashed', config, undefined, undefined, { pull: false });

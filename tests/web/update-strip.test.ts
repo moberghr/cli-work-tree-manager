@@ -74,6 +74,22 @@ describe('UpdateStrip', () => {
     expect(button('Restart')).toBeUndefined();
   });
 
+  it("downloading with no percentage (a browser tab's guess): the plain line, no endless bar; Later in every state", () => {
+    act(() =>
+      root.render(
+        createElement(UpdateStrip, {
+          updates: wire({ available: { version: '2.0.3', how: 'downloading' } }),
+          onRestart: vi.fn(),
+          onWhatsNew: vi.fn(),
+        }),
+      ),
+    );
+    expect(container.textContent).toContain('work 2.0.3 is on its way: the app is downloading it.');
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+    act(() => button('Later')!.click());
+    expect(container.textContent).toBe('');
+  });
+
   it('ready: says what Restart does', () => {
     act(() =>
       root.render(

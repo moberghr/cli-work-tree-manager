@@ -307,8 +307,8 @@ export const webCommand: CommandModule = {
  * (startWebServer's `dev`). One at a time: a second start reuses it.
  */
 async function runDev(open: boolean): Promise<void> {
-  const running = readDevWeb();
-  if (running && (await probeWeb(running.url, 3000)).kind === 'ours') {
+  const running = await findDevServer();
+  if (running) {
     info(chalk.gray(`work web --dev already running at ${running.url} (PID ${running.pid}).`));
     if (open) openUrl(running.url);
     process.exit(0);
@@ -323,7 +323,7 @@ async function runDev(open: boolean): Promise<void> {
     );
     process.exit(1);
   }
-  configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
+  configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]), startHost: false });
   let stop = () => {};
   const handle = await startWebServer({ dev: true, onShutdownRequest: () => stop() });
   bestEffort('write the dev server discovery files', () => writeDevWebDiscovery(handle.url, process.pid));
@@ -344,10 +344,26 @@ async function runDev(open: boolean): Promise<void> {
   await new Promise(() => {});
 }
 
-/** `work web --dev --stop`: ask the dev server to shut down (it answers /api/context as itself first). */
-async function stopDev(): Promise<boolean> {
+/**
+ * The recorded dev server, only when it answers /api/context with the
+ * recorded pid and says it's the dev server: files that outlived a crash
+ * can name a reused pid, and the port another work web — the real one,
+ * which `--dev --stop` (run by every `npm run app:dev`) would then shut
+ * down. Stale files are removed.
+ */
+async function findDevServer(): Promise<{ url: string; pid: number } | null> {
   const running = readDevWeb();
-  if (!running || (await probeWeb(running.url, 3000)).kind !== 'ours') {
+  if (!running) return null;
+  const probe = await probeWeb(running.url, 3000);
+  if (probe.kind === 'ours' && probe.pid === running.pid && probe.dev) return running;
+  if (probe.kind !== 'timeout') clearDevWebDiscovery(running.pid);
+  return null;
+}
+
+/** `work web --dev --stop`: ask the dev server to shut down (only it: findDevServer). */
+async function stopDev(): Promise<boolean> {
+  const running = await findDevServer();
+  if (!running) {
     info(chalk.gray('No dev server running.'));
     return true;
   }

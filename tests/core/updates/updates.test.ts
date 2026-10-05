@@ -80,6 +80,16 @@ describe('availableUpdate', () => {
   });
 });
 
+describe('availableUpdate while installing', () => {
+  it('a Restart asked (installing) still offers Restart outside the app, never "downloading"', () => {
+    const desktop = { appVersion: '2.0.2', state: 'installing' as const, target: '2.0.3' };
+    expect(availableUpdate({ running: '2.0.2', install: 'desktop', latest: '2.0.3', desktop })).toEqual({
+      version: '2.0.3',
+      how: 'restart',
+    });
+  });
+});
+
 describe('inAppUpdates (the desktop app tells its window)', () => {
   // What a dev checkout's work web would say: its own version, a git command.
   const server = {
