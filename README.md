@@ -46,6 +46,10 @@ Work is the missing layer between `git worktree` and your AI assistant. Every br
 # Option A — Homebrew (macOS / Linux)
 brew install moberghr/work-tree/work    # provides `work` and `wd`
 
+# Or the desktop app (macOS, Apple silicon): the dashboard in its own window,
+# with `work` and `wd` inside it; it updates itself
+brew install --cask moberghr/work-tree/work-desktop
+
 # Option B — from source
 git clone https://github.com/moberghr/cli-work-tree-manager work
 cd work
