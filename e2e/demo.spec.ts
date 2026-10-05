@@ -454,6 +454,26 @@ test("the Activity panel says which work runs, checks for updates, and opens Wha
   await expect(notes).toHaveCount(0);
 });
 
+test('archived sessions come only when shown: Show archived lists them, and a link to one opens it', async ({ page }) => {
+  const all = (await (await fetch(`${url}api/sessions?archived=1`)).json()) as {
+    sessions: Array<{ id: string; branch: string; archivedAt: string | null }>;
+  };
+  const gone = all.sessions.find((s) => s.archivedAt)!;
+  await page.goto(`${url}#/sessions`);
+  const row = page.locator('tr', { hasText: gone.branch });
+  await page.getByRole('button', { name: /^View/ }).click();
+  const box = page.getByRole('checkbox', { name: /Show archived/ });
+  if (await box.isChecked()) await box.uncheck();
+  await expect(row).toHaveCount(0);
+  await box.check();
+  await expect(row.first()).toBeVisible();
+  await box.uncheck();
+  // A link straight to an archived session: it is fetched, never "not found".
+  await page.goto(`${url}#/s/${gone.id}/timeline`);
+  await expect(page.locator('.wd-archived-pill')).toBeVisible();
+  await expect(page.getByText('Session not found')).toHaveCount(0);
+});
+
 test('Repos: add a found repo from Start, make a group with it, and New worktree offers both', async ({ page }) => {
   await page.goto(`${url}#/start`);
   await page.getByRole('button', { name: 'Repos & groups' }).click();

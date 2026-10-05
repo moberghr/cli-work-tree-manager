@@ -50,7 +50,8 @@ const advance = (ms: number) => {
   clock += ms;
   scenario.tick();
 };
-const sessions = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
+// Archived ones too (the list's default is the live sessions).
+const sessions = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions?archived=1')).sessions;
 const byBranch = async (b: string) => (await sessions()).find((s) => s.branch === b)!;
 
 describe('demo server', () => {
@@ -250,6 +251,14 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${ready.id}/seen`, { prStage: ready.prStage })).status).toBe(200);
     const after = (await get<{ sessions: Row[] }>('/api/sessions')).sessions.find((r) => r.id === ready.id)!;
     expect(after.prStage?.seen).toBe(true);
+  });
+
+  it('the session list is the live sessions; ?archived=1 adds the archived ones', async () => {
+    const live = (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
+    const all = await sessions();
+    expect(live.some((s) => s.archivedAt)).toBe(false);
+    expect(all.filter((s) => s.archivedAt).length).toBeGreaterThan(0);
+    expect(all.length).toBeGreaterThan(live.length);
   });
 
   it('updates: the demo is current, with release notes to read; seen is remembered', async () => {

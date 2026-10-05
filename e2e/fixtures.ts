@@ -138,7 +138,7 @@ export class WorkEnv {
 
   /** Every session as work web reports it (archived ones included). */
   async sessions(): Promise<Array<{ target: string; branch: string; archivedAt: string | null }>> {
-    const res = await fetch(new URL('api/sessions', this.url));
+    const res = await fetch(new URL('api/sessions?archived=1', this.url));
     return ((await res.json()) as { sessions: Array<{ target: string; branch: string; archivedAt: string | null }> }).sessions;
   }
 
@@ -362,6 +362,26 @@ export class WorkEnv {
       const s = await this.screen(id);
       return s.includes(needle) ? s : null;
     });
+  }
+
+  /**
+   * A Claude as work sees one running outside it (a terminal of your own):
+   * a live `node` process with Claude Code's state file for a worktree,
+   * `~/.claude/sessions/<pid>.json`. Without one, a session nothing runs for
+   * can't stay working or waiting once work web has listed the processes.
+   */
+  fakeClaude(branch: string, status: 'busy' | 'idle' | 'waiting'): number {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+    const pid = child.pid!;
+    this.hostPids.add(pid); // swept with the rest at the end
+    const dir = path.join(this.home, '.claude', 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    const now = Date.now();
+    fs.writeFileSync(
+      path.join(dir, `${pid}.json`),
+      JSON.stringify({ pid, sessionId: crypto.randomUUID(), cwd: this.worktreePath(branch), status, startedAt: now, statusUpdatedAt: now }),
+    );
+    return pid;
   }
 
   stopHost(): void {

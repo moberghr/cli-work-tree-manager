@@ -202,18 +202,22 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   // Snoozes, in memory, by the real rules (snooze.ts).
   const snoozes = new Map<string, Snooze>();
+  // Live sessions; ?archived=1 adds the archived ones (as work web).
   app.get('/api/sessions', (c) =>
     c.json({
-      sessions: scenario.list().map((w) => {
-        const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
-        const z = snoozes.get(w.id);
-        const waiting = (blocks.get(w.id) ?? []).filter(
-          (b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt),
-        );
-        const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
-        const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
-        return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
-      }),
+      sessions: scenario
+        .list()
+        .filter((w) => c.req.query('archived') === '1' || !w.archivedAt)
+        .map((w) => {
+          const out = draftsFor(w.id) ? { ...w, replyDrafts: draftsFor(w.id) } : { ...w };
+          const z = snoozes.get(w.id);
+          const waiting = (blocks.get(w.id) ?? []).filter(
+            (b) => b.kind === 'pr' || scenario.list().some((x) => x.id === b.sessionId && !x.archivedAt),
+          );
+          const withBlocks = waiting.length ? { ...out, blockedBy: waiting } : out;
+          const noted = notes.has(w.id) ? { ...withBlocks, hasNote: true } : withBlocks;
+          return z && snoozeActive(z, noted) ? { ...noted, snoozed: { until: z.until } } : noted;
+        }),
     }),
   );
   app.post('/api/sessions/:id/snooze', async (c) => {

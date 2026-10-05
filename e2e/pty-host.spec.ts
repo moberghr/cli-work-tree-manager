@@ -141,6 +141,10 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   work.hook('status-notify', { cwd: cwd('feat/b'), message: 'Claude needs your permission to use Bash' });
   work.hook('status-prompt', { cwd: cwd('feat/c'), prompt: 'Write tests' });
   work.hook('status-stop', { cwd: cwd('feat/c') });
+  // Their Claudes run (outside work, as in your own terminals): a session with no
+  // Claude can't stay working or waiting once work web has listed the processes.
+  work.fakeClaude('feat/a', 'busy');
+  work.fakeClaude('feat/b', 'waiting');
 
   await page.goto(`${work.url}#/inbox`);
   const sections = page.locator('.wd-inbox-section h2');
@@ -158,9 +162,6 @@ test('attention inbox: blocked and finished sessions surface in order and clear 
   // `n` jumps to the most urgent one, on its terminal.
   await page.keyboard.press('n');
   await expect(page).toHaveURL(new RegExp(`#/s/${work.sessionId('app', 'feat/b')}/term$`));
-  // Its terminal is up (the terminal's code loads on first use): its tool now runs in
-  // the host, which is what keeps a session waiting on you when no Claude reports itself.
-  await expect(page.locator('.xterm').first()).toBeVisible();
 
   // Opening the finished one (from the inbox) marks it seen.
   await page.goto(`${work.url}#/inbox`);

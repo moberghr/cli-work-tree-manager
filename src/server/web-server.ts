@@ -174,7 +174,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // change and decay tick triggers a refetch from each open tab. Cache the
   // built list; any broadcast means something changed, so it drops the
   // cache, and a short TTL covers time-based changes (activity decay).
+  // One per answer: the live sessions (the default), or with the archived too (?archived=1).
   let sessionsCache: { at: number; body: unknown } | null = null;
+  let allSessionsCache: { at: number; body: unknown } | null = null;
   const SESSIONS_TTL_MS = 5_000;
   // `sessions-changed` makes every window refetch the whole list, and it
   // fires on every transcript write anywhere: at most one per
@@ -188,6 +190,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const sessionsChanged = throttleTrailing(() => emit('sessions-changed', { ts: Date.now() }), SESSIONS_EVENT_MS);
   const broadcast = (event: string, data: unknown) => {
     sessionsCache = null;
+    allSessionsCache = null;
     if (event === 'sessions-changed') sessionsChanged();
     else emit(event, data);
   };
@@ -310,8 +313,14 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
 
   // Archived sessions' rows don't change: kept between builds (createArchivedRows).
   const archivedRow = createArchivedRows();
+  // GET /api/sessions: the live sessions; ?archived=1 adds the archived ones (the
+  // Sessions table's "Show archived", the switcher, a link to one). Most views
+  // never show them, and they were most of the list.
   app.get('/api/sessions', (c) => {
-    if (!sessionsCache || Date.now() - sessionsCache.at > SESSIONS_TTL_MS) {
+    const withArchived = c.req.query('archived') === '1';
+    const cached = withArchived ? allSessionsCache : sessionsCache;
+    if (cached && Date.now() - cached.at <= SESSIONS_TTL_MS) return c.json(cached.body);
+    {
       const history = loadHistory();
       // Old entries sharing a folder with the branch checked out there get
       // none of that folder's activity; every running Claude (your terminal
@@ -333,42 +342,44 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const live = new Set(history.filter((x) => !x.archivedAt).map((x) => sessionIdFor(x)));
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
-      const sessions = history.map((s) =>
-        archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
-          sessionWire(s, {
-            diffStatFor,
-            claudesFor,
-            liveKnown: !!table && table.size > 0,
-            snoozeFor: (id) => snoozes.get(id) ?? null,
-            behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
-            stackFor: (id) => {
-              const p = stacks.parentOf.get(id);
-              const m = stacks.mergedParentOf.get(id);
-              return {
-                parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
-                children: stacks.children.get(id) ?? 0,
-                merged: m ? { id: m.id, branch: m.branch } : null,
-              };
-            },
-            hostedLive: (id) => peekPty(id),
-            outputStatusFor: (id) => outputStatus(id),
-            shadowed: (id) => shadow.has(id),
-            reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
-            prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
-            replyDraftsFor: (id) => drafts.get(id) ?? 0,
-            hasNote: (id) => noted.has(id),
-            blockedByFor: (id) =>
-              (blocks.get(id)?.by ?? [])
-                .filter((b) => !blockerDone(b, (x) => !live.has(x)))
-                .map((b) => ({
-                  key: blockKey(b),
-                  kind: b.kind,
-                  label: b.label,
-                  ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
-                })),
-          }),
-        ),
-      );
+      const sessions = history
+        .filter((s) => withArchived || !s.archivedAt)
+        .map((s) =>
+          archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
+            sessionWire(s, {
+              diffStatFor,
+              claudesFor,
+              liveKnown: !!table && table.size > 0,
+              snoozeFor: (id) => snoozes.get(id) ?? null,
+              behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
+              stackFor: (id) => {
+                const p = stacks.parentOf.get(id);
+                const m = stacks.mergedParentOf.get(id);
+                return {
+                  parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
+                  children: stacks.children.get(id) ?? 0,
+                  merged: m ? { id: m.id, branch: m.branch } : null,
+                };
+              },
+              hostedLive: (id) => peekPty(id),
+              outputStatusFor: (id) => outputStatus(id),
+              shadowed: (id) => shadow.has(id),
+              reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+              prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
+              replyDraftsFor: (id) => drafts.get(id) ?? 0,
+              hasNote: (id) => noted.has(id),
+              blockedByFor: (id) =>
+                (blocks.get(id)?.by ?? [])
+                  .filter((b) => !blockerDone(b, (x) => !live.has(x)))
+                  .map((b) => ({
+                    key: blockKey(b),
+                    kind: b.kind,
+                    label: b.label,
+                    ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
+                  })),
+            }),
+          ),
+        );
       // Sessions changing the same files — from the same background cache
       // as the stats, so this costs no git of its own.
       const overlaps = findOverlaps(
@@ -380,9 +391,11 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
         const o = overlaps.get(w.id);
         if (o) w.overlaps = o;
       }
-      sessionsCache = { at: Date.now(), body: { sessions } };
+      const built = { at: Date.now(), body: { sessions } };
+      if (withArchived) allSessionsCache = built;
+      else sessionsCache = built;
+      return c.json(built.body);
     }
-    return c.json(sessionsCache.body);
   });
 
   // A session's checkpoint history lives in its diff SCOPE (the machinery
@@ -628,7 +641,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountAssistantRoutes(app, {
     wireOptions: { diffStatFor: (id) => diffStats.peek(id) },
     overlapsFor: (id) =>
-      ((sessionsCache?.body as { sessions?: SessionWire[] } | undefined)?.sessions ?? []).find((w) => w.id === id)?.overlaps,
+      (((sessionsCache ?? allSessionsCache)?.body as { sessions?: SessionWire[] } | undefined)?.sessions ?? []).find((w) => w.id === id)
+        ?.overlaps,
   });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.

@@ -113,6 +113,33 @@ export function DashboardApp() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Archived sessions come only while something on screen shows them (wantsArchived):
+  // Sessions' "Show archived", the switcher, a session page for one. The list
+  // says whether it holds them (`archivedLoaded`), so a link to an archived
+  // session waits for them instead of saying it doesn't exist.
+  const [archivedFor, setArchivedFor] = useState<ReadonlySet<string>>(new Set());
+  const wantArchived = useCallback(
+    (reason: string, on: boolean) =>
+      setArchivedFor((cur) => {
+        if (cur.has(reason) === on) return cur;
+        const next = new Set(cur);
+        if (on) next.add(reason);
+        else next.delete(reason);
+        return next;
+      }),
+    [],
+  );
+  const withArchived = archivedFor.size > 0;
+  const withArchivedRef = useRef(withArchived);
+  withArchivedRef.current = withArchived;
+  const [archivedLoaded, setArchivedLoaded] = useState(false);
+  const loadSessions = useCallback(() => {
+    const asked = withArchivedRef.current;
+    return fetchSessions(asked).then((data) => {
+      setSessions(data);
+      setArchivedLoaded(asked);
+    });
+  }, []);
 
   // Modal state — opened from any tab's "create worktree from this thing"
   // action. The initial values pre-fill the form for PR/Jira/Task picks.
@@ -237,16 +264,13 @@ export function DashboardApp() {
     () =>
       coalesce(
         () =>
-          fetchSessions().then(
-            (data) => {
-              setSessions(data);
-              setError(null); // a later success clears an earlier failure
-            },
+          loadSessions().then(
+            () => setError(null), // a later success clears an earlier failure
             (err: Error) => setError(err.message),
           ),
         400,
       ),
-    [],
+    [loadSessions],
   );
   useEffect(() => () => refetch.cancel(), [refetch]);
   const firstLoad = useRef(true);
@@ -254,13 +278,13 @@ export function DashboardApp() {
     if (firstLoad.current) {
       // The first load is immediate.
       firstLoad.current = false;
-      fetchSessions().then(setSessions, (err: Error) => setError(err.message));
+      loadSessions().catch((err: Error) => setError(err.message));
       // The terminal's code (xterm) is loaded apart: fetch it once the list is up.
       setTimeout(preloadTerminal, 0);
       return;
     }
     refetch.trigger();
-  }, [refreshKey, refetch]);
+  }, [refreshKey, refetch, loadSessions]);
 
   // Notification discipline: tell the server what this tab shows, and turn
   // its `notify` events into click-to-jump browser notifications.
@@ -627,6 +651,21 @@ export function DashboardApp() {
     sessionMenu,
   ]);
 
+  // Archived sessions while they're wanted (see wantArchived): the switcher lists
+  // them last; a session page for one that isn't live needs its row. A change in
+  // what's wanted fetches the list again at once.
+  useEffect(() => wantArchived('switcher', switcherOpen), [switcherOpen, wantArchived]);
+  const routedOff = !!route.sessionId && !sessions.some((s) => s.id === route.sessionId && !isArchived(s));
+  useEffect(() => wantArchived('session-page', routedOff), [routedOff, wantArchived]);
+  const firstWant = useRef(true);
+  useEffect(() => {
+    if (firstWant.current) {
+      firstWant.current = false;
+      return;
+    }
+    loadSessions().catch((err: Error) => setError(err.message));
+  }, [withArchived, loadSessions]);
+
   // Current session (if route points at one).
   const activeSession = route.sessionId ? (sessions.find((s) => s.id === route.sessionId) ?? null) : null;
 
@@ -691,6 +730,9 @@ export function DashboardApp() {
         />
       </>
     );
+  } else if (route.sessionId && !archivedLoaded) {
+    // Not a live session: maybe an archived one, which is being fetched.
+    body = <div className="wd-tab-empty">Loading…</div>;
   } else if (route.sessionId) {
     // Routed to a session that doesn't exist (yet?). Show a placeholder
     // rather than dropping the user back to Sessions.
@@ -718,6 +760,7 @@ export function DashboardApp() {
         body = (
           <SessionsTab
             sessions={sessions}
+            onShowArchived={(on) => wantArchived('sessions-table', on)}
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
             onDeleteSession={setDeleting}

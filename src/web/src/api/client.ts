@@ -264,8 +264,9 @@ export function fetchActivity(): Promise<import('../../../core/api-types.js').Ac
   return getJson('/api/activity');
 }
 
-export function fetchSessions(): Promise<SessionSummary[]> {
-  return getJson<{ sessions: SessionSummary[] }>('/api/sessions').then((r) => r.sessions);
+/** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
+  return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }
 
 export interface ReviewContext {

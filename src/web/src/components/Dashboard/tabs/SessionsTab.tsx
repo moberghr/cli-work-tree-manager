@@ -45,6 +45,8 @@ interface Props {
   layout?: RailLayout;
   /** "Now / Today" beside the title: Sessions' two views. */
   viewToggle?: React.ReactNode;
+  /** Archived sessions are fetched only while shown: told when "Show archived" is on (and off when the table goes). */
+  onShowArchived?: (on: boolean) => void;
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
@@ -105,6 +107,7 @@ export function SessionsTab({
   onCleanUp,
   bulk = defaultBulk,
   viewToggle,
+  onShowArchived,
 }: Props) {
   // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
   // The checkboxes show only while selecting (View ▾ → Select several).
@@ -195,6 +198,11 @@ export function SessionsTab({
     writePref(ARCHIVED_KEY, v ? '1' : '0');
   };
 
+  useEffect(() => {
+    onShowArchived?.(showArchived);
+    return () => onShowArchived?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the callback is the app's, stable in effect; only the toggle matters
+  }, [showArchived]);
   const live = useMemo(() => sessions.filter((s) => !isArchived(s)), [sessions]);
   const archivedCount = sessions.length - live.length;
 
