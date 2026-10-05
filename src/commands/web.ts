@@ -10,14 +10,18 @@ import { startDemoServer } from '../server/demo/demo-server.js';
 import { resolveWebRoot } from '../core/platform/web-static.js';
 import { isPidAlive } from '../core/platform/process.js';
 import {
+  clearDevWebDiscovery,
   clearWebDiscovery,
   discoveryCheck,
   probeWeb,
+  readDevWeb,
   readWebPid,
   readWebUrl,
   existingWebDecision,
+  writeDevWebDiscovery,
   writeWebDiscovery,
 } from '../core/platform/web-discovery.js';
+import { pendingMigration } from '../core/platform/db.js';
 import { bestEffort, swallow } from '../core/platform/best-effort.js';
 
 /**
@@ -136,6 +140,12 @@ export const webCommand: CommandModule = {
         describe:
           'Run the dashboard against a simulated, in-memory world (no repos, agents or ~/.work touched) — for screenshots, UI work and demos. Runs beside a real work web.',
       })
+      .option('dev', {
+        type: 'boolean',
+        default: false,
+        describe:
+          "A second server with this checkout's build, next to the real work web, on the same sessions — what the dev app shows. No Claude hooks, notifications or background jobs (the real one keeps those); refuses a build that would migrate state.db. With --stop: stop it.",
+      })
       .option('autostart', {
         type: 'string',
         choices: ['on', 'off'],
@@ -149,6 +159,11 @@ export const webCommand: CommandModule = {
           'Internal: start without dashboard-only features (Claude activity watcher + hooks). Used by `wd` when it auto-starts work web for a diff-only session.',
       }),
   handler: async (argv) => {
+    if (argv.dev) {
+      if (argv.stop) process.exit((await stopDev()) ? 0 : 1);
+      await runDev(argv.open as boolean);
+      return;
+    }
     if (argv.stop) {
       const outcome = await stopExisting();
       info(
@@ -283,6 +298,65 @@ export const webCommand: CommandModule = {
     await new Promise(() => {});
   },
 };
+
+/**
+ * `work web --dev`: this checkout's build beside the installed work, on the
+ * same state.db and PTY host — the latest code on your real sessions. Not
+ * the singleton: its own discovery files (web-dev.url, which only the dev
+ * app reads), no Claude hooks, and none of the jobs that act
+ * (startWebServer's `dev`). One at a time: a second start reuses it.
+ */
+async function runDev(open: boolean): Promise<void> {
+  const running = readDevWeb();
+  if (running && (await probeWeb(running.url, 3000)).kind === 'ours') {
+    info(chalk.gray(`work web --dev already running at ${running.url} (PID ${running.pid}).`));
+    if (open) openUrl(running.url);
+    process.exit(0);
+  }
+  const pending = pendingMigration();
+  if (pending) {
+    info(
+      chalk.red(
+        `This build would move state.db from schema v${pending.from} to v${pending.to}, and the installed work would then read a database newer than it knows. ` +
+          "Try it on the demo (npm run app:demo), or stop the installed app's work web and run `work web` from this checkout.",
+      ),
+    );
+    process.exit(1);
+  }
+  configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });
+  let stop = () => {};
+  const handle = await startWebServer({ dev: true, onShutdownRequest: () => stop() });
+  bestEffort('write the dev server discovery files', () => writeDevWebDiscovery(handle.url, process.pid));
+  info(chalk.cyan(`work web DEV at ${handle.url}`));
+  info(
+    chalk.gray(
+      "This checkout's build on your real sessions, beside the installed work. Claude hooks, notifications and background jobs stay with the real work web.",
+    ),
+  );
+  if (open) openUrl(handle.url);
+  stop = () => {
+    clearDevWebDiscovery(process.pid);
+    void handle.stop().finally(() => process.exit(0));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  process.on('exit', () => clearDevWebDiscovery(process.pid));
+  await new Promise(() => {});
+}
+
+/** `work web --dev --stop`: ask the dev server to shut down (it answers /api/context as itself first). */
+async function stopDev(): Promise<boolean> {
+  const running = readDevWeb();
+  if (!running || (await probeWeb(running.url, 3000)).kind !== 'ours') {
+    info(chalk.gray('No dev server running.'));
+    return true;
+  }
+  const asked = await fetch(`${running.url}api/shutdown`, { method: 'POST', signal: AbortSignal.timeout(3000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+  info(chalk.gray(asked ? 'Stopped the dev server.' : `The dev server (PID ${running.pid}) did not answer.`));
+  return asked;
+}
 
 /**
  * `work web --demo`: the real SPA against the in-memory demo API. It is not

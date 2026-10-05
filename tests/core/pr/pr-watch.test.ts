@@ -260,6 +260,19 @@ describe('PR watch', () => {
     expect(withoutThread(ci, 't1').repos[0]).toEqual({ name: 'api', pr: pr(), done: false, openThreads: 0 });
   });
 
+  it('look-only (the dev server): keeps the PR state, tells no Claude and archives nothing', async () => {
+    const h = harness([repo('api', failing())], ON, false, null, { lookOnly: true });
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].pr?.checks).toBe('fail');
+    expect(h.deps.tell).not.toHaveBeenCalled();
+    h.set([repo('api', merged(), true)]);
+    await h.watch.tick();
+    await h.watch.refresh('s1', { act: true });
+    expect(h.deps.archive).not.toHaveBeenCalled();
+    expect(await h.watch.fixNow('s1')).toBe(false);
+    expect(h.deps.tell).not.toHaveBeenCalled();
+  });
+
   describe('GitHub calls', () => {
     it("re-reads a PR's review threads only when the PR changed (its updatedAt)", async () => {
       const fbOf = { viewer: 'me', reviews: [], comments: [], threads: [] } as unknown as ReviewFeedback;

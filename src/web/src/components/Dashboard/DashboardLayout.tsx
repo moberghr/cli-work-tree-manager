@@ -9,6 +9,8 @@ import { SessionRail } from './SessionRail.js';
 import { RAIL_SPEC, ResizeDivider, useResizableSize } from '../Layout/ResizeDivider.js';
 
 interface Props {
+  /** Served by the dev server: a DEV badge on the top bar. */
+  dev?: boolean;
   route: DashboardRoute;
   sessions: SessionSummary[];
   onSelectTab: (tab: DashboardRoute['tab']) => void;
@@ -55,6 +57,7 @@ interface Props {
  * mount this — it's a different shell entirely.
  */
 export function DashboardLayout({
+  dev = false,
   route,
   sessions,
   onSelectTab,
@@ -99,6 +102,7 @@ export function DashboardLayout({
   return (
     <div className="wd-dash-layout">
       <TopNav
+        dev={dev}
         active={route.tab}
         onSelect={onSelectTab}
         onHome={onHome}

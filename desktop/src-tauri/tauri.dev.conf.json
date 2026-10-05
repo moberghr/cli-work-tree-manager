@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "work dev",
+  "identifier": "hr.moberg.work-desktop.dev",
+  "bundle": {
+    "icon": ["icons-dev/icon.ico", "icons-dev/icon.png"]
+  }
+}

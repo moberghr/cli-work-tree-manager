@@ -204,6 +204,25 @@ let conn: { file: string; db: Db } | null = null;
 let depth = 0;
 
 /** Run `fn` with the database. */
+/**
+ * Would this build migrate state.db (its schema newer than the database's)?
+ * Read without opening it the usual way, which migrates. For the dev server
+ * (`work web --dev`): it runs a checkout's build on the real database next
+ * to the installed work, and must not move the database past what that one
+ * reads. Null when there's nothing to move: no database yet, or one at this
+ * schema or newer.
+ */
+export function pendingMigration(file: string = dbPath()): { from: number; to: number } | null {
+  if (!fs.existsSync(file)) return null;
+  const d = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const from = d.pragma('user_version', { simple: true }) as number;
+    return from < SCHEMA_VERSION ? { from, to: SCHEMA_VERSION } : null;
+  } finally {
+    d.close();
+  }
+}
+
 export function withDb<T>(fn: (d: Db) => T): T {
   const file = dbPath();
   if (!conn || conn.file !== file) {

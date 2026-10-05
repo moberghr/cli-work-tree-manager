@@ -68,6 +68,52 @@ export function clearWebDiscovery(ownerPid?: number): void {
   }
 }
 
+/**
+ * The dev server's (`work web --dev`): a checkout's build next to the
+ * installed work, found by the dev app through these files only — nothing
+ * that looks for work web (`wd`, the CLI, the Claude hooks, the installed
+ * app) reads them, so it never takes the dev server for the real one.
+ */
+export function devWebUrlPath(): string {
+  return path.join(os.homedir(), '.work', 'web-dev.url');
+}
+function devWebPidPath(): string {
+  return path.join(os.homedir(), '.work', 'web-dev.pid');
+}
+
+/** The running dev server's url and pid, or null (none recorded, or its process is gone). */
+export function readDevWeb(): { url: string; pid: number } | null {
+  try {
+    const url = fs.readFileSync(devWebUrlPath(), 'utf-8').trim();
+    const pid = Number(fs.readFileSync(devWebPidPath(), 'utf-8').trim());
+    return url && Number.isFinite(pid) && pid > 0 && isPidAlive(pid) ? { url, pid } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDevWebDiscovery(url: string, pid: number): void {
+  fs.mkdirSync(path.dirname(devWebUrlPath()), { recursive: true });
+  fs.writeFileSync(devWebUrlPath(), url);
+  fs.writeFileSync(devWebPidPath(), String(pid));
+}
+
+/** Remove them, only while they still name `ownerPid`. */
+export function clearDevWebDiscovery(ownerPid: number): void {
+  try {
+    if (Number(fs.readFileSync(devWebPidPath(), 'utf-8').trim()) !== ownerPid) return;
+  } catch {
+    return;
+  }
+  for (const f of [devWebPidPath(), devWebUrlPath()]) {
+    try {
+      fs.unlinkSync(f);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 export type WebProbe =
   | { kind: 'ours'; pid: number | null; lean: boolean; /** null: a build before stamps. */ build: string | null }
   /** Nothing listens there (or something that isn't work web answered). */

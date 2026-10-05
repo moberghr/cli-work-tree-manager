@@ -37,6 +37,36 @@ for (let y = 0; y < N; y++) {
     set(x, y, chevron || cursor ? [78, 201, 176, 255] : [30, 30, 30, 255]);
   }
 }
+// --dev: the dev app's icon (tauri.dev.conf.json) — the same tile with an
+// amber band and DEV across it, so the taskbar tells it from the installed app.
+const DEV = process.argv.includes('--dev');
+if (DEV) {
+  const strokes = [
+    // D
+    [128, 398, 128, 466],
+    [128, 398, 166, 398],
+    [166, 398, 194, 418],
+    [194, 418, 194, 446],
+    [194, 446, 166, 466],
+    [166, 466, 128, 466],
+    // E
+    [224, 398, 224, 466],
+    [224, 398, 282, 398],
+    [224, 432, 272, 432],
+    [224, 466, 282, 466],
+    // V
+    [310, 398, 346, 466],
+    [346, 466, 382, 398],
+  ];
+  for (let y = 384; y <= 480; y++) {
+    for (let x = 0; x < N; x++) {
+      if (!inRounded(x, y, 96)) continue;
+      const ink = strokes.some(([x1, y1, x2, y2]) => seg(x, y, x1, y1, x2, y2) < 9);
+      set(x, y, ink ? [30, 30, 30, 255] : [245, 166, 35, 255]);
+    }
+  }
+}
+
 const raw = Buffer.alloc(N * (N * 4 + 1));
 for (let y = 0; y < N; y++) px.copy(raw, y * (N * 4 + 1) + 1, y * N * 4, (y + 1) * N * 4);
 
@@ -69,7 +99,7 @@ const png = Buffer.concat([
   chunk('IDAT', zlib.deflateSync(raw)),
   chunk('IEND', Buffer.alloc(0)),
 ]);
-const out = path.join(import.meta.dirname, '..', 'src-tauri', 'icons', 'source.png');
+const out = path.join(import.meta.dirname, '..', 'src-tauri', 'icons', DEV ? 'source-dev.png' : 'source.png');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, png);
 console.log('wrote', out);

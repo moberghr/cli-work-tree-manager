@@ -94,7 +94,7 @@ function AppRoutes() {
   if (context.mode === 'review') {
     return <ReviewApp context={context} />;
   }
-  return <DashboardApp />;
+  return <DashboardApp dev={context.dev === true} />;
 }
 
 /** Detect `/diff/<hash>` or `/review/<hash>`. Returns `null` for any

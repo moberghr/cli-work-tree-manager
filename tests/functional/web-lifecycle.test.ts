@@ -30,6 +30,7 @@ beforeEach(() => {
   );
 });
 afterEach(async () => {
+  spawnSync(process.execPath, [BIN, 'web', '--dev', '--stop'], { env, timeout: 20_000 });
   spawnSync(process.execPath, [BIN, 'web', '--stop'], { env, timeout: 20_000 });
   for (const c of children.splice(0)) {
     try {
@@ -127,4 +128,44 @@ describe.skipIf(!hasBuild)('work web lifecycle (built binary)', () => {
     expect(again.stderr + again.stdout).toMatch(/already running/);
     expect((await context())?.pid).toBe(fresh.pid);
   }, 90_000);
+
+  it('--dev runs beside the real one: its own discovery files, no Claude hooks; --dev --stop stops only it', async () => {
+    startWeb([]);
+    const real = (await until(context, (c) => !!c && c.lean === false, 'the real server'))!;
+    await until(workHooks, (n) => n === 3, "the real server's Claude hooks");
+    startWeb(['--dev']);
+    const devUrl = (await until(() => read('web-dev.url'), Boolean, 'the dev server'))!;
+    const devCtx = (await (await fetch(`${devUrl}api/context`)).json()) as { dev?: boolean; pid: number };
+    expect(devCtx.dev).toBe(true);
+    expect(devCtx.pid).not.toBe(real.pid);
+    expect((await context())?.pid).toBe(real.pid); // web.url still names the real one
+    expect(workHooks()).toBe(3); // the dev server added none
+    const stop = spawnSync(process.execPath, [BIN, 'web', '--dev', '--stop'], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(stop.status).toBe(0);
+    await until(
+      () => read('web-dev.url'),
+      (v) => v === null,
+      "the dev server's files to go",
+    );
+    expect((await context())?.pid).toBe(real.pid);
+    expect(workHooks()).toBe(3);
+  }, 90_000);
+
+  it('--dev refuses a build that would migrate state.db (the installed work would then read a newer one)', () => {
+    // A database from an older work: schema 1.
+    const mk = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        "const D = require('better-sqlite3'); const d = new D(process.argv[1]); d.pragma('user_version = 1'); d.close();",
+        path.join(home, '.work', 'state.db'),
+      ],
+      { cwd: path.resolve(__dirname, '../..'), encoding: 'utf-8' },
+    );
+    expect(mk.status).toBe(0);
+    const r = spawnSync(process.execPath, [BIN, 'web', '--dev', '--no-open'], { env, encoding: 'utf-8', timeout: 30_000 });
+    expect(r.status).toBe(1);
+    expect(r.stdout + r.stderr).toMatch(/schema v1 to v\d+/);
+    expect(read('web-dev.url')).toBeNull();
+  }, 60_000);
 });

@@ -160,10 +160,19 @@ export interface WebServerOptions {
    *  Claude-hooks installation is gated separately in `work web`'s
    *  command handler — it's not in `startWebServer`. */
   lean?: boolean;
+  /** The dev server (`work web --dev`): a checkout's build next to the
+   *  installed work, on the same data. Everything that shows live state
+   *  runs (activity watcher, decay tick, PTY host heartbeat, a look-only PR
+   *  watch); nothing that acts does — no idle sleep, archive upkeep,
+   *  conversation sync, Jira watch, block sweep, stack sync or update
+   *  lookups: the real work web does those, and they must not run twice. */
+  dev?: boolean;
 }
 
 export async function startWebServer(opts: WebServerOptions = {}): Promise<WebServerHandle> {
-  const { lean = false } = opts;
+  const { lean = false, dev = false } = opts;
+  // Background jobs that act: the real, full work web's alone.
+  const jobs = !lean && !dev;
   const webRoot = resolveWebRoot();
   if (!webRoot) {
     throw new Error('Could not find dist/web/. Run `npm run build:web` (or `npm run build`) first.');
@@ -279,7 +288,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // pid lets `work web --stop` confirm it's killing THIS server, not a
   // process that reused a stale web.pid (core/web-discovery.ts).
   // `version`: the desktop app replaces a work web that isn't its own version (desktop/src-tauri/src/main.rs).
-  app.get('/api/context', (c) => c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp(), version: VERSION }));
+  app.get('/api/context', (c) =>
+    c.json({ mode: 'dashboard', pid: process.pid, lean, build: buildStamp(), version: VERSION, ...(dev ? { dev: true } : {}) }),
+  );
   app.get('/api/activity', (c) => c.json(activity.snapshot() satisfies ActivityWire));
 
   // Graceful stop, for `work web --stop`: on Windows killing the process is
@@ -478,6 +489,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const stageNewsFor = createStageTracker();
   const stageSeen = createSeenStores();
   const prWatch = mountCiRoutes(app, {
+    lookOnly: dev,
     broadcast: (event, data) => {
       broadcast(event, data);
       const id = event === 'ci-changed' ? (data as { sessionId?: string }).sessionId : undefined;
@@ -488,7 +500,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       const stage = prStageOf(prWatch.state(id)?.repos ?? []);
       const news = stageNewsFor(id, stage);
       if (threadsMoved || news !== 'none') broadcast('sessions-changed', { ts: Date.now() });
-      if (news === 'notify' && stage) {
+      // The real work web notifies; the dev server would say it twice.
+      if (news === 'notify' && stage && !dev) {
         const s = findSession(id);
         const name = s ? `${s.target} · ${s.branch}` : id;
         const event = { sessionId: id, kind: 'pr', title: `${stage.text} — ${name}` } satisfies NotifyEvent;
@@ -501,12 +514,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     archive: (id) =>
       archiveMergedSession(id, defaultArchiveDeps({ release: releaseSession }), () => broadcast('sessions-changed', { ts: Date.now() })),
   });
-  const stopPrWatch = lean ? null : prWatch.start(180_000);
+  // The dev server looks less often: it shares GitHub's API limit with the real one.
+  const stopPrWatch = lean ? null : prWatch.start(dev ? 10 * 60_000 : 180_000);
 
   // Idle Claudes nobody is looking at go to sleep (idle-sleep.ts): they stop
   // holding memory, and opening the session resumes the conversation.
   const SLEEP_EVERY_MS = 5 * 60_000;
-  const sleepSchedule = lean ? null : activity.schedule('idle-sleep', 'Idle Claude check', SLEEP_EVERY_MS);
+  const sleepSchedule = !jobs ? null : activity.schedule('idle-sleep', 'Idle Claude check', SLEEP_EVERY_MS);
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
@@ -536,12 +550,12 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     if (ids.length) broadcast('sessions-changed', { ts: Date.now() });
   };
   sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
-  const sleepTimer = lean ? null : setInterval(() => void sleepIdle(), SLEEP_EVERY_MS);
+  const sleepTimer = !jobs ? null : setInterval(() => void sleepIdle(), SLEEP_EVERY_MS);
 
   // Old archived conversations get compressed (archive-retention.ts): a few
   // minutes after start, then daily.
   const RETENTION_EVERY_MS = 24 * 3600_000;
-  const retentionSchedule = lean ? null : activity.schedule('archive', 'Archive upkeep', RETENTION_EVERY_MS);
+  const retentionSchedule = !jobs ? null : activity.schedule('archive', 'Archive upkeep', RETENTION_EVERY_MS);
   const archiveUpkeep = () => {
     retentionSchedule?.next(Date.now() + RETENTION_EVERY_MS);
     const cfg = loadConfig()?.archive;
@@ -558,10 +572,10 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       run.fail((err as Error).message);
     }
   };
-  const retentionFirst = lean ? null : setTimeout(archiveUpkeep, 3 * 60_000);
+  const retentionFirst = !jobs ? null : setTimeout(archiveUpkeep, 3 * 60_000);
   retentionFirst?.unref?.();
   retentionSchedule?.next(Date.now() + 3 * 60_000);
-  const retentionTimer = lean ? null : setInterval(archiveUpkeep, RETENTION_EVERY_MS);
+  const retentionTimer = !jobs ? null : setInterval(archiveUpkeep, RETENTION_EVERY_MS);
   retentionTimer?.unref?.();
   sleepTimer?.unref?.();
 
@@ -570,7 +584,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // after its turns (below, onStatusChanged), and all of them a minute after
   // start and every 30 minutes.
   const CONVERSATIONS_EVERY_MS = 30 * 60_000;
-  const conversationsSchedule = lean ? null : activity.schedule('conversations', 'Keep conversations', CONVERSATIONS_EVERY_MS);
+  const conversationsSchedule = !jobs ? null : activity.schedule('conversations', 'Keep conversations', CONVERSATIONS_EVERY_MS);
   let conversationsBusy = false;
   const keepConversations = async () => {
     conversationsSchedule?.next(Date.now() + CONVERSATIONS_EVERY_MS);
@@ -600,17 +614,17 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       conversationsBusy = false;
     }
   };
-  const conversationsFirst = lean ? null : setTimeout(() => void keepConversations(), 60_000);
+  const conversationsFirst = !jobs ? null : setTimeout(() => void keepConversations(), 60_000);
   conversationsFirst?.unref?.();
   conversationsSchedule?.next(Date.now() + 60_000);
-  const conversationsTimer = lean ? null : setInterval(() => void keepConversations(), CONVERSATIONS_EVERY_MS);
+  const conversationsTimer = !jobs ? null : setInterval(() => void keepConversations(), CONVERSATIONS_EVERY_MS);
   conversationsTimer?.unref?.();
   // After a turn: that session only, a few seconds later (a turn's hooks
   // come in bursts), one copy per session at a time.
   const conversationSyncs = new Map<string, ReturnType<typeof setTimeout>>();
   const syncConversationSoon = (s: WorktreeSession) => {
     const id = sessionIdFor(s);
-    if (lean || conversationSyncs.has(id)) return;
+    if (!jobs || conversationSyncs.has(id)) return;
     const t = setTimeout(() => {
       void syncConversation(s)
         .catch((err: Error) => report('detail', `[conversations] ${s.target}:${s.branch}: ${err.message}`))
@@ -653,7 +667,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
 
   // The Jira watch: newly assigned issues started in the right project
   // (jira-watch.ts), on/off in the Jira tab. Sweeps in full mode only.
-  const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean, create: makeWorktree });
+  const jiraWatch = mountJiraWatchRoutes(app, { broadcast, activity, lean: !jobs, create: makeWorktree });
 
   // Stacked sessions (stack-sync.ts): after a turn ends, bring a parent's new
   // commits into the idle, clean sessions stacked on it — and into this one,
@@ -692,7 +706,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   let statusNotify: { notify: (event: NotifyEvent, sessionName: string) => void } | null = null;
   // GitHub's limit spent (gh says so): no more PR questions until then.
   let ghRestUntil = 0;
-  const blocksSchedule = lean ? null : activity.schedule('blocks', 'Waiting on other work', BLOCKS_EVERY_MS);
+  const blocksSchedule = !jobs ? null : activity.schedule('blocks', 'Waiting on other work', BLOCKS_EVERY_MS);
   let blocksBusy = false;
   const sweepBlocksNow = async () => {
     blocksSchedule?.next(Date.now() + BLOCKS_EVERY_MS);
@@ -740,10 +754,10 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       blocksBusy = false;
     }
   };
-  const blocksTimer = lean ? null : setInterval(() => void sweepBlocksNow(), BLOCKS_EVERY_MS);
+  const blocksTimer = !jobs ? null : setInterval(() => void sweepBlocksNow(), BLOCKS_EVERY_MS);
   blocksTimer?.unref?.();
 
-  const offArchived = lean
+  const offArchived = !jobs
     ? () => {}
     : onArchived((s) => {
         void retargetChildrenOf(sessionIdFor(s), stackDeps)
@@ -802,7 +816,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     broadcast,
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
-      if (!lean) void syncStacksAfter(id);
+      if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)
       // from its first hook on, not only once someone opens it.
       const session = findSession(id);
@@ -840,17 +854,17 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const updates = createUpdates();
   mountAppUpdateRoutes(app, { updates, broadcast });
   const UPDATES_EVERY_MS = 6 * 3600_000;
-  const updatesSchedule = lean ? null : activity.schedule('updates', 'Release notes and updates', UPDATES_EVERY_MS);
+  const updatesSchedule = !jobs ? null : activity.schedule('updates', 'Release notes and updates', UPDATES_EVERY_MS);
   const lookNow = () => {
     updatesSchedule?.next(Date.now() + UPDATES_EVERY_MS);
     void lookForUpdates(updates, activity.start('updates', 'Looking for a newer work'), () =>
       broadcast('updates-changed', { ts: Date.now() }),
     );
   };
-  const updatesFirst = lean ? null : setTimeout(lookNow, 30_000);
+  const updatesFirst = !jobs ? null : setTimeout(lookNow, 30_000);
   updatesFirst?.unref?.();
   updatesSchedule?.next(Date.now() + 30_000);
-  const updatesTimer = lean ? null : setInterval(lookNow, UPDATES_EVERY_MS);
+  const updatesTimer = !jobs ? null : setInterval(lookNow, UPDATES_EVERY_MS);
   updatesTimer?.unref?.();
   const desktopFile = desktopUpdatePath();
   const onDesktopUpdate = () => broadcast('updates-changed', { ts: Date.now() });

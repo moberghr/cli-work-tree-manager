@@ -12,7 +12,11 @@ npm link           # `work` and `wd` on your PATH, running this checkout
 ```
 
 Rebuild after source changes (`npm run dev -- <args>` runs the CLI from source
-through tsx). A running `work web` from an older build is replaced by the next
+through tsx). To see your build in the desktop app beside the installed one:
+`npm run app:dev` — "work dev", with DEV on its icon and in the top bar — shows
+your real sessions through the dev server (`work web --dev`: no hooks, no
+background jobs, and it refuses a build that would migrate `state.db`);
+`npm run app:demo` shows the demo. A running `work web` from an older build is replaced by the next
 `work web`; the PTY host outlives rebuilds (`work pty-host --restart` after a
 protocol change).
 

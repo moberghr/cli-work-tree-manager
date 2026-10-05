@@ -34,6 +34,32 @@ use std::time::{Duration, Instant};
 
 use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
 
+/// The dev app (`npm run app:dev`: Cargo feature `dev` + tauri.dev.conf.json —
+/// "work dev", its own app id and the DEV icon). It shows the dev server
+/// (`work web --dev`: this checkout's build on your real sessions, beside the
+/// installed work), starting it from this checkout when none runs, through
+/// its own discovery files; it never updates itself, unpacks a CLI or
+/// touches PATH. Runs side by side with the installed app.
+const DEV: bool = cfg!(feature = "dev");
+
+/// The discovery files: the real work web's, or the dev server's (web-discovery.ts).
+fn discovery_file(kind: &str) -> &'static str {
+    match (DEV, kind) {
+        (true, "pid") => "web-dev.pid",
+        (true, _) => "web-dev.url",
+        (false, "pid") => "web.pid",
+        (false, _) => "web.url",
+    }
+}
+
+/// `node <this checkout>/dist/bin.js web --dev --no-open`: the dev app's server.
+fn dev_server_command() -> Command {
+    let bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("dist").join("bin.js");
+    let mut c = Command::new("node");
+    c.arg(bin).args(["web", "--dev", "--no-open"]);
+    c
+}
+
 fn work_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
@@ -50,7 +76,7 @@ fn log(msg: &str) {
 }
 
 fn recorded_pid() -> Option<u32> {
-    std::fs::read_to_string(work_dir()?.join("web.pid")).ok()?.trim().parse().ok()
+    std::fs::read_to_string(work_dir()?.join(discovery_file("pid"))).ok()?.trim().parse().ok()
 }
 
 /// Is a process with this pid running? (`kill -0`.)
@@ -79,7 +105,7 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 fn recorded_url() -> Option<String> {
-    let text = std::fs::read_to_string(work_dir()?.join("web.url")).ok()?;
+    let text = std::fs::read_to_string(work_dir()?.join(discovery_file("url"))).ok()?;
     let url = text.trim();
     (!url.is_empty()).then(|| url.to_string())
 }
@@ -176,7 +202,7 @@ fn replace_other_version(rt: &runtime::Runtime, url: &str) -> bool {
 /// `work web --no-open`, from the bundled CLI's copy when there is one, else
 /// the `work` on PATH.
 fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
-    let mut cmd = match rt {
+    let mut cmd = if DEV { dev_server_command() } else { match rt {
         Some(rt) => {
             let mut c = Command::new(&rt.node);
             c.arg(&rt.entry).args(["web", "--no-open"]);
@@ -207,7 +233,7 @@ fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
             c.args(["web", "--no-open"]);
             c
         }
-    };
+    } };
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -309,6 +335,8 @@ fn main() {
     // downloaded update and restarts.
     let first_run = Cell::new(false);
     let bin_dir = work_dir().map(|d| d.join("bin"));
+    // The dev app isn't installed: no Velopack hooks, no updater.
+    if !DEV {
     let mut app = velopack::VelopackApp::build().on_first_run(|_| first_run.set(true));
     #[cfg(windows)]
     {
@@ -331,13 +359,14 @@ fn main() {
             });
     }
     app.run();
+    }
     let first_run = first_run.get();
-    let asks = updates::spawn(log, work_dir());
+    let asks = if DEV { std::sync::mpsc::channel::<updates::Request>().0 } else { updates::spawn(log, work_dir()) };
 
     tauri::Builder::default()
         .setup(move |app| {
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("work")
+                .title(if DEV { "work (dev)" } else { "work" })
                 .inner_size(1480.0, 940.0)
                 .min_inner_size(720.0, 480.0)
                 // Tauri's own drop handler (for dropping files on the window)
@@ -347,9 +376,13 @@ fn main() {
                 .on_new_window(|url, _features| {
                     open_in_browser(&url);
                     tauri::webview::NewWindowResponse::Deny
-                })
-                // The page knows it's in the app (and asks for the update status once it's up).
-                .initialization_script(updates::PAGE_MARKER)
+                });
+            // The page knows it's in the app (and asks for the update status once it's up).
+            // Not in the dev app: it has no updater, so the dev server's own view stands.
+            if !DEV {
+                builder = builder.initialization_script(updates::PAGE_MARKER);
+            }
+            builder = builder
                 // The page's asks to the app: a navigation to http://work-desktop.invalid/<ask>,
                 // cancelled here — Check for updates, Restart, or "send me the status".
                 .on_navigation(move |url| match updates::page_ask(url.host_str(), url.path()) {
@@ -391,7 +424,7 @@ fn main() {
             thread::spawn(move || {
                 // The bundled CLI's copy (after an update this copies the new
                 // one: a few seconds), the launchers, and PATH.
-                let rt = match work_dir() {
+                let rt = match work_dir().filter(|_| !DEV) {
                     Some(dir) => {
                         let _ = window.eval("document.getElementById('msg') && (document.getElementById('msg').textContent = 'Setting up work…');");
                         match runtime::prepare(&dir) {
@@ -483,6 +516,16 @@ mod tests {
         assert_eq!(context_version(r#"{"mode":"dashboard","pid":1}"#), None);
         assert_eq!(context_version(r#"{"version":"../../x"}"#), None);
         assert_eq!(context_version(r#"{"version":"2.0.1"#), None);
+    }
+
+    #[test]
+    fn the_dev_app_starts_this_checkouts_dev_server() {
+        let c = dev_server_command();
+        let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert!(args[0].replace('\\', "/").ends_with("/dist/bin.js"));
+        assert_eq!(&args[1..], ["web", "--dev", "--no-open"]);
+        // The tests build the installed app (no `dev` feature): the real discovery files.
+        assert_eq!((discovery_file("url"), discovery_file("pid")), ("web.url", "web.pid"));
     }
 
     #[test]

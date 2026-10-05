@@ -22,6 +22,8 @@ interface Props {
   tasks?: React.ReactNode;
   /** Help: version, updates, what's new, shortcuts (HelpMenu). */
   help?: React.ReactNode;
+  /** Served by the dev server (`work web --dev`): DEV next to the brand. */
+  dev?: boolean;
 }
 
 interface TabDef {
@@ -65,6 +67,7 @@ export function TopNav({
   activity,
   tasks,
   help,
+  dev = false,
 }: Props) {
   const current = TAB_OF[active] ?? active;
   return (
@@ -83,6 +86,11 @@ export function TopNav({
       <button type="button" className="wd-dash-brand" onClick={onHome} title="work — dashboard home">
         work
       </button>
+      {dev && (
+        <span className="wd-dash-dev" title="This checkout's build on your real sessions (work web --dev), beside the installed work">
+          DEV
+        </span>
+      )}
       <ul className="wd-dash-tabs" role="tablist">
         {TABS.map((t) => (
           <li key={t.key}>

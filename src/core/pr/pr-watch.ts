@@ -73,6 +73,9 @@ export interface PrWatchDeps {
   /** It's a repo's own checkout (`work tree <repo>`, no branch): never archived by the watch —
    *  that's where you go on working after a PR merges, on the next branch. */
   ownCheckout?: (session: WorktreeSession) => boolean;
+  /** Look, never act (the dev server, `work web --dev`, next to the real one): checks keep
+   *  the PR state current for its dashboard, but tell no Claude, archive nothing, wake nobody. */
+  lookOnly?: boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
   /** Review threads/comments on a PR (null when gh can't say). */
@@ -467,7 +470,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         run?.progress(0, ids.length);
         const worker = async () => {
           for (let next = queue.shift(); next; next = queue.shift()) {
-            await check(next.id, next.session, true, run);
+            await check(next.id, next.session, !deps.lookOnly, run);
             run?.progress(++done, ids.length);
           }
         };
@@ -485,7 +488,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     },
     async refresh(id, opts) {
       const s = sessionOf(id);
-      return s ? check(id, s.session, opts?.act ?? true) : null;
+      return s ? check(id, s.session, !deps.lookOnly && (opts?.act ?? true)) : null;
     },
     state: (id) => states.get(id) ?? null,
     answered(id, threadId) {
@@ -497,6 +500,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       deps.broadcast('ci-changed', { sessionId: id });
     },
     async fixNow(id) {
+      if (deps.lookOnly) return false;
       const s = sessionOf(id);
       const ci = s ? await check(id, s.session, false) : null;
       if (!s || !ci) return false;

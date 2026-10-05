@@ -11,7 +11,7 @@ import { readPendingForSession } from '../../../src/core/comments/pending-delive
 import { dbPtySessions } from '../../../src/core/pty/pty-sessions-file.js';
 import { createSeenStores } from '../../../src/core/pr/pr-watch-store.js';
 import { getTasks, addTask } from '../../../src/core/tasks.js';
-import { revision, SCHEMA_VERSION, withDb, WAL_SIZE_LIMIT } from '../../../src/core/platform/db.js';
+import { dbPath, pendingMigration, revision, SCHEMA_VERSION, withDb, WAL_SIZE_LIMIT } from '../../../src/core/platform/db.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 
 /**
@@ -155,6 +155,15 @@ describe('first open imports the JSON state', () => {
     await recordStatusEvent('s1', { kind: 'prompt', prompt: 'go' });
     await recordStatusEvent('s1', { kind: 'stop' });
     expect(revision('sessions')).toBe(before + 2);
+  });
+
+  it('pendingMigration: whether this build would move the database (the dev server must not), read without moving it', () => {
+    expect(pendingMigration(path.join(os.tmpdir(), 'no-such-state.db'))).toBeNull(); // nothing to move
+    expect(loadHistory()).toEqual([]); // creates it, at this build's schema
+    expect(pendingMigration()).toBeNull();
+    withDb((d) => void d.pragma('user_version = 5'));
+    expect(pendingMigration()).toEqual({ from: 5, to: SCHEMA_VERSION });
+    expect(pendingMigration(dbPath())).toEqual({ from: 5, to: SCHEMA_VERSION }); // and it left it at 5
   });
 
   it('a fresh machine just gets an empty database', () => {

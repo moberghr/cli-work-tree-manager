@@ -5,6 +5,12 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## Unreleased
 
+- For working on work: `work web --dev`, a second server with a checkout's
+  build next to the real one, on your real sessions (no hooks, notifications
+  or background jobs; it refuses a build that would migrate the database), and
+  the dev app — `npm run app:dev` / `npm run app:demo`, "work dev" with DEV on
+  its icon — side by side with the installed app.
+
 - The desktop app shows an update's download as it happens: a progress bar
   with the percentage, on the card and in the version menu, then Restart, then
   "Installing…" until the app is back. The app tells its own window directly,

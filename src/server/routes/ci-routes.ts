@@ -67,9 +67,12 @@ export function mountCiRoutes(
     broadcast: (event: string, data: unknown) => void;
     archive: (id: string) => Promise<string | void>;
     activity?: ActivityLog;
+    /** The dev server (`work web --dev`): look, never act (pr-watch.ts lookOnly). */
+    lookOnly?: boolean;
   },
 ): PrWatch {
   const watch = createPrWatch({
+    lookOnly: opts.lookOnly,
     sessions: () => {
       const cutoff = Date.now() - RECENT_MS;
       return loadHistory()

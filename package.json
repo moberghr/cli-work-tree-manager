@@ -29,6 +29,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build && playwright test",
     "demo": "npm run build && node dist/bin.js web --demo",
+    "app:dev": "node desktop/scripts/dev-app.mjs",
+    "app:demo": "node desktop/scripts/dev-app.mjs --demo",
     "prepublishOnly": "npm run build",
     "postinstall": "node scripts/postinstall.mjs"
   },

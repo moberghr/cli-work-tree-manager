@@ -103,7 +103,8 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
-export function DashboardApp() {
+/** `dev`: served by the dev server (`work web --dev`) — the top bar says so. */
+export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // A bare URL (`work web` reopened the browser, or a PC restart) resumes
   // on the last route this browser was on; an explicit hash always wins.
   const [route, setRoute] = useState<DashboardRoute>(() => {
@@ -813,6 +814,7 @@ export function DashboardApp() {
   return (
     <>
       <DashboardLayout
+        dev={dev}
         route={route}
         sessions={sessions}
         onSelectTab={goTab}

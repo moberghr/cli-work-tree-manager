@@ -56,6 +56,18 @@
   padding: 4px 8px;
   border-radius: 4px;
 }
+/* The dev server's dashboard (work web --dev): told apart from the real one at a glance. */
+.wd-dash-dev {
+  margin: 0 8px 0 -4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f5a623;
+  color: #1e1e1e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 16px;
+}
 .wd-dash-brand:hover {
   background: var(--hover);
 }

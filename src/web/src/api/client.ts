@@ -319,6 +319,8 @@ export function isStaticMode(): boolean {
 }
 export interface DashboardContext {
   mode: 'dashboard';
+  /** The dev server (`work web --dev`): this checkout's build beside the real work web. */
+  dev?: boolean;
 }
 export type AppContext = ReviewContext | DashboardContext;
 
