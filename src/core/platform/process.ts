@@ -27,6 +27,68 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+/** How /proc is read (tests pass a fake one). */
+export interface ProcReader {
+  link: (p: string) => string | null;
+  file: (p: string) => string | null;
+  pids: () => number[];
+}
+
+const procFs: ProcReader = {
+  link: (p) => {
+    try {
+      return fs.readlinkSync(p);
+    } catch {
+      return null;
+    }
+  },
+  file: (p) => {
+    try {
+      return fs.readFileSync(p, 'utf-8');
+    } catch {
+      return null;
+    }
+  },
+  pids: () => {
+    try {
+      return fs
+        .readdirSync('/proc')
+        .filter((n) => /^\d+$/.test(n))
+        .map(Number);
+    } catch {
+      return [];
+    }
+  },
+};
+
+const baseName = (p: string) => p.split('/').pop() || p;
+
+/**
+ * On Linux, the program a process runs, from /proc: its executable when it
+ * can be read (our own processes), else its command line's first word, else
+ * its `comm`. Not `ps -o comm` alone: that is its main thread's name, which
+ * Node 24 sets to "MainThread" — every node process, Claude Code's included,
+ * read as that, and no Claude was ever found running.
+ */
+export function linuxProcessName(pid: number, read: ProcReader = procFs): string | null {
+  const exe = read.link(`/proc/${pid}/exe`);
+  if (exe) return baseName(exe.replace(/ \(deleted\)$/, ''));
+  const argv0 = (read.file(`/proc/${pid}/cmdline`) ?? '').split('\0')[0];
+  if (argv0) return baseName(argv0.split(' ')[0]);
+  const comm = (read.file(`/proc/${pid}/comm`) ?? '').trim();
+  return comm || null;
+}
+
+/** On Linux, every process's program by pid (linuxProcessName), from /proc: no `ps` to run. */
+export function linuxProcessTable(read: ProcReader = procFs): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const pid of read.pids()) {
+    const name = linuxProcessName(pid, read);
+    if (name) out.set(pid, name);
+  }
+  return out;
+}
+
 /**
  * The executable name of a live process ("cmd.exe", "sh"), or null if it
  * isn't running or can't be read. For checking a remembered pid is still
@@ -43,6 +105,7 @@ export function processName(pid: number): string | null {
       const m = /^"([^"]+)","(\d+)"/.exec((r.stdout ?? '').trim());
       return m && Number(m[2]) === pid ? m[1] : null;
     }
+    if (process.platform === 'linux') return isPidAlive(pid) ? linuxProcessName(pid) : null;
     const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000 });
     const name = (r.stdout ?? '').trim();
     return r.status === 0 && name ? name.split('/').pop()! : null;
@@ -74,6 +137,7 @@ export function recentProcessTable(maxAgeMs: number, now = Date.now()): Map<numb
 
 /** processTable(), without blocking the event loop. */
 export function processTableAsync(): Promise<Map<number, string>> {
+  if (process.platform === 'linux') return Promise.resolve(linuxProcessTable());
   return new Promise((resolve) => {
     const win = process.platform === 'win32';
     const [cmd, args] = win ? ['tasklist', ['/FO', 'CSV', '/NH']] : ['ps', ['-A', '-o', 'pid=,comm=']];
@@ -107,6 +171,7 @@ function parseProcessTable(stdout: string, win: boolean): Map<number, string> {
  * ps) — for checking many remembered pids at once. Empty if it can't be read.
  */
 export function processTable(): Map<number, string> {
+  if (process.platform === 'linux') return linuxProcessTable();
   try {
     const win = process.platform === 'win32';
     const r = win
