@@ -344,18 +344,18 @@ export function SessionRail({
           <span className="wd-dash-rail-lines">
             <span className="wd-dash-rail-line">
               <span className="wd-dash-rail-name">{label}</span>
-              <RailPrPills session={s} prs={prs} />
               <span className={'wd-dash-rail-slot ' + slot.cls}>{slot.text}</span>
             </span>
-            {/* One line a row; the open session also says where it stands. */}
-            {isActive && (
-              <span className="wd-dash-rail-line wd-dash-rail-sub">
-                <span className="wd-dash-rail-summary">
-                  {s.target}
-                  {named ? ` · ${s.branch}` : summary ? ` · ${summary}` : s.title ? ` · ${s.title}` : ''}
-                </span>
+            {/* Every row the same two lines: the name and its time (or count), then
+                its project (and branch, when you named it) and its PRs on the right.
+                Where it stands is the session's header, and the row's tooltip. */}
+            <span className="wd-dash-rail-line wd-dash-rail-sub">
+              <span className="wd-dash-rail-summary">
+                {s.target}
+                {named ? ` · ${s.branch}` : ''}
               </span>
-            )}
+              <RailPrPills session={s} prs={prs} />
+            </span>
           </span>
         </button>
       </li>

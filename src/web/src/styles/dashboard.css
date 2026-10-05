@@ -506,12 +506,12 @@ a.wd-pr-chip:hover {
 .wd-pr-chip-draft {
   border-style: dashed;
 }
-/* A rail row's PR pills: after the name, before the time; small, never squeezed. */
+/* A rail row's PR pills: right-aligned on its second line; small, never squeezed. */
 .wd-rail-prs {
   display: inline-flex;
   flex-shrink: 0;
   gap: 3px;
-  margin-left: 4px;
+  margin-left: auto;
 }
 .wd-rail-prs .wd-pr-chip {
   font-size: 10px;

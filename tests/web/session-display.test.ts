@@ -157,7 +157,7 @@ describe('SessionRail rows', () => {
     container.remove();
   });
 
-  it('one line a row: branch and status; the rest is in its tooltip; hides archived', () => {
+  it('two lines a row, the same for every row: branch and time, then project and PRs; the rest is in its tooltip; hides archived', () => {
     const sessions = [
       s({
         id: 'feat/x',
@@ -182,16 +182,18 @@ describe('SessionRail rows', () => {
     expect(rows).toHaveLength(1);
     const row = rows[0];
     expect(row.querySelector('.wd-dash-rail-name')?.textContent).toBe('feat/x');
-    // Not open: no second line; its PR as a pill, at a glance.
-    expect(row.querySelector('.wd-dash-rail-summary')).toBeNull();
-    expect(row.querySelector('.wd-pr-chip')?.textContent).toBe('#42');
+    // Not open, still two lines: its project on the left, its PR on the right —
+    // never what its Claude said last (that's the session's header).
+    expect(row.querySelector('.wd-dash-rail-summary')?.textContent).toBe('api');
+    expect(row.querySelector('.wd-dash-rail-sub .wd-pr-chip')?.textContent).toBe('#42');
+    expect(row.textContent).not.toContain('Claude needs your permission');
     expect(row.getAttribute('title')).toContain('Claude needs your permission to use Bash');
     // Its +/− lines are the Diff tab's, not the list's.
     expect(row.getAttribute('title')).not.toContain('+5');
     expect(row.querySelector('.wd-dash-rail-slot')?.className).toContain('wd-rail-slot-needs');
   });
 
-  it('the open session also says where it stands; a quiet one shows a relative time and no summary suffix', () => {
+  it('the open session reads the same as the others; a quiet one shows a relative time and no summary suffix', () => {
     act(() =>
       root.render(
         createElement(SessionRail, {

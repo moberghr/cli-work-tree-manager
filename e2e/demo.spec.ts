@@ -311,6 +311,8 @@ test('a saved prompt is sent to a session from its ⋯ menu, and shows in its co
 
 test('Today lists what each session did, and g d gets there', async ({ page }) => {
   await page.goto(`${url}#/inbox`);
+  // The keys are the dashboard's: once it's on screen (pressed while it loads, nothing hears them).
+  await expect(page.getByRole('heading', { name: /^Inbox/ })).toBeVisible();
   await page.locator('body').press('g');
   await page.locator('body').press('d');
   await expect(page).toHaveURL(/#\/today$/);
