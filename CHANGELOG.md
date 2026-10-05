@@ -43,8 +43,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 - Activity panel (what runs in the background, and why), Today digest, the
   Ctrl+K assistant, the Jira watch, desktop notifications that follow where
   you're looking.
-- Updates: the app says when there's a new version, and What's new shows the
-  release notes.
+- Updates: the version on the top bar opens Help — Check for updates, What's
+  new (the release notes), keyboard shortcuts — and the app says when there's
+  a new version.
 
 ### CLI
 - Talk to sessions from anywhere: `work read`, `screen`, `send`, `wait`,
