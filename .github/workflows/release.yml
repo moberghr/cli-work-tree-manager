@@ -40,8 +40,9 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # Build first, as CI does: the functional tests start work web, which serves dist/web.
       - run: npm run build
+      - run: npm test
 
       - name: Verify release tag matches package.json version
         run: |
