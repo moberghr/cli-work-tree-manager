@@ -11,6 +11,8 @@
 // is `tauri dev` with tauri.dev.conf.json and the Cargo feature `dev`
 // (main.rs DEV). Every command is an argv array, no shell (security §1.1).
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
@@ -44,6 +46,12 @@ function startDemo() {
 
 run('npm', ['run', 'build'], { cwd: ROOT });
 const env = { ...process.env };
+// rustup puts cargo in ~/.cargo/bin, which isn't always on PATH (a shell that predates the install).
+const cargoBin = path.join(os.homedir(), '.cargo', 'bin');
+if (spawn.sync('cargo', ['--version'], { stdio: 'ignore' }).status !== 0 && fs.existsSync(cargoBin)) {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  env[key] = `${cargoBin}${path.delimiter}${env[key] ?? ''}`;
+}
 let demoProc = null;
 if (demo) {
   const d = startDemo();
