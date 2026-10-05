@@ -3071,28 +3071,77 @@ a.wd-pr-chip:hover {
   opacity: 1;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
 }
-.wd-activity-version {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-  margin: 8px 0 0;
-  font-size: 11px;
+/* Help (HelpMenu): version, updates, what's new, shortcuts — the top bar's "?". */
+.wd-help {
+  position: relative;
+  margin-right: 8px;
+}
+.wd-help-btn {
+  appearance: none;
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.wd-help-btn:hover,
+.wd-help-btn[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--fg);
+}
+/* An update is there: a dot on the button. */
+.wd-help-btn-update::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.wd-help-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 220px;
+  padding: 6px 4px 4px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 12px;
+}
+.wd-help-version {
+  margin: 0 0 4px;
+  padding: 2px 8px 6px;
+  border-bottom: 1px solid var(--border);
   color: var(--muted);
 }
-.wd-activity-version-actions {
-  display: inline-flex;
-  gap: 10px;
-  margin-left: auto;
-}
-.wd-activity-version .wd-link-button {
-  font-size: 11px;
-}
-.wd-activity-update {
+.wd-help-status {
   color: var(--accent);
 }
-.wd-activity-update-note {
-  flex-basis: 100%;
+.wd-help-note {
+  margin: 0 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.wd-help-panel .wd-row-menu-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.wd-help-restart {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* A newer work (UpdateStrip): a small card at the bottom right, only when there is one. */

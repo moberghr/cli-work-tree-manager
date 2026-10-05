@@ -441,10 +441,10 @@ test('Jira has its own tab; Repos goes back to Start; the pages scroll when they
   await expect(page).toHaveURL(/#\/start$/);
 });
 
-test("the Activity panel says which work runs, checks for updates, and opens What's new", async ({ page }) => {
+test("Help in the top bar says which work runs, checks for updates, and opens What's new", async ({ page }) => {
   await page.goto(`${url}#/sessions`);
-  await page.getByRole('button', { name: /^Background jobs/ }).click();
-  const panel = page.getByRole('dialog', { name: 'Background activity' });
+  await page.getByRole('button', { name: /^Help: work v2\.1\.0/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Help' });
   await expect(panel).toContainText('work v2.1.0');
   await panel.getByRole('button', { name: 'Check for updates' }).click();
   await expect(panel).toContainText('You have the newest work (2.1.0).');

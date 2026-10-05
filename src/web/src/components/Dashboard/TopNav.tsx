@@ -20,6 +20,8 @@ interface Props {
   activity?: React.ReactNode;
   /** The Tasks button and its panel (TasksPanel). */
   tasks?: React.ReactNode;
+  /** Help: version, updates, what's new, shortcuts (HelpMenu). */
+  help?: React.ReactNode;
 }
 
 interface TabDef {
@@ -47,7 +49,7 @@ const TAB_OF: Partial<Record<DashboardRoute['tab'], DashboardRoute['tab']>> = {
 
 /**
  * Top bar, kept short: brand, the tabs (Inbox, Sessions, Start, Jira), then Tasks, Ask, the background
- * jobs' dot and the theme toggle (shared, persisted preference — see
+ * jobs' dot, Help (version and updates) and the theme toggle (shared, persisted preference — see
  * ThemeProvider). The session list is the rail beside every page; a
  * session's own page opens from it.
  */
@@ -62,6 +64,7 @@ export function TopNav({
   assistantOpen = false,
   activity,
   tasks,
+  help,
 }: Props) {
   const current = TAB_OF[active] ?? active;
   return (
@@ -115,6 +118,7 @@ export function TopNav({
         </button>
       )}
       {activity}
+      {help}
       <ThemeToggle />
     </nav>
   );

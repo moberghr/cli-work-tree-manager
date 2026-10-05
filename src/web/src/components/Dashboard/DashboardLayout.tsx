@@ -24,6 +24,8 @@ interface Props {
   assistantOpen?: boolean;
   /** The top bar's background-activity indicator. */
   activity?: React.ReactNode;
+  /** The top bar's Help button: version, updates, what's new, shortcuts (HelpMenu). */
+  help?: React.ReactNode;
   /** The top bar's Tasks button and panel. */
   tasks?: React.ReactNode;
   /** The rail's drag order (session ids, top first) and what a drag sets. */
@@ -64,6 +66,7 @@ export function DashboardLayout({
   onAssistant,
   assistantOpen,
   activity,
+  help,
   tasks,
   sessionOrder,
   onReorderSessions,
@@ -105,6 +108,7 @@ export function DashboardLayout({
         onAssistant={onAssistant}
         assistantOpen={assistantOpen}
         activity={activity}
+        help={help}
         tasks={tasks}
       />
       <div

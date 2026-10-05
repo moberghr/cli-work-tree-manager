@@ -8,7 +8,6 @@ import type { UpdateWire } from '../../src/core/api-types.js';
 
 const { UpdateStrip } = await import('../../src/web/src/components/Dashboard/UpdateStrip.js');
 const { WhatsNew } = await import('../../src/web/src/components/Dashboard/WhatsNew.js');
-const { VersionLine } = await import('../../src/web/src/components/Dashboard/ActivityIndicator.js');
 
 let container: HTMLDivElement;
 let root: Root;
@@ -136,25 +135,5 @@ describe('WhatsNew', () => {
     act(() => root.render(createElement(WhatsNew, { onClose: vi.fn(), load: async () => ({ releases: [], checkError: 'offline' }) })));
     await flush();
     expect(container.textContent).toContain('offline');
-  });
-});
-
-describe('VersionLine (the Activity panel)', () => {
-  it('which work runs, what is waiting, and Check for updates with how it went', () => {
-    const onCheck = vi.fn();
-    act(() =>
-      root.render(
-        createElement(VersionLine, {
-          updates: wire({ available: { version: '2.1.0', how: 'restart' } }),
-          onCheck,
-          onWhatsNew: vi.fn(),
-          note: 'work 2.1.0 is out.',
-        }),
-      ),
-    );
-    expect(container.textContent).toContain('work v2.0.0 · 2.1.0 is ready to install');
-    expect(container.textContent).toContain('work 2.1.0 is out.');
-    act(() => button('Check for updates')!.click());
-    expect(onCheck).toHaveBeenCalled();
   });
 });

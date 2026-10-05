@@ -128,12 +128,12 @@ describe('ActivityIndicator', () => {
     expect(container.querySelector('.wd-activity-panel')!.textContent).toContain("GitHub's API limit is spent");
   });
 
-  it('the panel says which version runs', async () => {
+  it("the panel is about background jobs only: the version is Help's (HelpMenu)", async () => {
     act(() => root.render(createElement(ActivityIndicator, { onOpenSession: () => {}, load: async () => RUNNING })));
     await flush();
     act(() => container.querySelector<HTMLButtonElement>('.wd-activity-dot-btn')!.click());
     expect(container.querySelector('.wd-activity-dot-btn')!.getAttribute('aria-label')).not.toMatch(/Background jobs: Background jobs/);
-    expect(container.querySelector('.wd-activity-version')!.textContent).toBe(`work v${VERSION}`);
+    expect(container.querySelector('.wd-activity-panel')!.textContent).not.toContain(`work v${VERSION}`);
   });
 
   it('counts down', () => {

@@ -41,6 +41,7 @@ import { defaultSubTab, isArchived, prsForSession, railGroups, type PrLookup } f
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
+import { HelpMenu } from '../components/Dashboard/HelpMenu.js';
 import { SessionsTab } from '../components/Dashboard/tabs/SessionsTab.js';
 import { StartTab } from '../components/Dashboard/tabs/StartTab.js';
 import { taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
@@ -822,14 +823,16 @@ export function DashboardApp() {
         inboxCount={inboxCount}
         prsFor={prsFor}
         onAssistant={toggleAssistant}
-        activity={
-          <ActivityIndicator
-            onOpenSession={(id) => openSession(id)}
+        activity={<ActivityIndicator onOpenSession={(id) => openSession(id)} />}
+        help={
+          <HelpMenu
             updates={upd.updates}
             onCheck={upd.check}
             checking={upd.checking}
             note={upd.note}
             onWhatsNew={() => setWhatsNew({ focus: null })}
+            onShortcuts={() => setHelpOpen(true)}
+            onRestart={upd.restart}
           />
         }
         tasks={<TasksPanel open={tasksOpen} onOpenChange={setTasksOpen} onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />}
