@@ -873,6 +873,7 @@ export function DashboardApp() {
       <UpdateStrip
         updates={upd.updates}
         onRestart={upd.restart}
+        restarting={upd.restarting}
         onWhatsNew={() => setWhatsNew({ focus: upd.updates?.available?.version ?? null })}
       />
       {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}

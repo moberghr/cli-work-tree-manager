@@ -21,17 +21,21 @@ export function UpdateStrip({
   updates,
   onRestart,
   onWhatsNew,
+  restarting: restartAsked = false,
 }: {
   updates: UpdateWire | null;
   onRestart: () => Promise<unknown>;
   onWhatsNew: () => void;
+  /** Restart was asked elsewhere too (Help's Restart to update): say it's installing. */
+  restarting?: boolean;
 }) {
   const [later, setLater] = useState<string | null>(laterFor);
-  const [restarting, setRestarting] = useState(false);
+  const [clicked, setRestarting] = useState(false);
+  const restarting = clicked || restartAsked;
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const a = updates?.available;
-  if (!a || later === a.version) return null;
+  if (!a || (later === a.version && !restarting)) return null;
   const dismiss = () => {
     try {
       localStorage.setItem(LATER_KEY, a.version);
@@ -43,11 +47,13 @@ export function UpdateStrip({
   return (
     <div className="wd-update-strip" role="status" aria-label="Update">
       <span className="wd-update-text">
-        {a.how === 'restart'
-          ? `work ${a.version} is ready.`
-          : a.how === 'downloading'
-            ? `work ${a.version} is on its way: the app is downloading it.`
-            : `work ${a.version} is out.`}
+        {restarting
+          ? `Installing work ${a.version}: the app closes and comes back on it in a moment. Your Claudes keep running.`
+          : a.how === 'restart'
+            ? `work ${a.version} is ready.`
+            : a.how === 'downloading'
+              ? `work ${a.version} is on its way: the app is downloading it.`
+              : `work ${a.version} is out.`}
       </span>
       {a.how === 'command' && a.command && (
         <span className="wd-update-command">

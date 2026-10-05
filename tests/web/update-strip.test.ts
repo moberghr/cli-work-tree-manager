@@ -39,6 +39,33 @@ const wire = (over: Partial<UpdateWire>): UpdateWire => ({
 });
 
 describe('UpdateStrip', () => {
+  it('Restart says it is installing: the app closes and comes back, the Claudes keep running', () => {
+    const props = {
+      updates: wire({ available: { version: '2.1.0', how: 'restart' } }),
+      onRestart: vi.fn(async () => ({})),
+      onWhatsNew: vi.fn(),
+    };
+    act(() => root.render(createElement(UpdateStrip, props)));
+    act(() => button('Restart')!.click());
+    expect(props.onRestart).toHaveBeenCalled();
+    expect(button('Restarting…')).toBeDefined();
+    expect(container.textContent).toContain('Installing work 2.1.0: the app closes and comes back on it in a moment');
+    expect(container.textContent).toContain('Your Claudes keep running');
+  });
+
+  it('Restart from Help (restarting) says so too, even after Later hid the card', () => {
+    const props = {
+      updates: wire({ available: { version: '2.1.0', how: 'restart' } }),
+      onRestart: vi.fn(async () => ({})),
+      onWhatsNew: vi.fn(),
+    };
+    act(() => root.render(createElement(UpdateStrip, props)));
+    act(() => button('Later')!.click());
+    expect(container.textContent).toBe('');
+    act(() => root.render(createElement(UpdateStrip, { ...props, restarting: true })));
+    expect(container.textContent).toContain('Installing work 2.1.0');
+  });
+
   it('nothing without an update', () => {
     act(() => root.render(createElement(UpdateStrip, { updates: wire({}), onRestart: vi.fn(), onWhatsNew: vi.fn() })));
     expect(container.textContent).toBe('');
@@ -50,9 +77,6 @@ describe('UpdateStrip', () => {
     const props = { updates: wire({ available: { version: '2.1.0', how: 'restart' } }), onRestart, onWhatsNew };
     act(() => root.render(createElement(UpdateStrip, props)));
     expect(container.textContent).toContain('work 2.1.0 is ready.');
-    act(() => button('Restart')!.click());
-    expect(onRestart).toHaveBeenCalled();
-    expect(button('Restarting…')).toBeDefined();
     act(() => button('What’s new')?.click() ?? button("What's new")!.click());
     expect(onWhatsNew).toHaveBeenCalled();
     act(() => button('Later')!.click());

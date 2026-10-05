@@ -1,11 +1,12 @@
 //! The `work` CLI the app ships with, and where it runs from.
 //!
-//! The package carries the CLI next to the app (`cli/`: a Node runtime, `dist/`
-//! and the production `node_modules`, staged by `scripts/stage-cli.mjs`). It does
+//! The package carries the CLI next to the app as one `cli.zip` (a Node
+//! runtime, `dist/` and the production `node_modules`, staged by
+//! `scripts/stage-cli.mjs`; a `cli/` folder in packages before 2.0.2). It does
 //! not RUN from there: an update replaces the install folder, and on Windows
 //! Velopack stops whatever still runs from it — work web, and the PTY host that
-//! owns every Claude. So the app copies the CLI to `~/.work/runtime/<version>/`
-//! and starts it from that copy; an update only adds the next copy beside it.
+//! owns every Claude. So the app unpacks the CLI to `~/.work/runtime/<version>/`
+//! and starts it from there; an update only adds the next copy beside it.
 //! `~/.work/runtime/current` names the copy `work` / `wd` use: launchers in
 //! `~/.work/bin`, which the app puts at the END of PATH (path_setup.rs), so an
 //! npm-installed `work` keeps coming first.
@@ -26,10 +27,32 @@ const NODE: &str = if cfg!(windows) { "node.exe" } else { "node" };
 /// Old copies kept besides the current one (a PTY host started weeks ago may still run one).
 const KEEP_OLD: usize = 2;
 
-/// `cli/` next to the app's executable, when this is a packaged app.
-pub fn bundled_dir() -> Option<PathBuf> {
-    let dir = std::env::current_exe().ok()?.parent()?.join("cli");
-    (dir.join("VERSION").is_file() && dir.join(NODE).is_file() && dir.join("dist").join("bin.js").is_file()).then_some(dir)
+/// The CLI the package carries, next to the app's executable: `cli.zip` with
+/// its version in `cli.version` (from 2.0.2: one file for an update to write,
+/// where a `cli/` folder of ~1,650 took Velopack and the antivirus a minute
+/// and a half), or the `cli/` folder of a package from before.
+enum Bundled {
+    Zip(PathBuf),
+    Dir(PathBuf),
+}
+
+/// What `exe_dir` carries, and the file holding its version.
+fn bundled_in(exe_dir: &Path) -> Option<(Bundled, PathBuf)> {
+    let (zip, version) = (exe_dir.join("cli.zip"), exe_dir.join("cli.version"));
+    if zip.is_file() && version.is_file() {
+        return Some((Bundled::Zip(zip), version));
+    }
+    let dir = exe_dir.join("cli");
+    (dir.join("VERSION").is_file() && dir.join(NODE).is_file() && dir.join("dist").join("bin.js").is_file())
+        .then(|| (Bundled::Dir(dir.clone()), dir.join("VERSION")))
+}
+
+/// Unpack `zip` (the stored zip stage-cli.mjs writes) into `to`. The zip
+/// crate keeps every name inside `to` and restores Unix modes.
+fn unzip(zip: &Path, to: &Path) -> Result<(), String> {
+    let file = fs::File::open(zip).map_err(|e| format!("opening {}: {e}", zip.display()))?;
+    let mut archive = ::zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| format!("reading {}: {e}", zip.display()))?;
+    archive.extract(to).map_err(|e| format!("unpacking {}: {e}", zip.display()))
 }
 
 /// A version is a folder name: digits, letters, dots, `+` and `-` only.
@@ -44,8 +67,14 @@ pub fn prepare(work_dir: &Path) -> Result<Option<Runtime>, String> {
     if std::env::var("WORK_DESKTOP_CLI").is_ok_and(|v| v == "path") {
         return Ok(None);
     }
-    let Some(src) = bundled_dir() else { return Ok(None) };
-    let version = fs::read_to_string(src.join("VERSION")).map_err(|e| format!("reading the bundled CLI's version: {e}"))?;
+    let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) else { return Ok(None) };
+    prepare_from(&exe_dir, work_dir)
+}
+
+/// `prepare`, with the CLI the app at `exe_dir` carries.
+fn prepare_from(exe_dir: &Path, work_dir: &Path) -> Result<Option<Runtime>, String> {
+    let Some((src, version_file)) = bundled_in(exe_dir) else { return Ok(None) };
+    let version = fs::read_to_string(&version_file).map_err(|e| format!("reading the bundled CLI's version: {e}"))?;
     let version = version.trim().to_string();
     if !valid_version(&version) {
         return Err(format!("the bundled CLI has an odd version: {version:?}"));
@@ -54,11 +83,18 @@ pub fn prepare(work_dir: &Path) -> Result<Option<Runtime>, String> {
     let dest = root.join(&version);
     if !dest.join("dist").join("bin.js").is_file() {
         fs::create_dir_all(&root).map_err(|e| format!("creating {}: {e}", root.display()))?;
-        // Copied under a temporary name and renamed into place: a copy cut
-        // short (the app closed, the disk filled) never looks complete.
+        // Unpacked (or copied) under a temporary name and renamed into place:
+        // one cut short (the app closed, the disk filled) never looks complete.
         let tmp = root.join(format!("{version}.tmp-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
-        copy_dir(&src, &tmp).map_err(|e| format!("copying the CLI to {}: {e}", tmp.display()))?;
+        match &src {
+            Bundled::Zip(zip) => unzip(zip, &tmp)?,
+            Bundled::Dir(dir) => copy_dir(dir, &tmp).map_err(|e| format!("copying the CLI to {}: {e}", tmp.display()))?,
+        }
+        if !(tmp.join(NODE).is_file() && tmp.join("dist").join("bin.js").is_file()) {
+            let _ = fs::remove_dir_all(&tmp);
+            return Err("the bundled CLI is incomplete (no Node or no dist/bin.js)".into());
+        }
         if fs::rename(&tmp, &dest).is_err() {
             // Another start of the app got there first.
             let _ = fs::remove_dir_all(&tmp);
@@ -207,6 +243,66 @@ mod tests {
         assert!(l.contains("current"));
         assert!(l.contains("dist") && l.contains("bin.js"));
         assert!(launcher("wd-bin.js").contains("wd-bin.js"));
+    }
+
+    /// A temp folder of its own per test.
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("work-rt-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn unpacks_the_cli_zip_the_packaging_script_writes() {
+        // testdata/cli-fixture.zip: written by desktop/scripts/zip-store.mjs (a stored zip).
+        let base = scratch("zip");
+        let (exe, work) = (base.join("app"), base.join("home").join(".work"));
+        fs::create_dir_all(&exe).unwrap();
+        fs::write(exe.join("cli.zip"), include_bytes!("testdata/cli-fixture.zip")).unwrap();
+        fs::write(exe.join("cli.version"), "9.9.9\n").unwrap();
+        let rt = prepare_from(&exe, &work).unwrap().unwrap();
+        assert_eq!(rt.version, "9.9.9");
+        let dest = work.join("runtime").join("9.9.9");
+        assert_eq!(rt.entry, dest.join("dist").join("bin.js"));
+        assert_eq!(fs::read_to_string(dest.join("dist").join("bin.js")).unwrap(), "console.log(\"work\");\n");
+        assert_eq!(fs::read_to_string(dest.join("node_modules").join("pkg").join("index.js")).unwrap(), "module.exports = 1;\n");
+        assert_eq!(fs::read_to_string(work.join("runtime").join("current")).unwrap(), "9.9.9");
+        assert!(work.join("bin").join(if cfg!(windows) { "work.cmd" } else { "work" }).is_file());
+        // Once there, a start leaves it as it is (nothing unpacked again).
+        fs::write(dest.join("marker"), "kept").unwrap();
+        prepare_from(&exe, &work).unwrap().unwrap();
+        assert!(dest.join("marker").is_file());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_package_from_before_carries_a_cli_folder() {
+        let base = scratch("dir");
+        let (exe, work) = (base.join("app"), base.join("home").join(".work"));
+        let cli = exe.join("cli");
+        fs::create_dir_all(cli.join("dist")).unwrap();
+        fs::write(cli.join("dist").join("bin.js"), "x").unwrap();
+        fs::write(cli.join(NODE), "n").unwrap();
+        fs::write(cli.join("VERSION"), "2.0.1").unwrap();
+        let rt = prepare_from(&exe, &work).unwrap().unwrap();
+        assert_eq!(rt.version, "2.0.1");
+        assert!(work.join("runtime").join("2.0.1").join("dist").join("bin.js").is_file());
+        // A dev build carries nothing: not a packaged app.
+        assert!(prepare_from(&base.join("nothing"), &work).unwrap().is_none());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_incomplete_cli_is_refused_and_leaves_no_copy() {
+        let base = scratch("bad");
+        let (exe, work) = (base.join("app"), base.join("home").join(".work"));
+        fs::create_dir_all(&exe).unwrap();
+        fs::write(exe.join("cli.zip"), b"not a zip").unwrap();
+        fs::write(exe.join("cli.version"), "9.9.8").unwrap();
+        assert!(prepare_from(&exe, &work).is_err());
+        assert!(!work.join("runtime").join("9.9.8").exists());
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

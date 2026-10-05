@@ -11,6 +11,8 @@ tauri-build = { version = "=2.7.1", features = [] }
 tauri = { version = "=2.12.1", features = [] }
 # Install, updates from GitHub Releases, and the install/uninstall hooks (main.rs, updates.rs).
 velopack = "=1.2.161"
+# Unpacking the bundled CLI's cli.zip (runtime.rs). The version Velopack already pulls in, so nothing compiles twice.
+zip = { version = "=8.6.0", default-features = false }
 
 # The user's PATH in the registry, and telling Explorer it changed (path_setup.rs).
 # The versions Tauri already pulls in, so nothing compiles twice.

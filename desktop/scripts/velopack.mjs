@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
-import { smokeTest, stageCli } from './stage-cli.mjs';
+import { packCliArchive, smokeTest, stageCli } from './stage-cli.mjs';
 import { workVersion } from '../../scripts/version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -88,7 +88,7 @@ function main() {
     run('npx', ['tauri', 'build', '--no-bundle'], { cwd: DESKTOP });
   }
 
-  // The app, and the CLI beside it (runtime.rs looks for cli/ next to the executable).
+  // The app, and the CLI beside it as one cli.zip (+ cli.version): runtime.rs unpacks it next to ~/.work.
   fs.rmSync(packDir, { recursive: true, force: true });
   fs.mkdirSync(packDir, { recursive: true });
   // CARGO_TARGET_DIR: e.g. to build beside a running copy of the app (Windows won't overwrite its exe).
@@ -96,6 +96,9 @@ function main() {
   fs.copyFileSync(path.join(targetDir, 'release', t.exe), path.join(packDir, t.exe));
   stageCli(path.join(packDir, 'cli'));
   smokeTest(path.join(packDir, 'cli'));
+  // One file instead of ~1,650: an update rewrites each file of the package (zip-store.mjs).
+  const cli = packCliArchive(path.join(packDir, 'cli'));
+  console.log(`  cli.zip: ${cli.files} files`);
 
   // The previous release, so vpk can build a delta against it. Optional: the
   // first release has none, and a miss only costs users a full download.

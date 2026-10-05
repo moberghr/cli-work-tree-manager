@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Stage the `work` CLI into the desktop app's package (the `cli/` folder next
-// to the app's executable; runtime.rs copies it to ~/.work/runtime/<version>).
+// Stage the `work` CLI into the desktop app's package: a `cli/` folder, smoke
+// tested, then packed as one `cli.zip` next to the app's executable
+// (packCliArchive); runtime.rs unpacks it to ~/.work/runtime/<version>.
 //
 //   node desktop/scripts/stage-cli.mjs <out-dir>
 //
@@ -16,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
 import { workVersion } from '../../scripts/version.mjs';
+import { listFiles, readStoredZip, zipDirectory } from './zip-store.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -54,6 +56,46 @@ function pruneForeignPrebuilds(nodeModules) {
   }
 }
 
+/**
+ * Files in node_modules nothing runs: docs, type definitions, source maps, debug symbols,
+ * TypeScript sources, test / example folders, and the C/C++ sources the two
+ * native modules were built from. About half the files (3,282 → ~1,650 in
+ * 2.0.1), and every file costs: an update rewrites each one, and the
+ * installed copy is written again under ~/.work/runtime. Licenses stay.
+ * `rel` is the path inside node_modules, with forward slashes.
+ */
+export function trimmable(rel) {
+  const base = rel.slice(rel.lastIndexOf('/') + 1);
+  if (/licen[cs]e|notice|copying/i.test(base)) return false;
+  return (
+    /\.(md|markdown)$/i.test(base) ||
+    /\.d\.[cm]?ts$/.test(base) ||
+    /\.map$/.test(base) ||
+    /\.pdb$/i.test(base) || // Windows debug symbols (node-pty's prebuilds: ~25 MB)
+    /\.[cm]?ts$/.test(base) ||
+    /(^|\/)(tests?|__tests__|examples?|docs?|\.github|benchmarks?)\//.test(rel) ||
+    /^(better-sqlite3|node-pty)\/(deps|src)\//.test(rel)
+  );
+}
+
+function trimNodeModules(nodeModules) {
+  if (!fs.existsSync(nodeModules)) return 0;
+  let removed = 0;
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(p);
+        if (fs.readdirSync(p).length === 0) fs.rmdirSync(p);
+      } else if (trimmable(path.relative(nodeModules, p).split(path.sep).join('/'))) {
+        fs.rmSync(p, { force: true });
+        removed++;
+      }
+    }
+  })(nodeModules);
+  return removed;
+}
+
 /** Run, fail loudly. */
 function run(cmd, args, opts) {
   const r = spawn.sync(cmd, args, { stdio: 'inherit', ...opts });
@@ -81,6 +123,7 @@ export function stageCli(out, { root = ROOT, node = process.execPath, install = 
     });
   }
   pruneForeignPrebuilds(path.join(out, 'node_modules'));
+  trimNodeModules(path.join(out, 'node_modules'));
   fs.copyFileSync(node, path.join(out, nodeName()));
   fs.chmodSync(path.join(out, nodeName()), 0o755);
   // Written last: runtime.rs takes a cli/ with a VERSION as complete.
@@ -97,12 +140,39 @@ export function smokeTest(out) {
   const want = fs.readFileSync(path.join(out, 'VERSION'), 'utf8').trim();
   if (v.status !== 0 || v.stdout.trim() !== want)
     throw new Error(`work --version said ${JSON.stringify(v.stdout?.trim())} (exit ${v.status}), wanted ${want}`);
-  const native = spawn.sync(node, ['-e', "require('better-sqlite3'); require('node-pty'); console.log('ok')"], {
+  // --help loads every command, and with them every dependency they import:
+  // a file the trim took that something still needs fails here, not on a user's machine.
+  const help = spawn.sync(node, [path.join(out, 'dist', 'bin.js'), '--help'], { encoding: 'utf8' });
+  if (help.status !== 0) throw new Error(`work --help failed (exit ${help.status}):\n${help.stderr}`);
+  // The native modules, and the packages loaded only on first use (core/platform/spawn.ts, fs-safe.ts, fs-watcher.ts), which --help doesn't reach.
+  const load = ['better-sqlite3', 'node-pty', 'cross-spawn', 'proper-lockfile', 'chokidar'].map((m) => `require('${m}');`).join(' ');
+  const native = spawn.sync(node, ['-e', `${load} console.log('ok')`], {
     cwd: out,
     encoding: 'utf8',
   });
   if (native.status !== 0 || native.stdout.trim() !== 'ok')
     throw new Error(`native modules don't load on the bundled Node:\n${native.stderr}`);
+}
+
+/**
+ * The staged (and smoke-tested) `cli/` as one file for the package: `cli.zip`
+ * beside it, its version in `cli.version` (read without opening the zip), the
+ * folder removed. runtime.rs unpacks it into ~/.work/runtime/<version>. Each
+ * entry is read back first: a damaged archive must not ship.
+ */
+export function packCliArchive(cliDir) {
+  const parent = path.dirname(cliDir);
+  const zip = path.join(parent, 'cli.zip');
+  const version = fs.readFileSync(path.join(cliDir, 'VERSION'), 'utf8').trim();
+  const files = listFiles(cliDir);
+  zipDirectory(cliDir, zip);
+  const entries = readStoredZip(zip);
+  const missing = files.filter((f, i) => entries[i]?.name !== f);
+  if (entries.length !== files.length || missing.length)
+    throw new Error(`cli.zip doesn't hold what cli/ does (${missing.slice(0, 3).join(', ')})`);
+  fs.writeFileSync(path.join(parent, 'cli.version'), version);
+  fs.rmSync(cliDir, { recursive: true, force: true });
+  return { zip, version, files: files.length };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

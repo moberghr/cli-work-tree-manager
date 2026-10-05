@@ -12,6 +12,8 @@ export function useUpdates(api = { fetchUpdates, checkForUpdates, restartToUpdat
   const [updates, setUpdates] = useState<UpdateWire | null>(null);
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // Restart asked (from the card or Help): the card says it's installing until the app closes.
+  const [restarting, setRestarting] = useState(false);
   const load = useCallback(() => {
     api.fetchUpdates().then(setUpdates, () => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
@@ -47,8 +49,14 @@ export function useUpdates(api = { fetchUpdates, checkForUpdates, restartToUpdat
       .finally(() => setChecking(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
   }, []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
-  const restart = useCallback(() => api.restartToUpdate(), []);
+  const restart = useCallback(() => {
+    setRestarting(true);
+    return api.restartToUpdate().catch((err: unknown) => {
+      setRestarting(false);
+      throw err;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
+  }, []);
   const seen = useCallback(
     (version: string) => {
       void api.markNotesSeen(version).then(load, () => {});
@@ -56,5 +64,5 @@ export function useUpdates(api = { fetchUpdates, checkForUpdates, restartToUpdat
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
     [load],
   );
-  return { updates, check, checking, note, restart, seen };
+  return { updates, check, checking, note, restart, restarting, seen };
 }
