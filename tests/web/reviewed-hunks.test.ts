@@ -5,11 +5,7 @@
 // module under test reads/writes `localStorage` at call time, so jsdom's
 // implementation is all we need.
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  isReviewed,
-  readScope,
-  setReviewed,
-} from '../../src/web/src/state/reviewed-hunks.js';
+import { isReviewed, readScope, setReviewed } from '../../src/web/src/state/reviewed-hunks.js';
 
 beforeEach(() => {
   localStorage.clear();

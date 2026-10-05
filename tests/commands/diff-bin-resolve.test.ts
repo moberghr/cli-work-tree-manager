@@ -39,9 +39,7 @@ describe('resolveWorkBinPath', () => {
       const wdLink = path.join(binDir, 'wd');
       fs.symlinkSync(path.join(dist, 'wd-bin.js'), wdLink);
 
-      expect(resolveWorkBinPath(wdLink)).toBe(
-        fs.realpathSync(path.join(dist, 'bin.js')),
-      );
+      expect(resolveWorkBinPath(wdLink)).toBe(fs.realpathSync(path.join(dist, 'bin.js')));
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -53,9 +51,7 @@ describe('resolveWorkBinPath', () => {
     // which only registers the `diff` command, producing
     // "Unknown arguments: lean, open" in the autostart log.
     const wdShim = path.join('C:', 'wd-tree', 'dist', 'wd-bin.js');
-    expect(resolveWorkBinPath(wdShim)).toBe(
-      path.join('C:', 'wd-tree', 'dist', 'bin.js'),
-    );
+    expect(resolveWorkBinPath(wdShim)).toBe(path.join('C:', 'wd-tree', 'dist', 'bin.js'));
   });
 
   it('returns the same path when we are already the work binary', () => {
@@ -73,26 +69,8 @@ describe('resolveWorkBinPath', () => {
   it('uses dirname of the input, not cwd', () => {
     // Sanity check that path.dirname is used correctly when the
     // input lives at a deep nested path.
-    const deep = path.join(
-      'C:',
-      'Users',
-      'me',
-      'projects',
-      'work-tree',
-      'dist',
-      'wd-bin.js',
-    );
-    expect(resolveWorkBinPath(deep)).toBe(
-      path.join(
-        'C:',
-        'Users',
-        'me',
-        'projects',
-        'work-tree',
-        'dist',
-        'bin.js',
-      ),
-    );
+    const deep = path.join('C:', 'Users', 'me', 'projects', 'work-tree', 'dist', 'wd-bin.js');
+    expect(resolveWorkBinPath(deep)).toBe(path.join('C:', 'Users', 'me', 'projects', 'work-tree', 'dist', 'bin.js'));
   });
 });
 
@@ -107,35 +85,40 @@ describe('webServerResponds', () => {
 
     expect(await webServerResponds('http://127.0.0.1:1234/')).toBe(true);
     // Probes the same endpoint work web's own singleton check uses.
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:1234/api/context',
-      expect.objectContaining({ signal: expect.anything() }),
-    );
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:1234/api/context', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('returns false on a non-ok response (stale process holding the port)', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false }) as Response));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false }) as Response),
+    );
     expect(await webServerResponds('http://127.0.0.1:1234/')).toBe(false);
   });
 
   it('returns false when the connection is refused (dead url file)', async () => {
     // The real bug: web.url survives a crashed server. fetch rejects with
     // ECONNREFUSED; we must report the URL as not-live so autostart fires.
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('connect ECONNREFUSED');
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connect ECONNREFUSED');
+      }),
+    );
     expect(await webServerResponds('http://127.0.0.1:59289/')).toBe(false);
   });
 
   it('returns false (does not hang) when the server never responds', async () => {
     // fetch that respects the abort signal — simulates a hung port.
-    vi.stubGlobal('fetch', vi.fn((_url: string, opts: { signal: AbortSignal }) =>
-      new Promise((_resolve, reject) => {
-        opts.signal.addEventListener('abort', () =>
-          reject(new Error('aborted')),
-        );
-      }),
-    ));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, opts: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          }),
+      ),
+    );
     expect(await webServerResponds('http://127.0.0.1:1234/', 50)).toBe(false);
   });
 });

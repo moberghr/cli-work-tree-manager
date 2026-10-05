@@ -1,0 +1,141 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { WorktreeSession } from '../../sessions/session-types.js';
+
+/**
+ * Claude Code writes each session as JSONL under
+ * `~/.claude/projects/<encoded-cwd>/`, where the encoded path replaces every
+ * non-alphanumeric character with `-`. These files get rewritten on every
+ * message, so their mtimes reflect actual conversation activity — which is
+ * what the user cares about, not when `work tree` was last invoked.
+ */
+export function encodeProjectDir(p: string): string {
+  return path.resolve(p).replace(/[^A-Za-z0-9]/g, '-');
+}
+
+export interface ProjectFile {
+  file: string;
+  mtimeMs: number;
+  size: number;
+}
+
+/** A folder's transcript names, and when and at which folder mtime they were read. */
+const listings = new Map<string, { at: number; dirMtimeMs: number; names: string[] }>();
+/** The longest a folder's names are reused while its mtime says unchanged:
+ *  NTFS doesn't always update a folder's mtime at once when a file is added. */
+export const NAMES_MAX_AGE_MS = 2000;
+
+/**
+ * The transcripts in a Claude project folder (name, mtime, size). The
+ * folder's names are read again when the folder changed (its mtime) or are
+ * NAMES_MAX_AGE_MS old: one stat instead of a directory read for the three
+ * readers each session-list build has per session (activity, name, context
+ * use). Each file is stat'ed every time, so sizes and times are exact.
+ * Bounded by the folders there are.
+ */
+export function projectTranscripts(projectDir: string, now = Date.now()): ProjectFile[] {
+  let dirMtimeMs: number;
+  try {
+    dirMtimeMs = fs.statSync(projectDir).mtimeMs;
+  } catch {
+    listings.delete(projectDir);
+    return []; // no conversation here yet
+  }
+  let hit = listings.get(projectDir);
+  if (!hit || hit.dirMtimeMs !== dirMtimeMs || now - hit.at >= NAMES_MAX_AGE_MS) {
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(projectDir).filter((n) => n.endsWith('.jsonl'));
+    } catch {
+      /* gone meanwhile */
+    }
+    hit = { at: now, dirMtimeMs, names };
+    listings.set(projectDir, hit);
+  }
+  const files: ProjectFile[] = [];
+  for (const name of hit.names) {
+    try {
+      const file = path.join(projectDir, name);
+      const st = fs.statSync(file);
+      files.push({ file, mtimeMs: st.mtimeMs, size: st.size });
+    } catch {
+      /* vanished */
+    }
+  }
+  return files;
+}
+
+function latestJsonlMtimeMs(projectDir: string): number {
+  let latest = 0;
+  for (const f of projectTranscripts(projectDir)) if (f.mtimeMs > latest) latest = f.mtimeMs;
+  return latest;
+}
+
+export function getClaudeActivityMs(launchPath: string): number {
+  const dir = path.join(os.homedir(), '.claude', 'projects', encodeProjectDir(launchPath));
+  return latestJsonlMtimeMs(dir);
+}
+
+/**
+ * True when the AI tool's resume flag (`--continue`) will actually find a
+ * conversation for this exact cwd. Claude Code errors out with "No conversation
+ * found to continue" when the flag is passed in a directory it has never run
+ * in, so callers gate on this before adding it.
+ */
+export function hasClaudeConversation(dir: string): boolean {
+  return getClaudeActivityMs(dir) > 0;
+}
+
+/**
+ * Pick the directory to relaunch Claude in when resuming a session.
+ *
+ * Claude's `--continue` only finds a conversation when the launch cwd matches
+ * the directory the transcript was written for. A group session may have been
+ * worked in the group root OR inside a specific sub-repo, and a session may
+ * have no transcript at all (Claude was never actually used). So we consider
+ * every plausible cwd — group root(s) and each sub-repo for groups, the repo
+ * path for single-repo sessions — and pick the one with the most recent
+ * transcript.
+ *
+ * Returns `hasConversation: false` (with the default launch path) when no
+ * transcript exists anywhere; the caller should then start a fresh session
+ * instead of passing `--continue`, which would error out and drop the user
+ * back to the shell.
+ */
+export function resolveResumeLaunch(session: WorktreeSession): {
+  launchPath: string;
+  hasConversation: boolean;
+} {
+  const existing = session.paths.filter((p) => fs.existsSync(p));
+  const first = existing[0] ?? session.paths[0];
+  // Default cwd: group root (parent of a sub-repo) for groups, the repo path
+  // itself for single-repo sessions.
+  const defaultPath = session.isGroup ? path.dirname(first) : first;
+
+  const candidates = new Set<string>();
+  if (session.isGroup) {
+    for (const p of existing) candidates.add(path.dirname(p)); // group root(s)
+    for (const p of existing) candidates.add(p); // sub-repos
+  } else {
+    for (const p of existing) candidates.add(p);
+  }
+
+  let launchPath = defaultPath;
+  let bestMs = 0;
+  for (const c of candidates) {
+    const ms = getClaudeActivityMs(c);
+    if (ms > bestMs) {
+      bestMs = ms;
+      launchPath = c;
+    }
+  }
+  return { launchPath, hasConversation: bestMs > 0 };
+}
+
+/** Watch root: `~/.claude/projects/`. The web server subscribes to mtime
+ *  changes here and re-broadcasts `sessions-changed` so the sidebar
+ *  badges refresh without polling. */
+export function claudeProjectsRoot(): string {
+  return path.join(os.homedir(), '.claude', 'projects');
+}

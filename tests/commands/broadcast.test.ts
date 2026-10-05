@@ -2,14 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { broadcastPrompt } from '../../src/core/broadcast.js';
-import { sessionIdFor } from '../../src/core/web-state.js';
-import { clearCommentStoreCache } from '../../src/core/comment-file-store.js';
-import {
-  readPendingForSession,
-  formatPendingForPrompt,
-} from '../../src/core/pending-delivery.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+import { broadcastPrompt } from '../../src/core/comments/broadcast.js';
+import { sessionIdFor } from '../../src/core/sessions/web-state.js';
+import { clearCommentStoreCache } from '../../src/core/comments/comment-file-store.js';
+import { readPendingForSession, formatPendingForPrompt } from '../../src/core/comments/pending-delivery.js';
+import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
 let tmpDir: string;
 
@@ -24,11 +21,7 @@ function session(target: string, branch: string): WorktreeSession {
   };
 }
 
-const sessions: WorktreeSession[] = [
-  session('api', 'feat/a'),
-  session('api', 'feat/b'),
-  session('web', 'feat/a'),
-];
+const sessions: WorktreeSession[] = [session('api', 'feat/a'), session('api', 'feat/b'), session('web', 'feat/a')];
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-broadcast-'));
@@ -45,9 +38,7 @@ afterEach(() => {
 describe('broadcastPrompt', () => {
   it('targets the correct sessionIds for a target filter', async () => {
     const queued = await broadcastPrompt(sessions, { target: 'api' }, 'hello');
-    expect(queued.map((q) => q.sessionId).sort()).toEqual(
-      [sessionIdFor(sessions[0]), sessionIdFor(sessions[1])].sort(),
-    );
+    expect(queued.map((q) => q.sessionId).sort()).toEqual([sessionIdFor(sessions[0]), sessionIdFor(sessions[1])].sort());
   });
 
   it('targets all sessions with an empty filter', async () => {
@@ -60,12 +51,8 @@ describe('broadcastPrompt', () => {
     await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, 'do the thing');
 
     const sessionId = sessionIdFor(target);
-    // It lands on disk as a comment file.
-    const file = path.join(tmpDir, '.work', 'comments', `${sessionId}.json`);
-    expect(fs.existsSync(file)).toBe(true);
-
-    // And the pending-delivery reader surfaces it (published + user).
-    clearCommentStoreCache();
+    // The pending-delivery reader surfaces it (published + user), even in
+    // a process whose cached store predates the broadcast.
     const pending = readPendingForSession(sessionId);
     expect(pending).toHaveLength(1);
     expect(pending[0].body).toBe('do the thing');
@@ -77,11 +64,7 @@ describe('broadcastPrompt', () => {
   it('preserves a multi-line broadcast body end to end', async () => {
     const target = sessions[0];
     const multiline = 'line one\nline two\nline three';
-    await broadcastPrompt(
-      sessions,
-      { target: 'api', branch: 'feat/a' },
-      multiline,
-    );
+    await broadcastPrompt(sessions, { target: 'api', branch: 'feat/a' }, multiline);
     const sessionId = sessionIdFor(target);
     clearCommentStoreCache();
     const pending = readPendingForSession(sessionId);

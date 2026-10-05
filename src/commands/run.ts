@@ -1,14 +1,8 @@
 import chalk from 'chalk';
 import spawn from 'cross-spawn';
 import type { CommandModule } from 'yargs';
-import { loadHistory } from '../core/history.js';
-import {
-  selectSessions,
-  expandRunUnits,
-  anyFailed,
-  type RunResult,
-  type RunUnit,
-} from '../core/fleet.js';
+import { loadHistory } from '../core/sessions/history.js';
+import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit } from '../core/sessions/fleet.js';
 
 /** Build the shell invocation for the current platform. `sh -c <cmd>` on
  *  POSIX, `cmd.exe /c <cmd>` on Windows. We pass cross-spawn an argv array
@@ -41,11 +35,7 @@ function killAllChildren(signal: NodeJS.Signals = 'SIGTERM'): void {
  * tag, so concurrent output stays attributable. Sequential mode passes
  * `stdio: 'inherit'` for a transparent, unprefixed passthrough.
  */
-function runInPath(
-  unit: RunUnit,
-  cmd: string,
-  prefix?: string,
-): Promise<RunResult> {
+function runInPath(unit: RunUnit, cmd: string, prefix?: string): Promise<RunResult> {
   const { bin, args } = shellInvocation(cmd);
   return new Promise((resolve) => {
     const child = spawn(bin, args, {
@@ -57,10 +47,7 @@ function runInPath(
 
     if (prefix) {
       const tag = chalk.cyan(`${prefix} `);
-      const pipe = (
-        stream: NodeJS.ReadableStream | null,
-        sink: NodeJS.WriteStream,
-      ) => {
+      const pipe = (stream: NodeJS.ReadableStream | null, sink: NodeJS.WriteStream) => {
         if (!stream) return;
         let buf = '';
         stream.setEncoding('utf-8');
@@ -119,10 +106,7 @@ export async function runPool(
       results[idx] = await runInPath(u, cmd, prefix);
     }
   }
-  const workers = Array.from(
-    { length: Math.min(limit, units.length) },
-    () => worker(),
-  );
+  const workers = Array.from({ length: Math.min(limit, units.length) }, () => worker());
   await Promise.all(workers);
   return results;
 }
@@ -281,10 +265,7 @@ export const runCommand: CommandModule = {
     const parallel = options.parallel ?? false;
     const haltOnError = options.haltOnError ?? false;
     const all = options.all ?? false;
-    const jobs =
-      options.jobs && Number.isFinite(options.jobs) && options.jobs > 0
-        ? Math.floor(options.jobs)
-        : DEFAULT_JOBS;
+    const jobs = options.jobs && Number.isFinite(options.jobs) && options.jobs > 0 ? Math.floor(options.jobs) : DEFAULT_JOBS;
 
     if (branch && !target) {
       console.error(chalk.red('--branch requires --target.'));
@@ -296,11 +277,7 @@ export const runCommand: CommandModule = {
     // every worktree is a wide blast radius, so a bare unfiltered `work run`
     // must opt in with --all rather than fanning out by accident.
     if (!target && !all) {
-      console.error(
-        chalk.red(
-          'Refusing to run in every worktree. Pass --all to confirm, or --target <alias> to narrow.',
-        ),
-      );
+      console.error(chalk.red('Refusing to run in every worktree. Pass --all to confirm, or --target <alias> to narrow.'));
       process.exitCode = 1;
       return;
     }
@@ -308,11 +285,7 @@ export const runCommand: CommandModule = {
     // --halt-on-error only applies to the sequential walk; the parallel pool
     // has no first-failure stop. Warn rather than silently ignoring it.
     if (parallel && haltOnError) {
-      console.error(
-        chalk.yellow(
-          'Warning: --halt-on-error has no effect with --parallel (it only applies to sequential runs).',
-        ),
-      );
+      console.error(chalk.yellow('Warning: --halt-on-error has no effect with --parallel (it only applies to sequential runs).'));
     }
 
     const sessions = selectSessions(loadHistory(), { target, branch });

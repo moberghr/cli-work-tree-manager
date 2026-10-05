@@ -33,18 +33,10 @@ export function Markdown({ source, block, className }: Props) {
     }
   }, [source, block]);
   if (html === null) {
-    return block ? (
-      <div className={className}>{source}</div>
-    ) : (
-      <span className={className}>{source}</span>
-    );
+    return block ? <div className={className}>{source}</div> : <span className={className}>{source}</span>;
   }
   if (block) {
-    return (
-      <div className={className} dangerouslySetInnerHTML={{ __html: html }} />
-    );
+    return <div className={className} dangerouslySetInnerHTML={{ __html: html }} />;
   }
-  return (
-    <span className={className} dangerouslySetInnerHTML={{ __html: html }} />
-  );
+  return <span className={className} dangerouslySetInnerHTML={{ __html: html }} />;
 }

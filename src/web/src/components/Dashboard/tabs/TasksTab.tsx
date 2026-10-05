@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  createTask,
-  deleteTask,
-  fetchTasks,
-  updateTask,
-  type TaskItem,
-} from '../../../api/panes.js';
+import { RowMenu } from '../RowMenu.js';
+import { createTask, deleteTask, fetchTasks, updateTask, type TaskItem } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 
 interface Props {
@@ -28,9 +23,16 @@ export function TasksTab({ onPick }: Props) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
   const [draft, setDraft] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
 
   function refresh() {
-    fetchTasks().then((r) => setTasks(r.tasks));
+    fetchTasks().then(
+      (r) => setTasks(r.tasks),
+      () => {
+        /* offline: the list stays as it was */
+      },
+    );
   }
 
   useEffect(refresh, []);
@@ -44,27 +46,41 @@ export function TasksTab({ onPick }: Props) {
       const r = await createTask(text);
       setTasks(r.tasks);
       setDraft('');
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
   async function toggle(t: TaskItem) {
     try {
       const r = await updateTask(t.id, { done: !t.done });
       setTasks(r.tasks);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
+  }
+
+  async function rename(t: TaskItem, text: string) {
+    const next = text.trim();
+    if (!next || next === t.text) return;
+    try {
+      const r = await updateTask(t.id, { text: next });
+      setTasks(r.tasks);
+    } catch {
+      /* */
+    }
   }
 
   async function remove(id: number) {
     try {
       const r = await deleteTask(id);
       setTasks(r.tasks);
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   }
 
-  const visible = useMemo(
-    () => (showDone ? tasks : tasks.filter((t) => !t.done)),
-    [tasks, showDone],
-  );
+  const visible = useMemo(() => (showDone ? tasks : tasks.filter((t) => !t.done)), [tasks, showDone]);
   const counts = useMemo(() => {
     const open = tasks.filter((t) => !t.done).length;
     return { open, done: tasks.length - open };
@@ -81,25 +97,11 @@ export function TasksTab({ onPick }: Props) {
         </h1>
         <div className="wd-tab-controls">
           <label>
-            <input
-              type="checkbox"
-              checked={showDone}
-              onChange={(e) => setShowDone(e.target.checked)}
-            />
-            {' '}
-            show done
+            <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> show done
           </label>
           <form className="wd-task-add" onSubmit={submitAdd}>
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="+ Add task…"
-            />
-            <button
-              type="submit"
-              className="wd-btn-primary"
-              disabled={!draft.trim()}
-            >
+            <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="+ Add task…" />
+            <button type="submit" className="wd-btn-primary" disabled={!draft.trim()}>
               Add
             </button>
           </form>
@@ -117,20 +119,19 @@ export function TasksTab({ onPick }: Props) {
             <li
               key={t.id}
               className={'wd-task-row' + (t.done ? ' wd-task-row-done' : '')}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ id: t.id, x: e.clientX, y: e.clientY });
+              }}
             >
-              <input
-                type="checkbox"
-                checked={t.done}
-                onChange={() => toggle(t)}
-                aria-label={t.done ? 'Mark not done' : 'Mark done'}
+              <input type="checkbox" checked={t.done} onChange={() => toggle(t)} aria-label={t.done ? 'Mark not done' : 'Mark done'} />
+              <TaskText
+                task={t}
+                editing={editingId === t.id}
+                onEdit={() => setEditingId(t.id)}
+                onDone={() => setEditingId(null)}
+                onSave={(text) => rename(t, text)}
               />
-              <span
-                className="wd-task-text"
-                onClick={() => toggle(t)}
-                title={t.text}
-              >
-                {t.text}
-              </span>
               <button
                 type="button"
                 className="wd-btn-secondary wd-task-action"
@@ -152,6 +153,82 @@ export function TasksTab({ onPick }: Props) {
           ))}
         </ul>
       )}
+      {menu && (
+        <RowMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[{ label: 'Edit', hint: 'F2', run: () => setEditingId(menu.id) }]}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * The task's text; click it (or F2 / Enter on it) to edit in place. Enter
+ * or leaving the field saves, Esc puts it back.
+ */
+function TaskText({
+  task,
+  editing,
+  onEdit,
+  onDone,
+  onSave,
+}: {
+  task: TaskItem;
+  /** Editing it now (a click, F2, or right-click → Edit: the tab keeps which one). */
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
+  onSave: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState(task.text);
+  // Each time editing starts, from the task's current text.
+  useEffect(() => {
+    if (editing) setDraft(task.text);
+  }, [editing, task.text]);
+  if (editing) {
+    const done = (save: boolean) => {
+      onDone();
+      if (save) onSave(draft);
+    };
+    return (
+      <input
+        className="wd-task-edit"
+        aria-label="Task text"
+        value={draft}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => done(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            done(true);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            done(false);
+          }
+        }}
+      />
+    );
+  }
+  const start = onEdit;
+  return (
+    <span
+      className="wd-task-text"
+      role="button"
+      tabIndex={0}
+      onClick={start}
+      onKeyDown={(e) => {
+        if (e.key === 'F2' || e.key === 'Enter') {
+          e.preventDefault();
+          start();
+        }
+      }}
+      title="Click to edit"
+    >
+      {task.text}
+    </span>
   );
 }

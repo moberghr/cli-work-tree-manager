@@ -4,14 +4,10 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ReviewApp } from '../../src/web/src/apps/ReviewApp.js';
 import { DiffView } from '../../src/web/src/components/Diff/DiffView.js';
-import type {
-  ReviewContext,
-  SessionSummary,
-} from '../../src/web/src/api/client.js';
+import type { ReviewContext, SessionSummary } from '../../src/web/src/api/client.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Shared canned diff — one trivial file is enough to push both components
 // past their `repos === null` loading branch into the real layout. Defined
@@ -38,9 +34,7 @@ const { diff } = vi.hoisted(() => ({
                 newStart: 1,
                 newLines: 1,
                 context: '',
-                lines: [
-                  { kind: 'add', content: 'hi', oldNum: null, newNum: 1 },
-                ],
+                lines: [{ kind: 'add', content: 'hi', oldNum: null, newNum: 1 }],
               },
             ],
           },
@@ -57,21 +51,18 @@ const { diff } = vi.hoisted(() => ({
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 
 vi.mock('../../src/web/src/api/client.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/api/client.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
     fetchScopeDiff: () => Promise.resolve(diff),
     fetchScopeDiffByHash: () => Promise.resolve(diff),
-    fetchSessionDiff: () =>
-      Promise.resolve({ sessionId: 's1', resolvedBase: 'main', repos: diff.repos }),
+    fetchSessionDiff: () => Promise.resolve({ sessionId: 's1', resolvedBase: 'main', repos: diff.repos }),
     fetchCheckpoints: () => Promise.resolve([]),
   };
 });
 
 vi.mock('../../src/web/src/api/review-api.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/api/review-api.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/api/review-api.js')>();
   const stub = {
     ssePath: '',
     fetch: () => Promise.resolve([]),
@@ -141,9 +132,7 @@ describe('review layout scroll-container scoping', () => {
     // The scroll override targets the main pane as a direct child — confirm
     // the structure the CSS selector (`.--page > .wd-web-review-main`) relies
     // on is intact.
-    expect(
-      layout().querySelector(':scope > .wd-web-review-main'),
-    ).not.toBeNull();
+    expect(layout().querySelector(':scope > .wd-web-review-main')).not.toBeNull();
   });
 
   // The dashboard's embedded diff sits next to a terminal pane and must keep

@@ -1,7 +1,4 @@
-import {
-  selectCommentsForLine,
-  useReview,
-} from '../../state/ReviewProvider.js';
+import { selectCommentsForLine, useReview } from '../../state/ReviewProvider.js';
 import { Composer } from './Composer.js';
 import { CommentItem } from './CommentItem.js';
 
@@ -28,44 +25,39 @@ interface Props {
  * the added/context line. If no side has activity, the row isn't rendered
  * (caller decides via `hasActivity`).
  */
-export function CommentLineRow({
-  repo,
-  file,
-  oldLine,
-  oldContent,
-  newLine,
-  newContent,
-}: Props) {
+export function CommentLineRow({ repo, file, oldLine, oldContent, newLine, newContent }: Props) {
   const review = useReview();
 
-  const left = oldLine !== null
-    ? {
-        comments: selectCommentsForLine(review.comments, repo, file, oldLine, 'left'),
-        composerOpen:
-          review.openComposer !== null &&
-          review.openComposer.repo === repo &&
-          review.openComposer.file === file &&
-          review.openComposer.line === oldLine &&
-          review.openComposer.side === 'left',
-        lineContent: oldContent,
-        line: oldLine,
-        side: 'left' as const,
-      }
-    : null;
-  const right = newLine !== null
-    ? {
-        comments: selectCommentsForLine(review.comments, repo, file, newLine, 'right'),
-        composerOpen:
-          review.openComposer !== null &&
-          review.openComposer.repo === repo &&
-          review.openComposer.file === file &&
-          review.openComposer.line === newLine &&
-          review.openComposer.side === 'right',
-        lineContent: newContent,
-        line: newLine,
-        side: 'right' as const,
-      }
-    : null;
+  const left =
+    oldLine !== null
+      ? {
+          comments: selectCommentsForLine(review.comments, repo, file, oldLine, 'left'),
+          composerOpen:
+            review.openComposer !== null &&
+            review.openComposer.repo === repo &&
+            review.openComposer.file === file &&
+            review.openComposer.line === oldLine &&
+            review.openComposer.side === 'left',
+          lineContent: oldContent,
+          line: oldLine,
+          side: 'left' as const,
+        }
+      : null;
+  const right =
+    newLine !== null
+      ? {
+          comments: selectCommentsForLine(review.comments, repo, file, newLine, 'right'),
+          composerOpen:
+            review.openComposer !== null &&
+            review.openComposer.repo === repo &&
+            review.openComposer.file === file &&
+            review.openComposer.line === newLine &&
+            review.openComposer.side === 'right',
+          lineContent: newContent,
+          line: newLine,
+          side: 'right' as const,
+        }
+      : null;
 
   const leftActive = !!left && (left.comments.length > 0 || left.composerOpen);
   const rightActive = !!right && (right.comments.length > 0 || right.composerOpen);
@@ -131,24 +123,12 @@ export function InlineCommentRow({
   );
 }
 
-export function SidePanel({
-  repo,
-  file,
-  side,
-}: {
-  repo: string;
-  file: string;
-  side: SideContent;
-}) {
+export function SidePanel({ repo, file, side }: { repo: string; file: string; side: SideContent }) {
   const review = useReview();
   return (
     <div className="wd-comment-list">
       {side.comments.map((c) => (
-        <CommentItem
-          key={c.id}
-          comment={c}
-          currentLineContent={side.lineContent}
-        />
+        <CommentItem key={c.id} comment={c} currentLineContent={side.lineContent} />
       ))}
       {side.composerOpen && (
         <Composer

@@ -1,0 +1,5 @@
+# Commits git blame skips: run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once
+# (GitHub reads this file by itself).
+
+# Reformat with Prettier
+bbaa68d8a0c63c7b1f244665c673ed1f42b966c2

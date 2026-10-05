@@ -5,6 +5,86 @@ on:
   pull_request:
 jobs:
   build:
+    # Windows is where ConPTY, .cmd shims, cmd.exe escaping and NTFS
+    # filename rules live (the pty-host / attach functional tests); Node 22
+    # is the supported floor.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 24 }
+          - { os: ubuntu-latest, node: 22 }
+          - { os: windows-latest, node: 24 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # What a global install gets (`dependencies`) must have no known high or
+      # critical advisory; dev tools are Dependabot's to update.
+      - run: npm audit --omit=dev --audit-level=high
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      # Build before testing: the functional `work attach` test drives the
+      # built dist/bin.js (it skips itself when there is no build).
+      - run: npm run build
+      - run: npm test
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) }}
+      # One leg measures coverage (a report, no threshold yet) and keeps the lcov.
+      - run: npm run test:coverage
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
+        with:
+          name: coverage
+          path: coverage/lcov.info
+  package:
+    # The installed package on every OS and supported Node: the native
+    # modules (better-sqlite3 for state.db, node-pty) must come down as
+    # prebuilt binaries and load, and `work` must open its database.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack
+      - name: Install the tarball globally and use state.db
+        shell: bash
+        run: |
+          # HOME first: the postinstall registers the Claude Code plugin
+          # marketplace under ~/.claude, which must not be the runner's.
+          export HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home"
+          mkdir -p "$HOME"
+          npm install -g ./moberg_hr-work-tree-*.tgz
+          work todo add "smoke test"
+          work todo | grep "smoke test"
+          test -f "$HOME/.work/state.db"
+          # Each binary and the lazily imported command chunks load
+          # (tsup code-splitting): the PTY-host client, attach, and wd.
+          work pty-host --status
+          wd --help | grep -i diff
+          set +e
+          work attach 2> attach.err; code=$?
+          set -e
+          test "$code" = 1
+          grep "not inside a work session" attach.err
+  e2e:
+    # Real `work web` + PTY host + browser, each test in an isolated HOME
+    # (see e2e/fixtures.ts); Claude is replaced by e2e/fake-ai.cjs.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,6 +93,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/

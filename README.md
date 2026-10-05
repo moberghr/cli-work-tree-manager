@@ -4,7 +4,7 @@
 
 ### One terminal. Every branch. Every repo. Every Claude session.
 
-**A cross-platform TypeScript CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code (or any AI CLI), and orchestrate everything — PRs, Jira issues, local tasks, diffs, and reviews — from a terminal dashboard or a single browser tab.**
+**A cross-platform TypeScript CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code (or any AI CLI), and orchestrate everything — PRs, Jira issues, local tasks, diffs, and reviews — from a single browser tab, with a real terminal attached whenever you want one.**
 
 [![npm](https://img.shields.io/npm/v/@moberg_hr/work-tree?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/@moberg_hr/work-tree)
 [![Website](https://img.shields.io/badge/website-moberghr.github.io-6d28d9.svg)](https://moberghr.github.io/cli-work-tree-manager/)
@@ -13,7 +13,7 @@
 
 **[moberghr.github.io/cli-work-tree-manager](https://moberghr.github.io/cli-work-tree-manager/)** — the Work website.
 
-[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard](#interactive-dashboard) · [Browser (`work web`)](#browser-dashboard-work-web) · [Fleet](#fleet-commands-run--broadcast) · [Groups](#groups-multi-repo-worktrees) · [Diff review (`wd`)](#diff-review-wd) · [Architecture](#architecture) · [FAQ](#faq)
+[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard (`work web`)](#browser-dashboard-work-web) · [Fleet](#fleet-commands-run--broadcast) · [Groups](#groups-multi-repo-worktrees) · [Diff review (`wd`)](#diff-review-wd) · [Architecture](#architecture) · [FAQ](#faq)
 
 </div>
 
@@ -28,11 +28,11 @@ Work is the missing layer between `git worktree` and your AI assistant. Every br
 | Without Work | With Work |
 |:---|:---|
 | `cd ../some/path && git checkout -b feature/x && cp .env.local .` every time | `work tree api feature/x` — worktree created, dev settings copied, Claude launched |
-| Three terminals, three editors, three lost contexts | One TUI: sessions, PRs, Jira, tasks — keyboard-driven, mouse-aware |
+| Three terminals, three editors, three lost contexts | One browser tab: sessions, PRs, Jira, tasks, an attention inbox — and `work attach` for a real terminal on any session |
 | "Which directory was that branch in again?" | `work resume` — recent sessions sorted by last access, one keystroke to re-enter |
 | Multi-repo features = multiple `git worktree add` invocations and a hand-merged CLAUDE.md | `work tree mygroup feature/x` — every repo cloned in lockstep, combined CLAUDE.md generated automatically |
 | Stale worktrees pile up after PRs merge | `work prune` (interactive) / `work sync` (one-shot) — remove worktrees whose branches landed on main |
-| Jira ticket → branch name → worktree → Claude prompt = manual every time | Select a Jira issue in the dash → branch slug auto-generated → worktree created → planning prompt sent to Claude |
+| Jira ticket → branch name → worktree → Claude prompt = manual every time | Pick a Jira issue in `work web` → worktree created with a branch for it |
 | Same chore (`npm test`, rebase) in five worktrees, one terminal at a time | `work run --all npm test` / `work broadcast --all "rebase onto main"` — fan out across the fleet |
 | Diffs and reviews scattered across terminals and editor tabs | `wd` / `work web` — every diff and review in one browser, comments routed back to the live AI session |
 
@@ -41,7 +41,7 @@ Work is the missing layer between `git worktree` and your AI assistant. Every br
 ## Quick Start
 
 ```bash
-# 1. Install (Node 22+, Git required)
+# 1. Install (Node 22.13+, Git required)
 
 # Option A — Homebrew (macOS / Linux)
 brew install moberghr/work-tree/work    # provides `work` and `wd`
@@ -59,8 +59,8 @@ work init
 # 3. Create a worktree and launch your AI tool
 work tree api feature/login
 
-# 4. Open the dashboard (terminal TUI, or `work web` for the browser)
-work dash
+# 4. Open the dashboard in your browser
+work web
 ```
 
 `work init` walks you through the worktrees root, your repo aliases, your AI command, and tab-completion installation. Everything else is one keystroke away from the dashboard.
@@ -69,7 +69,7 @@ work dash
 
 | Tool | Required | Used for |
 |:---|:---|:---|
-| **Node.js 22+** | yes | Runtime |
+| **Node.js 22.13+** | yes | Runtime |
 | **Git** | yes | Worktree operations |
 | **[Claude Code CLI](https://claude.ai/code)** | recommended | Default AI tool auto-launched on `work tree`; group CLAUDE.md generation. Any other CLI works too — set `aiCommand` in config. |
 | **[GitHub CLI (`gh`)](https://cli.github.com/)** | optional | PR pane in the dashboard / `work web` |
@@ -89,7 +89,7 @@ work list [target]                                     # List worktrees
 work status [target] [branch] [--prune]                # Show worktree merge/dirty status
 work recent [count]                                    # List recent sessions
 work resume [--unsafe]                                 # Resume a recent session
-work dash [--unsafe]                                   # Interactive TUI dashboard
+work attach [target] [branch]                          # Attach this terminal to a session's Claude (Ctrl+] detaches)
 work web [--stop] [--no-open]                          # Browser dashboard (singleton; all sessions in one tab)
 work prune [--force]                                   # Remove merged worktrees (interactive)
 work sync [--dry-run] [--force] [--include-squash]     # Fetch all repos + prune merged worktrees (non-interactive)
@@ -135,64 +135,7 @@ Branch directories normalize `/` → `-`, so `feature/login` lives at `<worktree
 
 ---
 
-## Interactive Dashboard
-
-```bash
-work dash
-```
-
-A keyboard-driven terminal UI built with [Ink](https://github.com/vadimdemedes/ink) and an embedded `node-pty` + `@xterm/headless` Claude Code session per worktree. Five panes, one focus model, zero context switching.
-
-```
-┌──────────────────────────────┬─────────────────────────────────────────────────┐
-│ Sessions                  ▸  │  api · feature/login                            │
-│   ▸ api · feature/login   ●  │                                                 │
-│     api · main               │  > Implement the login page using the existing  │
-│     web · feat/dark-mode  ●  │    auth helpers...                              │
-│ ──────────────────────────── │                                                 │
-│ Pull Requests                │  ✓ Reading src/auth/AuthContext.tsx             │
-│   ★ #142 · feature/login  ✓  │  ✓ Writing src/pages/login.tsx                  │
-│   ✎ #138 · feat/dark-mode ✗  │  ✓ dotnet build (0 warnings, 0 errors)          │
-│ ──────────────────────────── │                                                 │
-│ Jira                         │  ⏵                                              │
-│   In Progress                │                                                 │
-│     PROJ-204 · Add 2FA       │                                                 │
-│ ──────────────────────────── │                                                 │
-│ Tasks                        │                                                 │
-│   [ ] Refactor auth module   │                                                 │
-│   [x] Document new endpoints │                                                 │
-└──────────────────────────────┴─────────────────────────────────────────────────┘
- tab cycles · n new · d remove · g sync pane · G sync all · enter open · w worktree
-```
-
-### What the dashboard does
-
-- **Session pane** — every worktree as a row with a status indicator (`●` running, `○` idle, `▸` currently focused). Reactive to external `work tree` invocations via `fs.watch` on `history.json`.
-- **PR pane** — open PRs across every configured repo via `gh pr list`. Decorated with check status (`✓` / `✗` / `●`), merge-conflict detection, your review state (`✔` approved, `✎` reviewed), draft dimming, and ownership (`★` your PR). Selecting a PR creates or resumes its worktree.
-- **Jira pane** — issues assigned to you, grouped by status, fetched via `acli`. Selecting an issue prompts for project, generates a branch slug via Claude Haiku, creates the worktree, and sends a structured planning prompt to Claude. `o` opens the issue in your browser.
-- **Tasks pane** — local tasks from `~/.work/tasks.json`. Press `a` to add, `e` to edit, `enter`/`x` to toggle, `d` to remove, `w` to spin up a `todo/<slug>` worktree.
-- **Terminal pane** — the live Claude Code PTY for the focused session. Resumes prior conversations via `--continue`. Mouse scroll, Shift+drag for text selection.
-- **Auto-sync on startup** — every repo remote fetched in parallel; PRs and Jira issues loaded immediately. `g` syncs the focused pane, `G` syncs everything.
-- **Hook integration** — a local HTTP server (`tui/hooks.ts`) receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) so session activity is reflected in real time. Hooks are auto-injected into `~/.claude/settings.json` on launch and cleaned up on exit.
-- **Context-sensitive status bar** — keybinding hints change based on the focused pane.
-
-### Keyboard reference
-
-| Key | Action |
-|:---|:---|
-| `tab` | Cycle focus: sessions → PRs → Jira → tasks → terminal |
-| `j` / `k` | Navigate within the focused pane |
-| `enter` | Open / resume the selected item |
-| `n` | New worktree (project + branch picker) |
-| `d` | Remove the selected worktree |
-| `w` | Create worktree from selected task / PR / Jira issue |
-| `a` / `e` | Add or edit task (tasks pane) |
-| `g` / `G` | Sync focused pane / sync everything |
-| `u` | Rebase current worktree onto its base |
-| `.` | Open worktree in editor |
-| `o` | Open Jira issue in browser |
-
----
+> **`work dash` was removed in 2.0** — use `work web` (the browser dashboard) and `work attach` (a real terminal on any session; the same Claude the browser shows).
 
 ## Browser Dashboard (`work web`)
 
@@ -206,12 +149,30 @@ work web --stop         # shut the dashboard down
 
 - **Singleton** — one process per user, tracked by `~/.work/web.pid` + `~/.work/web.url`. A second `work web` re-uses the running one instead of spawning a duplicate; the port is chosen deterministically from the configured `portRange` (default `3000–3099`) with a liveness probe so it survives restarts and avoids collisions.
 - **Every session in one place** — the sidebar lists all worktree sessions with activity badges (active / idle / stale) and per-session comment/draft counts, reactive to `work tree` / `work remove` anywhere on the machine.
-- **Per-session tabs** — a **Diff** tab (Uncommitted vs HEAD, plus "Since branch"), a **Comments** review tab, and a live **Terminal** tab (a `node-pty` Claude session, same as the TUI).
+- **Per-session tabs** — a **Diff** tab (Uncommitted vs HEAD, "Since branch", and **Last turn** — only what Claude's most recent instruction changed, with a picker for earlier turns). On the Uncommitted diff, **↶ Revert** on a file or hunk undoes it back to HEAD and leaves Claude a note not to reintroduce it; **Start review** batches comments as drafts and **Submit review** sends them to Claude as one message (pushed straight into an idle Claude in the Terminal tab); **]** / **[** jump between comment threads, a **Comments** review tab, and a live **Terminal** tab (the session's Claude in the PTY host — `work attach` opens the same one in a real terminal).
 - **Top panes** — PRs (via `gh`), Jira (via `acli`), and Tasks — with create / sync / rebase / open-in-editor actions wired to `POST /api/worktrees` and friends.
 - **One server, every `wd` scope** — every `wd` and `wd -c` invocation registers as a *scope* on this server (addressable at `/diff/<hash>` and `/review/<hash>`) instead of spawning its own port. A dozen reviews share one process and one set of tabs.
 - **Hook bridge to live Claude** — on startup `work web` installs `UserPromptSubmit` and `Stop` command hooks in `~/.claude/settings.json` (removed on shutdown). Drop a comment on a line and any Claude running in that worktree picks it up on its next turn — no copy-paste.
 
 ---
+
+### Demo mode
+
+```bash
+work web --demo      # or: npm run demo
+```
+
+Opens the real dashboard against a simulated world — example repos, agents that finish and ask for permission while you watch, PRs, Jira and tasks — with nothing real behind it: no repos, agents or `~/.work` are touched, and it runs beside your real `work web`. Use it for screenshots, UI work and showing the tool to someone. Everything you do has a simulated effect: answer a blocked agent in its terminal, leave a review comment (Claude replies), ship a group in parts.
+
+### Attention inbox
+
+With ten agents running, the question is which one needs you next. The **Inbox** tab (`g i`) answers it, using Claude Code's own hooks — `work web` installs them, so it covers every Claude in any terminal:
+
+- **Needs your input** — blocked on a permission prompt, longest-waiting first. Opens on the terminal so you can answer.
+- **Done — not looked at yet** — finished a turn since you last opened it. Opens on the diff to review.
+- **Working** — mid-turn, with the prompt it's working on.
+
+Each row carries one line of context (the permission request, Claude's last message, or your prompt). The sidebar sorts the same way, the Inbox tab shows a count, and so does the browser tab title (`(3) work`). Press **`n`** anywhere to jump to the next session that wants you. With `notifications: true`, you also get a desktop notification when a session blocks or finishes — and your `statusHooks` run.
 
 ## Fleet Commands (`run` / `broadcast`)
 
@@ -364,6 +325,7 @@ Stored at `~/.work/config.json`:
   "aiCommand": "claude",
   "editor": "code",
   "portRange": { "start": 3000, "end": 3099 },
+  "devCommands": { "web": "npm run dev -- --port $PORT" },
   "notifications": false,
   "statusHooks": [
     { "on": "needs_input", "command": "afplay /System/Library/Sounds/Glass.aiff" }
@@ -380,82 +342,54 @@ Stored at `~/.work/config.json`:
 | `aiCommand` | The AI CLI to auto-launch (default `claude`). Set it to any other tool; per-tool flag names live under `aiCommandFlags`. |
 | `editor` | Editor command for `--open` / "open in editor" (default `code`). |
 | `portRange` | Port window `work web` allocates from (default `3000`–`3099`). |
+| `prWatch` | `{ "autoArchive": true, "fixCi": true, "reviewComments": true }` (all default on). **Review comments:** new feedback on an open PR (unresolved review threads, reviews and comments by others — never your own) is handed to that session's Claude to address; threads still open when watching starts count too, old conversation doesn't. Claude doesn't post on GitHub; if a comment needs your call it starts its reply with `DECISION NEEDED:` and the session lands in the Inbox as *needs input* with a notification. The header shows the number of open review threads. `work web` checks recent sessions' PRs every 3 minutes: a session whose PRs have all merged (with nothing since) archives itself — in a group only once every repo is done — and when a PR's checks fail, that session's Claude is told which ones (once per pushed commit) and asked to fix them, or to ask you if it needs a decision. The session header shows failing checks with **Ask Claude to fix**. |
+| `devCommands` | Dev-server command per repo alias, e.g. `{ "web": "npm run dev -- --port $PORT" }`. The session header shows the worktree's `$PORT`, whether anything serves on it (with a **Preview ↗** link), and **▶ Start dev** / **■ Stop** / **Log** for this command. In a group, the first repo with a command gets the port. |
 | `notifications` | Opt-in desktop notification when a session goes idle or needs input. |
 | `statusHooks` | Run your own shell command on a session status change — see below. |
+| `launchViaHost` | Default `true`: `work tree` runs the AI session in the background PTY host and attaches your terminal to it, so it survives closing the tab, `work web` shows the very same screen, and it comes back after a reboot. Detach with Ctrl+]; `work attach` reconnects. Set `false` to launch directly in the terminal (invisible to the dashboard); per call: `--host` / `--no-host`. |
 
 Edit via `work config edit`, or manage repos/groups via the `work config …` subcommands.
 
 ### Notifications & status hooks
 
-When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know:
+When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know — `work web` does it via its Claude hooks, for any Claude on the machine:
 
+- **Only when you're not looking.** Nothing fires for a session a focused dashboard tab is showing. Click **Enable notifications** on the Inbox tab and the dashboard raises browser notifications instead — clicking one jumps to that session (the terminal if it's asking you something, the diff if it finished). The desktop toast below is the fallback for when no dashboard tab can notify.
 - **`notifications: true`** — fires a native desktop notification (macOS `osascript`, Linux `notify-send`, Windows BurntToast/balloon best-effort). Repeated alerts within one idle period are de-duplicated; submitting a new prompt re-arms it.
 - **`statusHooks`** — the general form. Each entry is `{ "on": "idle" | "needs_input", "command": "..." }`. The command runs (with the session directory as cwd) on that transition, with `WORK_SESSION` and `WORK_STATUS` in its environment — use it for sounds, Slack pings, or anything scriptable.
 
 ### Session tracking
 
-Every `work tree` invocation upserts a row into `~/.work/history.json` keyed by `target + branch`. This powers:
+Every `work tree` invocation upserts a row into `~/.work/state.db` (SQLite) keyed by `target + branch`. This powers:
 
 - **`work status`** — joins history with live `git status` to show merge state, dirty trees, unpushed commits, and last-access timestamps.
 - **`work recent`** — sessions sorted by last touched.
 - **`work resume`** — interactive picker; one keystroke to re-enter the worktree and continue the prior AI conversation.
 - **`work prune` / `work sync`** — `prune` interactively removes worktrees whose branches landed on `main`/`master`; `work sync` does the same non-interactively after fetching every repo in parallel (`--dry-run` to preview, `--force` to include dirty/unpushed trees, `--include-squash` to also catch squash-merged branches).
-- **Dashboard reactivity** — `fs.watch` on `history.json` means a `work tree` in another terminal shows up in the running dashboard (TUI and `work web`) immediately.
+- **Dashboard reactivity** — every write bumps a change counter the running `work web` polls, so a `work tree` in another terminal shows up in the dashboard within a second.
+
+All session state (history, status, review comments, restore list, tasks) lives in that one database, so the CLI, Claude's hooks, `work web` and the PTY host can all write at once without losing updates. Upgrading from a version with JSON files imports them on first run and keeps the originals as `*.migrated`. `work state` shows what's stored; `work state --export <dir>` writes it back out as the old JSON files.
 
 ---
 
 ## Architecture
 
-```
-bin.ts    → cli.ts (yargs router) → commands/{tree,remove,list,status,recent,prune,sync,
-wd-bin.ts → forwards argv to `diff`     dash,web,config,init,todo,run,broadcast,diff,hook}.ts
-                                       │
-                                       ▼
-                                  core/worktree.ts          ← high-level setup / teardown
-                                  ├── core/git.ts           ← git wrapper
-                                  ├── core/copy-files.ts    ← glob-based file copying
-                                  ├── core/resolve.ts       ← group vs single-repo dispatch
-                                  ├── core/history.ts       ← session tracking
-                                  ├── core/tasks.ts         ← local task persistence
-                                  ├── core/pr.ts            ← GitHub PR fetching (gh)
-                                  ├── core/jira.ts          ← Jira issue fetching (acli)
-                                  ├── core/fleet.ts         ← run/broadcast session selection
-                                  ├── core/broadcast.ts     ← queue a prompt to live sessions
-                                  ├── core/notifier.ts      ← desktop notifications
-                                  ├── core/status-hooks.ts  ← user shell hooks on status change
-                                  └── core/port-allocator.ts← deterministic free-port pick
+Three kinds of process: the `work` CLI, the `work web` dashboard server (one
+per user), and the PTY host that owns every agent's terminal, so agents
+survive dashboard restarts and reboots. All logic lives in `src/core/`,
+grouped by feature; the CLI (`src/commands/`) and the HTTP server
+(`src/server/`) are thin front-ends over it. Session state is one SQLite
+database, `~/.work/state.db`.
 
-                                  Diff / review stack       ← `wd` + `work web`
-                                  ├── diff-pipeline.ts      ← computeDiff(): git diff + untracked + lcov
-                                  ├── diff-parse.ts         ← unified-diff parser
-                                  ├── checkpoint.ts         ← per-scope working-tree snapshots
-                                  ├── lcov.ts               ← coverage parsing (cached)
-                                  ├── diff-server.ts        ← shared Hono server (chokidar + SSE)
-                                  ├── comment-*.ts          ← review comment model + file store
-                                  ├── scope-manager.ts      ← in-memory scope registry
-                                  └── static-renderer.ts    ← self-contained HTML (`wd --static`)
-
-                                  web/src/                  ← React SPA (Vite → dist/web/)
-                                  ├── apps/ReviewApp.tsx    ← single-scope view (wd / wd -c)
-                                  ├── apps/DashboardApp.tsx ← multi-session view (work web)
-                                  └── components/           ← Diff/, Review/, Sidebar/, Terminal/
-
-                                  core/web-server.ts        ← `work web` dashboard (Hono + SSE + WS)
-                                  ├── scope-routes / panes-routes / worktree-routes / *-comment-routes
-                                  ├── pty-pool.ts           ← per-session Claude PTY pool
-                                  └── command-hook-installer.ts ← UserPromptSubmit/Stop hooks
-
-                                  tui-ink/                  ← Ink/React TUI (`work dash`)
-                                  └── App / Sidebar / TerminalPane / StatusBar
-
-                                  tui/session.ts            ← node-pty + @xterm/headless (shared)
-```
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has the overview: processes,
+source layout, state, the agent interface, one turn end to end, the security
+model. The decisions behind it are in [docs/adr/](docs/adr/README.md).
 
 ### Design principles
 
 | Principle | What it means |
 |:---|:---|
-| **Atomic worktree operations** | `setupWorktree()` and `teardownWorktree()` are the high-level entry points used by both the CLI and the TUI. Low-level `createSingleWorktree()` rolls back on partial failure. |
+| **Atomic worktree operations** | `setupWorktree()` and `teardownWorktree()` are the high-level entry points used by both the CLI and `work web`. Low-level `createSingleWorktree()` rolls back on partial failure. |
 | **Resolver pattern** | One name (`api`, `fullstack`) is dispatched through `resolveProjectTarget()` to either a group or a single repo. Commands branch on `isGroup` once and delegate. |
 | **Branch resolution priority** | Local exists → remote exists (tracking branch) → neither (new branch from base). |
 | **Path normalisation** | `feature/login` → `feature-login` directory. Always. |
@@ -487,39 +421,19 @@ Completions are dynamic — branch names come from the worktree directory listin
 ## Development
 
 ```bash
-npm run build                                      # Bundle with tsup → dist/bin.js
-npm run dev                                        # Run directly via tsx (no build)
-npm test                                           # Run all tests with vitest
-npm run test:watch                                 # Watch mode
-npx vitest run tests/core/resolve.test.ts          # Single test file
+npm ci && npm run build && npm link   # `work` and `wd` from this checkout
+npm run typecheck && npm run lint && npm test
 ```
 
-After building, `work` is available globally via `npm link`. Rebuild after source changes.
-
-### Project layout
-
-```
-work-tree/
-├── src/
-│   ├── bin.ts                  # Entry point (chalk forcing, shebang)
-│   ├── cli.ts                  # yargs router
-│   ├── commands/               # CLI command handlers
-│   ├── core/                   # Shared operations (worktree, git, history, diff, web, …)
-│   ├── web/                    # React SPA — diff/review UI + work web dashboard (Vite → dist/web/)
-│   ├── tui-ink/                # Ink/React TUI dashboard
-│   ├── tui/                    # PTY sessions and hook server
-│   ├── completions/            # Dynamic tab-completion handler
-│   └── utils/
-├── tests/                      # vitest suites
-├── tsup.config.ts
-└── package.json
-```
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the checks, where code goes, and
+how releases work; [CHANGELOG.md](CHANGELOG.md) for what changed;
+[SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ---
 
 ## Unsafe Mode & Debug Logging
 
-`--unsafe` on `work tree`, `work resume`, or `work dash` passes the AI tool's skip-permissions flag (`--dangerously-skip-permissions` for Claude Code; configurable per tool via `aiCommandFlags`) — useful in trusted, sandboxed worktrees, dangerous everywhere else. Use deliberately.
+`--unsafe` on `work tree` or `work resume` passes the AI tool's skip-permissions flag (`--dangerously-skip-permissions` for Claude Code; configurable per tool via `aiCommandFlags`) — useful in trusted, sandboxed worktrees, dangerous everywhere else. Use deliberately.
 
 All CLI output and internal debug messages stream to `~/.work/debug.log` with timestamps. Auto-rotates at 5 MB. The first place to look when worktree creation, group CLAUDE.md generation, or hook delivery misbehaves.
 

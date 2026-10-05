@@ -6,5 +6,4 @@ declare const __WORK2_VERSION__: string;
  * dev server the define is still applied, so this is accurate there too;
  * the 'dev' fallback only shows if the constant is somehow absent.
  */
-export const VERSION: string =
-  typeof __WORK2_VERSION__ !== 'undefined' ? __WORK2_VERSION__ : 'dev';
+export const VERSION: string = typeof __WORK2_VERSION__ !== 'undefined' ? __WORK2_VERSION__ : 'dev';

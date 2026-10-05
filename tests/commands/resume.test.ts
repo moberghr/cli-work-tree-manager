@@ -2,21 +2,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
-import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/history.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
+import { saveHistory, loadHistory, type WorktreeSession } from '../../src/core/sessions/history.js';
 
 // Mock interactive prompt and AI launcher
 vi.mock('@inquirer/prompts', () => ({
   select: vi.fn(),
 }));
-vi.mock('../../src/utils/platform.js', () => ({
+vi.mock('../../src/core/platform/launch.js', () => ({
   launchAi: vi.fn(),
 }));
 
 import { resumeCommand } from '../../src/commands/resume.js';
 import { recentCommand } from '../../src/commands/recent.js';
 import { select } from '@inquirer/prompts';
-import { launchAi } from '../../src/utils/platform.js';
+import { launchAi } from '../../src/core/platform/launch.js';
 
 let tmpDir: string;
 let worktreePath: string;
@@ -75,6 +75,37 @@ afterEach(() => {
   process.exitCode = undefined;
 });
 
+describe('the session’s own agent', () => {
+  it('work resume / work recent launch the agent a session was created with; one with no adapter never gets --continue', async () => {
+    vi.mocked(launchAi).mockClear();
+    // The default is now opencode; this session was created with Claude.
+    saveConfig({ worktreesRoot: '/tmp/wt', repos: { api: '/repos/api' }, groups: {}, copyFiles: [], aiCommand: 'opencode' });
+    const claudes = makeSession({ agent: 'claude' });
+    seedHistory([claudes]);
+    seedTranscript(worktreePath);
+    vi.mocked(select).mockResolvedValueOnce(claudes);
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenLastCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'claude' }),
+      { unsafe: false, resume: true },
+      undefined,
+    );
+    // One from before (nothing recorded) follows the default: opencode, and no --continue (a Claude transcript says nothing about it).
+    const old = makeSession();
+    seedHistory([old]);
+    vi.mocked(select).mockResolvedValueOnce(old);
+    await (recentCommand.handler as (argv: unknown) => unknown)({ count: 10, resume: true, unsafe: false, _: [] });
+    expect(launchAi).toHaveBeenCalledTimes(2);
+    expect(launchAi).toHaveBeenLastCalledWith(
+      worktreePath,
+      expect.objectContaining({ cmd: 'opencode' }),
+      { unsafe: false, resume: false },
+      undefined,
+    );
+  });
+});
+
 describe('resume updates lastAccessedAt', () => {
   it('updates lastAccessedAt when resuming', async () => {
     seedConfig();
@@ -84,14 +115,12 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     const history = loadHistory();
     expect(history).toHaveLength(1);
     expect(history[0].lastAccessedAt).not.toBe(OLD_TIMESTAMP);
-    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
-      new Date(OLD_TIMESTAMP).getTime(),
-    );
+    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(new Date(OLD_TIMESTAMP).getTime());
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),
@@ -108,14 +137,9 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
-    expect(launchAi).toHaveBeenCalledWith(
-      worktreePath,
-      expect.objectContaining({ cmd: 'claude' }),
-      { unsafe: false, resume: true },
-      3042,
-    );
+    expect(launchAi).toHaveBeenCalledWith(worktreePath, expect.objectContaining({ cmd: 'claude' }), { unsafe: false, resume: true }, 3042);
   });
 
   it('starts a fresh session (resume: false) when no transcript exists', async () => {
@@ -126,7 +150,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
@@ -143,7 +167,7 @@ describe('resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (resumeCommand.handler as Function)({ unsafe: false, _: [] });
+    await (resumeCommand.handler as (argv: unknown) => unknown)({ unsafe: false, _: [] });
 
     const history = loadHistory();
     expect(history[0].createdAt).toBe(OLD_TIMESTAMP);
@@ -159,7 +183,7 @@ describe('recent --resume updates lastAccessedAt', () => {
 
     vi.mocked(select).mockResolvedValueOnce(session);
 
-    await (recentCommand.handler as Function)({
+    await (recentCommand.handler as (argv: unknown) => unknown)({
       count: 10,
       resume: true,
       unsafe: false,
@@ -169,9 +193,7 @@ describe('recent --resume updates lastAccessedAt', () => {
     const history = loadHistory();
     expect(history).toHaveLength(1);
     expect(history[0].lastAccessedAt).not.toBe(OLD_TIMESTAMP);
-    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(
-      new Date(OLD_TIMESTAMP).getTime(),
-    );
+    expect(new Date(history[0].lastAccessedAt).getTime()).toBeGreaterThan(new Date(OLD_TIMESTAMP).getTime());
     expect(launchAi).toHaveBeenCalledWith(
       worktreePath,
       expect.objectContaining({ cmd: 'claude' }),

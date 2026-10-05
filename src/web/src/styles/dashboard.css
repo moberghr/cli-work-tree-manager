@@ -12,15 +12,34 @@
   background: var(--bg);
 }
 
+/* A button that reads as a link (Review all, Clean up, Show 1 older…).
+   Panels that want it in their own colour override it (.wd-activity-panel). */
+.wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.wd-link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.wd-link-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 /* ---- Top nav -------------------------------------------------------------*/
 
 .wd-dash-topnav {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   padding: 0 16px;
-  height: 44px;
-  background: var(--header-bg);
+  height: 48px;
+  background: var(--sidebar-bg, var(--header-bg));
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -37,15 +56,9 @@
   padding: 4px 8px;
   border-radius: 4px;
 }
-.wd-dash-brand:hover { background: var(--hover); }
-/* Shipped version — quiet monospace tag next to the brand. */
-.wd-dash-version {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
-  color: var(--muted);
-  margin-left: 2px;
+.wd-dash-brand:hover {
+  background: var(--hover);
 }
-
 .wd-dash-tabs {
   display: flex;
   list-style: none;
@@ -78,7 +91,10 @@
   display: inline-flex;
   align-items: center;
   margin-bottom: -1px;
-  transition: color 80ms ease, border-color 80ms ease, background 80ms ease;
+  transition:
+    color 80ms ease,
+    border-color 80ms ease,
+    background 80ms ease;
   border-radius: 0;
 }
 .wd-dash-tab:hover {
@@ -98,20 +114,109 @@
   background: transparent;
 }
 
-.wd-dash-topnav-spacer { flex: 1; }
+.wd-dash-topnav-spacer {
+  flex: 1;
+}
 
-.wd-dash-current-scope {
-  font-size: 12px;
+/* A quiet top-bar button (Tasks). */
+.wd-topnav-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-topnav-btn:hover,
+.wd-topnav-btn-on {
+  color: var(--fg);
+  background: var(--hover);
+}
+/* Tasks: a small panel under its button (TasksPanel), the Tasks list in it. */
+.wd-tasks-popover {
+  position: relative;
+}
+.wd-tasks-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - 80px));
+  overflow: auto;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.wd-tasks-panel .wd-dash-tab-pane {
+  padding: 12px 14px;
+}
+.wd-tasks-panel .wd-tab-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.wd-tasks-panel .wd-tab-header h1 {
+  font-size: 14px;
+}
+.wd-tasks-panel .wd-tab-controls {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 10px;
+}
+.wd-tasks-panel .wd-tab-controls label {
   white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-tasks-panel .wd-task-add {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+}
+.wd-tasks-panel .wd-task-add input {
+  flex: 1;
+  min-width: 0;
+}
+.wd-tasks-panel .wd-task-list {
+  margin: 0;
+  padding: 0;
+}
+/* "Now / Today" beside the Sessions title. */
+.wd-segmented {
+  display: inline-flex;
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
+  vertical-align: middle;
+}
+.wd-segmented-btn {
+  appearance: none;
+  background: var(--bg);
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.wd-segmented-btn + .wd-segmented-btn {
+  border-left: 1px solid var(--border);
+}
+.wd-segmented-btn:hover {
+  color: var(--fg);
+}
+.wd-segmented-btn-on {
+  background: var(--hover);
+  color: var(--fg);
+  font-weight: 600;
 }
 
 /* ---- Body: rail + main ---------------------------------------------------*/
@@ -137,28 +242,23 @@
   flex-shrink: 0;
 }
 
+/* Search and + on one row (the top bar already says "Sessions"). */
 .wd-dash-rail-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px 6px;
-}
-.wd-dash-rail-header h2 {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 12px 10px 8px;
 }
 .wd-dash-rail-new {
   appearance: none;
-  background: transparent;
+  flex-shrink: 0;
+  background: var(--bg);
   border: 1px solid var(--border);
-  color: var(--muted);
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
+  color: var(--fg);
+  width: 30px;
+  height: 28px;
+  border-radius: 6px;
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -189,41 +289,243 @@
   border: none;
   color: var(--fg);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   margin-bottom: 1px;
   overflow: hidden;
 }
-.wd-dash-rail-item:hover { background: var(--hover); }
+.wd-dash-rail-item:hover {
+  background: var(--hover);
+}
 .wd-dash-rail-item-active {
   background: color-mix(in srgb, var(--accent, #0969da) 12%, transparent);
   font-weight: 500;
 }
 
+.wd-dash-rail-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wd-dash-rail-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
 .wd-dash-rail-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+.wd-dash-rail-item-unseen .wd-dash-rail-name {
+  font-weight: 600;
+}
+.wd-dash-rail-slot {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-rail-slot-needs {
+  color: var(--del-fg);
+  font-weight: 600;
+}
+.wd-rail-slot-done {
+  color: var(--accent);
+}
+.wd-rail-slot-working {
+  color: var(--add-fg);
+}
+.wd-rail-slot-review {
+  color: var(--review-fg);
+  font-weight: 600;
+}
+.wd-dash-rail-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-dash-rail-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-stat,
+.wd-diffstat {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wd-dash-rail-stat {
+  color: var(--muted);
+}
+.wd-diffstat-add {
+  color: var(--add-fg);
+}
+.wd-diffstat-del {
+  color: var(--del-fg);
 }
 
+/* One dot vocabulary for every view (see state/session-display.ts). */
 .wd-rail-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 4px;
+  background: #6e7681;
 }
-.wd-rail-dot-active { background: #2ea043; }   /* green */
-.wd-rail-dot-open   { background: #d29922; }   /* amber */
-.wd-rail-dot-stale  { background: #6e7681; }   /* grey */
+.wd-rail-dot-needs_input {
+  background: var(--del-fg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--del-fg) 30%, transparent);
+}
+.wd-rail-dot-done {
+  background: var(--accent);
+}
+.wd-rail-dot-working {
+  background: var(--add-fg);
+  animation: wd-inbox-pulse 1.4s ease-in-out infinite;
+}
+.wd-rail-dot-active {
+  background: var(--add-fg);
+}
+.wd-rail-dot-open {
+  background: #d29922;
+} /* amber */
+.wd-rail-dot-review,
+.wd-rail-dot-pr {
+  background: var(--review-fg);
+} /* purple: reviewers are waiting on you, or the PR is */
+.wd-rail-dot-in_review {
+  background: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
+}
+.wd-rail-dot-quiet,
+.wd-rail-dot-recent,
+.wd-rail-dot-stale {
+  background: #6e7681;
+} /* grey */
+@media (prefers-reduced-motion: reduce) {
+  .wd-rail-dot-working {
+    animation: none;
+  }
+}
+
+/* The status as an icon (StatusIcon): same colours, drawn in currentColor. */
+.wd-rail-dot.wd-status-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  margin-top: 1px;
+  background: none;
+  box-shadow: none;
+  animation: none;
+  display: inline-flex;
+  color: #6e7681;
+}
+.wd-status-icon svg {
+  display: block;
+}
+.wd-status-icon.wd-rail-dot-needs_input {
+  color: var(--del-fg);
+}
+.wd-status-icon.wd-rail-dot-done {
+  color: var(--accent);
+}
+.wd-status-icon.wd-rail-dot-working {
+  color: var(--add-fg);
+}
+.wd-status-icon.wd-rail-dot-active {
+  color: var(--add-fg);
+}
+.wd-status-icon.wd-rail-dot-open {
+  color: #d29922;
+}
+.wd-status-icon.wd-rail-dot-review,
+.wd-status-icon.wd-rail-dot-pr {
+  color: var(--review-fg);
+}
+.wd-status-icon.wd-rail-dot-in_review {
+  color: color-mix(in srgb, var(--review-fg) 55%, #6e7681);
+}
+.wd-status-icon.wd-rail-dot-stale {
+  color: #6e7681;
+  opacity: 0.7;
+}
+.wd-status-spin {
+  transform-origin: 8px 8px;
+  animation: wd-status-spin 1s linear infinite;
+}
+@keyframes wd-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-status-spin {
+    animation: none;
+  }
+}
+/* A selected rail row's background: the glyph cut out of a filled icon matches it. */
+.wd-dash-rail-item-active .wd-status-icon {
+  --status-icon-cut: var(--current);
+}
+
+/* PR badge: #123 + checks glyph, colored by checks state. */
+.wd-pr-chip {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+a.wd-pr-chip:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.wd-pr-chip-draft {
+  border-style: dashed;
+}
+/* A rail row's PR pills: right-aligned on its second line; small, never squeezed. */
+.wd-rail-prs {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 3px;
+  margin-left: auto;
+}
+.wd-rail-prs .wd-pr-chip {
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 4px;
+}
+.wd-pr-stage-good {
+  border-color: var(--add-fg);
+  color: var(--add-fg);
+}
+.wd-pr-stage-bad {
+  border-color: var(--del-fg);
+  color: var(--del-fg);
+}
 
 .wd-dash-rail-pending {
   font-size: 10px;
@@ -245,6 +547,18 @@
   font-size: 11px;
   color: var(--muted);
   padding: 6px 12px;
+}
+.wd-dash-rail-older {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #0969da);
+  cursor: pointer;
+}
+.wd-dash-rail-older:hover {
+  text-decoration: underline;
 }
 
 .wd-dash-main {
@@ -313,49 +627,14 @@
   font-size: 13px;
 }
 
-/* ---- Sessions tab: card grid ---------------------------------------------*/
+/* ---- Sessions tab: dense table -------------------------------------------*/
 
-.wd-session-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  padding: 16px 24px;
-  overflow-y: auto;
-}
-.wd-session-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: border-color 80ms ease, transform 80ms ease;
-}
-.wd-session-card:hover {
-  border-color: var(--accent, #0969da);
-}
-.wd-session-card:focus-visible {
-  outline: 2px solid var(--accent, #0969da);
-  outline-offset: 1px;
-}
-.wd-session-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-}
 /* Grouped Sessions view: one scroller holding a section per project. */
 .wd-session-groups {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 16px;
-}
-.wd-session-groups .wd-session-grid {
-  overflow: visible;
-  padding-top: 8px;
-  padding-bottom: 8px;
 }
 .wd-session-group-header {
   display: flex;
@@ -400,210 +679,406 @@
   border-radius: 10px;
   padding: 0 8px;
 }
-/* On cards the badge carries the repo list as a tooltip. */
-.wd-session-group-kind-hint { cursor: help; }
-
-/* Delete button — hidden until the card is hovered / focused. */
-.wd-session-card-delete {
-  appearance: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--muted);
-  cursor: pointer;
-  opacity: 0;
-  flex-shrink: 0;
-}
-.wd-session-card:hover .wd-session-card-delete,
-.wd-session-card:focus-within .wd-session-card-delete,
-.wd-session-card-delete:focus-visible {
-  opacity: 1;
-}
-.wd-session-card-delete:hover {
-  color: var(--del-fg);
-  border-color: var(--border);
-  background: var(--hover);
+/* In table rows the badge carries the repo list as a tooltip. */
+.wd-session-group-kind-hint {
+  cursor: help;
 }
 
-/* Card = project/group name (row 1) · branch (row 2) · meta (row 3). */
-.wd-session-card-target {
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-session-card-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wd-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-right: 2px;
-}
-.wd-card-dot-active { background: #2ea043; }
-.wd-card-dot-open   { background: #d29922; }
-.wd-card-dot-stale  { background: #6e7681; }
-.wd-session-card-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--muted);
-}
+/* ---- Start: where new work comes from (StartTab) --------------------------*/
 
-/* ---- PRs tab: table ------------------------------------------------------*/
-
-.wd-pr-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  overflow-y: auto;
+.wd-start-section {
+  padding: 4px 32px 8px;
+  max-width: 1000px;
 }
-.wd-pr-table thead {
-  position: sticky;
-  top: 0;
-  background: var(--header-bg);
-  z-index: 1;
-}
-.wd-pr-table th {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-.wd-pr-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.wd-pr-group-label {
-  background: var(--sidebar-bg, var(--header-bg));
-  font-weight: 600;
+.wd-start-title {
+  margin: 16px 0 6px;
   font-size: 12px;
-  color: var(--fg);
-}
-.wd-pr-row { cursor: pointer; }
-.wd-pr-row:hover { background: var(--hover); }
-.wd-pr-num { font-family: monospace; color: var(--muted); }
-.wd-pr-branch {
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wd-pr-title { font-weight: 500; }
-.wd-pr-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-right: 6px;
-  background: var(--border);
-  color: var(--muted);
-}
-.wd-pr-check { font-size: 14px; }
-.wd-pr-check-ok      { color: #2ea043; }
-.wd-pr-check-fail    { color: #d1242f; }
-.wd-pr-check-pending { color: #d29922; }
-.wd-pr-check-none    { color: var(--muted); }
-.wd-pr-actions { text-align: right; }
-.wd-pr-actions a { color: var(--muted); text-decoration: none; }
-.wd-pr-actions a:hover { color: var(--accent, #0969da); }
-
-/* ---- Jira tab: kanban ----------------------------------------------------*/
-
-.wd-jira-board {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-  padding: 16px 24px;
-  overflow-y: auto;
-}
-.wd-jira-col {
-  background: var(--sidebar-bg, var(--header-bg));
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  max-height: 100%;
-}
-.wd-jira-col-header {
-  display: flex;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.wd-jira-col-list {
+.wd-start-note {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-start-list {
   list-style: none;
   margin: 0;
-  padding: 8px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 0;
 }
-.wd-jira-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-}
-.wd-jira-card:hover { border-color: var(--accent, #0969da); }
-.wd-jira-card-header {
-  display: flex;
-  justify-content: space-between;
+/* key · what · state · Start (or the session already on it) */
+.wd-start-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 140px 170px;
   align-items: center;
-  margin-bottom: 4px;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
 }
-.wd-jira-card-key {
-  font-family: monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent, #0969da);
-}
-.wd-jira-card-link {
-  color: var(--muted);
+.wd-start-key {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 13px;
+  color: var(--accent);
   text-decoration: none;
+}
+.wd-start-key:hover {
+  text-decoration: underline;
+}
+.wd-start-key-pr {
+  color: var(--muted);
+}
+.wd-start-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-start-repo {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-start-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+.wd-start-state-bad {
+  color: var(--del-fg);
+}
+.wd-start-state-good {
+  color: var(--add-fg);
+}
+.wd-start-action {
+  display: flex;
+  justify-content: flex-end;
+}
+.wd-start-existing {
+  font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* What the Jira watch did with an issue: under its row, across. */
+.wd-start-row > .wd-jira-watch {
+  grid-column: 2 / -1;
+  margin-top: 0;
+}
+.wd-start-watch {
+  padding: 16px 32px 24px;
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  .wd-start-section {
+    padding: 4px 12px 8px;
+  }
+  .wd-start-row {
+    grid-template-columns: 80px minmax(0, 1fr) auto;
+  }
+  .wd-start-state {
+    display: none;
+  }
+}
+
+/* ---- Welcome (first run) -------------------------------------------------*/
+
+.wd-welcome-intro,
+.wd-welcome-step {
+  padding: 0 32px;
+  max-width: 1100px;
+}
+.wd-welcome-intro {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.wd-welcome-step {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-welcome-step .wd-tab-repos {
+  margin: 0 -32px;
+}
+.wd-welcome-step .wd-tab-repos .wd-tab-header h1 {
+  font-size: 15px;
+}
+.wd-welcome-ok {
+  margin-left: 6px;
+  color: var(--add-fg);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wd-welcome-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.wd-welcome-field > span {
+  width: 130px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.wd-welcome-field input {
+  flex: 1;
+  max-width: 520px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 12px;
 }
-.wd-jira-card-link:hover { color: var(--fg); }
-.wd-jira-card-summary {
+.wd-welcome-tools {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.wd-welcome-tools li {
+  display: grid;
+  grid-template-columns: 18px 120px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.wd-welcome-tool-ok .wd-welcome-tool-mark {
+  color: var(--add-fg);
+}
+.wd-welcome-tool-bad .wd-welcome-tool-mark,
+.wd-welcome-tool-bad .wd-welcome-tool-detail {
+  color: var(--del-fg);
+}
+.wd-welcome-tool-detail,
+.wd-welcome-tool-optional .wd-welcome-tool-mark {
+  color: var(--muted);
+}
+.wd-welcome-start {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0;
+}
+@media (max-width: 720px) {
+  .wd-welcome-intro,
+  .wd-welcome-step {
+    padding: 0 12px;
+  }
+  .wd-welcome-step .wd-tab-repos {
+    margin: 0 -12px;
+  }
+  .wd-welcome-field {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .wd-welcome-tools li {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .wd-welcome-tool-detail {
+    grid-column: 2;
+  }
+}
+
+/* ---- Repos page: the scanned folders' repos, and the groups ------------*/
+
+.wd-repos-roots,
+.wd-repos-confirm,
+.wd-tab-repos > .wd-repos-list,
+.wd-tab-repos > .wd-tab-empty,
+.wd-repos-groups {
+  padding-left: 32px;
+  padding-right: 32px;
+  max-width: 1100px;
+}
+.wd-repos-roots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  padding-bottom: 8px;
+  font-size: 13px;
+}
+.wd-repos-root {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-repos-root-add input {
+  width: 240px;
+  font-size: 12px;
+}
+.wd-repos-cost,
+.wd-repos-hint {
+  flex-basis: 100%;
   margin: 0;
   font-size: 12px;
-  color: var(--fg);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  color: var(--muted);
 }
-.wd-jira-card-has-session {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: 10px;
-  color: #2ea043;
+.wd-repos-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-size: 13px;
+  color: var(--warn-fg);
+}
+.wd-repos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* folder + path · origin · alias / groups / sessions · actions */
+.wd-repos-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) 140px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.wd-repos-group {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) 140px;
+}
+.wd-repos-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wd-repos-folder {
+  font-weight: 600;
+}
+.wd-repos-path,
+.wd-repos-origin {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-repos-state,
+.wd-repos-members,
+.wd-repos-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wd-repos-alias {
+  width: 100%;
+  max-width: 220px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+}
+.wd-repos-alias-name {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--accent);
+}
+.wd-repos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: default;
+}
+.wd-repos-chip input {
+  margin: 0;
+}
+.wd-repos-pick .wd-repos-chip {
+  cursor: pointer;
+}
+.wd-repos-chip-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.wd-repos-chip-bad {
+  border-color: var(--del-fg);
+  color: var(--del-fg);
+}
+.wd-repos-warn {
+  font-size: 12px;
+  color: var(--warn-fg);
+}
+.wd-repos-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.wd-repos-remove {
+  color: var(--del-fg);
+}
+.wd-tab-back {
+  margin-right: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+.wd-repos-error {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--del-fg);
+}
+.wd-repos-ignored .wd-repos-folder {
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-repos-groups {
+  padding-bottom: 32px;
+}
+.wd-repos-newgroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 4px;
+}
+.wd-repos-newgroup > input {
+  width: 180px;
+}
+.wd-repos-newgroup .wd-repos-error {
+  flex-basis: 100%;
+}
+.wd-modal-aside {
+  align-self: flex-start;
+  margin: -4px 0 4px;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .wd-repos-roots,
+  .wd-repos-confirm,
+  .wd-tab-repos > .wd-repos-list,
+  .wd-tab-repos > .wd-tab-empty,
+  .wd-repos-groups {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .wd-repos-row,
+  .wd-repos-group {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .wd-repos-origin {
+    display: none;
+  }
+  .wd-repos-state,
+  .wd-repos-members {
+    grid-column: 1 / -1;
+  }
+  .wd-repos-actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
 }
 
 /* ---- Tasks tab: flat list ------------------------------------------------*/
@@ -621,7 +1096,9 @@
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
-.wd-task-row:hover { background: var(--hover); }
+.wd-task-row:hover {
+  background: var(--hover);
+}
 .wd-task-row-done .wd-task-text {
   color: var(--muted);
   text-decoration: line-through;
@@ -629,7 +1106,17 @@
 .wd-task-text {
   flex: 1;
   font-size: 13px;
-  cursor: pointer;
+  cursor: text;
+}
+.wd-task-edit {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg);
+  border: 1px solid var(--accent, var(--border));
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 .wd-task-action {
   font-size: 11px;
@@ -644,7 +1131,9 @@
   font-size: 16px;
   padding: 0 4px;
 }
-.wd-task-remove:hover { color: var(--del-fg, #d1242f); }
+.wd-task-remove:hover {
+  color: var(--del-fg, #d1242f);
+}
 .wd-task-add {
   display: flex;
   gap: 6px;
@@ -671,53 +1160,90 @@
 .wd-session-detail-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  padding: 16px 24px 4px;
   flex-shrink: 0;
+  min-width: 0;
 }
-.wd-back-link {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-}
-.wd-back-link:hover { color: var(--accent, #0969da); }
 .wd-session-detail h1 {
-  font-size: 16px;
+  font-size: 18px;
   margin: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
-  font-weight: 500;
+  font-weight: 600;
+  min-width: 0;
 }
-.wd-session-detail-delete {
-  appearance: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 5px;
+.wd-session-detail-target,
+.wd-session-detail-sep {
   color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
+  font-weight: 400;
+}
+.wd-session-detail-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Archive (or Restore) and ⋯: the header's only buttons. */
+.wd-session-actions {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wd-session-archive {
+  appearance: none;
+  background: var(--bg);
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 14px;
   cursor: pointer;
 }
-.wd-session-detail-delete:hover {
-  color: var(--del-fg);
-  border-color: var(--del-fg);
+.wd-session-archive:hover:not(:disabled) {
   background: var(--hover);
 }
-.wd-session-detail-target { color: var(--muted); }
-.wd-session-detail-sep { color: var(--muted); margin: 0 2px; }
-.wd-session-detail-branch { font-weight: 600; }
+.wd-session-archive:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-session-more {
+  appearance: none;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.wd-session-more:hover,
+.wd-session-more[aria-expanded='true'] {
+  border-color: var(--muted);
+}
+.wd-session-action-note {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-session-action-note-error {
+  color: var(--del-fg);
+}
+/* "Send a prompt…" lists under the actions. */
+.wd-session-actions .wd-prompts {
+  position: static;
+}
 
 .wd-session-subtabs {
   display: flex;
@@ -740,11 +1266,18 @@
   align-items: center;
   gap: 6px;
 }
-.wd-session-subtab:hover { color: var(--fg); }
+.wd-session-subtab:hover {
+  color: var(--fg);
+}
 .wd-session-subtab-active {
   color: var(--fg);
   border-bottom-color: var(--accent, #0969da);
   font-weight: 500;
+}
+.wd-session-subtab-meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
 }
 .wd-session-subtab-badge {
   background: var(--accent, #0969da);
@@ -777,28 +1310,2816 @@
   min-height: 0;
 }
 
-.wd-session-comments {
+/* ---- Attention inbox ---------------------------------------------------
+   State colors, shared by the inbox rows, the rail dots and the tab badge:
+   needs input = red (blocked on you), done-unseen = accent blue (review
+   me), working = green. */
+.wd-dash-tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--del-fg, #d1242f);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.wd-inbox-section {
+  padding: 4px 32px 12px;
+  max-width: 1100px;
+}
+.wd-inbox-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.wd-inbox-list {
   list-style: none;
   margin: 0;
-  padding: 12px 24px;
-  overflow-y: auto;
-}
-.wd-session-comment {
-  padding: 10px 14px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  margin-bottom: 8px;
+}
+/* One row a session, every row the same width: icon · name · what · when | actions. */
+.wd-inbox-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+.wd-inbox-item:first-child {
+  border-top: none;
+}
+.wd-inbox-item:hover,
+.wd-inbox-item:focus-within {
+  background: var(--hover);
+}
+.wd-inbox-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 16px minmax(140px, 240px) minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-inbox-row:focus-visible {
+  outline: 2px solid var(--accent, #0969da);
+  outline-offset: -2px;
+}
+.wd-inbox-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.wd-inbox-target {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-inbox-branch {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-inbox-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--muted);
+}
+.wd-inbox-since {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-align: right;
+}
+.wd-inbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-right: 12px;
+}
+/* Snooze, Mark seen, Terminal: there when the row is hovered or focused. */
+.wd-inbox-more {
+  display: inline-flex;
+  gap: 10px;
+  margin-right: 4px;
+  font-size: 12px;
+  visibility: hidden;
+}
+.wd-inbox-item:hover .wd-inbox-more,
+.wd-inbox-item:focus-within .wd-inbox-more {
+  visibility: visible;
+}
+/* The rest, in a line, pointing to the rail. */
+.wd-inbox-rest {
+  margin: 20px 32px;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* "2 snoozed" / "1 waiting on others", opened: until when (Unsnooze), and on what. */
+.wd-inbox-rest-list {
+  list-style: none;
+  margin: -12px 32px 20px;
+  padding: 0;
+  font-size: 13px;
+}
+.wd-inbox-rest-list li {
+  padding: 4px 0;
+}
+@media (max-width: 640px) {
+  .wd-inbox-item {
+    grid-template-columns: 1fr;
+  }
+  .wd-inbox-row {
+    grid-template-columns: 16px 1fr auto;
+  }
+  .wd-inbox-summary {
+    grid-column: 2 / -1;
+  }
+  .wd-inbox-actions {
+    justify-content: flex-start;
+    padding: 0 12px 10px 40px;
+  }
+  .wd-inbox-more {
+    visibility: visible;
+  }
+}
+
+/* Small secondary buttons used on table rows and inbox items. */
+.wd-row-action {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-row-action:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-row-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-row-action-danger:hover:not(:disabled) {
+  color: var(--del-fg);
+  border-color: var(--del-fg);
+}
+.wd-row-error {
+  color: var(--del-fg);
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.wd-archived-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-left: 6px;
+}
+
+.wd-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- Sessions table ----------------------------------------------------- */
+.wd-session-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.wd-session-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wd-session-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--header-bg);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-session-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.wd-session-row {
+  cursor: pointer;
+}
+.wd-session-row:hover {
+  background: var(--hover);
+}
+.wd-session-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.wd-session-row-archived {
+  opacity: 0.65;
+}
+.wd-st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.wd-st-status .wd-rail-dot {
+  margin-top: 0;
+}
+.wd-session-row-unseen .wd-st-status,
+.wd-session-row-unseen .wd-st-branch {
+  font-weight: 600;
+}
+/* Name and repo on one line, then a badge or two only when they matter. */
+.wd-st-session {
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-st-branch {
+  font-weight: 500;
+}
+.wd-st-target {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* "84% full": the conversation is past 70%. */
+.wd-st-full {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--warn-fg);
+  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.wd-st-col-summary {
+  width: 40%;
+  max-width: 0;
+}
+.wd-st-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+}
+.wd-st-col-changes,
+.wd-st-col-when {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* ⋯ on hover (or focus): the row's menu. */
+.wd-st-col-more {
+  width: 36px;
+  text-align: right;
+  cursor: default;
+}
+.wd-st-more {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+  visibility: hidden;
+}
+.wd-session-row:hover .wd-st-more,
+.wd-session-row:focus-within .wd-st-more {
+  visibility: visible;
+}
+.wd-st-more:hover {
+  color: var(--fg);
+  border-color: var(--border);
   background: var(--bg);
 }
-.wd-session-comment-header {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 6px;
+/* "View ▾": the table's filter, grouping and sort in one popover. */
+.wd-view-menu {
+  position: relative;
 }
-.wd-session-comment-body {
+.wd-view-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  font-size: 13px;
+}
+.wd-view-menu-panel > label:not(.wd-tab-check) {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.wd-session-older {
+  display: block;
+  margin: 12px 24px;
+  font-size: 13px;
+}
+.wd-session-group .wd-session-table {
+  margin-bottom: 8px;
+}
+.wd-tab-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+/* ---- Session header strip ---------------------------------------------- */
+.wd-session-detail-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.wd-session-detail-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+.wd-session-detail-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wd-session-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 24px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* "Needs you: 1 reply to post · CI failing on #212 [Review]" (NeedsYouBar). */
+.wd-needs-you {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 24px 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--review-fg) 30%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--review-fg) 5%, var(--bg));
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.wd-needs-you-label {
+  font-weight: 600;
+  color: var(--review-fg);
+}
+.wd-needs-you-text {
+  flex: 1;
+  min-width: 0;
+}
+.wd-needs-you-btn {
+  font-size: 12px;
+  padding: 3px 12px;
+}
+/* Folded behind the bar: kept mounted (a draft being edited survives). */
+.wd-ci-strip[hidden],
+.wd-replies[hidden] {
+  display: none;
+}
+
+/* Timeline tab: how long its Claude worked, above the timeline. */
+.wd-timeline-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wd-timeline-head {
+  padding: 12px 24px 0;
+  flex-shrink: 0;
+}
+.wd-status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.wd-status-line .wd-rail-dot {
+  margin-top: 0;
+}
+.wd-status-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wd-status-line-needs_input .wd-status-label {
+  color: var(--del-fg);
+}
+.wd-status-line-done .wd-status-label {
+  color: var(--accent);
+}
+.wd-status-line-working .wd-status-label {
+  color: var(--add-fg);
+}
+.wd-status-since {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-status-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ---- Ship panel --------------------------------------------------------- */
+.wd-ship-panel {
+  min-width: min(560px, calc(100vw - 32px));
+  max-width: min(680px, calc(100vw - 32px));
+}
+.wd-ship-dim {
+  opacity: 0.6;
+  transition: opacity 120ms ease;
+}
+.wd-ship-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 13px;
+}
+.wd-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: wd-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes wd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-spinner {
+    animation-duration: 2s;
+  }
+}
+.wd-ship-repo {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.wd-ship-facts {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--muted);
+}
+.wd-ship-bad {
+  color: var(--del-fg);
+}
+.wd-ship-blockers {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--del-fg);
+}
+.wd-ship-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wd-ship-ok {
+  color: var(--add-fg);
+}
+.wd-ship-fail {
+  color: var(--del-fg);
+}
+.wd-ship-confirm {
+  border: 1px solid var(--del-fg);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: color-mix(in srgb, var(--del-fg) 6%, transparent);
+}
+.wd-ship-confirm p {
+  margin: 0 0 8px;
+}
+.wd-ship-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.wd-ship-footer {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.wd-ship-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-ship-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.wd-ship-group select {
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+
+/* ---- Narrow / phone layout (<= 720px) ---------------------------------- */
+.wd-dash-rail-toggle {
+  display: none;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 16px;
+  line-height: 1;
+  width: 32px;
+  height: 30px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wd-dash-rail-backdrop {
+  display: none;
+}
+@media (max-width: 720px) {
+  .wd-dash-topnav {
+    gap: 8px;
+    padding: 0 8px;
+  }
+  .wd-dash-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Tabs: one horizontally scrollable strip instead of clipping. */
+  .wd-dash-tabs {
+    flex: 1;
+    min-width: 0;
+    margin-left: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .wd-dash-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .wd-dash-tab {
+    padding: 0 12px;
+    white-space: nowrap;
+  }
+  .wd-dash-topnav-spacer {
+    display: none;
+  }
+
+  /* Rail: off-canvas drawer. */
+  .wd-dash-body {
+    position: relative;
+  }
+  .wd-dash-body > .wd-resize-divider {
+    display: none;
+  }
+  .wd-dash-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(300px, 85vw);
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+  }
+  .wd-dash-rail-open .wd-dash-rail {
+    transform: none;
+  }
+  .wd-dash-rail-open .wd-dash-rail-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 19;
+    background: rgba(15, 20, 25, 0.35);
+  }
+
+  .wd-tab-header {
+    padding: 12px 16px;
+  }
+  .wd-tab-controls {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .wd-inbox-section {
+    padding: 4px 12px 12px;
+  }
+
+  /* Table -> stacked rows: status + session + summary stay, the rest wraps. */
+  .wd-session-table thead {
+    display: none;
+  }
+  .wd-session-table,
+  .wd-session-table tbody {
+    display: block;
+  }
+  .wd-session-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 2px 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wd-session-table td {
+    padding: 0;
+    border: 0;
+  }
+  .wd-st-col-status {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .wd-st-session {
+    grid-column: 2;
+    grid-row: 1;
+    max-width: none;
+    min-width: 0;
+  }
+  .wd-st-col-when {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .wd-st-col-summary {
+    grid-column: 1 / -1;
+    width: auto;
+    max-width: none;
+  }
+  .wd-st-col-changes {
+    grid-column: 1 / 3;
+  }
+  .wd-st-col-more {
+    display: none;
+  }
+  .wd-st-label {
+    display: none;
+  }
+
+  .wd-session-detail-header {
+    padding: 12px 12px 4px;
+    gap: 8px;
+  }
+  .wd-session-strip {
+    padding: 0 12px 10px;
+  }
+  .wd-needs-you,
+  .wd-catch-up,
+  .wd-replies {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  .wd-session-subtabs {
+    padding: 0 12px;
+    overflow-x: auto;
+  }
+  .wd-modal {
+    min-width: 0;
+    width: calc(100vw - 24px);
+  }
+  /* Session diff: stack the file tree above the diff instead of a
+     side-by-side split that leaves the diff a sliver. */
+  .wd-session-subtab-body > .wd-web-review-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .wd-session-subtab-body > .wd-web-review-layout > .wd-resize-divider {
+    display: none;
+  }
+  .wd-session-subtab-body > .wd-web-review-layout > .wd-web-review-sidebar {
+    max-height: 38vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+/* A group repo that's merged or untouched: done, shown quietly. */
+.wd-ship-repo-done {
+  opacity: 0.7;
+}
+.wd-ship-repo-done .wd-ship-done {
+  color: var(--add-fg, #1a7f37);
+  font-size: 12px;
+}
+.wd-ship-repo header input[type='checkbox'] {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* Dev server / preview chip in the session header strip. */
+.wd-dev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.wd-dev-port {
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--muted, #656d76);
+}
+.wd-dev-live .wd-dev-port,
+.wd-dev-live .wd-dev-dot {
+  color: var(--add-fg, #1a7f37);
+}
+.wd-dev-preview,
+.wd-dev-log {
+  font-size: 12px;
+}
+.wd-dev-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.wd-dev-btn:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.wd-dev-error {
+  color: var(--del-fg);
+}
+
+/* CI strip under the session header (open PRs failing / running). */
+.wd-ci-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 24px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-ci-fail {
+  background: color-mix(in srgb, var(--del-fg) 8%, transparent);
+}
+.wd-ci-fail .wd-ci-item > [aria-hidden] {
+  color: var(--del-fg);
+}
+.wd-ci-fix {
+  font-size: 12px;
+  padding: 2px 10px;
+}
+
+/* Terminal tab: the session's Claude runs in a plain terminal (nothing spawned). */
+.wd-pty-elsewhere {
+  padding: 18px 22px;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-pty-elsewhere p {
+  margin: 0 0 10px;
+}
+.wd-pty-elsewhere-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.wd-pty-elsewhere code {
+  font-family: var(--mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  background: var(--hover);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.wd-pty-elsewhere-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.wd-pty-elsewhere-warn {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Inbox: what a permission prompt wants to run, answerable in place. */
+.wd-inbox-request {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-inbox-request-tool {
+  font-weight: 600;
+  color: var(--muted);
+}
+.wd-inbox-answer-error {
+  color: var(--del-fg);
+  font-size: 12px;
+}
+.wd-row-action-allow {
+  color: var(--fg);
+  border-color: var(--add-fg, #2ea043);
+}
+.wd-row-action-allow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--add-fg, #2ea043) 14%, transparent);
+}
+
+/* Review queue: a slim bar over the session while walking finished work. */
+.wd-inbox-review-all {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wd-review-queue-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent, #0969da) 8%, var(--bg));
+  font-size: 13px;
+}
+.wd-review-queue-title {
+  font-weight: 600;
+}
+.wd-review-queue-pos {
+  font-variant-numeric: tabular-nums;
+}
+.wd-review-queue-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wd-review-queue-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.wd-review-queue-next kbd {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+@media (max-width: 640px) {
+  .wd-review-queue-hint {
+    display: none;
+  }
+}
+
+/* Two live sessions change the same files: they'll conflict on merge. */
+.wd-overlap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--warn-fg, #9a6700);
+  white-space: nowrap;
+}
+.wd-overlap-name,
+.wd-overlap-link {
+  font-weight: 600;
+}
+.wd-overlap-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.wd-overlap-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* How full a session's Claude conversation is. (`wd-ctx-`, not
+   `wd-context`: that class is the diff table's unchanged-line rows, and a
+   rule on it turned every split-view cell into a flex box.) */
+.wd-ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.wd-ctx-bar {
+  width: 34px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.wd-ctx-fill {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+.wd-ctx-warn {
+  color: var(--warn-fg);
+}
+.wd-ctx-warn .wd-ctx-fill {
+  background: var(--warn-fg);
+}
+.wd-ctx-full {
+  color: var(--del-fg);
+  font-weight: 600;
+}
+.wd-ctx-full .wd-ctx-fill {
+  background: var(--del-fg);
+}
+.wd-st-overlap {
+  margin-left: 6px;
+  color: var(--warn-fg);
+  cursor: help;
+}
+
+/* "Prompts ▾": saved one-click instructions for a session. */
+.wd-prompts {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wd-prompts-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-width: 360px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+.wd-prompts-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+}
+.wd-prompts-item:hover,
+.wd-prompts-item:focus-visible {
+  background: var(--hover);
+}
+.wd-prompts-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-prompts-state {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-prompts-state-sent {
+  color: var(--add-fg, #1a7f37);
+}
+.wd-prompts-state-error {
+  color: var(--del-fg);
+}
+
+/* Today: what each session did (digest). */
+.wd-today-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 20px 24px;
+}
+.wd-today-list-loading {
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.wd-today-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--bg);
+}
+.wd-today-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.wd-today-title {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--fg);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.wd-today-title:hover .wd-today-branch {
+  text-decoration: underline;
+}
+.wd-today-target {
+  color: var(--muted);
+}
+.wd-today-branch {
+  font-weight: 600;
+}
+.wd-today-facts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-today-state-needs_input {
+  color: var(--del-fg);
+  font-weight: 600;
+}
+.wd-today-state-working {
+  color: var(--add-fg, #1a7f37);
+}
+.wd-today-pr {
+  color: var(--accent, #0969da);
+  text-decoration: none;
+}
+.wd-today-pr:hover {
+  text-decoration: underline;
+}
+.wd-today-pr-merged {
+  color: #8250df;
+}
+.wd-today-section {
+  margin-top: 8px;
+}
+.wd-today-section h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.wd-today-prompts,
+.wd-today-done {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-today-prompts {
+  list-style: none;
+  padding-left: 0;
+}
+.wd-today-prompts time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  margin-right: 6px;
+}
+.wd-today-more {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wd-today-last {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .wd-today-list {
+    padding: 10px 12px 20px;
+  }
+}
+
+/* The pages that lay their content straight into the pane (overflow:
+   hidden, for the tabs that own a scroll region like the Sessions table)
+   scroll the pane itself; the header stays put. */
+.wd-tab-today,
+.wd-tab-inbox,
+.wd-tab-start,
+.wd-tab-jira,
+.wd-tab-repos,
+.wd-tab-welcome {
+  overflow-y: auto;
+}
+/* Its sections keep their height (a flex column would squeeze them instead of scrolling). */
+.wd-tab-start > *,
+.wd-tab-jira > *,
+.wd-tab-repos > *,
+.wd-tab-welcome > * {
+  flex-shrink: 0;
+}
+/* Repos inside Welcome: the Welcome page scrolls, not it. */
+.wd-tab-welcome .wd-tab-repos {
+  overflow: visible;
+  height: auto;
+}
+.wd-tab-today > .wd-tab-header,
+.wd-tab-inbox > .wd-tab-header,
+.wd-tab-start > .wd-tab-header,
+.wd-tab-jira > .wd-tab-header,
+.wd-tab-repos > .wd-tab-header,
+.wd-tab-welcome > .wd-tab-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+.wd-today-list {
+  flex-shrink: 0;
+}
+
+/* Clean up: worktrees that can go, chosen and applied in one go. */
+.wd-tab-cleanup {
+  overflow-y: auto;
+}
+.wd-tab-cleanup > .wd-tab-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+.wd-cleanup-progress {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-cleanup-section {
+  padding: 8px 24px 12px;
+}
+.wd-cleanup-section .wd-inbox-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wd-cleanup-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 820px;
+}
+.wd-cleanup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wd-cleanup-item {
+  display: grid;
+  grid-template-columns: 22px minmax(160px, 260px) 1fr auto 150px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.wd-cleanup-item-on {
+  border-color: var(--accent, #0969da);
+}
+.wd-cleanup-name {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wd-cleanup-name:hover .wd-inbox-branch {
+  text-decoration: underline;
+}
+.wd-cleanup-reason {
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-cleanup-when {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-cleanup-action {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-cleanup-results {
+  margin: 10px 24px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.wd-cleanup-results p {
+  margin: 0 0 4px;
+}
+.wd-cleanup-results ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.wd-cleanup-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 13px;
+  margin-top: auto;
+}
+.wd-cleanup-bar > span:first-child {
+  margin-right: auto;
+}
+.wd-cleanup-confirm-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .wd-cleanup-item {
+    grid-template-columns: 22px 1fr;
+  }
+  .wd-cleanup-reason,
+  .wd-cleanup-when,
+  .wd-cleanup-item select,
+  .wd-cleanup-action {
+    grid-column: 2;
+  }
+  .wd-cleanup-section {
+    padding: 6px 12px 10px;
+  }
+}
+.wd-cleanup-item select {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* The Ctrl+K assistant: a Claude session in a right-hand panel. */
+.wd-assistant {
+  position: fixed;
+  top: 44px;
+  right: 0;
+  bottom: 0;
+  width: min(600px, 100vw);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition:
+    transform 0.16s ease-out,
+    visibility 0s linear 0.16s;
+}
+.wd-assistant-open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.16s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-assistant,
+  .wd-assistant-open {
+    transition: none;
+  }
+}
+.wd-assistant-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.wd-assistant-title {
+  font-weight: 600;
+}
+.wd-assistant-seeing {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.wd-assistant-keys {
+  color: var(--muted);
+  font-size: 11px;
+}
+.wd-assistant-close {
+  appearance: none;
+  background: none;
+  border: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.wd-assistant-close:hover {
+  color: var(--fg);
+}
+.wd-assistant-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: #1e1e1e;
+}
+.wd-assistant-body .wd-pty-host {
+  flex: 1;
+  min-width: 0;
+}
+.wd-assistant-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+.wd-assistant-toggle:hover,
+.wd-assistant-toggle-on {
+  background: var(--hover);
+}
+.wd-assistant-toggle kbd {
+  font-size: 10px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .wd-assistant-toggle kbd {
+    display: none;
+  }
+}
+
+/* Terminal deck: the last few session terminals, kept connected, laid over
+   the session view's slot. */
+.wd-term-slot {
+  flex: 1;
+  min-height: 0;
+  background: #1e1e1e;
+}
+.wd-term-deck {
+  position: fixed;
+  z-index: 1;
+  display: flex;
+}
+.wd-term-deck-item {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+/* Rail: drag to reorder */
+.wd-dash-rail-list li[draggable='true'] {
+  cursor: grab;
+}
+.wd-dash-rail-dragging {
+  opacity: 0.45;
+}
+.wd-dash-rail-drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.wd-dash-rail-drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.wd-pr-chip-open {
+  cursor: pointer;
+}
+.wd-dash-rail-search {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.wd-dash-rail-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.wd-tab-search {
+  min-width: 220px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.wd-archive-hits {
+  margin-top: 18px;
+}
+.wd-archive-hit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wd-archive-hit {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.wd-archive-hit-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wd-archive-hit-head .wd-row-action {
+  margin-left: auto;
+}
+.wd-archive-hit-snippet {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.wd-session-title {
+  margin-left: 12px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: text;
+  max-width: 42ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.wd-session-title:hover {
+  color: var(--fg);
+  text-decoration: underline dotted;
+}
+.wd-session-title-empty {
+  font-style: italic;
+  opacity: 0.6;
+}
+.wd-session-title-input {
+  margin-left: 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 2px 6px;
+  min-width: 32ch;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+.wd-st-title {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "What the colours mean" (StatusLegend): a "?" beside the sessions list. */
+.wd-legend {
+  margin-left: auto;
+  margin-right: 6px;
+}
+.wd-legend-toggle {
+  width: 22px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+/* The `?` list of keyboard shortcuts (ShortcutsHelp): centred, over everything, a popover. */
+.wd-shortcuts {
+  position: fixed;
+  z-index: 60;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  padding: 12px 18px 16px;
+  font-size: 13px;
+}
+.wd-shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wd-shortcuts-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.wd-shortcuts-note {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-shortcuts-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 6px 28px;
+}
+.wd-shortcuts-group dl {
+  margin: 0;
+}
+.wd-shortcuts-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  padding: 2px 0;
+}
+.wd-shortcuts-row dt,
+.wd-shortcuts-row dd {
+  margin: 0;
+}
+.wd-shortcuts kbd {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.wd-legend-panel {
+  position: fixed;
+  z-index: 50;
+  width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.wd-legend-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 6px 0 6px;
+}
+.wd-legend-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.wd-legend-row {
+  display: grid;
+  grid-template-columns: 12px 108px 1fr;
+  gap: 6px;
+  align-items: start;
+  padding: 3px 0;
+}
+.wd-legend-row .wd-rail-dot {
+  margin-top: 4px;
+}
+.wd-legend-name {
+  font-weight: 600;
+}
+.wd-legend-meaning {
+  color: var(--muted);
+}
+.wd-legend-marks li {
+  padding: 3px 0;
+  color: var(--muted);
+}
+.wd-legend-marks b {
+  color: var(--fg);
+}
+.wd-legend-overlap {
+  color: var(--warn-fg);
+}
+
+/* Background activity (ActivityIndicator): what work is doing, and what it decided. */
+.wd-activity {
+  position: relative;
+  margin-right: 8px;
+}
+.wd-activity-dot-btn {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wd-activity-dot-btn:hover,
+.wd-activity-dot-btn[aria-expanded='true'] {
+  background: var(--hover);
+}
+/* Grey while all is well (busy or not); coloured only when a job needs you. */
+.wd-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.6;
+}
+.wd-activity-dot-busy {
+  opacity: 1;
+}
+.wd-activity-attention .wd-activity-dot {
+  background: var(--warn-fg);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn-fg) 25%, transparent);
+}
+.wd-activity-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-activity-version-actions {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: auto;
+}
+.wd-activity-version .wd-link-button {
+  font-size: 11px;
+}
+.wd-activity-update {
+  color: var(--accent);
+}
+.wd-activity-update-note {
+  flex-basis: 100%;
+}
+
+/* A newer work (UpdateStrip): a small card at the bottom right, only when there is one. */
+.wd-update-strip {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1500;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.wd-update-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+}
+.wd-update-command code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--hover);
+}
+.wd-update-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+/* What's new: the release notes, newest first. */
+.wd-whats-new {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.wd-whats-new-list {
+  overflow-y: auto;
+}
+.wd-whats-new-release {
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.wd-whats-new-release:last-child {
+  border-bottom: none;
+}
+.wd-whats-new-release h3 {
+  margin: 10px 0 4px;
+  font-size: 15px;
+}
+.wd-whats-new-focus h3 {
+  color: var(--accent);
+}
+.wd-whats-new-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.wd-whats-new-body h1,
+.wd-whats-new-body h2,
+.wd-whats-new-body h3 {
+  font-size: 14px;
+  margin: 10px 0 4px;
+}
+.wd-whats-new-body ul {
+  padding-left: 20px;
+}
+.wd-activity-spinner {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: wd-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-activity-spinner {
+    animation: none;
+  }
+}
+.wd-activity-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: min(460px, calc(100vw - 16px));
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.wd-activity-empty {
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.wd-activity-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.wd-activity-schedule {
+  padding: 2px 0;
+}
+.wd-activity-name {
+  font-weight: 600;
+}
+.wd-activity-muted {
+  color: var(--muted);
+}
+.wd-activity-warn {
+  color: var(--warn-fg);
+}
+.wd-activity-run {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.wd-activity-run:first-of-type {
+  border-top: 0;
+}
+.wd-activity-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wd-activity-when {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.wd-activity-mark {
+  width: 12px;
+  text-align: center;
+  color: var(--muted);
+}
+.wd-activity-run-done .wd-activity-mark {
+  color: var(--add-fg);
+}
+.wd-activity-run-failed .wd-activity-mark,
+.wd-activity-run-failed .wd-activity-summary {
+  color: var(--del-fg);
+}
+.wd-activity-run-skipped .wd-activity-mark,
+.wd-activity-run-skipped .wd-activity-summary {
+  color: var(--warn-fg);
+}
+.wd-activity-progress {
+  width: 80px;
+  height: 6px;
+}
+.wd-activity-summary {
+  margin: 2px 0 0 18px;
+  color: var(--muted);
+}
+.wd-activity-notes {
+  list-style: none;
+  margin: 4px 0 0 18px;
+  padding: 0;
+}
+.wd-activity-note {
+  padding: 1px 0;
+  color: var(--muted);
+}
+.wd-activity-panel .wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-activity-panel .wd-link-button:hover {
+  text-decoration: underline;
+}
+.wd-activity-note-action {
+  color: var(--fg);
+}
+.wd-activity-note-warn {
+  color: var(--warn-fg);
+}
+.wd-activity-more {
+  font-size: 11px;
+}
+
+/* Replies Claude drafted for review threads (ReplyDrafts): posted on your yes. */
+.wd-replies {
+  margin: 0 24px 12px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--review-fg) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--review-fg) 5%, var(--bg));
+  font-size: 12px;
+}
+.wd-replies-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--review-fg);
+}
+.wd-replies-muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+.wd-reply {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.wd-reply:first-of-type {
+  border-top: 0;
+}
+.wd-reply-where {
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+.wd-reply-where:hover {
+  text-decoration: underline;
+}
+.wd-reply-quote {
+  margin: 4px 0 6px;
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
   white-space: pre-wrap;
+}
+.wd-reply-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}
+.wd-reply-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.wd-reply-actions .wd-link-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wd-reply-actions .wd-link-button:hover {
+  text-decoration: underline;
+}
+
+/* Renaming a session in the rail (F2 / right-click → Rename). */
+.wd-dash-rail-item-renaming {
+  cursor: default;
+  background: var(--current);
+}
+.wd-dash-rail-rename {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  color: var(--fg);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* A row's right-click menu, at the pointer. */
+.wd-row-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.wd-row-menu-item {
+  appearance: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.wd-row-menu-item:hover,
+.wd-row-menu-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.wd-row-menu-footer {
+  white-space: nowrap;
+  margin: 4px 0 0;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.wd-row-menu-hint {
+  color: var(--muted);
+  font-size: 11px;
+  font-family: inherit;
+}
+
+/* The branch a session's worktree is really on, when Claude (or you) switched it (OtherBranchChip). */
+.wd-other-branch {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warn-fg);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* The Jira watch (StartTab): its switch, and what it did with an issue. */
+.wd-jira-watch-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wd-jira-watch {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.wd-jira-watch-started {
+  color: var(--add-fg);
+}
+.wd-jira-watch-started .wd-link-button {
+  margin-left: 6px;
+  font-size: 11px;
+}
+.wd-jira-watch-ask {
+  color: var(--warn-fg);
+  cursor: default;
+}
+.wd-jira-watch-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.wd-jira-watch-actions select {
+  font: inherit;
+  font-size: 11px;
+  max-width: 140px;
+}
+.wd-jira-watch-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.wd-jira-watch-error {
+  display: block;
+  color: var(--del-fg);
+  margin-top: 2px;
+}
+
+/* The New worktree dialog: the hint under "What should Claude do?", the suggested branch, More options. */
+.wd-modal-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.wd-modal-branch {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 10px;
+}
+.wd-modal-branch code {
+  color: var(--fg);
+  font-size: 12px;
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.wd-modal-branch-note {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--warn-fg);
+}
+.wd-modal-branch-note-bad {
+  color: var(--del-fg);
+}
+.wd-modal-more {
+  display: block;
+  text-align: left;
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The New worktree dialog's project field (ProjectPicker): type to narrow it. */
+.wd-project-picker {
+  position: relative;
+  flex: 1;
+}
+.wd-project-picker input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.wd-project-picker-list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.wd-project-picker-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wd-project-picker-option-active {
+  background: var(--hover);
+}
+.wd-project-picker-hint {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-project-picker-empty {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wd-row-menu-item-danger {
+  color: var(--del-fg);
+}
+.wd-row-menu-item-separated {
+  border-top: 1px solid var(--border);
+  margin-top: 3px;
+  padding-top: 7px;
+}
+
+/* A short message at the bottom of the window (Toast). */
+.wd-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 2000;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.wd-toast-error {
+  background: var(--del-fg);
+  color: #fff;
+}
+
+/* Ctrl+P: go to a session (QuickSwitcher). */
+.wd-switcher-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.wd-switcher {
+  width: min(560px, calc(100vw - 32px));
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.wd-switcher-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+}
+.wd-switcher-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.wd-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.wd-switcher-item-active {
+  background: var(--hover);
+}
+.wd-switcher-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-switcher-sub {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+.wd-switcher-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.wd-switcher-hint {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.wd-switcher-hint kbd {
+  font-family: inherit;
+}
+
+/* Snoozed (snooze.ts): the rail's slot, the Inbox's last section. */
+.wd-rail-slot-snoozed {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* The Sessions table's ticked rows and the bar acting on them (BulkBar). */
+.wd-st-col-pick {
+  width: 28px;
+  text-align: center;
+}
+.wd-bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 24px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--current);
+  font-size: 12px;
+}
+.wd-bulk-count {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.wd-bulk-busy {
+  color: var(--muted);
+}
+.wd-bulk-send {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  align-items: flex-start;
+}
+.wd-bulk-send textarea {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  min-width: 240px;
+}
+.wd-bulk-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--del-fg);
+}
+.wd-bulk-delete {
+  color: var(--del-fg);
+}
+.wd-bulk-outcome {
+  margin: 0 24px 8px;
+  font-size: 12px;
+}
+.wd-status-icon.wd-status-icon-muted {
+  color: #6e7681;
+  opacity: 0.55;
+}
+
+/* "Catch me up" (CatchUp.tsx): the summary under the session header. */
+.wd-catch-up-away {
+  font-size: 13px;
+}
+.wd-catch-up {
+  flex-shrink: 0;
+  margin: 0 24px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--sidebar-bg);
+}
+.wd-catch-up-text {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.wd-catch-up-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-bulk-hidden {
+  color: var(--muted);
+}
+
+/* Behind main (BehindChip): how far, Update from main, the outcome. */
+.wd-behind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.wd-behind-text {
+  color: var(--warn-fg);
+  white-space: nowrap;
+}
+.wd-behind-conflicts .wd-behind-text {
+  color: var(--del-fg);
+}
+.wd-behind-outcome {
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-behind-outcome .wd-link-button {
+  margin-left: 6px;
+}
+
+/* Rail groups: Pinned, your sections, the rest (rail-layout.ts). */
+.wd-dash-rail-group {
+  padding: 8px 12px 2px;
+}
+.wd-dash-rail-group + .wd-dash-rail-group {
+  padding-top: 2px;
+}
+.wd-dash-rail-group-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+.wd-dash-rail-group-toggle:hover {
+  color: var(--fg);
+}
+.wd-dash-rail-group-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.wd-dash-rail-group-caret {
+  width: 10px;
+  flex: none;
+}
+.wd-dash-rail-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-dash-rail-group-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.wd-dash-rail-group-drop {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.wd-dash-rail-group-empty {
+  padding: 2px 12px 6px 27px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-dash-rail-group-naming {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wd-dash-rail-group-error {
+  font-size: 11px;
+  color: var(--status-deleted-fg);
+}
+
+/* Fork dialog (ForkSessionModal). */
+.wd-fork-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-fork-busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Where a session sits in a stack (StackChip). */
+.wd-stack {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* How long its Claude worked (WorkTimeChip): click copies a worklog line. */
+.wd-work-time {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: copy;
+  font-variant-numeric: tabular-nums;
+}
+.wd-work-time:hover {
+  color: var(--fg);
+}
+.wd-work-time:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Snooze until… (SnoozeUntilDialog): what the typed time means. */
+.wd-snooze-until-preview {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Sessions table: the row's place in the rail (📌, or its section). */
+.wd-st-rail {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.wd-st-rail-pin {
+  border: 0;
+  padding: 0;
+}
+
+/* Your notes on a session (SessionNotes). */
+.wd-notes-chip {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wd-notes-chip:hover,
+.wd-notes-chip-open {
+  color: var(--fg);
+}
+.wd-notes {
+  margin: 0 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wd-notes-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}
+.wd-notes-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.wd-notes-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.wd-notes-status {
+  flex: 1;
+  color: var(--muted);
+}
+.wd-dash-rail-note {
+  font-size: 11px;
+}
+
+/* Blocked by (BlockedByChip): what a session waits on. */
+.wd-blocked {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-blocked-item {
+  white-space: nowrap;
+}
+.wd-blocked-drop {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  margin-left: 2px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wd-blocked-drop:hover {
+  color: var(--fg);
+}
+
+/* The Timeline tab (TimelineView): a session's history on one line. */
+.wd-timeline {
+  padding: 12px 24px;
+  overflow: auto;
+}
+.wd-timeline-day + .wd-timeline-day {
+  margin-top: 14px;
+}
+.wd-timeline-day-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.wd-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 2px solid var(--border);
+}
+.wd-timeline-event {
+  display: grid;
+  grid-template-columns: 52px 18px 64px 1fr;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 0 3px 10px;
+  font-size: 13px;
+}
+.wd-timeline-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.wd-timeline-icon {
+  color: var(--muted);
+  text-align: center;
+}
+.wd-timeline-kind {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wd-timeline-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wd-timeline-prompt .wd-timeline-text {
+  font-weight: 500;
+}
+.wd-timeline-pr-merged .wd-timeline-icon,
+.wd-timeline-turn .wd-timeline-icon {
+  color: var(--status-added-fg, var(--accent));
+}
+.wd-timeline-sha {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wd-timeline-repo {
+  color: var(--muted);
+}
+
+/* Log to Jira (WorkTimeChip). */
+.wd-work-time-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.wd-work-time-jira {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.wd-work-time-jira:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.wd-work-time-result {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* The PTY host's heartbeat (HostHealthBanner): only when it's slow or not answering. */
+.wd-host-health {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.wd-host-health-unresponsive {
+  border-color: var(--status-deleted-fg);
+}
+/* A keystroke's round trip (PtyView). */
+.wd-pty-frame {
+  position: relative;
+}
+.wd-pty-latency {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0.75;
+  pointer-events: auto;
+}
+.wd-pty-latency-slow {
+  color: #b45309;
+  opacity: 1;
 }

@@ -6,8 +6,7 @@ import { DiffRepo } from '../../src/web/src/components/Diff/DiffRepo.js';
 import type { ParsedFile, RepoData } from '../../src/web/src/api/client.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function file(path: string): ParsedFile {
   return {
@@ -63,9 +62,7 @@ describe('DiffRepo render order', () => {
       root.render(createElement(DiffRepo, { repo, startIndex: 0 }));
     });
 
-    const ids = Array.from(
-      container.querySelectorAll<HTMLElement>('.wd-repo-files [id^="wd-file-"]'),
-    ).map((el) => el.id);
+    const ids = Array.from(container.querySelectorAll<HTMLElement>('.wd-repo-files [id^="wd-file-"]')).map((el) => el.id);
 
     // Tree order: each level mixes dirs + files in one alphabetical list
     // (matches FileTree). At root: "src" (dir) < "zzz.txt". Inside src:
@@ -89,9 +86,7 @@ describe('DiffRepo render order', () => {
       root.render(createElement(DiffRepo, { repo, startIndex: 10 }));
     });
 
-    const ids = Array.from(
-      container.querySelectorAll<HTMLElement>('.wd-repo-files [id^="wd-file-"]'),
-    ).map((el) => el.id);
+    const ids = Array.from(container.querySelectorAll<HTMLElement>('.wd-repo-files [id^="wd-file-"]')).map((el) => el.id);
     // a.ts (index 11) before b.ts (index 10), both offset by startIndex.
     expect(ids).toEqual(['wd-file-11', 'wd-file-10']);
   });

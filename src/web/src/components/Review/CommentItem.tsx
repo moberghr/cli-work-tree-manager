@@ -35,12 +35,7 @@ export function CommentItem({ comment, currentLineContent }: Props) {
   if (isResolved && !expandedResolved) {
     const firstLine = comment.body.split('\n')[0];
     return (
-      <button
-        type="button"
-        className="wd-comment-resolved-bar"
-        onClick={() => setExpandedResolved(true)}
-        title="Resolved — click to show"
-      >
+      <button type="button" className="wd-comment-resolved-bar" onClick={() => setExpandedResolved(true)} title="Resolved — click to show">
         <span className="wd-resolved-check" aria-hidden="true">
           ✓
         </span>
@@ -69,26 +64,14 @@ export function CommentItem({ comment, currentLineContent }: Props) {
   return (
     <>
       <div className={itemClasses}>
-        {comment.status === 'draft' && (
-          <div className="wd-draft-badge">PENDING</div>
-        )}
-        {outdated && (
-          <div className="wd-comment-outdated-badge">
-            outdated — line has changed since this comment was written
-          </div>
-        )}
-        {comment.author === 'claude' && (
-          <div className="wd-comment-author">Claude</div>
-        )}
+        {comment.status === 'draft' && <div className="wd-draft-badge">PENDING</div>}
+        {outdated && <div className="wd-comment-outdated-badge">outdated — line has changed since this comment was written</div>}
+        {comment.author === 'claude' && <div className="wd-comment-author">Claude</div>}
         <div className="wd-comment-body">
           <Markdown source={comment.body} />
         </div>
         <div className="wd-comment-actions">
-          <button
-            type="button"
-            className="wd-comment-action-link"
-            onClick={() => review.openReplyAt(replyParentId)}
-          >
+          <button type="button" className="wd-comment-action-link" onClick={() => review.openReplyAt(replyParentId)}>
             reply
           </button>
           {!isReply && (
@@ -99,40 +82,25 @@ export function CommentItem({ comment, currentLineContent }: Props) {
                 // Re-resolving collapses again next render; clear the local
                 // expand so an already-resolved-then-expanded thread folds.
                 setExpandedResolved(false);
-                review.resolveComment(comment.id, !comment.resolved);
+                void review.resolveComment(comment.id, !comment.resolved);
               }}
             >
               {comment.resolved ? 'unresolve' : 'resolve'}
             </button>
           )}
           {isResolved && expandedResolved && (
-            <button
-              type="button"
-              className="wd-comment-action-link"
-              onClick={() => setExpandedResolved(false)}
-            >
+            <button type="button" className="wd-comment-action-link" onClick={() => setExpandedResolved(false)}>
               collapse
             </button>
           )}
-          <button
-            type="button"
-            className="wd-comment-delete"
-            onClick={() => review.deleteComment(comment.id)}
-          >
+          <button type="button" className="wd-comment-delete" onClick={() => review.deleteComment(comment.id)}>
             delete
           </button>
         </div>
       </div>
 
       {/* Render replies under the top-level item. */}
-      {!isReply &&
-        replies.map((r) => (
-          <CommentItem
-            key={r.id}
-            comment={r}
-            currentLineContent={currentLineContent}
-          />
-        ))}
+      {!isReply && replies.map((r) => <CommentItem key={r.id} comment={r} currentLineContent={currentLineContent} />)}
 
       {/* Render reply composer under the top-level item. */}
       {!isReply && replyOpen && (

@@ -2,22 +2,11 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  selectSessions,
-  expandRunUnits,
-  anyFailed,
-  type RunResult,
-  type RunUnit,
-} from '../../src/core/fleet.js';
+import { selectSessions, expandRunUnits, anyFailed, type RunResult, type RunUnit } from '../../src/core/sessions/fleet.js';
 import { extractRun, stripRunToken, runPool } from '../../src/commands/run.js';
-import type { WorktreeSession } from '../../src/core/history.js';
+import type { WorktreeSession } from '../../src/core/sessions/history.js';
 
-function session(
-  target: string,
-  branch: string,
-  paths: string[],
-  isGroup = false,
-): WorktreeSession {
+function session(target: string, branch: string, paths: string[], isGroup = false): WorktreeSession {
   return {
     target,
     branch,
@@ -61,10 +50,7 @@ describe('expandRunUnits', () => {
     const units = expandRunUnits(sessions);
     expect(units).toHaveLength(5); // 3 single + 2 group paths
     const groupUnits = units.filter((u) => u.session.target === 'full');
-    expect(groupUnits.map((u) => u.path)).toEqual([
-      '/wt/full/c/api',
-      '/wt/full/c/web',
-    ]);
+    expect(groupUnits.map((u) => u.path)).toEqual(['/wt/full/c/api', '/wt/full/c/web']);
   });
 
   it('preserves stable session-then-path order', () => {
@@ -79,10 +65,7 @@ describe('stripRunToken', () => {
   });
 
   it('keeps a user-typed literal run after the command token', () => {
-    expect(stripRunToken(['run', 'run', 'run', 'echo'])).toEqual([
-      'run',
-      'echo',
-    ]);
+    expect(stripRunToken(['run', 'run', 'run', 'echo'])).toEqual(['run', 'echo']);
   });
 
   it('handles the empty invocation', () => {
@@ -109,13 +92,7 @@ describe('extractRun', () => {
   });
 
   it('parses our own leading fleet flags before the command', () => {
-    const { options, cmd } = extractRun([
-      '--parallel',
-      '--target',
-      'api',
-      'git',
-      'status',
-    ]);
+    const { options, cmd } = extractRun(['--parallel', '--target', 'api', 'git', 'status']);
     expect(options.parallel).toBe(true);
     expect(options.target).toBe('api');
     expect(cmd).toEqual(['git', 'status']);
@@ -129,12 +106,7 @@ describe('extractRun', () => {
   });
 
   it('treats a literal -- as the explicit command boundary', () => {
-    const { options, cmd } = extractRun([
-      '--parallel',
-      '--',
-      'x',
-      '--parallel',
-    ]);
+    const { options, cmd } = extractRun(['--parallel', '--', 'x', '--parallel']);
     expect(options.parallel).toBe(true);
     expect(cmd).toEqual(['x', '--parallel']);
   });
@@ -208,9 +180,7 @@ describe('runPool interruption', () => {
       // been observed as completed on disk.
       const isInterrupted = () => {
         const log = path.join(tmp, 'ran.log');
-        completed = fs.existsSync(log)
-          ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).length
-          : 0;
+        completed = fs.existsSync(log) ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean).length : 0;
         if (completed >= 1) interrupted = true;
         return interrupted;
       };
@@ -218,9 +188,7 @@ describe('runPool interruption', () => {
       const results = await runPool(units, markerCmd, 1, isInterrupted);
 
       const log = path.join(tmp, 'ran.log');
-      const lines = fs.existsSync(log)
-        ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean)
-        : [];
+      const lines = fs.existsSync(log) ? fs.readFileSync(log, 'utf-8').trim().split('\n').filter(Boolean) : [];
       // Exactly one unit ran; the pool bailed before launching the rest.
       expect(lines).toHaveLength(1);
       const settled = results.filter((r) => r != null);

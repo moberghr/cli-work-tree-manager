@@ -1,15 +1,14 @@
 import fs from 'node:fs';
+import { agentFor } from '../core/agents/index.js';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/resolve.js';
-import { setupWorktree, pullLatestForBranch } from '../core/worktree.js';
-import { getAiTool } from '../core/ai-launcher.js';
-import { getCurrentBranch } from '../core/git.js';
-import { hasClaudeConversation } from '../core/claude-activity.js';
-import { upsertSession } from '../core/history.js';
-import { openVSCode, launchAi } from '../utils/platform.js';
-import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/base-spec.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
+import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
+import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
+import { attachSession } from './shared/attach-session.js';
+import { openVSCode, launchAi } from '../core/platform/launch.js';
+import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
 
 export const treeCommand: CommandModule = {
   command: ['tree [target] [branch]', 't [target] [branch]'],
@@ -41,14 +40,17 @@ export const treeCommand: CommandModule = {
         default: false,
       })
       .option('pull', {
-        describe:
-          'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
+        describe: 'Pull latest changes when switching into an existing worktree or the base repo. Use --no-pull to skip.',
         type: 'boolean',
         default: true,
       })
-      .option('fresh', {
+      .option('host', {
         describe:
-          'Start a new AI conversation instead of continuing the previous one for this directory',
+          'Run the AI session in the PTY host and attach this terminal to it (the default): it survives closing the tab, shows in `work web` — the same screen there and here — and restores after a reboot. Ctrl+] detaches. --no-host (or config `launchViaHost: false`) launches directly in this terminal instead.',
+        type: 'boolean',
+      })
+      .option('fresh', {
+        describe: 'Start a new AI conversation instead of continuing the previous one for this directory',
         type: 'boolean',
         default: false,
       })
@@ -63,6 +65,10 @@ export const treeCommand: CommandModule = {
       })
       .option('prompt-file', {
         describe: 'File containing the initial prompt (deleted after reading)',
+        type: 'string',
+      })
+      .option('name', {
+        describe: 'Name the session (shown instead of the branch; rename later with F2 in the dashboard)',
         type: 'string',
       })
       .option('jira-key', {
@@ -111,6 +117,9 @@ export const treeCommand: CommandModule = {
     }
 
     const config = ensureConfig();
+    // Via the host unless told otherwise: one Claude that the terminal and
+    // the dashboard both show. A direct launch is invisible to work web.
+    const viaHost = (argv.host as boolean | undefined) ?? config.launchViaHost ?? true;
 
     /**
      * Launch the AI tool, continuing the previous conversation for this
@@ -118,15 +127,29 @@ export const treeCommand: CommandModule = {
      * found to continue") in a directory the tool has never run in, so the flag
      * is gated on an existing transcript.
      */
-    const launchTool = (dir: string, port?: number): void => {
-      const tool = getAiTool(config);
-      const resume = !fresh && hasClaudeConversation(dir);
+    const launchTool = async (dir: string, port: number | undefined, sessionKey: { target: string; branch: string }): Promise<void> => {
+      recordLaunch(sessionKey.target, sessionKey.branch, { unsafe: !!unsafe });
+      if (viaHost) {
+        const session = findSession(loadHistory(), sessionKey.target, sessionKey.branch);
+        if (session) {
+          // The host decides --continue itself (the agent's own canResume
+          // gate); `fresh` and the prompt ride along on the first spawn.
+          process.exitCode = await attachSession(session, {
+            unsafe,
+            fresh,
+            initialPrompt,
+            forwardEnv: true,
+          });
+          return;
+        }
+        console.log(chalk.yellow('Session not found in history — launching directly instead of via the PTY host.'));
+      }
+      // The session's agent: what to run, and whether it can resume here.
+      const agent = agentFor(config, findSession(loadHistory(), sessionKey.target, sessionKey.branch));
+      const tool = agent.launch.tool(config);
+      const resume = !fresh && agent.launch.canResume(dir);
       if (resume) {
-        console.log(
-          chalk.gray(
-            `Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`,
-          ),
-        );
+        console.log(chalk.gray(`Continuing the previous ${tool.cmd} conversation (--fresh starts a new one).`));
       }
       console.log(`Starting ${tool.cmd}...`);
       launchAi(dir, tool, { unsafe, initialPrompt, resume }, port);
@@ -147,15 +170,9 @@ export const treeCommand: CommandModule = {
       }
       targetName = inferred.target;
       branchName = inferred.isBaseRepo ? undefined : inferred.branch;
-      console.log(
-        chalk.cyan(
-          `Resolved from current directory: ${targetName}${branchName ? ' @ ' + branchName : ' (base repo)'}`,
-        ),
-      );
+      console.log(chalk.cyan(`Resolved from current directory: ${targetName}${branchName ? ' @ ' + branchName : ' (base repo)'}`));
     } else if (!targetName) {
-      console.error(
-        'Specify a target, or use --here to infer it from the current directory.',
-      );
+      console.error('Specify a target, or use --here to infer it from the current directory.');
       process.exitCode = 1;
       return;
     }
@@ -163,9 +180,7 @@ export const treeCommand: CommandModule = {
     // --base requires a branch name
     if (!isEmptyBaseSpec(baseSpec) && !branchName) {
       console.error('--base requires a branch name');
-      console.log(
-        chalk.yellow(`Usage: work tree ${targetName} <branch> --base <base>`),
-      );
+      console.log(chalk.yellow(`Usage: work tree ${targetName} <branch> --base <base>`));
       process.exitCode = 1;
       return;
     }
@@ -176,11 +191,7 @@ export const treeCommand: CommandModule = {
       const allNames = getAllTargetNames(config);
       console.error(`Project or group not found: ${targetName}`);
       console.log(chalk.yellow(`Available: ${allNames.join(', ')}`));
-      console.log(
-        chalk.yellow(
-          'Add a new project with: work config add <alias> <path>',
-        ),
-      );
+      console.log(chalk.yellow('Add a new project with: work config add <alias> <path>'));
       process.exitCode = 1;
       return;
     }
@@ -194,35 +205,28 @@ export const treeCommand: CommandModule = {
         return;
       }
 
-      const repoPath = config.repos[targetName];
-      if (!repoPath) {
-        console.error(`Repository path not configured for: ${targetName}`);
-        process.exitCode = 1;
-        return;
-      }
-      if (!fs.existsSync(repoPath)) {
-        console.error(`Repository path does not exist: ${repoPath}`);
-        process.exitCode = 1;
-        return;
-      }
-
       console.log(chalk.cyan(`Working on base repo: ${targetName}`));
-      console.log(`Repo path: ${repoPath}`);
-
-      const currentBranch = getCurrentBranch(repoPath) ?? '(detached)';
-      // Detached HEAD has no upstream to pull from — skip rather than warn.
-      if (pull && currentBranch && currentBranch !== '(detached)') {
-        pullLatestForBranch(repoPath, currentBranch);
+      const opened = await openBaseCheckout(targetName, config, {
+        pull,
+        jiraKey,
+        name: typeof argv.name === 'string' ? argv.name : undefined,
+      });
+      if (!opened.ok) {
+        console.error(opened.error);
+        process.exitCode = 1;
+        return;
       }
-      await upsertSession(targetName, false, currentBranch, [repoPath], jiraKey);
+      const { repoPath, branch: currentBranch } = opened;
+      console.log(`Repo path: ${repoPath}`);
+      if (opened.dropped.length) console.log(chalk.gray(`Replaced older entries for this checkout: ${opened.dropped.join(', ')}`));
 
       if (open) openVSCode(repoPath);
-      if (!setupOnly) launchTool(repoPath);
+      if (!setupOnly) await launchTool(repoPath, undefined, { target: targetName, branch: currentBranch });
       return;
     }
 
     // Create/switch worktree via shared core logic
-    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull });
+    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull, name: argv.name as string | undefined });
     if (!result) {
       process.exitCode = 1;
       return;
@@ -235,6 +239,8 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
-    if (!setupOnly) launchTool(result.launchDir, result.port);
+    if (!setupOnly) {
+      await launchTool(result.launchDir, result.port, { target: targetName, branch: branchName });
+    }
   },
 };

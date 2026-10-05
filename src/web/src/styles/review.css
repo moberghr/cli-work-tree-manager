@@ -131,6 +131,18 @@
   border-top: none;
   margin-top: 0;
 }
+/* No diff to show (all committed): the comments take the whole sidebar. */
+.wd-sidebar-split-bottom.wd-sidebar-comments-only {
+  height: auto;
+  max-height: none;
+  flex: 1;
+  flex-shrink: 1;
+}
+/* A comment on another repo of the group: which one. */
+.wd-comments-panel-repo {
+  color: var(--muted);
+  font-weight: 600;
+}
 .wd-web-review-sidebar-header {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--border);
@@ -177,8 +189,13 @@
   cursor: pointer;
   border-right: 1px solid var(--border);
 }
-.wd-web-diff-scope-btn:last-child { border-right: 0; }
-.wd-web-diff-scope-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-web-diff-scope-btn:last-child {
+  border-right: 0;
+}
+.wd-web-diff-scope-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-web-diff-scope-btn-active {
   background: var(--current);
   color: var(--accent);
@@ -205,15 +222,22 @@
   cursor: pointer;
   border-right: 1px solid var(--border);
 }
-.wd-diff-mode-btn:last-child { border-right: 0; }
-.wd-diff-mode-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-diff-mode-btn:last-child {
+  border-right: 0;
+}
+.wd-diff-mode-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-diff-mode-btn-active {
   background: var(--current);
   color: var(--accent);
   font-weight: 600;
 }
 /* In the sticky toolbar the toggle loses its sidebar top-margin. */
-.wd-web-difftoolbar-controls .wd-diff-mode { margin-top: 0; }
+.wd-web-difftoolbar-controls .wd-diff-mode {
+  margin-top: 0;
+}
 
 /* Light/dark theme toggle — a single square icon button matching the
    segmented-control border/hover language. */
@@ -231,11 +255,26 @@
   color: var(--muted);
   cursor: pointer;
 }
-.wd-theme-toggle:hover { background: var(--hover); color: var(--fg); }
+.wd-theme-toggle:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 
 .wd-web-review-main {
   overflow-y: auto;
   height: 100vh;
+}
+
+/* Previous session's / base's diff still on screen while the selected one
+   loads. The transition delay keeps a fast (<100ms) load from flickering;
+   anything slower visibly dims + blurs so the old diff can't be mistaken
+   for the selected session's. `inert` on the element blocks interaction. */
+.wd-diff-stale {
+  opacity: 0.35;
+  filter: blur(2px);
+  transition:
+    opacity 120ms ease 100ms,
+    filter 120ms ease 100ms;
 }
 
 /* Sticky "Files changed" toolbar over the diff (GitHub-style). Pinned to the
@@ -401,8 +440,12 @@
   color: var(--fg);
   font-size: 12px;
 }
-.wd-tree-dir > details > summary::-webkit-details-marker { display: none; }
-.wd-tree-dir > details > summary:hover { background: var(--hover); }
+.wd-tree-dir > details > summary::-webkit-details-marker {
+  display: none;
+}
+.wd-tree-dir > details > summary:hover {
+  background: var(--hover);
+}
 .wd-tree-caret {
   display: inline-block;
   width: 0;
@@ -414,7 +457,9 @@
   margin-right: 2px;
   opacity: 0.6;
 }
-.wd-tree-dir > details[open] > summary .wd-tree-caret { transform: rotate(90deg); }
+.wd-tree-dir > details[open] > summary .wd-tree-caret {
+  transform: rotate(90deg);
+}
 
 .wd-tree-file a {
   display: flex;
@@ -428,7 +473,9 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.wd-tree-file a:hover { background: var(--hover); }
+.wd-tree-file a:hover {
+  background: var(--hover);
+}
 .wd-tree-file-active > a {
   background: var(--current);
   font-weight: 600;
@@ -444,11 +491,26 @@
   font-weight: 700;
   border-radius: 3px;
 }
-.wd-tree-status.wd-status-added { background: var(--status-added-bg); color: var(--status-added-fg); }
-.wd-tree-status.wd-status-deleted { background: var(--status-deleted-bg); color: var(--status-deleted-fg); }
-.wd-tree-status.wd-status-modified { background: var(--status-modified-bg); color: var(--status-modified-fg); }
-.wd-tree-status.wd-status-renamed { background: var(--status-renamed-bg); color: var(--status-renamed-fg); }
-.wd-tree-status.wd-status-binary { background: var(--status-binary-bg); color: var(--status-binary-fg); }
+.wd-tree-status.wd-status-added {
+  background: var(--status-added-bg);
+  color: var(--status-added-fg);
+}
+.wd-tree-status.wd-status-deleted {
+  background: var(--status-deleted-bg);
+  color: var(--status-deleted-fg);
+}
+.wd-tree-status.wd-status-modified {
+  background: var(--status-modified-bg);
+  color: var(--status-modified-fg);
+}
+.wd-tree-status.wd-status-renamed {
+  background: var(--status-renamed-bg);
+  color: var(--status-renamed-fg);
+}
+.wd-tree-status.wd-status-binary {
+  background: var(--status-binary-bg);
+  color: var(--status-binary-fg);
+}
 .wd-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -460,8 +522,12 @@
   color: var(--muted);
   flex-shrink: 0;
 }
-.wd-tree-stats .wd-add { color: var(--add-fg); }
-.wd-tree-stats .wd-del { color: var(--del-fg); }
+.wd-tree-stats .wd-add {
+  color: var(--add-fg);
+}
+.wd-tree-stats .wd-del {
+  color: var(--del-fg);
+}
 
 /* Sidebar comments panel. */
 .wd-comments-panel {
@@ -488,7 +554,9 @@
   cursor: pointer;
   margin: 1px 0;
 }
-.wd-comments-panel-row:hover { background: var(--hover); }
+.wd-comments-panel-row:hover {
+  background: var(--hover);
+}
 .wd-comments-panel-loc {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 11px;
@@ -529,10 +597,20 @@
   padding: 4px 0;
   list-style: none;
 }
-.wd-general-pane summary::-webkit-details-marker { display: none; }
-.wd-general-pane summary::before { content: '▸ '; opacity: 0.5; }
-.wd-general-pane details[open] summary::before { content: '▾ '; opacity: 0.5; }
-.wd-general-pane summary:hover { color: var(--fg); }
+.wd-general-pane summary::-webkit-details-marker {
+  display: none;
+}
+.wd-general-pane summary::before {
+  content: '▸ ';
+  opacity: 0.5;
+}
+.wd-general-pane details[open] summary::before {
+  content: '▾ ';
+  opacity: 0.5;
+}
+.wd-general-pane summary:hover {
+  color: var(--fg);
+}
 .wd-general-pane textarea {
   width: 100%;
   min-height: 60px;
@@ -563,7 +641,10 @@
   font-size: 11px;
   font-family: inherit;
 }
-.wd-general-pane-actions button:disabled { opacity: 0.5; cursor: default; }
+.wd-general-pane-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .wd-general-pane-actions button.wd-btn-secondary {
   background: var(--sidebar-bg);
   color: var(--fg);
@@ -573,16 +654,28 @@
   color: #fff;
   border-color: var(--hunk-fg);
 }
-.wd-general-pane-list { margin-top: 8px; }
+.wd-general-pane-list {
+  margin-top: 8px;
+}
 
-
-.wd-ln-clickable { cursor: pointer; }
-.wd-ln-clickable:hover { outline: 2px solid var(--hunk-fg); outline-offset: -2px; }
+.wd-ln-clickable {
+  cursor: pointer;
+}
+.wd-ln-clickable:hover {
+  outline: 2px solid var(--hunk-fg);
+  outline-offset: -2px;
+}
 
 /* The injected <tr> that holds composer / comment list below a diff row. */
-.wd-comment-row > td { padding: 0 !important; }
-.wd-comment-row > td.wd-comment-side { background: var(--hunk-bg) !important; }
-.wd-comment-row > td.wd-comment-empty { background: transparent !important; }
+.wd-comment-row > td {
+  padding: 0 !important;
+}
+.wd-comment-row > td.wd-comment-side {
+  background: var(--hunk-bg) !important;
+}
+.wd-comment-row > td.wd-comment-empty {
+  background: transparent !important;
+}
 
 .wd-comment-list {
   margin: 4px 8px;
@@ -600,10 +693,18 @@
   border-bottom: 1px solid var(--border);
   word-wrap: break-word;
 }
-.wd-comment:last-child { border-bottom: none; }
-.wd-comment-body { color: var(--fg); }
-.wd-comment-body p { margin: 0 0 0.4em; }
-.wd-comment-body p:last-child { margin-bottom: 0; }
+.wd-comment:last-child {
+  border-bottom: none;
+}
+.wd-comment-body {
+  color: var(--fg);
+}
+.wd-comment-body p {
+  margin: 0 0 0.4em;
+}
+.wd-comment-body p:last-child {
+  margin-bottom: 0;
+}
 .wd-comment-body code {
   background: var(--ln-bg);
   padding: 1px 4px;
@@ -618,7 +719,10 @@
   overflow-x: auto;
   margin: 0.3em 0;
 }
-.wd-comment-body pre code { background: transparent; padding: 0; }
+.wd-comment-body pre code {
+  background: transparent;
+  padding: 0;
+}
 .wd-comment-body ul,
 .wd-comment-body ol {
   margin: 0.3em 0;
@@ -630,9 +734,13 @@
   border-left: 3px solid var(--border);
   color: var(--muted);
 }
-.wd-comment-body a { color: var(--hunk-fg); }
+.wd-comment-body a {
+  color: var(--hunk-fg);
+}
 
-.wd-comment.wd-comment-outdated { opacity: 0.6; }
+.wd-comment.wd-comment-outdated {
+  opacity: 0.6;
+}
 .wd-comment-outdated-badge {
   display: inline-block;
   background: var(--status-modified-bg);
@@ -658,7 +766,9 @@
   padding-left: 8px;
   border-radius: 0 4px 4px 0;
 }
-.wd-comment.wd-author-claude .wd-comment-author { color: var(--claude-fg); }
+.wd-comment.wd-author-claude .wd-comment-author {
+  color: var(--claude-fg);
+}
 .wd-comment-reply {
   margin-left: 20px;
   border-top: 1px dashed var(--border);
@@ -698,8 +808,12 @@
   font-size: 11px;
   font-family: inherit;
 }
-.wd-comment-action-link { color: var(--hunk-fg); }
-.wd-comment-delete { color: var(--del-fg); }
+.wd-comment-action-link {
+  color: var(--hunk-fg);
+}
+.wd-comment-delete {
+  color: var(--del-fg);
+}
 
 /* Resolved (done) threads. In the diff a resolved thread collapses to a
    one-line bar; expanded it's dimmed. */
@@ -719,8 +833,13 @@
   font-size: 12px;
   cursor: pointer;
 }
-.wd-comment-resolved-bar:hover { background: var(--hover); }
-.wd-resolved-check { color: var(--add-fg); font-weight: 700; }
+.wd-comment-resolved-bar:hover {
+  background: var(--hover);
+}
+.wd-resolved-check {
+  color: var(--add-fg);
+  font-weight: 700;
+}
 .wd-resolved-summary {
   flex: 1;
   min-width: 0;
@@ -729,16 +848,27 @@
   white-space: nowrap;
   color: var(--fg);
 }
-.wd-resolved-replies { color: var(--muted); flex-shrink: 0; }
+.wd-resolved-replies {
+  color: var(--muted);
+  flex-shrink: 0;
+}
 .wd-resolved-show {
   flex-shrink: 0;
   color: var(--hunk-fg);
   font-size: 11px;
 }
-.wd-comment-resolved { opacity: 0.7; }
-.wd-comments-panel-row-resolved { opacity: 0.55; }
-.wd-comments-panel-row-resolved .wd-comments-panel-loc { text-decoration: line-through; }
-.wd-comments-panel-row-resolved .wd-resolved-check { text-decoration: none; }
+.wd-comment-resolved {
+  opacity: 0.7;
+}
+.wd-comments-panel-row-resolved {
+  opacity: 0.55;
+}
+.wd-comments-panel-row-resolved .wd-comments-panel-loc {
+  text-decoration: line-through;
+}
+.wd-comments-panel-row-resolved .wd-resolved-check {
+  text-decoration: none;
+}
 
 /* Whole-file (GitHub-style) comments. */
 .wd-file-comment-btn {
@@ -751,7 +881,10 @@
   font-size: 11px;
   padding: 2px 8px;
 }
-.wd-file-comment-btn:hover { background: var(--hover); color: var(--fg); }
+.wd-file-comment-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
 .wd-file-comments {
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
@@ -802,7 +935,10 @@
   font-size: 11px;
   font-family: inherit;
 }
-.wd-comment-form button:disabled { opacity: 0.5; cursor: default; }
+.wd-comment-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .wd-comment-form button.wd-btn-secondary {
   background: var(--sidebar-bg);
   color: var(--fg);
@@ -831,11 +967,24 @@
   align-items: center;
   gap: 6px;
 }
-.wd-pending-pill { right: 1rem; bottom: 4.5rem; background: var(--status-modified-fg); }
-.wd-done-bar { right: 1rem; bottom: 1rem; background: var(--hunk-fg); }
+.wd-pending-pill {
+  right: 1rem;
+  bottom: 4.5rem;
+  background: var(--status-modified-fg);
+}
+.wd-done-bar {
+  right: 1rem;
+  bottom: 1rem;
+  background: var(--hunk-fg);
+}
 .wd-pending-pill:hover,
-.wd-done-bar:hover { filter: brightness(1.08); }
-.wd-done-bar[disabled] { opacity: 0.6; cursor: default; }
+.wd-done-bar:hover {
+  filter: brightness(1.08);
+}
+.wd-done-bar[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
 .wd-pending-count,
 .wd-done-count {
   background: rgba(255, 255, 255, 0.25);
@@ -864,14 +1013,22 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
-.wd-modal h2 { margin: 0 0 8px; font-size: 14px; }
-.wd-modal p { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+.wd-modal h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.wd-modal p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
 .wd-modal-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
 }
-.wd-modal button {
+/* Every dialog button, except the ones that read as links (.wd-link-button). */
+.wd-modal button:not(.wd-link-button) {
   padding: 6px 14px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -886,13 +1043,18 @@
   color: #fff;
   border-color: var(--hunk-fg);
 }
-.wd-modal button:hover { filter: brightness(1.05); }
+.wd-modal button:hover {
+  filter: brightness(1.05);
+}
 .wd-modal button.wd-btn-danger {
   background: var(--del-fg);
   color: #fff;
   border-color: var(--del-fg);
 }
-.wd-modal button:disabled { opacity: 0.6; cursor: default; }
+.wd-modal button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 /* Delete-session modal. */
 .wd-modal code {
   font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
@@ -926,4 +1088,60 @@
   resize: vertical;
   box-sizing: border-box;
   margin-top: 4px;
+}
+
+/* "Last turn" picker under the diff scope tabs. */
+.wd-web-turn-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.wd-web-turn-pick select {
+  max-width: 100%;
+  font: inherit;
+}
+.wd-web-turn-label {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.wd-web-diff-scope-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Revert on file / hunk headers (session Uncommitted diff only). */
+.wd-revert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.wd-hunk-context .wd-revert {
+  float: right;
+  margin-left: 12px;
+}
+.wd-revert-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d0d7de);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.wd-revert-btn:hover:not(:disabled) {
+  opacity: 1;
+  border-color: var(--del-fg, #cf222e);
+  color: var(--del-fg, #cf222e);
+}
+.wd-revert-btn:disabled {
+  cursor: progress;
+}
+.wd-revert-error {
+  font-size: 12px;
+  color: var(--del-fg, #cf222e);
 }

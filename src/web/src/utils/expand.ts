@@ -87,15 +87,9 @@ export interface FetchRange {
  * end. For the tail gap (`bottom: null`) the range is open-ended down to
  * EOF, capped at the chunk size.
  */
-export function nextTopRange(
-  gap: DiffGap,
-  topCount: number,
-  botCount: number,
-): FetchRange | null {
+export function nextTopRange(gap: DiffGap, topCount: number, botCount: number): FetchRange | null {
   const start = (gap.top ? gap.top.newNum : 0) + topCount + 1;
-  const ceiling = gap.bottom
-    ? gap.bottom.newNum - 1 - botCount
-    : Number.POSITIVE_INFINITY;
+  const ceiling = gap.bottom ? gap.bottom.newNum - 1 - botCount : Number.POSITIVE_INFINITY;
   const end = Math.min(start + EXPAND_CHUNK - 1, ceiling);
   if (end < start) return null;
   return { start, end };
@@ -105,11 +99,7 @@ export function nextTopRange(
  * Next range to fetch when expanding upward from the bottom of a gap.
  * Only valid when the gap has a bottom anchor.
  */
-export function nextBottomRange(
-  gap: DiffGap,
-  topCount: number,
-  botCount: number,
-): FetchRange | null {
+export function nextBottomRange(gap: DiffGap, topCount: number, botCount: number): FetchRange | null {
   if (!gap.bottom) return null;
   const end = gap.bottom.newNum - 1 - botCount;
   const floor = (gap.top ? gap.top.newNum : 0) + topCount + 1;
@@ -122,11 +112,7 @@ export function nextBottomRange(
  * Lines still hidden in a gap with both anchors known. Returns null for the
  * tail gap, whose remaining count is unknown until EOF.
  */
-export function hiddenRemaining(
-  gap: DiffGap,
-  topCount: number,
-  botCount: number,
-): number | null {
+export function hiddenRemaining(gap: DiffGap, topCount: number, botCount: number): number | null {
   if (!gap.bottom) return null;
   const totalGap = gap.bottom.newNum - 1 - (gap.top ? gap.top.newNum : 0);
   return Math.max(0, totalGap - topCount - botCount);

@@ -10,12 +10,7 @@ import { useEffect, useState, type RefObject } from 'react';
  * Pure (no DOM) so the file-tree follow-scroll behaviour is unit-testable
  * without a layout engine — mirrors `sidebarNeedsOwnScroller`.
  */
-export function revealDelta(
-  relTop: number,
-  childHeight: number,
-  viewportHeight: number,
-  pad: number,
-): number {
+export function revealDelta(relTop: number, childHeight: number, viewportHeight: number, pad: number): number {
   const relBottom = relTop + childHeight;
   if (relTop < pad) return relTop - pad;
   if (relBottom > viewportHeight - pad) return relBottom - (viewportHeight - pad);
@@ -32,19 +27,14 @@ export function revealDelta(
  * scroller: `ReviewApp`'s page layout only overflows on a tall tree, while the
  * dashboard's `DiffView` sidebar always scrolls (so it passes `true`).
  */
-export function useFollowActiveInSidebar(
-  sidebarRef: RefObject<HTMLElement | null>,
-  activeAnchor: string | null,
-  enabled: boolean,
-): void {
+export function useFollowActiveInSidebar(sidebarRef: RefObject<HTMLElement | null>, activeAnchor: string | null, enabled: boolean): void {
   useEffect(() => {
     if (!enabled || !activeAnchor) return;
     const aside = sidebarRef.current;
     if (!aside) return;
     const item = aside.querySelector<HTMLElement>('.wd-tree-file-active');
     if (!item) return;
-    const relTop =
-      item.getBoundingClientRect().top - aside.getBoundingClientRect().top;
+    const relTop = item.getBoundingClientRect().top - aside.getBoundingClientRect().top;
     aside.scrollTop += revealDelta(relTop, item.offsetHeight, aside.clientHeight, 24);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAnchor, enabled]);
@@ -64,35 +54,34 @@ export function useScrollspy(key: string): string | null {
   const [active, setActive] = useState<string | null>(null);
 
   useEffect(() => {
-    const articles = Array.from(
-      document.querySelectorAll<HTMLElement>('article.wd-file'),
-    );
-    if (articles.length === 0) {
-      setActive(null);
-      return;
-    }
-
-    // Map element → its anchor id, ordered by document position.
-    const ordered = articles.map((el) => ({ el, id: el.id }));
-
     function recompute() {
+      // Re-read the articles every time: the diff under the same key is
+      // replaced by live updates ("Show", the base toggle, Last turn), and
+      // a list captured once went stale — detached nodes report top 0 and
+      // were always "chosen", and a diff that started empty never attached
+      // a scroll listener at all.
+      const ordered = Array.from(document.querySelectorAll<HTMLElement>('article.wd-file')).filter((el) => el.isConnected);
+      if (ordered.length === 0) {
+        setActive(null);
+        return;
+      }
       // The "active" file is the lowest-positioned article whose top is at
       // or above the sticky-header line (~80px down from the top of the
       // scroll container). If nothing's reached that line yet, default to
       // the first article.
       const TRIGGER = 80;
-      let chosen: { el: HTMLElement; id: string } | null = null;
-      for (const item of ordered) {
-        const rect = item.el.getBoundingClientRect();
-        if (rect.top <= TRIGGER) chosen = item;
+      let chosen: HTMLElement | null = null;
+      for (const el of ordered) {
+        if (el.getBoundingClientRect().top <= TRIGGER) chosen = el;
         else break;
       }
       setActive((chosen ?? ordered[0]).id);
     }
 
-    // Recompute on every scroll/resize via a single RAF-throttled handler.
+    // Recompute on every scroll/resize, and when the diff's files change,
+    // via a single RAF-throttled handler.
     let ticking = false;
-    function onScroll() {
+    function schedule() {
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(() => {
@@ -102,11 +91,17 @@ export function useScrollspy(key: string): string | null {
     }
 
     recompute();
-    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
-    window.addEventListener('resize', onScroll);
+    window.addEventListener('scroll', schedule, { passive: true, capture: true });
+    window.addEventListener('resize', schedule);
+    const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule);
+    // Only the diff's own container: the rest of the page (a live terminal,
+    // the rail) changes constantly and has no files in it.
+    const diffRoot = document.querySelector('.wd-web-review-main') ?? document.body;
+    observer?.observe(diffRoot, { childList: true, subtree: true });
     return () => {
-      window.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions);
-      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('scroll', schedule, { capture: true } as EventListenerOptions);
+      window.removeEventListener('resize', schedule);
+      observer?.disconnect();
     };
   }, [key]);
 

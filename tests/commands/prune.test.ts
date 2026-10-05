@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { git } from '../../src/core/git.js';
-import { createSingleWorktree } from '../../src/core/worktree.js';
-import { saveConfig, type WorkConfig } from '../../src/core/config.js';
+import { git } from '../../src/core/git/git.js';
+import { createSingleWorktree } from '../../src/core/worktree/worktree.js';
+import { saveConfig, type WorkConfig } from '../../src/core/platform/config.js';
 import { pruneCommand } from '../../src/commands/prune.js';
 
 let homeDir: string;
@@ -27,7 +27,7 @@ function initRepo(): void {
 // every collected worktree without an inquirer round-trip.
 function runPrune(extra: Record<string, unknown> = {}): Promise<void> {
   const argv = { _: ['prune'], force: true, ...extra };
-  return (pruneCommand.handler as Function)(argv);
+  return (pruneCommand.handler as (argv: unknown) => Promise<void>)(argv);
 }
 
 beforeEach(() => {

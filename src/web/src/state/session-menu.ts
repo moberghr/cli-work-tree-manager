@@ -1,0 +1,59 @@
+import type { SessionSummary } from '../api/client.js';
+import type { SnoozeFor } from '../../../core/rail/snooze.js';
+import type { MenuItem } from '../components/Dashboard/RowMenu.js';
+import { sessionKey } from './shortcuts.js';
+
+/**
+ * A session's right-click menu, after Rename (which the rail adds itself):
+ * what the session header and the Sessions table offer as buttons, on the
+ * row. Pure: the actions are passed in, so the menu can be tested and the
+ * app decides what each does.
+ */
+export interface SessionMenuActions {
+  setArchived: (s: SessionSummary, archived: boolean) => void;
+  openTerminal: (s: SessionSummary) => void;
+  openEditor: (s: SessionSummary) => void;
+  copyBranch: (s: SessionSummary) => void;
+  remove: (s: SessionSummary) => void;
+  snooze: (s: SessionSummary, choice: SnoozeFor) => void;
+  /** Open "Snooze until…" (a time of your choosing). */
+  snoozeUntil?: (s: SessionSummary) => void;
+  /** Open "Blocked by…" (another session, or a PR, it waits on). */
+  blockBy?: (s: SessionSummary) => void;
+  unsnooze: (s: SessionSummary) => void;
+  /** Open the Fork dialog (a new branch from here, with a summary of the conversation). */
+  fork?: (s: SessionSummary) => void;
+}
+
+export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
+  const archived = !!s.archivedAt;
+  return [
+    archived
+      ? { label: 'Restore', hint: sessionKey('archive'), run: () => a.setArchived(s, false) }
+      : { label: 'Archive', hint: sessionKey('archive'), run: () => a.setArchived(s, true) },
+    // Snooze: out of the Inbox for a while (an archived one isn't in it).
+    ...(archived
+      ? []
+      : s.snoozed
+        ? [{ label: 'Unsnooze', run: () => a.unsnooze(s), separated: true }]
+        : [
+            { label: 'Snooze 2 hours', run: () => a.snooze(s, '2h'), separated: true },
+            { label: 'Snooze until tomorrow 9:00', run: () => a.snooze(s, 'tomorrow') },
+            { label: 'Snooze until it changes', run: () => a.snooze(s, 'change') },
+            ...(a.snoozeUntil ? [{ label: 'Snooze until…', run: () => a.snoozeUntil!(s) }] : []),
+            ...(a.blockBy
+              ? [{ label: s.blockedBy?.length ? 'Waiting on more…' : 'Blocked by…', hint: sessionKey('block'), run: () => a.blockBy!(s) }]
+              : []),
+          ]),
+    // An archived one's Claude is stopped and its folder may be gone: Restore first.
+    ...(archived
+      ? []
+      : [
+          { label: 'Open in terminal', hint: sessionKey('terminal'), run: () => a.openTerminal(s), separated: true },
+          { label: 'Open in editor', hint: sessionKey('editor'), run: () => a.openEditor(s) },
+          ...(a.fork ? [{ label: 'Fork…', hint: sessionKey('fork'), run: () => a.fork!(s) }] : []),
+        ]),
+    { label: 'Copy branch name', hint: sessionKey('copy'), run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },
+    { label: 'Delete…', hint: sessionKey('delete'), run: () => a.remove(s), danger: true, separated: true },
+  ];
+}

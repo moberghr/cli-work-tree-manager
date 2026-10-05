@@ -5,13 +5,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ReviewApp } from '../../src/web/src/apps/ReviewApp.js';
 import type { ReviewContext } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // jsdom doesn't implement pointer capture; ResizeDivider calls it on drag start.
 if (!(Element.prototype as { setPointerCapture?: unknown }).setPointerCapture) {
-  (Element.prototype as { setPointerCapture: () => void }).setPointerCapture =
-    () => {};
+  (Element.prototype as { setPointerCapture: (pointerId: number) => void }).setPointerCapture = () => {};
 }
 
 const { diff } = vi.hoisted(() => ({
@@ -50,14 +48,12 @@ const { diff } = vi.hoisted(() => ({
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 vi.mock('../../src/web/src/api/client.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/api/client.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
     fetchScopeDiff: () => Promise.resolve(diff),
     fetchScopeDiffByHash: () => Promise.resolve(diff),
-    fetchSessionDiff: () =>
-      Promise.resolve({ sessionId: 's1', resolvedBase: 'main', repos: diff.repos }),
+    fetchSessionDiff: () => Promise.resolve({ sessionId: 's1', resolvedBase: 'main', repos: diff.repos }),
     fetchCheckpoints: () => Promise.resolve([]),
   };
 });
@@ -93,10 +89,7 @@ function effectiveSidebarWidth(): string {
   const grid = container.querySelector<HTMLElement>('.wd-web-review-layout');
   const page = container.querySelector<HTMLElement>('.wd-web-review-page');
   if (!grid || !page) throw new Error('layout not rendered');
-  return (
-    grid.style.getPropertyValue('--sidebar-width') ||
-    page.style.getPropertyValue('--sidebar-width')
-  );
+  return grid.style.getPropertyValue('--sidebar-width') || page.style.getPropertyValue('--sidebar-width');
 }
 
 function dispatchPointer(el: Element, type: string, clientX: number) {

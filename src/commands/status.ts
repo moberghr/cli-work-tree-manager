@@ -1,21 +1,11 @@
 import fs from 'node:fs';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import {
-  loadHistory,
-  getSessionsForTarget,
-  prunePersistedStaleEntries,
-  type WorktreeSession,
-} from '../core/history.js';
-import { effectiveLastAccessedAt } from '../core/claude-activity.js';
-import {
-  getStatus,
-  getUnpushedCommits,
-  isBranchMerged,
-  getCurrentBranch,
-} from '../core/git.js';
-import { timeAgo, shortDateTime } from '../utils/format.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { loadHistory, getSessionsForTarget, prunePersistedStaleEntries, type WorktreeSession } from '../core/sessions/history.js';
+import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
+import { getStatus, getUnpushedCommits, isBranchMerged, getCurrentBranch } from '../core/git/git.js';
+import { timeAgo, shortDateTime } from '../core/platform/format.js';
 
 export const statusCommand: CommandModule = {
   command: 'status [target] [branch]',
@@ -77,22 +67,14 @@ export const statusCommand: CommandModule = {
 };
 
 function printSessionStatus(session: WorktreeSession): void {
-  const typeLabel = session.isGroup
-    ? chalk.magenta('[group]')
-    : chalk.blue('[repo]');
-  console.log(
-    `${typeLabel} ${chalk.green(session.target)} ${chalk.white(session.branch)}`,
-  );
+  const typeLabel = session.isGroup ? chalk.magenta('[group]') : chalk.blue('[repo]');
+  console.log(`${typeLabel} ${chalk.green(session.target)} ${chalk.white(session.branch)}`);
 
   // Check if paths exist
   const existingPaths = session.paths.filter((p) => fs.existsSync(p));
   if (existingPaths.length === 0) {
     console.log(chalk.red('  Path(s) no longer exist on disk'));
-    console.log(
-      chalk.gray(
-        `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`,
-      ),
-    );
+    console.log(chalk.gray(`  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`));
     console.log('');
     return;
   }
@@ -106,16 +88,10 @@ function printSessionStatus(session: WorktreeSession): void {
     const changes = getStatus(wtPath);
     const unpushed = getUnpushedCommits(wtPath);
 
-    const changeCount = changes
-      ? changes.split('\n').filter((l) => l.trim()).length
-      : 0;
-    const unpushedCount = unpushed
-      ? unpushed.split('\n').filter((l) => l.trim()).length
-      : 0;
+    const changeCount = changes ? changes.split('\n').filter((l) => l.trim()).length : 0;
+    const unpushedCount = unpushed ? unpushed.split('\n').filter((l) => l.trim()).length : 0;
 
-    const mergedTag = merged
-      ? chalk.green(' [merged]')
-      : '';
+    const mergedTag = merged ? chalk.green(' [merged]') : '';
 
     const parts: string[] = [];
     if (changeCount > 0) {
@@ -136,10 +112,6 @@ function printSessionStatus(session: WorktreeSession): void {
     }
   }
 
-  console.log(
-    chalk.gray(
-      `  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`,
-    ),
-  );
+  console.log(chalk.gray(`  Created: ${shortDateTime(session.createdAt)}  Last used: ${timeAgo(effectiveLastAccessedAt(session))}`));
   console.log('');
 }

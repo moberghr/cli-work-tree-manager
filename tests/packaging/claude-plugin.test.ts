@@ -6,9 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('claude plugin packaging', () => {
-  const marketplace = JSON.parse(
-    readFileSync(join(root, '.claude-plugin', 'marketplace.json'), 'utf8'),
-  );
+  const marketplace = JSON.parse(readFileSync(join(root, '.claude-plugin', 'marketplace.json'), 'utf8'));
 
   it('marketplace manifest names the work-tree marketplace and plugin', () => {
     expect(marketplace.name).toBe('work-tree');
@@ -18,17 +16,12 @@ describe('claude plugin packaging', () => {
 
   it('marketplace plugin source directory exists with a valid plugin manifest', () => {
     const pluginDir = join(root, marketplace.plugins[0].source);
-    const plugin = JSON.parse(
-      readFileSync(join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'),
-    );
+    const plugin = JSON.parse(readFileSync(join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'));
     expect(plugin.name).toBe('work-tree');
   });
 
   it('plugin ships the wd-review skill', () => {
-    const skill = readFileSync(
-      join(root, marketplace.plugins[0].source, 'skills', 'wd-review', 'SKILL.md'),
-      'utf8',
-    );
+    const skill = readFileSync(join(root, marketplace.plugins[0].source, 'skills', 'wd-review', 'SKILL.md'), 'utf8');
     expect(skill).toContain('name: wd-review');
   });
 
@@ -39,5 +32,8 @@ describe('claude plugin packaging', () => {
     expect(pkg.files).toContain('.claude-plugin');
     expect(pkg.files).toContain('plugins');
     expect(existsSync(join(root, 'scripts', 'postinstall.mjs'))).toBe(true);
+    // It hands over to a small built entry (not the whole CLI), where each agent's adapter installs the skills its own way.
+    expect(readFileSync(join(root, 'scripts', 'postinstall.mjs'), 'utf8')).toContain("'install-skills-bin.js'");
+    expect(readFileSync(join(root, 'tsup.config.ts'), 'utf8')).toContain("'src/install-skills-bin.ts'");
   });
 });

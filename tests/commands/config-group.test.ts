@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { saveConfig, loadConfig, type WorkConfig } from '../../src/core/config.js';
+import { saveConfig, loadConfig, type WorkConfig } from '../../src/core/platform/config.js';
 
-// Mock generateGroupClaudeMd before importing the config command
-vi.mock('../../src/core/claude-md.js', () => ({
-  generateGroupClaudeMd: vi.fn(),
+// Mock generateGroupInstructions before importing the config command
+vi.mock('../../src/core/agents/group-instructions.js', () => ({
+  generateGroupInstructions: vi.fn(),
 }));
 
 import { configCommand } from '../../src/commands/config.js';
-import { generateGroupClaudeMd } from '../../src/core/claude-md.js';
+import { generateGroupInstructions } from '../../src/core/agents/group-instructions.js';
 
 let tmpDir: string;
 
@@ -31,7 +31,7 @@ function run(...extra: string[]): void {
     action: 'group',
     _: ['config', ...extra],
   };
-  (configCommand.handler as Function)(argv);
+  (configCommand.handler as (argv: unknown) => unknown)(argv);
 }
 
 beforeEach(() => {
@@ -58,7 +58,7 @@ describe('config group add', () => {
     const config = loadConfig()!;
     expect(config.groups.fullstack).toEqual(['api', 'web']);
     expect(process.exitCode).toBeUndefined();
-    expect(generateGroupClaudeMd).toHaveBeenCalledWith(
+    expect(generateGroupInstructions).toHaveBeenCalledWith(
       'fullstack',
       ['api', 'web'],
       expect.objectContaining({ repos: expect.any(Object) }),
@@ -70,9 +70,7 @@ describe('config group add', () => {
     run('add');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when fewer than 2 aliases are given', () => {
@@ -80,9 +78,7 @@ describe('config group add', () => {
     run('add', 'mygroup', 'api');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('at least 2'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('at least 2'));
     const config = loadConfig()!;
     expect(config.groups.mygroup).toBeUndefined();
   });
@@ -92,9 +88,7 @@ describe('config group add', () => {
     run('add', 'mygroup', 'api', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('nonexistent'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('nonexistent'));
     const config = loadConfig()!;
     expect(config.groups.mygroup).toBeUndefined();
   });
@@ -104,9 +98,7 @@ describe('config group add', () => {
     run('add', 'api', 'web', 'shared');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('conflicts with an existing repository alias'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('conflicts with an existing repository alias'));
   });
 
   it('rejects when group name collides with a repo folder name', () => {
@@ -114,9 +106,7 @@ describe('config group add', () => {
     run('add', 'fullstack', 'myalias', 'myalias');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('conflicts with a repository folder name'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('conflicts with a repository folder name'));
   });
 
   it('overwrites an existing group', () => {
@@ -165,9 +155,7 @@ describe('config group remove', () => {
     run('remove');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when group does not exist', () => {
@@ -175,21 +163,19 @@ describe('config group remove', () => {
     run('remove', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Group not found'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Group not found'));
   });
 });
 
 // ─── config group regen ──────────────────────────────────────────
 
 describe('config group regen', () => {
-  it('calls generateGroupClaudeMd for an existing group', () => {
+  it('calls generateGroupInstructions for an existing group', () => {
     seedConfig({ groups: { fullstack: ['api', 'web'] } });
     run('regen', 'fullstack');
 
     expect(process.exitCode).toBeUndefined();
-    expect(generateGroupClaudeMd).toHaveBeenCalledWith(
+    expect(generateGroupInstructions).toHaveBeenCalledWith(
       'fullstack',
       ['api', 'web'],
       expect.objectContaining({ groups: { fullstack: ['api', 'web'] } }),
@@ -201,9 +187,7 @@ describe('config group regen', () => {
     run('regen');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Usage:'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
   it('rejects when group does not exist', () => {
@@ -211,9 +195,7 @@ describe('config group regen', () => {
     run('regen', 'nonexistent');
 
     expect(process.exitCode).toBe(1);
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('Group not found'),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Group not found'));
   });
 });
 
@@ -225,17 +207,13 @@ describe('config group (dispatcher)', () => {
     run();
 
     expect(process.exitCode).toBeUndefined();
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('config group'),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config group'));
   });
 
   it('shows group help for an unknown sub-action', () => {
     seedConfig();
     run('bogus');
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('config group'),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('config group'));
   });
 });

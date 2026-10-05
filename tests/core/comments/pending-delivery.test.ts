@@ -1,0 +1,313 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import {
+  findSessionForCwd,
+  formatPendingForPrompt,
+  claimForDelivery,
+  markDelivered,
+  readPendingForSession,
+  releaseClaim,
+  readPendingForWorktree,
+} from '../../../src/core/comments/pending-delivery.js';
+import { withDb } from '../../../src/core/platform/db.js';
+import { clearCommentStoreCache, getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
+import { scopeHashFor } from '../../../src/core/diff/repo-spec.js';
+import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
+import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-pd-test-'));
+  vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
+  clearCommentStoreCache();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  clearCommentStoreCache();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+function session(over: Partial<WorktreeSession> = {}): WorktreeSession {
+  return {
+    target: 'repo',
+    isGroup: false,
+    branch: 'feat/x',
+    paths: ['C:/work/repo'],
+    createdAt: '2026-01-01T00:00:00Z',
+    lastAccessedAt: '2026-01-01T00:00:00Z',
+    ...over,
+  };
+}
+
+describe('findSessionForCwd', () => {
+  it('matches the exact session path', () => {
+    saveHistory([session({ paths: ['C:/work/repo'] })]);
+    const s = findSessionForCwd('C:/work/repo');
+    expect(s?.branch).toBe('feat/x');
+  });
+
+  it('matches a subdirectory of a session path', () => {
+    saveHistory([session({ paths: ['C:/work/repo'] })]);
+    const s = findSessionForCwd('C:/work/repo/src/sub');
+    expect(s?.branch).toBe('feat/x');
+  });
+
+  it('two sessions on one folder: not the archived one, then the one whose branch is checked out, then the one entered last', () => {
+    const dir = path.join(tmpDir, 'shared');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/staging\n');
+    const old = session({ target: 'strumur-ops', branch: 'staging', paths: [dir], lastAccessedAt: '2026-01-01T00:00:00Z' });
+    const renamed = session({ target: 'straumur-ops', branch: 'staging', paths: [dir], lastAccessedAt: '2026-09-01T00:00:00Z' });
+    saveHistory([old, renamed]);
+    expect(findSessionForCwd(dir)?.target).toBe('straumur-ops'); // the oldest used to win
+    saveHistory([{ ...renamed, archivedAt: '2026-09-30T00:00:00Z' }, old]);
+    expect(findSessionForCwd(dir)?.target).toBe('strumur-ops');
+    const other = session({ target: 'x', branch: 'feat/other', paths: [dir], lastAccessedAt: '2026-09-30T00:00:00Z' });
+    saveHistory([old, other]);
+    expect(findSessionForCwd(dir)?.branch).toBe('staging'); // on its branch beats newer
+  });
+
+  it('picks the longest-prefix match for nested worktrees', () => {
+    saveHistory([session({ branch: 'outer', paths: ['C:/work/outer'] }), session({ branch: 'nested', paths: ['C:/work/outer/nested'] })]);
+    const s = findSessionForCwd('C:/work/outer/nested/lib');
+    expect(s?.branch).toBe('nested');
+  });
+
+  it('a separate checkout nested inside the session is not the session', () => {
+    // e.g. a git worktree at <repo>/.claude/worktrees/agent-x, or a vendored repo.
+    const repo = path.join(tmpDir, 'wt', 'repo');
+    const nested = path.join(repo, '.claude', 'worktrees', 'agent-x');
+    fs.mkdirSync(path.join(nested, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.git'), 'gitdir: /main/.git/worktrees/repo');
+    fs.writeFileSync(path.join(nested, '.git'), 'gitdir: /main/.git/worktrees/agent-x');
+    saveHistory([session({ paths: [repo] })]);
+    expect(findSessionForCwd(path.join(nested, 'src'))).toBeNull();
+    expect(findSessionForCwd(nested)).toBeNull();
+    expect(findSessionForCwd(path.join(repo, 'src'))?.branch).toBe('feat/x'); // its own tree still matches
+  });
+
+  it("a group's sub-repos (which have .git) still resolve to the group, from the root or inside", () => {
+    const root = path.join(tmpDir, 'wt', 'shop', 'feat-x');
+    const be = path.join(root, 'backend');
+    const fe = path.join(root, 'frontend');
+    for (const p of [path.join(be, 'src'), fe]) fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(be, '.git'), 'gitdir: x');
+    fs.writeFileSync(path.join(fe, '.git'), 'gitdir: y');
+    saveHistory([session({ target: 'shop', isGroup: true, paths: [be, fe] })]);
+    expect(findSessionForCwd(root)?.target).toBe('shop');
+    expect(findSessionForCwd(path.join(be, 'src'))?.target).toBe('shop');
+  });
+
+  it('returns null when no session matches', () => {
+    saveHistory([session({ paths: ['C:/work/repo'] })]);
+    expect(findSessionForCwd('C:/totally/elsewhere')).toBeNull();
+  });
+
+  it('handles Windows-style backslashes vs forward slashes consistently', () => {
+    saveHistory([session({ paths: ['C:\\work\\repo'] })]);
+    expect(findSessionForCwd('C:/work/repo')).not.toBeNull();
+    expect(findSessionForCwd('C:\\work\\repo')).not.toBeNull();
+  });
+});
+
+describe('readPendingForSession + markDelivered', () => {
+  it('filters to published, user-authored, undelivered comments', () => {
+    const store = getCommentFileStore('sid');
+    const p1 = store.post({ body: 'one' }); // published user
+    store.post({ body: 'draft', status: 'draft' }); // draft → excluded
+    store.post({ body: 'claude reply', author: 'claude' }); // claude → excluded
+    const p2 = store.post({ body: 'two' });
+
+    const pending = readPendingForSession('sid');
+    expect(pending.map((c) => c.id).sort()).toEqual([p1.id, p2.id].sort());
+  });
+
+  it('markDelivered persists ids so they are not returned again', () => {
+    const store = getCommentFileStore('sid');
+    const c = store.post({ body: 'one' });
+    expect(readPendingForSession('sid')).toHaveLength(1);
+    markDelivered('sid', [c.id]);
+    expect(readPendingForSession('sid')).toHaveLength(0);
+  });
+
+  it('markDelivered with empty array is a no-op', () => {
+    markDelivered('sid', []);
+    // No file should be created.
+    const deliveredPath = path.join(tmpDir, '.work', 'comments', 'sid.delivered.json');
+    expect(fs.existsSync(deliveredPath)).toBe(false);
+  });
+
+  it('only the new comments come back after delivery + new posts', () => {
+    const store = getCommentFileStore('sid');
+    const first = store.post({ body: 'one' });
+    markDelivered('sid', [first.id]);
+    const second = store.post({ body: 'two' });
+    const pending = readPendingForSession('sid');
+    expect(pending.map((c) => c.id)).toEqual([second.id]);
+  });
+
+  it('markDelivered is idempotent for repeated ids', () => {
+    const store = getCommentFileStore('sid');
+    const c = store.post({ body: 'one' });
+    markDelivered('sid', [c.id]);
+    markDelivered('sid', [c.id]);
+    markDelivered('sid', [c.id]);
+    const rows = withDb((d) => d.prepare('SELECT comment_id FROM comment_deliveries WHERE session_id = ?').all('sid'));
+    expect(rows).toEqual([{ comment_id: c.id }]);
+  });
+});
+
+describe('readPendingForWorktree (session + wd scope bridge)', () => {
+  // `wd` stores its review comments under a scope-hash store, not the
+  // session store. The hook must surface those too, otherwise comments
+  // left in the `wd` review UI never reach the Claude in that worktree.
+  // Use a POSIX-absolute path so it's stable under `path.resolve` (which
+  // production applies before hashing). Windows-style 'C:/...' would be
+  // treated as relative on the test host.
+  const WT = '/work/repo';
+  // Mirror production's hash derivation (resolve then hash).
+  function scopeStoreIdFor(paths: string[]): string {
+    return `scope-${scopeHashFor(paths.map((p) => path.resolve(p)))}`;
+  }
+
+  it('surfaces comments left in a wd scope store for the worktree', () => {
+    const s = session({ paths: [WT] });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const c = scopeStore.post({ body: 'from wd review' });
+    const pending = readPendingForWorktree(s);
+    expect(pending.map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it('merges session-store and scope-store comments', () => {
+    const s = session({ paths: [WT] });
+    const sessionStore = getCommentFileStore(sessionIdFor(s));
+    const a = sessionStore.post({ body: 'dashboard comment' });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const b = scopeStore.post({ body: 'wd comment' });
+    const pending = readPendingForWorktree(s);
+    expect(pending.map((x) => x.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('respects the per-session delivered set for scope comments', () => {
+    const s = session({ paths: [WT] });
+    const scopeStore = getCommentFileStore(scopeStoreIdFor([WT]));
+    const c = scopeStore.post({ body: 'wd comment' });
+    expect(readPendingForWorktree(s)).toHaveLength(1);
+    markDelivered(sessionIdFor(s), [c.id]);
+    expect(readPendingForWorktree(s)).toHaveLength(0);
+  });
+
+  it('does not pull in another worktree’s scope comments', () => {
+    const s = session({ paths: [WT] });
+    const otherScope = getCommentFileStore(scopeStoreIdFor(['/work/other']));
+    otherScope.post({ body: 'belongs to a different worktree' });
+    expect(readPendingForWorktree(s)).toHaveLength(0);
+  });
+});
+
+describe('formatPendingForPrompt', () => {
+  it('returns empty string for empty input', () => {
+    expect(formatPendingForPrompt([])).toBe('');
+  });
+
+  it('groups general / inline / reply comments under headings', () => {
+    const store = getCommentFileStore('sid');
+    const top = store.post({
+      body: 'inline note',
+      repo: 'r',
+      file: 'a.ts',
+      line: 5,
+      side: 'right',
+    });
+    store.post({ body: 'overall', side: 'general' });
+    store.post({ body: 'response', parentId: top.id });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('<system-reminder>');
+    expect(out).toContain('## General notes');
+    expect(out).toContain('## Inline comments');
+    expect(out).toContain('## Replies');
+    expect(out).toContain('r/a.ts:5');
+    expect(out).toContain('</system-reminder>');
+  });
+
+  it('delivers multi-line general (broadcast) bodies in full, not just line 1', () => {
+    const store = getCommentFileStore('sid');
+    store.post({ body: 'line one\nline two\nline three', side: 'general' });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('line one');
+    expect(out).toContain('line two');
+    expect(out).toContain('line three');
+  });
+
+  it('keeps inline comments compacted to their first line', () => {
+    const store = getCommentFileStore('sid');
+    store.post({
+      body: 'headline\nsecond line should be dropped for inline',
+      repo: 'r',
+      file: 'a.ts',
+      line: 3,
+      side: 'right',
+    });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('headline');
+    expect(out).not.toContain('second line should be dropped for inline');
+  });
+
+  it('truncates pathologically long bodies', () => {
+    const store = getCommentFileStore('sid');
+    const huge = 'x'.repeat(10_000);
+    store.post({ body: huge });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    // Should NOT contain the full 10k body — capped at ~4 KB plus ellipsis.
+    expect(out.length).toBeLessThan(huge.length);
+    expect(out).toContain('xxxxx');
+    expect(out).toContain('…');
+  });
+});
+
+describe('claimForDelivery', () => {
+  it('hands each id out once, and a released claim can be taken again', () => {
+    expect(claimForDelivery('sid', ['a', 'b'])).toEqual(['a', 'b']);
+    expect(claimForDelivery('sid', ['a', 'b', 'c'])).toEqual(['c']);
+    releaseClaim('sid', ['b']);
+    expect(claimForDelivery('sid', ['a', 'b'])).toEqual(['b']);
+    expect(claimForDelivery('sid', [])).toEqual([]);
+  });
+
+  it('claimed comments are no longer pending', () => {
+    const store = getCommentFileStore('sid');
+    const c = store.post({ body: 'one' });
+    claimForDelivery('sid', [c.id]);
+    expect(readPendingForSession('sid')).toEqual([]);
+  });
+
+  it('racing processes never deliver the same comment twice', async () => {
+    // The real race: the `work hook` process and work web's PTY push both
+    // claim for one session at the same moment.
+    const mod = pathToFileURL(path.resolve(__dirname, '../../../src/core/comments/pending-delivery.ts')).href;
+    const script = path.join(tmpDir, 'claim.mts');
+    fs.writeFileSync(
+      script,
+      `const { claimForDelivery } = await import(${JSON.stringify(mod)});\n` +
+        `const ids = Array.from({ length: 20 }, (_, i) => 'c' + i);\n` +
+        `process.stdout.write(JSON.stringify(claimForDelivery('sid', ids)));\n`,
+    );
+    const env = { ...process.env, HOME: tmpDir, USERPROFILE: tmpDir };
+    const run = () =>
+      new Promise<string[]>((resolve, reject) =>
+        execFile(process.execPath, ['--import', 'tsx', script], { env, timeout: 60_000 }, (err, out) =>
+          err ? reject(err) : resolve(JSON.parse(out) as string[]),
+        ),
+      );
+    const results = await Promise.all(Array.from({ length: 4 }, run));
+    const all = results.flat();
+    expect(all.sort()).toEqual(Array.from({ length: 20 }, (_, i) => 'c' + i).sort());
+    expect(new Set(all).size).toBe(all.length);
+  }, 90_000);
+});

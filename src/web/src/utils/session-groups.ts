@@ -17,10 +17,7 @@ export interface SessionGroup {
  * (i.e. the most-recent session's project first when sorted by recency),
  * or alphabetically when `alphabetical` is set.
  */
-export function groupSessionsByTarget(
-  sessions: SessionSummary[],
-  alphabetical = false,
-): SessionGroup[] {
+export function groupSessionsByTarget(sessions: SessionSummary[], alphabetical = false): SessionGroup[] {
   const byKey = new Map<string, SessionGroup>();
   for (const s of sessions) {
     let g = byKey.get(s.target);
@@ -37,9 +34,7 @@ export function groupSessionsByTarget(
   }
   const groups = [...byKey.values()];
   if (alphabetical) {
-    groups.sort((a, b) =>
-      a.key.toLowerCase().localeCompare(b.key.toLowerCase()),
-    );
+    groups.sort((a, b) => a.key.toLowerCase().localeCompare(b.key.toLowerCase()));
   }
   return groups;
 }

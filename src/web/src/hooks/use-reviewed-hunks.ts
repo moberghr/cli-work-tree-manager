@@ -15,9 +15,7 @@ export function useReviewedHunks(scopeKey: string): {
   reviewedHunkKeys: Set<string>;
   toggle: (hunkKey: string, next: boolean) => void;
 } {
-  const [reviewedHunkKeys, setReviewedHunkKeys] = useState<Set<string>>(() =>
-    readScope(scopeKey),
-  );
+  const [reviewedHunkKeys, setReviewedHunkKeys] = useState<Set<string>>(() => readScope(scopeKey));
 
   // Reload from disk when the scope key changes.
   useEffect(() => {

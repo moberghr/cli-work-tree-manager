@@ -25,9 +25,7 @@ export function Modal({ title, children, actions, onClose, primaryRef }: Props) 
       primaryRef.current.focus();
       return;
     }
-    const primary = backdropRef.current?.querySelector<HTMLButtonElement>(
-      '.wd-btn-primary',
-    );
+    const primary = backdropRef.current?.querySelector<HTMLButtonElement>('.wd-btn-primary');
     primary?.focus();
   }, [primaryRef]);
   return (

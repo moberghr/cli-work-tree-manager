@@ -8,8 +8,7 @@ import type { ReviewApi } from '../../src/web/src/api/review-api.js';
 import type { ParsedFile } from '../../src/web/src/api/client.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // jsdom has no EventSource; ReviewProvider subscribes via useSse on mount.
 // A no-op stub keeps the connection lifecycle from throwing.
@@ -116,14 +115,10 @@ describe('NewFileView (added files render full-width)', () => {
     });
     const rows = container.querySelectorAll('.wd-newfile tbody tr.wd-row');
     expect(rows.length).toBe(3);
-    const lineNumbers = Array.from(
-      container.querySelectorAll('.wd-newfile .wd-ln-new'),
-    ).map((td) => td.textContent);
+    const lineNumbers = Array.from(container.querySelectorAll('.wd-newfile .wd-ln-new')).map((td) => td.textContent);
     expect(lineNumbers).toEqual(['1', '2', '3']);
     // Each content cell carries the green "added" tint.
-    expect(
-      container.querySelectorAll('.wd-newfile td.wd-content.wd-add').length,
-    ).toBe(3);
+    expect(container.querySelectorAll('.wd-newfile td.wd-content.wd-add').length).toBe(3);
   });
 
   it('still renders a modified file as the side-by-side table', () => {
@@ -137,25 +132,22 @@ describe('NewFileView (added files render full-width)', () => {
   it('in review mode, clicking a line number opens the comment composer inline', async () => {
     await act(async () => {
       root.render(
-        createElement(
-          ReviewProvider,
-          { api: stubReviewApi() },
-          createElement(DiffFile, {
+        createElement(ReviewProvider, {
+          api: stubReviewApi(),
+          children: createElement(DiffFile, {
             file: addedFile(),
             anchor: 'a',
             review: true,
             repo: 'myrepo',
           }),
-        ),
+        }),
       );
     });
 
     // No composer until a line is clicked.
     expect(container.querySelector('.wd-comment-form')).toBeNull();
 
-    const clickable = container.querySelector<HTMLElement>(
-      '.wd-newfile .wd-ln-new.wd-ln-clickable',
-    );
+    const clickable = container.querySelector<HTMLElement>('.wd-newfile .wd-ln-new.wd-ln-clickable');
     expect(clickable).not.toBeNull();
 
     await act(async () => clickable!.click());

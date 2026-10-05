@@ -60,13 +60,9 @@ describe('addedLines', () => {
 describe('inlineRows', () => {
   it('emits context lines in place with both line numbers', () => {
     const h = hunk({
-      lines: [
-        { kind: 'context', content: 'ctx', oldNum: 10, newNum: 12 },
-      ],
+      lines: [{ kind: 'context', content: 'ctx', oldNum: 10, newNum: 12 }],
     });
-    expect(inlineRows(h)).toEqual([
-      { kind: 'context', oldNum: 10, newNum: 12, content: 'ctx' },
-    ]);
+    expect(inlineRows(h)).toEqual([{ kind: 'context', oldNum: 10, newNum: 12, content: 'ctx' }]);
   });
 
   it('orders a change block as all deletions then all additions (GitHub unified)', () => {
@@ -111,8 +107,6 @@ describe('inlineRows', () => {
         { kind: 'no-newline', content: '', oldNum: null, newNum: null },
       ],
     });
-    expect(inlineRows(h)).toEqual([
-      { kind: 'add', oldNum: null, newNum: 1, content: 'only', spans: undefined },
-    ]);
+    expect(inlineRows(h)).toEqual([{ kind: 'add', oldNum: null, newNum: 1, content: 'only', spans: undefined }]);
   });
 });

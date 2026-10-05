@@ -1,7 +1,4 @@
-import type {
-  CheckpointEntry,
-  CheckpointRangeEnd,
-} from '../api/client.js';
+import type { CheckpointEntry, CheckpointRangeEnd } from '../api/client.js';
 
 export interface CheckpointRange {
   from: number;
@@ -52,8 +49,7 @@ export function decideRange(
     return { kind: 'range', range: { from: firstId, to: 'working' } };
   }
   const fromExists = entries.some((e) => e.id === prev.from);
-  const toExists =
-    prev.to === 'working' || entries.some((e) => e.id === prev.to);
+  const toExists = prev.to === 'working' || entries.some((e) => e.id === prev.to);
   if (!fromExists || !toExists) {
     return {
       kind: 'range',
@@ -75,10 +71,7 @@ export function decideRange(
  * baseline snapshotted when the diff landed would be missing or one behind.
  * `entries` is id-ordered, and ids and timestamps rise together.
  */
-export function checkpointAtOrBefore(
-  entries: CheckpointEntry[],
-  atMs: number,
-): number | null {
+export function checkpointAtOrBefore(entries: CheckpointEntry[], atMs: number): number | null {
   let found: number | null = null;
   for (const e of entries) {
     const t = Date.parse(e.ts);
@@ -104,24 +97,14 @@ function endpointLabel(end: CheckpointRangeEnd): string {
  * earlier checkpoint. `latestId` is the id of the most recent checkpoint
  * (undefined when none are known).
  */
-export function rangeEmptyMessage(
-  range: CheckpointRange,
-  latestId: number | undefined,
-): string {
+export function rangeEmptyMessage(range: CheckpointRange, latestId: number | undefined): string {
   const fromLabel = endpointLabel(range.from);
-  if (
-    range.to === 'working' &&
-    latestId !== undefined &&
-    range.from === latestId
-  ) {
+  if (range.to === 'working' && latestId !== undefined && range.from === latestId) {
     return (
       `${fromLabel} is the most recent snapshot — it already matches your ` +
       `working tree, so there's nothing to show. Pick an earlier checkpoint ` +
       `to see recent changes.`
     );
   }
-  return (
-    `No changes between ${fromLabel} and ${endpointLabel(range.to)}. ` +
-    `Pick a different range from the strip above.`
-  );
+  return `No changes between ${fromLabel} and ${endpointLabel(range.to)}. ` + `Pick a different range from the strip above.`;
 }

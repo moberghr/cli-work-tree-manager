@@ -1,13 +1,87 @@
+import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
+import type { UpdateFromMainWire } from '../../../core/api-types.js';
+import type { SnoozeChoice } from '../../../core/rail/snooze.js';
+import { trackArchive } from './archive-pending.js';
 import type {
-  Comment,
-  CommentAuthor,
-  CommentStatus,
-  CommentSide,
-} from '../../../core/comment-types.js';
+  ActivityState,
+  AnswerRequest,
+  AssistantView,
+  PermissionRequest,
+  ChecksState,
+  CleanupAction,
+  CleanupCandidate,
+  CleanupState,
+  ContextUsage,
+  DevServerState,
+  DigestResponse,
+  DigestSession,
+  DiffStat,
+  MergeMethod,
+  NotifyEvent,
+  PresenceReport,
+  PromptsResponse,
+  PtyStatus,
+  RepoShipState,
+  RevertRequest,
+  RevertResponse,
+  SavedPrompt,
+  SessionAttention,
+  SessionCi,
+  ConversationHit,
+  SessionArchiveInfo,
+  SessionClaudes,
+  SessionOverlap,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipRequest,
+  ShipResponse,
+  ShipResult,
+} from '../../../core/api-types.js';
+import type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile } from '../../../core/diff/diff-parse.js';
+
+// Wire types have ONE definition, in core (shared with the server) — see
+// core/api-types.ts and core/diff-parse.ts. Re-exported here so SPA code
+// keeps importing from api/client.
+export type {
+  ActivityState,
+  AnswerRequest,
+  AssistantView,
+  PermissionRequest,
+  ChecksState,
+  CleanupAction,
+  CleanupCandidate,
+  CleanupState,
+  ContextUsage,
+  DevServerState,
+  DigestResponse,
+  DigestSession,
+  DiffStat,
+  MergeMethod,
+  NotifyEvent,
+  PresenceReport,
+  PromptsResponse,
+  PtyStatus,
+  RepoShipState,
+  RevertRequest,
+  RevertResponse,
+  SavedPrompt,
+  SessionAttention,
+  SessionCi,
+  ConversationHit,
+  SessionArchiveInfo,
+  SessionClaudes,
+  SessionOverlap,
+  ShipAction,
+  ShipPr,
+  ShipPreflight,
+  ShipRequest,
+  ShipResponse,
+  ShipResult,
+};
+export type { FileStatus, Hunk, HunkLine, LineKind, MarkdownContent, ParsedFile };
 export type { Comment, CommentAuthor, CommentStatus, CommentSide };
 
-export type PtyStatus = 'running' | 'idle';
-export type ActivityState = 'active' | 'open' | 'stale';
 export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
@@ -34,6 +108,105 @@ export interface SessionSummary {
   /** Published user comments not yet surfaced to Claude. Drops to zero
    *  once the UserPromptSubmit hook fires inside a live Claude here. */
   pendingForClaudeCount?: number;
+  /** Hook-driven agent status (attention inbox); null/absent until the
+   *  session's Claude fires a hook under a full `work web`. */
+  attention?: SessionAttention | null;
+  /** Working-tree change vs HEAD across the session's repos (tracked
+   *  numstat + untracked files). Null until computed — the server fills it
+   *  in the background and caches it briefly, so it may lag a few seconds. */
+  diffStat?: DiffStat | null;
+  /** Set when the session was archived: PTY stopped, worktree + branch +
+   *  conversation kept, hidden from the rail/inbox by default. */
+  archivedAt?: string | null;
+  /** Other live sessions changing some of the same files (merge conflict
+   *  ahead); absent when none. */
+  overlaps?: SessionOverlap[];
+  /** Claudes running for it right now, wherever they were started. */
+  /** Its agent processes running right now (the same as `claudes`, the old name). */
+  agents?: SessionClaudes;
+  claudes?: SessionClaudes;
+  /** The agent it runs, and what work can do with it. */
+  agent?: import('../../../core/api-types.js').SessionAgentWire;
+  /** What its archive kept (archived sessions). */
+  archive?: SessionArchiveInfo;
+  /** Its name: yours, else its first prompt, else its Jira key. */
+  title?: string | null;
+  /** Snoozed out of the Inbox right now: until when, or null for "until it changes". */
+  snoozed?: { until: string | null };
+  /** Behind its main branch, as of the last fetch (absent when level). */
+  behind?: { base: string; commits: number; conflicts: boolean; stacked?: true };
+  /** The live session it is stacked on (stack.ts). */
+  stackedOn?: { id: string; branch: string; title?: string };
+  /** How many live sessions are stacked on this one. */
+  stackedChildren?: number;
+  /** You have notes on it. */
+  hasNote?: boolean;
+  /** What it waits on that isn't done yet: out of the Inbox meanwhile. */
+  blockedBy?: import('../../../core/api-types.js').BlockerWire[];
+  /** It was stacked on a session that merged and is archived: it should move onto main. */
+  stackParentMerged?: { id: string; branch: string };
+  /** Repos checked out on another branch than `branch` (null = detached). */
+  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
+  titleIsYours?: boolean;
+  /** How full its Claude conversation is; null before the first reply. */
+  context?: ContextUsage | null;
+  /** Unresolved review threads on its open PRs, waiting on you. */
+  openReviewThreads?: number;
+  /** Replies its Claude drafted on those threads, for you to post. */
+  replyDrafts?: number;
+  /** Where its pull request stands (pr-stage.ts); `seen` once you looked at it there. */
+  prStage?: import('../../../core/api-types.js').PrStageWire;
+}
+
+// ---- Ship / archive ---------------------------------------------------
+
+export function fetchShipPreflight(sessionId: string): Promise<ShipPreflight> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`);
+}
+
+/** push: publish the branch. create-pr: push if needed, then open a PR
+ *  (draft optional). merge: merge exactly `repos`, each at the PR head the
+ *  user was shown (refused if it moved; all validated before any merges);
+ *  the session is archived only when every repo is done afterwards. */
+export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/ship`, body);
+}
+
+/**
+ * Archive or restore. When something is still waiting in the session
+ * (replies to post, notes for its Claude, a Claude mid-turn), the server
+ * says what; `confirm` asks whether to archive anyway (the browser's own
+ * dialog by default). Declined: rejects with what was waiting.
+ */
+export function setArchived(
+  sessionId: string,
+  archived: boolean,
+  confirm: (question: string) => boolean = (q) => window.confirm(q),
+): Promise<{ ok: true }> {
+  // Every caller's button shows it running, wherever you come back to it.
+  return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
+}
+
+async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
+  const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
+  const send = (force: boolean) =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }),
+    });
+  let res = await send(false);
+  if (res.status === 409) {
+    const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
+    const waiting = body.blocked ?? [];
+    if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
+      throw new Error(`Not archived: ${waiting.join('; ')}`);
+    }
+    res = await send(true);
+  }
+  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string };
+  if (!res.ok) throw new Error(json.error ?? `${res.status} for ${url}`);
+  return { ok: true };
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -44,10 +217,56 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function fetchSessions(): Promise<SessionSummary[]> {
-  return getJson<{ sessions: SessionSummary[] }>('/api/sessions').then(
-    (r) => r.sessions,
-  );
+type PrReply = import('../../../core/api-types.js').PrReply;
+
+/** Review threads handed to the session's Claude, and the replies it drafted. */
+export function fetchReplies(sessionId: string): Promise<import('../../../core/api-types.js').RepliesWire> {
+  return getJson<import('../../../core/api-types.js').RepliesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/replies`).then((r) => ({
+    replies: r.replies,
+    waiting: r.waiting ?? [],
+  }));
+}
+
+async function sendJson<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(json.error ?? `${res.status} for ${path}`);
+  return json;
+}
+
+const replyPath = (sessionId: string, threadId: string) =>
+  `/api/sessions/${encodeURIComponent(sessionId)}/replies/${encodeURIComponent(threadId)}`;
+
+export function editReply(sessionId: string, threadId: string, body: string): Promise<{ reply: PrReply }> {
+  return sendJson('PUT', replyPath(sessionId, threadId), { body });
+}
+
+export function discardReply(sessionId: string, threadId: string): Promise<{ ok: boolean }> {
+  return sendJson('DELETE', replyPath(sessionId, threadId));
+}
+
+/** Post the reply from your GitHub account; `resolve` also resolves the thread. */
+export function postReply(
+  sessionId: string,
+  threadId: string,
+  body: string,
+  resolve: boolean,
+): Promise<{ ok: true; url: string; resolved: boolean }> {
+  return sendJson('POST', `${replyPath(sessionId, threadId)}/post`, { body, resolve });
+}
+
+/** What work is doing in the background, and what it decided (the Activity panel). */
+export function fetchActivity(): Promise<import('../../../core/api-types.js').ActivityWire> {
+  return getJson('/api/activity');
+}
+
+/** The live sessions; with `withArchived`, the archived ones too (they're asked for only where shown). */
+export function fetchSessions(withArchived = false): Promise<SessionSummary[]> {
+  return getJson<{ sessions: SessionSummary[] }>(`/api/sessions${withArchived ? '?archived=1' : ''}`).then((r) => r.sessions);
 }
 
 export interface ReviewContext {
@@ -127,9 +346,7 @@ export interface ScopeDiffResult {
  * `diffs.<base>` shape — keeps old static HTML from earlier `wd` builds
  * working until the user regenerates.
  */
-export function fetchScopeDiff(
-  base: DiffBase = 'uncommitted',
-): Promise<ScopeDiffResult> {
+export function fetchScopeDiff(base: DiffBase = 'uncommitted'): Promise<ScopeDiffResult> {
   const boot = getBoot();
   if (boot) {
     if (boot.diffs?.[base]) return Promise.resolve(boot.diffs[base]!);
@@ -173,9 +390,7 @@ export function fetchScopeDiffByHash(
     params.set('base', 'branch');
   }
   const q = params.toString();
-  return getJson<ScopeDiffResult>(
-    `/api/scopes/${encodeURIComponent(hash)}/diff${q ? `?${q}` : ''}`,
-  );
+  return getJson<ScopeDiffResult>(`/api/scopes/${encodeURIComponent(hash)}/diff${q ? `?${q}` : ''}`);
 }
 
 export interface FileLinesResult {
@@ -208,9 +423,7 @@ export function fetchFileLines(
     end: String(end),
   });
   if (ref) params.set('ref', ref);
-  const base = hash
-    ? `/api/scopes/${encodeURIComponent(hash)}/file-lines`
-    : '/api/file-lines';
+  const base = hash ? `/api/scopes/${encodeURIComponent(hash)}/file-lines` : '/api/file-lines';
   return getJson<FileLinesResult>(`${base}?${params.toString()}`);
 }
 
@@ -224,21 +437,13 @@ export interface CheckpointEntry {
 }
 
 export function fetchCheckpoints(hash: string): Promise<CheckpointEntry[]> {
-  return getJson<{ entries: CheckpointEntry[] }>(
-    `/api/scopes/${encodeURIComponent(hash)}/checkpoints`,
-  ).then((r) => r.entries);
+  return getJson<{ entries: CheckpointEntry[] }>(`/api/scopes/${encodeURIComponent(hash)}/checkpoints`).then((r) => r.entries);
 }
 
 /** Lazily generate (or return the cached) one-line Claude summary of what
  *  changed at a checkpoint. The server caches it in the manifest `label`. */
-export function fetchCheckpointSummary(
-  hash: string,
-  id: number,
-): Promise<{ label: string }> {
-  return postJson<{ label: string }>(
-    `/api/scopes/${encodeURIComponent(hash)}/checkpoints/${id}/summary`,
-    {},
-  );
+export function fetchCheckpointSummary(hash: string, id: number): Promise<{ label: string }> {
+  return postJson<{ label: string }>(`/api/scopes/${encodeURIComponent(hash)}/checkpoints/${id}/summary`, {});
 }
 
 export interface CommentInput {
@@ -272,10 +477,7 @@ export function postComment(input: CommentInput): Promise<{ comments: Comment[] 
 }
 
 export async function deleteComment(id: string): Promise<{ comments: Comment[] }> {
-  const res = await fetch(
-    `/api/comments/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
-  );
+  const res = await fetch(`/api/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<{ comments: Comment[] }>;
 }
@@ -290,56 +492,6 @@ export function discardReview(): Promise<{ comments: Comment[]; discarded: numbe
 
 export function postDone(): Promise<{ ok: boolean; count: number }> {
   return postJson<{ ok: boolean; count: number }>('/api/done', {});
-}
-
-export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'binary';
-export type LineKind = 'context' | 'add' | 'delete' | 'no-newline';
-
-export interface HunkLine {
-  kind: LineKind;
-  content: string;
-  oldNum: number | null;
-  newNum: number | null;
-}
-
-export interface Hunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  context: string;
-  lines: HunkLine[];
-}
-
-export interface ParsedFile {
-  path: string;
-  oldPath: string;
-  newPath: string;
-  status: FileStatus;
-  isBinary: boolean;
-  added: number;
-  deleted: number;
-  hunks: Hunk[];
-  /** Line-coverage percent (from lcov); undefined when no lcov data. */
-  coverage?: number;
-  /** Epoch-ms mtime of the lcov.info `coverage` came from; undefined when no
-   *  lcov data. Surfaced in the badge tooltip so coverage age is visible. */
-  coverageMtimeMs?: number;
-  /** True when the file's source is newer than the lcov.info — coverage is
-   *  stale and the badge is suppressed / de-emphasized. */
-  coverageStale?: boolean;
-  /** Full file contents for `.md` / `.markdown` / `.mdx` files — populated
-   *  server-side so the SPA can render a Preview/Split view next to the
-   *  diff. Absent for non-markdown files. */
-  mdContent?: MarkdownContent;
-}
-
-export interface MarkdownContent {
-  before?: string;
-  after?: string;
-  /** Server-side flag: either side exceeded the size cap, so the SPA
-   *  must hide Preview/Split (rendering would blow the browser heap). */
-  tooLarge?: boolean;
 }
 
 export interface RepoData {
@@ -365,12 +517,289 @@ export interface SessionDiff {
   repos: RepoData[];
 }
 
+/** How far you have looked at a session's diff (diff-seen.ts): the newest turn on screen then. */
+export function fetchDiffSeen(sessionId: string): Promise<import('../../../core/api-types.js').DiffSeen | null> {
+  return getJson<{ seen: import('../../../core/api-types.js').DiffSeen | null }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`,
+  ).then((r) => r.seen);
+}
+
+/** You looked as far as this turn (only moves forward). */
+export async function markDiffSeen(sessionId: string, checkpointId: number): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ checkpointId }),
+  });
+  if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
+}
+
 export function fetchSessionDiff(
   sessionId: string,
   base: DiffBase = 'uncommitted',
+  range?: { from: number; to: number | 'working' },
 ): Promise<SessionDiff> {
-  const q = base === 'branch' ? '?base=branch' : '';
-  return getJson<SessionDiff>(
-    `/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`,
+  const q = range ? `?from=${range.from}&to=${range.to}` : base === 'branch' ? '?base=branch' : '';
+  return getJson<SessionDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`);
+}
+
+/** A session's checkpoint history: one step per Claude instruction, taken
+ *  when its turn ends (the first entry is the baseline). */
+export function fetchSessionCheckpoints(sessionId: string): Promise<CheckpointEntry[]> {
+  return getJson<{ entries: CheckpointEntry[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => r.entries);
+}
+
+/** Consecutive checkpoint pairs = turns, newest first. */
+export interface TurnRange {
+  from: number;
+  to: number;
+  /** 1-based turn number. */
+  n: number;
+  label?: string;
+  ts: string;
+}
+export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
+  const out: TurnRange[] = [];
+  for (let i = 1; i < entries.length; i++) {
+    out.push({ from: entries[i - 1].id, to: entries[i].id, n: i, label: entries[i].label, ts: entries[i].ts });
+  }
+  return out.reverse();
+}
+
+/** What the dashboard shows, for the Ctrl+K assistant's context. */
+export function reportAssistantView(view: AssistantView): Promise<{ ok: true }> {
+  return postJson('/api/assistant/context', view);
+}
+
+/** Out of the Inbox for 2 hours, until tomorrow 9:00, or until its status changes (snooze.ts). */
+export function snoozeSession(
+  s: Pick<SessionSummary, 'id' | 'openReviewThreads' | 'prStage'>,
+  choice: SnoozeChoice,
+): Promise<{ ok: true }> {
+  const what = typeof choice === 'string' ? { for: choice } : { until: choice.until };
+  const stage = s.prStage ? { prStage: { kind: s.prStage.kind, key: s.prStage.key } } : {};
+  return postJson(`/api/sessions/${encodeURIComponent(s.id)}/snooze`, { ...what, openReviewThreads: s.openReviewThreads ?? 0, ...stage });
+}
+
+export async function unsnoozeSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/snooze`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`${res.status} unsnoozing`);
+}
+
+/** A prompt for a session's Claude, sent like a review comment: pushed into a
+ *  terminal the dashboard owns, or delivered on its next turn — never typed
+ *  over a prompt. (Prompts ▾, the bulk bar.) */
+export async function sendPromptToSession(sessionId: string, body: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ side: 'general', status: 'published', body }),
+  });
+  if (!res.ok) throw new Error(`send failed (${res.status})`);
+}
+
+export type UpdateFromMainResult = UpdateFromMainWire['results'][number];
+
+/** Fetch, then rebase (never pushed) or merge main in (pushed); conflicts aborted. One result per repo. */
+/** A stacked session whose parent merged: onto main (only its own commits on top). */
+export async function retargetSession(sessionId: string): Promise<UpdateFromMainResult[]> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/retarget`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as Partial<UpdateFromMainWire> & { error?: string };
+  if (!res.ok || !body.results) throw new Error(body.error ?? `moving onto main failed (${res.status})`);
+  return body.results;
+}
+
+export async function updateFromMain(sessionId: string): Promise<UpdateFromMainResult[]> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/update-from-main`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as Partial<UpdateFromMainWire> & { error?: string };
+  if (!res.ok || !body.results) throw new Error(body.error ?? `update failed (${res.status})`);
+  return body.results;
+}
+
+/** "Catch me up": a few sentences on where a session stands (written once per conversation growth). */
+export async function catchUpSession(sessionId: string): Promise<{ text: string; at: string }> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/catch-up`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as { catchUp?: { text: string; at: string } | null; error?: string };
+  if (!res.ok || !body.catchUp) throw new Error(body.error ?? `catching up failed (${res.status})`);
+  return body.catchUp;
+}
+
+/** The user opened a session that wanted attention — clear its unseen flag (and its PR stage's, when that brought it back). */
+export function markSessionSeen(sessionId: string, prStage?: { kind: string; key: string } | null): Promise<{ ok: true }> {
+  return postJson(
+    `/api/sessions/${encodeURIComponent(sessionId)}/seen`,
+    prStage ? { prStage: { kind: prStage.kind, key: prStage.key } } : {},
   );
+}
+
+/** Allow / Deny the permission prompt a session is blocked on. Throws with
+ *  the server's reason when it refused to type (already answered, a
+ *  different prompt on screen, not running in the PTY host). */
+export async function answerPermission(sessionId: string, req: AnswerRequest): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `answer failed (${res.status})`);
+  }
+}
+
+/** Name a session; an empty title goes back to the automatic name. */
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`renaming failed (${res.status})`);
+}
+
+// ---- search in kept conversations (live and archived) -----------------------
+
+export async function searchConversations(q: string): Promise<ConversationHit[]> {
+  const r = await getJson<{ hits?: ConversationHit[] }>(`/api/conversations/search?q=${encodeURIComponent(q)}`);
+  return r.hits ?? [];
+}
+
+// ---- the sessions list's manual order ---------------------------------------
+
+export async function fetchSessionOrder(): Promise<string[]> {
+  const r = await getJson<{ order?: unknown }>('/api/session-order');
+  return Array.isArray(r.order) ? r.order.filter((x): x is string => typeof x === 'string') : [];
+}
+
+export async function saveSessionOrder(order: string[]): Promise<void> {
+  const res = await fetch('/api/session-order', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (!res.ok) throw new Error(`saving the order failed (${res.status})`);
+}
+
+// ---- the PTY host's heartbeat ----------------------------------------------
+
+export function fetchHostHealth(): Promise<import('../../../core/pty/host-health.js').HostHealth> {
+  return getJson('/api/pty-host/health');
+}
+
+// ---- a session's timeline ---------------------------------------------------
+
+export async function fetchTimeline(sessionId: string): Promise<import('../../../core/conversations/timeline.js').TimelineEvent[]> {
+  return (
+    await getJson<{ events: import('../../../core/conversations/timeline.js').TimelineEvent[] }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/timeline`,
+    )
+  ).events;
+}
+
+// ---- blocked by ----------------------------------------------------------
+
+/** Wait on another session (its id) or a pull request (its URL). */
+export async function addBlocker(sessionId: string, ref: { kind: 'session'; id: string } | { kind: 'pr'; url: string }): Promise<void> {
+  await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/blocks`, ref);
+}
+
+/** Stop waiting on one thing (its key), or on everything. */
+export async function removeBlocker(sessionId: string, key?: string): Promise<void> {
+  await sendJson('DELETE', `/api/sessions/${encodeURIComponent(sessionId)}/blocks${key ? `?key=${encodeURIComponent(key)}` : ''}`);
+}
+
+// ---- your notes on a session ----------------------------------------------
+
+export async function fetchNote(sessionId: string): Promise<{ text: string; updatedAt: string } | null> {
+  return (await getJson<{ note: { text: string; updatedAt: string } | null }>(`/api/sessions/${encodeURIComponent(sessionId)}/note`)).note;
+}
+
+export async function saveNote(sessionId: string, text: string): Promise<void> {
+  await sendJson('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/note`, { text });
+}
+
+// ---- time per session ----------------------------------------------------
+
+export type WorkTime = import('../../../core/api-types.js').WorkTimeWire;
+
+/** How long the session's Claude worked (approximate; reads its transcripts). */
+export function fetchWorkTime(sessionId: string): Promise<WorkTime> {
+  return getJson<WorkTime>(`/api/sessions/${encodeURIComponent(sessionId)}/time`);
+}
+
+/** Can it write Jira worklogs, to which issue, what was logged per day. */
+export function fetchWorklog(sessionId: string): Promise<import('../../../core/api-types.js').WorklogWire> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/worklog`);
+}
+
+/** Log a day's work (default: the latest) to its Jira issue: what isn't logged yet. */
+export function logWorklog(sessionId: string, day?: string): Promise<{ ok: true; logged: number; total: number; text: string }> {
+  return sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/worklog`, day ? { day } : {});
+}
+
+// ---- fork a session ------------------------------------------------------
+
+/** A new branch from where the session is; its Claude starts with a summary of this conversation. Slow (the summary). */
+export function forkSession(
+  sessionId: string,
+  req: { branch: string; prompt?: string; name?: string },
+): Promise<import('../../../core/api-types.js').ForkWire> {
+  return sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/fork`, req);
+}
+
+// ---- the rail's pins and sections ----------------------------------------
+
+type RailLayout = import('../../../core/rail/rail-layout.js').RailLayout;
+
+export function fetchRailLayout(): Promise<RailLayout> {
+  return getJson<RailLayout>('/api/rail');
+}
+
+/** One change to your sections, applied to the list as it is on the server. */
+export function changeRailSections(op: import('../../../core/rail/rail-layout.js').SectionOp): Promise<RailLayout> {
+  return sendJson('POST', '/api/rail/sections', op);
+}
+
+/** Pin / unpin, or move into (`section: id`) or out of (`null`) a section. */
+export function placeSession(sessionId: string, patch: import('../../../core/rail/rail-layout.js').PlacePatch): Promise<RailLayout> {
+  return sendJson('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/rail`, patch);
+}
+
+/** Undo an uncommitted file or hunk and tell Claude. Throws with the
+ *  server's reason (e.g. "the file changed since — reload the diff"). */
+export async function revertChange(sessionId: string, req: RevertRequest): Promise<RevertResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/revert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body as RevertResponse;
+}
+
+/** The worktree's port + dev server. */
+export function fetchDevState(sessionId: string): Promise<DevServerState> {
+  return getJson<DevServerState>(`/api/sessions/${encodeURIComponent(sessionId)}/dev`);
+}
+/** Start / stop the configured dev command. Throws with the server's reason. */
+export async function devAction(sessionId: string, action: 'start' | 'stop'): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/dev/${action}`, { method: 'POST' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  }
+}
+
+/** What GitHub says about the session's PRs (from work web's PR watch). */
+export function fetchSessionCi(sessionId: string): Promise<SessionCi> {
+  return getJson<SessionCi>(`/api/sessions/${encodeURIComponent(sessionId)}/ci`);
+}
+/** Ask the session's Claude to fix its failing checks. */
+export async function askClaudeToFixCi(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/ci/fix`, { method: 'POST' });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  }
 }

@@ -6,8 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 // Wrap the real buildTree in a spy so we can count how often DiffRepo rebuilds
 // the directory tree across re-renders. flattenTreeFiles stays real.
 vi.mock('../../src/web/src/utils/tree.js', async (importActual) => {
-  const actual =
-    await importActual<typeof import('../../src/web/src/utils/tree.js')>();
+  const actual = await importActual<typeof import('../../src/web/src/utils/tree.js')>();
   return { ...actual, buildTree: vi.fn(actual.buildTree) };
 });
 
@@ -15,8 +14,7 @@ import { DiffRepo } from '../../src/web/src/components/Diff/DiffRepo.js';
 import { buildTree } from '../../src/web/src/utils/tree.js';
 import type { ParsedFile, RepoData } from '../../src/web/src/api/client.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function file(path: string): ParsedFile {
   return {
@@ -67,15 +65,13 @@ describe('DiffRepo tree-build memoization', () => {
     const node = () => createElement(DiffRepo, { repo, startIndex: 0 });
 
     act(() => root.render(node()));
-    const afterFirst = (buildTree as unknown as { mock: { calls: unknown[] } })
-      .mock.calls.length;
+    const afterFirst = (buildTree as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
 
     // Re-render the same component instance with an equal (same-reference)
     // file list — ReviewApp does this on every scrollspy tick, so an
     // unmemoized buildTree runs again here for the whole file list.
     act(() => root.render(node()));
-    const afterSecond = (buildTree as unknown as { mock: { calls: unknown[] } })
-      .mock.calls.length;
+    const afterSecond = (buildTree as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
 
     expect(afterFirst).toBe(1);
     expect(afterSecond).toBe(1); // memoized: no extra rebuild on re-render

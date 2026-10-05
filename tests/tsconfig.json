@@ -1,0 +1,16 @@
+{
+  // The tests (and the e2e specs), typechecked against the sources they call:
+  // vitest and Playwright strip types without checking them.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    // The desktop build scripts are plain .mjs: their types are inferred, not checked.
+    "allowJs": true,
+    "checkJs": false,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"]
+  },
+  "include": ["./**/*.ts", "../e2e/**/*.ts", "../playwright.config.ts", "../src/**/*"],
+  "exclude": []
+}

@@ -34,10 +34,7 @@ interface DirBuilder {
  */
 export function buildTree(files: ParsedFile[], startIndex?: number): TreeNode[];
 export function buildTree(items: IndexedFile[]): TreeNode[];
-export function buildTree(
-  arg: ParsedFile[] | IndexedFile[],
-  startIndex = 0,
-): TreeNode[] {
+export function buildTree(arg: ParsedFile[] | IndexedFile[], startIndex = 0): TreeNode[] {
   const items: IndexedFile[] =
     arg.length === 0
       ? []
@@ -78,9 +75,7 @@ export function buildTree(
         index: f.index,
       });
     }
-    entries.sort((a, b) =>
-      a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
-    );
+    entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     return entries;
   }
   return emit(root);

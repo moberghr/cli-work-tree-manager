@@ -1,5 +1,5 @@
-# Publishes the package to npm and bumps the Homebrew tap formula whenever a
-# GitHub Release is published.
+# Publishes the package to npm, bumps the Homebrew tap formula, and ships the
+# desktop app (Velopack) whenever a GitHub Release is published.
 #
 # npm auth uses Trusted Publishing (OIDC) — no NPM_TOKEN secret. One-time setup
 # on npmjs.com: package @moberg_hr/work-tree -> Settings -> Trusted Publisher ->
@@ -14,6 +14,8 @@
 # Release whose tag matches that version (e.g. v1.5.2). This workflow verifies
 # the tag matches package.json, publishes the exact packed tarball to npm, then
 # points the tap's Formula/work.rb at the new url + sha256.
+# Then the desktop job packs the app for Windows, macOS (arm64) and Linux and
+# uploads each installer + update feed to the same release.
 name: Release
 
 on:
@@ -83,3 +85,52 @@ jobs:
           git add Formula/work.rb
           git commit -m "work ${VERSION}"
           git push
+
+  # The desktop app (desktop/), with the work CLI inside it, as a Velopack
+  # installer + self-updating package on the same release (desktop/scripts/
+  # velopack.mjs). Each platform on its own OS: the CLI's native modules
+  # (better-sqlite3, node-pty) are built for the machine that stages them, on
+  # the Node the package carries — so that Node is pinned exactly.
+  desktop:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest # win-x64
+          - os: macos-latest # osx-arm64
+          - os: ubuntu-22.04 # linux-x64; the oldest glibc we build on is the oldest the AppImage runs on
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # vpk uploads the packages to the release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      - name: Tauri's Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev patchelf build-essential
+
+      - run: npm ci
+
+      - name: Pack and publish
+        env:
+          PUBLISH: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node desktop/scripts/velopack.mjs

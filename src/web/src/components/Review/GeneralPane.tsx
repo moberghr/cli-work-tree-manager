@@ -11,9 +11,7 @@ export function GeneralPane() {
   const review = useReview();
   const [text, setText] = useState('');
 
-  const general = review.comments.filter(
-    (c) => c.side === 'general' && !c.parentId,
-  );
+  const general = review.comments.filter((c) => c.side === 'general' && !c.parentId);
 
   async function submit(status: 'published' | 'draft') {
     const body = text.trim();
@@ -34,27 +32,15 @@ export function GeneralPane() {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
-              submit('published');
+              void submit('published');
             }
           }}
         />
         <div className="wd-general-pane-actions">
-          <button
-            type="button"
-            className="wd-btn-secondary"
-            disabled={!text.trim()}
-            onClick={() => submit('draft')}
-          >
-            {review.comments.some((c) => c.status === 'draft')
-              ? 'Add to review'
-              : 'Start review'}
+          <button type="button" className="wd-btn-secondary" disabled={!text.trim()} onClick={() => submit('draft')}>
+            {review.comments.some((c) => c.status === 'draft') ? 'Add to review' : 'Start review'}
           </button>
-          <button
-            type="button"
-            className="wd-btn-primary"
-            disabled={!text.trim()}
-            onClick={() => submit('published')}
-          >
+          <button type="button" className="wd-btn-primary" disabled={!text.trim()} onClick={() => submit('published')}>
             Comment (Ctrl+Enter)
           </button>
         </div>

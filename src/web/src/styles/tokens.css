@@ -22,11 +22,14 @@
   --accent: #0969da;
   --add-fg: #1a7f37;
   --del-fg: #cf222e;
+  --warn-fg: #9a6700;
   --code-bg: #f6f8fa;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   /* Claude-authored review comments (purple accent). */
   --claude-fg: #7c3aed;
   --claude-bg: rgba(124, 58, 237, 0.07);
+  /* Reviewers waiting on you: unresolved comments on a session's PR. */
+  --review-fg: #bf3989;
 }
 
 :root[data-theme='dark'] {
@@ -42,8 +45,10 @@
   --accent: #2f81f7;
   --add-fg: #3fb950;
   --del-fg: #f85149;
+  --warn-fg: #d29922;
   --code-bg: #161b22;
   --shadow-sm: 0 1px 2px rgba(1, 4, 9, 0.4);
   --claude-fg: #d2a8ff;
   --claude-bg: rgba(188, 140, 255, 0.12);
+  --review-fg: #db61a2;
 }

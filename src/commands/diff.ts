@@ -1,11 +1,11 @@
+import { resolveWorkBinPath } from '../core/platform/work-bin.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn as childSpawn } from 'node:child_process';
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { computeDiff } from '../core/diff-pipeline.js';
-import { stableDiffPath, type RepoSpec } from '../core/repo-spec.js';
+import { computeDiff } from '../core/diff/diff-pipeline.js';
+import { stableDiffPath, type RepoSpec } from '../core/diff/repo-spec.js';
 import {
   buildRepoSpecs,
   findAnyParentBranch,
@@ -13,14 +13,13 @@ import {
   resolveScope,
   type DiffScope,
   type ResolvedBase,
-} from '../core/diff-scope.js';
-import {
-  formatSingleComment,
-  startCommentServer,
-} from '../core/comment-server.js';
-import { diffReviewSnapshot } from '../core/review-poll.js';
-import { renderStatic } from '../core/static-renderer.js';
-import { openUrl } from '../utils/platform.js';
+} from '../core/diff/diff-scope.js';
+import { formatSingleComment, startCommentServer } from '../server/comment-server.js';
+import { diffReviewSnapshot } from '../core/comments/review-poll.js';
+import { renderStatic } from '../core/diff/static-renderer.js';
+import { openUrl } from '../core/platform/launch.js';
+import { spawnDetachedWork } from '../core/platform/process.js';
+import { existingWebDecision, readWebUrl, webUrlPath } from '../core/platform/web-discovery.js';
 
 /** Write an informational message to stderr. Keeps stdout clean so it can
  *  be piped or captured by callers (notably `wd -c` review mode, where
@@ -74,87 +73,18 @@ async function runStop(repoSpecs: RepoSpec[]): Promise<void> {
     if (res.ok) {
       info(chalk.gray('De-registered this scope from work web.'));
     } else {
-      info(
-        chalk.yellow(
-          `work web responded ${res.status} — scope may not have been registered.`,
-        ),
-      );
+      info(chalk.yellow(`work web responded ${res.status} — scope may not have been registered.`));
     }
   } catch (err) {
-    console.error(
-      chalk.red('Could not reach work web:'),
-      (err as Error).message,
-    );
+    console.error(chalk.red('Could not reach work web:'), (err as Error).message);
   }
 }
 
-function webUrlFilePath(): string {
-  return path.join(os.homedir(), '.work', 'web.url');
-}
+export { resolveWorkBinPath } from '../core/platform/work-bin.js';
 
-/**
- * Resolve the path to the `work` binary given the path of whichever
- * binary `wd`/`work` is currently running as. The `web` subcommand
- * only lives on the `work` binary (`dist/bin.js`); when we're running
- * as the `wd` shim (`dist/wd-bin.js`) we swap to the sibling. Tsup
- * ships both into the same dir so the sibling-swap is always valid.
- *
- * Exported for testing — the autostart spawn relies on this to avoid
- * passing `web --lean` to a binary that only knows `diff`.
- */
-export function resolveWorkBinPath(selfArgv1: string): string {
-  // argv[1] may be a bin symlink, not the real file: a global npm install
-  // exposes `wd` as e.g. ~/.../bin/wd -> ../lib/.../dist/wd-bin.js. Resolve
-  // it so the wd-bin.js -> bin.js sibling-swap fires for global installs too;
-  // otherwise we'd spawn the `wd` shim with `web` args and it'd fail.
-  let real = selfArgv1;
-  try {
-    real = fs.realpathSync(selfArgv1);
-  } catch {
-    /* synthetic/non-existent path (e.g. unit tests) — use as given */
-  }
-  if (real.endsWith('wd-bin.js')) {
-    return path.join(path.dirname(real), 'bin.js');
-  }
-  return real;
-}
-
-function readWebUrl(): string | null {
-  try {
-    const v = fs.readFileSync(webUrlFilePath(), 'utf-8').trim();
-    return v || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Best-effort liveness probe for a recorded `work web` URL. The `web.url`
- * file outlives the process that wrote it (crash, kill -9, reboot), so a
- * non-empty file is NOT proof a server is listening. Hit `api/context`
- * (same endpoint `work web`'s own singleton check uses) with a short
- * timeout: a 2xx means a real server is serving there; anything else
- * (connection refused, abort, non-ok) means the URL is stale.
- *
- * Exported for testing.
- */
-export async function webServerResponds(
-  url: string,
-  timeoutMs = 1500,
-): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${url}api/context`, { signal: ctrl.signal });
-      return res.ok;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return false;
-  }
-}
+// Discovery of the running work web lives in core/web-discovery.ts;
+// webServerResponds is re-exported for existing callers/tests.
+export { webServerResponds } from '../core/platform/web-discovery.js';
 
 /**
  * Spawn a detached, lean `work web` instance and wait for its url file
@@ -177,8 +107,14 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // return it immediately, never waiting for the new server's URL, and the
   // subsequent scope POST would fail with connection-refused.
   if (existing) {
-    if (await webServerResponds(existing)) return existing;
-    try { fs.unlinkSync(webUrlFilePath()); } catch { /* already gone */ }
+    // Busy counts as running: only a server that is really gone is replaced
+    // (see existingWebDecision — replacing a busy one orphaned it).
+    if ((await existingWebDecision(existing)) === 'reuse') return existing;
+    try {
+      fs.unlinkSync(webUrlPath());
+    } catch {
+      /* already gone */
+    }
   }
 
   // Spawn `node <work-bin> web --lean --no-open` detached. We're
@@ -187,28 +123,12 @@ async function ensureWorkWebRunning(): Promise<string | null> {
   // lives on the `work` binary; `resolveWorkBinPath` does the sibling
   // swap when we're the shim.
   const workBin = resolveWorkBinPath(process.argv[1]);
-  const out = fs.openSync(
-    path.join(os.homedir(), '.work', 'web-autostart.log'),
-    'a',
-  );
-  const child = childSpawn(
-    process.execPath,
-    [workBin, 'web', '--lean', '--no-open'],
-    {
-      detached: true,
-      stdio: ['ignore', out, out],
-      windowsHide: true,
-      // Inherit cwd doesn't matter for work web — its file-watches use
-      // ~/.work paths exclusively.
-    },
-  );
-  child.unref();
-  fs.closeSync(out);
+  spawnDetachedWork(workBin, ['web', '--lean', '--no-open'], path.join(os.homedir(), '.work', 'web-autostart.log'));
 
   // Poll the url file. Generous-ish timeout because cold startup
   // includes resolving the SPA dist + binding a port + writing the
   // file; 5 s leaves headroom for slow disks / antivirus on Windows.
-  const url = await waitForUrlFile(webUrlFilePath(), 5000);
+  const url = await waitForUrlFile(webUrlPath(), 5000);
   return url;
 }
 
@@ -218,10 +138,7 @@ async function ensureWorkWebRunning(): Promise<string | null> {
  * (e.g. `http://127.0.0.1:54321/diff/abc123`) on success, null when
  * everything (existing instance + autostart) failed.
  */
-async function tryRegisterWithWorkWeb(
-  ctx: RenderContext,
-  routeKind: 'diff' | 'review',
-): Promise<string | null> {
+async function tryRegisterWithWorkWeb(ctx: RenderContext, routeKind: 'diff' | 'review'): Promise<string | null> {
   const webUrl = await ensureWorkWebRunning();
   if (!webUrl) return null;
   try {
@@ -256,13 +173,9 @@ async function runLauncher(ctx: RenderContext): Promise<void> {
   // Reached only on autostart failure (port refused, dist/web missing,
   // 5 s wait elapsed). Surface a clear error rather than silently
   // falling back to a per-scope process the user would then leak.
+  console.error(chalk.red('Could not start or reach work web.'));
   console.error(
-    chalk.red('Could not start or reach work web.'),
-  );
-  console.error(
-    chalk.gray(
-      `Tail ~/.work/web-autostart.log for diagnostics, or run \`work web\` in another shell to inspect startup directly.`,
-    ),
+    chalk.gray(`Tail ~/.work/web-autostart.log for diagnostics, or run \`work web\` in another shell to inspect startup directly.`),
   );
   process.exitCode = 1;
 }
@@ -291,9 +204,7 @@ function runStatic(ctx: RenderContext, initialBranch: boolean): void {
   // representative resolvedBase from the active repo (or the first one)
   // for the badge label; per-repo merge-base lookups still happen inside
   // buildRepoSpecs.
-  const primaryRoot =
-    ctx.scope.repos.find((r) => r.name === ctx.scope.activeRepoName)?.root ??
-    ctx.scope.repos[0].root;
+  const primaryRoot = ctx.scope.repos.find((r) => r.name === ctx.scope.activeRepoName)?.root ?? ctx.scope.repos[0].root;
   // Per-repo fork points (group worktrees forked with different bases). Each
   // repo's spec resolves against its own base inside buildRepoSpecs.
   const perRepoBase = ctx.scope.session?.baseBranches;
@@ -301,10 +212,7 @@ function runStatic(ctx: RenderContext, initialBranch: boolean): void {
   // base, else the session default, else lenient auto-detect. The lenient
   // finder keeps the toggle available even when the branch has no commits
   // past its parent yet (the diff just renders empty — better than no tab).
-  const parent =
-    perRepoBase?.[primaryRoot] ??
-    ctx.scope.session?.baseBranch ??
-    findAnyParentBranch(primaryRoot);
+  const parent = perRepoBase?.[primaryRoot] ?? ctx.scope.session?.baseBranch ?? findAnyParentBranch(primaryRoot);
   const branch =
     parent === null
       ? undefined
@@ -315,16 +223,8 @@ function runStatic(ctx: RenderContext, initialBranch: boolean): void {
 
   // Don't write a file when both views are empty — `wd` is a viewer,
   // not a generator of empty pages.
-  const uncommittedTotal = uncommitted.reduce(
-    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
-    0,
-  );
-  const branchTotal = branch
-    ? branch.specs.reduce(
-        (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
-        0,
-      )
-    : 0;
+  const uncommittedTotal = uncommitted.reduce((s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length, 0);
+  const branchTotal = branch ? branch.specs.reduce((s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length, 0) : 0;
   if (uncommittedTotal === 0 && branchTotal === 0) {
     info(chalk.gray('No changes to show.'));
     return;
@@ -349,7 +249,9 @@ function waitForUrlFile(filePath: string, timeoutMs: number): Promise<string | n
       try {
         const v = fs.readFileSync(filePath, 'utf-8').trim();
         if (v) return resolve(v);
-      } catch { /* not yet */ }
+      } catch {
+        /* not yet */
+      }
       if (Date.now() - start > timeoutMs) return resolve(null);
       setTimeout(tick, 75);
     };
@@ -385,10 +287,7 @@ async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
     return false;
   }
 
-  const initialTotal = ctx.repoSpecs.reduce(
-    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
-    0,
-  );
+  const initialTotal = ctx.repoSpecs.reduce((s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length, 0);
   const reviewUrl = `${webUrl}review/${hash}`;
   info(chalk.gray(`Opening review in work web: ${reviewUrl}`));
   info(chalk.gray('Comments stream below. Ctrl+C to detach.'));
@@ -412,7 +311,7 @@ async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
   // races with a slow prior poll.
   let polling = false;
 
-  type SnapshotComment = import('../core/comment-types.js').Comment;
+  type SnapshotComment = import('../core/comments/comment-types.js').Comment;
 
   async function poll(): Promise<void> {
     if (exiting || polling) return;
@@ -444,14 +343,15 @@ async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
       // (and the browser tab) stays viewable — only the CLI proxy
       // stops.
       if (ended) {
-        process.stdout.write(
-          `--- review done ---\ntotal: ${seen.size}\n`,
-        );
+        process.stdout.write(`--- review done ---\ntotal: ${seen.size}\n`);
         cleanup();
         process.exit(0);
       }
-    } catch { /* transient — retry next tick */ }
-    finally { polling = false; }
+    } catch {
+      /* transient — retry next tick */
+    } finally {
+      polling = false;
+    }
   }
 
   function cleanup(): void {
@@ -486,10 +386,7 @@ async function tryReviewViaWorkWeb(ctx: RenderContext): Promise<boolean> {
 async function runReview(ctx: RenderContext): Promise<void> {
   // Quick check — early-exit if nothing to review. (Server will recompute
   // on each /api/diff request thereafter, which is what's served live.)
-  const initialTotal = ctx.repoSpecs.reduce(
-    (s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length,
-    0,
-  );
+  const initialTotal = ctx.repoSpecs.reduce((s, r) => s + computeDiff({ root: r.root, diffArg: r.diffArg }).length, 0);
   if (initialTotal === 0) {
     info(chalk.gray('No changes to review.'));
     return;
@@ -501,16 +398,13 @@ async function runReview(ctx: RenderContext): Promise<void> {
   // comment-server when work web isn't up.
   if (await tryReviewViaWorkWeb(ctx)) return;
 
-  const onComment = (c: import('../core/comment-server.js').Comment) => {
+  const onComment = (c: import('../server/comment-server.js').Comment) => {
     process.stdout.write(formatSingleComment(c));
   };
   const onCommentDeleted = (id: string) => {
     process.stdout.write(`--- comment deleted ---\nid: ${id}\n\n`);
   };
-  const onSubmitReviewStart = (info: {
-    count: number;
-    summary: import('../core/comment-server.js').Comment | null;
-  }) => {
+  const onSubmitReviewStart = (info: { count: number; summary: import('../server/comment-server.js').Comment | null }) => {
     const head = `--- review submitted ---\ncount: ${info.count}${info.summary ? `\nsummary-id: ${info.summary.id}` : ''}\n\n`;
     process.stdout.write(head);
   };
@@ -542,7 +436,7 @@ async function runReview(ctx: RenderContext): Promise<void> {
   openUrl(handle.url);
 
   const cleanup = () => {
-    handle.stop();
+    void handle.stop();
   };
 
   const onSignal = () => {
@@ -573,8 +467,7 @@ export const diffCommand: CommandModule = {
       .option('branch', {
         type: 'boolean',
         default: false,
-        describe:
-          'Open the "Since branch" tab by default (still shows uncommitted as the other tab — toggle in the browser).',
+        describe: 'Open the "Since branch" tab by default (still shows uncommitted as the other tab — toggle in the browser).',
       })
       .option('static', {
         type: 'boolean',
@@ -586,8 +479,7 @@ export const diffCommand: CommandModule = {
         type: 'boolean',
         default: false,
         hidden: true,
-        describe:
-          'Run a live server (now the default; flag kept for back-compat).',
+        describe: 'Run a live server (now the default; flag kept for back-compat).',
       })
       .option('watch', {
         type: 'boolean',
@@ -599,7 +491,7 @@ export const diffCommand: CommandModule = {
         type: 'boolean',
         default: false,
         describe:
-          "De-register this scope from work web. The work web server itself keeps running; use `work web --stop` to terminate the server.",
+          'De-register this scope from work web. The work web server itself keeps running; use `work web --stop` to terminate the server.',
       })
       .option('comments', {
         type: 'boolean',
@@ -632,11 +524,7 @@ export const diffCommand: CommandModule = {
     if (base === 'HEAD') {
       info(chalk.gray('Showing uncommitted changes vs HEAD.'));
     } else {
-      info(
-        chalk.gray(
-          `Showing diff vs ${base} [${baseSource}]${scope.isGroup ? `, across ${scope.repos.length} repos` : ''}.`,
-        ),
-      );
+      info(chalk.gray(`Showing diff vs ${base} [${baseSource}]${scope.isGroup ? `, across ${scope.repos.length} repos` : ''}.`));
     }
 
     const scopeLabel = `${scope.repos.map((r) => r.name).join(', ')} · ${base}`;

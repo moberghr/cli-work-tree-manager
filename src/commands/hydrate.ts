@@ -1,12 +1,11 @@
 import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
-import { ensureConfig } from '../core/config.js';
-import { hydrateHistoryFromDisk } from '../core/hydrate.js';
+import { ensureConfig } from '../core/platform/config.js';
+import { hydrateHistoryFromDisk } from '../core/sessions/hydrate.js';
 
 export const hydrateCommand: CommandModule = {
   command: 'hydrate',
-  describe:
-    'Scan worktreesRoot for existing worktrees and add untracked ones to history',
+  describe: 'Scan worktreesRoot for existing worktrees and add untracked ones to history',
   builder: (yargs) => yargs,
   handler: async () => {
     const config = ensureConfig();

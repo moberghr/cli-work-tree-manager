@@ -30,16 +30,8 @@ interface Props {
  * give you, done in-place so the page (terminal, expanded context, sidebar
  * width, dashboard route) survives.
  */
-export function DiffUpdateChip({
-  filesChanged,
-  onShow,
-  onReload,
-  onShowNewOnly,
-}: Props) {
-  const count =
-    typeof filesChanged === 'number' && filesChanged > 0
-      ? `${filesChanged} file${filesChanged === 1 ? '' : 's'}`
-      : null;
+export function DiffUpdateChip({ filesChanged, onShow, onReload, onShowNewOnly }: Props) {
+  const count = typeof filesChanged === 'number' && filesChanged > 0 ? `${filesChanged} file${filesChanged === 1 ? '' : 's'}` : null;
   return (
     <span className="wd-diff-update" role="status">
       <span className="wd-diff-update-dot" aria-hidden="true" />
@@ -65,12 +57,7 @@ export function DiffUpdateChip({
           Only new
         </button>
       )}
-      <button
-        type="button"
-        className="wd-diff-update-btn"
-        onClick={onReload}
-        title="Fetch the latest from the server and jump to the top"
-      >
+      <button type="button" className="wd-diff-update-btn" onClick={onReload} title="Fetch the latest from the server and jump to the top">
         Reload
       </button>
     </span>

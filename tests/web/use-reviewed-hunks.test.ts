@@ -6,8 +6,7 @@ import { useReviewedHunks } from '../../src/web/src/hooks/use-reviewed-hunks.js'
 import { setReviewed } from '../../src/web/src/state/reviewed-hunks.js';
 
 // React 19 logs a warning unless the test env advertises act support.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type HookResult = ReturnType<typeof useReviewedHunks>;
 
@@ -19,8 +18,6 @@ type HookResult = ReturnType<typeof useReviewedHunks>;
 function renderHook(initialScope: string) {
   let latest: HookResult;
   let setScope: (s: string) => void = () => {};
-  let container: HTMLDivElement;
-  let root: Root;
 
   function Harness({ scope }: { scope: string }) {
     latest = useReviewedHunks(scope);
@@ -33,9 +30,9 @@ function renderHook(initialScope: string) {
     return createElement(Harness, { scope });
   }
 
-  container = document.createElement('div');
+  const container = document.createElement('div');
   document.body.appendChild(container);
-  root = createRoot(container);
+  const root: Root = createRoot(container);
   act(() => {
     root.render(createElement(Wrapper));
   });

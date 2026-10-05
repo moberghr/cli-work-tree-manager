@@ -1,0 +1,25 @@
+[package]
+name = "work-desktop"
+version = "0.1.0"
+description = "The work web dashboard in its own window"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.1", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.1", features = [] }
+# Install, updates from GitHub Releases, and the install/uninstall hooks (main.rs, updates.rs).
+velopack = "=1.2.161"
+
+# The user's PATH in the registry, and telling Explorer it changed (path_setup.rs).
+# The versions Tauri already pulls in, so nothing compiles twice.
+[target.'cfg(windows)'.dependencies]
+winreg = "=0.55.0"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

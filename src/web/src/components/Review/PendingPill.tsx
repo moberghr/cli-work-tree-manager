@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import {
-  selectDrafts,
-  useReview,
-} from '../../state/ReviewProvider.js';
+import { selectDrafts, useReview } from '../../state/ReviewProvider.js';
 import { Modal } from './Modal.js';
 
 export function PendingPill() {
@@ -61,8 +58,8 @@ export function PendingPill() {
           }
         >
           <p>
-            Sending {drafts.length} pending comment{drafts.length === 1 ? '' : 's'}.
-            Add a summary if you like, then click Submit to send everything to Claude.
+            Sending {drafts.length} pending comment{drafts.length === 1 ? '' : 's'}. Add a summary if you like, then click Submit to send
+            everything to Claude.
           </p>
           <textarea
             className="wd-submit-summary"

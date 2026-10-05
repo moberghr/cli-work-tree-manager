@@ -29,10 +29,7 @@ export function ThemeToggle() {
       ) : (
         // Moon (click → go dark)
         <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M9.6 2.2a6 6 0 1 0 4.2 8.9A5 5 0 0 1 9.6 2.2z"
-          />
+          <path fill="currentColor" d="M9.6 2.2a6 6 0 1 0 4.2 8.9A5 5 0 0 1 9.6 2.2z" />
         </svg>
       )}
     </button>

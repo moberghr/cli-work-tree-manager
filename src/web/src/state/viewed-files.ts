@@ -14,11 +14,7 @@ export function isViewed(scope: string, filePath: string): boolean {
   return store.has(scope, filePath);
 }
 
-export function setViewed(
-  scope: string,
-  filePath: string,
-  viewed: boolean,
-): void {
+export function setViewed(scope: string, filePath: string, viewed: boolean): void {
   store.set(scope, filePath, viewed);
 }
 

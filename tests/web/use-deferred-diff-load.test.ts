@@ -4,8 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { useDeferredDiffLoad } from '../../src/web/src/hooks/use-deferred-diff-load.js';
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Load = ReturnType<typeof useDeferredDiffLoad<unknown>>;
 
@@ -22,17 +21,14 @@ afterEach(() => {
   container.remove();
 });
 
-function renderHook(
-  fetcher: () => Promise<unknown>,
-  deps: unknown[],
-  delayMs: number,
-) {
+function renderHook(fetcher: () => Promise<unknown>, deps: unknown[], delayMs: number) {
   let latest: Load = {
     data: null,
     error: null,
     loading: false,
     checking: false,
     pending: null,
+    stale: false,
     applyPending: () => {},
     reload: () => {},
     checkForUpdates: () => {},
@@ -229,5 +225,40 @@ describe('useDeferredDiffLoad staged live updates', () => {
     await flush();
     expect(h.current.data).toEqual({ files: 3 });
     expect(h.current.pending).toBeNull();
+  });
+
+  it('marks data stale the moment deps change, until the new fetch lands', async () => {
+    // A session switch in the dashboard: the old session's diff must not be
+    // presented as the new session's while the new one is still loading.
+    const resolvers: Record<string, (v: unknown) => void> = {};
+    let latest: Load | null = null;
+    function Harness({ id }: { id: string }) {
+      latest = useDeferredDiffLoad(
+        () =>
+          new Promise((r) => {
+            resolvers[id] = r;
+          }),
+        [id],
+        50,
+      );
+      return null;
+    }
+    act(() => root.render(createElement(Harness, { id: 'a' })));
+    await act(async () => {
+      resolvers.a({ id: 'a' });
+    });
+    expect(latest!.data).toEqual({ id: 'a' });
+    expect(latest!.stale).toBe(false);
+
+    act(() => root.render(createElement(Harness, { id: 'b' })));
+    // Immediately stale — not deferred like `loading`.
+    expect(latest!.stale).toBe(true);
+    expect(latest!.data).toEqual({ id: 'a' });
+
+    await act(async () => {
+      resolvers.b({ id: 'b' });
+    });
+    expect(latest!.data).toEqual({ id: 'b' });
+    expect(latest!.stale).toBe(false);
   });
 });

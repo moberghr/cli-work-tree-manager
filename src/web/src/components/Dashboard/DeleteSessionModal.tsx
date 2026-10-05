@@ -57,12 +57,7 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
       primaryRef={cancelRef}
       actions={
         <>
-          <button
-            type="button"
-            ref={cancelRef}
-            onClick={onClose}
-            disabled={busy}
-          >
+          <button type="button" ref={cancelRef} onClick={onClose} disabled={busy}>
             Cancel
           </button>
           <button
@@ -73,12 +68,7 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
           >
             Forget session only
           </button>
-          <button
-            type="button"
-            className="wd-btn-danger"
-            onClick={() => run({ force })}
-            disabled={busy}
-          >
+          <button type="button" className="wd-btn-danger" onClick={() => run({ force })} disabled={busy}>
             {busy ? 'Deleting…' : 'Delete worktree'}
           </button>
         </>
@@ -89,8 +79,7 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
         <code>
           {session.target}/{session.branch}
         </code>{' '}
-        and forget the session. The branch itself is kept. Any Claude terminal{' '}
-        <code>work web</code> opened for it is stopped.
+        and forget the session. The branch itself is kept. Any Claude terminal <code>work web</code> opened for it is stopped.
       </p>
       {session.paths.length > 0 && (
         <ul className="wd-delete-paths">
@@ -102,13 +91,8 @@ export function DeleteSessionModal({ session, onDeleted, onClose }: Props) {
         </ul>
       )}
       <label className="wd-delete-force">
-        <input
-          type="checkbox"
-          checked={force}
-          onChange={(e) => setForce(e.target.checked)}
-          disabled={busy}
-        />{' '}
-        Force — discard uncommitted changes and unpushed commits
+        <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} disabled={busy} /> Force — discard uncommitted
+        changes and unpushed commits, and stop its Claude even mid-turn (replies to post and undelivered notes go too)
       </label>
       {error && (
         <p className="wd-delete-error" role="alert">

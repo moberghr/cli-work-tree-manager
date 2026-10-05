@@ -19,8 +19,7 @@ describe('fetchFileLines URL construction', () => {
         captured.push(path);
         return Promise.resolve({
           ok: true,
-          json: () =>
-            Promise.resolve({ lines: [], start: 1, totalLines: 0, eof: true }),
+          json: () => Promise.resolve({ lines: [], start: 1, totalLines: 0, eof: true }),
         } as Response);
       }),
     );
@@ -32,9 +31,7 @@ describe('fetchFileLines URL construction', () => {
 
   it('hits the scope endpoint when a hash is given', async () => {
     await fetchFileLines('abc123', 'repo', 'src/a.ts', 5, 24);
-    expect(captured[0]).toBe(
-      '/api/scopes/abc123/file-lines?repo=repo&path=src%2Fa.ts&start=5&end=24',
-    );
+    expect(captured[0]).toBe('/api/scopes/abc123/file-lines?repo=repo&path=src%2Fa.ts&start=5&end=24');
   });
 
   it('hits the standalone endpoint when the hash is undefined', async () => {

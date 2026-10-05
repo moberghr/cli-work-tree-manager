@@ -1,38 +1,37 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
-import { run } from './cli.js';
-import { installConsoleLogger, debug } from './core/logger.js';
-import { getConfigDir } from './core/config.js';
+import { installConsoleLogger, debug } from './core/platform/logger.js';
+import { getConfigDir } from './core/platform/config.js';
 
 // Install debug logging — all console.log/error/warn also write to ~/.work/debug.log
 installConsoleLogger();
-debug('--- work started', process.argv.slice(2).join(' '), '---');
-
-// Force color support — this is an interactive CLI, and some Windows terminals
-// (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims.
-if (!process.env.NO_COLOR && chalk.level === 0) {
-  chalk.level = 1;
-}
+// Not for hooks: Claude runs several per turn in every session, and a
+// banner each made most of the log. What a hook actually logs still lands.
+if (process.argv[2] !== 'hook') debug('--- work started', process.argv.slice(2).join(' '), '---');
 
 function handleFatalError(err: unknown): void {
   if (err instanceof Error && err.name === 'ExitPromptError') {
     console.log('\nCancelled.');
     process.exit(0);
   }
-  // node-pty can throw async errors for already-exited PTYs — non-fatal in dash mode
+  // node-pty can throw async errors for already-exited PTYs (the PTY host) — non-fatal
   if (err instanceof Error && err.message?.includes('pty that has already exited')) {
     try {
-      fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
-        `${new Date().toISOString()} [WARN] Ignored async node-pty error: ${err.message}\n`);
-    } catch { /* */ }
+      fs.appendFileSync(
+        path.join(getConfigDir(), 'debug.log'),
+        `${new Date().toISOString()} [WARN] Ignored async node-pty error: ${err.message}\n`,
+      );
+    } catch {
+      /* */
+    }
     return;
   }
   try {
     const msg = err instanceof Error ? err.stack || err.message : String(err);
-    fs.appendFileSync(path.join(getConfigDir(), 'debug.log'),
-      `${new Date().toISOString()} [FATAL] handleFatalError: ${msg}\n`);
-  } catch { /* */ }
+    fs.appendFileSync(path.join(getConfigDir(), 'debug.log'), `${new Date().toISOString()} [FATAL] handleFatalError: ${msg}\n`);
+  } catch {
+    /* */
+  }
   console.error(err);
   process.exit(1);
 }
@@ -40,4 +39,24 @@ function handleFatalError(err: unknown): void {
 process.on('uncaughtException', handleFatalError);
 process.on('unhandledRejection', handleFatalError);
 
-run(process.argv.slice(2));
+// Claude runs `work hook <event>` several times per turn, each with a 5 s
+// timeout. The full CLI statically loads every command — node-pty, the web
+// and PTY-host servers, SQLite — so a hook paid for all of it on every
+// event. Hooks load only their own module.
+const args = process.argv.slice(2);
+if (args[0] === 'hook') {
+  const { runHookEvent } = await import('./commands/hook.js');
+  await runHookEvent(args[1], args.slice(2));
+} else {
+  // Force color support — this is an interactive CLI, and some Windows terminals
+  // (e.g. PowerShell via conhost) don't set isTTY on spawned .cmd shims. (Not
+  // for hooks: they print JSON, and chalk is one more module on every turn.)
+  const { default: chalk } = await import('chalk');
+  if (!process.env.NO_COLOR && chalk.level === 0) chalk.level = 1;
+  const { run } = await import('./cli.js');
+  const { withReporter } = await import('./core/platform/report.js');
+  const { consoleReporter, reportStreamFor } = await import('./commands/shared/console-reporter.js');
+  // Core never prints; in a terminal, what it reports is shown here — on
+  // stderr for --json, so stdout stays the data.
+  await withReporter(consoleReporter(reportStreamFor(args)), () => run(args));
+}
