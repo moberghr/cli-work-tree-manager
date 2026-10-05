@@ -15,7 +15,8 @@
 # the tag matches package.json, publishes the exact packed tarball to npm, then
 # points the tap's Formula/work.rb at the new url + sha256.
 # Then the desktop job packs the app for Windows, macOS (arm64) and Linux and
-# uploads each installer + update feed to the same release.
+# uploads each installer + update feed to the same release; the macOS one
+# also writes the tap's Casks/work-desktop.rb for that zip.
 name: Release
 
 on:
@@ -135,3 +136,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node desktop/scripts/velopack.mjs
+
+      # `brew install --cask moberghr/work-tree/work-desktop`: the canonical cask
+      # (packaging/homebrew/work-desktop.rb) with this release's version and the
+      # sha256 of the zip just uploaded, written to the tap's Casks/.
+      - name: Update Homebrew tap cask
+        if: runner.os == 'macOS'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          ZIP="desktop/artifacts/velopack/osx-arm64/releases/WorkDesktop-osx-Portable.zip"
+          SHA256="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/moberghr/homebrew-work-tree.git" tap
+          mkdir -p tap/Casks
+          CASK="tap/Casks/work-desktop.rb"
+          sed -E -e "s#^( *version )\".*\"#\1\"${VERSION}\"#" -e "s#^( *sha256 )\".*\"#\1\"${SHA256}\"#" \
+            packaging/homebrew/work-desktop.rb > "$CASK"
+
+          cd tap
+          git add Casks/work-desktop.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date for ${VERSION} — nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "work-desktop ${VERSION}"
+          git push

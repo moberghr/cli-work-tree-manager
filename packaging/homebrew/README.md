@@ -1,7 +1,7 @@
 # Distribution
 
-Two supported install channels. `work.rb` here is the **canonical source** of the
-Homebrew formula — the tap repo holds a copy.
+Three install channels. `work.rb` and `work-desktop.rb` here are the **canonical source** of the
+Homebrew formula and cask — the tap repo holds copies.
 
 ## 1. npm (baseline)
 
@@ -70,3 +70,41 @@ brew audit --strict --online work
 Because the formula `depends_on "node"` and `npm install` compiles `node-pty`,
 Homebrew builds the native addon at install time — Xcode CLT (macOS) or a build
 toolchain (Linux) is required, same caveat as the npm channel.
+
+## 3. Homebrew cask: the desktop app (macOS, Apple silicon)
+
+End users:
+
+```bash
+brew install --cask moberghr/work-tree/work-desktop    # /Applications/work.app
+```
+
+`work-desktop.rb` here is the canonical cask. It installs the release's
+`WorkDesktop-osx-Portable.zip` (Velopack's `work.app`, with the CLI inside it).
+The release workflow's desktop job, on macOS, fills in the version and the
+sha256 of the zip it just uploaded and writes the result to the tap as
+`Casks/work-desktop.rb` (created on the first release; the same
+`HOMEBREW_TAP_TOKEN`). Nothing to edit by hand per release.
+
+- `auto_updates true`: Velopack updates the app itself, so `brew upgrade`
+  leaves it alone (`brew upgrade --greedy` reinstalls the latest).
+- The app is ad-hoc signed, not notarized, so the cask's `postflight_steps`
+  removes the quarantine Homebrew puts on it; otherwise Gatekeeper refuses to
+  open it. Drop that step once `SIGN_APP_IDENTITY` / `NOTARY_PROFILE` are set
+  for `desktop/scripts/velopack.mjs`.
+- `brew uninstall --zap` removes only what the app writes (`~/.work/runtime`,
+  `~/.work/bin`, its `desktop-*` files, its `~/Library` folders), never the
+  state the CLI shares (`state.db`, `config.json`, conversations).
+
+Check a change locally from a throwaway tap:
+
+```bash
+brew tap-new --no-git you/test
+T="$(brew --repository)/Library/Taps/you/homebrew-test"; mkdir -p "$T/Casks"
+# a copy with a published version + the sha256 of its WorkDesktop-osx-Portable.zip
+sed -E -e 's#^( *version )".*"#\1"2.0.0"#' -e 's#^( *sha256 )".*"#\1"<sha>"#' \
+  packaging/homebrew/work-desktop.rb > "$T/Casks/work-desktop.rb"
+brew style --cask you/test/work-desktop
+brew install --cask you/test/work-desktop
+brew uninstall --cask you/test/work-desktop && brew untap you/test
+```
