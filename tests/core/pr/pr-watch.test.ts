@@ -88,7 +88,7 @@ describe('PR watch', () => {
 
   it("never archives a repo's own checkout: you go on working there after its PR merges", async () => {
     const h = harness([repo('api', merged(), true)]);
-    h.deps.ownCheckout = () => true;
+    (h.deps as PrWatchDeps).ownCheckout = () => true;
     await h.watch.tick();
     expect(h.deps.archive).not.toHaveBeenCalled();
   });
