@@ -3,8 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## 2.0.4
+## 2.0.4 — 2026-10-06
 
+- `brew install moberghr/work-tree/work` builds its native modules again:
+  npm skipped their install scripts, so better-sqlite3 was never compiled
+  (every `work hook` failed) and node-pty couldn't start terminals. The
+  release now writes the tap's formula from the one in the repo, so changes
+  to it reach the tap.
 - The desktop app's updates apply again on Windows. The app started work web
   from its own install folder, which Windows then wouldn't let Velopack move,
   so Restart came back on the old version (2.0.2 → 2.0.3 did, every time).
