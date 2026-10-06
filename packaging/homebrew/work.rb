@@ -10,7 +10,9 @@ class Work < Formula
   depends_on "node"
 
   def install
-    system "npm", "install", *std_npm_args
+    # npm >= 11.19 skips dependency install scripts unless allow-listed, which
+    # leaves better-sqlite3 unbuilt and node-pty's spawn-helper non-executable.
+    system "npm", "install", *std_npm_args, "--allow-scripts=better-sqlite3,node-pty"
     bin.install_symlink Dir["#{libexec}/bin/*"]
   end
 

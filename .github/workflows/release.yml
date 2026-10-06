@@ -78,8 +78,9 @@ jobs:
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/moberghr/homebrew-work-tree.git" tap
           FORMULA="tap/Formula/work.rb"
           URL="https://registry.npmjs.org/@moberg_hr/work-tree/-/work-tree-${VERSION}.tgz"
-          sed -i -E "s#^( *url )\".*\"#\1\"${URL}\"#" "$FORMULA"
-          sed -i -E "s#^( *sha256 )\".*\"#\1\"${SHA256}\"#" "$FORMULA"
+          # Written from the canonical formula, so changes to it reach the tap.
+          sed -E -e "s#^( *url )\".*\"#\1\"${URL}\"#" -e "s#^( *sha256 )\".*\"#\1\"${SHA256}\"#" \
+            packaging/homebrew/work.rb > "$FORMULA"
 
           cd tap
           if git diff --quiet; then
