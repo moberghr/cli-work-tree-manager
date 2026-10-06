@@ -163,6 +163,15 @@ export function scopesToSweep(scopes: Scope[], sessionPaths: string[][]): Scope[
   return scopes.filter((s) => !owned.has(s.hash));
 }
 
+/**
+ * Is this scope a session's (its paths are a session's paths)? A session's
+ * turns are its history: the Diff tab lists them beside its commits, so a
+ * commit must not wipe them (wd's own scopes re-baseline at each commit).
+ */
+export function sessionOwnsScope(hash: string, sessionPaths: string[][]): boolean {
+  return sessionPaths.some((paths) => hashFor(paths.map((p) => path.resolve(p))) === hash);
+}
+
 /** The registered scope for exactly these paths, or null — no side effects
  *  (unlike registerScope, which relabels). */
 export function findScope(paths: string[]): Scope | null {

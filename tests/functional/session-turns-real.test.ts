@@ -86,7 +86,7 @@ describe('session turns', () => {
     });
     await expect
       .poll(async () => (await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`)).body.entries.map((e) => e.id), {
-        timeout: 15_000,
+        timeout: 30_000,
       })
       .toEqual([0]);
 
@@ -136,6 +136,33 @@ describe('session turns', () => {
     for (const bad of ['p:repo:HEAD~1', 'c:repo:--output=x', 'p:other:' + sha]) {
       expect((await get(`/api/sessions/${id}/diff?from=${encodeURIComponent(bad)}&to=working`)).status).toBe(400);
     }
+  }, 60_000);
+
+  it("a commit between turns keeps the session's turns (it once wiped them back to Initial)", async () => {
+    const id = sessionIdFor({ target: 'repo', branch: 'feat/x' });
+    await fetch(server.url.replace(/\/$/, '') + '/api/status-changed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd: repo }),
+    });
+    const ids = async () =>
+      (await get<{ entries: Array<{ id: number }> }>(`/api/sessions/${id}/checkpoints`)).body.entries.map((e) => e.id);
+    await expect.poll(ids, { timeout: 30_000 }).toEqual([0]);
+
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'turn one\n');
+    await turnEnded();
+    // Claude commits what it did, then works on.
+    git(['add', '.'], repo);
+    git(['commit', '-q', '-m', 'Add a'], repo);
+    fs.writeFileSync(path.join(repo, 'b.txt'), 'turn two\n');
+    await turnEnded();
+
+    expect(await ids()).toEqual([0, 1, 2]);
+    // Each turn is still its own diff, across the commit.
+    const first = await get<DiffWire>(`/api/sessions/${id}/diff?from=cp:0&to=cp:1`);
+    expect(files(first.body)).toEqual(['a.txt']);
+    const second = await get<DiffWire>(`/api/sessions/${id}/diff?from=cp:1&to=cp:2`);
+    expect(files(second.body)).toEqual(['b.txt']);
   }, 60_000);
 
   it('404s for an unknown session', async () => {

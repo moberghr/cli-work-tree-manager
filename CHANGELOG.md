@@ -12,6 +12,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   are its shortcuts. Loading keeps the diff on screen with a thin bar under
   the toolbar; a group opens on the repo that has changes; no comments is
   one line, not half the sidebar.
+- A session's turns survive its commits: each commit used to wipe them
+  back to "Initial", so a session where Claude committed as it went had
+  no turns to pick.
 
 - The desktop app shows an update's download as it happens: a progress bar
   with the percentage, on the card and in the version menu, then Restart, then

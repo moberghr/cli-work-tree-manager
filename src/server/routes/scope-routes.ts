@@ -36,7 +36,8 @@ import {
   suppressScopeWatch,
 } from '../../core/diff/scope-manager.js';
 import type { Scope } from '../../core/diff/scope-manager.js';
-import { scopeHashForPaths } from '../../core/diff/scope-manager.js';
+import { scopeHashForPaths, sessionOwnsScope } from '../../core/diff/scope-manager.js';
+import { loadHistory } from '../../core/sessions/history.js';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
 import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
 import { streamSSE } from 'hono/streaming';
@@ -191,8 +192,19 @@ export function mountScopeRoutes(
    * scope register, so a commit resets the strip at the next opportunity.
    * Returns true when it reset. Idempotent: once Initial == HEAD, returns
    * false until HEAD moves again (no reload loop).
+   *
+   * Not a session's scope: its turns are the session's history, listed in
+   * the Diff tab beside its commits — a session where Claude committed each
+   * step was left with nothing but "Initial".
    */
   async function rebaselineIfHeadAdvanced(hash: string, paths: string[]): Promise<boolean> {
+    if (
+      sessionOwnsScope(
+        hash,
+        loadHistory().map((s) => s.paths),
+      )
+    )
+      return false;
     const repos = scopeRepos(paths);
     // Cheap pre-check OUTSIDE the lock so the common no-commit path (every
     // checkpoint event) stays lock-free. A benign TOCTOU remains — two

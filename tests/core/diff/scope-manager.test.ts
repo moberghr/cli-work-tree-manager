@@ -187,3 +187,15 @@ describe('scopesToSweep (work web shutdown)', () => {
     disposeAllScopes();
   });
 });
+
+describe("sessionOwnsScope (a commit doesn't wipe a session's turns)", () => {
+  it("is a session's scope: its exact paths, in any order — not a sub-repo's wd scope", async () => {
+    const { sessionOwnsScope, scopeHashForPaths } = await import('../../../src/core/diff/scope-manager.js');
+    const be = path.join(tmpHome, 'shop', 'backend');
+    const fe = path.join(tmpHome, 'shop', 'frontend');
+    const sessions = [[fe, be]];
+    expect(sessionOwnsScope(scopeHashForPaths([be, fe]), sessions)).toBe(true);
+    expect(sessionOwnsScope(scopeHashForPaths([be]), sessions)).toBe(false);
+    expect(sessionOwnsScope(scopeHashForPaths([be, fe]), [])).toBe(false);
+  });
+});
