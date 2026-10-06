@@ -6,6 +6,10 @@ import xtermSerialize from '@xterm/addon-serialize';
 import { debug } from '../platform/logger.js';
 import { buildAiLaunchArgs, type AiToolSpec } from '../platform/ai-launcher.js';
 import childProcess from 'node:child_process';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { makeSpawnHelperExecutable } from './spawn-helper.js';
+import { report } from '../platform/report.js';
 
 type Fork = typeof childProcess.fork;
 const HIDDEN = Symbol.for('work.forkHidesConsole');
@@ -31,6 +35,30 @@ export function hideForkConsoles(cp: { fork: Fork }): void {
   cp.fork = wrapped;
 }
 if (process.platform === 'win32') hideForkConsoles(childProcess);
+
+let spawnHelperChecked = false;
+/**
+ * Once per process, before the first terminal: node-pty's spawn-helper must
+ * be executable on macOS and Linux, or every terminal fails with
+ * "posix_spawnp failed" (spawn-helper.ts). Fixes an install that has it
+ * wrong; says so when it can't.
+ */
+function ensureSpawnHelper(): void {
+  if (spawnHelperChecked) return;
+  spawnHelperChecked = true;
+  try {
+    const dir = path.dirname(createRequire(import.meta.url).resolve('node-pty/package.json'));
+    const { fixed, failed } = makeSpawnHelperExecutable(dir);
+    for (const file of fixed) debug('made node-pty spawn-helper executable', file);
+    for (const { file, error } of failed)
+      report(
+        'warn',
+        `node-pty's spawn-helper isn't executable and couldn't be made so (${error}): terminals can't start. Run: chmod +x "${file}"`,
+      );
+  } catch (err) {
+    debug('spawn-helper check failed', (err as Error).message);
+  }
+}
 
 const { Terminal } = xtermHeadless;
 const { SerializeAddon } = xtermSerialize;
@@ -134,6 +162,7 @@ export class PtySession {
     const { file: spawnCmd, args: spawnArgs } = resolvePtyCommand(rawCmd, rawArgs, { env, cwd });
 
     debug('PtySession spawn', { spawnCmd, spawnArgs, cwd, cols, rows });
+    ensureSpawnHelper();
     this.pty = pty.spawn(spawnCmd, spawnArgs, {
       name: 'xterm-256color',
       cwd,

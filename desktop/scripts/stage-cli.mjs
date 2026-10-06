@@ -124,6 +124,7 @@ export function stageCli(out, { root = ROOT, node = process.execPath, install = 
   }
   pruneForeignPrebuilds(path.join(out, 'node_modules'));
   trimNodeModules(path.join(out, 'node_modules'));
+  makeHelpersExecutable(path.join(out, 'node_modules'));
   fs.copyFileSync(node, path.join(out, nodeName()));
   fs.chmodSync(path.join(out, nodeName()), 0o755);
   // Written last: runtime.rs takes a cli/ with a VERSION as complete.
@@ -131,6 +132,22 @@ export function stageCli(out, { root = ROOT, node = process.execPath, install = 
   const version = workVersion(root);
   fs.writeFileSync(path.join(out, 'VERSION'), version);
   return version;
+}
+
+/**
+ * node-pty's spawn-helper must be executable: npm unpacks its prebuilt one
+ * 0644, and only node-pty's install script fixes that — 2.0.2's macOS app
+ * shipped it 0644, so no terminal started ("posix_spawnp failed"). The zip
+ * keeps each file's mode, so set it here. Returns what it set.
+ */
+export function makeHelpersExecutable(nodeModules) {
+  const pty = path.join(nodeModules, 'node-pty');
+  const helpers = [path.join(pty, 'build', 'Release', 'spawn-helper')];
+  const prebuilds = path.join(pty, 'prebuilds');
+  if (fs.existsSync(prebuilds)) for (const d of fs.readdirSync(prebuilds)) helpers.push(path.join(prebuilds, d, 'spawn-helper'));
+  const set = helpers.filter((f) => fs.existsSync(f));
+  for (const f of set) fs.chmodSync(f, 0o755);
+  return set;
 }
 
 /** The staged CLI runs, with its native modules, on its own Node. */
@@ -152,6 +169,15 @@ export function smokeTest(out) {
   });
   if (native.status !== 0 || native.stdout.trim() !== 'ok')
     throw new Error(`native modules don't load on the bundled Node:\n${native.stderr}`);
+  // A terminal starts: loading node-pty isn't enough (2.0.2's macOS app loaded it, and every spawn failed).
+  if (process.platform !== 'win32') {
+    const script =
+      "const p = require('node-pty').spawn('/bin/sh', ['-c', 'echo pty-ok'], {});" +
+      "let s = ''; p.onData((d) => { s += d; if (s.includes('pty-ok')) { console.log('ok'); process.exit(0); } });" +
+      'setTimeout(() => process.exit(1), 10000);';
+    const term = spawn.sync(node, ['-e', script], { cwd: out, encoding: 'utf8' });
+    if (term.status !== 0 || !term.stdout.includes('ok')) throw new Error(`a terminal doesn't start on the bundled Node:\n${term.stderr}`);
+  }
 }
 
 /**

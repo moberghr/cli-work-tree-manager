@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { packCliArchive, trimmable } from '../../desktop/scripts/stage-cli.mjs';
+import { makeHelpersExecutable, packCliArchive, trimmable } from '../../desktop/scripts/stage-cli.mjs';
 import { listFiles, readStoredZip, zipDirectory } from '../../desktop/scripts/zip-store.mjs';
 
 const dirs: string[] = [];
@@ -90,6 +90,28 @@ describe('the bundled CLI: trimmed, and one zip', () => {
     const dest = tmp();
     expect(spawnSync(bsdtar!, ['-xf', zip, '-C', dest]).status).toBe(0);
     expect(fs.readFileSync(path.join(dest, 'node_modules', 'p', 'index.js'), 'utf8')).toBe('x');
+  });
+
+  it("node-pty's spawn-helpers are made executable, and the zip keeps it (2.0.2's macOS app shipped them 0644: no terminal started)", () => {
+    const parent = tmp();
+    const cli = path.join(parent, 'cli');
+    const helper = 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper';
+    const built = 'node_modules/node-pty/build/Release/spawn-helper';
+    put(cli, helper, 'h');
+    put(cli, built, 'b');
+    put(cli, 'node_modules/node-pty/prebuilds/darwin-arm64/pty.node', 'p');
+    for (const f of [helper, built]) fs.chmodSync(path.join(cli, f), 0o644);
+    expect(
+      makeHelpersExecutable(path.join(cli, 'node_modules'))
+        .map((f) => path.relative(cli, f).split(path.sep).join('/'))
+        .sort(),
+    ).toEqual([built, helper].sort());
+    // File modes are a Unix thing: on Windows only the list is checked (the macOS and Linux CI check the rest).
+    if (process.platform !== 'win32') {
+      zipDirectory(cli, path.join(parent, 'cli.zip'));
+      const modes = Object.fromEntries(readStoredZip(path.join(parent, 'cli.zip')).map((e) => [e.name, e.mode]));
+      expect([modes[helper], modes[built]]).toEqual([0o755, 0o755]);
+    }
   });
 
   it('packCliArchive: cli.zip and cli.version beside the folder, which goes', () => {

@@ -5,6 +5,10 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## 2.0.3 — 2026-10-06
 
+- Terminals start in the macOS desktop app again: node-pty's `spawn-helper`
+  shipped without its executable bit ("posix_spawnp failed"). The app's
+  build sets it and opens a terminal before it ships, and work fixes the bit
+  itself before the first terminal, on any install (brew and npm too).
 - The Diff tab, like the standalone review page: one toolbar over the
   diff, and **Changes ▾** — the branch's commits and Claude's turns in one
   list, newest first. Click one to see just it, Shift+click for a span
