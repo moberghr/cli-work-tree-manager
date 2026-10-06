@@ -65,7 +65,7 @@ import { createDigestSource } from '../core/conversations/digest-source.js';
 import { report } from '../core/platform/report.js';
 import { mountCleanupRoutes } from './routes/cleanup-routes.js';
 import { mountAssistantRoutes } from './routes/assistant-routes.js';
-import type { ActivityWire, DigestResponse, SessionWire } from '../core/api-types.js';
+import type { ActivityWire, DigestResponse, SessionHistoryWire, SessionWire } from '../core/api-types.js';
 import { createActivityLog } from '../core/platform/activity.js';
 import { recentProcessTable } from '../core/platform/process.js';
 import { throttleTrailing } from '../core/platform/throttle.js';
@@ -80,7 +80,16 @@ import { mountDevRoutes } from './routes/dev-routes.js';
 import { mountCiRoutes } from './routes/ci-routes.js';
 import { sweepOldDiffArtifacts } from '../core/diff/diffs-sweep.js';
 import { revision } from '../core/platform/db.js';
-import { disposeAllScopes, findScope, listScopes, registerScope, scopeHashForPaths, scopesToSweep } from '../core/diff/scope-manager.js';
+import {
+  disposeAllScopes,
+  findScope,
+  listScopes,
+  scopeHashForPaths,
+  scopesToSweep,
+  suppressScopeWatch,
+} from '../core/diff/scope-manager.js';
+import { computeSessionRange, sessionCommits } from '../core/diff/session-history.js';
+import { parsePoint } from '../core/diff/diff-points.js';
 import { clearCheckpoints } from '../core/diff/checkpoint.js';
 import { attachTerminalWs } from './terminal-ws.js';
 import {
@@ -435,29 +444,33 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     const session = findSession(c.req.param('id'));
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const hash = scopeHashForPaths(session.paths);
-    return c.json({ scopeHash: hash, entries: loadManifest(hash).entries });
+    // The commits since the branch's base too: the Diff tab lists them with the turns (git log, a read).
+    const commits = bestEffort('list the session commits', () => sessionCommits(session), []);
+    return c.json({ scopeHash: hash, entries: loadManifest(hash).entries, commits } satisfies SessionHistoryWire);
   });
 
   app.get('/api/sessions/:id/diff', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
-    // Range between two checkpoints (e.g. "last turn"): delegate to the
-    // scope's range diff, which already handles groups and 'working'.
-    const from = c.req.query('from');
-    const to = c.req.query('to');
-    if (from !== undefined && to !== undefined) {
-      // Only the in-memory record the range diff route checks paths against
-      // — no baseline snapshot, no watcher (those come with the hook).
-      const scope =
-        findScope(session.paths) ??
-        bestEffort('register scope', () => registerScope(session.paths, `${session.target} · ${session.branch}`), null);
-      if (!scope) return c.json({ error: 'no checkpoints for this session' }, 404);
-      const res = await app.request(
-        `/api/scopes/${encodeURIComponent(scope.hash)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      );
-      const body = (await res.json()) as Record<string, unknown>;
-      return c.json(res.ok ? { ...body, sessionId: id, base: 'range' } : body, res.ok ? 200 : (res.status as 400));
+    // A range between two points (diff-points.ts): checkpoints, commits, HEAD, the working
+    // tree — a turn, a commit, "since you looked", or any span of them.
+    const fromRaw = c.req.query('from');
+    const toRaw = c.req.query('to');
+    if (fromRaw !== undefined && toRaw !== undefined) {
+      const from = parsePoint(fromRaw);
+      const to = parsePoint(toRaw);
+      if (!from || !to) return c.json({ error: 'from and to must each be cp:<id>, c:<repo>:<sha>, p:<repo>:<sha>, head or working' }, 400);
+      try {
+        const range = computeSessionRange(session, from, to);
+        if ('error' in range) return c.json(range, 400);
+        // Our own git (the working tree's temp index) must not read as a change: see suppressScopeWatch.
+        const scope = findScope(session.paths);
+        if (scope) suppressScopeWatch(scope.hash, 800);
+        return c.json({ sessionId: id, base: 'range', resolvedBase: fromRaw, from: fromRaw, to: toRaw, repos: range.repos });
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, 500);
+      }
     }
     const baseParam = c.req.query('base') ?? 'uncommitted';
     const base: DiffBase = baseParam === 'branch' ? 'branch' : 'uncommitted';

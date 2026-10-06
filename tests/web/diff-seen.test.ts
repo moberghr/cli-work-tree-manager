@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileSignature, newestCheckpoint, sinceLookAvailable } from '../../src/web/src/state/diff-seen.js';
+import { fileSignature, newestCheckpoint } from '../../src/web/src/state/diff-seen.js';
 import { viewedFrom } from '../../src/web/src/hooks/use-viewed-files.js';
 
 const file = (content: string, added = 1) => ({
@@ -22,9 +22,6 @@ describe('since you looked', () => {
     const cps = [{ id: 0 }, { id: 1 }, { id: 2 }];
     expect(newestCheckpoint(cps)).toBe(2);
     expect(newestCheckpoint([])).toBeNull();
-    expect(sinceLookAvailable({ checkpointId: 1, at: '' }, cps)).toBe(true);
-    expect(sinceLookAvailable({ checkpointId: 2, at: '' }, cps)).toBe(false);
-    expect(sinceLookAvailable(null, cps)).toBe(false);
   });
 });
 

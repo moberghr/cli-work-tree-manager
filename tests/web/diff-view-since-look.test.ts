@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
+import { pointParam, type DiffPoint } from '../../src/core/diff/diff-points.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Every diff fetch is recorded (with its range) and answered with one
 // file named after the request, so the test can see which scope loaded.
 const h = vi.hoisted(() => {
-  const calls: Array<{ sessionId: string; base: string; range?: { from: number; to: number | 'working' } }> = [];
+  const calls: Array<{ sessionId: string; base: string; range?: { from: string; to: string } }> = [];
   let seen: { checkpointId: number; at: string } | null = null;
   const marked: Array<{ sessionId: string; checkpointId: number }> = [];
   let checkpoints: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> = [];
@@ -86,12 +87,13 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
       h.marked.push({ sessionId, checkpointId });
       return Promise.resolve();
     },
-    fetchSessionDiff: (sessionId: string, base: string, range?: { from: number; to: number | 'working' }) => {
-      h.calls.push({ sessionId, base, range });
-      const file = range ? `turn-${range.from}-${range.to}.txt` : `${base}.txt`;
+    fetchSessionDiff: (sessionId: string, base: string, range?: { from: DiffPoint; to: DiffPoint }) => {
+      const r = range && { from: pointParam(range.from), to: pointParam(range.to) };
+      h.calls.push({ sessionId, base, range: r });
+      const file = r ? `${r.from}..${r.to}.txt` : `${base}.txt`;
       return Promise.resolve(h.diffFor(sessionId, file));
     },
-    fetchSessionCheckpoints: () => Promise.resolve(h.checkpoints),
+    fetchSessionHistory: () => Promise.resolve({ entries: h.checkpoints, commits: [] }),
     fetchCheckpoints: () => Promise.resolve([]),
   };
 });
@@ -133,6 +135,13 @@ const flush = () =>
 const tab = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === name)!;
 
+const pickerLabel = () => container.querySelector('.wd-history-btn')!.textContent!.replace('▾', '').trim();
+async function presets() {
+  if (!container.querySelector('.wd-history-pop'))
+    await act(async () => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+  return [...container.querySelectorAll('.wd-checkpoint-pop-preset')].map((b) => b.textContent);
+}
+
 async function render(id = 's1', startOnLastTurn = false) {
   await act(async () => {
     root.render(createElement(DiffView, { session: session(id), startOnLastTurn }));
@@ -145,35 +154,37 @@ describe('DiffView "Since you looked"', () => {
     h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(2, 'Fixed review'), entry(3, 'Your comments')];
     h.seen = { checkpointId: 1, at: '2026-09-01T00:01:00Z' };
     await render();
-    expect(tab('Since you looked').getAttribute('aria-selected')).toBe('true');
-    expect(h.calls.at(-1)?.range).toEqual({ from: 1, to: 'working' });
-    expect(container.textContent).toContain('turn-1-working.txt');
+    expect(pickerLabel()).toBe('Changes: Since you looked');
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:1', to: 'working' });
+    expect(container.textContent).toContain('cp:1..working.txt');
     // The other scopes are still a click away.
     await act(async () => tab('Since branch').click());
     await flush();
     expect(h.calls.at(-1)).toMatchObject({ base: 'branch', range: undefined });
-    expect(tab('Since you looked').getAttribute('aria-selected')).toBe('false');
+    expect(pickerLabel()).toBe('Changes: all');
+    // …and it is back from the picker's shortcuts.
+    expect(await presets()).toContain('Since you looked');
   });
 
   it('nothing new since you looked, or never looked: no such scope, the usual default', async () => {
     h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it')];
     h.seen = { checkpointId: 1, at: '2026-09-01T00:01:00Z' };
     await render();
-    expect(tab('Since you looked')).toBeUndefined();
+    expect(await presets()).not.toContain('Since you looked');
     expect(container.textContent).toContain('uncommitted.txt');
     act(() => root.unmount());
     root = createRoot(container);
     h.seen = null;
     await render('s2');
-    expect(tab('Since you looked')).toBeUndefined();
+    expect(await presets()).not.toContain('Since you looked');
   });
 
   it('asked to open on the last turn (the review queue): that wins', async () => {
     h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(2, 'Fixed review')];
     h.seen = { checkpointId: 0, at: '2026-09-01T00:00:00Z' };
     await render('s1', true);
-    expect(tab('Last turn').getAttribute('aria-selected')).toBe('true');
-    expect(tab('Since you looked').getAttribute('aria-selected')).toBe('false');
+    expect(pickerLabel()).toBe('Changes: Last turn');
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:1', to: 'cp:2' });
   });
 
   it('looked at for five seconds (visible, focused): that far is seen; a glance or a hidden window is not', async () => {

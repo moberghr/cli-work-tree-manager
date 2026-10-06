@@ -85,18 +85,23 @@ test('the real dashboard runs on simulated data, and nothing real is touched', a
   expect(fs.existsSync(path.join(home, '.claude'))).toBe(false);
 });
 
-test('"Last turn" narrows the diff to what the last instruction changed', async ({ page }) => {
+test('the Changes picker narrows the diff to a turn: the last, or any one of them', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'fix/login-redirect' }).click();
   await page.getByRole('tab', { name: /^Diff/ }).click();
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
-  await page.getByRole('tab', { name: 'Last turn' }).click();
+  const picker = page.locator('.wd-history-btn');
+  await picker.click();
+  await page.locator('.wd-checkpoint-pop-preset', { hasText: 'Last turn' }).click();
+  await expect(picker).toContainText('Last turn');
   await expect(files).toHaveCount(1);
   await expect(files).toContainText('src/auth.test.ts');
 
-  await page.getByLabel('Which turn').selectOption({ label: '1 · Implemented the change' });
+  await picker.click();
+  await page.locator('.wd-history-row', { hasText: 'Implemented the change' }).click();
+  await expect(picker).toContainText('Turn 1 · Implemented the change');
   await expect(files).toHaveCount(1);
   await expect(files).not.toContainText('auth.test.ts');
   await expect(files).toContainText('src/auth.ts');
@@ -264,7 +269,7 @@ test('"Review all" walks the finished sessions, each on its last turn, and n mov
   const bar = page.locator('.wd-review-queue-bar');
   for (let i = 1; i <= total; i++) {
     await expect(bar).toContainText(`${i} of ${total}`);
-    await expect(page.getByRole('tab', { name: 'Last turn' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.wd-history-btn')).toContainText('Last turn');
     await page.locator('body').press('n');
   }
   // Past the last one: back to the inbox, nothing left unseen.

@@ -1,25 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchDiffSeen,
-  fetchSessionCheckpoints,
   fetchSessionDiff,
+  fetchSessionHistory,
   markDiffSeen,
   revertChange,
-  turnsFrom,
   type CheckpointEntry,
-  type DiffBase,
   type RepoData,
+  type SessionCommit,
   type SessionSummary,
 } from '../../api/client.js';
 import { sessionReviewApi } from '../../api/review-api.js';
 import { useSse } from '../../api/events.js';
 import { useDeferredDiffLoad } from '../../hooks/use-deferred-diff-load.js';
-import { ReviewProvider } from '../../state/ReviewProvider.js';
+import { ReviewProvider, useReview } from '../../state/ReviewProvider.js';
 import { RevertContext, type RevertApi } from '../../state/RevertProvider.js';
 import { DiffRepo } from './DiffRepo.js';
-import { DiffBusyChip } from './DiffBusyChip.js';
 import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
+import { HistoryPicker } from './HistoryPicker.js';
 import { FileTree } from '../Sidebar/FileTree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
@@ -29,12 +28,25 @@ import { useCommentJump } from '../../hooks/use-comment-jump.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import { COMMENTS_SPEC, ResizeDivider, useResizableSize, useSidebarWidth } from '../Layout/ResizeDivider.js';
 import { useLookedFor } from '../../hooks/use-looked.js';
-import { fileSignature, newestCheckpoint, sinceLookAvailable } from '../../state/diff-seen.js';
+import { fileSignature, newestCheckpoint } from '../../state/diff-seen.js';
+import {
+  historyItems,
+  lastTurn,
+  selectionKey,
+  selectionRange,
+  sinceLooked,
+  SINCE_BRANCH,
+  UNCOMMITTED,
+  type DiffSelection,
+} from '../../state/diff-history.js';
+import { emptyDiffMessage, orderRepoTabs, preferredRepo } from '../../state/diff-view.js';
 import type { DiffSeen } from '../../../../core/api-types.js';
-import { relativeTime } from '../../utils/time.js';
+import { pointParam } from '../../../../core/diff/diff-points.js';
 
 /** Looked at this long (visible, focused) and the diff counts as seen. */
 const LOOKED_MS = 5000;
+/** A change outside a turn (a commit by hand) re-reads the commit list at most this often. */
+const HISTORY_RELOAD_MS = 5000;
 
 interface Props {
   session: SessionSummary;
@@ -44,107 +56,114 @@ interface Props {
 }
 
 /**
- * The single-session view inside `work web`. Shows a live diff plus the
- * full review UI (drafts/submit/comments) backed by per-session storage.
+ * The single-session view inside `work web`: the standalone review page's
+ * shape (a toolbar over the file tree and the diff) with the session's whole
+ * history to pick from — the branch's commits and Claude's turns, any one or
+ * any span of them, in either scope.
  *
  * All hooks must run unconditionally on every render — branching on
  * `diff === null` happens after the hooks.
  */
 export function DiffView({ session, startOnLastTurn = false }: Props) {
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
-  // Per-session diff scope. Defaults to uncommitted (the working-tree
-  // view). 'branch' shows everything since this worktree was forked,
-  // using the recorded baseBranch or auto-detected parent (main/master/
-  // dev/develop).
-  const [diffBase, setDiffBase] = useState<DiffBase>('uncommitted');
-  // "Last turn" (Codex-style): the diff of one Claude instruction, between
-  // two consecutive checkpoints. null = not in turn mode; otherwise the
-  // `to` checkpoint id of the turn being shown.
-  const [turnTo, setTurnTo] = useState<number | null>(null);
-  const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
-  const turns = useMemo(() => turnsFrom(checkpoints), [checkpoints]);
-  const turn = turnTo === null ? null : (turns.find((t) => t.to === turnTo) ?? null);
+  // A repo tab you clicked stays yours; otherwise the first repo with changes is shown.
+  const pickedRepo = useRef<string | null>(null);
+  const [selection, setSelection] = useState<DiffSelection>(UNCOMMITTED);
+  const [entries, setEntries] = useState<CheckpointEntry[]>([]);
+  const [commits, setCommits] = useState<SessionCommit[]>([]);
   // A late answer for the previous session must not land on this one.
-  const checkpointsFor = useRef(session.id);
-  checkpointsFor.current = session.id;
-  const loadCheckpoints = () => {
+  const historyFor = useRef(session.id);
+  historyFor.current = session.id;
+  const historyAt = useRef(0);
+  const loadHistory = () => {
     const id = session.id;
-    const apply = (entries: CheckpointEntry[]) => {
-      if (checkpointsFor.current === id) setCheckpoints(entries);
-    };
-    fetchSessionCheckpoints(id).then(apply, () => apply([]));
+    historyAt.current = Date.now();
+    fetchSessionHistory(id).then(
+      (h) => {
+        if (historyFor.current !== id) return;
+        setEntries(h.entries);
+        setCommits(h.commits);
+      },
+      () => historyFor.current === id && setEntries([]),
+    );
   };
   // "Since you looked": how far you had looked when this visit began (kept for
   // the whole visit; looking now moves the server's mark, not this one).
   const [seenAtOpen, setSeenAtOpen] = useState<DiffSeen | null | undefined>(undefined);
-  const [sinceLook, setSinceLook] = useState(false);
   useEffect(() => {
-    setTurnTo(null);
-    setCheckpoints([]);
+    setSelection(UNCOMMITTED);
+    setEntries([]);
+    setCommits([]);
     setSeenAtOpen(undefined);
-    setSinceLook(false);
-    loadCheckpoints();
+    pickedRepo.current = null;
+    loadHistory();
     const id = session.id;
     fetchDiffSeen(id).then(
-      (s) => checkpointsFor.current === id && setSeenAtOpen(s),
-      () => checkpointsFor.current === id && setSeenAtOpen(null),
+      (s) => historyFor.current === id && setSeenAtOpen(s),
+      () => historyFor.current === id && setSeenAtOpen(null),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
-  const newest = newestCheckpoint(checkpoints);
-  const canSinceLook = sinceLookAvailable(seenAtOpen, checkpoints);
-  // Once per visit: open on what changed since you last looked, when Claude
-  // finished a turn after it (not when asked to open on the last turn).
-  const sinceLookApplied = useRef<string | null>(null);
+
+  const isGroup = session.paths.length > 1;
+  // Every repo's commits, for what a pick means (a commit of another repo
+  // stays picked when you switch tabs); the tab's own, for the list.
+  const allItems = useMemo(() => historyItems(entries, commits, null), [entries, commits]);
+  const items = useMemo(() => historyItems(entries, commits, isGroup ? activeRepoName : null), [entries, commits, isGroup, activeRepoName]);
+  const turnShortcut = useMemo(() => lastTurn(allItems), [allItems]);
+  const lookedShortcut = useMemo(() => sinceLooked(allItems, entries, seenAtOpen?.checkpointId), [allItems, entries, seenAtOpen]);
+
+  const newest = newestCheckpoint(entries);
+  // Once per visit: open on the last turn when asked to (the review queue),
+  // else on what changed since you last looked, when Claude finished a turn after it.
+  const opened = useRef<string | null>(null);
   useEffect(() => {
-    if (startOnLastTurn || seenAtOpen === undefined || checkpoints.length === 0 || sinceLookApplied.current === session.id) return;
-    sinceLookApplied.current = session.id;
-    if (canSinceLook) setSinceLook(true);
-  }, [startOnLastTurn, seenAtOpen, checkpoints.length, canSinceLook, session.id]);
+    if (opened.current === session.id) return;
+    if (startOnLastTurn) {
+      if (!turnShortcut) return;
+      opened.current = session.id;
+      setSelection(turnShortcut);
+      return;
+    }
+    if (seenAtOpen === undefined || entries.length === 0) return;
+    opened.current = session.id;
+    if (lookedShortcut) setSelection(lookedShortcut);
+  }, [startOnLastTurn, turnShortcut, lookedShortcut, seenAtOpen, entries.length, session.id]);
   // Looked at it for a few seconds: that's how far you have seen, for next time.
   useLookedFor(newest === null ? null : `${session.id}:${newest}`, LOOKED_MS, () => {
     if (newest !== null) void markDiffSeen(session.id, newest).catch(() => {});
   });
-  // Once per session: jump to its newest turn as soon as the turns load.
-  // Only once — after that the scope buttons are the user's.
-  const lastTurnApplied = useRef<string | null>(null);
-  useEffect(() => {
-    if (!startOnLastTurn || lastTurnApplied.current === session.id || turns.length === 0) return;
-    lastTurnApplied.current = session.id;
-    setTurnTo(turns[0].to);
-  }, [startOnLastTurn, session.id, turns]);
 
-  // Shared fetch + deferred-loading hook (same one ReviewApp uses) so a
-  // base switch here gets the spinner/dim feedback instead of the old
-  // "frozen, then snaps" behaviour.
+  // A span whose rows are gone (a commit rewritten by a rebase) shows what's uncommitted instead.
+  const range = selectionRange(allItems, selection);
+  const shown: DiffSelection = selection.kind === 'range' && !range ? UNCOMMITTED : selection;
+  const base = shown.kind === 'scope' ? shown.base : 'uncommitted';
   const {
     data: diff,
     error,
     loading,
-    checking,
     pending,
     stale,
     applyPending,
     reload,
     checkForUpdates,
   } = useDeferredDiffLoad(
-    () =>
-      sinceLook && seenAtOpen
-        ? fetchSessionDiff(session.id, 'uncommitted', { from: seenAtOpen.checkpointId, to: 'working' })
-        : turn
-          ? fetchSessionDiff(session.id, 'uncommitted', { from: turn.from, to: turn.to })
-          : fetchSessionDiff(session.id, diffBase),
-    [session.id, diffBase, turn?.from, turn?.to, sinceLook, seenAtOpen?.checkpointId],
+    () => (range ? fetchSessionDiff(session.id, 'uncommitted', range) : fetchSessionDiff(session.id, base)),
+    [session.id, selectionKey(shown), range && pointParam(range.from), range && pointParam(range.to)],
   );
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
     events: {
       // Stage the new diff instead of swapping it in — a Claude turn writing
       // files must not re-render the diff under someone reading it. The
-      // update banner hands control to the user.
-      'diff-changed': () => checkForUpdates(),
-      // A turn finished → a new checkpoint (and so a new "last turn").
-      'checkpoints-changed': () => loadCheckpoints(),
+      // update chip hands control to the user. A commit made by hand shows
+      // up here too, so the commit list is read again (not too often).
+      'diff-changed': () => {
+        checkForUpdates();
+        if (Date.now() - historyAt.current > HISTORY_RELOAD_MS) loadHistory();
+      },
+      // A turn finished → a new checkpoint (and maybe commits).
+      'checkpoints-changed': () => loadHistory(),
     },
   });
 
@@ -152,10 +171,13 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   useEffect(() => {
     if (!diff || diff.repos.length === 0) return;
-    if (!diff.repos.some((r) => r.name === activeRepoName)) {
-      setActiveRepoName(diff.repos[0].name);
-    }
+    const want = preferredRepo(diff.repos, activeRepoName, pickedRepo.current);
+    if (want !== activeRepoName) setActiveRepoName(want);
   }, [diff, activeRepoName]);
+  const openRepo = (name: string) => {
+    pickedRepo.current = name;
+    setActiveRepoName(name);
+  };
 
   const repoStartIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -218,7 +240,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
   // Revert is for the Uncommitted scope only: that's the diff against the
   // working tree it undoes. (A turn or the branch diff would mean undoing
   // committed or partial history.)
-  const canRevert = !sinceLook && !turn && diffBase === 'uncommitted';
+  const canRevert = shown.kind === 'scope' && shown.base === 'uncommitted';
   const revertApi = useMemo<RevertApi | null>(
     () =>
       canRevert
@@ -234,165 +256,132 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   // ---- Hooks above this line, branches below ----------------------------
 
-  if (error) return <div className="wd-web-error">{error}</div>;
-  if (!diff) return <div className="wd-web-empty">Loading diff…</div>;
-
-  const totalFiles = diff.repos.reduce((s, r) => s + r.files.length, 0);
-  // File count of the staged (not-yet-shown) diff, for the banner's summary.
+  // Busy: a pick or a session switch is loading. A quiet bar under the
+  // toolbar (after a moment, so a fast load shows nothing) — the diff stays
+  // put and readable; a background check after Claude writes shows nothing
+  // until it has something (the update chip).
+  const busy = stale || loading;
+  const totalFiles = diff ? diff.repos.reduce((s, r) => s + r.files.length, 0) : 0;
+  const added = diff ? diff.repos.reduce((s, r) => s + r.files.reduce((a, f) => a + f.added, 0), 0) : 0;
+  const deleted = diff ? diff.repos.reduce((s, r) => s + r.files.reduce((a, f) => a + f.deleted, 0), 0) : 0;
+  const reposWithChanges = diff ? diff.repos.filter((r) => r.files.length > 0).length : 0;
+  // File count of the staged (not-yet-shown) diff, for the chip's summary.
   const pendingFileCount = pending ? pending.repos.reduce((s, r) => s + r.files.length, 0) : null;
+
+  const toolbar = (
+    <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
+      <div className="wd-dash-difftoolbar-pick">
+        <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={shown.kind === 'scope' && shown.base === 'uncommitted'}
+            className={
+              'wd-web-diff-scope-btn' + (shown.kind === 'scope' && shown.base === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')
+            }
+            onClick={() => setSelection(UNCOMMITTED)}
+            title="What isn't committed yet (git diff HEAD)"
+          >
+            Uncommitted
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={shown.kind === 'scope' && shown.base === 'branch'}
+            className={'wd-web-diff-scope-btn' + (shown.kind === 'scope' && shown.base === 'branch' ? ' wd-web-diff-scope-btn-active' : '')}
+            onClick={() => setSelection(SINCE_BRANCH)}
+            title={
+              session.baseBranch
+                ? `Everything since this branch left ${session.baseBranch}: its commits and what isn't committed`
+                : "Everything since this branch left its parent (found by itself): its commits and what isn't committed"
+            }
+          >
+            Since branch
+          </button>
+        </div>
+        <HistoryPicker
+          items={items}
+          selection={shown}
+          onSelect={setSelection}
+          lastTurn={turnShortcut}
+          sinceLooked={lookedShortcut}
+          commitsOf={isGroup ? activeRepoName : null}
+        />
+      </div>
+      <div className="wd-web-difftoolbar-info">
+        {diff && (
+          <span className="wd-web-difftoolbar-count">
+            {totalFiles === 0 ? (
+              'no changes'
+            ) : (
+              <>
+                {totalFiles} file{totalFiles === 1 ? '' : 's'}
+                {reposWithChanges > 1 ? ` in ${reposWithChanges} repos` : ''} <span className="wd-add">+{added}</span>{' '}
+                <span className="wd-del">−{deleted}</span>
+              </>
+            )}
+          </span>
+        )}
+        {diff && shown.kind === 'scope' && shown.base === 'branch' && diff.resolvedBase && diff.resolvedBase !== 'HEAD' && (
+          <span className="wd-web-difftoolbar-compare wd-web-muted">vs {diff.resolvedBase}</span>
+        )}
+        {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
+      </div>
+      <div className="wd-web-difftoolbar-controls">
+        <DiffModeToggle />
+      </div>
+      <div
+        className={'wd-diff-progress' + (busy ? ' wd-diff-progress-on' : '')}
+        role="progressbar"
+        aria-hidden={!busy}
+        aria-label="Loading the diff"
+      />
+    </div>
+  );
+
+  if (error)
+    return (
+      <>
+        {toolbar}
+        <div className="wd-web-error">{error}</div>
+      </>
+    );
+  if (!diff)
+    return (
+      <>
+        {toolbar}
+        <div className="wd-web-empty wd-web-empty-diff">
+          <p className="wd-web-muted">Loading the diff…</p>
+        </div>
+      </>
+    );
+
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = diff.repos.length > 1;
-  // Three flavours of empty depending on what scope failed:
-  //   - uncommitted mode → working tree is clean.
-  //   - branch mode, resolvedBase missing or HEAD → couldn't find a
-  //     parent branch in our candidates (main, master, dev, develop, and
-  //     their origin/* mirrors). The branch was created from something
-  //     else (a feature branch off another feature branch, a tag, etc.).
-  //   - branch mode, resolvedBase is a real branch → there genuinely
-  //     are no commits past it. The branch is up to date or merged.
-  let emptyMessage: string;
-  if (sinceLook) {
-    emptyMessage = 'Nothing changed since you last looked.';
-  } else if (turn) {
-    emptyMessage = 'This turn changed no files.';
-  } else if (diffBase === 'uncommitted') {
-    emptyMessage = 'No uncommitted changes.';
-  } else if (!diff.resolvedBase || diff.resolvedBase === 'HEAD') {
-    emptyMessage =
-      "Couldn't auto-detect this branch's parent. " +
-      'Tried main, master, dev, develop (and their origin/* mirrors). ' +
-      'Record an explicit base via `work tree --base <ref>` to fix.';
-  } else {
-    emptyMessage = `No commits since \`${diff.resolvedBase}\` — this branch is up to date or already merged.`;
-  }
+  const emptyMessage = emptyDiffMessage(shown, diff.resolvedBase, selection.kind === 'range' ? selection.label : undefined);
 
   return (
     <ReviewProvider api={api}>
       <RevertContext.Provider value={revertApi}>
+        {toolbar}
         <div ref={layoutRef} className="wd-web-review-layout" style={{ ['--sidebar-width' as string]: `${sidebarWidth}px` }}>
           <aside
             ref={sidebarRef}
             className="wd-web-review-sidebar wd-web-review-sidebar-split"
             style={{ [COMMENTS_SPEC.cssVar as string]: `${commentsHeight}px` }}
           >
-            <header className="wd-web-review-sidebar-header">
-              <h1>
-                {session.target}
-                <span className="wd-web-branch"> · {session.branch}</span>
-              </h1>
-              <p>
-                {stale ? (
-                  <span className="wd-web-muted">loading…</span>
-                ) : isEmpty ? (
-                  <span className="wd-web-muted">no changes</span>
-                ) : (
-                  <>
-                    {totalFiles} file{totalFiles === 1 ? '' : 's'} changed
-                    {hasTabs ? ` across ${diff.repos.length} repos` : ''}
-                  </>
-                )}
-                {diff.base === 'branch' && diff.resolvedBase && (
-                  <>
-                    {' '}
-                    <span className="wd-web-muted">vs {diff.resolvedBase}</span>
-                  </>
-                )}
-              </p>
-              <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!sinceLook && !turn && diffBase === 'uncommitted'}
-                  className={
-                    'wd-web-diff-scope-btn' + (!sinceLook && !turn && diffBase === 'uncommitted' ? ' wd-web-diff-scope-btn-active' : '')
-                  }
-                  onClick={() => {
-                    setSinceLook(false);
-                    setTurnTo(null);
-                    setDiffBase('uncommitted');
-                  }}
-                  title="git diff HEAD — only the working-tree deltas"
-                >
-                  Uncommitted
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!sinceLook && !turn && diffBase === 'branch'}
-                  className={
-                    'wd-web-diff-scope-btn' + (!sinceLook && !turn && diffBase === 'branch' ? ' wd-web-diff-scope-btn-active' : '')
-                  }
-                  onClick={() => {
-                    setSinceLook(false);
-                    setTurnTo(null);
-                    setDiffBase('branch');
-                  }}
-                  title={
-                    session.baseBranch
-                      ? `git diff ${session.baseBranch} — everything since this branch was created`
-                      : "Everything since this worktree's parent branch — auto-detected"
-                  }
-                >
-                  Since branch
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!sinceLook && !!turn}
-                  className={'wd-web-diff-scope-btn' + (!sinceLook && turn ? ' wd-web-diff-scope-btn-active' : '')}
-                  disabled={turns.length === 0}
-                  onClick={() => {
-                    setSinceLook(false);
-                    setTurnTo(turns[0]?.to ?? null);
-                  }}
-                  title={
-                    turns.length
-                      ? "Only what Claude's last instruction changed"
-                      : 'No finished turn yet — appears after Claude finishes one'
-                  }
-                >
-                  Last turn
-                </button>
-                {(canSinceLook || sinceLook) && seenAtOpen && (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={sinceLook}
-                    className={'wd-web-diff-scope-btn' + (sinceLook ? ' wd-web-diff-scope-btn-active' : '')}
-                    onClick={() => setSinceLook(true)}
-                    title={`Everything that changed after you last looked at this diff (${relativeTime(seenAtOpen.at)}${relativeTime(seenAtOpen.at) === 'just now' ? '' : ' ago'}), over every turn since`}
-                  >
-                    Since you looked
-                  </button>
-                )}
-              </div>
-              {!sinceLook && turn && turns.length > 1 && (
-                <label className="wd-web-turn-pick">
-                  <span className="wd-web-muted">Turn</span>{' '}
-                  <select value={turn.to} onChange={(e) => setTurnTo(Number(e.target.value))} aria-label="Which turn">
-                    {turns.map((t) => (
-                      <option key={t.to} value={t.to}>
-                        {t.n}
-                        {t.label ? ` · ${t.label}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {!sinceLook && turn && turns.length === 1 && turn.label && <p className="wd-web-turn-label wd-web-muted">{turn.label}</p>}
-              <DiffModeToggle />
-              {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
-              {(stale || loading || (checking && !pending)) && <DiffBusyChip label={stale || loading ? 'loading…' : 'checking…'} />}
-            </header>
             {!isEmpty && activeRepo ? (
               <>
-                <div ref={treeScrollRef} className={'wd-sidebar-split-top' + (stale ? ' wd-diff-stale' : '')} inert={stale}>
+                <div ref={treeScrollRef} className={'wd-sidebar-split-top' + (stale ? ' wd-diff-stale-soft' : '')} inert={stale}>
                   <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
                 </div>
-                <ResizeDivider layoutRef={sidebarRef} size={commentsHeight} onCommit={setCommentsHeight} spec={COMMENTS_SPEC} />
-                <div className="wd-sidebar-split-bottom">
-                  <CommentsPanel repoName={activeRepo.name} onOpenRepo={setActiveRepoName} />
-                </div>
+                <SidebarComments
+                  sidebarRef={sidebarRef}
+                  height={commentsHeight}
+                  onHeight={setCommentsHeight}
+                  repoName={activeRepo.name}
+                  onOpenRepo={openRepo}
+                />
               </>
             ) : (
               // Nothing changed (Claude committed it all): the comments are still here.
@@ -404,11 +393,11 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
           <ResizeDivider layoutRef={layoutRef} size={sidebarWidth} onCommit={setSidebarWidth} />
           <main
             ref={mainRef}
-            // `stale` = still showing the previously selected session's (or
-            // base's) diff while this one loads: dim + blur it so it can't be
-            // mistaken for the selected session's changes.
-            className={'wd-web-review-main' + (stale ? ' wd-diff-stale' : '')}
-            aria-busy={loading || stale}
+            // `stale` = still showing the previous pick's (or session's) diff
+            // while this one loads: dimmed a little after a moment, and not
+            // clickable, so it can't be mistaken for the new one.
+            className={'wd-web-review-main' + (stale ? ' wd-diff-stale-soft' : '')}
+            aria-busy={busy}
             inert={stale}
             // Always set --tabs-offset (0px when no tabs) so the value is
             // present in every render. With keep-mounted-hidden dashboard
@@ -424,13 +413,13 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 <GeneralPane />
                 <div className="wd-web-empty wd-web-empty-diff">
                   <p>{emptyMessage}</p>
-                  {!turn && diffBase === 'uncommitted' && (
+                  {shown.kind === 'scope' && shown.base === 'uncommitted' && (
                     <p className="wd-web-empty-hint">
                       Try{' '}
-                      <button type="button" className="wd-web-link-btn" onClick={() => setDiffBase('branch')}>
+                      <button type="button" className="wd-web-link-btn" onClick={() => setSelection(SINCE_BRANCH)}>
                         Since branch
                       </button>{' '}
-                      to see everything in this worktree.
+                      for everything on this branch, or pick a commit or a turn under Changes.
                     </p>
                   )}
                 </div>
@@ -440,15 +429,20 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
                 <GeneralPane />
                 {hasTabs && (
                   <nav className="wd-web-repo-tabs">
-                    {diff.repos.map((r) => {
+                    {orderRepoTabs(diff.repos).map((r) => {
                       const add = r.files.reduce((s, f) => s + f.added, 0);
                       const del = r.files.reduce((s, f) => s + f.deleted, 0);
                       return (
                         <button
                           key={r.name}
                           type="button"
-                          className={'wd-web-repo-tab' + (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '')}
-                          onClick={() => setActiveRepoName(r.name)}
+                          className={
+                            'wd-web-repo-tab' +
+                            (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '') +
+                            (r.files.length === 0 ? ' wd-web-repo-tab-empty' : '')
+                          }
+                          onClick={() => openRepo(r.name)}
+                          title={r.files.length === 0 ? 'No changes in this repo here' : undefined}
                         >
                           {r.name} <span className="wd-web-tab-count">({r.files.length})</span>{' '}
                           <span className="wd-tab-stats">
@@ -474,5 +468,33 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
         </div>
       </RevertContext.Provider>
     </ReviewProvider>
+  );
+}
+
+/**
+ * The comments under the file tree: resizable while there are some; with
+ * none, one line at the bottom, so the tree gets the room.
+ */
+function SidebarComments({
+  sidebarRef,
+  height,
+  onHeight,
+  repoName,
+  onOpenRepo,
+}: {
+  sidebarRef: React.RefObject<HTMLElement | null>;
+  height: number;
+  onHeight: (h: number) => void;
+  repoName: string;
+  onOpenRepo: (repo: string) => void;
+}) {
+  const none = useReview().comments.length === 0;
+  return (
+    <>
+      {!none && <ResizeDivider layoutRef={sidebarRef} size={height} onCommit={onHeight} spec={COMMENTS_SPEC} />}
+      <div className={'wd-sidebar-split-bottom' + (none ? ' wd-sidebar-comments-none' : '')}>
+        <CommentsPanel repoName={repoName} onOpenRepo={onOpenRepo} />
+      </div>
+    </>
   );
 }

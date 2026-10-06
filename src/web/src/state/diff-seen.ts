@@ -1,16 +1,9 @@
-import type { DiffSeen } from '../../../core/api-types.js';
 import type { CheckpointEntry } from '../api/client.js';
 import type { ParsedFile } from '../../../core/diff/diff-parse.js';
 
 /** The newest turn (checkpoint id) a session has; null before its first. Pure. */
 export function newestCheckpoint(checkpoints: Pick<CheckpointEntry, 'id'>[]): number | null {
   return checkpoints.length ? Math.max(...checkpoints.map((c) => c.id)) : null;
-}
-
-/** "Since you looked" is offered when Claude finished a turn after you last looked at the diff. Pure. */
-export function sinceLookAvailable(seen: DiffSeen | null | undefined, checkpoints: Pick<CheckpointEntry, 'id'>[]): boolean {
-  const newest = newestCheckpoint(checkpoints);
-  return !!seen && newest !== null && newest > seen.checkpointId;
 }
 
 /**

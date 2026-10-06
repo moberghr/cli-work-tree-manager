@@ -64,7 +64,7 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
     ...actual,
     fetchSessionDiff: (sessionId: string) => new Promise((resolve) => h.pending.set(sessionId, resolve)),
     fetchCheckpoints: () => Promise.resolve([]),
-    fetchSessionCheckpoints: () => Promise.resolve([]),
+    fetchSessionHistory: () => Promise.resolve({ entries: [], commits: [] }),
   };
 });
 
@@ -104,7 +104,9 @@ async function resolveDiff(sessionId: string, file: string) {
 
 const main = () => container.querySelector<HTMLElement>('.wd-web-review-main')!;
 const tree = () => container.querySelector<HTMLElement>('.wd-sidebar-split-top')!;
-const headerText = () => container.querySelector('.wd-web-review-sidebar-header')!.textContent ?? '';
+const toolbarText = () => container.querySelector('.wd-dash-difftoolbar')!.textContent ?? '';
+const progressOn = () => container.querySelector('.wd-diff-progress')!.classList.contains('wd-diff-progress-on');
+const stale = (el: HTMLElement) => el.classList.contains('wd-diff-stale-soft');
 
 describe('DiffView while switching sessions', () => {
   it("marks the previous session's diff stale until the selected one loads", async () => {
@@ -113,42 +115,45 @@ describe('DiffView while switching sessions', () => {
     });
     await resolveDiff('s1', 'one.txt');
 
-    expect(main().classList.contains('wd-diff-stale')).toBe(false);
+    expect(stale(main())).toBe(false);
     expect(main().hasAttribute('inert')).toBe(false);
-    expect(headerText()).toContain('1 file changed');
+    expect(progressOn()).toBe(false);
+    expect(toolbarText()).toContain('1 file');
 
     // Switch sessions: s2's fetch stays pending.
     await act(async () => {
       root.render(createElement(DiffView, { session: session('s2', 'feat/two') }));
     });
 
-    // Header already names the new session...
-    expect(headerText()).toContain('feat/two');
-    // ...while the body still shows s1's diff, so it must be marked.
+    // The body still shows s1's diff: dimmed a little and not clickable, with
+    // the bar under the toolbar running — no "loading…" text, nothing blank.
     expect(container.textContent).toContain('one.txt');
-    expect(main().classList.contains('wd-diff-stale')).toBe(true);
+    expect(stale(main())).toBe(true);
     expect(main().hasAttribute('inert')).toBe(true);
     expect(main().getAttribute('aria-busy')).toBe('true');
-    expect(tree().classList.contains('wd-diff-stale')).toBe(true);
+    expect(stale(tree())).toBe(true);
     expect(tree().hasAttribute('inert')).toBe(true);
-    expect(headerText()).toContain('loading…');
-    expect(headerText()).not.toContain('1 file changed');
+    expect(progressOn()).toBe(true);
+    expect(toolbarText()).not.toContain('loading');
 
     await resolveDiff('s2', 'two.txt');
 
     expect(container.textContent).toContain('two.txt');
-    expect(main().classList.contains('wd-diff-stale')).toBe(false);
+    expect(stale(main())).toBe(false);
     expect(main().hasAttribute('inert')).toBe(false);
     expect(main().getAttribute('aria-busy')).toBe('false');
-    expect(tree().classList.contains('wd-diff-stale')).toBe(false);
-    expect(headerText()).toContain('1 file changed');
+    expect(stale(tree())).toBe(false);
+    expect(progressOn()).toBe(false);
+    expect(toolbarText()).toContain('1 file');
   });
 
   it('shows the plain loading state (not a stale diff) on first load', async () => {
     await act(async () => {
       root.render(createElement(DiffView, { session: session('s1', 'feat/one') }));
     });
-    expect(container.textContent).toContain('Loading diff…');
-    expect(container.querySelector('.wd-diff-stale')).toBeNull();
+    expect(container.textContent).toContain('Loading the diff…');
+    expect(container.querySelector('.wd-diff-stale-soft')).toBeNull();
+    // The toolbar is there from the start: the scope can be changed before the first diff arrives.
+    expect(container.querySelector('.wd-history-btn')).not.toBeNull();
   });
 });

@@ -1145,3 +1145,173 @@
   font-size: 12px;
   color: var(--del-fg, #cf222e);
 }
+
+/* ---- The dashboard's Diff tab: the standalone toolbar over the diff -------
+   Scope tabs and the "Changes" picker on the left, what's shown in the
+   middle, Split/Unified on the right; the sidebar below keeps only the file
+   tree and the comments. Not sticky: the diff scrolls inside its own pane. */
+.wd-dash-difftoolbar {
+  position: relative;
+  flex-shrink: 0;
+  justify-content: flex-start;
+}
+.wd-dash-difftoolbar-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wd-dash-difftoolbar-pick .wd-web-diff-scope {
+  margin-top: 0;
+}
+.wd-dash-difftoolbar .wd-web-difftoolbar-info {
+  flex: 1;
+  align-items: center;
+}
+.wd-dash-difftoolbar .wd-web-difftoolbar-count .wd-add,
+.wd-dash-difftoolbar .wd-web-difftoolbar-count .wd-del {
+  font-variant-numeric: tabular-nums;
+}
+.wd-dash-difftoolbar .wd-web-difftoolbar-controls {
+  margin-left: auto;
+}
+
+/* Loading: a thin bar along the toolbar's bottom edge, over its border —
+   nothing moves, nothing is inserted above the diff. It shows only after a
+   moment, so a quick load (most) shows nothing. */
+.wd-diff-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.wd-diff-progress-on {
+  opacity: 1;
+  transition: opacity 120ms ease 250ms;
+}
+.wd-diff-progress-on::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--accent, #58a6ff);
+  animation: wd-diff-progress 1.1s ease-in-out infinite;
+}
+@keyframes wd-diff-progress {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wd-diff-progress-on::after {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+/* The previous pick's diff while the next loads: a little dimmer after a
+   moment — still readable, never blank, never blurred. */
+.wd-diff-stale-soft {
+  opacity: 0.6;
+  transition: opacity 150ms ease 250ms;
+}
+
+/* "Changes: … ▾" — commits and turns to pick from. */
+.wd-history {
+  position: relative;
+}
+.wd-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wd-history-btn:hover {
+  background: var(--hover);
+}
+.wd-history-btn-tag {
+  color: var(--muted);
+}
+.wd-history-btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Opens under the button, to the right: it sits at the toolbar's left end
+   (the standalone toolbar's rule right-aligns its picker, at the other end). */
+.wd-web-difftoolbar .wd-history-pop {
+  left: 0;
+  right: auto;
+  top: calc(100% + 4px);
+  width: 460px;
+}
+.wd-history-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.wd-history-presets .wd-checkpoint-pop-preset {
+  width: auto;
+}
+.wd-history-row {
+  align-items: center;
+}
+.wd-history-mark {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.wd-history-row-commit .wd-history-mark {
+  color: var(--accent, #58a6ff);
+}
+.wd-history-row-uncommitted .wd-history-mark {
+  color: var(--add-fg, #1a7f37);
+}
+.wd-history-tag {
+  flex-shrink: 0;
+  min-width: 56px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.wd-history-row-commit .wd-history-tag {
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+}
+.wd-history-row-uncommitted .wd-history-tag {
+  color: var(--fg);
+}
+.wd-history-empty {
+  margin: 6px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* A repo of the group with nothing in what's shown: quiet, and last. */
+.wd-web-repo-tab-empty {
+  opacity: 0.55;
+}
+/* No comments yet: one line under the tree instead of half the sidebar. */
+.wd-sidebar-split-bottom.wd-sidebar-comments-none {
+  height: auto;
+  border-top: 1px solid var(--border);
+}
+.wd-sidebar-comments-none .wd-comments-panel-empty {
+  display: none;
+}

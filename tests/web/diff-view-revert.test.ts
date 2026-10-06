@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
+import { pointParam, type DiffPoint } from '../../src/core/diff/diff-points.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Revert calls are recorded too; every diff fetch is recorded (with its range) and answered with one
 // file named after the request, so the test can see which scope loaded.
 const h = vi.hoisted(() => {
-  const calls: Array<{ sessionId: string; base: string; range?: { from: number; to: number } }> = [];
+  const calls: Array<{ sessionId: string; base: string; range?: { from: string; to: string } }> = [];
   const reverts: Array<{ sessionId: string; req: unknown }> = [];
   let revertError: string | null = null;
   let checkpoints: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> = [];
@@ -81,12 +82,13 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
   const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
-    fetchSessionDiff: (sessionId: string, base: string, range?: { from: number; to: number }) => {
-      h.calls.push({ sessionId, base, range });
-      const file = range ? `turn-${range.from}-${range.to}.txt` : `${base}.txt`;
+    fetchSessionDiff: (sessionId: string, base: string, range?: { from: DiffPoint; to: DiffPoint }) => {
+      const r = range && { from: pointParam(range.from), to: pointParam(range.to) };
+      h.calls.push({ sessionId, base, range: r });
+      const file = r ? `${r.from}..${r.to}.txt` : `${base}.txt`;
       return Promise.resolve(h.diffFor(sessionId, file));
     },
-    fetchSessionCheckpoints: () => Promise.resolve(h.checkpoints),
+    fetchSessionHistory: () => Promise.resolve({ entries: h.checkpoints, commits: [] }),
     revertChange: (sessionId: string, req: unknown) => {
       h.reverts.push({ sessionId, req });
       return h.revertError ? Promise.reject(new Error(h.revertError)) : Promise.resolve({ ok: true, description: 'x' });
@@ -181,8 +183,14 @@ describe('DiffView revert', () => {
     await act(async () => tab('Since branch').click());
     await flush();
     expect(button(/^Revert/)).toBeUndefined();
-    await act(async () => tab('Last turn').click());
+    // A turn, from the picker's shortcut.
+    await act(async () => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+    const lastTurn = [...container.querySelectorAll<HTMLButtonElement>('.wd-checkpoint-pop-preset')].find(
+      (b) => b.textContent === 'Last turn',
+    )!;
+    await act(async () => lastTurn.click());
     await flush();
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:0', to: 'cp:1' });
     expect(button(/^Revert/)).toBeUndefined();
   });
 });

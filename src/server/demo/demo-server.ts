@@ -27,8 +27,10 @@ import type {
   SetupWire,
   UpdateWire,
   ReleaseNote,
+  SessionHistoryWire,
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
+import { parsePoint } from '../../core/diff/diff-points.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
 import { cleanOrder } from '../../core/rail/session-order.js';
@@ -239,7 +241,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   app.get('/api/sessions/:id/checkpoints', (c) => {
     const entries = scenario.checkpoints(c.req.param('id'));
-    return entries ? c.json({ scopeHash: `demo-${c.req.param('id')}`, entries }) : notFound(c);
+    const commits = scenario.commits(c.req.param('id')) ?? [];
+    return entries ? c.json({ scopeHash: `demo-${c.req.param('id')}`, entries, commits } satisfies SessionHistoryWire) : notFound(c);
   });
 
   // How far you have looked at a session's diff: in memory, moving forward only (as diff-seen.ts).
@@ -262,8 +265,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const from = c.req.query('from');
     const to = c.req.query('to');
     if (from !== undefined && to !== undefined) {
-      // 'working': up to the working tree, the newest there is.
-      const d = scenario.rangeDiff(c.req.param('id'), Number(from), to === 'working' ? Number.MAX_SAFE_INTEGER : Number(to));
+      const f = parsePoint(from);
+      const t = parsePoint(to);
+      if (!f || !t) return c.json({ error: 'from and to must each be cp:<id>, c:<repo>:<sha>, p:<repo>:<sha>, head or working' }, 400);
+      const d = scenario.pointDiff(c.req.param('id'), f, t);
       return d ? c.json(d) : notFound(c);
     }
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';

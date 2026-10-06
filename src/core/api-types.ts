@@ -260,6 +260,23 @@ export interface DiffSeen {
   at: string;
 }
 
+/** A commit of one of the session's repos since its branch left its base: the Diff tab's picker lists them with the turns. */
+export interface SessionCommit {
+  /** The repo's tab name (its folder). */
+  repo: string;
+  sha: string;
+  subject: string;
+  /** Committer date, ISO: commits and turns are listed in time order. */
+  at: string;
+}
+
+/** GET /api/sessions/:id/checkpoints: its turns, and (additive) its commits since the branch's base. */
+export interface SessionHistoryWire {
+  scopeHash: string;
+  entries: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }>;
+  commits?: SessionCommit[];
+}
+
 // ---- New worktree: is the branch new? (branch-check.ts) -------------------
 
 /** GET /api/branch-check?target=&branch= */

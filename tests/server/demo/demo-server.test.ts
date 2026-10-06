@@ -152,6 +152,21 @@ describe('demo server', () => {
     expect(all.repos[0].files).toHaveLength(2);
   });
 
+  it("lists a branch's commits (its committed files), and a commit diffs to its own file, in its repo only", async () => {
+    const shop = await byBranch('feat/checkout-v2');
+    const { commits } = await get<{ commits: Array<{ repo: string; sha: string; subject: string }> }>(
+      `/api/sessions/${shop.id}/checkpoints`,
+    );
+    expect(commits.length).toBeGreaterThan(0);
+    const c = commits[0];
+    expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
+    const alone = await get<DiffWire>(`/api/sessions/${shop.id}/diff?from=p:${c.repo}:${c.sha}&to=c:${c.repo}:${c.sha}`);
+    expect(alone.repos.map((r) => r.name)).toEqual([c.repo]);
+    expect(alone.repos[0].files).toHaveLength(1);
+    // A point the real server refuses, the demo refuses too.
+    expect((await fetch(server.url + `api/sessions/${shop.id}/diff?from=p:${c.repo}:HEAD&to=working`)).status).toBe(400);
+  });
+
   it('reverts a hunk or a file in the simulated diff and tells Claude', async () => {
     const login = await byBranch('fix/login-redirect');
     const r = await send('POST', `/api/sessions/${login.id}/revert`, { repo: 'web', path: 'src/auth.test.ts' });

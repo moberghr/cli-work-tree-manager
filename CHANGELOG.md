@@ -5,6 +5,14 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## 2.0.3 — 2026-10-06
 
+- The Diff tab, like the standalone review page: one toolbar over the
+  diff, and **Changes ▾** — the branch's commits and Claude's turns in one
+  list, newest first. Click one to see just it, Shift+click for a span
+  across commits and turns, in either scope. Last turn and Since you looked
+  are its shortcuts. Loading keeps the diff on screen with a thin bar under
+  the toolbar; a group opens on the repo that has changes; no comments is
+  one line, not half the sidebar.
+
 - The desktop app shows an update's download as it happens: a progress bar
   with the percentage, on the card and in the version menu, then Restart, then
   "Installing…" until the app is back. The app tells its own window directly,

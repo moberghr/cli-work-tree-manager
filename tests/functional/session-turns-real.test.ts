@@ -112,6 +112,32 @@ describe('session turns', () => {
     expect(files(uncommitted.body)).toEqual(['a.txt', 'b.txt']);
   }, 60_000);
 
+  it("lists the branch's commits beside the turns, and diffs a commit alone, or from a commit to a turn or the working tree", async () => {
+    const id = sessionIdFor({ target: 'repo', branch: 'feat/x' });
+    git(['checkout', '-q', '-b', 'feat/x'], repo);
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'committed\n');
+    git(['add', '.'], repo);
+    git(['commit', '-q', '-m', 'Add a'], repo);
+    const sha = git(['rev-parse', 'HEAD'], repo).stdout;
+    fs.writeFileSync(path.join(repo, 'b.txt'), 'uncommitted\n');
+
+    const history = await get<{ commits: Array<{ repo: string; sha: string; subject: string }> }>(`/api/sessions/${id}/checkpoints`);
+    expect(history.body.commits.map((c) => [c.repo, c.sha, c.subject])).toEqual([['repo', sha, 'Add a']]);
+
+    const alone = await get<DiffWire>(`/api/sessions/${id}/diff?from=p:repo:${sha}&to=c:repo:${sha}`);
+    expect(alone.status).toBe(200);
+    expect(files(alone.body)).toEqual(['a.txt']);
+    const toNow = await get<DiffWire>(`/api/sessions/${id}/diff?from=p:repo:${sha}&to=working`);
+    expect(files(toNow.body)).toEqual(['a.txt', 'b.txt']);
+    const uncommitted = await get<DiffWire>(`/api/sessions/${id}/diff?from=head&to=working`);
+    expect(files(uncommitted.body)).toEqual(['b.txt']);
+
+    // Anything else is refused, never handed to git.
+    for (const bad of ['p:repo:HEAD~1', 'c:repo:--output=x', 'p:other:' + sha]) {
+      expect((await get(`/api/sessions/${id}/diff?from=${encodeURIComponent(bad)}&to=working`)).status).toBe(400);
+    }
+  }, 60_000);
+
   it('404s for an unknown session', async () => {
     expect((await get('/api/sessions/nope/checkpoints')).status).toBe(404);
   });

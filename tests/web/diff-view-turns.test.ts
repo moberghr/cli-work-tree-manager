@@ -3,14 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionSummary } from '../../src/web/src/api/client.js';
+import { pointParam, type DiffPoint } from '../../src/core/diff/diff-points.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Every diff fetch is recorded (with its range) and answered with one
 // file named after the request, so the test can see which scope loaded.
 const h = vi.hoisted(() => {
-  const calls: Array<{ sessionId: string; base: string; range?: { from: number; to: number } }> = [];
+  const calls: Array<{ sessionId: string; base: string; range?: { from: string; to: string } }> = [];
   let checkpoints: Array<{ id: number; ts: string; label?: string; repos: Record<string, string | null> }> = [];
+  let commits: Array<{ repo: string; sha: string; subject: string; at: string }> = [];
   const diffFor = (sessionId: string, file: string) => ({
     sessionId,
     base: 'uncommitted',
@@ -52,6 +54,12 @@ const h = vi.hoisted(() => {
     set checkpoints(v) {
       checkpoints = v;
     },
+    get commits() {
+      return commits;
+    },
+    set commits(v) {
+      commits = v;
+    },
   };
 });
 
@@ -72,12 +80,13 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
   const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
-    fetchSessionDiff: (sessionId: string, base: string, range?: { from: number; to: number }) => {
-      h.calls.push({ sessionId, base, range });
-      const file = range ? `turn-${range.from}-${range.to}.txt` : `${base}.txt`;
+    fetchSessionDiff: (sessionId: string, base: string, range?: { from: DiffPoint; to: DiffPoint }) => {
+      const r = range && { from: pointParam(range.from), to: pointParam(range.to) };
+      h.calls.push({ sessionId, base, range: r });
+      const file = r ? `${r.from}..${r.to}.txt` : `${base}.txt`;
       return Promise.resolve(h.diffFor(sessionId, file));
     },
-    fetchSessionCheckpoints: () => Promise.resolve(h.checkpoints),
+    fetchSessionHistory: () => Promise.resolve({ entries: h.checkpoints, commits: h.commits }),
     fetchCheckpoints: () => Promise.resolve([]),
   };
 });
@@ -91,6 +100,7 @@ beforeEach(() => {
   localStorage.clear();
   h.calls.length = 0;
   h.checkpoints = [];
+  h.commits = [];
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -116,6 +126,34 @@ const flush = () =>
   });
 const tab = (name: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.trim() === name)!;
+const pickerLabel = () => container.querySelector('.wd-history-btn')!.textContent!.replace('▾', '').trim();
+async function openPicker() {
+  if (!container.querySelector('.wd-history-pop'))
+    await act(async () => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+}
+/** The picker's rows, newest first, as their tag and title read. */
+async function rows() {
+  await openPicker();
+  return [...container.querySelectorAll('.wd-history-row')].map((r) =>
+    [r.querySelector('.wd-history-tag')!.textContent, r.querySelector('.wd-checkpoint-pop-label')!.textContent].join(' ').trim(),
+  );
+}
+async function clickRow(tag: string, shift = false) {
+  await openPicker();
+  const row = [...container.querySelectorAll<HTMLButtonElement>('.wd-history-row')].find(
+    (r) => r.querySelector('.wd-history-tag')!.textContent === tag,
+  )!;
+  await act(async () => row.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: shift })));
+  await flush();
+}
+async function preset(name: string) {
+  await openPicker();
+  const b = [...container.querySelectorAll<HTMLButtonElement>('.wd-checkpoint-pop-preset')].find((x) => x.textContent?.startsWith(name));
+  if (!b) return false;
+  await act(async () => b.click());
+  await flush();
+  return true;
+}
 
 async function render(id = 's1', startOnLastTurn = false) {
   await act(async () => {
@@ -124,49 +162,72 @@ async function render(id = 's1', startOnLastTurn = false) {
   await flush();
 }
 
-describe('DiffView "Last turn"', () => {
-  it('is disabled until a turn has finished', async () => {
+describe('DiffView: the Changes picker (commits and turns)', () => {
+  it('is always there: with nothing finished yet it lists what is uncommitted, and no Last turn', async () => {
     h.checkpoints = [entry(0, 'Initial')];
     await render();
-    expect(tab('Last turn').disabled).toBe(true);
-    expect(tab('Last turn').title).toMatch(/No finished turn/);
+    expect(pickerLabel()).toBe('Changes: all');
+    expect(await rows()).toEqual(['Uncommitted']);
+    expect(container.textContent).toContain('No commits on this branch and no finished turns yet.');
+    expect(await preset('Last turn')).toBe(false);
   });
 
-  it("shows only the newest turn's range, and earlier turns from the picker", async () => {
+  it('a turn alone, another, then a span (Shift+click); a scope tab drops it', async () => {
     h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(2, 'Fixed review')];
     await render();
     expect(container.textContent).toContain('uncommitted.txt');
+    expect(await rows()).toEqual(['Uncommitted', 'Turn 2 Fixed review', 'Turn 1 Wrote it']);
 
-    await act(async () => tab('Last turn').click());
-    await flush();
-    expect(h.calls.at(-1)?.range).toEqual({ from: 1, to: 2 });
-    expect(container.textContent).toContain('turn-1-2.txt');
-    expect(tab('Last turn').getAttribute('aria-selected')).toBe('true');
+    await clickRow('Turn 2');
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:1', to: 'cp:2' });
+    expect(container.textContent).toContain('cp:1..cp:2.txt');
+    expect(pickerLabel()).toBe('Changes: Turn 2 · Fixed review');
     expect(tab('Uncommitted').getAttribute('aria-selected')).toBe('false');
+    expect(tab('Since branch').getAttribute('aria-selected')).toBe('false');
 
-    const picker = container.querySelector<HTMLSelectElement>('select[aria-label="Which turn"]')!;
-    expect([...picker.options].map((o) => o.textContent)).toEqual(['2 · Fixed review', '1 · Wrote it']);
-    await act(async () => {
-      picker.value = '1';
-      picker.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await flush();
-    expect(h.calls.at(-1)?.range).toEqual({ from: 0, to: 1 });
-    expect(container.textContent).toContain('turn-0-1.txt');
+    await clickRow('Turn 1');
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:0', to: 'cp:1' });
+    // Shift+click: from the last click to it — turn 1 up to what is uncommitted.
+    await clickRow('Uncommitted', true);
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:0', to: 'working' });
+    expect(pickerLabel()).toBe('Changes: Turn 1 → Uncommitted');
 
-    // Back to a plain scope drops the range.
     await act(async () => tab('Since branch').click());
     await flush();
     expect(h.calls.at(-1)).toMatchObject({ base: 'branch', range: undefined });
-    expect(container.querySelector('select[aria-label="Which turn"]')).toBeNull();
+    expect(pickerLabel()).toBe('Changes: all');
   });
 
-  it('opened to review finished work, it starts on the last turn — once, then the buttons are yours', async () => {
+  it("lists the branch's commits among the turns by time; a commit alone, or from it to the working tree", async () => {
+    h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(3, 'Fixed review')];
+    const sha = '604e66a1b2c3d4e5f60718293a4b5c6d7e8f9012';
+    h.commits = [{ repo: 'repo', sha, subject: 'Commit the first part', at: '2026-09-01T00:02:00Z' }];
+    await render();
+    expect(await rows()).toEqual(['Uncommitted', 'Turn 2 Fixed review', '604e66a Commit the first part', 'Turn 1 Wrote it']);
+    await clickRow('604e66a');
+    expect(h.calls.at(-1)?.range).toEqual({ from: `p:repo:${sha}`, to: `c:repo:${sha}` });
+    expect(pickerLabel()).toBe('Changes: 604e66a · Commit the first part');
+    await clickRow('Uncommitted', true);
+    expect(h.calls.at(-1)?.range).toEqual({ from: `p:repo:${sha}`, to: 'working' });
+  });
+
+  it('what is uncommitted, picked alone, is the Uncommitted scope (the one Revert works in)', async () => {
+    h.checkpoints = [entry(0), entry(1)];
+    await render();
+    await clickRow('Turn 1');
+    await clickRow('Uncommitted');
+    expect(h.calls.at(-1)).toMatchObject({ base: 'uncommitted', range: undefined });
+    expect(tab('Uncommitted').getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('DiffView "Last turn"', () => {
+  it('opened to review finished work, it starts on the last turn — once, then the picks are yours', async () => {
     h.checkpoints = [entry(0), entry(1), entry(2)];
     await render('s1', true);
     await flush();
-    expect(h.calls.at(-1)?.range).toEqual({ from: 1, to: 2 });
-    expect(tab('Last turn').getAttribute('aria-selected')).toBe('true');
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:1', to: 'cp:2' });
+    expect(pickerLabel()).toBe('Changes: Last turn');
     await act(async () => tab('Uncommitted').click());
     await flush();
     await render('s1', true); // a re-render (SSE refresh) doesn't pull you back
@@ -177,12 +238,11 @@ describe('DiffView "Last turn"', () => {
     expect(h.calls.at(-1)).toMatchObject({ sessionId: 's2', range: undefined });
   });
 
-  it('switching sessions leaves turn mode', async () => {
+  it('is a shortcut in the picker; switching sessions starts over on Uncommitted', async () => {
     h.checkpoints = [entry(0), entry(1)];
     await render('s1');
-    await act(async () => tab('Last turn').click());
-    await flush();
-    expect(h.calls.at(-1)?.range).toEqual({ from: 0, to: 1 });
+    expect(await preset('Last turn')).toBe(true);
+    expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:0', to: 'cp:1' });
     await render('s2');
     expect(h.calls.at(-1)).toMatchObject({ sessionId: 's2', range: undefined });
   });

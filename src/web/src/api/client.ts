@@ -1,5 +1,8 @@
 import type { Comment, CommentAuthor, CommentStatus, CommentSide } from '../../../core/comments/comment-types.js';
-import type { UpdateFromMainWire } from '../../../core/api-types.js';
+import type { SessionCommit, SessionHistoryWire, UpdateFromMainWire } from '../../../core/api-types.js';
+import { pointParam, type DiffPoint } from '../../../core/diff/diff-points.js';
+export type { DiffPoint } from '../../../core/diff/diff-points.js';
+export type { SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import type {
@@ -536,36 +539,27 @@ export async function markDiffSeen(sessionId: string, checkpointId: number): Pro
   if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
 }
 
+/** A session's diff: a scope (uncommitted, since branch), or a range between two points (diff-points.ts). */
 export function fetchSessionDiff(
   sessionId: string,
   base: DiffBase = 'uncommitted',
-  range?: { from: number; to: number | 'working' },
+  range?: { from: DiffPoint; to: DiffPoint },
 ): Promise<SessionDiff> {
-  const q = range ? `?from=${range.from}&to=${range.to}` : base === 'branch' ? '?base=branch' : '';
+  const q = range
+    ? `?from=${encodeURIComponent(pointParam(range.from))}&to=${encodeURIComponent(pointParam(range.to))}`
+    : base === 'branch'
+      ? '?base=branch'
+      : '';
   return getJson<SessionDiff>(`/api/sessions/${encodeURIComponent(sessionId)}/diff${q}`);
 }
 
-/** A session's checkpoint history: one step per Claude instruction, taken
- *  when its turn ends (the first entry is the baseline). */
-export function fetchSessionCheckpoints(sessionId: string): Promise<CheckpointEntry[]> {
-  return getJson<{ entries: CheckpointEntry[] }>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => r.entries);
-}
-
-/** Consecutive checkpoint pairs = turns, newest first. */
-export interface TurnRange {
-  from: number;
-  to: number;
-  /** 1-based turn number. */
-  n: number;
-  label?: string;
-  ts: string;
-}
-export function turnsFrom(entries: CheckpointEntry[]): TurnRange[] {
-  const out: TurnRange[] = [];
-  for (let i = 1; i < entries.length; i++) {
-    out.push({ from: entries[i - 1].id, to: entries[i].id, n: i, label: entries[i].label, ts: entries[i].ts });
-  }
-  return out.reverse();
+/** A session's history: its turns (checkpoints, one per Claude instruction, taken when
+ *  its turn ends; the first is the baseline) and its commits since the branch's base. */
+export function fetchSessionHistory(sessionId: string): Promise<{ entries: CheckpointEntry[]; commits: SessionCommit[] }> {
+  return getJson<SessionHistoryWire>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => ({
+    entries: r.entries,
+    commits: r.commits ?? [],
+  }));
 }
 
 /** What the dashboard shows, for the Ctrl+K assistant's context. */

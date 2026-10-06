@@ -55,7 +55,8 @@ export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors }: F
     <div className="wd-tree-pane">
       <input className="wd-web-filter" type="search" placeholder="Filter files…" value={query} onChange={(e) => setQuery(e.target.value)} />
       {tree.length === 0 ? (
-        <p className="wd-web-empty-list">No matches.</p>
+        // "No matches" only answers a filter: with none typed, there's simply nothing here.
+        <p className="wd-web-empty-list">{q ? `No file matches “${query.trim()}”.` : 'No changes in this repo here.'}</p>
       ) : (
         <ul className="wd-tree-root">
           {tree.map((n, i) => (

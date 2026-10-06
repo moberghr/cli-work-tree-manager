@@ -29,7 +29,9 @@ import type {
   CleanupAction,
   CleanupCandidate,
   CleanupState,
+  SessionCommit,
 } from '../../core/api-types.js';
+import type { DiffPoint } from '../../core/diff/diff-points.js';
 import type { AgentState } from '../../core/status/attention.js';
 import type { PullRequestInfo } from '../../core/pr/pr.js';
 import type { JiraIssue } from '../../core/jira/jira.js';
@@ -877,6 +879,60 @@ export class DemoScenario {
     return entries;
   }
 
+  /**
+   * The branch's commits since its base, oldest first: one per file the
+   * branch diff has that isn't uncommitted (at most three), before the first
+   * turn. The Diff tab lists them with the turns (`commits` on the wire).
+   */
+  private commitList(s: DemoSession, r: DemoRepo): Array<SessionCommit & { files: ParsedFile[] }> {
+    const uncommitted = new Set(parseGitDiff(r.uncommitted).map((f) => f.path));
+    const committed = parseGitDiff(r.sinceBranch).filter((f) => !uncommitted.has(f.path));
+    const base = Date.parse(s.lastAccessedAt);
+    return committed.slice(0, 3).map((f, i, all) => ({
+      repo: r.name,
+      sha: demoSha(`${s.id}:${r.name}:${f.path}`),
+      subject: `${f.status === 'added' ? 'Add' : 'Update'} ${f.path.split('/').pop()}`,
+      at: new Date(base - (90 - (i * 40) / Math.max(1, all.length)) * 60_000).toISOString(),
+      files: [f],
+    }));
+  }
+
+  commits(id: string): SessionCommit[] | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return s.repos.flatMap((r) => this.commitList(s, r).map(({ files: _files, ...c }) => c)).reverse();
+  }
+
+  /** A range between two points (diff-points.ts), as the real server answers it: a commit's range is its repo's alone. */
+  pointDiff(id: string, from: DiffPoint, to: DiffPoint): ReturnType<DemoScenario['rangeDiff']> {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const cpOf = (p: DiffPoint, fallback: number) =>
+      p.kind === 'checkpoint' ? p.id : p.kind === 'working' ? Number.MAX_SAFE_INTEGER : fallback;
+    const repoName =
+      from.kind === 'commit' || from.kind === 'parent' ? from.repo : to.kind === 'commit' || to.kind === 'parent' ? to.repo : null;
+    if (!repoName) return this.rangeDiff(id, cpOf(from, 0), cpOf(to, 0));
+    const r = s.repos.find((x) => x.name === repoName);
+    if (!r) return null;
+    const list = this.commitList(s, r);
+    const at = (p: DiffPoint) => list.findIndex((c) => (p.kind === 'commit' || p.kind === 'parent') && c.sha === p.sha);
+    const start = from.kind === 'parent' ? at(from) : from.kind === 'commit' ? at(from) + 1 : list.length;
+    const end = to.kind === 'commit' ? at(to) + 1 : list.length;
+    const files = list.slice(Math.max(0, start), Math.max(0, end)).flatMap((c) => c.files);
+    // Ending at a turn or the working tree: the turns' changes too.
+    if (to.kind !== 'commit' && to.kind !== 'parent') {
+      const turns = this.rangeDiff(id, from.kind === 'checkpoint' ? from.id : 0, cpOf(to, 0));
+      files.push(...(turns?.repos.find((x) => x.name === repoName)?.files ?? []));
+    }
+    const resolvedBase = 'range';
+    return {
+      sessionId: id,
+      base: 'range',
+      resolvedBase,
+      repos: [{ name: r.name, root: `~/worktrees/${s.target}/${r.name}`, files, resolvedBase }],
+    };
+  }
+
   /** The files a checkpoint range changed — see checkpoints(). */
   rangeDiff(
     id: string,
@@ -1478,4 +1534,15 @@ function claudeScreen(prompt: string, lines: string[]): string[] {
     ...(prompt ? [`> ${prompt}`, ''] : []),
     ...lines,
   ];
+}
+
+/** A made-up commit name, stable for its input: 40 hex digits. */
+function demoSha(seed: string): string {
+  let h = 2166136261;
+  let out = '';
+  while (out.length < 40) {
+    for (const ch of seed + out.length) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+    out += h.toString(16).padStart(8, '0');
+  }
+  return out.slice(0, 40);
 }
