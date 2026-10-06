@@ -32,15 +32,25 @@ export const UNCOMMITTED_KEY = 'u';
  */
 export function historyItems(entries: CheckpointEntry[], commits: SessionCommit[], repo: string | null): HistoryItem[] {
   const sorted = [...entries].sort((a, b) => a.id - b.id);
-  const turns: HistoryItem[] = sorted.slice(1).map((e, i) => ({
-    key: `t:${e.id}`,
-    kind: 'turn',
-    title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
-    tag: `Turn ${i + 1}`,
-    at: e.ts,
-    before: { kind: 'checkpoint', id: sorted[i].id },
-    after: { kind: 'checkpoint', id: e.id },
-  }));
+  // A turn is named by its checkpoint id (they count up from Initial's 0), so its
+  // number never shifts. One whose predecessor is gone (the oldest turns are
+  // dropped past MAX_CHECKPOINTS) isn't listed: diffed from Initial it would show
+  // every dropped turn as its own. It stays inside spans and the branch's scope.
+  const turns: HistoryItem[] = sorted.flatMap((e, i): HistoryItem[] =>
+    i === 0 || sorted[i - 1].id !== e.id - 1
+      ? []
+      : [
+          {
+            key: `t:${e.id}`,
+            kind: 'turn',
+            title: e.label && e.label.trim() && e.label !== 'Initial' ? e.label.trim() : '',
+            tag: `Turn ${e.id}`,
+            at: e.ts,
+            before: { kind: 'checkpoint', id: sorted[i - 1].id },
+            after: { kind: 'checkpoint', id: e.id },
+          },
+        ],
+  );
   const own: HistoryItem[] = commits
     .filter((c) => repo === null || c.repo === repo)
     .map((c) => ({
@@ -140,11 +150,26 @@ export function sinceLooked(items: HistoryItem[], entries: CheckpointEntry[], se
   };
 }
 
+/**
+ * A selection's name while it still says what it shows: "Last turn" only
+ * while no newer turn came (the diff stays on the turn picked — nothing is
+ * swapped under a reader — and is then called by its own name).
+ */
+export function liveLabel(items: HistoryItem[], sel: DiffSelection): string | undefined {
+  if (sel.kind !== 'range' || !sel.label) return undefined;
+  if (sel.label === 'Last turn') {
+    const newest = [...items].reverse().find((x) => x.kind === 'turn');
+    if (newest?.key !== sel.toKey) return undefined;
+  }
+  return sel.label;
+}
+
 /** How the picker's button names what's shown. */
 export function selectionLabel(items: HistoryItem[], sel: DiffSelection): string {
   // A scope is named by its tab; the picker then says it shows all of it.
   if (sel.kind === 'scope') return 'all';
-  if (sel.label) return sel.label;
+  const label = liveLabel(items, sel);
+  if (label) return label;
   const s = span(items, sel);
   if (!s) return 'Uncommitted';
   const [a, b] = [items[s[0]], items[s[1]]];

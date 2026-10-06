@@ -493,6 +493,45 @@ export function headAdvancedSinceInitial(scopeHash: string, repos: ScopeRepo[]):
   });
 }
 
+/**
+ * A session's scope keeps its turns across its own commits, but not across
+ * a HEAD move that brought in work the session didn't do: the next turn,
+ * diffed against the one before, would show all of it as Claude's. Since the
+ * newest checkpoint (whose snapshot commit's parent is the HEAD then): a
+ * rebase or reset (that HEAD is no longer underneath), a merge (Update from
+ * main, a pull that merged), or commits already on the main branch
+ * (`origin/HEAD`: a fast-forward pull, a rebase onto main) — true; only new
+ * commits of its own on top — false. Can't tell (git failed): false.
+ */
+export function headBroughtInOtherWork(scopeHash: string, repos: ScopeRepo[]): boolean {
+  const entries = loadManifest(scopeHash).entries;
+  if (entries.length === 0) return false;
+  const newest = entries.reduce((a, b) => (b.id > a.id ? b : a));
+  const run = (root: string, args: string[]) => {
+    const r = spawn.sync('git', args, { cwd: root, encoding: 'utf-8', windowsHide: true });
+    return { ok: r.status === 0, out: typeof r.stdout === 'string' ? r.stdout.trim() : '' };
+  };
+  const count = (root: string, args: string[]) => {
+    const r = run(root, ['rev-list', '--count', ...args]);
+    return r.ok && /^\d+$/.test(r.out) ? Number(r.out) : null;
+  };
+  return repos.some((repo) => {
+    const snap = newest.repos[repo.name];
+    if (!snap) return false;
+    const was = run(repo.root, ['rev-parse', '--verify', '--quiet', `${snap}^`]);
+    const now = run(repo.root, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+    if (!was.ok || !now.ok || !was.out || was.out === now.out) return false;
+    if (!run(repo.root, ['merge-base', '--is-ancestor', was.out, now.out]).ok) return true;
+    const range = `${was.out}..${now.out}`;
+    if ((count(repo.root, ['--merges', range]) ?? 0) > 0) return true;
+    const main = run(repo.root, ['rev-parse', '--verify', '--quiet', 'origin/HEAD']);
+    if (!main.ok) return false;
+    const all = count(repo.root, [range]);
+    const own = count(repo.root, [range, '^origin/HEAD']);
+    return all !== null && own !== null && own < all;
+  });
+}
+
 /** Remove the manifest + every ref for this scope. Called when a scope
  *  is explicitly torn down. Best-effort — partial failure leaves orphaned
  *  refs but doesn't otherwise corrupt state. */

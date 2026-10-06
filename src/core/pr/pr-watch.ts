@@ -180,9 +180,10 @@ export function autoArchiveVerdict(
 ): { archive: true } | { archive: false; why: string } | null {
   const merged = pre.repos.filter((r) => r.pr?.state === 'MERGED');
   if (merged.length === 0) return null;
-  // A repo GitHub didn't answer for may have an open PR: never archive on a guess.
-  const unread = pre.repos.filter((r) => !r.pr && r.ghError);
-  if (unread.length) return { archive: false, why: `couldn't read ${unread.map((r) => r.name).join(', ')} on GitHub` };
+  // A repo GitHub didn't answer for may have an open PR, and one git couldn't read may hold
+  // anything: never archive on a guess.
+  const unread = pre.repos.filter((r) => (!r.pr && r.ghError) || r.gitError);
+  if (unread.length) return { archive: false, why: `couldn't read ${unread.map((r) => r.name).join(', ')}` };
   // A merged repo isn't done while there is work beyond the merge (repoDone):
   // say which, rather than "not merged" about a merged PR.
   // Every repo that holds it, each with its reason: one merged with work left in it must not hide another not merged at all.

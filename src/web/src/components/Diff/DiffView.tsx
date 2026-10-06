@@ -32,6 +32,7 @@ import { fileSignature, newestCheckpoint } from '../../state/diff-seen.js';
 import {
   historyItems,
   lastTurn,
+  liveLabel,
   selectionKey,
   selectionRange,
   sinceLooked,
@@ -75,17 +76,31 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
   const historyFor = useRef(session.id);
   historyFor.current = session.id;
   const historyAt = useRef(0);
+  // Its turns' scope: every Diff tab hears every session's checkpoints-changed.
+  const scopeHash = useRef<string | null>(null);
+  const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadHistory = () => {
     const id = session.id;
     historyAt.current = Date.now();
     fetchSessionHistory(id).then(
       (h) => {
         if (historyFor.current !== id) return;
+        scopeHash.current = h.scopeHash;
         setEntries(h.entries);
         setCommits(h.commits);
       },
       () => historyFor.current === id && setEntries([]),
     );
+  };
+  // At most once per HISTORY_RELOAD_MS, and never dropped: a change inside the
+  // window is read at its end (a commit made right after a turn must show up).
+  const loadHistorySoon = () => {
+    const wait = HISTORY_RELOAD_MS - (Date.now() - historyAt.current);
+    if (wait <= 0) return loadHistory();
+    historyTimer.current ??= setTimeout(() => {
+      historyTimer.current = null;
+      loadHistory();
+    }, wait);
   };
   // "Since you looked": how far you had looked when this visit began (kept for
   // the whole visit; looking now moves the server's mark, not this one).
@@ -96,6 +111,9 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     setCommits([]);
     setSeenAtOpen(undefined);
     pickedRepo.current = null;
+    scopeHash.current = null;
+    if (historyTimer.current) clearTimeout(historyTimer.current);
+    historyTimer.current = null;
     loadHistory();
     const id = session.id;
     fetchDiffSeen(id).then(
@@ -104,6 +122,12 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+  useEffect(
+    () => () => {
+      if (historyTimer.current) clearTimeout(historyTimer.current);
+    },
+    [],
+  );
 
   const isGroup = session.paths.length > 1;
   // Every repo's commits, for what a pick means (a commit of another repo
@@ -138,6 +162,10 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
   const range = selectionRange(allItems, selection);
   const shown: DiffSelection = selection.kind === 'range' && !range ? UNCOMMITTED : selection;
   const base = shown.kind === 'scope' ? shown.base : 'uncommitted';
+  // A span from or to a commit is that commit's repo alone (rangeRefs): say so in a group.
+  const commitRepo = range
+    ? ([range.from, range.to].map((p) => (p.kind === 'commit' || p.kind === 'parent' ? p.repo : null)).find((r) => r) ?? null)
+    : null;
   const {
     data: diff,
     error,
@@ -160,10 +188,13 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
       // up here too, so the commit list is read again (not too often).
       'diff-changed': () => {
         checkForUpdates();
-        if (Date.now() - historyAt.current > HISTORY_RELOAD_MS) loadHistory();
+        loadHistorySoon();
       },
-      // A turn finished → a new checkpoint (and maybe commits).
-      'checkpoints-changed': () => loadHistory(),
+      // A turn finished → a new checkpoint (and maybe commits): this session's, not another's.
+      'checkpoints-changed': (d) => {
+        const hash = (d as { scopeHash?: string } | null)?.scopeHash;
+        if (!hash || !scopeHash.current || hash === scopeHash.current) loadHistory();
+      },
     },
   });
 
@@ -300,6 +331,8 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
           </button>
         </div>
         <HistoryPicker
+          // A Shift+click span starts at the last click in this session and this repo's list, never another's.
+          key={`${session.id}:${isGroup ? activeRepoName : ''}`}
           items={items}
           selection={shown}
           onSelect={setSelection}
@@ -324,6 +357,14 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
         )}
         {diff && shown.kind === 'scope' && shown.base === 'branch' && diff.resolvedBase && diff.resolvedBase !== 'HEAD' && (
           <span className="wd-web-difftoolbar-compare wd-web-muted">vs {diff.resolvedBase}</span>
+        )}
+        {commitRepo && isGroup && (
+          <span
+            className="wd-web-difftoolbar-compare wd-web-muted"
+            title="A commit belongs to one repo: a span from or to one shows that repo's changes"
+          >
+            {commitRepo} only
+          </span>
         )}
         {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
       </div>
@@ -358,7 +399,7 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
 
   const isEmpty = totalFiles === 0 || !activeRepo;
   const hasTabs = diff.repos.length > 1;
-  const emptyMessage = emptyDiffMessage(shown, diff.resolvedBase, selection.kind === 'range' ? selection.label : undefined);
+  const emptyMessage = emptyDiffMessage(shown, diff.resolvedBase, liveLabel(allItems, shown));
 
   return (
     <ReviewProvider api={api}>

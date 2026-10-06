@@ -11,6 +11,7 @@ import { git } from '../../core/git/git.js';
 import {
   clearCheckpoints,
   headAdvancedSinceInitial,
+  headBroughtInOtherWork,
   loadManifest,
   resetBaseline,
   setCheckpointLabel,
@@ -193,19 +194,23 @@ export function mountScopeRoutes(
    * Returns true when it reset. Idempotent: once Initial == HEAD, returns
    * false until HEAD moves again (no reload loop).
    *
-   * Not a session's scope: its turns are the session's history, listed in
-   * the Diff tab beside its commits — a session where Claude committed each
-   * step was left with nothing but "Initial".
+   * A session's scope keeps its turns across its own commits: they are its
+   * history, listed in the Diff tab beside the commits (a session where
+   * Claude committed each step was left with nothing but "Initial"). Work
+   * that came from elsewhere — a pull, a merge, a rebase onto main — still
+   * re-baselines it (headBroughtInOtherWork), or the next turn would show
+   * all of it as Claude's.
    */
   async function rebaselineIfHeadAdvanced(hash: string, paths: string[]): Promise<boolean> {
+    const repos = scopeRepos(paths);
     if (
       sessionOwnsScope(
         hash,
         loadHistory().map((s) => s.paths),
-      )
+      ) &&
+      !headBroughtInOtherWork(hash, repos)
     )
       return false;
-    const repos = scopeRepos(paths);
     // Cheap pre-check OUTSIDE the lock so the common no-commit path (every
     // checkpoint event) stays lock-free. A benign TOCTOU remains — two
     // concurrent callers may both reset — but `resetBaseline` is atomic and

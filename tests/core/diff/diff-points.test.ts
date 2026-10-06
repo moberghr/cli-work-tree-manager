@@ -13,6 +13,8 @@ describe('parsePoint / pointParam', () => {
       { kind: 'working' },
     ];
     for (const p of points) expect(parsePoint(pointParam(p))).toEqual(p);
+    // A folder with spaces (common on Windows) is a repo name like any other.
+    expect(parsePoint(`c:My App:${SHA}`)).toEqual({ kind: 'commit', repo: 'My App', sha: SHA });
     // A bare id, as before: a checkpoint.
     expect(parsePoint('2')).toEqual({ kind: 'checkpoint', id: 2 });
   });

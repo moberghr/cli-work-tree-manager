@@ -561,6 +561,8 @@ export interface RepoShipState {
   localSha: string;
   /** Uncommitted (incl. untracked) files — shipping needs a clean tree. */
   dirtyFiles: number;
+  /** git couldn't read the working tree (a timeout under load): its facts are unknown, so it's never done. */
+  gitError?: string;
   /** The branch exists on origin (`origin/<branch>`), whatever the local
    *  tracking config says — `work tree` often leaves it tracking the base. */
   hasUpstream: boolean;

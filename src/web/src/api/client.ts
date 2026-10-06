@@ -555,8 +555,11 @@ export function fetchSessionDiff(
 
 /** A session's history: its turns (checkpoints, one per Claude instruction, taken when
  *  its turn ends; the first is the baseline) and its commits since the branch's base. */
-export function fetchSessionHistory(sessionId: string): Promise<{ entries: CheckpointEntry[]; commits: SessionCommit[] }> {
+export function fetchSessionHistory(
+  sessionId: string,
+): Promise<{ scopeHash: string; entries: CheckpointEntry[]; commits: SessionCommit[] }> {
   return getJson<SessionHistoryWire>(`/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`).then((r) => ({
+    scopeHash: r.scopeHash,
     entries: r.entries,
     commits: r.commits ?? [],
   }));

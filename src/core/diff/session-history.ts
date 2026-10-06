@@ -12,13 +12,23 @@ import type { ParsedFile } from './diff-parse.js';
 /** More commits than this on one branch: the newest are listed. */
 const MAX_COMMITS = 200;
 
+/** Sessions' commit lists, by their repos' HEADs (and bases): one `rev-parse` per repo while nothing moved. */
+const commitCache = new Map<string, SessionCommit[]>();
+const COMMIT_CACHE_MAX = 50;
+
 /**
  * Each repo's commits since the branch left its base (the "Since branch"
  * diff's merge-base), newest first: what the Diff tab's picker lists beside
  * the checkpoints. A repo with no base found lists none. A read: git log
- * only.
+ * only — and only when a HEAD moved: every open Diff tab asks after each
+ * turn, and finding the base (parent detection, merge-base) is several git
+ * runs per repo.
  */
 export function sessionCommits(session: Pick<WorktreeSession, 'paths' | 'baseBranch' | 'baseBranches'>): SessionCommit[] {
+  const heads = session.paths.map((root) => git(['rev-parse', '--verify', '--quiet', 'HEAD'], root).stdout);
+  const key = JSON.stringify([session.paths, heads, session.baseBranch ?? null, session.baseBranches ?? null]);
+  const cached = commitCache.get(key);
+  if (cached) return cached;
   const out: SessionCommit[] = [];
   for (const root of session.paths) {
     const { diffArg } = resolveRepoDiff(root, 'branch', session.baseBranches?.[root] ?? session.baseBranch);
@@ -30,6 +40,8 @@ export function sessionCommits(session: Pick<WorktreeSession, 'paths' | 'baseBra
       if (sha && at) out.push({ repo: path.basename(root), sha, at, subject: subject ?? '' });
     }
   }
+  if (commitCache.size >= COMMIT_CACHE_MAX) commitCache.delete(commitCache.keys().next().value!);
+  commitCache.set(key, out);
   return out;
 }
 
@@ -43,7 +55,10 @@ export function computeSessionRange(
   from: DiffPoint,
   to: DiffPoint,
 ): SessionRangeDiff | { error: string } {
-  const refs = rangeRefs(session.paths, loadManifest(scopeHashForPaths(session.paths)).entries, from, to);
+  // The manifest is keyed by the scope's paths, which are resolved: a stored path written
+  // another way (slashes, a trailing separator) would miss every snapshot and read HEAD.
+  const paths = session.paths.map((p) => path.resolve(p));
+  const refs = rangeRefs(paths, loadManifest(scopeHashForPaths(paths)).entries, from, to);
   if ('error' in refs) return refs;
   return { repos: refs.map((r) => ({ name: r.name, root: r.root, files: computeRangeDiff(r) })) };
 }

@@ -136,6 +136,8 @@ export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'un
   // Merged AND nothing since: a follow-up commit (pushed or not) or an
   // edit after the merge is new work — it must stay visible, get pushed,
   // and block archiving until it's shipped too.
+  // A tree git couldn't read may hold anything: never done on a guess.
+  if (r.gitError) return { done: false };
   if (r.pr?.state === 'MERGED') {
     const nothingSince = r.dirtyFiles === 0 && !r.ahead && (!r.localSha || r.localSha === r.pr.headSha);
     return nothingSince ? { done: true, reason: 'merged' } : { done: false };
@@ -151,6 +153,7 @@ export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'un
 export function mergeBlockers(r: RepoFacts): string[] {
   if (repoDone(r).done) return [];
   const out: string[] = [];
+  if (r.gitError) out.push(r.gitError);
   if (r.ghError) out.push(r.ghError);
   if (r.dirtyFiles > 0) out.push(`${r.dirtyFiles} uncommitted file${r.dirtyFiles === 1 ? '' : 's'} — commit or stash first`);
   if (!r.hasUpstream) out.push('branch not pushed yet');
@@ -209,6 +212,8 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
   const localSha = (await git('rev-parse', 'HEAD')).stdout.trim();
   const status = await git('status', '--porcelain');
   const dirtyFiles = status.stdout.split('\n').filter((l) => l.trim()).length;
+  const gitError =
+    status.code === 0 ? undefined : `git couldn't read the working tree (${oneLineErr(status.stderr) || `exit ${status.code}`})`;
 
   // "Published" = origin/<branch> exists — NOT whatever @{u} points at.
   // `work tree` forks branches tracking origin/main, so @{u} is often the
@@ -304,6 +309,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
     pr,
     ghError,
     commitsVsBase,
+    ...(gitError ? { gitError } : {}),
   };
   const { done, reason } = repoDone(facts);
   return { ...facts, done, doneReason: reason, mergeBlockers: mergeBlockers(facts) };

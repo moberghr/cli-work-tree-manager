@@ -18,8 +18,9 @@ export type DiffPoint =
 
 /** A full or abbreviated object name: the only thing a commit point may carry to git. */
 const SHA = /^[0-9a-f]{7,40}$/;
-/** A repo's name as the session's tabs show it (its folder): no separator, nothing git could read as an option. */
-const REPO = /^[^:/\\\s-][^:/\\\s]*$/;
+/** A repo's name as the session's tabs show it (its folder, spaces and all — "My App"): no separator.
+ *  It only picks one of the session's repos by name; git never sees it. */
+const REPO = /^[^:/\\-][^:/\\]*$/;
 
 export function parsePoint(raw: string | undefined | null): DiffPoint | null {
   if (!raw) return null;

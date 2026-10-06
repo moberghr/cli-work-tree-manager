@@ -63,7 +63,11 @@ const h = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
+// The event stream: a test fires events as work web would.
+const sse = vi.hoisted(() => ({ handlers: {} as Record<string, (d: unknown) => void>, historyCalls: 0 }));
+vi.mock('../../src/web/src/api/events.js', () => ({
+  useSse: (_path: string, o: { events: Record<string, (d: unknown) => void> }) => void Object.assign(sse.handlers, o.events),
+}));
 vi.mock('../../src/web/src/api/review-api.js', () => ({
   sessionReviewApi: () => ({
     fetch: () => Promise.resolve([]),
@@ -86,7 +90,10 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
       const file = r ? `${r.from}..${r.to}.txt` : `${base}.txt`;
       return Promise.resolve(h.diffFor(sessionId, file));
     },
-    fetchSessionHistory: () => Promise.resolve({ entries: h.checkpoints, commits: h.commits }),
+    fetchSessionHistory: () => {
+      sse.historyCalls++;
+      return Promise.resolve({ scopeHash: 'scope-of-s', entries: h.checkpoints, commits: h.commits });
+    },
     fetchCheckpoints: () => Promise.resolve([]),
   };
 });
@@ -199,9 +206,9 @@ describe('DiffView: the Changes picker (commits and turns)', () => {
   });
 
   it("lists the branch's commits among the turns by time; a commit alone, or from it to the working tree", async () => {
-    h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(3, 'Fixed review')];
+    h.checkpoints = [entry(0, 'Initial'), entry(1, 'Wrote it'), entry(2, 'Fixed review')];
     const sha = '604e66a1b2c3d4e5f60718293a4b5c6d7e8f9012';
-    h.commits = [{ repo: 'repo', sha, subject: 'Commit the first part', at: '2026-09-01T00:02:00Z' }];
+    h.commits = [{ repo: 'repo', sha, subject: 'Commit the first part', at: '2026-09-01T00:01:30Z' }];
     await render();
     expect(await rows()).toEqual(['Uncommitted', 'Turn 2 Fixed review', '604e66a Commit the first part', 'Turn 1 Wrote it']);
     await clickRow('604e66a');
@@ -245,5 +252,57 @@ describe('DiffView "Last turn"', () => {
     expect(h.calls.at(-1)?.range).toEqual({ from: 'cp:0', to: 'cp:1' });
     await render('s2');
     expect(h.calls.at(-1)).toMatchObject({ sessionId: 's2', range: undefined });
+  });
+});
+
+describe('DiffView: when the history is read again', () => {
+  it("a turn of this session reloads it; another session's turn doesn't", async () => {
+    h.checkpoints = [entry(0), entry(1)];
+    await render();
+    const before = sse.historyCalls;
+    await act(async () => sse.handlers['checkpoints-changed']({ scopeHash: 'another-session', id: 4 }));
+    expect(sse.historyCalls).toBe(before);
+    await act(async () => sse.handlers['checkpoints-changed']({ scopeHash: 'scope-of-s', id: 2 }));
+    expect(sse.historyCalls).toBe(before + 1);
+  });
+
+  it('a change soon after a load (a commit by hand) is read when the quiet window ends, not dropped', async () => {
+    vi.useFakeTimers();
+    try {
+      h.checkpoints = [entry(0)];
+      await act(async () => {
+        root.render(createElement(DiffView, { session: session('s9') }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const before = sse.historyCalls;
+      await act(async () => sse.handlers['diff-changed'](null));
+      expect(sse.historyCalls).toBe(before); // too soon: waits…
+      await act(async () => sse.handlers['diff-changed'](null)); // …and a second change doesn't queue another
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(sse.historyCalls).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('DiffView: a group', () => {
+  it("a span from a commit says it shows that commit's repo alone", async () => {
+    h.checkpoints = [entry(0), entry(1)];
+    const sha = '604e66a1b2c3d4e5f60718293a4b5c6d7e8f9012';
+    h.commits = [{ repo: 'repo', sha, subject: 'Commit it', at: '2026-09-01T00:00:30Z' }];
+    await act(async () => {
+      root.render(createElement(DiffView, { session: { ...session('g1'), isGroup: true, paths: ['/tmp/repo', '/tmp/other'] } }));
+    });
+    await flush();
+    expect(container.querySelector('.wd-dash-difftoolbar')!.textContent).not.toContain('repo only');
+    await clickRow('604e66a');
+    await clickRow('Uncommitted', true);
+    expect(h.calls.at(-1)?.range).toEqual({ from: `p:repo:${sha}`, to: 'working' });
+    expect(container.querySelector('.wd-dash-difftoolbar')!.textContent).toContain('repo only');
   });
 });

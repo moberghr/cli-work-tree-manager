@@ -40,6 +40,13 @@ describe('historyItems', () => {
     expect(items[4]).toMatchObject({ before: { kind: 'head' }, after: { kind: 'working' } });
   });
 
+  it('a turn is named by its checkpoint id; one whose predecessor was dropped (past the cap) is not listed alone', () => {
+    // 1..4 dropped past MAX_CHECKPOINTS: 5 would diff from Initial and show them all as its own.
+    const items = historyItems([entry(0, 0, 'Initial'), entry(5, 10), entry(6, 20), entry(7, 30)], [], null);
+    expect(items.map((i) => i.tag)).toEqual(['Turn 6', 'Turn 7', 'Uncommitted']);
+    expect(items[0].before).toEqual({ kind: 'checkpoint', id: 5 });
+  });
+
   it("a group lists the commits of the repo on screen (a commit is one repo's); turns cover every repo", () => {
     const commits = [commit('backend', 'aaaaaaa', 5), commit('frontend', 'bbbbbbb', 6)];
     expect(historyItems([entry(0, 0), entry(1, 9)], commits, 'frontend').map((i) => i.tag)).toEqual(['bbbbbbb', 'Turn 1', 'Uncommitted']);
@@ -77,6 +84,14 @@ describe('a pick', () => {
   it('Last turn: the newest turn alone; none before the first', () => {
     expect(selectionRange(items, lastTurn(items)!)).toEqual({ from: { kind: 'checkpoint', id: 1 }, to: { kind: 'checkpoint', id: 2 } });
     expect(lastTurn(historyItems([entry(0, 0)], [], null))).toBeNull();
+  });
+
+  it('"Last turn" is its name only while it is: a newer turn and it says which turn it shows (the diff stays put)', () => {
+    const sel = lastTurn(items)!;
+    expect(selectionLabel(items, sel)).toBe('Last turn');
+    const later = historyItems([entry(0, 0), entry(1, 10, 'Wrote it'), entry(2, 30, 'Fixed'), entry(3, 40, 'More')], [], null);
+    expect(selectionRange(later, sel)).toEqual({ from: { kind: 'checkpoint', id: 1 }, to: { kind: 'checkpoint', id: 2 } });
+    expect(selectionLabel(later, sel)).toBe('Turn 2 · Fixed');
   });
 
   it('Since you looked: from the turn seen to the working tree, marking every turn and commit after it', () => {

@@ -223,12 +223,24 @@ describe('preflight', () => {
     ]);
     expect(repos[1].commitsVsBase).toBeNull();
     expect(repos[1].ghError).toContain('error connecting');
+    expect(repos[1].gitError).toMatch(/^git couldn't read the working tree/);
+    expect(repos[1].mergeBlockers[0]).toBe(repos[1].gitError);
     // gh alone failing (git fine, 0 commits): still not untouched.
     const docs = fakeRunner({ [P('docs')]: { vsBase: 0, pr: null } });
     const ghDown: CommandRunner = (cmd, args, cwd) =>
       cmd === 'gh' ? Promise.resolve({ code: 1, stdout: '', stderr: 'HTTP 502' }) : docs.run(cmd, args, cwd);
     const d = (await shipPreflight(group('docs'), ghDown)).repos[0];
     expect([d.done, d.ghError]).toEqual([false, 'HTTP 502']);
+  });
+
+  it("a merged PR whose tree git couldn't read is not done: a failed status isn't a clean tree", async () => {
+    const { run } = fakeRunner({ [P('api')]: ready({ pr: pr({ state: 'MERGED' }) }) });
+    const statusFails: CommandRunner = (cmd, args, cwd) =>
+      cmd === 'git' && args.join(' ') === 'status --porcelain'
+        ? Promise.resolve({ code: 128, stdout: '', stderr: 'index.lock exists' })
+        : run(cmd, args, cwd);
+    const [api] = (await shipPreflight(single(), statusFails)).repos;
+    expect([api.done, api.gitError]).toEqual([false, "git couldn't read the working tree (index.lock exists)"]);
   });
 
   it('a merged PR with work after it (follow-up commit, pushed or not, or an edit) is NOT done', async () => {

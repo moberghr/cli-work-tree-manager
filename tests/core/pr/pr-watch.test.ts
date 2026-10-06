@@ -458,7 +458,12 @@ describe('PR watch', () => {
         s,
         LATER,
       ),
-    ).toEqual({ archive: false, why: "couldn't read r1 on GitHub" });
+    ).toEqual({ archive: false, why: "couldn't read r1" });
+    // …and one git couldn't read (its merged PR notwithstanding).
+    expect(autoArchiveVerdict(pre([{}, { gitError: "git couldn't read the working tree (timed out)" }]), s, LATER)).toEqual({
+      archive: false,
+      why: "couldn't read r1",
+    });
   });
 
   it('a group: every repo that holds it is named — one merged with work left must not hide one not merged at all (reviewed)', () => {

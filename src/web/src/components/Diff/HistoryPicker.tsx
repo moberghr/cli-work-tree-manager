@@ -117,7 +117,9 @@ export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooke
                 aria-selected={on}
                 className={'wd-checkpoint-pop-row wd-history-row wd-history-row-' + it.kind + (on ? ' wd-checkpoint-pop-in-range' : '')}
                 onClick={(ev) => {
-                  const sel = pick(it.key, ev.shiftKey ? anchor : null);
+                  // A span from a row that isn't in this list (gone since) is just this row.
+                  const from = ev.shiftKey && anchor && items.some((x) => x.key === anchor) ? anchor : null;
+                  const sel = pick(it.key, from);
                   if (!ev.shiftKey) setAnchor(it.key);
                   choose(sel, ev.shiftKey);
                 }}
