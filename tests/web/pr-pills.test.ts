@@ -63,3 +63,28 @@ describe('PR pills with two PRs from one branch', () => {
     expect(pills()).toEqual(['#3529', '#3530']);
   });
 });
+
+describe('a merged PR beside an open one (a group whose backend merged)', () => {
+  const group = {
+    ...session,
+    isGroup: true,
+    prStage: {
+      kind: 'in_review',
+      text: 'PR #1927 · waiting for review',
+      key: 'k',
+      prs: [
+        { repo: 'frontend', number: 1927, url: url(1927), kind: 'in_review' },
+        { repo: 'backend', number: 3509, url: url(3509), kind: 'merged' },
+      ],
+    },
+  } as unknown as typeof session;
+
+  it('both pills show, the merged one in its own colour — in the rail and the header', () => {
+    act(() => root.render(createElement(RailPrPills, { session: group, prs: [] })));
+    expect(pills()).toEqual(['#1927', '#3509']);
+    expect(container.querySelectorAll('.wd-pr-stage-merged')).toHaveLength(1);
+    act(() => root.render(createElement(PrStageChip, { session: group, prs: [] })));
+    expect(pills()).toEqual(['frontend #1927 · waiting for review', 'backend #3509 · merged']);
+    expect(container.querySelector('.wd-pr-stage-merged')!.textContent).toBe('backend #3509 · merged');
+  });
+});

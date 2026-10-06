@@ -14,7 +14,15 @@ import { prsBeyondStage, stagePhrase, stageTone, type PrStageKind } from '../../
 
 const toneClass = (kind: PrStageKind) => {
   const t = stageTone(kind);
-  return t === 'good' ? ' wd-pr-stage-good' : t === 'bad' ? ' wd-pr-stage-bad' : t === 'draft' ? ' wd-pr-chip-draft' : '';
+  return t === 'good'
+    ? ' wd-pr-stage-good'
+    : t === 'bad'
+      ? ' wd-pr-stage-bad'
+      : t === 'draft'
+        ? ' wd-pr-chip-draft'
+        : t === 'merged'
+          ? ' wd-pr-stage-merged'
+          : '';
 };
 
 /**

@@ -5,6 +5,10 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## 2.0.5
 
+- Context on Opus 5 reads against its 1M window: the header said 96% where
+  Claude Code's own line said 19%.
+- A group's merged PR keeps its pill (purple, as on GitHub) beside the one
+  still open, in the rail and the header: you see it had one, and merged it.
 - A session's pull requests have their own tab, **PR** (key 3; Timeline is 4):
   one section per PR — a group's repos, and a second PR from the same branch —
   with its stage, checks (Ask Claude to fix), Ship…, and its review threads

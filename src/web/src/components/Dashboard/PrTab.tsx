@@ -156,7 +156,7 @@ function PrSectionView({
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
         {s.title && <span className="wd-pr-title">{s.title}</span>}
-        <span className={`wd-pr-stage wd-pr-stage-${stageTone(s.kind)}`}>
+        <span className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}>
           {stagePhrase(s.kind)}
           {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}
         </span>

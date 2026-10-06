@@ -76,13 +76,15 @@ describe('prStageOf', () => {
         { name: 'frontend', pr: { ...ready, number: 8 } },
       ])!.kind,
     ).toBe('ready');
-    // A merged repo is done: the open one says where the session stands.
-    expect(
-      prStageOf([
-        { name: 'backend', pr: { ...pr(), state: 'MERGED' } },
-        { name: 'frontend', pr: { ...ready, number: 8 } },
-      ])!,
-    ).toMatchObject({ kind: 'ready', prs: [{ repo: 'frontend' }] });
+    // A merged repo is done: the open one says where the session stands — and the
+    // merged one is still listed, after it, so its pill shows the group had (and merged) it.
+    const partly = prStageOf([
+      { name: 'backend', pr: { ...pr(), number: 3509, state: 'MERGED' } },
+      { name: 'frontend', pr: { ...ready, number: 8 } },
+    ])!;
+    expect(partly).toMatchObject({ kind: 'ready', text: 'PR #8 · approved, ready to merge' });
+    expect(partly.prs.map((p) => `${p.repo} #${p.number} ${p.kind}`)).toEqual(['frontend #8 ready', 'backend #3509 merged']);
+    expect(partly.key).not.toContain('backend');
     expect(prStageOf([{ name: 'api', pr: pr({ state: 'MERGED' }) }])!.kind).toBe('merged');
   });
 });

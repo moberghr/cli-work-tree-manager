@@ -122,9 +122,16 @@ export function claudeEntries(lines: readonly unknown[]): ConversationEntry[] {
   return out;
 }
 
-/** Claude's standard window, and the 1M one: a `[1m]` model id, or usage no 200k window could hold. */
+/**
+ * Claude's standard window, and the 1M one: a `[1m]` model id, a model that
+ * has 1M as it comes (`LARGE_MODELS`), or usage no 200k window could hold.
+ * The transcript names the model and nothing more, so this decides it: Opus
+ * 5.5 at 190k read as "96% full" while Claude Code's own line said 19%.
+ */
 export const DEFAULT_WINDOW = 200_000;
 export const LARGE_WINDOW = 1_000_000;
+/** Models with 1M context as they come, as Claude Code counts them: Opus 5 (`claude-opus-5-5`). */
+const LARGE_MODELS = /^claude-opus-5(-|$)/i;
 export function claudeContextWindow(model: string | undefined, used: number): number {
-  return (model && /\[1m\]/i.test(model)) || used > DEFAULT_WINDOW ? LARGE_WINDOW : DEFAULT_WINDOW;
+  return (model && (/\[1m\]/i.test(model) || LARGE_MODELS.test(model))) || used > DEFAULT_WINDOW ? LARGE_WINDOW : DEFAULT_WINDOW;
 }

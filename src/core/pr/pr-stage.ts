@@ -101,8 +101,13 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
   // `ready` is the least pressing open stage, so the loop above already
   // picked anything less ready that another repo has.
   if (!open.length && withPr.some((r) => r.pr.state === 'MERGED')) kind = 'merged';
-  const prs = shown.map((r) => ({ repo: r.name, number: r.pr.number, url: r.pr.url, kind: stageOfPr(r.pr) }));
-  const which = prs.length === 1 ? `PR #${prs[0].number}` : `PRs ${prs.map((p) => `${p.repo} #${p.number}`).join(', ')}`;
+  const pr = (r: { name: string; pr: StagePr }) => ({ repo: r.name, number: r.pr.number, url: r.pr.url, kind: stageOfPr(r.pr) });
+  const named = shown.map(pr);
+  // Its merged PRs too, after the open ones: a group whose backend merged while
+  // its frontend is in review shows both pills, so you know it had (and merged)
+  // one. The stage, its text and its key are still the open ones'.
+  const prs = [...named, ...withPr.filter((r) => r.pr.state === 'MERGED' && !shown.includes(r)).map(pr)];
+  const which = named.length === 1 ? `PR #${named[0].number}` : `PRs ${named.map((p) => `${p.repo} #${p.number}`).join(', ')}`;
   return {
     kind,
     text: kind === 'draft' ? `Draft ${which}` : `${which} · ${PHRASE[kind]}`,
@@ -114,9 +119,10 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
 /** A stage in a word or two, for one PR's pill: "waiting for review", "ready to merge"… */
 export const stagePhrase = (kind: PrStageKind): string => (kind === 'ready' ? 'ready to merge' : PHRASE[kind]);
 
-/** How a stage reads at a glance: good (ready), bad (a conflict, failing checks, changes asked), draft, or plain. */
-export function stageTone(kind: PrStageKind): 'good' | 'bad' | 'draft' | 'plain' {
+/** How a stage reads at a glance: good (ready), bad (a conflict, failing checks, changes asked), draft, merged, or plain. */
+export function stageTone(kind: PrStageKind): 'good' | 'bad' | 'draft' | 'merged' | 'plain' {
   if (kind === 'ready') return 'good';
+  if (kind === 'merged') return 'merged';
   if (kind === 'conflict' || kind === 'checks_failing' || kind === 'changes') return 'bad';
   return kind === 'draft' ? 'draft' : 'plain';
 }

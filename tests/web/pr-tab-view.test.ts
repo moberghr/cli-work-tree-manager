@@ -90,7 +90,7 @@ describe('the PR tab', () => {
     expect(sections[0].textContent).toContain('2 unresolved review threads with no reply yet');
     // Merged: folded, its name and when it merged.
     expect(sections[1].querySelector('.wd-pr-section-body')).toBeNull();
-    expect(sections[1].querySelector('.wd-pr-stage')!.textContent).toMatch(/^merged .* ago$/);
+    expect(sections[1].querySelector('.wd-prtab-stage')!.textContent).toMatch(/^merged .* ago$/);
     expect(container.querySelector('.wd-pr-summary')!.textContent).toContain('3 things want you across 2 PRs');
   });
 

@@ -58,6 +58,9 @@ describe('claudeEntries (pure): every line of a Claude transcript, in work’s o
     expect(claudeContextWindow('claude-opus-5-5[1m]', 10)).toBe(LARGE_WINDOW);
     expect(claudeContextWindow('claude-sonnet-5', 250_000)).toBe(LARGE_WINDOW);
     expect(claudeContextWindow('claude-sonnet-5', 10)).toBe(DEFAULT_WINDOW);
+    // Opus 5 has 1M as it comes: 190k is 19% (as Claude Code's own line says), not 96%.
+    expect(claudeContextWindow('claude-opus-5-5', 190_000)).toBe(LARGE_WINDOW);
+    expect(claudeContextWindow('claude-opus-4-1', 190_000)).toBe(DEFAULT_WINDOW);
   });
 
   it('marks Claude Code’s own lines (`meta`) and the user lines that are still a turn’s work (`turn`)', () => {

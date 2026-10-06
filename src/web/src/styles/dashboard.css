@@ -538,6 +538,11 @@ a.wd-pr-chip:hover {
   border-color: var(--del-fg);
   color: var(--del-fg);
 }
+/* A merged PR (GitHub's purple): a group shows it beside the one still open. */
+.wd-pr-stage-merged {
+  border-color: var(--merged-fg, #8957e5);
+  color: var(--merged-fg, #8957e5);
+}
 
 .wd-dash-rail-pending {
   font-size: 10px;
@@ -4267,7 +4272,7 @@ a.wd-pr-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wd-pr-stage {
+.wd-prtab-stage {
   flex-shrink: 0;
   font-size: 12px;
   padding: 1px 8px;
@@ -4275,15 +4280,19 @@ a.wd-pr-chip:hover {
   border: 1px solid var(--border);
   color: var(--muted);
 }
-.wd-pr-stage-good {
+.wd-prtab-stage-good {
   color: var(--add-fg, #1a7f37);
   border-color: color-mix(in srgb, var(--add-fg, #1a7f37) 50%, var(--border));
 }
-.wd-pr-stage-bad {
+.wd-prtab-stage-bad {
   color: var(--del-fg, #d1242f);
   border-color: color-mix(in srgb, var(--del-fg, #d1242f) 50%, var(--border));
 }
-.wd-pr-stage-draft {
+.wd-prtab-stage-merged {
+  color: var(--merged-fg, #8957e5);
+  border-color: color-mix(in srgb, var(--merged-fg, #8957e5) 50%, var(--border));
+}
+.wd-prtab-stage-draft {
   border-style: dashed;
 }
 .wd-pr-link {
