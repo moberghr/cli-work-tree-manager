@@ -183,21 +183,21 @@ test('start a worktree dev server and get a preview link on its port', async ({ 
   await expect(chip.getByRole('link', { name: 'Preview ↗' })).toHaveCount(0);
 });
 
-test('failing CI is one line under the header, and Claude fixes it on request', async ({ page }) => {
+test('failing CI is one line under the header; the PR tab has the rest, and Claude fixes it on request', async ({ page }) => {
   await page.goto(url);
   await page.locator('.wd-dash-rail-item', { hasText: 'chore/deps-update' }).click();
   const bar = page.locator('.wd-needs-you');
-  await expect(bar).toContainText('CI failing on #212');
-  const strip = page.locator('.wd-ci-strip');
-  await expect(strip).toBeHidden();
-  await bar.getByRole('button', { name: 'Review' }).click();
-  await expect(strip).toContainText('CI failing on #212: test (node 22), typecheck');
-  await strip.getByRole('button', { name: 'Ask Claude to fix' }).click();
-  await expect(strip).toContainText('Sent to Claude ✓');
-  await expect(strip).toContainText('checks running', { timeout: 10_000 });
-  await expect(strip).not.toContainText(/CI failing|checks running/, { timeout: 15_000 });
-  // Open review threads stay visible until they're resolved on GitHub.
-  await expect(strip).toContainText('2 open review threads on #212');
+  await expect(bar).toContainText('#212 checks failing');
+  await bar.getByRole('button', { name: 'PR tab ▸' }).click();
+  await expect(page).toHaveURL(/\/pr$/);
+  const pr = page.locator('.wd-pr-section', { hasText: '#212' });
+  await expect(pr).toContainText('Checks failing: test (node 22), typecheck');
+  await pr.getByRole('button', { name: 'Ask Claude to fix' }).click();
+  await expect(pr).toContainText('Sent to Claude ✓');
+  await expect(pr).toContainText('Checks running', { timeout: 10_000 });
+  await expect(pr).toContainText('Checks passing', { timeout: 15_000 });
+  // The reply Claude drafted waits under its PR, to post.
+  await expect(pr).toContainText('reply to post');
 });
 
 test('j/k never navigate while the Ship dialog is open, and a session switch closes it', async ({ page }) => {

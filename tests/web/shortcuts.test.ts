@@ -72,6 +72,7 @@ describe('runSessionKey', () => {
     expect(calls).toEqual([
       'tab term',
       'tab diff',
+      'tab pr',
       'tab timeline',
       'archived true',
       'snooze',

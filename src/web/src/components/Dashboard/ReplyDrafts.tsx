@@ -55,35 +55,22 @@ export function askableThreads(threads: OpenReviewThread[], asked: ReadonlySet<s
   return threads.filter((t) => t.trusted === true && !asked.has(t.threadId));
 }
 
-/** What of it needs you, for the session's "Needs you" bar: "1 reply to post · 2 threads with no reply". Pure. */
-export function replyNeeds(drafts: number, waiting: number): string | null {
-  const parts = [
-    drafts ? `${drafts} ${drafts === 1 ? 'reply' : 'replies'} to post` : '',
-    waiting ? `${waiting} thread${waiting === 1 ? '' : 's'} with no reply` : '',
-  ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : null;
-}
-
 /**
- * Replies to the PR's review threads, drafted by the session's Claude, for
- * you to post: each shows the reviewer's comment, the draft (editable), and
+ * Replies to a session's PR review threads, drafted by its Claude, for you
+ * to post: each shows the reviewer's comment, the draft (editable), and
  * Post & resolve / Post / Discard. Open threads with no draft are listed
  * too (the comment, a link, Ask Claude to reply; several fold under one
- * "Ask Claude about all"), so a "1 unresolved" count is never all you see. Nothing reaches GitHub until you click Post. What
- * waits is reported (`onNeeds`) for the "Needs you" bar, which keeps this
- * folded (`hidden`, kept mounted so an edited draft survives) until you look.
+ * "Ask Claude about all"), so a "1 unresolved" count is never all you see.
+ * Nothing reaches GitHub until you click Post. The PR tab shows the same
+ * lists per PR (`useReplies` + `ReplyList`).
  */
-export function ReplyDrafts({
-  sessionId,
-  api = httpReplies,
-  onNeeds,
-  hidden = false,
-}: {
-  sessionId: string;
-  api?: ReplyApi;
-  onNeeds?: (text: string | null) => void;
-  hidden?: boolean;
-}) {
+export function ReplyDrafts({ sessionId, api = httpReplies, hidden = false }: { sessionId: string; api?: ReplyApi; hidden?: boolean }) {
+  const { replies, waiting, load } = useReplies(sessionId, api);
+  return <ReplyList sessionId={sessionId} api={api} replies={replies} waiting={waiting} onDone={load} hidden={hidden} />;
+}
+
+/** A session's reply drafts and its open threads with none, kept fresh (`replies-changed`): one fetch for every list shown. */
+export function useReplies(sessionId: string, api: ReplyApi = httpReplies) {
   const [replies, setReplies] = useState<PrReply[]>([]);
   const [waiting, setWaiting] = useState<OpenReviewThread[]>([]);
   const load = useCallback(() => {
@@ -107,9 +94,26 @@ export function ReplyDrafts({
       },
     },
   });
+  return { replies, waiting, load };
+}
+
+/** The drafts to post and the threads with no reply, as given (one PR's, in the PR tab). Nothing when there are none. */
+export function ReplyList({
+  sessionId,
+  api = httpReplies,
+  replies,
+  waiting,
+  onDone,
+  hidden = false,
+}: {
+  sessionId: string;
+  api?: ReplyApi;
+  replies: PrReply[];
+  waiting: OpenReviewThread[];
+  onDone: () => void;
+  hidden?: boolean;
+}) {
   const drafts = replies.filter((r) => r.status === 'draft');
-  const needs = replyNeeds(drafts.length, waiting.length);
-  useEffect(() => onNeeds?.(needs), [needs, onNeeds]);
   if (drafts.length === 0 && waiting.length === 0) return null;
   return (
     <section className="wd-replies" aria-label="Replies to review threads" hidden={hidden}>
@@ -119,7 +123,7 @@ export function ReplyDrafts({
         </h3>
       )}
       {drafts.map((r) => (
-        <Draft key={r.threadId} reply={r} sessionId={sessionId} api={api} onDone={load} />
+        <Draft key={r.threadId} reply={r} sessionId={sessionId} api={api} onDone={onDone} />
       ))}
       {waiting.length > 0 && <WaitingThreads threads={waiting} replies={replies} sessionId={sessionId} api={api} />}
     </section>

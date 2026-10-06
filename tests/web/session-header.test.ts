@@ -206,40 +206,42 @@ describe('status line', () => {
 });
 
 describe('Needs you', () => {
-  it('folds reply drafts and failing CI into one line; Review unfolds them', async () => {
-    h.replies = {
-      replies: [{ threadId: 'T1', prNumber: 212, reviewer: 'ana', excerpt: 'Rename this', url: 'u', status: 'draft', draft: 'Done.' }],
-      waiting: [],
-    } as unknown as RepliesWire;
-    h.ci = {
-      repos: [{ name: 'repo', pr: { number: 212, state: 'OPEN', checks: 'fail', url: 'u', failing: [] } }],
-    } as unknown as SessionCi;
-    await render();
+  const withPr = {
+    ...base,
+    openReviewThreads: 2,
+    replyDrafts: 1,
+    prStage: { kind: 'checks_failing', text: '', key: 'k', prs: [{ repo: 'repo', number: 212, url: 'u', kind: 'checks_failing' }] },
+  } as unknown as SessionSummary;
+
+  it('one line from the session row, and a button into the PR tab — nothing unfolds over the terminal', async () => {
+    await render(withPr);
     const bar = container.querySelector('.wd-needs-you')!;
-    expect(bar.textContent).toBe('Needs you1 reply to post · CI failing on #212Review');
-    expect(container.querySelector<HTMLElement>('.wd-replies')!.hidden).toBe(true);
-    expect(container.querySelector<HTMLElement>('.wd-ci-strip')!.hidden).toBe(true);
+    expect(bar.textContent).toBe('Needs you2 open review threads · 1 reply to post · #212 checks failingPR tab ▸');
+    expect(container.querySelector('.wd-replies')).toBeNull();
     act(() => bar.querySelector('button')!.click());
-    expect(container.querySelector<HTMLElement>('.wd-replies')!.hidden).toBe(false);
-    expect(container.querySelector<HTMLElement>('.wd-ci-strip')!.hidden).toBe(false);
-    expect(bar.querySelector('button')!.textContent).toBe('Hide');
+    expect(onSelectSubTab).toHaveBeenLastCalledWith('pr');
   });
 
-  it('nothing waiting: no bar, and running checks show as they are', async () => {
-    h.ci = {
-      repos: [{ name: 'repo', pr: { number: 212, state: 'OPEN', checks: 'pending', url: 'u' } }],
-    } as unknown as SessionCi;
-    await render();
+  it('nothing waiting: no bar', async () => {
+    await render({
+      ...base,
+      prStage: { kind: 'in_review', text: '', key: 'k', prs: [{ repo: 'repo', number: 212, url: 'u', kind: 'in_review' }] },
+    } as unknown as SessionSummary);
     expect(container.querySelector('.wd-needs-you')).toBeNull();
-    expect(container.querySelector<HTMLElement>('.wd-ci-strip')!.hidden).toBe(false);
   });
 });
 
 describe('sub-tabs', () => {
-  it('Terminal, Diff (with how many files and comments), Timeline', async () => {
+  it('Terminal, Diff (with how many files and comments), Timeline; PR only with a PR (its stage, what wants you)', async () => {
     await render({ ...base, diffStat: { files: 2, added: 10, deleted: 1 }, commentCount: 3 } as SessionSummary);
-    const tabs = [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
-    expect(tabs).toEqual(['Terminal', 'Diff· 2 files3', 'Timeline']);
+    const tabs = () => [...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent);
+    expect(tabs()).toEqual(['Terminal', 'Diff· 2 files3', 'Timeline']);
+    await render({
+      ...base,
+      openReviewThreads: 2,
+      prStage: { kind: 'in_review', text: '', key: 'k', prs: [{ repo: 'repo', number: 212, url: 'u', kind: 'in_review' }] },
+    } as unknown as SessionSummary);
+    expect(tabs()).toEqual(['Terminal', 'Diff', 'PR· #212 waiting for review2', 'Timeline']);
   });
 
   it('the keys the dashboard hands it: . opens ⋯, ⇧T a terminal, ⇧D the dev server — only for its own session, not when archived', async () => {

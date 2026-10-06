@@ -1753,8 +1753,7 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   padding: 3px 12px;
 }
-/* Folded behind the bar: kept mounted (a draft being edited survives). */
-.wd-ci-strip[hidden],
+/* A reply list told to hide (ReplyDrafts' `hidden`). */
 .wd-replies[hidden] {
   display: none;
 }
@@ -2136,27 +2135,6 @@ a.wd-pr-chip:hover {
 }
 .wd-dev-error {
   color: var(--del-fg);
-}
-
-/* CI strip under the session header (open PRs failing / running). */
-.wd-ci-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  padding: 6px 24px;
-  font-size: 13px;
-  border-bottom: 1px solid var(--border);
-}
-.wd-ci-fail {
-  background: color-mix(in srgb, var(--del-fg) 8%, transparent);
-}
-.wd-ci-fail .wd-ci-item > [aria-hidden] {
-  color: var(--del-fg);
-}
-.wd-ci-fix {
-  font-size: 12px;
-  padding: 2px 10px;
 }
 
 /* Terminal tab: the session's Claude runs in a plain terminal (nothing spawned). */
@@ -4227,4 +4205,120 @@ a.wd-pr-chip:hover {
 .wd-pty-latency-slow {
   color: #b45309;
   opacity: 1;
+}
+
+/* ---- The session's PR tab (PrTab): every pull request, one section each.
+   Scrolls on its own, so the terminal keeps its height. */
+.wd-pr-tab {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 24px 24px;
+  font-size: 13px;
+}
+.wd-pr-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wd-pr-summary-wants {
+  font-weight: 600;
+  color: var(--review-fg);
+}
+.wd-pr-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: var(--bg);
+}
+.wd-pr-section-wants {
+  border-color: color-mix(in srgb, var(--review-fg) 40%, var(--border));
+}
+.wd-pr-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  min-width: 0;
+}
+.wd-pr-section-title {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-pr-fold {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.wd-pr-name {
+  flex-shrink: 0;
+}
+.wd-pr-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-pr-stage {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.wd-pr-stage-good {
+  color: var(--add-fg, #1a7f37);
+  border-color: color-mix(in srgb, var(--add-fg, #1a7f37) 50%, var(--border));
+}
+.wd-pr-stage-bad {
+  color: var(--del-fg, #d1242f);
+  border-color: color-mix(in srgb, var(--del-fg, #d1242f) 50%, var(--border));
+}
+.wd-pr-stage-draft {
+  border-style: dashed;
+}
+.wd-pr-link {
+  flex-shrink: 0;
+  color: var(--muted);
+  text-decoration: none;
+}
+.wd-pr-link:hover {
+  color: var(--fg);
+}
+.wd-pr-section-body {
+  padding: 0 12px 10px 32px;
+}
+.wd-pr-checks {
+  margin: 0 0 8px;
+}
+.wd-pr-checks-fail {
+  color: var(--del-fg, #d1242f);
+}
+.wd-pr-checks-fail a {
+  color: inherit;
+}
+.wd-pr-actions {
+  margin-bottom: 8px;
+}
+/* Inside a section the reply list needs no frame of its own. */
+.wd-pr-section .wd-replies {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.wd-pr-none {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }

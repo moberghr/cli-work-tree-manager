@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { TimelineView } from './TimelineView.js';
 import { BlockedByChip } from './BlockedBy.js';
@@ -14,9 +14,9 @@ import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrCh
 import { ShipPanel } from './ShipPanel.js';
 import { PromptsMenu } from './PromptsMenu.js';
 import { DevChip, useDevState } from './DevChip.js';
-import { CiStrip } from './CiStrip.js';
-import { ReplyDrafts } from './ReplyDrafts.js';
-import { NeedsYouBar, needsYouText } from './NeedsYouBar.js';
+import { NeedsYouBar } from './NeedsYouBar.js';
+import { PrTab } from './PrTab.js';
+import { prNeedsLine, prTabButton } from '../../state/pr-tab.js';
 import { RowMenu } from './RowMenu.js';
 import { DiffView } from '../Diff/DiffView.js';
 import { PtyView } from '../Terminal/LazyPtyView.js';
@@ -46,11 +46,13 @@ interface Props {
 /**
  * Drill-in view for a single session, beside the rail. A header with one
  * action (Archive, or Restore) and a ⋯ menu for the rest; a status line
- * with chips only when they say something; a "Needs you" bar for what waits
- * on GitHub; then three sub-tabs:
+ * with chips only when they say something; a "Needs you" line for what waits
+ * on GitHub (it opens the PR tab); then the sub-tabs:
  *
  *   Terminal  — embedded Claude PTY (work web only — wd doesn't have one)
  *   Diff      — what `wd` shows, comments included
+ *   PR        — its pull requests: stage, checks, review threads and drafts
+ *               (there while it has a PR, or anything about one)
  *   Timeline  — how it got here, and how long its Claude worked
  *
  * `wd`'s deep-link `/diff/<hash>` route is a *different* view entirely
@@ -69,11 +71,23 @@ export function SessionDetail({
   onTermSlot,
 }: Props) {
   const files = session.diffStat?.files ?? 0;
+  const prButton = prTabButton(session, prs);
+  // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
+  const openShip = () =>
+    window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: session.id, action: 'ship' } }));
   return (
     <div className="wd-session-detail">
       {/* Keyed: what's open in the header (Ship, notes, a menu, catch-up)
           belongs to one session and closes when you switch to another. */}
-      <SessionHeader key={session.id} session={session} prs={prs} onDelete={onDelete} onShipped={onShipped} onOpenSession={onOpenSession} />
+      <SessionHeader
+        key={session.id}
+        session={session}
+        prs={prs}
+        onDelete={onDelete}
+        onShipped={onShipped}
+        onOpenSession={onOpenSession}
+        onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
+      />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
         <SubTabButton
@@ -83,6 +97,16 @@ export function SessionDetail({
           badge={session.commentCount}
           onClick={() => onSelectSubTab('diff')}
         />
+        {(prButton || subTab === 'pr') && (
+          <SubTabButton
+            label={prButton?.label ?? 'PR'}
+            meta={prButton?.meta}
+            badge={prButton?.badge}
+            badgeTitle={(n) => `${n} want${n === 1 ? 's' : ''} you: open review threads, failing checks, conflicts`}
+            active={subTab === 'pr'}
+            onClick={() => onSelectSubTab('pr')}
+          />
+        )}
         <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
       </nav>
       <div className="wd-session-subtab-body">
@@ -95,6 +119,7 @@ export function SessionDetail({
           ) : (
             <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
           ))}
+        {subTab === 'pr' && <PrTab session={session} prs={prs} onShip={openShip} />}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">
             <div className="wd-timeline-head">
@@ -114,10 +139,12 @@ interface HeaderProps {
   onDelete: () => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
+  /** Open the PR tab (absent while it's the one shown). */
+  onOpenPr?: () => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
-function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: HeaderProps) {
+function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
@@ -125,16 +152,10 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [renameKey, setRenameKey] = useState(0);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
-  const [replies, setReplies] = useState<string | null>(null);
-  const [ci, setCi] = useState<string | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const onReplies = useCallback((t: string | null) => setReplies(t), []);
-  const onCi = useCallback((t: string | null) => setCi(t), []);
   const dev = useDevState(session.id);
   const catchUp = useCatchUp(session.id);
-  const needs = needsYouText([replies, ci]);
-  // Folded behind the bar until you look; with nothing waiting they show as they are (checks running).
-  const folded = needs !== null && !reviewOpen;
+  // One line from what the session's row says (no fetch): the PR tab has the rest.
+  const needs = prNeedsLine(session);
 
   const openTerminal = () => {
     setNote({ text: 'Opening in a terminal…' });
@@ -241,9 +262,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession }: Hea
       </div>
       <CatchUpPanel catchUp={catchUp} />
       {notesOpen && <SessionNotes session={session} onClose={() => setNotesOpen(false)} />}
-      {needs && <NeedsYouBar text={needs} open={reviewOpen} onToggle={() => setReviewOpen((o) => !o)} />}
-      <ReplyDrafts sessionId={session.id} onNeeds={onReplies} hidden={folded} />
-      <CiStrip sessionId={session.id} isGroup={session.isGroup} onNeeds={onCi} hidden={folded} />
+      {needs && <NeedsYouBar text={needs} onOpen={onOpenPr} />}
       {shipOpen && (
         <ShipPanel
           session={session}
@@ -342,9 +361,11 @@ interface SubTabBtnProps {
   /** A quiet note after the label ("2 files"). */
   meta?: string;
   badge?: number;
+  /** What the badge counts, in words (default: comments). */
+  badgeTitle?: (n: number) => string;
 }
 
-function SubTabButton({ label, active, onClick, meta, badge }: SubTabBtnProps) {
+function SubTabButton({ label, active, onClick, meta, badge, badgeTitle }: SubTabBtnProps) {
   return (
     <button
       type="button"
@@ -356,7 +377,7 @@ function SubTabButton({ label, active, onClick, meta, badge }: SubTabBtnProps) {
       {label}
       {meta && <span className="wd-session-subtab-meta">· {meta}</span>}
       {badge ? (
-        <span className="wd-session-subtab-badge" title={`${badge} comment${badge === 1 ? '' : 's'}`}>
+        <span className="wd-session-subtab-badge" title={badgeTitle ? badgeTitle(badge) : `${badge} comment${badge === 1 ? '' : 's'}`}>
           {badge}
         </span>
       ) : null}

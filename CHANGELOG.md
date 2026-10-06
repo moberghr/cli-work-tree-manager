@@ -3,6 +3,15 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.5
+
+- A session's pull requests have their own tab, **PR** (key 3; Timeline is 4):
+  one section per PR — a group's repos, and a second PR from the same branch —
+  with its stage, checks (Ask Claude to fix), Ship…, and its review threads
+  and drafts. One "Ask Claude about all" on top for every thread with no
+  reply. The header keeps one "Needs you" line that opens the tab, so the
+  terminal keeps its height however many threads there are.
+
 ## 2.0.4 — 2026-10-06
 
 - `brew install moberghr/work-tree/work` builds its native modules again:

@@ -42,6 +42,8 @@ describe('parseHash', () => {
       sessionId: 'abc',
       sessionSubTab: 'term',
     });
+    expect(parseHash('#/s/abc/pr')).toMatchObject({ sessionId: 'abc', sessionSubTab: 'pr' });
+    expect(toHash({ tab: 'sessions', sessionId: 'abc', sessionSubTab: 'pr' })).toBe('#/s/abc/pr');
     expect(parseHash('#/s/abc/timeline')).toMatchObject({
       sessionId: 'abc',
       sessionSubTab: 'timeline',

@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DevServerState, SessionCi, SessionSummary } from '../../src/web/src/api/client.js';
+import type { DevServerState, SessionSummary } from '../../src/web/src/api/client.js';
 import { contextFooter, sessionHeaderItems, type HeaderMenuActions } from '../../src/web/src/state/session-header-menu.js';
-import { needsYouText } from '../../src/web/src/components/Dashboard/NeedsYouBar.js';
-import { ciNeeds } from '../../src/web/src/components/Dashboard/CiStrip.js';
-import { replyNeeds } from '../../src/web/src/components/Dashboard/ReplyDrafts.js';
+import { prNeedsLine } from '../../src/web/src/state/pr-tab.js';
 
 const session = (over: Partial<SessionSummary> = {}) => ({ id: 's1', target: 'api', branch: 'feat/x', ...over }) as SessionSummary;
 const actions = (): HeaderMenuActions => ({
@@ -58,25 +56,29 @@ describe('session header ⋯ menu', () => {
   });
 });
 
-describe('Needs you', () => {
-  it('joins what each panel says, and is nothing when none says anything', () => {
-    expect(needsYouText(['1 reply to post', null, 'CI failing on #212'])).toBe('1 reply to post · CI failing on #212');
-    expect(needsYouText([null, undefined])).toBeNull();
+describe('Needs you (the header line, from the session row: no fetch)', () => {
+  const pr = (repo: string, number: number, kind: string) => ({ repo, number, url: `u${number}`, kind });
+  it("says what waits on GitHub: open threads, drafts to post, a PR's failing checks or conflict", () => {
+    expect(
+      prNeedsLine({
+        openReviewThreads: 6,
+        replyDrafts: 2,
+        prStage: {
+          kind: 'checks_failing',
+          text: '',
+          key: '',
+          prs: [pr('frontend', 1927, 'checks_failing'), pr('backend', 3509, 'in_review')],
+        },
+        isGroup: true,
+      } as never),
+    ).toBe('6 open review threads · 2 replies to post · frontend #1927 checks failing');
+    expect(
+      prNeedsLine({ openReviewThreads: 1, prStage: { kind: 'conflict', text: '', key: '', prs: [pr('api', 7, 'conflict')] } } as never),
+    ).toBe('1 open review thread · #7 merge conflict');
   });
 
-  it('replies: drafts to post, threads with no reply', () => {
-    expect(replyNeeds(1, 0)).toBe('1 reply to post');
-    expect(replyNeeds(2, 1)).toBe('2 replies to post · 1 thread with no reply');
-    expect(replyNeeds(0, 3)).toBe('3 threads with no reply');
-    expect(replyNeeds(0, 0)).toBeNull();
-  });
-
-  it('CI: only failing checks on open PRs need you (running, merged or green ones do not)', () => {
-    const ci = (repos: unknown[]) => ({ repos }) as unknown as SessionCi;
-    const repo = (name: string, number: number, checks: string, state = 'OPEN') => ({ name, pr: { number, checks, state, url: '' } });
-    expect(ciNeeds(ci([repo('api', 212, 'fail'), repo('web', 40, 'pending')]), false)).toBe('CI failing on #212');
-    expect(ciNeeds(ci([repo('api', 212, 'fail'), repo('web', 40, 'fail')]), true)).toBe('CI failing on #212 api, #40 web');
-    expect(ciNeeds(ci([repo('api', 212, 'fail', 'MERGED'), repo('web', 40, 'pass')]), true)).toBeNull();
-    expect(ciNeeds(null, false)).toBeNull();
+  it('nothing waiting (a PR in review, checks running): nothing', () => {
+    expect(prNeedsLine({ prStage: { kind: 'in_review', text: '', key: '', prs: [pr('api', 7, 'in_review')] } } as never)).toBeNull();
+    expect(prNeedsLine({})).toBeNull();
   });
 });
