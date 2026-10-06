@@ -3,6 +3,15 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.4
+
+- The desktop app's updates apply again on Windows. The app started work web
+  from its own install folder, which Windows then wouldn't let Velopack move,
+  so Restart came back on the old version (2.0.2 → 2.0.3 did, every time).
+  The app and the servers work starts in the background now run from the
+  home folder. Updating from 2.0.3 still needs work web stopped once: quit the
+  app, `work web --stop`, start the app.
+
 ## 2.0.3 — 2026-10-06
 
 - Terminals start in the macOS desktop app again: node-pty's `spawn-helper`

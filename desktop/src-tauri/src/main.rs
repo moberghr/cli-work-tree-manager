@@ -27,7 +27,7 @@ mod updates;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -64,6 +64,16 @@ fn work_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(|h| PathBuf::from(h).join(".work"))
+}
+
+/// Where the app (and so all it starts) works from: ~/.work, or the home
+/// folder before ~/.work exists — never the install folder Velopack replaces.
+fn neutral_dir(work: Option<PathBuf>) -> Option<PathBuf> {
+    let work = work?;
+    if work.is_dir() {
+        return Some(work);
+    }
+    work.parent().filter(|h| h.is_dir()).map(Path::to_path_buf)
 }
 
 /// One line to ~/.work/desktop.log (release builds have no console).
@@ -372,6 +382,14 @@ fn main() {
     }
     app.run();
     }
+    // Out of the install folder: what this app starts (work web, the plugin
+    // setup, opened links) inherits its working directory, and on Windows a
+    // process whose working directory is the install folder keeps Velopack
+    // from moving it aside — the update then rolls back (2.0.2 → 2.0.3 did, on
+    // every Restart, while the work web it had started ran).
+    if let Some(dir) = neutral_dir(work_dir()) {
+        let _ = std::env::set_current_dir(dir);
+    }
     let first_run = first_run.get();
     let asks = if DEV { std::sync::mpsc::channel::<updates::Request>().0 } else { updates::spawn(log, work_dir()) };
 
@@ -518,6 +536,19 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn works_from_dot_work_or_home_never_the_install_folder() {
+        let home = std::env::temp_dir().join(format!("wd-neutral-{}", std::process::id()));
+        let work = home.join(".work");
+        std::fs::create_dir_all(&home).unwrap();
+        // Before ~/.work exists: the home folder.
+        assert_eq!(neutral_dir(Some(work.clone())), Some(home.clone()));
+        std::fs::create_dir_all(&work).unwrap();
+        assert_eq!(neutral_dir(Some(work.clone())), Some(work.clone()));
+        assert_eq!(neutral_dir(None), None);
+        let _ = std::fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn reads_the_version_work_web_says() {

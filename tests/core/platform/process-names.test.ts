@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import {
   isPidAlive,
   isZombie,
@@ -60,5 +63,25 @@ describe('isZombie (exited, not yet collected: kill(0) still answers)', () => {
 
   it('this process is alive, and not a zombie', () => {
     expect(isPidAlive(process.pid)).toBe(true);
+  });
+});
+
+describe('spawnDetachedWork (the PTY host, a background work web)', () => {
+  it("starts in the home folder, not the caller's: a server working from a folder keeps it in use on Windows", async () => {
+    vi.resetModules();
+    const spawned: Array<{ cwd?: string }> = [];
+    vi.doMock('node:child_process', async (orig) => ({
+      ...(await orig<typeof import('node:child_process')>()),
+      spawn: (_cmd: string, _args: string[], opts: { cwd?: string }) => {
+        spawned.push(opts);
+        return { unref: () => {} };
+      },
+    }));
+    const { spawnDetachedWork } = await import('../../../src/core/platform/process.js');
+    const log = path.join(os.tmpdir(), `detached-${process.pid}.log`);
+    spawnDetachedWork('/x/bin.js', ['pty-host'], log);
+    expect(spawned[0].cwd).toBe(os.homedir());
+    vi.doUnmock('node:child_process');
+    fs.rmSync(log, { force: true });
   });
 });

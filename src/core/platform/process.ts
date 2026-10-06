@@ -230,6 +230,10 @@ export function spawnDetachedWork(workBin: string, args: string[], logFile: stri
       detached: true,
       stdio: ['ignore', log, log],
       windowsHide: true,
+      // Not the caller's folder: a long-lived server working from it keeps it
+      // in use on Windows — a worktree then can't be removed, the desktop
+      // app's install folder can't be updated.
+      cwd: os.homedir(),
     });
     child.unref();
   } finally {
