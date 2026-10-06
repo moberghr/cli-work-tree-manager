@@ -450,6 +450,15 @@ describe('PR watch', () => {
       why: expect.stringContaining('older work'),
     });
     expect(autoArchiveVerdict(pre([{}]), s, LATER)).toEqual({ archive: true });
+    // GitHub didn't answer for the other repo (just after a wake): it may have an open PR —
+    // even if a stale fact called it done.
+    expect(
+      autoArchiveVerdict(
+        pre([{}, { done: true, pr: null, ghError: 'error connecting to api.github.com' } as Partial<RepoShipState>]),
+        s,
+        LATER,
+      ),
+    ).toEqual({ archive: false, why: "couldn't read r1 on GitHub" });
   });
 
   it('a group: every repo that holds it is named — one merged with work left must not hide one not merged at all (reviewed)', () => {

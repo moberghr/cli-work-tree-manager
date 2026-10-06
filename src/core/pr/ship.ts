@@ -140,7 +140,10 @@ export function repoDone(r: RepoFacts): { done: boolean; reason?: 'merged' | 'un
     const nothingSince = r.dirtyFiles === 0 && !r.ahead && (!r.localSha || r.localSha === r.pr.headSha);
     return nothingSince ? { done: true, reason: 'merged' } : { done: false };
   }
-  if (!r.pr && r.dirtyFiles === 0 && r.commitsVsBase === 0) return { done: true, reason: 'untouched' };
+  // Untouched only when every fact was read: a gh that failed (no network right after a
+  // wake) is not "no PR", and a git that failed is not "0 commits" — reading them so once
+  // archived a group whose other PR was still open.
+  if (!r.pr && !r.ghError && r.dirtyFiles === 0 && r.commitsVsBase === 0) return { done: true, reason: 'untouched' };
   return { done: false };
 }
 
@@ -229,9 +232,11 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
 
   let commitsVsBase: number | null = null;
   const baseRef = (await git('rev-parse', '--abbrev-ref', 'origin/HEAD')).stdout.trim();
-  if (baseRef && baseRef !== 'origin/HEAD') {
-    const n = Number((await git('rev-list', '--count', `${baseRef}..HEAD`)).stdout.trim());
-    if (Number.isFinite(n)) commitsVsBase = n;
+  // A git that failed (a timeout under load) tells nothing: no count, so never "untouched".
+  if (status.code === 0 && baseRef && baseRef !== 'origin/HEAD') {
+    // Only a count git gave: `Number('')` is 0, which read a failed git as "no commits".
+    const count = await git('rev-list', '--count', `${baseRef}..HEAD`);
+    if (count.code === 0 && /^\d+$/.test(count.stdout.trim())) commitsVsBase = Number(count.stdout.trim());
   }
 
   let pr: ShipPr | null = null;

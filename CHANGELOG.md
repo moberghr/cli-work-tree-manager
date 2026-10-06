@@ -22,6 +22,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   instructions (it then drafted its replies in the chat, where the dashboard
   can't see them). Several threads with no reply fold under one heading, with
   one "Ask Claude about all".
+- A group session is no longer archived while one of its PRs is still open
+  when GitHub or git didn't answer (right after the computer woke): a repo
+  that couldn't be read was taken for one with nothing in it.
 - `work web --dev --stop` works on Linux: a server that has exited is no
   longer taken for a running one.
 

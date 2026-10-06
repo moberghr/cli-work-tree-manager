@@ -26,6 +26,8 @@ interface RepoScript {
   pr?: Record<string, unknown> | null;
   ghMissing?: boolean;
   fail?: Partial<Record<'push' | 'pr create' | 'pr merge', string>>;
+  /** Right after a wake: git times out and gh can't reach GitHub. */
+  down?: boolean;
 }
 
 const SHA = 'a1b2c3d4e5f6';
@@ -37,6 +39,7 @@ function fakeRunner(scripts: Record<string, RepoScript>) {
     const branch = s.branch ?? 'feat/x';
     const ok = (stdout = '') => ({ code: 0, stdout, stderr: '' });
     const err = (stderr: string, code = 1) => ({ code, stdout: '', stderr });
+    if (s.down) return cmd === 'gh' ? err('error connecting to api.github.com') : err('timed out', 124);
     if (cmd === 'git') {
       const a = args.join(' ');
       if (a === 'rev-parse --abbrev-ref HEAD') return ok(branch + '\n');
@@ -206,6 +209,26 @@ describe('preflight', () => {
       ['backend', true, 'merged', []],
       ['docs', true, 'untouched', []],
     ]);
+  });
+
+  it('a repo that couldn\'t be read is never done: a failed gh isn\'t "no PR", a failed git isn\'t "0 commits" (it archived a group with an open PR)', async () => {
+    const { run } = fakeRunner({
+      [P('backend')]: ready({ pr: pr({ state: 'MERGED' }) }),
+      [P('frontend')]: { down: true },
+    });
+    const repos = (await shipPreflight(group('backend', 'frontend'), run)).repos;
+    expect(repos.map((r) => [r.name, r.done])).toEqual([
+      ['backend', true],
+      ['frontend', false],
+    ]);
+    expect(repos[1].commitsVsBase).toBeNull();
+    expect(repos[1].ghError).toContain('error connecting');
+    // gh alone failing (git fine, 0 commits): still not untouched.
+    const docs = fakeRunner({ [P('docs')]: { vsBase: 0, pr: null } });
+    const ghDown: CommandRunner = (cmd, args, cwd) =>
+      cmd === 'gh' ? Promise.resolve({ code: 1, stdout: '', stderr: 'HTTP 502' }) : docs.run(cmd, args, cwd);
+    const d = (await shipPreflight(group('docs'), ghDown)).repos[0];
+    expect([d.done, d.ghError]).toEqual([false, 'HTTP 502']);
   });
 
   it('a merged PR with work after it (follow-up commit, pushed or not, or an edit) is NOT done', async () => {
