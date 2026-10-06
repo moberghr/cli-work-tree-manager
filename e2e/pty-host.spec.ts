@@ -119,15 +119,15 @@ test('switching sessions marks the previous diff stale until the new one loads',
   });
 
   await page.locator('.wd-dash-rail-item', { hasText: 'feat/b' }).click();
+  // The old diff stays on screen, dimmed and not clickable, with the bar under the toolbar running.
   await expect(main).toHaveClass(/wd-diff-stale/);
   await expect(main).toHaveAttribute('aria-busy', 'true');
-  // Header already names the new session, so the count must not claim
-  // the old session's numbers.
-  await expect(page.locator('.wd-web-review-sidebar-header')).toContainText('loading…');
+  await expect(page.locator('.wd-diff-progress')).toHaveClass(/wd-diff-progress-on/);
+  await expect(page.locator('.wd-session-header, h1').first()).toContainText('feat/b');
 
   release();
   await expect(main).not.toHaveClass(/wd-diff-stale/);
-  await expect(page.locator('.wd-web-review-sidebar-header')).toContainText('feat/b');
+  await expect(page.locator('.wd-diff-progress')).not.toHaveClass(/wd-diff-progress-on/);
 });
 
 test('attention inbox: blocked and finished sessions surface in order and clear when handled', async ({ page, work }) => {
