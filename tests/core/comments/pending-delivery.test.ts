@@ -18,6 +18,7 @@ import { clearCommentStoreCache, getCommentFileStore } from '../../../src/core/c
 import { scopeHashFor } from '../../../src/core/diff/repo-spec.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
+import { reviewMessage } from '../../../src/core/pr/pr-review.js';
 
 let tmpDir: string;
 
@@ -245,6 +246,32 @@ describe('formatPendingForPrompt', () => {
     expect(out).toContain('line three');
   });
 
+  it('a long PR review round reaches Claude with what to do and every thread\'s id (it once arrived cut at "Then draft …")', () => {
+    // Six Copilot threads at the quote's 600 characters, and Copilot's overview review.
+    const long = (n: number) => `Comment ${n}: ${'this needs keyboard access. '.repeat(30)}`;
+    const items = [
+      ...[1, 2, 3, 4, 5, 6].map((n) => ({
+        kind: 'thread' as const,
+        threadId: `PRRT_${n}`,
+        author: 'copilot-pull-request-reviewer',
+        body: long(n),
+        url: `https://github.com/o/r/pull/1944#discussion_r${n}`,
+        where: `payfac-admin/src/pages/merchants/settlement-detail/tabs/tab-${n}.tsx:50`,
+      })),
+      { kind: 'review' as const, author: 'copilot-pull-request-reviewer', state: 'COMMENTED', body: long(7), url: 'u' },
+    ];
+    getCommentFileStore('sid').post({
+      body: reviewMessage([{ repo: 'frontend', number: 1944, items }], true, 'DECISION NEEDED:', 0.47),
+      side: 'general',
+    });
+    const out = formatPendingForPrompt(readPendingForSession('sid'));
+    expect(out).toContain('`work pr reply <thread id> "<reply>"`');
+    expect(out).toContain('`work pr post <thread id>…`');
+    expect(out).toContain('`work pr replies` lists every thread');
+    for (const n of [1, 2, 3, 4, 5, 6]) expect(out).toContain(`[thread PRRT_${n}]`);
+    expect(out).not.toContain('truncated');
+  });
+
   it('keeps inline comments compacted to their first line', () => {
     const store = getCommentFileStore('sid');
     store.post({
@@ -261,10 +288,10 @@ describe('formatPendingForPrompt', () => {
 
   it('truncates pathologically long bodies', () => {
     const store = getCommentFileStore('sid');
-    const huge = 'x'.repeat(10_000);
+    const huge = 'x'.repeat(40_000);
     store.post({ body: huge });
     const out = formatPendingForPrompt(readPendingForSession('sid'));
-    // Should NOT contain the full 10k body — capped at ~4 KB plus ellipsis.
+    // Should NOT contain the full 40k body — capped at 16 KB plus ellipsis.
     expect(out.length).toBeLessThan(huge.length);
     expect(out).toContain('xxxxx');
     expect(out).toContain('…');

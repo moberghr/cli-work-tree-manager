@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { linuxProcessName, linuxProcessTable, processName, type ProcReader } from '../../../src/core/platform/process.js';
+import {
+  isPidAlive,
+  isZombie,
+  linuxProcessName,
+  linuxProcessTable,
+  processName,
+  type ProcReader,
+} from '../../../src/core/platform/process.js';
 
 /** A /proc with the given entries. */
 const proc = (entries: Record<number, { exe?: string; cmdline?: string; comm?: string }>): ProcReader => ({
@@ -37,5 +44,21 @@ describe('process names on Linux, from /proc', () => {
 
   it.runIf(process.platform === 'linux')('this test runner reads as node', () => {
     expect(processName(process.pid)).toMatch(/^node$/);
+  });
+});
+
+describe('isZombie (exited, not yet collected: kill(0) still answers)', () => {
+  const stat = (text: string | null) => ({ file: (p: string) => (p === '/proc/42/stat' ? text : null) });
+  it('reads the state after the command name — which can hold spaces and parentheses', () => {
+    expect(isZombie(42, stat('42 (node) Z 1 42 42 0 -1'), 'linux')).toBe(true);
+    expect(isZombie(42, stat('42 (work web (dev)) Z 1 42'), 'linux')).toBe(true);
+    expect(isZombie(42, stat('42 (node) S 1 42 42 0 -1'), 'linux')).toBe(false);
+    expect(isZombie(42, stat(null), 'linux')).toBe(false); // gone, or no /proc
+    expect(isZombie(42, stat('42 (node) Z 1'), 'win32')).toBe(false); // Linux only
+    expect(isZombie(42, stat('4Z'), 'linux')).toBe(false); // no command name: not read as a state
+  });
+
+  it('this process is alive, and not a zombie', () => {
+    expect(isPidAlive(process.pid)).toBe(true);
   });
 });

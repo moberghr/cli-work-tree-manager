@@ -338,7 +338,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         const prNumber = r.pr.number;
         threadList.set(
           r.name,
-          openThreadsOf(fb).map((t) => ({ ...t, repo: r.name, prNumber })),
+          openThreadsOf(fb, opts.trustedBots ?? DEFAULT_TRUSTED_BOTS).map((t) => ({ ...t, repo: r.name, prNumber })),
         );
         if (act && deliverReviews) {
           const items = newFeedback(fb, `${id}:${r.name}:${r.pr.number}`, feedbackSeen, {

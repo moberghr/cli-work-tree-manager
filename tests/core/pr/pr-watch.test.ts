@@ -197,7 +197,7 @@ describe('PR watch', () => {
     expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
     // …and the threads themselves, for the replies panel.
     expect(h.watch.state('s1')?.repos[0].threads).toEqual([
-      { threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix' },
+      { threadId: 't1', repo: 'api', prNumber: 7, url: 'u', where: 'a.ts:1', reviewer: 'rev', excerpt: 'fix', trusted: true },
     ]);
   });
 

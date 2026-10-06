@@ -669,6 +669,9 @@ export interface OpenReviewThread {
   where: string | null;
   reviewer: string;
   excerpt: string;
+  /** Its text is from someone with write access or a trusted review bot (the PR watch's rule); only
+   *  such threads go to Claude in one "Ask Claude about all". Missing (an older server): not known. */
+  trusted?: boolean;
 }
 
 /** GET /api/sessions/:id/replies: the threads handed to its Claude and its drafts, and the open threads that have no draft. */

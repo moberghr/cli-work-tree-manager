@@ -221,13 +221,43 @@ describe('newFeedback', () => {
       ],
     });
     expect(openThreadsOf(data)).toEqual([
-      { threadId: 'PRRT_open1', url: 'https://gh/2', where: 'src/a.ts:53', reviewer: 'copilot', excerpt: 'Invalidates only once' },
+      {
+        threadId: 'PRRT_open1',
+        url: 'https://gh/2',
+        where: 'src/a.ts:53',
+        reviewer: 'copilot',
+        excerpt: 'Invalidates only once',
+        trusted: true,
+      },
     ]);
     const reply = (threadId: string, status: 'sent' | 'draft') => ({ threadId, status }) as never;
     const open = [{ threadId: 'A' }, { threadId: 'B' }] as never[];
     expect(threadsWithoutDraft(open, [reply('A', 'draft'), reply('B', 'sent')]).map((t: { threadId: string }) => t.threadId)).toEqual([
       'B',
     ]);
+  });
+});
+
+describe('openThreadsOf: trusted', () => {
+  it("marks whose text it is by the PR watch's rule: write access, or a trusted review bot", () => {
+    const thread = (id: string, author: string, association: string) => ({
+      id,
+      isResolved: false,
+      isOutdated: false,
+      path: null,
+      line: null,
+      comments: [c(id, author, 'x', association)],
+    });
+    const data = fb({
+      threads: [
+        thread('member', 'dana', 'MEMBER'),
+        thread('drive-by', 'stranger', 'NONE'),
+        thread('bot', 'copilot-pull-request-reviewer', 'NONE'),
+      ],
+    });
+    const trust = (bots?: string[]) => Object.fromEntries(openThreadsOf(data, bots).map((t) => [t.threadId, t.trusted]));
+    expect(trust()).toEqual({ member: true, 'drive-by': false, bot: false });
+    expect(trust(['copilot-pull-request-reviewer'])).toEqual({ member: true, 'drive-by': false, bot: true });
   });
 });
 
@@ -272,12 +302,43 @@ describe('reviewMessage', () => {
     );
     expect(msg).toContain('- a.ts:3 — @dana: "why?" u [thread PRRT_abc123]');
     expect(msg).toContain('`work pr reply <thread id> "<reply>"`');
-    expect(msg).toContain('show me the drafts');
+    expect(msg).toContain('show me the plan and the drafts');
     expect(msg).toContain('Once I say yes to them');
     expect(msg).toContain('`work pr post <thread id>…`, which resolves each thread');
     expect(msg).toContain('`--no-resolve` only where your reply asks a person a question');
     expect(msg).toContain("Never post one I haven't said yes to");
     expect(msg).toContain("Don't write on GitHub any other way");
+  });
+
+  it('asks for a plan, not changes: nothing is edited, committed or pushed before the user says yes (a reviewer can be wrong)', () => {
+    const msg = reviewMessage(
+      [{ repo: 'api', number: 7, items: [{ kind: 'thread', threadId: 'PRRT_a', author: 'dana', body: 'x', url: 'u' }] }],
+      false,
+      'D:',
+    );
+    expect(msg).toContain('Plan first, change nothing');
+    expect(msg).toContain("Don't edit files, commit or push yet");
+    expect(msg).toContain('Once I say yes to them');
+    expect(msg.indexOf('Once I say yes')).toBeLessThan(msg.indexOf('commit and push'));
+    expect(msg).not.toContain('make it, commit and push');
+  });
+
+  it('says what to do before the quotes, so a cut can only lose quotes', () => {
+    const msg = reviewMessage(
+      [
+        {
+          repo: 'api',
+          number: 7,
+          items: [{ kind: 'thread', threadId: 'PRRT_a', author: 'dana', body: 'why?', url: 'u', where: 'a.ts:3' }],
+        },
+      ],
+      false,
+      'DECISION NEEDED:',
+      0.8,
+    );
+    const quoteAt = msg.indexOf('[thread PRRT_a]');
+    for (const line of ['work pr reply <thread id>', 'work pr post <thread id>', 'DECISION NEEDED: <the question>', 'sub-agent'])
+      expect(msg.indexOf(line)).toBeLessThan(quoteAt);
   });
 
   it('a quote cannot close the reminder block it is delivered in', () => {

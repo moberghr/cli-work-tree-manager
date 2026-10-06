@@ -21,10 +21,26 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+  return !isZombie(pid);
+}
+
+/**
+ * Exited, but not yet collected by its parent (a zombie): `kill(pid, 0)` still
+ * succeeds, though nothing runs. A server started by a parent that never
+ * waits for it — the desktop app's work web, or a test's child while the test
+ * blocks in spawnSync — is one once it stops, and `work web --dev --stop`
+ * waited for it to go, then said it didn't. Linux only (/proc/<pid>/stat: the
+ * state letter after the command's closing parenthesis); elsewhere false.
+ */
+export function isZombie(pid: number, read: Pick<ProcReader, 'file'> = procFs, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'linux') return false;
+  const stat = read.file(`/proc/${pid}/stat`) ?? '';
+  // The state follows the command name, which is in parentheses and may hold some.
+  const close = stat.lastIndexOf(')');
+  return close >= 0 && stat[close + 2] === 'Z';
 }
 
 /** How /proc is read (tests pass a fake one). */

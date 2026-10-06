@@ -226,9 +226,14 @@ export function releaseClaim(sessionId: string, ids: string[]): void {
  *  hint at the rest via "(truncated)". 4 KB is generous for a code-review
  *  note while leaving headroom for batches. */
 const MAX_BODY_BYTES = 4 * 1024;
+/** A general note: a prompt, or work's own note (a PR review round quotes
+ *  every thread, then a bot's overview). 4 KB once cut such a note before
+ *  the line telling Claude how to draft its replies. */
+const MAX_NOTE_BYTES = 16 * 1024;
 /** Overall cap on the whole system-reminder payload. Multiple long
- *  comments at once still get bounded. */
-const MAX_TOTAL_BYTES = 32 * 1024;
+ *  comments at once still get bounded — but room for four whole notes, since
+ *  the cut falls on the newest one's end: its instructions. */
+const MAX_TOTAL_BYTES = 4 * MAX_NOTE_BYTES;
 
 /**
  * Format pending comments as a system-reminder block suitable for stdout.
@@ -301,12 +306,12 @@ function formatBody(prefix: string, c: Comment): string {
   return `${prefix}: ${capped}${c.body.includes('\n') ? ' …' : ''}`;
 }
 
-/** Like `formatBody` but preserves the full multi-line body (only the byte
+/** Like `formatBody` but preserves the full multi-line body (only the note
  *  cap applies). Multi-line bodies are emitted under the bullet, indented, so
  *  a broadcast prompt arrives intact rather than truncated to its first line. */
 function formatFullBody(prefix: string, c: Comment): string {
   const body = c.body.trim();
-  const capped = body.length > MAX_BODY_BYTES ? `${body.slice(0, MAX_BODY_BYTES)}…` : body;
+  const capped = body.length > MAX_NOTE_BYTES ? `${body.slice(0, MAX_NOTE_BYTES)}…` : body;
   const bodyLines = capped.split('\n');
   if (bodyLines.length === 1) return `${prefix}: ${bodyLines[0]}`;
   const [first, ...rest] = bodyLines;

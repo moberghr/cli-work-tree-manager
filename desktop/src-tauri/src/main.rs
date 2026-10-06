@@ -243,7 +243,19 @@ fn start_work_web(rt: Option<&runtime::Runtime>) -> std::io::Result<()> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    cmd.spawn().map(|_| ())
+    spawn_collected(&mut cmd)
+}
+
+/// Start a child the app doesn't wait for, and collect it once it exits: on
+/// macOS and Linux an uncollected child stays a zombie for the app's lifetime,
+/// which still answers `kill(pid, 0)` — `work web --dev --stop` then waited on
+/// a server that had already stopped.
+fn spawn_collected(cmd: &mut Command) -> std::io::Result<()> {
+    let mut child = cmd.spawn()?;
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 fn find_or_start_web(rt: Option<&runtime::Runtime>) -> Result<String, String> {
@@ -302,11 +314,11 @@ fn open_in_browser(url: &Url) {
         return;
     }
     #[cfg(windows)]
-    let r = Command::new("explorer").arg(url.as_str()).spawn();
+    let r = spawn_collected(Command::new("explorer").arg(url.as_str()));
     #[cfg(target_os = "macos")]
-    let r = Command::new("open").arg(url.as_str()).spawn();
+    let r = spawn_collected(Command::new("open").arg(url.as_str()));
     #[cfg(all(unix, not(target_os = "macos")))]
-    let r = Command::new("xdg-open").arg(url.as_str()).spawn();
+    let r = spawn_collected(Command::new("xdg-open").arg(url.as_str()));
     if let Err(e) = r {
         log(&format!("could not open {url}: {e}"));
     }
@@ -324,7 +336,7 @@ fn register_plugin(rt: &runtime::Runtime) {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    if let Err(e) = cmd.spawn() {
+    if let Err(e) = spawn_collected(&mut cmd) {
         log(&format!("could not register the Claude Code plugin: {e}"));
     }
 }

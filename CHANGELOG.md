@@ -14,6 +14,16 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   or background jobs; it refuses a build that would migrate the database), and
   the dev app — `npm run app:dev` / `npm run app:demo`, "work dev" with DEV on
   its icon — side by side with the installed app.
+- PR review comments: Claude now plans and changes nothing. Per comment it
+  says what it would change (or why not) and drafts the reply; it edits,
+  commits, pushes and posts only once you say yes, since a reviewer can be
+  wrong. CI failures are still fixed and pushed straight away.
+- A long review round no longer reaches Claude cut off before the
+  instructions (it then drafted its replies in the chat, where the dashboard
+  can't see them). Several threads with no reply fold under one heading, with
+  one "Ask Claude about all".
+- `work web --dev --stop` works on Linux: a server that has exited is no
+  longer taken for a running one.
 
 ## 2.0.2
 
