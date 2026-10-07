@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, onTestFinished } from 'vitest';
 import { Hono } from 'hono';
 import { catchUp, catchUpPrompt, catchUpTimeline, cachedCatchUp, forgetCatchUp } from '../../../src/core/conversations/catch-up.js';
 import { claudeProjectsRoot, encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
@@ -114,6 +114,11 @@ describe('catchUp (writing and caching it)', () => {
   });
 
   it('routes: GET only reads (runs nothing), POST writes it', async () => {
+    // The route reads "the last week" from the clock: pinned to the transcript's
+    // dates (it failed from 2026-10-08 on, a week after them).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    onTestFinished(() => void vi.useRealTimers());
     vi.resetModules();
     vi.doMock('../../../src/core/sessions/web-state.js', async (orig) => ({
       ...(await orig<typeof import('../../../src/core/sessions/web-state.js')>()),
