@@ -56,6 +56,26 @@ export function pullLatestForBranch(worktreePath: string, branchName: string): v
 }
 
 /**
+ * Bring a local branch up to its upstream (after a fetch) by moving its ref:
+ * a fast-forward only, nothing checked out. A branch with no upstream, or
+ * already there, is left as it is; one that has commits its upstream lacks
+ * (diverged) is left too, with a warning. Returns what it did.
+ */
+export function fastForwardBranch(repoPath: string, branchName: string): 'none' | 'current' | 'forwarded' | 'diverged' {
+  const upstream = git(['rev-parse', '--verify', '--quiet', `${branchName}@{upstream}`], repoPath);
+  if (upstream.exitCode !== 0 || !upstream.stdout) return 'none';
+  const local = git(['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}`], repoPath).stdout;
+  if (!local || local === upstream.stdout) return 'current';
+  if (git(['merge-base', '--is-ancestor', local, upstream.stdout], repoPath).exitCode !== 0) {
+    report('warn', `  ⚠ '${branchName}' has commits its upstream lacks: not updated. The worktree may be behind origin.`);
+    return 'diverged';
+  }
+  report('info', `  Bringing ${branchName} up to date with its upstream...`);
+  git(['update-ref', `refs/heads/${branchName}`, upstream.stdout, local], repoPath);
+  return 'forwarded';
+}
+
+/**
  * Create a single git worktree for one repo.
  * Returns true on success, false on failure.
  *
@@ -131,21 +151,6 @@ export function createSingleWorktree(
   // Fetch remote refs first so origin/* is up to date even if pull fails below
   git(['fetch', '--quiet'], repoPath);
 
-  // Pull latest changes for current branch in main repo
-  const baseRepoBranch = getCurrentBranch(repoPath);
-  const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
-  report('info', `  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
-  if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
-    report('warn', `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`);
-  }
-  const baseRepoPull = git(['pull', '--quiet'], repoPath);
-  const baseRepoPullFailed = baseRepoPull.exitCode !== 0;
-  if (baseRepoPullFailed) {
-    report('warn', `  ⚠ Could not pull '${baseBranchLabel}' (uncommitted changes, conflicts, or no upstream).`);
-    const firstErrLine = baseRepoPull.stderr.split('\n')[0];
-    if (firstErrLine) report('detail', `    ${firstErrLine}`);
-  }
-
   const hasLocal = localBranchExists(branchName, repoPath);
   const hasRemote = remoteBranchExists(branchName, repoPath);
 
@@ -155,21 +160,30 @@ export function createSingleWorktree(
     return false;
   }
 
-  // Pull latest changes if branch exists locally
-  if (hasLocal) {
-    report('info', `  Pulling latest changes for ${branchName}...`);
-    const prevBranch = getCurrentBranch(repoPath);
-    git(['checkout', branchName, '--quiet'], repoPath);
-    const branchPull = git(['pull', '--quiet'], repoPath);
-    if (branchPull.exitCode !== 0) {
-      report('warn', `  ⚠ Could not pull '${branchName}'. Worktree may be behind origin.`);
-      const firstErrLine = branchPull.stderr.split('\n')[0];
+  // The main checkout is pulled only when the new branch starts from it: an
+  // existing branch, or one from --base, doesn't need it (2-3 s a repo).
+  const fromMainCheckout = !hasLocal && !hasRemote && !baseBranch;
+  const baseRepoBranch = getCurrentBranch(repoPath);
+  let baseRepoPullFailed = false;
+  if (fromMainCheckout) {
+    const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
+    report('info', `  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
+    if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
+      report('warn', `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`);
+    }
+    const baseRepoPull = git(['pull', '--quiet'], repoPath);
+    baseRepoPullFailed = baseRepoPull.exitCode !== 0;
+    if (baseRepoPullFailed) {
+      report('warn', `  ⚠ Could not pull '${baseBranchLabel}' (uncommitted changes, conflicts, or no upstream).`);
+      const firstErrLine = baseRepoPull.stderr.split('\n')[0];
       if (firstErrLine) report('detail', `    ${firstErrLine}`);
     }
-    if (prevBranch) {
-      git(['checkout', prevBranch, '--quiet'], repoPath);
-    }
   }
+
+  // An existing local branch: brought up to its upstream by moving its ref —
+  // never by checking it out in the main checkout (that switched your checkout
+  // twice, ~4 s each, and pulled branches that have no upstream at all).
+  if (hasLocal) fastForwardBranch(repoPath, branchName);
 
   // Create worktree
   let result;

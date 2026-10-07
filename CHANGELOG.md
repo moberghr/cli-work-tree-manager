@@ -3,6 +3,16 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.6
+
+- Creating a worktree is faster, and leaves your main checkout alone: a
+  branch that already exists (a group's, made first in each repo) is brought
+  up to its upstream by moving its ref, where work used to check it out in
+  your main checkout, pull, and check the old branch out again (~10 s a repo
+  on a big one). The main checkout is pulled only when the new branch starts
+  from it. A two-repo group took 46 s; most of what's left is git writing
+  the files.
+
 ## 2.0.5 — 2026-10-07
 
 - Context on Opus 5 reads against its 1M window: the header said 96% where
