@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## 2.0.6
+## 2.0.6 — 2026-10-07
 
 - Creating a worktree is faster, and leaves your main checkout alone: a
   branch that already exists (a group's, made first in each repo) is brought
