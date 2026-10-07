@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## 2.0.5
+## 2.0.5 — 2026-10-07
 
 - Context on Opus 5 reads against its 1M window: the header said 96% where
   Claude Code's own line said 19%.
