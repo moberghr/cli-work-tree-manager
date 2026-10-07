@@ -10,8 +10,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   up to its upstream by moving its ref, where work used to check it out in
   your main checkout, pull, and check the old branch out again (~10 s a repo
   on a big one). The main checkout is pulled only when the new branch starts
-  from it. A two-repo group took 46 s; most of what's left is git writing
-  the files.
+  from it. Git writes the worktree's files in parallel (`checkout.workers`:
+  6-8.6 s became 2 s for 5,000 files on Windows), and a group's repos fetch
+  at the same time. A two-repo group that took 46 s should take about 10.
 
 ## 2.0.5 — 2026-10-07
 

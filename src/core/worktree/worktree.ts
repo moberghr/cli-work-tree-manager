@@ -31,6 +31,7 @@ import {
 import { copyConfigFiles } from './copy-files.js';
 import { type BaseSpec, baseForAlias, baseSpecOverrideAliases, isEmptyBaseSpec, toBaseSpec } from '../git/base-spec.js';
 import { report } from '../platform/report.js';
+import spawnChild from '../platform/spawn.js';
 
 /**
  * Pull latest changes for a checkout we're switching into (a worktree that
@@ -53,6 +54,22 @@ export function pullLatestForBranch(worktreePath: string, branchName: string): v
     const firstErrLine = pull.stderr.split('\n')[0];
     if (firstErrLine) report('detail', `    ${firstErrLine}`);
   }
+}
+
+/**
+ * `git worktree add` writing its files in parallel, one worker per core
+ * (`checkout.workers=0`): measured on this repo's shape (5,128 files) on
+ * Windows, 6-8.6 s became 2 s. A git without parallel checkout ignores it.
+ */
+const WORKTREE_ADD = ['-c', 'checkout.workers=0', 'worktree', 'add'];
+
+/** `git fetch` without blocking: a group's repos fetch at the same time. */
+function fetchAsync(repoPath: string): Promise<void> {
+  return new Promise((resolve) => {
+    const child = spawnChild('git', ['fetch', '--quiet'], { cwd: repoPath, windowsHide: true, stdio: 'ignore' });
+    child.on('error', () => resolve());
+    child.on('close', () => resolve());
+  });
 }
 
 /**
@@ -107,6 +124,8 @@ export function createSingleWorktree(
   config: WorkConfig,
   baseBranch?: string,
   pull = true,
+  /** Its repo was fetched just now (a group fetches every repo at once first). */
+  fetched = false,
 ): boolean {
   debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
 
@@ -149,7 +168,7 @@ export function createSingleWorktree(
   fs.mkdirSync(parentDir, { recursive: true });
 
   // Fetch remote refs first so origin/* is up to date even if pull fails below
-  git(['fetch', '--quiet'], repoPath);
+  if (!fetched) git(['fetch', '--quiet'], repoPath);
 
   const hasLocal = localBranchExists(branchName, repoPath);
   const hasRemote = remoteBranchExists(branchName, repoPath);
@@ -191,10 +210,10 @@ export function createSingleWorktree(
   if (hasLocal || hasRemote) {
     if (hasRemote && !hasLocal) {
       branchSource = 'remote';
-      result = git(['worktree', 'add', worktreePath, '-b', branchName, '--track', `origin/${branchName}`], repoPath);
+      result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, '--track', `origin/${branchName}`], repoPath);
     } else {
       branchSource = 'local';
-      result = git(['worktree', 'add', worktreePath, branchName], repoPath);
+      result = git([...WORKTREE_ADD, worktreePath, branchName], repoPath);
     }
   } else if (baseBranch) {
     // Validate the base branch exists
@@ -207,16 +226,16 @@ export function createSingleWorktree(
     }
 
     const baseRef = baseLocal ? baseBranch : `origin/${baseBranch}`;
-    result = git(['worktree', 'add', worktreePath, '-b', branchName, baseRef], repoPath);
+    result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, baseRef], repoPath);
   } else {
     // If pulling the base repo branch failed, use origin/<baseRepoBranch> as the
     // source so the new branch isn't created from a stale local HEAD.
     const fallbackToRemote = baseRepoPullFailed && !!baseRepoBranch && remoteBranchExists(baseRepoBranch, repoPath);
     if (fallbackToRemote) {
       report('step', `  Using origin/${baseRepoBranch} as base (local '${baseRepoBranch}' is stale)`);
-      result = git(['worktree', 'add', worktreePath, '-b', branchName, `origin/${baseRepoBranch}`], repoPath);
+      result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, `origin/${baseRepoBranch}`], repoPath);
     } else {
-      result = git(['worktree', 'add', worktreePath, '-b', branchName], repoPath);
+      result = git([...WORKTREE_ADD, worktreePath, '-b', branchName], repoPath);
     }
   }
 
@@ -548,6 +567,11 @@ async function setupGroupWorktree(
   // Per-repo fork point, keyed by worktree path (matches the session `paths`).
   const baseBranches: Record<string, string> = {};
 
+  // Every repo fetches at once (the network is most of a repo's wait), then
+  // each is set up in turn without fetching again.
+  report('info', `Fetching ${repoAliases.length} repos…`);
+  await Promise.all(repoAliases.map((alias) => fetchAsync(config.repos[alias])));
+
   for (const alias of repoAliases) {
     const repoPath = config.repos[alias];
     const repoName = path.basename(repoPath);
@@ -562,6 +586,7 @@ async function setupGroupWorktree(
       config,
       repoBase,
       opts.pull !== false,
+      true,
     );
 
     if (success) {
