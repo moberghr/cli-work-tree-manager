@@ -13,7 +13,8 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-async function fetchPrompts(): Promise<PromptsResponse> {
+/** The saved prompts as configured (`GET /api/prompts`: config `prompts`, or the built-in ones). */
+export async function fetchPrompts(): Promise<PromptsResponse> {
   const res = await fetch('/api/prompts', { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`prompts: ${res.status}`);
   return res.json() as Promise<PromptsResponse>;

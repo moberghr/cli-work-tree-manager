@@ -3,22 +3,36 @@ import { askClaudeToFixCi, fetchSessionCi, sendPromptToSession, type SessionCi, 
 import type { PrInfo } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
 import { stagePhrase, stageTone } from '../../../../core/pr/pr-stage.js';
-import { DEFAULT_PROMPTS } from '../../../../core/sessions/saved-prompts.js';
+import { promptsForSession } from '../../../../core/sessions/saved-prompts.js';
 import { orderedSections, prName, prSections, type PrSection } from '../../state/pr-tab.js';
-import { askableThreads, askToReplyAllPrompt, ReplyList, useReplies } from './ReplyDrafts.js';
+import { isArchived } from '../../state/session-display.js';
+import { askableThreads, askToReplyAllPrompt, ReplyList, useAskedThreads, useReplies, type AskedThreads } from './ReplyDrafts.js';
+import { fetchPrompts } from './PromptsMenu.js';
 import { relativeTime } from '../../utils/time.js';
 import type { OpenReviewThread, PrReply } from '../../../../core/api-types.js';
 
 const POLL_MS = 60_000;
 
-/** The session's PR checks and review threads from the PR watch, kept fresh (`ci-changed`, and a minute's poll). */
+/**
+ * The session's PR checks and review threads from the PR watch, kept fresh
+ * (`ci-changed`, and a minute's poll). A failed read says so (`error`)
+ * rather than leaving the tab loading.
+ */
 function useSessionCi(sessionId: string) {
   const [ci, setCi] = useState<SessionCi | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
-    fetchSessionCi(sessionId).then(setCi, () => {});
+    fetchSessionCi(sessionId).then(
+      (c) => {
+        setCi(c);
+        setError(null);
+      },
+      (e: Error) => setError(e.message),
+    );
   }, [sessionId]);
   useEffect(() => {
     setCi(null);
+    setError(null);
     load();
     const t = setInterval(load, POLL_MS);
     return () => clearInterval(t);
@@ -30,7 +44,7 @@ function useSessionCi(sessionId: string) {
       },
     },
   });
-  return ci;
+  return { ci, error };
 }
 
 /**
@@ -40,10 +54,14 @@ function useSessionCi(sessionId: string) {
  * one action for every thread with no reply across them; in each, its stage,
  * checks (failing ones linked, with Ask Claude to fix), and its review
  * threads and drafts. Ship… opens the Ship panel (every repo's merge).
+ * Mounted once opened and kept (hidden) while another tab shows, keyed by
+ * session: a draft being edited survives a look at the terminal, and nothing
+ * of one session's lands on another's.
  */
 export function PrTab({ session, prs, onShip }: { session: SessionSummary; prs: PrInfo[]; onShip: () => void }) {
-  const ci = useSessionCi(session.id);
+  const { ci, error } = useSessionCi(session.id);
   const { replies, waiting, load } = useReplies(session.id);
+  const asked = useAskedThreads();
   const sections = useMemo(() => orderedSections(prSections(ci, prs), waiting, replies), [ci, prs, waiting, replies]);
   const isGroup = session.isGroup;
   // The threads no section claims (a PR the watch no longer lists): still shown, below.
@@ -52,12 +70,22 @@ export function PrTab({ session, prs, onShip }: { session: SessionSummary; prs: 
   const strayReplies = replies.filter((r) => !claimed.has(r.threadId));
   const wants = sections.reduce((n, s) => n + s.wants, 0) + strayWaiting.length;
 
-  if (ci === null && sections.length === 0) return <div className="wd-pr-tab wd-web-muted">Loading its pull requests…</div>;
+  if (ci === null && sections.length === 0) {
+    return error ? (
+      <div className="wd-pr-tab">
+        <p className="wd-tab-error" role="alert">
+          Couldn't read its pull requests: {error}
+        </p>
+      </div>
+    ) : (
+      <div className="wd-pr-tab wd-web-muted">Loading its pull requests…</div>
+    );
+  }
   if (sections.length === 0 && waiting.length === 0 && replies.length === 0) return <NoPr session={session} />;
 
   return (
     <div className="wd-pr-tab">
-      <AllThreads sessionId={session.id} waiting={waiting} wants={wants} prs={sections.length} />
+      <AllThreads sessionId={session.id} waiting={waiting} wants={wants} prs={sections.length} asked={asked} />
       {sections.map((s) => (
         <PrSectionView
           key={s.section.key}
@@ -67,6 +95,7 @@ export function PrTab({ session, prs, onShip }: { session: SessionSummary; prs: 
           wants={s.wants}
           waiting={s.waiting}
           replies={s.replies}
+          asked={asked}
           onRepliesChanged={load}
           onShip={onShip}
         />
@@ -74,7 +103,7 @@ export function PrTab({ session, prs, onShip }: { session: SessionSummary; prs: 
       {(strayWaiting.length > 0 || strayReplies.some((r) => r.status === 'draft')) && (
         <section className="wd-pr-section">
           <h3 className="wd-pr-section-title">Other review threads</h3>
-          <ReplyList sessionId={session.id} replies={strayReplies} waiting={strayWaiting} onDone={load} />
+          <ReplyList sessionId={session.id} replies={strayReplies} waiting={strayWaiting} onDone={load} asked={asked} />
         </section>
       )}
     </div>
@@ -82,8 +111,19 @@ export function PrTab({ session, prs, onShip }: { session: SessionSummary; prs: 
 }
 
 /** On top: how much wants you, and one Ask for every thread with no reply, across the PRs. */
-function AllThreads({ sessionId, waiting, wants, prs }: { sessionId: string; waiting: OpenReviewThread[]; wants: number; prs: number }) {
-  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+function AllThreads({
+  sessionId,
+  waiting,
+  wants,
+  prs,
+  asked: { asked, mark },
+}: {
+  sessionId: string;
+  waiting: OpenReviewThread[];
+  wants: number;
+  prs: number;
+  asked: AskedThreads;
+}) {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const askable = askableThreads(waiting, asked);
@@ -105,7 +145,7 @@ function AllThreads({ sessionId, waiting, wants, prs }: { sessionId: string; wai
             setError(null);
             sendPromptToSession(sessionId, askToReplyAllPrompt(askable))
               .then(
-                () => setAsked((prev) => new Set([...prev, ...askable.map((t) => t.threadId)])),
+                () => mark(askable.map((t) => t.threadId)),
                 (e: Error) => setError(e.message),
               )
               .finally(() => setAsking(false));
@@ -134,6 +174,7 @@ function PrSectionView({
   wants,
   waiting,
   replies,
+  asked,
   onRepliesChanged,
   onShip,
 }: {
@@ -143,15 +184,19 @@ function PrSectionView({
   wants: number;
   waiting: OpenReviewThread[];
   replies: PrReply[];
+  asked: AskedThreads;
   onRepliesChanged: () => void;
   onShip: () => void;
 }) {
   const open = s.state === 'OPEN';
-  const [unfolded, setUnfolded] = useState(open || wants > 0);
+  // Folded by what's in it (open or wanting you: unfolded) until you click — so
+  // one whose draft loads after the first look still opens; then it's yours.
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const unfolded = chosen ?? (open || wants > 0);
   return (
     <section className={'wd-pr-section' + (wants ? ' wd-pr-section-wants' : '')} aria-label={`Pull request ${prName(s, isGroup)}`}>
       <div className="wd-pr-section-head">
-        <button type="button" className="wd-pr-fold" aria-expanded={unfolded} onClick={() => setUnfolded((u) => !u)}>
+        <button type="button" className="wd-pr-fold" aria-expanded={unfolded} onClick={() => setChosen(!unfolded)}>
           {unfolded ? '▾' : '▸'}
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
@@ -165,19 +210,18 @@ function PrSectionView({
           ↗
         </a>
       </div>
-      {unfolded && (
-        <div className="wd-pr-section-body">
-          {open && <Checks sessionId={sessionId} s={s} />}
-          {open && !s.fromListOnly && (
-            <div className="wd-pr-actions">
-              <button type="button" className="wd-btn-secondary" onClick={onShip} title="Push, open or merge — every repo of the session">
-                Ship…
-              </button>
-            </div>
-          )}
-          <ReplyList sessionId={sessionId} replies={replies} waiting={waiting} onDone={onRepliesChanged} />
-        </div>
-      )}
+      {/* Kept mounted while folded: an edited draft survives folding. */}
+      <div className="wd-pr-section-body" hidden={!unfolded}>
+        {open && <Checks sessionId={sessionId} s={s} />}
+        {open && !s.fromListOnly && (
+          <div className="wd-pr-actions">
+            <button type="button" className="wd-btn-secondary" onClick={onShip} title="Push, open or merge — every repo of the session">
+              Ship…
+            </button>
+          </div>
+        )}
+        <ReplyList sessionId={sessionId} replies={replies} waiting={waiting} onDone={onRepliesChanged} asked={asked} />
+      </div>
     </section>
   );
 }
@@ -238,11 +282,25 @@ function Checks({ sessionId, s }: { sessionId: string; s: PrSection }) {
   );
 }
 
-/** No pull request yet: say so, and offer Claude's "Open a pull request". */
+/**
+ * No pull request yet: say so, and offer "Open a pull request" — the saved
+ * prompt as configured (config `prompts`, limited to its repos, as the ⋯ menu
+ * offers it). Nothing to offer an archived session: its Claude is stopped.
+ */
 function NoPr({ session }: { session: SessionSummary }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const prompt = DEFAULT_PROMPTS.find((p) => p.label === 'Open a pull request')?.prompt;
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const archived = isArchived(session);
+  useEffect(() => {
+    if (archived) return;
+    const repoNames = session.isGroup ? session.paths.map((p) => p.split(/[\\/]/).pop() ?? '') : [];
+    fetchPrompts().then(
+      (r) =>
+        setPrompt(promptsForSession(r.prompts, session.target, repoNames).find((p) => p.label === 'Open a pull request')?.prompt ?? null),
+      () => setPrompt(null),
+    );
+  }, [archived, session.isGroup, session.paths, session.target]);
   return (
     <div className="wd-pr-tab wd-pr-none">
       <p>No pull request yet.</p>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { OpenReviewThread, PrReply, RepliesWire } from '../../../../core/api-types.js';
 import { discardReply, editReply, fetchReplies, postReply, sendPromptToSession } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
@@ -56,17 +56,20 @@ export function askableThreads(threads: OpenReviewThread[], asked: ReadonlySet<s
 }
 
 /**
- * Replies to a session's PR review threads, drafted by its Claude, for you
- * to post: each shows the reviewer's comment, the draft (editable), and
- * Post & resolve / Post / Discard. Open threads with no draft are listed
- * too (the comment, a link, Ask Claude to reply; several fold under one
- * "Ask Claude about all"), so a "1 unresolved" count is never all you see.
- * Nothing reaches GitHub until you click Post. The PR tab shows the same
- * lists per PR (`useReplies` + `ReplyList`).
+ * The threads asked about, by id, shared by every Ask on a page (the PR
+ * tab's top one, each PR's, each thread's): one asked anywhere isn't
+ * offered again — the same plan-and-draft note twice drafts twice.
  */
-export function ReplyDrafts({ sessionId, api = httpReplies, hidden = false }: { sessionId: string; api?: ReplyApi; hidden?: boolean }) {
-  const { replies, waiting, load } = useReplies(sessionId, api);
-  return <ReplyList sessionId={sessionId} api={api} replies={replies} waiting={waiting} onDone={load} hidden={hidden} />;
+export interface AskedThreads {
+  asked: ReadonlySet<string>;
+  mark: (ids: string[]) => void;
+}
+
+/** A page's shared asked set (the PR tab holds one). */
+export function useAskedThreads(): AskedThreads {
+  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const mark = useCallback((ids: string[]) => setAsked((prev) => new Set([...prev, ...ids])), []);
+  return useMemo(() => ({ asked, mark }), [asked, mark]);
 }
 
 /** A session's reply drafts and its open threads with none, kept fresh (`replies-changed`): one fetch for every list shown. */
@@ -97,26 +100,35 @@ export function useReplies(sessionId: string, api: ReplyApi = httpReplies) {
   return { replies, waiting, load };
 }
 
-/** The drafts to post and the threads with no reply, as given (one PR's, in the PR tab). Nothing when there are none. */
+/**
+ * Replies to a session's PR review threads (one PR's, in the PR tab),
+ * drafted by its Claude, for you to post: each shows the reviewer's comment,
+ * the draft (editable), and Post & resolve / Post / Discard. Open threads
+ * with no draft are listed too (the comment, a link, Ask Claude to reply;
+ * several fold under one "Ask Claude about all"), so a "1 unresolved" count
+ * is never all you see. Nothing reaches GitHub until you click Post. Nothing
+ * when there are none.
+ */
 export function ReplyList({
   sessionId,
   api = httpReplies,
   replies,
   waiting,
   onDone,
-  hidden = false,
+  asked,
 }: {
   sessionId: string;
   api?: ReplyApi;
   replies: PrReply[];
   waiting: OpenReviewThread[];
   onDone: () => void;
-  hidden?: boolean;
+  /** Shared with the page's other Asks; its own otherwise. */
+  asked?: AskedThreads;
 }) {
   const drafts = replies.filter((r) => r.status === 'draft');
   if (drafts.length === 0 && waiting.length === 0) return null;
   return (
-    <section className="wd-replies" aria-label="Replies to review threads" hidden={hidden}>
+    <section className="wd-replies" aria-label="Replies to review threads">
       {drafts.length > 0 && (
         <h3 className="wd-replies-title">
           ✍ {drafts.length} {drafts.length === 1 ? 'reply' : 'replies'} to post
@@ -125,7 +137,7 @@ export function ReplyList({
       {drafts.map((r) => (
         <Draft key={r.threadId} reply={r} sessionId={sessionId} api={api} onDone={onDone} />
       ))}
-      {waiting.length > 0 && <WaitingThreads threads={waiting} replies={replies} sessionId={sessionId} api={api} />}
+      {waiting.length > 0 && <WaitingThreads threads={waiting} replies={replies} sessionId={sessionId} api={api} shared={asked} />}
     </section>
   );
 }
@@ -143,17 +155,20 @@ function WaitingThreads({
   replies,
   sessionId,
   api,
+  shared,
 }: {
   threads: OpenReviewThread[];
   replies: PrReply[];
   sessionId: string;
   api: ReplyApi;
+  shared?: AskedThreads;
 }) {
   // Unfolded by a click; a few threads are never folded (`folded`), so a list
   // that shrinks to two shows them rather than hiding them with no toggle.
   const [open, setOpen] = useState(false);
   // The threads asked about, by id: one that arrives after an Ask all can still be asked.
-  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const own = useAskedThreads();
+  const { asked, mark } = shared ?? own;
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const handedIds = new Set(replies.filter((r) => r.status === 'sent').map((r) => r.threadId));
@@ -168,7 +183,7 @@ function WaitingThreads({
     api
       .ask(sessionId, askToReplyAllPrompt(askable))
       .then(
-        () => setAsked((prev) => new Set([...prev, ...askable.map((t) => t.threadId)])),
+        () => mark(askable.map((t) => t.threadId)),
         (e: Error) => setError(e.message),
       )
       .finally(() => setAsking(false));
@@ -225,6 +240,7 @@ function WaitingThreads({
             api={api}
             handed={handedIds.has(t.threadId)}
             asked={asked.has(t.threadId)}
+            onAsked={() => mark([t.threadId])}
           />
         ))}
     </>
@@ -238,6 +254,7 @@ function Waiting({
   api,
   handed,
   asked = false,
+  onAsked,
 }: {
   thread: OpenReviewThread;
   sessionId: string;
@@ -245,6 +262,8 @@ function Waiting({
   handed: boolean;
   /** Asked already, with the others ("Ask Claude about all"). */
   asked?: boolean;
+  /** Tell the page's other Asks it was asked. */
+  onAsked?: () => void;
 }) {
   const [own, setState] = useState<'idle' | 'asking' | 'asked'>('idle');
   const state = asked ? 'asked' : own;
@@ -253,7 +272,10 @@ function Waiting({
     setState('asking');
     setError(null);
     api.ask(sessionId, askToReplyPrompt(thread)).then(
-      () => setState('asked'),
+      () => {
+        setState('asked');
+        onAsked?.();
+      },
       (e: Error) => {
         setError(e.message);
         setState('idle');

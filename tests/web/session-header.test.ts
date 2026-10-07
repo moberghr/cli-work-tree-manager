@@ -286,3 +286,27 @@ describe('sub-tabs', () => {
     expect(pills[1].className).toContain('wd-pr-stage-bad');
   });
 });
+
+describe('the PR tab, kept', () => {
+  const withPr = {
+    ...base,
+    prStage: { kind: 'in_review', text: '', key: 'k', prs: [{ repo: 'repo', number: 212, url: 'u', kind: 'in_review' }] },
+  } as unknown as SessionSummary;
+  const show = async (session: SessionSummary, subTab: 'pr' | 'term') => {
+    await act(async () => {
+      root.render(createElement(SessionDetail, { session, subTab, onSelectSubTab, onDelete }));
+    });
+    await act(async () => {});
+  };
+  const slot = () => container.querySelector<HTMLElement>('.wd-pr-tab-slot');
+
+  it('stays mounted behind the terminal once opened (an edited draft survives a look), and is per session', async () => {
+    await show(withPr, 'pr');
+    expect(slot()!.style.display).toBe('');
+    await show(withPr, 'term');
+    expect(slot()!.style.display).toBe('none');
+    // Another session: nothing of this one's carries over.
+    await show({ ...withPr, id: 'other' } as SessionSummary, 'term');
+    expect(slot()).toBeNull();
+  });
+});

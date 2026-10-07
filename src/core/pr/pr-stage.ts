@@ -29,8 +29,9 @@ export interface PrStage {
   kind: PrStageKind;
   /** "PR #212 · approved, ready to merge" */
   text: string;
-  /** Each PR with its own stage: a group's are shown (and opened) one by one. */
-  prs: Array<{ repo: string; number: number; url: string; kind: PrStageKind }>;
+  /** Each PR with its own stage: a group's are shown (and opened) one by one. Its
+   *  checks too (additive): a draft's stage is "draft" whatever its checks say. */
+  prs: Array<{ repo: string; number: number; url: string; kind: PrStageKind; checks?: StagePr['checks'] }>;
   /** Changes when the stage or a PR's head does: what "seen" and a snooze compare. */
   key: string;
 }
@@ -101,7 +102,13 @@ export function prStageOf(repos: ReadonlyArray<{ name: string; pr: StagePr | nul
   // `ready` is the least pressing open stage, so the loop above already
   // picked anything less ready that another repo has.
   if (!open.length && withPr.some((r) => r.pr.state === 'MERGED')) kind = 'merged';
-  const pr = (r: { name: string; pr: StagePr }) => ({ repo: r.name, number: r.pr.number, url: r.pr.url, kind: stageOfPr(r.pr) });
+  const pr = (r: { name: string; pr: StagePr }) => ({
+    repo: r.name,
+    number: r.pr.number,
+    url: r.pr.url,
+    kind: stageOfPr(r.pr),
+    checks: r.pr.checks,
+  });
   const named = shown.map(pr);
   // Its merged PRs too, after the open ones: a group whose backend merged while
   // its frontend is in review shows both pills, so you know it had (and merged)

@@ -1758,10 +1758,6 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   padding: 3px 12px;
 }
-/* A reply list told to hide (ReplyDrafts' `hidden`). */
-.wd-replies[hidden] {
-  display: none;
-}
 
 /* Timeline tab: how long its Claude worked, above the timeline. */
 .wd-timeline-tab {
@@ -4214,6 +4210,12 @@ a.wd-pr-chip:hover {
 
 /* ---- The session's PR tab (PrTab): every pull request, one section each.
    Scrolls on its own, so the terminal keeps its height. */
+.wd-pr-tab-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .wd-pr-tab {
   flex: 1;
   min-height: 0;

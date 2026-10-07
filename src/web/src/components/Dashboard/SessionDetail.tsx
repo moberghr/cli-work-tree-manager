@@ -72,6 +72,10 @@ export function SessionDetail({
 }: Props) {
   const files = session.diffStat?.files ?? 0;
   const prButton = prTabButton(session, prs);
+  // The PR tab stays mounted once opened (hidden behind the others), so a draft
+  // being edited survives a look at the terminal; per session (keyed below).
+  const [prFor, setPrFor] = useState<string | null>(null);
+  if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
     window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: session.id, action: 'ship' } }));
@@ -119,7 +123,11 @@ export function SessionDetail({
           ) : (
             <PtyView sessionId={session.id} target={session.target} branch={session.branch} />
           ))}
-        {subTab === 'pr' && <PrTab session={session} prs={prs} onShip={openShip} />}
+        {prFor === session.id && (
+          <div className="wd-pr-tab-slot" style={subTab === 'pr' ? undefined : { display: 'none' }}>
+            <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
+          </div>
+        )}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">
             <div className="wd-timeline-head">

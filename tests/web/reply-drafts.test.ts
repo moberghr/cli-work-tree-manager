@@ -9,7 +9,19 @@ const sse = vi.hoisted(() => ({ handlers: {} as Record<string, (d: unknown) => v
 vi.mock('../../src/web/src/api/events.js', () => ({
   useSse: (_path: string, o: { events: Record<string, (d: unknown) => void> }) => void Object.assign(sse.handlers, o.events),
 }));
-import { ReplyDrafts, askableThreads, askToReplyAllPrompt, type ReplyApi } from '../../src/web/src/components/Dashboard/ReplyDrafts.js';
+import {
+  ReplyList,
+  askableThreads,
+  askToReplyAllPrompt,
+  useReplies,
+  type ReplyApi,
+} from '../../src/web/src/components/Dashboard/ReplyDrafts.js';
+
+/** A session's replies as the PR tab shows them: one fetch (useReplies), one list (ReplyList). */
+function ReplyDrafts({ sessionId, api }: { sessionId: string; api: ReplyApi }) {
+  const { replies, waiting, load } = useReplies(sessionId, api);
+  return createElement(ReplyList, { sessionId, api, replies, waiting, onDone: load });
+}
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

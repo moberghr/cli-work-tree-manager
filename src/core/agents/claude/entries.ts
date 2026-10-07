@@ -130,8 +130,9 @@ export function claudeEntries(lines: readonly unknown[]): ConversationEntry[] {
  */
 export const DEFAULT_WINDOW = 200_000;
 export const LARGE_WINDOW = 1_000_000;
-/** Models with 1M context as they come, as Claude Code counts them: Opus 5 (`claude-opus-5-5`). */
-const LARGE_MODELS = /^claude-opus-5(-|$)/i;
+/** Models with 1M context as they come, as Claude Code counts them: Opus 5 (`claude-opus-5-5`; on Bedrock
+ *  `us.anthropic.claude-opus-5-5-v1:0`, on Vertex `claude-opus-5-5@…`). */
+const LARGE_MODELS = /(^|[./:])claude-opus-5(?!\d)/i;
 export function claudeContextWindow(model: string | undefined, used: number): number {
   return (model && (/\[1m\]/i.test(model) || LARGE_MODELS.test(model))) || used > DEFAULT_WINDOW ? LARGE_WINDOW : DEFAULT_WINDOW;
 }

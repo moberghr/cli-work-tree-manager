@@ -54,7 +54,7 @@ describe('prSections', () => {
     expect(s.map((x) => [x.repo, x.number, x.kind, x.title, x.fromListOnly])).toEqual([
       ['backend', 3509, 'merged', null, false],
       ['frontend', 1927, 'checks_failing', 'Unassign in Adyen', false],
-      ['frontend', 1990, 'checks_running', 'Same branch, into main', true],
+      ['frontend', 1990, 'in_review', 'Same branch, into main', true],
     ]);
     expect(s[1].failing).toEqual([{ name: 'build', url: 'https://ci/1' }]);
   });
@@ -106,5 +106,14 @@ describe('prTabButton', () => {
   it('no PR and nothing about one: no tab; threads alone still make one', () => {
     expect(prTabButton({}, [])).toBeNull();
     expect(prTabButton({ openReviewThreads: 1 }, [])).toEqual({ label: 'PR', badge: 1 });
+  });
+});
+
+describe('a PR only the list knows', () => {
+  it("reads the PR watch's way (stageOfPr): approved and green is ready to merge; pending and waiting for review is waiting for review", () => {
+    const one = (p: Partial<PrInfo>) => prSections({ checkedAt: '', repos: [] } as unknown as SessionCi, [listed(5, p)])[0].kind;
+    expect(one({ reviewDecision: 'APPROVED', checksStatus: 'SUCCESS' })).toBe('ready');
+    expect(one({ reviewDecision: 'REVIEW_REQUIRED', checksStatus: 'PENDING' })).toBe('in_review');
+    expect(one({ conflicting: true })).toBe('conflict');
   });
 });

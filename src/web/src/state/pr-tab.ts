@@ -25,23 +25,26 @@ export interface PrSection {
   fromListOnly: boolean;
 }
 
-/** A PR from the dashboard's list, read as a stage the way the PR watch reads one. */
-function kindOfListed(p: PrInfo): PrStageKind {
-  if (p.isDraft) return 'draft';
-  if (p.conflicting) return 'conflict';
-  if (p.checksStatus === 'FAILURE') return 'checks_failing';
-  if (p.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
-  if (p.reviewDecision === 'APPROVED') return p.checksStatus === 'PENDING' ? 'checks_running' : 'approved';
-  if (p.checksStatus === 'PENDING') return 'checks_running';
-  return 'in_review';
-}
-
 const LISTED_CHECKS: Record<PrInfo['checksStatus'], PrSection['checks']> = {
   SUCCESS: 'pass',
   FAILURE: 'fail',
   PENDING: 'pending',
   NONE: 'none',
 };
+
+/** A PR from the dashboard's list, read by the PR watch's own rule (`stageOfPr`): the same PR has the same stage wherever it comes from. */
+function kindOfListed(p: PrInfo): PrStageKind {
+  return stageOfPr({
+    number: p.number,
+    url: p.url,
+    state: 'OPEN',
+    isDraft: p.isDraft,
+    mergeStateStatus: p.conflicting ? 'DIRTY' : 'UNKNOWN',
+    checks: LISTED_CHECKS[p.checksStatus],
+    headSha: '',
+    reviewDecision: p.reviewDecision === 'NONE' ? '' : p.reviewDecision,
+  });
+}
 
 /** Most wanting first: what wants you, then open ones, then merged and closed. */
 const ORDER = (s: PrSection, wants: number) => (wants > 0 ? 0 : s.state === 'OPEN' ? 1 : 2);
@@ -115,6 +118,10 @@ export function orderedSections(sections: PrSection[], waiting: OpenReviewThread
 /** How a section names its PR: "#212", or "frontend #212" in a group. */
 export const prName = (s: Pick<PrSection, 'repo' | 'number'>, isGroup: boolean) => (isGroup ? `${s.repo} #${s.number}` : `#${s.number}`);
 
+/** An open PR that wants you: a conflict, or failing checks — a draft's too (its stage says "draft"). */
+const pressingPr = (p: PrStage['prs'][number]) =>
+  p.kind === 'conflict' || p.kind === 'checks_failing' || (p.checks === 'fail' && p.kind !== 'merged' && p.kind !== 'closed');
+
 /** What the session's wire says about its PRs, for the tab button and the header (no fetch). */
 interface SessionPrFacts {
   prStage?: PrStage | null;
@@ -132,7 +139,7 @@ export function prTabButton(s: SessionPrFacts, listed: PrInfo[]): { label: strin
   const staged = s.prStage?.prs ?? [];
   const count = staged.length + prsBeyondStage(s.prStage ?? null, listed).length;
   const threads = s.openReviewThreads ?? 0;
-  const pressing = staged.filter((p) => p.kind === 'checks_failing' || p.kind === 'conflict').length;
+  const pressing = staged.filter(pressingPr).length;
   const badge = threads + pressing;
   if (count === 0 && !threads && !s.replyDrafts) return null;
   if (count <= 1) {
@@ -154,7 +161,7 @@ export function prNeedsLine(s: SessionPrFacts): string | null {
   const drafts = s.replyDrafts ?? 0;
   if (drafts) parts.push(`${drafts} ${drafts === 1 ? 'reply' : 'replies'} to post`);
   for (const p of s.prStage?.prs ?? []) {
-    if (p.kind === 'checks_failing' || p.kind === 'conflict') parts.push(`${prName(p, !!s.isGroup)} ${stagePhrase(p.kind)}`);
+    if (pressingPr(p)) parts.push(`${prName(p, !!s.isGroup)} ${stagePhrase(p.kind === 'conflict' ? 'conflict' : 'checks_failing')}`);
   }
   return parts.length ? parts.join(' · ') : null;
 }

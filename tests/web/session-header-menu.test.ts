@@ -77,6 +77,16 @@ describe('Needs you (the header line, from the session row: no fetch)', () => {
     ).toBe('1 open review thread · #7 merge conflict');
   });
 
+  it("a draft's failing checks count too: its stage says draft, its checks say failing", () => {
+    expect(
+      prNeedsLine({ prStage: { kind: 'draft', text: '', key: '', prs: [{ ...pr('api', 7, 'draft'), checks: 'fail' }] } } as never),
+    ).toBe('#7 checks failing');
+    // …not a merged one's.
+    expect(
+      prNeedsLine({ prStage: { kind: 'merged', text: '', key: '', prs: [{ ...pr('api', 7, 'merged'), checks: 'fail' }] } } as never),
+    ).toBeNull();
+  });
+
   it('nothing waiting (a PR in review, checks running): nothing', () => {
     expect(prNeedsLine({ prStage: { kind: 'in_review', text: '', key: '', prs: [pr('api', 7, 'in_review')] } } as never)).toBeNull();
     expect(prNeedsLine({})).toBeNull();

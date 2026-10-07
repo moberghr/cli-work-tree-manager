@@ -13,14 +13,30 @@ const h = vi.hoisted(() => ({
   replies: { replies: [], waiting: [] } as unknown,
   prompts: [] as Array<{ id: string; body: string }>,
   fixes: [] as string[],
+  ciFails: null as string | null,
+  configured: null as null | Array<{ label: string; prompt: string; repos?: string[] }>,
 }));
-vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
+// The event stream: a test fires events as work web would.
+const sse = vi.hoisted(() => ({ handlers: {} as Record<string, (d: unknown) => void> }));
+vi.mock('../../src/web/src/api/events.js', () => ({
+  useSse: (_path: string, o: { events: Record<string, (d: unknown) => void> }) => void Object.assign(sse.handlers, o.events),
+}));
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
-  fetchSessionCi: async () => h.ci,
+  fetchSessionCi: async () => {
+    if (h.ciFails) throw new Error(h.ciFails);
+    return h.ci;
+  },
   fetchReplies: async () => h.replies,
   sendPromptToSession: async (id: string, body: string) => void h.prompts.push({ id, body }),
   askClaudeToFixCi: async (id: string) => void h.fixes.push(id),
+}));
+vi.mock('../../src/web/src/components/Dashboard/PromptsMenu.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/web/src/components/Dashboard/PromptsMenu.js')>()),
+  fetchPrompts: async () => {
+    const { DEFAULT_PROMPTS } = await import('../../src/core/sessions/saved-prompts.js');
+    return { prompts: h.configured ?? DEFAULT_PROMPTS, configured: !!h.configured };
+  },
 }));
 import { PrTab } from '../../src/web/src/components/Dashboard/PrTab.js';
 
@@ -29,6 +45,8 @@ let root: Root;
 beforeEach(() => {
   h.prompts.length = 0;
   h.fixes.length = 0;
+  h.ciFails = null;
+  h.configured = null;
   h.replies = { replies: [], waiting: [] };
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -89,7 +107,7 @@ describe('the PR tab', () => {
     expect(sections[0].textContent).toContain('Checks failing: build');
     expect(sections[0].textContent).toContain('2 unresolved review threads with no reply yet');
     // Merged: folded, its name and when it merged.
-    expect(sections[1].querySelector('.wd-pr-section-body')).toBeNull();
+    expect(sections[1].querySelector<HTMLElement>('.wd-pr-section-body')!.hidden).toBe(true);
     expect(sections[1].querySelector('.wd-prtab-stage')!.textContent).toMatch(/^merged .* ago$/);
     expect(container.querySelector('.wd-pr-summary')!.textContent).toContain('3 things want you across 2 PRs');
   });
@@ -154,5 +172,78 @@ describe('the PR tab', () => {
     expect(container.textContent).toContain('No pull request yet.');
     await act(async () => button('Open a pull request')!.click());
     expect(h.prompts[0].body).toContain('gh pr create');
+  });
+});
+
+describe('the PR tab, as reviewed', () => {
+  const ciOf = (...repos: Array<[string, Record<string, unknown>]>) =>
+    ({ checkedAt: '', repos: repos.map(([name, pr]) => ({ name, done: false, pr })) }) as unknown as SessionCi;
+
+  it("one Ask anywhere is every Ask's: after the top one, a section's own and each thread's aren't offered again", async () => {
+    h.ci = ciOf(['frontend', shipPr(1927)]);
+    h.replies = { replies: [], waiting: [thread(1927, 'T1'), thread(1927, 'T2'), thread(1927, 'T3')] } as unknown as RepliesWire;
+    await render();
+    await act(async () => button('Ask Claude about all 3 threads')!.click());
+    expect(h.prompts).toHaveLength(1);
+    expect(button('Ask Claude about all 3')).toBeUndefined(); // the section's own
+    act(() => button('Show the threads ▾')!.click());
+    expect(button('Ask Claude to reply')).toBeUndefined(); // each thread's
+  });
+
+  it("a section's fold follows what's in it until you click: a merged PR whose draft loads later opens", async () => {
+    h.ci = ciOf(['backend', shipPr(3509, { state: 'MERGED' })]);
+    h.replies = { replies: [], waiting: [] } as unknown as RepliesWire;
+    await render();
+    const body = () => container.querySelector<HTMLElement>('.wd-pr-section-body')!;
+    expect(body().hidden).toBe(true);
+    // A draft to post arrives for it (replies-changed): it wants you now.
+    h.replies = {
+      replies: [{ ...thread(3509, 'D1'), repo: 'backend', status: 'draft', draft: 'Fixed', sentAt: '' }],
+      waiting: [],
+    } as unknown as RepliesWire;
+    await act(async () => sse.handlers['replies-changed']({ sessionId: 's1' }));
+    await act(async () => {});
+    expect(body().hidden).toBe(false);
+  });
+
+  it('a draft being edited survives folding its section (kept mounted)', async () => {
+    h.ci = ciOf(['frontend', shipPr(1927)]);
+    h.replies = {
+      replies: [{ ...thread(1927, 'D1'), status: 'draft', draft: 'Fixed', sentAt: '' }],
+      waiting: [],
+    } as unknown as RepliesWire;
+    await render();
+    const ta = container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    act(() => {
+      setValue.call(ta, 'Fixed, and added a test.');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const fold = container.querySelector<HTMLButtonElement>('.wd-pr-fold')!;
+    act(() => fold.click());
+    act(() => fold.click());
+    expect(container.querySelector<HTMLTextAreaElement>('.wd-reply-text')!.value).toBe('Fixed, and added a test.');
+  });
+
+  it('a failed read says so, rather than loading forever', async () => {
+    h.ciFails = 'unknown session';
+    await render();
+    expect(container.textContent).toContain("Couldn't read its pull requests: unknown session");
+  });
+
+  it('Open a pull request sends the prompt as configured, and an archived session offers nothing', async () => {
+    h.ci = ciOf();
+    h.configured = [{ label: 'Open a pull request', prompt: 'Our own PR prompt.' }];
+    await render();
+    await act(async () => button('Open a pull request')!.click());
+    expect(h.prompts[0].body).toBe('Our own PR prompt.');
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(PrTab, { session: { ...session, archivedAt: '2026-10-06' } as SessionSummary, prs: [], onShip: vi.fn() }));
+    });
+    await act(async () => {});
+    expect(container.textContent).toContain('No pull request yet.');
+    expect(button('Open a pull request')).toBeUndefined();
   });
 });
