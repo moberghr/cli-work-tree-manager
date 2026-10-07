@@ -27,11 +27,11 @@ import {
   getStatusChecked,
   repoState,
   getUnpushedCommits,
+  fetchRemoteAsync,
 } from '../git/git.js';
 import { copyConfigFiles } from './copy-files.js';
 import { type BaseSpec, baseForAlias, baseSpecOverrideAliases, isEmptyBaseSpec, toBaseSpec } from '../git/base-spec.js';
 import { report } from '../platform/report.js';
-import spawnChild from '../platform/spawn.js';
 
 /**
  * Pull latest changes for a checkout we're switching into (a worktree that
@@ -63,32 +63,53 @@ export function pullLatestForBranch(worktreePath: string, branchName: string): v
  */
 const WORKTREE_ADD = ['-c', 'checkout.workers=0', 'worktree', 'add'];
 
-/** `git fetch` without blocking: a group's repos fetch at the same time. */
-function fetchAsync(repoPath: string): Promise<void> {
-  return new Promise((resolve) => {
-    const child = spawnChild('git', ['fetch', '--quiet'], { cwd: repoPath, windowsHide: true, stdio: 'ignore' });
-    child.on('error', () => resolve());
-    child.on('close', () => resolve());
-  });
+/**
+ * The freshest of a branch's two copies, for a new branch to start from: the
+ * local one when it has commits origin lacks (yours), else `origin/<branch>`
+ * when that is ahead — so a base that was never pulled (`--base main` with
+ * `main` not checked out) doesn't fork weeks back. Null when neither exists.
+ */
+export function freshestRef(repoPath: string, branch: string): string | null {
+  const local = git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], repoPath).stdout;
+  const remote = git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], repoPath).stdout;
+  if (!local) return remote ? `origin/${branch}` : null;
+  if (!remote || local === remote) return branch;
+  // Behind (an ancestor of origin's): origin's is the same work and more.
+  return git(['merge-base', '--is-ancestor', local, remote], repoPath).exitCode === 0 ? `origin/${branch}` : branch;
 }
 
 /**
- * Bring a local branch up to its upstream (after a fetch) by moving its ref:
- * a fast-forward only, nothing checked out. A branch with no upstream, or
- * already there, is left as it is; one that has commits its upstream lacks
- * (diverged) is left too, with a warning. Returns what it did.
+ * Bring a local branch up to its published copy, `origin/<branch>` (after a
+ * fetch), by moving its ref: a fast-forward only, nothing checked out. Not
+ * `@{upstream}`: work leaves new branches tracking their base (`origin/main`),
+ * which is not the branch's own work. A branch never pushed, or already
+ * there, is left as it is; one with commits origin's lacks (diverged) is left
+ * too, with a warning, and so is one git can't compare or move. Returns what
+ * it did.
  */
-export function fastForwardBranch(repoPath: string, branchName: string): 'none' | 'current' | 'forwarded' | 'diverged' {
-  const upstream = git(['rev-parse', '--verify', '--quiet', `${branchName}@{upstream}`], repoPath);
-  if (upstream.exitCode !== 0 || !upstream.stdout) return 'none';
+export function fastForwardBranch(repoPath: string, branchName: string): 'none' | 'current' | 'forwarded' | 'diverged' | 'failed' {
+  const remote = git(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branchName}`], repoPath).stdout;
+  if (!remote) return 'none';
   const local = git(['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}`], repoPath).stdout;
-  if (!local || local === upstream.stdout) return 'current';
-  if (git(['merge-base', '--is-ancestor', local, upstream.stdout], repoPath).exitCode !== 0) {
-    report('warn', `  ⚠ '${branchName}' has commits its upstream lacks: not updated. The worktree may be behind origin.`);
+  if (!local || local === remote) return 'current';
+  const ancestor = git(['merge-base', '--is-ancestor', local, remote], repoPath).exitCode;
+  if (ancestor === 1) {
+    report('warn', `  ⚠ '${branchName}' has commits origin/${branchName} lacks: not updated. The worktree may be behind origin.`);
     return 'diverged';
   }
-  report('info', `  Bringing ${branchName} up to date with its upstream...`);
-  git(['update-ref', `refs/heads/${branchName}`, upstream.stdout, local], repoPath);
+  if (ancestor !== 0) {
+    report('warn', `  ⚠ Couldn't compare '${branchName}' with origin/${branchName}: not updated. The worktree may be behind origin.`);
+    return 'failed';
+  }
+  report('info', `  Bringing ${branchName} up to date with origin/${branchName}...`);
+  const moved = git(['update-ref', `refs/heads/${branchName}`, remote, local], repoPath);
+  if (moved.exitCode !== 0) {
+    report(
+      'warn',
+      `  ⚠ Couldn't move '${branchName}' to origin/${branchName} (${moved.stderr.split('\n')[0] || 'update-ref failed'}). The worktree may be behind origin.`,
+    );
+    return 'failed';
+  }
   return 'forwarded';
 }
 
@@ -182,7 +203,7 @@ export function createSingleWorktree(
   // The main checkout is pulled only when the new branch starts from it: an
   // existing branch, or one from --base, doesn't need it (2-3 s a repo).
   const fromMainCheckout = !hasLocal && !hasRemote && !baseBranch;
-  const baseRepoBranch = getCurrentBranch(repoPath);
+  const baseRepoBranch = fromMainCheckout ? getCurrentBranch(repoPath) : null;
   let baseRepoPullFailed = false;
   if (fromMainCheckout) {
     const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
@@ -225,7 +246,8 @@ export function createSingleWorktree(
       return false;
     }
 
-    const baseRef = baseLocal ? baseBranch : `origin/${baseBranch}`;
+    // The freshest copy of the base: a local one nothing pulls (not checked out) can be far behind origin's.
+    const baseRef = freshestRef(repoPath, baseBranch) ?? (baseLocal ? baseBranch : `origin/${baseBranch}`);
     result = git([...WORKTREE_ADD, worktreePath, '-b', branchName, baseRef], repoPath);
   } else {
     // If pulling the base repo branch failed, use origin/<baseRepoBranch> as the
@@ -567,10 +589,24 @@ async function setupGroupWorktree(
   // Per-repo fork point, keyed by worktree path (matches the session `paths`).
   const baseBranches: Record<string, string> = {};
 
-  // Every repo fetches at once (the network is most of a repo's wait), then
-  // each is set up in turn without fetching again.
-  report('info', `Fetching ${repoAliases.length} repos…`);
-  await Promise.all(repoAliases.map((alias) => fetchAsync(config.repos[alias])));
+  // The repos whose worktree is new fetch at once (the network is most of a
+  // repo's wait), then each is set up in turn without fetching again. One that
+  // exists already isn't fetched here: re-entering pulls it (or, with
+  // --no-pull, touches no network). A fetch that fails or times out (30 s)
+  // leaves its repo to fetch for itself.
+  const toCreate = repoAliases.filter((alias) => !fs.existsSync(path.join(groupWorktreePath, path.basename(config.repos[alias]))));
+  const fetched = new Set<string>();
+  if (toCreate.length > 1) {
+    report('info', `Fetching ${toCreate.length} repos…`);
+    await Promise.all(
+      toCreate.map((alias) =>
+        fetchRemoteAsync(config.repos[alias]).then(
+          () => void fetched.add(alias),
+          (err: Error) => debug('group fetch failed', { alias, error: err.message }),
+        ),
+      ),
+    );
+  }
 
   for (const alias of repoAliases) {
     const repoPath = config.repos[alias];
@@ -586,7 +622,7 @@ async function setupGroupWorktree(
       config,
       repoBase,
       opts.pull !== false,
-      true,
+      fetched.has(alias),
     );
 
     if (success) {
