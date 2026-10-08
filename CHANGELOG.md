@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.0.7 — 2026-10-08
 
 - Work on someone else's pull request, on their branch: what you push lands
   in their PR. New worktree → **Start from a pull request…** (paste its link,
