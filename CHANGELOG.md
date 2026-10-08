@@ -14,6 +14,11 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   sets what's left aside, makes the worktree again on its branch, puts the
   save back and copies the files that were left over it. The dashboard says
   "not a git checkout any more" for such a folder.
+- A terminal whose Claude was stopped from outside — `work stop`, Archive,
+  Delete — no longer freezes in an open tab, taking no input: the tab is
+  told it ended and offers Enter to start it again. ↻ Reconnect in the
+  terminal's corner reconnects whenever a tab seems stuck. (The fix is in
+  the PTY host: `work pty-host --restart` once after updating.)
 - Restore brings a session back as it was before Archive. Besides the
   branch, the worktree and the uncommitted files, it now keeps the
   worktree's git-ignored files that aren't build output — local settings

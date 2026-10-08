@@ -158,6 +158,26 @@ describe('PtyRegistry', () => {
     expect(readSaved()).toEqual({});
   });
 
+  it('a kill tells the attached terminals it ended, so they offer to start it again (reported: a tab that took no input)', async () => {
+    const reg = makeRegistry();
+    reg.spawn('a', { cwd: '/x', tool });
+    const onExit = vi.fn();
+    const output = vi.fn();
+    reg.attach('a', output, onExit)!.start();
+    const killed = reg.kill('a');
+    spawned[0].pty.emit('late'); // nothing more reaches it once it's being killed
+    spawned[0].pty.exit(1);
+    await killed;
+    expect(onExit).toHaveBeenCalledWith(1);
+    expect(output).not.toHaveBeenCalledWith('late');
+    // A process that doesn't exit in time: still told, when the wait ends.
+    reg.spawn('b', { cwd: '/x', tool });
+    const onExitB = vi.fn();
+    reg.attach('b', () => {}, onExitB);
+    await reg.kill('b', 10);
+    expect(onExitB).toHaveBeenCalledWith(0);
+  });
+
   it('keeps a self-exited session persisted briefly (shutdown race), then forgets it', async () => {
     vi.useFakeTimers();
     const reg = makeRegistry();

@@ -318,19 +318,29 @@ export class PtyRegistry {
     const e = this.entries.get(id);
     if (!e) return;
     this.entries.delete(id);
+    // The terminals attached to it are told it ended (and so offer Enter to start it again):
+    // dropped silently, a dashboard tab kept a connection to nothing and took no input.
+    const attached = [...e.exitSubscribers];
     e.subscribers.clear();
     e.exitSubscribers.clear();
     const exited = e.pty.exited
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, timeoutMs);
-          e.pty.onExit = () => {
+      ? Promise.resolve(e.exitCode ?? 0)
+      : new Promise<number>((resolve) => {
+          const timer = setTimeout(() => resolve(0), timeoutMs);
+          e.pty.onExit = (code) => {
             clearTimeout(timer);
-            resolve();
+            resolve(code);
           };
         });
     e.pty.dispose();
-    await Promise.all([exited, this.persist()]);
+    const [code] = await Promise.all([exited, this.persist()]);
+    for (const cb of attached) {
+      try {
+        cb(code);
+      } catch {
+        /* that client is gone */
+      }
+    }
   }
 
   /**

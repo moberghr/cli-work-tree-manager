@@ -291,6 +291,17 @@ describe('PtyView', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
+  it('Reconnect in the corner opens a new connection — for a tab whose connection went stale without saying so (reported)', () => {
+    const { ws, term } = mount();
+    ws.serverOpen();
+    act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
+    act(() => document.querySelector<HTMLButtonElement>('.wd-pty-reconnect')!.click());
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(ws.closed).toBe(true);
+    expect(term.disposed).toBe(true);
+    expect(FakeWebSocket.instances[1].url).toMatch(/\/ws\/sessions\/s1\/terminal$/);
+  });
+
   const buttons = () => [...document.querySelectorAll<HTMLButtonElement>('.wd-pty-elsewhere button')];
 
   it('when a Claude is known to run in another terminal: explains, offers no way to start a second one, and checks again', () => {

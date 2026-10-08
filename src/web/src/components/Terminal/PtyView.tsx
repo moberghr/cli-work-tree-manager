@@ -429,11 +429,23 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
       )}
       <div className="wd-pty-frame" style={elsewhere ? { display: 'none' } : undefined}>
         <div ref={hostRef} className="wd-pty-host" />
-        {badge && (
-          <span className={'wd-pty-latency' + (badge.slow ? ' wd-pty-latency-slow' : '')} title={badge.title}>
-            {badge.text}
-          </span>
-        )}
+        <div className="wd-pty-corner">
+          {/* A connection gone stale shows a screen that takes no input: a new one attaches to the
+              live terminal again (its screen replayed), or starts its Claude when none runs. */}
+          <button
+            type="button"
+            className="wd-pty-reconnect"
+            onClick={() => setGeneration((g) => g + 1)}
+            title="Reconnect this terminal: attaches again to its Claude, or starts it (resuming the conversation) when it isn't running"
+          >
+            ↻ Reconnect
+          </button>
+          {badge && (
+            <span className={'wd-pty-latency' + (badge.slow ? ' wd-pty-latency-slow' : '')} title={badge.title}>
+              {badge.text}
+            </span>
+          )}
+        </div>
         {phase !== 'ready' && !elsewhere && (
           <div className="wd-pty-connecting" role="status">
             {phase === 'starting' ? 'Starting Claude — resuming the conversation…' : 'Connecting…'}
