@@ -12,6 +12,7 @@ import { findSession, loadHistory, saveHistory, upsertSession, type WorktreeSess
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import type { CommandRunner } from '../../../src/core/pr/ship.js';
 import { rememberSent, saveDraft } from '../../../src/core/pr/pr-replies.js';
+import { saveConfig } from '../../../src/core/platform/config.js';
 
 const SHA = 'abcdef123456';
 let home: string;
@@ -70,7 +71,10 @@ const post = (a: Hono, url: string, body: unknown) =>
 
 function useSession(s: WorktreeSession) {
   session = s;
-  for (const p of s.paths) fs.mkdirSync(p, { recursive: true });
+  for (const p of s.paths) {
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, '.git'), 'gitdir: elsewhere'); // a worktree, as far as Restore looks
+  }
   saveHistory([s]);
 }
 
@@ -200,6 +204,21 @@ describe('ship routes', () => {
     expect(archivedAt()).toBeUndefined();
     expect((await post(app(), `/api/sessions/${id}/archive`, {})).status).toBe(400);
     expect((await post(app(), '/api/sessions/nope/archive', { archived: true })).status).toBe(404);
+  });
+
+  it('restore of a worktree git removed only in part (a folder with no git left in it) makes it again, not just un-archives', async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: true as const, branch: session.branch, launchDir: session.paths[0], paths: session.paths }));
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(create).not.toHaveBeenCalled(); // still a worktree: un-archived as it is
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(path.join(session.paths[0], '.git'));
+    await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(create).toHaveBeenCalledWith({ target: session.target, branch: session.branch }, expect.anything());
   });
 
   it('archive refuses with what is still waiting (409), and goes ahead with force', async () => {

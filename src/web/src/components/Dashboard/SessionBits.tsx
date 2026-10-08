@@ -335,8 +335,8 @@ export function StatusLine({ session }: { session: SessionSummary }) {
 export function otherBranchText(session: SessionSummary): string | null {
   const other = session.onOtherBranch ?? [];
   if (other.length === 0) return null;
-  const name = (b: string | null) => b ?? 'a detached HEAD';
-  return session.isGroup ? other.map((o) => `${o.repo} on ${name(o.branch)}`).join(', ') : `on ${name(other[0].branch)}`;
+  const on = (o: (typeof other)[number]) => (o.noGit ? 'not a git checkout any more' : `on ${o.branch ?? 'a detached HEAD'}`);
+  return session.isGroup ? other.map((o) => `${o.repo} ${on(o)}`).join(', ') : on(other[0]);
 }
 
 export function OtherBranchChip({ session }: { session: SessionSummary }) {
@@ -345,7 +345,11 @@ export function OtherBranchChip({ session }: { session: SessionSummary }) {
   return (
     <span
       className="wd-other-branch"
-      title={`Started on ${session.branch}; its worktree is ${text} now. Ship, CI and the diffs use the branch that's checked out.`}
+      title={
+        (session.onOtherBranch ?? []).some((o) => o.noGit)
+          ? `Its folder has no git left in it: removing the worktree stopped halfway (a file in use). work tree ${session.target} ${session.branch} makes it again, with the files that were left.`
+          : `Started on ${session.branch}; its worktree is ${text} now. Ship, CI and the diffs use the branch that's checked out.`
+      }
     >
       {text}
     </span>

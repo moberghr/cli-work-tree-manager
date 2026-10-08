@@ -48,6 +48,13 @@ describe('otherBranches (the session wire)', () => {
     expect(otherBranches({ ...s, archivedAt: 'x' })).toEqual({}); // archived: not shown
   });
 
+  it('a folder with no git left in it (a removal that stopped halfway) says so — not "detached" (reported)', () => {
+    const left = path.join(tmp, 'accounting-missing-payment');
+    fs.mkdirSync(path.join(left, 'src'), { recursive: true });
+    const s = { target: 'straumur-backend', branch: 'accounting/missing-payment', isGroup: false, paths: [left] };
+    expect(otherBranches(s)).toEqual({ onOtherBranch: [{ repo: 'straumur-backend', branch: null, noGit: true }] });
+  });
+
   it('a group names each repo by its folder', () => {
     const be = worktree('straumur-backend-ai', 'ref: refs/heads/task/notes-split\n');
     const fe = worktree('straumur-frontend-ai', 'ref: refs/heads/task/SD-3937\n');

@@ -149,7 +149,7 @@ export interface SessionSummary {
   /** It was stacked on a session that merged and is archived: it should move onto main. */
   stackParentMerged?: { id: string; branch: string };
   /** Repos checked out on another branch than `branch` (null = detached). */
-  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
+  onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   titleIsYours?: boolean;
   /** How full its Claude conversation is; null before the first reply. */
   context?: ContextUsage | null;

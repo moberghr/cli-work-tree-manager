@@ -472,7 +472,8 @@ export interface SessionWire {
   /** The branch it was started on: with target, the session's identity (and its folder's name). */
   branch: string;
   /** Repos whose checkout is on another branch now (Claude switched, or you did); null = detached HEAD. */
-  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
+  /** `noGit`: its folder has no git left in it (a removal that stopped halfway): `work tree` makes it again. */
+  onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   isGroup: boolean;
   paths: string[];
   baseBranch?: string;

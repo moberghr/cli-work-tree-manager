@@ -21,6 +21,7 @@ import { clearCheckpoints } from '../diff/checkpoint.js';
 import { scopeHashForPaths } from '../diff/scope-manager.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { summarizeArchive } from './archive-summary.js';
+import { isLeftover } from '../worktree/leftover.js';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -124,6 +125,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
         if (repo) await dropSaved(repo, u, dir);
       }
     },
+    halfRemoved: (s) => s.paths.filter(isLeftover),
     removeWorktree: async (s) => {
       if (s.paths.every((p) => !fs.existsSync(p))) return true;
       return teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths);

@@ -184,6 +184,25 @@ describe('archiveSession with uncommitted work', () => {
     expect(readArchive(sessionIdFor(session()), path.join(tmp, 'archive'))?.uncommitted).toBeUndefined();
   });
 
+  it('git stopped halfway (a file in use, the folder left with no git): removed, the save kept, the leftover named (reported)', async () => {
+    const d = deps({ removeWorktree: async () => false, halfRemoved: () => [wt] });
+    const out = await archiveSession(session(), d);
+    expect(out).toMatchObject({
+      worktreeRemoved: true,
+      keptBecause: null,
+      message: expect.stringContaining('git stopped at a file in use'),
+    });
+    expect(d.dropSaved).not.toHaveBeenCalled();
+    const rec = readArchive(sessionIdFor(session()), path.join(tmp, 'archive'));
+    expect(rec).toMatchObject({ worktreeRemoved: true, leftovers: [wt], uncommitted: { api: savedOne } });
+  });
+
+  it('git refused and the worktree is whole: kept, as before', async () => {
+    const d = deps({ removeWorktree: async () => false, halfRemoved: () => [] });
+    expect(await archiveSession(session(), d)).toMatchObject({ worktreeRemoved: false, keptBecause: 'git refused to remove the worktree' });
+    expect(d.dropSaved).toHaveBeenCalled();
+  });
+
   it('a save that fails keeps the worktree, as before, and says why', async () => {
     const d = deps({ saveUncommitted: async () => ({ saved: {}, error: "api's uncommitted changes are too large to keep (80 MB)" }) });
     const out = await archiveSession(session(), d);

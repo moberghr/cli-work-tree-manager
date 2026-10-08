@@ -57,6 +57,9 @@ export interface ArchiveRecord {
   /** The worktree folder(s) were removed (false: kept, see keptBecause). */
   worktreeRemoved: boolean;
   keptBecause: string | null;
+  /** Removed only in part: git stopped at a file in use, leaving these folders with no git in
+   *  them. The save is kept; Restore makes the worktree again and copies them back (leftover.ts). */
+  leftovers?: string[];
   /** Transcript file names under transcripts/, by the folder they belong to
    *  (on disk `<file>` or, once compressed, `<file>.gz`). */
   transcripts: Array<{ file: string; projectDir: string }>;
@@ -111,6 +114,8 @@ export interface ArchiveDeps {
   /** Drop saves that weren't needed (the worktree stayed). */
   dropSaved?: (s: WorktreeSession, saved: Record<string, SavedUncommitted>, archiveDir: string) => Promise<void>;
   removeWorktree: (s: WorktreeSession) => Promise<boolean>;
+  /** After a removal git refused: the session's folders left with no git in them (it stopped halfway). */
+  halfRemoved?: (s: WorktreeSession) => string[];
   setArchived: (s: WorktreeSession) => Promise<boolean>;
   /** The session's transcript files. */
   transcripts: (s: WorktreeSession) => string[];
@@ -265,9 +270,14 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   const verdict = await deps.removable(s, { uncommittedSaved: !saving.error });
   let worktreeRemoved = false;
   let keptBecause: string | null = null;
+  let leftovers: string[] = [];
   if (verdict.ok) {
     worktreeRemoved = await deps.removeWorktree(s);
-    if (!worktreeRemoved) keptBecause = 'git refused to remove the worktree';
+    // git deletes the files first and stops at one in use (Visual Studio's): the folder
+    // that's left is no worktree any more. That's removed — and its save is the copy.
+    leftovers = worktreeRemoved ? [] : (deps.halfRemoved?.(s) ?? []);
+    if (leftovers.length) worktreeRemoved = true;
+    else if (!worktreeRemoved) keptBecause = 'git refused to remove the worktree';
   } else {
     keptBecause = saving.error && !verdict.reason.includes(saving.error) ? `${verdict.reason} (${saving.error})` : verdict.reason;
   }
@@ -299,6 +309,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     archivedAt: new Date(now()).toISOString(),
     worktreeRemoved,
     keptBecause,
+    ...(leftovers.length ? { leftovers } : {}),
     transcripts: copied,
     summary: {
       prompts,
@@ -332,7 +343,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     transcripts: copied.length,
     message:
       (worktreeRemoved
-        ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}`
+        ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}${leftovers.length ? `; git stopped at a file in use, so part of the folder is left (${leftovers.join(', ')}): close what holds it and delete it, or Restore puts it back` : ''}`
         : `Archived; worktree kept (${keptBecause})`) + (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : ''),
     ...(keptList(kept) ? { kept: keptList(kept) } : {}),
   };

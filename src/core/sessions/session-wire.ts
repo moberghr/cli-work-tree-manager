@@ -22,6 +22,7 @@ import type {
 import { archiveDirFor, keptList, readArchive } from '../archive/session-archive.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
+import { isLeftover } from '../worktree/leftover.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -149,12 +150,17 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
  * branch already; this is so the dashboard says so.
  */
 export function otherBranches(s: Pick<WorktreeSession, 'branch' | 'paths' | 'target' | 'isGroup' | 'archivedAt'>): {
-  onOtherBranch?: Array<{ repo: string; branch: string | null }>;
+  onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
 } {
   if (s.archivedAt || !s.branch) return {};
-  const out: Array<{ repo: string; branch: string | null }> = [];
+  const out: Array<{ repo: string; branch: string | null; noGit?: true }> = [];
   for (const p of s.paths) {
     if (!fs.existsSync(p)) continue;
+    // A folder with no git left in it (a removal that stopped halfway) is on no branch at all.
+    if (isLeftover(p)) {
+      out.push({ repo: s.isGroup ? path.basename(p) : s.target, branch: null, noGit: true });
+      continue;
+    }
     const branch = checkedOutBranch(p);
     if (branch !== s.branch) out.push({ repo: s.isGroup ? path.basename(p) : s.target, branch });
   }

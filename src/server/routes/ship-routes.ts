@@ -1,11 +1,11 @@
 import type { Hono } from 'hono';
 import { findSession } from '../../core/sessions/web-state.js';
 import { setSessionArchived, setSessionTitle } from '../../core/sessions/history.js';
-import fs from 'node:fs';
 import { loadConfig } from '../../core/platform/config.js';
 import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
+import { isWorktreeFolder } from '../../core/worktree/leftover.js';
 import {
   mergeSelected,
   runShipAction,
@@ -60,8 +60,9 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force, merged });
       if (out.blocked) return { ok: false, blocked: out.blocked, message: out.message };
       ok = out.ok;
-    } else if (session.paths.some((p) => !fs.existsSync(p))) {
-      // Its worktree was removed on archive: recreate it from the branch
+    } else if (session.paths.some((p) => !isWorktreeFolder(p))) {
+      // Its worktree was removed on archive (or only in part: a folder with no git left in
+      // it, leftover.ts): recreate it from the branch
       // (`work tree` / setupWorktree also puts the conversation back and un-archives it).
       const config = loadConfig();
       ok = !!config && (await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config)).ok;

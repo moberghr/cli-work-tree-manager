@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { agentFor } from '../agents/index.js';
 import { restoreArchivedUncommitted } from '../archive/archive-restore.js';
+import { isLeftover, putLeftoverBack, setLeftoverAside, takeLeftover } from './leftover.js';
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
 import type { WorkConfig } from '../platform/config.js';
@@ -149,6 +150,19 @@ export function createSingleWorktree(
   fetched = false,
 ): boolean {
   debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
+
+  // What a removal that stopped halfway left (a file in use): no longer a checkout, and in
+  // git's way. Set aside; setupWorktree copies it back into the new worktree (leftover.ts).
+  if (isLeftover(worktreePath)) {
+    try {
+      const aside = setLeftoverAside(worktreePath);
+      report('warn', `  ${worktreePath} was left half-removed (no git in it): making it again, its files set aside in ${aside}`);
+      git(['worktree', 'prune'], repoPath);
+    } catch (err) {
+      report('error', `  ${(err as Error).message}`);
+      return false;
+    }
+  }
 
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
@@ -487,9 +501,31 @@ export async function setupWorktree(
       await restoreArchivedUncommitted(session, config).catch((err: Error) =>
         report('warn', `couldn't put back its uncommitted changes: ${err.message}`),
       );
+    // And what was left of a half-removed worktree: over the checkout, or — when the
+    // archive's save already put its changes back — only the files that aren't there.
+    for (const p of result.paths) putBackLeftover(p);
     if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;
+}
+
+/** Copy a leftover set aside for this worktree (createSingleWorktree) back into it, and say how it went. */
+function putBackLeftover(worktree: string): void {
+  const aside = takeLeftover(worktree);
+  if (!aside) return;
+  const clean = git(['status', '--porcelain'], worktree).stdout === '';
+  const r = putLeftoverBack(aside, worktree, { overwrite: clean });
+  if (r.failed.length)
+    report(
+      'warn',
+      `put back ${r.copied} file(s) left in the old folder; ${r.failed.length} couldn't be copied — they're still in ${aside}`,
+    );
+  else if (r.copied)
+    report(
+      'info',
+      `put back ${r.copied} file(s) left in the old folder${r.removed ? '' : ` (it's still at ${aside}: remove it when done)`}`,
+    );
+  else if (!r.removed) report('info', `nothing to put back from the old folder (still at ${aside}: remove it when done)`);
 }
 
 /**

@@ -3,6 +3,18 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- Restore of a session whose worktree git removed only in part brings it
+  back. `git worktree remove` stops at a file in use (Visual Studio's), after
+  dropping the folder's git link: archiving read that as "kept" and dropped
+  its save of the uncommitted files, and Restore, seeing the folder, only
+  un-archived it — a folder with no git, shown as "a detached HEAD". Now the
+  archive counts it removed and keeps the save, and Restore (or `work tree`)
+  sets what's left aside, makes the worktree again on its branch, puts the
+  save back and copies the files that were left over it. The dashboard says
+  "not a git checkout any more" for such a folder.
+
 ## 2.0.7 — 2026-10-08
 
 - Work on someone else's pull request, on their branch: what you push lands

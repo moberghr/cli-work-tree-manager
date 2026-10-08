@@ -25,4 +25,11 @@ describe('otherBranchText', () => {
       ),
     ).toBe('frontend on task/SD-1, backend on a detached HEAD');
   });
+
+  it('a folder with no git left in it: not a git checkout, not "a detached HEAD"', () => {
+    expect(otherBranchText(s({ onOtherBranch: [{ repo: 'api', branch: null, noGit: true }] }))).toBe('not a git checkout any more');
+    expect(otherBranchText(s({ isGroup: true, onOtherBranch: [{ repo: 'backend', branch: null, noGit: true }] }))).toBe(
+      'backend not a git checkout any more',
+    );
+  });
 });
