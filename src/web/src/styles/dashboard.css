@@ -4191,31 +4191,10 @@ a.wd-pr-chip:hover {
 .wd-pty-frame {
   position: relative;
 }
-.wd-pty-corner {
+.wd-pty-latency {
   position: absolute;
   right: 8px;
   bottom: 6px;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.wd-pty-reconnect {
-  padding: 0 6px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  opacity: 0.6;
-  cursor: pointer;
-}
-.wd-pty-reconnect:hover,
-.wd-pty-reconnect:focus-visible {
-  opacity: 1;
-  color: inherit;
-}
-.wd-pty-latency {
   padding: 0 6px;
   font-size: 11px;
   color: var(--muted);

@@ -6,6 +6,7 @@ import { prNeedsLine } from '../../src/web/src/state/pr-tab.js';
 const session = (over: Partial<SessionSummary> = {}) => ({ id: 's1', target: 'api', branch: 'feat/x', ...over }) as SessionSummary;
 const actions = (): HeaderMenuActions => ({
   openTerminal: vi.fn(),
+  reconnectTerminal: vi.fn(),
   ship: vi.fn(),
   catchUp: vi.fn(),
   sendPrompt: vi.fn(),
@@ -27,6 +28,15 @@ const dev = (over: Partial<DevServerState> = {}): DevServerState => ({
 const labels = (s: SessionSummary, d: DevServerState | null) => sessionHeaderItems(s, d, actions()).map((i) => i.label + (i.hint ?? ''));
 
 describe('session header ⋯ menu', () => {
+  it('Reconnect terminal (⇧R) comes first, beside Open in terminal; an archived session has neither', () => {
+    const a = actions();
+    const items = sessionHeaderItems(session(), null, a);
+    expect(items.slice(0, 2).map((i) => i.label + ' ' + i.hint)).toEqual(['Reconnect terminal ⇧R', 'Open in terminal ⇧T']);
+    items[0].run();
+    expect(a.reconnectTerminal).toHaveBeenCalled();
+    expect(labels(session({ archivedAt: '2026-10-01T00:00:00Z' }), null).some((l) => l.startsWith('Reconnect'))).toBe(false);
+  });
+
   it('a running dev server is stopped from it; one with no command and nothing running is left out', () => {
     expect(labels(session(), dev({ running: { pid: 1, startedAt: '' } }))).toContain('Stop dev server:3028 · ⇧D');
     expect(labels(session(), dev({ command: null })).some((l) => l.includes('dev server'))).toBe(false);

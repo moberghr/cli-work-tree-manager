@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
+import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { TimelineView } from './TimelineView.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
@@ -185,6 +186,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
     else if (a === 'notes') setNotesOpen((o) => !o);
     else if (a === 'ship' && live) setShipOpen(true);
     else if (a === 'terminal' && live) openTerminal();
+    else if (a === 'reconnect' && live) requestTerminalReconnect(session.id);
     else if (a === 'dev' && live && dev.state?.port != null && (dev.state.command || dev.state.running))
       dev.act(dev.state.running ? 'stop' : 'start');
   };
@@ -198,6 +200,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
   }, [session.id]);
   const items = sessionHeaderItems(session, dev.state, {
     openTerminal,
+    reconnectTerminal: () => requestTerminalReconnect(session.id),
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
     sendPrompt: () => setPromptsOpen(true),

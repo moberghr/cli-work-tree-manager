@@ -176,6 +176,7 @@ class FakeWebSocket {
 
 import { ELSEWHERE_RECHECK_MS, PtyView, openLink } from '../../src/web/src/components/Terminal/PtyView.js';
 import { WEBGL_RETRY_MS } from '../../src/web/src/state/webgl-recovery.js';
+import { requestTerminalReconnect } from '../../src/web/src/state/terminal-reconnect.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -291,11 +292,13 @@ describe('PtyView', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 
-  it('Reconnect in the corner opens a new connection — for a tab whose connection went stale without saying so (reported)', () => {
+  it('⋯ → Reconnect terminal opens a new connection — for a tab whose connection went stale without saying so (reported)', () => {
     const { ws, term } = mount();
     ws.serverOpen();
     act(() => ws.control({ type: 'replay', data: '', cols: 0, rows: 0 }));
-    act(() => document.querySelector<HTMLButtonElement>('.wd-pty-reconnect')!.click());
+    act(() => requestTerminalReconnect('another-session'));
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    act(() => requestTerminalReconnect('s1'));
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(ws.closed).toBe(true);
     expect(term.disposed).toBe(true);

@@ -16,8 +16,8 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   "not a git checkout any more" for such a folder.
 - A terminal whose Claude was stopped from outside — `work stop`, Archive,
   Delete — no longer freezes in an open tab, taking no input: the tab is
-  told it ended and offers Enter to start it again. ↻ Reconnect in the
-  terminal's corner reconnects whenever a tab seems stuck. (The fix is in
+  told it ended and offers Enter to start it again. ⋯ → **Reconnect
+  terminal** (⇧R) reconnects whenever a tab seems stuck. (The fix is in
   the PTY host: `work pty-host --restart` once after updating.)
 - Restore brings a session back as it was before Archive. Besides the
   branch, the worktree and the uncommitted files, it now keeps the

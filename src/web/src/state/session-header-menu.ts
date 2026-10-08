@@ -10,6 +10,8 @@ import { sessionKey } from './shortcuts.js';
  */
 export interface HeaderMenuActions {
   openTerminal: () => void;
+  /** A new connection for its Terminal tab (terminal-reconnect.ts). */
+  reconnectTerminal: () => void;
   ship: () => void;
   catchUp: () => void;
   sendPrompt: () => void;
@@ -27,6 +29,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
   const live: MenuItem[] = archived
     ? []
     : [
+        { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
       ];

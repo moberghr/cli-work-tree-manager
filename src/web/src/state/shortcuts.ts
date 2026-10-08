@@ -24,6 +24,7 @@ export type SessionAction =
   | 'notes'
   | 'ship'
   | 'terminal'
+  | 'reconnect'
   | 'editor'
   | 'copy'
   | 'fork'
@@ -51,6 +52,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   notes: { key: 'n', shift: true, label: 'Notes' },
   ship: { key: 's', shift: true, label: 'Ship (push, PR, merge)…' },
   terminal: { key: 't', shift: true, label: 'Open in a terminal' },
+  reconnect: { key: 'r', shift: true, label: 'Reconnect its terminal' },
   editor: { key: 'o', label: 'Open in editor' },
   copy: { key: 'y', label: 'Copy branch name' },
   fork: { key: 'f', label: 'Fork…' },

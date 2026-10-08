@@ -110,6 +110,7 @@ describe('session header', () => {
     await render({ ...base, context: { used: 24_000, window: 200_000 } });
     act(() => more().click());
     expect(menuItems()).toEqual([
+      'Reconnect terminal⇧R',
       'Open in terminal⇧T',
       'Ship (push, PR, merge)…⇧S',
       'Catch me upr',
