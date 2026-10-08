@@ -45,10 +45,24 @@ const thread = (threadId: string, over = {}) => ({
   ...over,
 });
 
-/** A fake gh that records its argv. */
+/** The check before posting (`threadRefusal`): the thread as GitHub has it now, and who you are. */
+const isThreadRead = (args: string[]) => args.some((a) => a.includes('viewer { login }'));
+const threadNow = (o: { me?: string; last?: string; resolved?: boolean } = {}) => ({
+  code: 0,
+  stdout: JSON.stringify({
+    data: {
+      viewer: { login: o.me ?? 'me' },
+      node: { isResolved: o.resolved ?? false, comments: { nodes: [{ author: { login: o.last ?? 'reviewer' } }] } },
+    },
+  }),
+  stderr: '',
+});
+
+/** A fake gh that records its argv (the read before posting answered, not recorded). */
 function gh(fail = false) {
   const calls: string[][] = [];
   const run: CommandRunner = async (cmd, args) => {
+    if (isThreadRead(args)) return threadNow();
     calls.push([cmd, ...args]);
     if (fail) return { code: 1, stdout: '', stderr: 'HTTP 403: Resource not accessible' };
     return {
@@ -105,6 +119,33 @@ describe('reply drafts', () => {
     expect(saveDraft('s1', T1, 'again')).toMatchObject({ ok: false, error: expect.stringContaining('already posted') });
   });
 
+  it("never answers your own last word, nor a thread resolved meanwhile; when GitHub can't say, nothing goes out (reported: a PR author's Claude answered his own comment)", async () => {
+    rememberSent('s1', [thread(T1)]);
+    saveDraft('s1', T1, 'Agreed, and worth stating plainly…');
+    const posted: string[][] = [];
+    const runWith =
+      (answer: Awaited<ReturnType<CommandRunner>>): CommandRunner =>
+      async (_cmd, args) => {
+        if (isThreadRead(args)) return answer;
+        posted.push(args);
+        return { code: 0, stdout: '{}', stderr: '' };
+      };
+    const post = (answer: Awaited<ReturnType<CommandRunner>>) =>
+      postReply('s1', T1, 'Agreed', { resolve: true, cwd: home, run: runWith(answer) });
+    expect(await post(threadNow({ me: 'jureperak', last: 'JurePerak' }))).toEqual({
+      ok: false,
+      error: 'the last word in this thread is already yours (@jureperak): a reply would answer yourself',
+    });
+    expect(await post(threadNow({ resolved: true }))).toMatchObject({ ok: false, error: expect.stringContaining('resolved') });
+    expect(await post({ code: 1, stdout: '', stderr: 'HTTP 401' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('HTTP 401'),
+    });
+    expect(await post({ code: 0, stdout: '{"data":{}}', stderr: '' })).toMatchObject({ ok: false });
+    expect(posted).toEqual([]);
+    expect(listReplies('s1')[0].status).toBe('draft');
+  });
+
   it('a failed post keeps the draft and says why', async () => {
     rememberSent('s1', [thread(T1)]);
     saveDraft('s1', T1, 'draft');
@@ -124,6 +165,7 @@ describe('reply drafts', () => {
     saveDraft(id, T2, 'Second');
     let n = 0;
     const run: CommandRunner = async (cmd, args) => {
+      if (isThreadRead(args)) return threadNow();
       if (args.some((a) => a.includes('resolveReviewThread'))) return { code: 0, stdout: '{}', stderr: '' };
       return ++n === 2 ? { code: 1, stdout: '', stderr: 'HTTP 502' } : gh().run(cmd, args, home);
     };

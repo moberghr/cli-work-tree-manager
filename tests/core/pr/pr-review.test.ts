@@ -29,6 +29,32 @@ const seenStore = () => {
   return { has: (k: string) => s.has(k), add: (k: string) => void s.add(k) };
 };
 
+describe("who you are unknown (gh didn't say): nothing is handed over", () => {
+  it("newFeedback and openThreadsOf both give nothing — yours would read as a reviewer's", () => {
+    const fb = {
+      viewer: '',
+      reviews: [],
+      comments: [],
+      threads: [
+        {
+          id: 'PRRT_1',
+          isResolved: false,
+          isOutdated: false,
+          path: 'a.ts',
+          line: 1,
+          comments: [
+            { id: 'c1', author: 'jureperak', association: 'MEMBER', body: '@domagojmedo we are safe here', url: 'u', createdAt: '' },
+          ],
+        },
+      ],
+    } as unknown as ReviewFeedback;
+    const seen = new Set<string>();
+    expect(newFeedback(fb, 's:api:7', { has: (k) => seen.has(k), add: (k) => void seen.add(k) })).toEqual([]);
+    expect(openThreadsOf(fb)).toEqual([]);
+    expect(newFeedback({ ...fb, viewer: 'domagojmedo' }, 's:api:7', { has: () => false, add: () => {} })).toHaveLength(1);
+  });
+});
+
 describe('viewerLogin', () => {
   it('asks gh who you are once; a failed ask is asked again', async () => {
     const run = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'not logged in' }));

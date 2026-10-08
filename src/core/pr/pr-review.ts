@@ -205,6 +205,9 @@ export function newFeedback(
   seen: SeenStore,
   opts: { trustedBots?: readonly string[] } = {},
 ): FeedbackItem[] {
+  // Who you are tells your words from a reviewer's: unknown, nothing is handed over (every
+  // comment, yours too, would read as someone else's).
+  if (!fb.viewer.trim()) return [];
   const mine = (a: string) => a.toLowerCase() === fb.viewer.toLowerCase();
   const bots = new Set((opts.trustedBots ?? []).map(botName));
   const trusted = (c: { association: string; author: string }) => isTrusted(c, bots);
@@ -257,6 +260,7 @@ export function openThreadsOf(
   trustedBots: readonly string[] = [],
 ): Array<{ threadId: string; url: string; where: string | null; reviewer: string; excerpt: string; trusted: boolean }> {
   const bots = new Set(trustedBots.map(botName));
+  if (!fb.viewer.trim()) return []; // can't tell yours from theirs: none listed as waiting on you
   return fb.threads
     .filter((t) => {
       const last = t.comments[t.comments.length - 1];

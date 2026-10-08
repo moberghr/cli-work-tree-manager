@@ -19,6 +19,11 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   told it ended and offers Enter to start it again. ⋯ → **Reconnect
   terminal** (⇧R) reconnects whenever a tab seems stuck. (The fix is in
   the PTY host: `work pty-host --restart` once after updating.)
+- A reply to a PR review thread is never posted when the last word in it is
+  already yours (a PR author's Claude once answered his own comment as if
+  it were a reviewer's), or when the thread was resolved since: work reads
+  the thread on GitHub right before posting. And when gh can't say who you
+  are, no review feedback is handed to Claude at all.
 - Restore brings a session back as it was before Archive. Besides the
   branch, the worktree and the uncommitted files, it now keeps the
   worktree's git-ignored files that aren't build output — local settings

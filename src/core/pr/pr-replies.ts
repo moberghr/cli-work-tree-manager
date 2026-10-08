@@ -128,6 +128,36 @@ const ADD_REPLY = `mutation($threadId: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) { comment { url } }
 }`;
 const RESOLVE = `mutation($threadId: ID!) { resolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } } }`;
+/** The thread as it is now, and who you are: the last check before a reply goes out. */
+const THREAD_NOW = `query($threadId: ID!) {
+  viewer { login }
+  node(id: $threadId) { ... on PullRequestReviewThread { isResolved comments(last: 1) { nodes { author { login } } } } }
+}`;
+
+/**
+ * Why a reply mustn't go out now, from the thread as GitHub has it: the last
+ * word in it is already yours (you'd be answering yourself — a PR author's
+ * own comment, handed over as if a reviewer's), or it was resolved since.
+ * Null to go ahead. When gh can't say, it isn't posted (it'd be in your name). Exported for tests.
+ */
+export async function threadRefusal(threadId: string, cwd: string, run: CommandRunner): Promise<string | null> {
+  const r = await run('gh', ['api', 'graphql', '-f', `query=${THREAD_NOW}`, '-f', `threadId=${threadId}`], cwd);
+  if (r.code !== 0) return `couldn't read the thread on GitHub first: ${r.stderr.trim() || 'gh failed'}`;
+  const j = json.parse(r.stdout) as {
+    data?: {
+      viewer?: { login?: unknown };
+      node?: { isResolved?: unknown; comments?: { nodes?: Array<{ author?: { login?: unknown } | null } | null> } } | null;
+    };
+  } | null;
+  const me = j?.data?.viewer?.login;
+  const node = j?.data?.node;
+  if (typeof me !== 'string' || !me || !node) return "couldn't read the thread on GitHub first";
+  if (node.isResolved === true) return 'the thread was resolved on GitHub since: nothing to answer';
+  const last = node.comments?.nodes?.at(-1)?.author?.login;
+  if (typeof last === 'string' && last.toLowerCase() === me.toLowerCase())
+    return 'the last word in this thread is already yours (@' + me + '): a reply would answer yourself';
+  return null;
+}
 
 export type PostResult = { ok: true; url: string; resolved: boolean } | { ok: false; error: string };
 
@@ -148,6 +178,10 @@ export async function postReply(
   const cur = read(sessionId, threadId);
   if (!cur) return { ok: false, error: 'no such thread for this session' };
   if (cur.status === 'posted') return { ok: false, error: 'already posted' };
+  // Whatever handed it over, a reply never answers your own last word (reported: a PR author's
+  // Claude answered his own comment, as if a reviewer's), nor a thread resolved meanwhile.
+  const refusal = await threadRefusal(threadId, opts.cwd, opts.run);
+  if (refusal) return { ok: false, error: refusal };
   // -f: raw strings (never @file / number parsing), argv only (no shell).
   const add = await opts.run(
     'gh',
