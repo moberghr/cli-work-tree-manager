@@ -174,6 +174,7 @@ describe('architecture boundaries', () => {
       'src/core/updates/updates.js',
       'src/core/pr/review-quote.js',
       'src/core/diff/diff-points.js',
+      'src/core/pr/pr-ref.js',
     ]);
     expect(
       violations(
@@ -211,6 +212,7 @@ describe('architecture boundaries', () => {
       'src/core/updates/updates.ts',
       'src/core/pr/review-quote.ts',
       'src/core/diff/diff-points.ts',
+      'src/core/pr/pr-ref.ts',
     ]) {
       const f = files.find((x) => x.rel === rel);
       expect(f, rel).toBeDefined();

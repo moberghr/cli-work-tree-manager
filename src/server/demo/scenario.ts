@@ -1446,6 +1446,7 @@ export class DemoScenario {
       reviewDecision: 'APPROVED',
       myReview: 'APPROVED',
       isMine: false,
+      author: 'ivana',
       conflicting: false,
       reviewRequested: false,
       repoAlias: 'web',
@@ -1461,9 +1462,27 @@ export class DemoScenario {
       reviewDecision: 'REVIEW_REQUIRED',
       myReview: 'NONE',
       isMine: false,
+      author: 'dana',
       conflicting: false,
       reviewRequested: true,
       repoAlias: 'api',
+    });
+    // An outside contributor's, from a fork: Review only — its branch isn't on origin.
+    out.push({
+      number: 219,
+      title: 'Fix a typo in the invoice footer',
+      branch: 'patch-1',
+      url: 'https://github.com/example/web/pull/219',
+      isDraft: false,
+      checksStatus: 'SUCCESS',
+      reviewDecision: 'REVIEW_REQUIRED',
+      myReview: 'NONE',
+      isMine: false,
+      author: 'outside-dev',
+      fork: true,
+      conflicting: false,
+      reviewRequested: true,
+      repoAlias: 'web',
     });
     return out;
   }

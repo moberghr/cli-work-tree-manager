@@ -21,6 +21,10 @@ export interface PullRequestInfo {
   reviewRequested: boolean;
   /** Repo alias this PR belongs to (for distinguishing group PRs). */
   repoAlias: string;
+  /** Its author's login (absent from a server before this). */
+  author?: string;
+  /** It comes from a fork: its branch isn't on origin (absent from a server before this). */
+  fork?: boolean;
 }
 
 /**
@@ -52,6 +56,7 @@ interface GhPr {
   mergeable?: string;
   reviewDecision?: string;
   author?: { login?: string } | null;
+  isCrossRepository?: boolean;
   statusCheckRollup?: Array<{ conclusion?: string | null; status?: string | null }> | null;
   reviews?: Array<{ author?: { login?: string } | null; state?: string }> | null;
   reviewRequests?: Array<{ login?: string } | null> | null;
@@ -110,6 +115,8 @@ function toPrInfo(pr: GhPr, repoAlias: string, currentUser: string): PullRequest
       conflicting: pr.mergeable === 'CONFLICTING',
       reviewRequested: !!currentUser && (pr.reviewRequests ?? []).some((r) => r?.login?.toLowerCase() === currentUser.toLowerCase()),
       repoAlias,
+      author: pr.author?.login ?? '',
+      fork: pr.isCrossRepository === true,
     };
   }
 }
@@ -126,7 +133,7 @@ export const PR_SEARCH_QUERY = `query($mine: String!, $asked: String!) {
   asked: search(query: $asked, type: ISSUE, first: 100) { issueCount nodes { ...pr } }
 }
 fragment pr on PullRequest {
-  number title url isDraft headRefName mergeable reviewDecision
+  number title url isDraft headRefName mergeable reviewDecision isCrossRepository
   author { login }
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -223,7 +230,7 @@ async function fetchPullRequests(repoPath: string, repoAlias: string, currentUse
         '--state',
         'open',
         '--json',
-        'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,reviewRequests,mergeable,author',
+        'number,title,headRefName,url,isDraft,statusCheckRollup,reviewDecision,reviews,reviewRequests,mergeable,author,isCrossRepository',
         '--limit',
         String(PR_LIST_LIMIT),
       ],

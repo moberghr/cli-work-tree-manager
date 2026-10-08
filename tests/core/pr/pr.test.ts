@@ -91,6 +91,12 @@ describe('parsePrSearch (one GraphQL search instead of a list per repo)', () => 
     expect(prs.map((p) => `${p.repoAlias}#${p.number}`)).toEqual(['api#12', 'api#40']);
     expect(prs[0]).toMatchObject({ isMine: true, branch: 'fix/it', checksStatus: 'SUCCESS', reviewRequested: false, conflicting: false });
     expect(prs[1]).toMatchObject({ isMine: false, checksStatus: 'FAILURE', reviewRequested: true, conflicting: true });
+    expect(prs[1]).toMatchObject({ author: 'ana', fork: false });
+  });
+
+  it("a fork's PR says so (its branch isn't on origin: nobody here can push to it)", () => {
+    const { prs } = parsePrSearch(search([], [node({ author: { login: 'outsider' }, isCrossRepository: true })]), () => ['api']);
+    expect(prs[0]).toMatchObject({ author: 'outsider', fork: true });
   });
 
   it('pending and no checks; your latest review; two aliases on one repo each get the PR', () => {

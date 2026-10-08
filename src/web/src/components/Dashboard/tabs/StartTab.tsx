@@ -7,6 +7,8 @@ interface Props {
   onNewWorktree: () => void;
   /** Start from a PR: the New worktree dialog, filled in. */
   onPickPr: (pr: PrInfo) => void;
+  /** Work on someone else's PR, on their branch (what you push lands in it): the dialog, filled in. */
+  onWorkOnPr?: (pr: PrInfo) => void;
   onOpenSession: (id: string) => void;
   /** The Repos page (which repos work knows, groups). */
   onManageRepos?: () => void;
@@ -54,6 +56,7 @@ export function StartTab({
   sessions,
   onNewWorktree,
   onPickPr,
+  onWorkOnPr,
   onOpenSession,
   onManageRepos,
   prs,
@@ -97,7 +100,7 @@ export function StartTab({
       {toReview.length > 0 && (
         <section className="wd-start-section" aria-label="Waiting for your review">
           <h2 className="wd-start-title">Waiting for your review · GitHub</h2>
-          <PrList prs={toReview} sessions={sessions} onPick={onPickPr} existing={existing} membersOf={membersOf} />
+          <PrList prs={toReview} sessions={sessions} onPick={onPickPr} onWork={onWorkOnPr} existing={existing} membersOf={membersOf} />
         </section>
       )}
     </div>
@@ -108,12 +111,15 @@ function PrList({
   prs,
   sessions,
   onPick,
+  onWork,
   existing,
   membersOf,
 }: {
   prs: PrInfo[];
   sessions: SessionSummary[];
   onPick: (pr: PrInfo) => void;
+  /** Someone else's PR: work on it, on their branch. */
+  onWork?: (pr: PrInfo) => void;
   existing: (s: SessionSummary | undefined) => React.ReactNode;
   membersOf?: (group: string) => string[] | undefined;
 }) {
@@ -132,16 +138,33 @@ function PrList({
             <span className={`wd-start-state wd-start-state-${state.tone}`}>{state.text}</span>
             <span className="wd-start-action">
               {existing(sessionForPr(pr, sessions, membersOf)) ?? (
-                <button
-                  type="button"
-                  className="wd-btn-secondary"
-                  onClick={() => onPick(pr)}
-                  title={
-                    pr.isMine ? 'Continue on it in a worktree' : 'Have Claude review it in a worktree (it changes nothing, posts nothing)'
-                  }
-                >
-                  {pr.isMine ? 'Start' : 'Review'}
-                </button>
+                <>
+                  {onWork && !pr.isMine && (
+                    <button
+                      type="button"
+                      className="wd-btn-secondary"
+                      onClick={() => onWork(pr)}
+                      disabled={pr.fork}
+                      title={
+                        pr.fork
+                          ? "It comes from a fork: its branch isn't on origin, so a session couldn't push to it"
+                          : `Work on it on ${pr.author ? `@${pr.author}'s` : 'their'} branch: what you push lands in their PR`
+                      }
+                    >
+                      Work on it
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="wd-btn-secondary"
+                    onClick={() => onPick(pr)}
+                    title={
+                      pr.isMine ? 'Continue on it in a worktree' : 'Have Claude review it in a worktree (it changes nothing, posts nothing)'
+                    }
+                  >
+                    {pr.isMine ? 'Start' : 'Review'}
+                  </button>
+                </>
               )}
             </span>
           </li>

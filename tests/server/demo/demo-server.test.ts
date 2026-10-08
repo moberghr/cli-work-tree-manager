@@ -247,6 +247,19 @@ describe('demo server', () => {
     expect(await get<Check>('/api/branch-check?target=api&branch=fix/')).toMatchObject({ valid: false, free: null });
   });
 
+  it("looks a PR up to work on it: its repo, branch and author; a fork's is refused", async () => {
+    const pr = await fetch(server.url + 'api/pr-start?ref=' + encodeURIComponent('https://github.com/example/api/pull/215'));
+    expect(pr.status).toBe(200);
+    expect(await pr.json()).toEqual({
+      pr: expect.objectContaining({ alias: 'api', number: 215, branch: 'feat/line-tax', author: 'dana' }),
+    });
+    expect(await get('/api/pr-start?ref=%23215&target=api')).toMatchObject({ pr: { branch: 'feat/line-tax' } });
+    const fork = await fetch(server.url + 'api/pr-start?ref=%23219&target=web');
+    expect(fork.status).toBe(400);
+    expect(await fork.json()).toEqual({ error: expect.stringContaining('fork') });
+    expect((await fetch(server.url + 'api/pr-start?ref=nope')).status).toBe(400);
+  });
+
   it('remembers how far you looked at a diff, forward only, and serves the range up to the working tree', async () => {
     const id = (await byBranch('fix/login-redirect')).id;
     expect(await get<{ seen: unknown }>(`/api/sessions/${id}/diff-seen`)).toEqual({ seen: null });

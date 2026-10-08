@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectPicker } from './ProjectPicker.js';
-import { createWorktree, fetchBranchCheck, fetchProjects, type ProjectSummary } from '../../api/panes.js';
+import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type ProjectSummary } from '../../api/panes.js';
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
+import { workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
 
 interface Props {
   /** Pre-fill the modal (e.g. when opened from a PR or Jira issue). */
@@ -24,6 +25,8 @@ interface Props {
   onManageRepos?: () => void;
   /** Test seam; defaults to GET /api/branch-check. */
   checkBranch?: (target: string, branch: string) => Promise<BranchCheck>;
+  /** Test seam; defaults to GET /api/pr-start. */
+  findPr?: (ref: string, target?: string) => Promise<PrToStart>;
 }
 
 /** What a branch check means for what you're about to create; null when it's simply new. Pure. */
@@ -64,6 +67,7 @@ export function NewWorktreeModal({
   onClose,
   onManageRepos,
   checkBranch = fetchBranchCheck,
+  findPr = lookupPr,
 }: Props) {
   const [projects, setProjects] = useState<{
     singles: ProjectSummary[];
@@ -77,6 +81,33 @@ export function NewWorktreeModal({
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
   const [more, setMore] = useState(!!initial?.base);
+  // Starting on someone's PR: its link or number, looked up (gh pr view), then
+  // its repo, branch and first prompt filled in — on their branch, pushes land in their PR.
+  const [prOpen, setPrOpen] = useState(false);
+  const [prRef, setPrRef] = useState('');
+  const [prLooking, setPrLooking] = useState(false);
+  const [prError, setPrError] = useState<string | null>(null);
+  const [fromPr, setFromPr] = useState<PrToStart | null>(null);
+  const lookUpPr = () => {
+    if (!prRef.trim() || prLooking) return;
+    setPrLooking(true);
+    setPrError(null);
+    findPr(prRef.trim(), target.trim() || undefined).then(
+      (pr) => {
+        setFromPr(pr);
+        setTarget(pr.alias);
+        setBranchTyped(pr.branch);
+        setBase('');
+        setPrompt(workOnPrPrompt(pr));
+        setPrOpen(false);
+        setPrLooking(false);
+      },
+      (e: Error) => {
+        setPrError(e.message);
+        setPrLooking(false);
+      },
+    );
+  };
   const suggestion = suggestBranch(prompt);
   const suggested = branchTyped === null;
   const wanted = branchTyped ?? suggestion;
@@ -231,6 +262,44 @@ export function NewWorktreeModal({
           {onManageRepos && (
             <button type="button" className="wd-link-button wd-modal-aside" onClick={onManageRepos}>
               Not in the list? Repos & groups…
+            </button>
+          )}
+          {fromPr && fromPr.alias === target && fromPr.branch === branch ? (
+            <p className="wd-modal-pr" role="status">
+              PR #{fromPr.number} by @{fromPr.author || 'its author'}: {fromPr.title}. On their branch <code>{fromPr.branch}</code>: what
+              you push lands in their PR.
+            </p>
+          ) : prOpen ? (
+            <label className="wd-modal-row">
+              <span>Pull request: its link, or # in the project above</span>
+              <span className="wd-modal-pr-row">
+                <input
+                  autoFocus
+                  type="text"
+                  value={prRef}
+                  onChange={(e) => setPrRef(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      lookUpPr();
+                    }
+                  }}
+                  placeholder="https://github.com/owner/repo/pull/123, or #123"
+                  disabled={submitting || prLooking}
+                />
+                <button type="button" className="wd-btn-secondary" onClick={lookUpPr} disabled={submitting || prLooking || !prRef.trim()}>
+                  {prLooking ? 'Looking…' : 'Use it'}
+                </button>
+              </span>
+              {prError && (
+                <span className="wd-modal-error" role="alert">
+                  {prError}
+                </span>
+              )}
+            </label>
+          ) : (
+            <button type="button" className="wd-link-button wd-modal-aside" onClick={() => setPrOpen(true)} disabled={submitting}>
+              Start from a pull request…
             </button>
           )}
           <label className="wd-modal-row">

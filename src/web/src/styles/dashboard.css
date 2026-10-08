@@ -728,7 +728,7 @@ a.wd-pr-chip:hover {
 /* key · what · state · Start (or the session already on it) */
 .wd-start-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 140px 170px;
+  grid-template-columns: 96px minmax(0, 1fr) 140px 200px;
   align-items: center;
   gap: 12px;
   padding: 9px 4px;
@@ -770,6 +770,7 @@ a.wd-pr-chip:hover {
 .wd-start-action {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
 }
 .wd-start-existing {
   font-size: 13px;
@@ -4332,4 +4333,17 @@ a.wd-pr-chip:hover {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
+}
+.wd-modal-pr {
+  margin: -4px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-modal-pr-row {
+  display: flex;
+  gap: 8px;
+}
+.wd-modal-pr-row > input {
+  flex: 1;
+  min-width: 0;
 }

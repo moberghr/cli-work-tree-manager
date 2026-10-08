@@ -194,6 +194,24 @@ describe('Start', () => {
     expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Review']);
   });
 
+  it("someone else's PR: Work on it (their branch) beside Review; a fork's is offered but disabled, saying why", async () => {
+    api.prs = [
+      ...api.prs,
+      pr({ number: 77, title: 'From a fork', branch: 'patch-1', isMine: false, reviewRequested: true, fork: true, author: 'outsider' }),
+    ];
+    const onWorkOnPr = vi.fn();
+    render({ onWorkOnPr });
+    await flush();
+    expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Work on it', 'Review']);
+    act(() => [...rowOf('#99').querySelectorAll('button')].find((b) => b.textContent === 'Work on it')!.click());
+    expect(onWorkOnPr).toHaveBeenCalledWith(expect.objectContaining({ number: 99, branch: 'feat/other' }));
+    const fork = [...rowOf('#77').querySelectorAll('button')].find((b) => b.textContent === 'Work on it')!;
+    expect(fork.disabled).toBe(true);
+    expect(fork.title).toContain('comes from a fork');
+    // Your own PRs keep Start alone.
+    expect([...rowOf('#208').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Start']);
+  });
+
   it('Jira: the checkbox turns the watch on', async () => {
     renderJira();
     await flush();

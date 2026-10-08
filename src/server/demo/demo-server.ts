@@ -40,6 +40,7 @@ import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { mountDemoReplies } from './demo-replies.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
+import { parsePrRef } from '../../core/pr/pr-ref.js';
 import { DemoRepoError } from './demo-repos.js';
 
 /**
@@ -584,6 +585,30 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const prompt = typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt.trim() : undefined;
     const s = scenario.create(body.target, branch, prompt);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
+  });
+  // A PR to start a session on: from the demo's PR list, by number (in `target`) or link.
+  app.get('/api/pr-start', (c) => {
+    const ref = parsePrRef(c.req.query('ref') ?? '');
+    const target = c.req.query('target') || undefined;
+    if (!ref)
+      return c.json({ error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' }, 400);
+    const pr = scenario
+      .prs()
+      .find((p) => p.number === ref.number && (ref.repo ? ref.repo.endsWith(`/${p.repoAlias}`) : !target || p.repoAlias === target));
+    if (!pr) return c.json({ error: `PR #${ref.number} isn't open in your repos.` }, 400);
+    if (pr.fork)
+      return c.json({ error: `PR #${ref.number} comes from a fork: its branch isn't on origin, so a session couldn't push to it.` }, 400);
+    return c.json({
+      pr: {
+        alias: pr.repoAlias,
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        branch: pr.branch,
+        base: 'main',
+        author: pr.author || 'dana',
+      },
+    });
   });
   app.delete('/api/sessions/:id/worktree', (c) =>
     scenario.remove(c.req.param('id')) ? c.json({ ok: true, worktreeRemoved: true }) : notFound(c),

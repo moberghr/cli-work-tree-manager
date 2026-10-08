@@ -59,6 +59,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/worktree/branch-name.ts', // pure: the next free branch name
       'src/core/worktree/repo-rules.ts', // pure: aliases and groups, what's allowed
       'src/core/pr/pr-stage.ts', // pure: where a PR stands
+      'src/core/pr/pr-ref.ts', // pure: a PR's link or number, and its session's first prompt
       'src/core/updates/updates.ts', // pure: versions, release notes, what to offer
       'src/core/diff/diff-points.ts', // pure: the points a diff range runs between
     ]);

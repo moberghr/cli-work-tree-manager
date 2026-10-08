@@ -18,6 +18,7 @@ vi.mock('../../src/web/src/api/panes.js', () => ({
   }),
   createWorktree: (req: unknown) => api.createWorktree(req),
   fetchBranchCheck: (t: string, b: string) => api.checkBranch(t, b),
+  lookupPr: () => Promise.reject(new Error('not in tests: pass findPr')),
 }));
 const { NewWorktreeModal, branchNote, moreLabel } = await import('../../src/web/src/components/Sidebar/NewWorktreeModal.js');
 const { matchProjects } = await import('../../src/web/src/components/Sidebar/ProjectPicker.js');
@@ -292,5 +293,67 @@ describe('branchNote and moreLabel', () => {
   it('names what a folded More options holds', () => {
     expect(moreLabel('', '')).toBe('More options: name, base branch');
     expect(moreLabel('PDF speed', 'dev')).toBe('More options: name “PDF speed” · base dev');
+  });
+});
+
+describe('start from a pull request', () => {
+  const pr = {
+    alias: 'jobly',
+    number: 1927,
+    title: 'Faster payouts',
+    url: 'https://github.com/acme/jobly/pull/1927',
+    branch: 'feat/payouts',
+    base: 'main',
+    author: 'ana',
+  };
+  const link = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Start from a pull request…')!;
+  const prInput = () => container.querySelector<HTMLInputElement>('input[placeholder^="https://github.com/"]')!;
+
+  it('a link fills in its repo, their branch and a first prompt saying whose branch it is; Create sends them', async () => {
+    const findPr = vi.fn(async () => pr);
+    await open({ findPr });
+    await act(async () => link().click());
+    await act(async () => type(prInput(), pr.url));
+    await act(async () => void key(prInput(), 'Enter'));
+    await flush();
+    expect(findPr).toHaveBeenCalledWith(pr.url, 'jobly'); // the project picked: a hint when two repos share the origin
+    expect(picker().value).toBe('jobly');
+    expect(container.querySelector('[role="status"]')!.textContent).toContain(
+      'PR #1927 by @ana: Faster payouts. On their branch feat/payouts: what you push lands in their PR',
+    );
+    expect(container.querySelector('textarea')!.value).toContain("@ana's branch: what you commit and push lands in their PR");
+    expect(api.createWorktree).not.toHaveBeenCalled(); // Enter in the PR field looks it up; it doesn't create
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'jobly', branch: 'feat/payouts', prompt: expect.stringContaining('Work on PR #1927 by @ana') }),
+    );
+  });
+
+  it('a number is looked up in the project picked; a refusal shows why and changes nothing', async () => {
+    const findPr = vi.fn(async () => {
+      throw new Error("PR #12 comes from a fork (stranger): its branch isn't on origin, so a session couldn't push to it.");
+    });
+    await open({ findPr, initial: { target: 'work-tree' } });
+    await act(async () => link().click());
+    await act(async () => type(prInput(), '#12'));
+    await act(async () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Use it')!.click());
+    await flush();
+    expect(findPr).toHaveBeenCalledWith('#12', 'work-tree');
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain('comes from a fork');
+    expect(picker().value).toBe('work-tree');
+    expect(container.querySelector('textarea')!.value).toBe('');
+  });
+
+  it('the note goes when the project no longer matches the PR', async () => {
+    await open({ findPr: vi.fn(async () => pr) });
+    await act(async () => link().click());
+    await act(async () => type(prInput(), '#1927'));
+    await act(async () => void key(prInput(), 'Enter'));
+    await flush();
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => picker().focus());
+    await act(async () => type(picker(), 'work'));
+    await act(async () => void key(picker(), 'Enter'));
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 });

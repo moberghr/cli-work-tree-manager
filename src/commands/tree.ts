@@ -9,6 +9,8 @@ import { findSession, loadHistory, recordLaunch } from '../core/sessions/history
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../core/platform/launch.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
+import { resolvePrToStart } from '../core/pr/pr-start.js';
+import { workOnPrPrompt } from '../core/pr/pr-ref.js';
 
 export const treeCommand: CommandModule = {
   command: ['tree [target] [branch]', 't [target] [branch]'],
@@ -65,6 +67,11 @@ export const treeCommand: CommandModule = {
       })
       .option('prompt-file', {
         describe: 'File containing the initial prompt (deleted after reading)',
+        type: 'string',
+      })
+      .option('pr', {
+        describe:
+          "Work on a pull request, on its branch (what you push lands in it): its link, or its number with <target>. Someone else's too; not one from a fork",
         type: 'string',
       })
       .option('name', {
@@ -154,6 +161,28 @@ export const treeCommand: CommandModule = {
       console.log(`Starting ${tool.cmd}...`);
       launchAi(dir, tool, { unsafe, initialPrompt, resume }, port);
     };
+
+    // --pr: the PR's repo and branch, and a first prompt saying whose branch it is.
+    const prArg = argv.pr as string | undefined;
+    if (prArg !== undefined) {
+      if (branchName || here || !isEmptyBaseSpec(baseSpec)) {
+        console.error("--pr takes the PR's own branch: don't combine it with a branch, --here or --base.");
+        process.exitCode = 1;
+        return;
+      }
+      const found = await resolvePrToStart(prArg, config, targetName);
+      if (!found.ok) {
+        console.error(found.error);
+        process.exitCode = 1;
+        return;
+      }
+      targetName = found.pr.alias;
+      branchName = found.pr.branch;
+      initialPrompt ??= workOnPrPrompt(found.pr);
+      console.log(
+        chalk.cyan(`PR #${found.pr.number} by @${found.pr.author || '?'}: ${found.pr.title}, on its branch ${branchName} in ${targetName}`),
+      );
+    }
 
     // --here: infer target and branch from the current worktree directory
     if (here) {

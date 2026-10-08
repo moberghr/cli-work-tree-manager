@@ -273,3 +273,22 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /api/pr-start', () => {
+  it('answers the PR to start on, or why not, as the lookup said', async () => {
+    const pr = { alias: 'repo', number: 12, title: 'Add export', url: 'u', branch: 'feat/export', base: 'main', author: 'ana' };
+    const resolvePr = vi.fn(async (ref: string) =>
+      ref === '#12' ? { ok: true as const, pr } : { ok: false as const, error: 'PR #13 comes from a fork' },
+    );
+    const a = new Hono();
+    mountWorktreeRoutes(a, { broadcast: vi.fn(), resolvePr });
+    const ok = await a.request('/api/pr-start?ref=%2312&target=repo');
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ pr });
+    expect(resolvePr).toHaveBeenCalledWith('#12', 'repo');
+    const no = await a.request('/api/pr-start?ref=%2313');
+    expect(no.status).toBe(400);
+    expect(await no.json()).toEqual({ error: 'PR #13 comes from a fork' });
+    expect(resolvePr).toHaveBeenLastCalledWith('#13', undefined);
+  });
+});

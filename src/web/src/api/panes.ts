@@ -26,6 +26,10 @@ export interface PrInfo {
   /** Your review was asked for, by name. */
   reviewRequested?: boolean;
   repoAlias: string;
+  /** Its author's login (absent from a server before this). */
+  author?: string;
+  /** It comes from a fork: its branch isn't on origin, so no one can work on it here. */
+  fork?: boolean;
 }
 
 export interface JiraIssue {
@@ -70,6 +74,18 @@ async function postJson<T>(path: string, body: unknown, method = 'POST'): Promis
 /** Is a branch new for a project (branch-check.ts)? The New worktree dialog asks before it creates. */
 export function fetchBranchCheck(target: string, branch: string): Promise<import('../../../core/api-types.js').BranchCheck> {
   return getJson(`/api/branch-check?target=${encodeURIComponent(target)}&branch=${encodeURIComponent(branch)}`);
+}
+
+/**
+ * A PR to start a session on (GET /api/pr-start): its repo, branch, title and
+ * author — or why not (a fork, closed, not one of your repos), as the server said.
+ */
+export async function lookupPr(ref: string, target?: string): Promise<import('../../../core/pr/pr-ref.js').PrToStart> {
+  const q = `ref=${encodeURIComponent(ref)}${target ? `&target=${encodeURIComponent(target)}` : ''}`;
+  const res = await fetch(`/api/pr-start?${q}`, { headers: { Accept: 'application/json' } });
+  const body = (await res.json().catch(() => ({}))) as { pr?: import('../../../core/pr/pr-ref.js').PrToStart; error?: string };
+  if (!res.ok || !body.pr) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body.pr;
 }
 
 export function fetchProjects(): Promise<{

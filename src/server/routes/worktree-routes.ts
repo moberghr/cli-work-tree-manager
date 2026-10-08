@@ -17,6 +17,7 @@ import { detectParentBranch } from '../../core/diff/diff-scope.js';
 import { toBaseSpec } from '../../core/git/base-spec.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { startSessionWithPrompt, type StartOutcome } from '../../core/sessions/session-start.js';
+import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -26,12 +27,15 @@ export interface WorktreeMutOptions {
   releaseScope?: (paths: string[]) => void;
   /** How a worktree is made: work web runs it in a child process (setup-child.ts), so its git doesn't hold up the server. */
   create?: CreateWorktree;
+  /** Look a PR up for "start on someone's PR" (tests inject; default: gh pr view). */
+  resolvePr?: (ref: string, target: string | undefined) => Promise<PrStartResult>;
 }
 
 /**
  * Hono sub-app exposing the dashboard's worktree mutation surface:
  *
  *   POST   /api/worktrees             — create (target + branch [+ base] [+ first prompt])
+ *   GET    /api/pr-start?ref=&target= — which repo and branch a PR is on (to start a session on it)
  *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
@@ -57,6 +61,18 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   });
   const startSession = opts.startSession ?? startSessionWithPrompt;
   const create = opts.create ?? createInProcess;
+  const resolvePr =
+    opts.resolvePr ??
+    ((ref: string, target: string | undefined) => resolvePrToStart(ref, loadConfig() ?? { repos: {}, groups: {} }, target));
+
+  // A PR to start a session on: its repo and branch (a read: gh pr view). New
+  // worktree then creates it as any branch — on origin, so it's tracked and
+  // what the session pushes lands in the PR.
+  app.get('/api/pr-start', async (c) => {
+    const ref = c.req.query('ref') ?? '';
+    const r = await resolvePr(ref, c.req.query('target') || undefined);
+    return r.ok ? c.json({ pr: r.pr }) : c.json({ error: r.error }, 400);
+  });
   app.post('/api/worktrees', zValidator('json', createSchema), async (c) => {
     const { target, base, jiraKey, prompt, name } = c.req.valid('json');
     const config = loadConfig();

@@ -3,6 +3,17 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- Work on someone else's pull request, on their branch: what you push lands
+  in their PR. New worktree → **Start from a pull request…** (paste its link,
+  or its number in the project picked), **Work on it** beside Review on
+  Start's "Waiting for your review", or `work tree --pr <link>` (`--pr 12
+  <repo>`). The repo and branch come from the PR, and its Claude is told
+  whose branch it is, to get up to speed and wait for what you want, and to
+  post nothing on GitHub. A PR from a fork is refused: its branch isn't on
+  origin, so nothing could be pushed to it.
+
 ## 2.0.6 — 2026-10-07
 
 - Creating a worktree is faster, and leaves your main checkout alone: a
