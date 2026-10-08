@@ -59,6 +59,15 @@ describe('prSections', () => {
     expect(s[1].failing).toEqual([{ name: 'build', url: 'https://ci/1' }]);
   });
 
+  it('who opened it: from the PR watch, else from the PR list; unknown is null', () => {
+    const withAuthors = {
+      ...ci,
+      repos: [ci.repos[0], { ...ci.repos[1], pr: { ...ci.repos[1].pr!, author: 'dana' } }],
+    } as unknown as SessionCi;
+    const s = prSections(withAuthors, [list[0], { ...list[1], author: 'ivana' }]);
+    expect(s.map((x) => x.author)).toEqual([null, 'dana', 'ivana']);
+  });
+
   it('what wants you first, then open ones, then merged; threads and drafts go to their own PR', () => {
     const waiting = [thread('frontend', 1990, 'T1'), thread('frontend', 1990, 'T2')];
     const replies = [{ ...thread('frontend', 1927, 'T3'), status: 'draft', draft: 'Fixed', sentAt: '' } as PrReply];

@@ -134,6 +134,7 @@ function PrList({
             </a>
             <span className="wd-start-what" title={pr.title}>
               {pr.title} <span className="wd-start-repo">{pr.repoAlias}</span>
+              {!pr.isMine && pr.author && <span className="wd-start-author"> · by @{pr.author}</span>}
             </span>
             <span className={`wd-start-state wd-start-state-${state.tone}`}>{state.text}</span>
             <span className="wd-start-action">

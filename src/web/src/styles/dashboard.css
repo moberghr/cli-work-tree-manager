@@ -757,6 +757,10 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   color: var(--muted);
 }
+.wd-start-author {
+  font-size: 12px;
+  color: var(--muted);
+}
 .wd-start-state {
   font-size: 13px;
   color: var(--muted);
@@ -4274,6 +4278,11 @@ a.wd-pr-chip:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.wd-pr-author {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 .wd-prtab-stage {
   flex-shrink: 0;

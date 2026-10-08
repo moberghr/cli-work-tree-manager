@@ -97,13 +97,19 @@ describe('the PR tab', () => {
       checkedAt: '',
       repos: [
         { name: 'backend', done: true, pr: shipPr(3509, { state: 'MERGED', mergedAt: '2026-10-05T08:40:20Z' }) },
-        { name: 'frontend', done: false, pr: shipPr(1927, { checks: 'fail', failing: [{ name: 'build', url: 'https://ci/1' }] }) },
+        {
+          name: 'frontend',
+          done: false,
+          pr: shipPr(1927, { checks: 'fail', failing: [{ name: 'build', url: 'https://ci/1' }], author: 'jureperak' }),
+        },
       ],
     } as unknown as SessionCi;
     h.replies = { replies: [], waiting: [thread(1927, 'T1'), thread(1927, 'T2')] } as unknown as RepliesWire;
     await render();
     const sections = [...container.querySelectorAll('.wd-pr-section')];
     expect(sections.map((s) => s.querySelector('.wd-pr-name')!.textContent)).toEqual(['frontend #1927', 'backend #3509']);
+    expect(sections[0].querySelector('.wd-pr-author')!.textContent).toBe('by @jureperak'); // who opened it
+    expect(sections[1].querySelector('.wd-pr-author')).toBeNull(); // not known: nothing said
     expect(sections[0].textContent).toContain('Checks failing: build');
     expect(sections[0].textContent).toContain('2 unresolved review threads with no reply yet');
     // Merged: folded, its name and when it merged.

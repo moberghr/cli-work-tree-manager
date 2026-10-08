@@ -194,6 +194,14 @@ describe('Start', () => {
     expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Review']);
   });
 
+  it("says who opened someone else's PR (not on yours)", async () => {
+    api.prs = [...api.prs.map((p) => (p.number === 99 ? { ...p, author: 'dana' } : { ...p, author: 'me' }))];
+    render();
+    await flush();
+    expect(rowOf('#99').textContent).toContain('by @dana');
+    expect(rowOf('#208').textContent).not.toContain('by @');
+  });
+
   it("someone else's PR: Work on it (their branch) beside Review; a fork's is offered but disabled, saying why", async () => {
     api.prs = [
       ...api.prs,

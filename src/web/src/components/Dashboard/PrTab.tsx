@@ -201,6 +201,11 @@ function PrSectionView({
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
         {s.title && <span className="wd-pr-title">{s.title}</span>}
+        {s.author && (
+          <span className="wd-pr-author" title={`Opened on GitHub by @${s.author}`}>
+            by @{s.author}
+          </span>
+        )}
         <span className={`wd-prtab-stage wd-prtab-stage-${stageTone(s.kind)}`}>
           {stagePhrase(s.kind)}
           {s.state === 'MERGED' && s.mergedAt ? ` ${relativeTime(s.mergedAt)} ago` : ''}

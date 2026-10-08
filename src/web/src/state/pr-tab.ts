@@ -16,6 +16,8 @@ export interface PrSection {
   number: number;
   url: string;
   title: string | null;
+  /** Who opened it on GitHub, when known (the PR watch's `gh pr view`, else the dashboard's list). */
+  author: string | null;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   kind: PrStageKind;
   checks: 'pass' | 'fail' | 'pending' | 'none';
@@ -59,6 +61,7 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
             number: r.pr.number,
             url: r.pr.url,
             title: listed.find((p) => p.url === r.pr!.url)?.title ?? null,
+            author: r.pr.author ?? listed.find((p) => p.url === r.pr!.url)?.author ?? null,
             state: r.pr.state,
             kind: stageOfPr(r.pr),
             checks: r.pr.checks,
@@ -75,6 +78,7 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
     number: p.number,
     url: p.url,
     title: p.title,
+    author: p.author ?? null,
     state: 'OPEN',
     kind: kindOfListed(p),
     checks: LISTED_CHECKS[p.checksStatus],
