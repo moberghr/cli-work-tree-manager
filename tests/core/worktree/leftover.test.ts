@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { git, getCurrentBranch } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
-import { setupWorktree } from '../../../src/core/worktree/worktree.js';
+import { createSingleWorktree, setupWorktree } from '../../../src/core/worktree/worktree.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { isLeftover, isWorktreeFolder, putLeftoverBack, setLeftoverAside, takeLeftover } from '../../../src/core/worktree/leftover.js';
 
 let tmp: string;
@@ -97,5 +98,71 @@ describe('making the worktree again over what was left (real git)', () => {
     expect(fs.readFileSync(path.join(wt, 'src', 'Kept.cs'), 'utf-8')).toBe('committed\n'); // deleted by git: back from the branch
     expect(fs.existsSync(path.join(wt, 'bin'))).toBe(false);
     expect(fs.readdirSync(path.dirname(wt)).filter((f) => f.includes('.leftover-'))).toEqual([]);
+  });
+});
+
+describe('making it again goes wrong, or the branch moved (reviewed)', () => {
+  const repoAt = () => {
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(repo);
+    git(['init', '-b', 'main'], repo);
+    git(['config', 'user.email', 't@t.t'], repo);
+    git(['config', 'user.name', 'T'], repo);
+    write(path.join(repo, 'App.cs'), 'v1\n');
+    git(['add', '.'], repo);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], repo);
+    return repo;
+  };
+
+  it('a creation that fails puts the leftover back where it was, not stranded beside it', () => {
+    const repo = repoAt();
+    const config: WorkConfig = { worktreesRoot: path.join(tmp, 'worktrees'), repos: { api: repo }, groups: {}, copyFiles: [] };
+    // The branch is checked out elsewhere: git won't add it here.
+    git(['worktree', 'add', '-b', 'feat/x', path.join(tmp, 'elsewhere')], repo);
+    const wt = path.join(tmp, 'worktrees', 'api', 'feat-x');
+    write(path.join(wt, 'Helper.cs'), 'mine');
+    expect(createSingleWorktree(repo, wt, 'feat/x', config)).toBe(false);
+    expect(fs.readFileSync(path.join(wt, 'Helper.cs'), 'utf-8')).toBe('mine');
+    expect(fs.readdirSync(path.dirname(wt)).filter((f) => f.includes('.leftover-'))).toEqual([]);
+    expect(takeLeftover(wt)).toBeNull();
+  });
+
+  it("the branch moved on since the folder was left: its stale copies of tracked files don't undo the newer commit", async () => {
+    const repo = repoAt();
+    const config: WorkConfig = { worktreesRoot: path.join(tmp, 'worktrees'), repos: { api: repo }, groups: {}, copyFiles: [] };
+    saveConfig(config);
+    const made = await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false });
+    const wt = made!.paths[0];
+    const tipThen = git(['rev-parse', 'HEAD'], wt).stdout;
+    // The archive recorded that tip; the branch moves on afterwards.
+    const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
+    write(
+      path.join(tmp, '.work', 'archive', id, 'archive.json'),
+      JSON.stringify({
+        sessionId: id,
+        target: 'api',
+        branch: 'feat/x',
+        isGroup: false,
+        paths: [wt],
+        archivedAt: '2026-10-01T00:00:00Z',
+        worktreeRemoved: true,
+        keptBecause: null,
+        transcripts: [],
+        summary: { prompts: [], promptCount: 0, lastSummary: null, prs: [], jiraKey: null },
+        tips: { api: tipThen },
+      }),
+    );
+    write(path.join(wt, 'Helper.cs'), 'untracked');
+    fs.rmSync(path.join(wt, '.git'));
+    git(['worktree', 'prune'], repo);
+    const next = path.join(tmp, 'next');
+    git(['worktree', 'add', next, 'feat/x'], repo);
+    write(path.join(next, 'App.cs'), 'v2\n');
+    git(['commit', '-am', 'v2', '--no-gpg-sign'], next);
+    git(['worktree', 'remove', '--force', next], repo);
+
+    await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false });
+    expect(fs.readFileSync(path.join(wt, 'App.cs'), 'utf-8')).toBe('v2\n'); // the newer commit's, not the leftover's v1
+    expect(fs.readFileSync(path.join(wt, 'Helper.cs'), 'utf-8')).toBe('untracked'); // what wasn't there still comes back
   });
 });

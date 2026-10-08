@@ -101,7 +101,11 @@ export function exportBundle(dest: string, now = new Date()): ExportResult {
   snapshotDb(path.join(dest, 'state.db'));
   fs.copyFileSync(getConfigPath(), path.join(dest, 'config.json'));
   for (const dir of ['conversations', 'archive']) {
-    if (exists(path.join(home, dir))) fs.cpSync(path.join(home, dir), path.join(dest, dir), { recursive: true });
+    const from = path.join(home, dir);
+    // An archive's copied git-ignored files (archive-ignored.ts) can hold secrets: they stay
+    // on this computer, not in a bundle meant for a stick or a synced folder.
+    const notIgnored = (src: string) => dir !== 'archive' || path.relative(from, src).split(path.sep)[1] !== 'ignored';
+    if (exists(from)) fs.cpSync(from, path.join(dest, dir), { recursive: true, filter: notIgnored });
   }
   for (const f of fs.readdirSync(home).filter((n) => n.endsWith('.claude.md'))) {
     fs.mkdirSync(path.join(dest, 'instructions'), { recursive: true });

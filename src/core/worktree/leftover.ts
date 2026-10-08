@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { BUILD_DIR_NAMES } from '../cleanup/build-folders.js';
+import { isBuildOutputPath } from '../cleanup/build-folders.js';
 
 /**
  * A worktree folder git removed only in part. `git worktree remove` deletes
@@ -74,7 +74,7 @@ export function putLeftoverBack(
     for (const e of fs.readdirSync(path.join(aside, rel), { withFileTypes: true })) {
       const r = path.join(rel, e.name);
       if (e.isDirectory()) {
-        if (e.name === '.git' || BUILD_DIR_NAMES.has(e.name)) continue;
+        if (isBuildOutputPath(e.name)) continue;
         walk(r);
       } else if (e.isFile()) {
         const to = path.join(worktree, r);

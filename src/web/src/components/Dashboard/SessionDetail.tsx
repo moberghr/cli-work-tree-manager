@@ -92,6 +92,7 @@ export function SessionDetail({
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
+        onShowTerminal={() => onSelectSubTab('term')}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -150,10 +151,12 @@ interface HeaderProps {
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
   onOpenPr?: () => void;
+  /** Show the Terminal tab (Reconnect terminal). */
+  onShowTerminal?: () => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
-function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr }: HeaderProps) {
+function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr, onShowTerminal }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
@@ -166,6 +169,12 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
   // One line from what the session's row says (no fetch): the PR tab has the rest.
   const needs = prNeedsLine(session);
 
+  // On the Terminal tab, then a new connection: a terminal not mounted any more (another tab,
+  // let go by the deck) connects afresh when shown; a mounted one hears the request.
+  const reconnectTerminal = () => {
+    onShowTerminal?.();
+    requestTerminalReconnect(session.id);
+  };
   const openTerminal = () => {
     setNote({ text: 'Opening in a terminal…' });
     openInTerminal(session.id).then(
@@ -186,7 +195,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
     else if (a === 'notes') setNotesOpen((o) => !o);
     else if (a === 'ship' && live) setShipOpen(true);
     else if (a === 'terminal' && live) openTerminal();
-    else if (a === 'reconnect' && live) requestTerminalReconnect(session.id);
+    else if (a === 'reconnect' && live) reconnectTerminal();
     else if (a === 'dev' && live && dev.state?.port != null && (dev.state.command || dev.state.running))
       dev.act(dev.state.running ? 'stop' : 'start');
   };
@@ -200,7 +209,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
   }, [session.id]);
   const items = sessionHeaderItems(session, dev.state, {
     openTerminal,
-    reconnectTerminal: () => requestTerminalReconnect(session.id),
+    reconnectTerminal,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
     sendPrompt: () => setPromptsOpen(true),

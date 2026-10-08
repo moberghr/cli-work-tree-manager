@@ -132,7 +132,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       for (const [alias] of repoPaths(s, cfg)) {
         const wt = cfg ? worktreeFor(s, alias, cfg) : null;
         if (!wt || !fs.existsSync(wt)) continue;
-        const r = saveIgnored(wt, path.join(dir, 'ignored', alias));
+        const r = await saveIgnored(wt, path.join(dir, 'ignored', alias));
         if (r.files || r.skipped) out[alias] = r;
       }
       return out;

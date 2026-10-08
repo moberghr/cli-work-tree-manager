@@ -44,9 +44,17 @@ export function applyArchiveRetention(opts: {
   }
   for (const id of ids) {
     const rec = readArchive(id, root);
-    if (!rec || rec.transcriptsDroppedAt) continue;
+    if (!rec) continue;
     const age = now - Date.parse(rec.archivedAt);
     if (!Number.isFinite(age)) continue;
+    // Copied local settings can hold secrets: kept as long as Restore is likely, not for ever.
+    const ignored = path.join(archiveDirFor(id, root), 'ignored');
+    if (compressAfter > 0 && age >= compressAfter * DAY_MS && !rec.ignoredDroppedAt && fs.existsSync(ignored)) {
+      fs.rmSync(ignored, { recursive: true, force: true });
+      rec.ignoredDroppedAt = new Date(now).toISOString();
+      writeArchiveRecord(rec, root);
+    }
+    if (rec.transcriptsDroppedAt) continue;
     const dir = path.join(archiveDirFor(id, root), 'transcripts');
     if (dropAfter > 0 && age >= dropAfter * DAY_MS) {
       out.bytesSaved += dirBytes(dir);

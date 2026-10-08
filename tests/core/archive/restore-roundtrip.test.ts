@@ -10,6 +10,7 @@ import { archiveSession, readArchive } from '../../../src/core/archive/session-a
 import { defaultArchiveDeps } from '../../../src/core/archive/session-archive-deps.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { loadManifest, takeCheckpoint } from '../../../src/core/diff/checkpoint.js';
+import { saveIgnored } from '../../../src/core/archive/archive-ignored.js';
 import { scopeHashForPaths } from '../../../src/core/diff/scope-manager.js';
 
 /**
@@ -93,5 +94,62 @@ describe('Restore brings a session back as it was before Archive', () => {
       .filter(Boolean);
     expect(refs).toHaveLength(turnsBefore.length);
     for (const e of loadManifest(scope).entries) expect(e.repos.api).toBeTruthy();
+  });
+});
+
+describe('the copy of git-ignored files', () => {
+  const repoWith = (files: Record<string, string>) => {
+    const repo = path.join(tmp, 'r');
+    fs.mkdirSync(repo, { recursive: true });
+    git(['init', '-b', 'main'], repo);
+    write(path.join(repo, '.gitignore'), '.vs/\n.venv/\nappsettings.Development.json\n*.local\n');
+    for (const [f, text] of Object.entries(files)) write(path.join(repo, f), text);
+    return repo;
+  };
+
+  it("the smallest first: an editor's index can't use up the budget before the local settings (reviewed)", async () => {
+    const repo = repoWith({
+      '.vs/index/a.db': 'x'.repeat(600),
+      '.vs/index/b.db': 'x'.repeat(600),
+      'src/appsettings.Development.json': '{}',
+      'src/notes.txt': 'untracked, not ignored: the uncommitted save has it',
+    });
+    const dest = path.join(tmp, 'dest');
+    const r = await saveIgnored(repo, dest, { file: 1000, total: 700, files: 100 });
+    expect(r).toMatchObject({ files: 2, skipped: 1 });
+    expect(fs.existsSync(path.join(dest, 'src', 'appsettings.Development.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dest, 'src', 'notes.txt'))).toBe(false); // git lists src/ too; only ignored folders are walked
+  });
+
+  it('environments and package caches stay out; it stops looking after so many files (reviewed: a 100k-file .venv)', async () => {
+    const repo = repoWith({ '.venv/lib/site.py': 'x', 'a.local': '1', 'b.local': '2', 'c.local': '3' });
+    const dest = path.join(tmp, 'dest');
+    const r = await saveIgnored(repo, dest, { file: 1000, total: 1000, files: 2 });
+    expect(r).toMatchObject({ files: 2, partial: true });
+    expect(fs.existsSync(path.join(dest, '.venv'))).toBe(false);
+  });
+});
+
+describe('a group whose removal went wrong two ways', () => {
+  it('one repo half-removed, the other still a worktree: kept (not "removed"), and the saves are kept too (reviewed)', async () => {
+    const be = path.join(tmp, 'grp', 'backend');
+    const fe = path.join(tmp, 'grp', 'frontend');
+    write(path.join(be, 'left.txt'), 'x'); // no .git: half-removed
+    write(path.join(fe, '.git'), 'gitdir: x'); // still a worktree
+    const s = { target: 'shop', branch: 'feat/x', isGroup: true, paths: [be, fe], createdAt: '', lastAccessedAt: '' };
+    const dropSaved = vi.fn(async () => {});
+    const out = await archiveSession(s, {
+      stopClaude: async () => {},
+      removable: async () => ({ ok: true, reason: '' }),
+      removeWorktree: async () => false,
+      halfRemoved: () => [be],
+      setArchived: async () => true,
+      transcripts: () => [],
+      saveUncommitted: async () => ({ saved: { backend: { commit: 'c', base: 'b', ref: 'r', files: 1, patch: 'p' } }, error: null }),
+      dropSaved,
+      archiveRoot: path.join(tmp, 'archive'),
+    });
+    expect(out).toMatchObject({ worktreeRemoved: false, keptBecause: expect.stringContaining('only in part') });
+    expect(dropSaved).not.toHaveBeenCalled();
   });
 });

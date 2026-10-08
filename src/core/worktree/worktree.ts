@@ -153,9 +153,10 @@ export function createSingleWorktree(
 
   // What a removal that stopped halfway left (a file in use): no longer a checkout, and in
   // git's way. Set aside; setupWorktree copies it back into the new worktree (leftover.ts).
+  let aside: string | null = null;
   if (isLeftover(worktreePath)) {
     try {
-      const aside = setLeftoverAside(worktreePath);
+      aside = setLeftoverAside(worktreePath);
       report('warn', `  ${worktreePath} was left half-removed (no git in it): making it again, its files set aside in ${aside}`);
       git(['worktree', 'prune'], repoPath);
     } catch (err) {
@@ -163,7 +164,28 @@ export function createSingleWorktree(
       return false;
     }
   }
+  const made = makeSingleWorktree(repoPath, worktreePath, branchName, config, baseBranch, pull, fetched);
+  // It couldn't be made: the leftover goes back where it was, not stranded beside it.
+  if (!made && aside && !fs.existsSync(worktreePath)) {
+    try {
+      fs.renameSync(aside, worktreePath);
+      takeLeftover(worktreePath);
+    } catch {
+      report('warn', `  what was left of it is still at ${aside}`);
+    }
+  }
+  return made;
+}
 
+function makeSingleWorktree(
+  repoPath: string,
+  worktreePath: string,
+  branchName: string,
+  config: WorkConfig,
+  baseBranch: string | undefined,
+  pull: boolean,
+  fetched: boolean,
+): boolean {
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
     if (isGitRepo(worktreePath)) {
@@ -505,18 +527,29 @@ export async function setupWorktree(
     if (session) bestEffort('put back its local settings', () => restoreArchivedIgnored(session, config));
     // And what was left of a half-removed worktree: over the checkout, or — when the
     // archive's save already put its changes back — only the files that aren't there.
-    for (const p of result.paths) putBackLeftover(p);
+    const tips = session ? (readArchive(sessionIdFor(session))?.tips ?? {}) : {};
+    for (const p of result.paths) {
+      // Its repo: a group's worktrees are named after the repo's folder, a single repo's is the target.
+      const alias = target.isGroup
+        ? target.repoAliases.find((a) => path.basename(config.repos[a] ?? '').toLowerCase() === path.basename(p).toLowerCase())
+        : targetName;
+      putBackLeftover(p, alias ? tips[alias] : undefined);
+    }
     if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;
 }
 
 /** Copy a leftover set aside for this worktree (createSingleWorktree) back into it, and say how it went. */
-function putBackLeftover(worktree: string): void {
+function putBackLeftover(worktree: string, tip: string | undefined): void {
   const aside = takeLeftover(worktree);
   if (!aside) return;
+  // Over the checkout only when nothing else brought its changes back (clean) and the branch
+  // is where it was when the folder was left (the archive's recorded tip): on a branch that
+  // moved since, the leftover's copies of tracked files are older, and would undo newer work.
+  const head = git(['rev-parse', 'HEAD'], worktree).stdout;
   const clean = git(['status', '--porcelain'], worktree).stdout === '';
-  const r = putLeftoverBack(aside, worktree, { overwrite: clean });
+  const r = putLeftoverBack(aside, worktree, { overwrite: clean && (!tip || tip === head) });
   if (r.failed.length)
     report(
       'warn',

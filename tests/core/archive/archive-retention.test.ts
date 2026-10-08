@@ -66,6 +66,20 @@ describe('applyArchiveRetention', () => {
     expect(readArchive('ancient', root)).toMatchObject({ transcriptsDroppedAt: expect.any(String), summary: { lastSummary: 'Done.' } });
   });
 
+  it('copied local settings (they can hold secrets) go after compressAfterDays, once; the rest of the archive stays', () => {
+    archive('old', 45);
+    archive('new', 3);
+    for (const id of ['old', 'new']) {
+      fs.mkdirSync(path.join(root, id, 'ignored', 'api'), { recursive: true });
+      fs.writeFileSync(path.join(root, id, 'ignored', 'api', '.env.local'), 'TOKEN=x');
+    }
+    applyArchiveRetention({ now: NOW, root });
+    expect(fs.existsSync(path.join(root, 'old', 'ignored'))).toBe(false);
+    expect(readArchive('old', root)?.ignoredDroppedAt).toBeTruthy();
+    expect(fs.existsSync(path.join(root, 'new', 'ignored', 'api', '.env.local'))).toBe(true);
+    expect(readArchive('old', root)?.summary.lastSummary).toBe('Done.');
+  });
+
   it('compressAfterDays: 0 turns compression off', () => {
     archive('old', 90);
     expect(applyArchiveRetention({ now: NOW, root, compressAfterDays: 0 }).compressed).toEqual([]);

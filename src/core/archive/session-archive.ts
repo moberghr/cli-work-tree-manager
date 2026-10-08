@@ -53,8 +53,12 @@ export interface SavedIgnored {
   bytes: number;
   /** Left out: over a cap. */
   skipped: number;
+  /** It stopped looking at MAX_IGNORED_FILES files: more were there. */
+  partial?: true;
   /** Put back by a Restore (then not again). */
   restoredAt?: string;
+  /** A Restore that couldn't put them back: why (not tried again). */
+  restoreError?: string;
 }
 
 export interface ArchiveRecord {
@@ -101,6 +105,8 @@ export interface ArchiveRecord {
   kept?: ArchiveKept;
   /** Saved work an earlier Restore couldn't put back, carried over when archived again (still in its ref and patch). */
   unrestored?: SavedUncommitted[];
+  /** When the copied git-ignored files were deleted for retention (ISO): they can hold secrets. */
+  ignoredDroppedAt?: string;
   /** When the transcripts were compressed / deleted for retention (ISO). */
   compressedAt?: string;
   transcriptsDroppedAt?: string;
@@ -296,17 +302,23 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     // git deletes the files first and stops at one in use (Visual Studio's): the folder
     // that's left is no worktree any more. That's removed — and its save is the copy.
     leftovers = worktreeRemoved ? [] : (deps.halfRemoved?.(s) ?? []);
-    if (leftovers.length) worktreeRemoved = true;
-    else if (!worktreeRemoved) keptBecause = 'git refused to remove the worktree';
+    // Removed only when every folder is gone or half-removed: a repo of a group whose
+    // removal failed outright is still a worktree, and the session keeps it.
+    if (leftovers.length && s.paths.every((p) => leftovers.includes(p) || !fs.existsSync(p))) worktreeRemoved = true;
+    else if (!worktreeRemoved)
+      keptBecause = leftovers.length
+        ? `git removed ${leftovers.join(', ')} only in part (a file in use) and kept the rest`
+        : 'git refused to remove the worktree';
   } else {
     keptBecause = saving.error && !verdict.reason.includes(saving.error) ? `${verdict.reason} (${saving.error})` : verdict.reason;
   }
   // Kept: the changes are still in it, so the saves aren't needed.
-  if (!worktreeRemoved && Object.keys(saved).length) {
+  // (Not when part of it is gone: the saves are the only copy of that.)
+  if (!worktreeRemoved && !leftovers.length && Object.keys(saved).length) {
     await deps.dropSaved?.(s, saved, dir).catch(() => {});
     saved = {};
   }
-  if (!worktreeRemoved && Object.keys(ignored).length) {
+  if (!worktreeRemoved && !leftovers.length && Object.keys(ignored).length) {
     fs.rmSync(ignoredDir, { recursive: true, force: true });
     ignored = {};
   }
@@ -436,6 +448,12 @@ export function readArchive(id: string, root = archiveRoot()): ArchiveRecord | n
   }
 }
 
+function isSavedIgnored(v: unknown): v is SavedIgnored {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.files === 'number' && typeof o.bytes === 'number' && typeof o.skipped === 'number';
+}
+
 /** Saved work comes back only in its known shape (stored JSON); anything else is dropped from the record read. */
 function withValidSaves(r: ArchiveRecord): ArchiveRecord {
   const out = { ...r };
@@ -449,6 +467,11 @@ function withValidSaves(r: ArchiveRecord): ArchiveRecord {
     const valid = Array.isArray(r.unrestored) ? r.unrestored.filter(isSavedUncommitted) : [];
     if (valid.length) out.unrestored = valid;
     else delete out.unrestored;
+  }
+  if (r.ignored !== undefined) {
+    const valid = typeof r.ignored === 'object' && r.ignored ? Object.entries(r.ignored).filter(([, v]) => isSavedIgnored(v)) : [];
+    if (valid.length) out.ignored = Object.fromEntries(valid);
+    else delete out.ignored;
   }
   return out;
 }

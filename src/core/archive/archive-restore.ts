@@ -56,16 +56,25 @@ export function restoreArchivedIgnored(s: WorktreeSession, config: WorkConfig, r
   if (!rec?.worktreeRemoved || !rec.ignored) return [];
   const dir = archiveDirFor(id, root);
   const done: string[] = [];
+  let changed = false;
   for (const [alias, saved] of Object.entries(rec.ignored)) {
-    if (saved.restoredAt) continue;
+    if (saved.restoredAt || saved.restoreError) continue;
     const wt = worktreeFor(s, alias, config);
     if (!wt) continue;
-    const n = restoreIgnored(path.join(dir, 'ignored', alias), wt);
-    saved.restoredAt = new Date().toISOString();
-    done.push(alias);
-    if (n) report('info', `${alias}: put back ${n} git-ignored file${n === 1 ? '' : 's'} (local settings, editor state) it had`);
+    // Each repo on its own, and recorded whatever happens: a later re-entry must not copy
+    // them again over settings edited since.
+    try {
+      const n = restoreIgnored(path.join(dir, 'ignored', alias), wt);
+      saved.restoredAt = new Date().toISOString();
+      done.push(alias);
+      if (n) report('info', `${alias}: put back ${n} git-ignored file${n === 1 ? '' : 's'} (local settings, editor state) it had`);
+    } catch (err) {
+      saved.restoreError = (err as Error).message;
+      report('warn', `${alias}: its local settings from the archive weren't all put back: ${saved.restoreError}`);
+    }
+    changed = true;
   }
-  if (done.length) writeArchiveRecord(rec, root);
+  if (changed) writeArchiveRecord(rec, root);
   return done;
 }
 

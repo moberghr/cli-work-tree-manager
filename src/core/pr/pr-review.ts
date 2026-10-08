@@ -107,9 +107,11 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
       };
     };
     const pr = j.data?.repository?.pullRequest;
-    if (!pr) return null;
+    // Who you are tells your words from a reviewer's: without it the lookup failed (callers
+    // keep the last count), it isn't "no threads".
+    if (!pr || !j.data?.viewer?.login) return null;
     return {
-      viewer: j.data?.viewer?.login ?? '',
+      viewer: j.data.viewer.login,
       threads: (pr.reviewThreads?.nodes ?? []).map((t) => ({
         id: t.id,
         isResolved: !!t.isResolved,

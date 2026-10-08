@@ -40,6 +40,11 @@ export const BUILD_DIR_NAMES = new Set([
 ]);
 const SKIP = new Set(['.git']);
 
+/** A relative path inside build output or `.git` (any folder of it named as one): never copied around. */
+export function isBuildOutputPath(rel: string): boolean {
+  return rel.split(/[\\/]/).some((seg) => SKIP.has(seg) || BUILD_DIR_NAMES.has(seg));
+}
+
 /** Folders under `root` whose name is a build-output name (not descending into them, nor into nested repos). */
 export async function candidateBuildDirs(root: string, maxDepth = 4): Promise<string[]> {
   const found: string[] = [];

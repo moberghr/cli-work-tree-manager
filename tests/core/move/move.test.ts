@@ -127,7 +127,14 @@ describe('moving to another computer (real git, two homes)', () => {
   });
 
   it('exports a bundle: database, config, conversations, transcripts, and each repo with its origin', () => {
+    // An archive's copied local settings (they can hold secrets) stay on this computer; the rest of it goes.
+    const archived = path.join(oldHome, '.work', 'archive', 'a1');
+    fs.mkdirSync(path.join(archived, 'ignored', 'api'), { recursive: true });
+    fs.writeFileSync(path.join(archived, 'ignored', 'api', '.env.local'), 'TOKEN=secret');
+    fs.writeFileSync(path.join(archived, 'archive.json'), '{}');
     const r = exportBundle(bundle);
+    expect(fs.existsSync(path.join(bundle, 'archive', 'a1', 'archive.json'))).toBe(true);
+    expect(fs.existsSync(path.join(bundle, 'archive', 'a1', 'ignored'))).toBe(false);
     expect(r).toMatchObject({ sessions: 1, transcripts: 1 });
     const m = readManifest(bundle);
     expect(m.repos.api).toEqual({ path: path.join(oldHome, 'src', 'api'), origin });

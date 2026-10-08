@@ -30,6 +30,14 @@ const seenStore = () => {
 };
 
 describe("who you are unknown (gh didn't say): nothing is handed over", () => {
+  it('a lookup with no viewer is a failed one (null: the watch keeps the last count), not "no threads"', () => {
+    const body = (viewer?: object) =>
+      JSON.stringify({ data: { ...(viewer ? { viewer } : {}), repository: { pullRequest: { reviewThreads: { nodes: [] } } } } });
+    expect(parseReviewFeedback(body())).toBeNull();
+    expect(parseReviewFeedback(body({ login: '' }))).toBeNull();
+    expect(parseReviewFeedback(body({ login: 'me' }))?.viewer).toBe('me');
+  });
+
   it("newFeedback and openThreadsOf both give nothing — yours would read as a reviewer's", () => {
     const fb = {
       viewer: '',

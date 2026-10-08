@@ -158,6 +158,13 @@ describe('session header', () => {
     expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Ship session');
   });
 
+  it('Reconnect terminal shows the Terminal tab too (from another tab there is no terminal to reconnect) (reviewed)', async () => {
+    await render();
+    act(() => more().click());
+    act(() => item(/Reconnect terminal/).click());
+    expect(onSelectSubTab).toHaveBeenLastCalledWith('term');
+  });
+
   it('Open in terminal says it is opening until the request settles', async () => {
     const d = deferred<{ ok: true }>();
     h.openInTerminal.mockReturnValue(d.promise);
