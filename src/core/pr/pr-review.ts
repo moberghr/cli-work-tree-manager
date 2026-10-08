@@ -126,6 +126,21 @@ export function parseReviewFeedback(stdout: string): ReviewFeedback | null {
   }
 }
 
+/**
+ * The GitHub login gh is signed in as (`gh api user`), asked once: the PR
+ * watch tells your PRs from someone else's by it. A failed ask is asked again.
+ */
+export function viewerLogin(run: CommandRunner): () => Promise<string | null> {
+  let known: string | null = null;
+  return async () => {
+    if (known) return known;
+    const r = await run('gh', ['api', 'user', '--jq', '.login'], process.cwd()).catch(() => null);
+    const login = r?.code === 0 ? r.stdout.trim() : '';
+    if (login) known = login;
+    return known;
+  };
+}
+
 export async function fetchReviewFeedback(repoPath: string, prNumber: number, run: CommandRunner): Promise<ReviewFeedback | null> {
   // gh fills {owner}/{repo} from the repository in the cwd.
   const res = await run(

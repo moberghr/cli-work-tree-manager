@@ -43,6 +43,30 @@ export function originUrl(configText: string): string | null {
   return v.replace(/\\(["\\])/g, '$1');
 }
 
+/**
+ * A repo's git config text, or null: `.git/config`, or for a folder whose
+ * `.git` is a file (a linked worktree, a submodule) the config of the repo
+ * it points into (`gitdir:`, then its `commondir`).
+ */
+export function readGitConfig(repoPath: string): string | null {
+  const g = path.join(repoPath, '.git');
+  try {
+    if (fs.statSync(g).isDirectory()) return fs.readFileSync(path.join(g, 'config'), 'utf-8');
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(g, 'utf-8'))?.[1].trim();
+    if (!gitdir) return null;
+    const dir = path.resolve(repoPath, gitdir);
+    let common = dir;
+    try {
+      common = path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf-8').trim());
+    } catch {
+      /* a submodule's gitdir holds its own config */
+    }
+    return fs.readFileSync(path.join(common, 'config'), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
 /** What a folder's `.git` says it is: a repo, a linked worktree or a submodule (a `.git` file), or nothing. */
 function gitKind(dir: string): 'repo' | 'linked' | null {
   const g = path.join(dir, '.git');
@@ -58,12 +82,8 @@ function gitKind(dir: string): 'repo' | 'linked' | null {
 }
 
 function readOrigin(dir: string): string | null {
-  try {
-    const url = originUrl(fs.readFileSync(path.join(dir, '.git', 'config'), 'utf-8'));
-    return url ? ownerRepo(url) : null;
-  } catch {
-    return null;
-  }
+  const url = originUrl(readGitConfig(dir) ?? '');
+  return url ? ownerRepo(url) : null;
 }
 
 /**

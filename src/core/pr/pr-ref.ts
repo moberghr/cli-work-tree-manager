@@ -5,6 +5,10 @@
  * (`gh pr view`) is `pr-start.ts`.
  */
 
+import type { PrToStart } from '../api-types.js';
+
+export type { PrToStart };
+
 /** A PR as you'd name it: its link (repo known), or its number (in a repo you pick). */
 export interface PrRef {
   /** `owner/name`, lowercase, from a link. */
@@ -21,34 +25,23 @@ export function parsePrRef(input: string): PrRef | null {
   return n && Number(n[1]) > 0 ? { number: Number(n[1]) } : null;
 }
 
-/** The PR a session is started on, as the lookup found it. */
-export interface PrToStart {
-  /** The repo alias it belongs to (a group's repo: the session is that repo's alone). */
-  alias: string;
-  number: number;
-  title: string;
-  url: string;
-  /** Its head branch: on origin, so the session's pushes reach the PR. */
-  branch: string;
-  /** Where it merges into. */
-  base: string;
-  author: string;
-}
-
 /**
  * The first message to the session's Claude: whose PR this is, that what it
- * pushes lands there, and to get up to speed and wait — the user says what
- * to do. Nothing on GitHub (no comments, reviews or replies): that's the
- * author's conversation.
+ * pushes lands there, and to get up to speed — then do `instruction`, or
+ * with none, say where it stands and wait for what the user wants. Nothing
+ * on GitHub (no comments, reviews or replies): that's the author's
+ * conversation.
  */
-export function workOnPrPrompt(pr: Pick<PrToStart, 'number' | 'title' | 'url'> & { author?: string }): string {
+export function workOnPrPrompt(pr: Pick<PrToStart, 'number' | 'title' | 'url'> & { author?: string }, instruction?: string): string {
   const who = pr.author ? `@${pr.author}` : 'its author';
+  const todo = instruction?.trim();
+  const upToSpeed = `Get up to speed first (gh pr view ${pr.number}, gh pr diff ${pr.number})`;
   return [
     `Work on PR #${pr.number} by ${who}: ${pr.title}`,
     pr.url,
     '',
     `This worktree is on ${who}'s branch: what you commit and push lands in their PR.`,
-    `Get up to speed first (gh pr view ${pr.number}, gh pr diff ${pr.number}), tell me where it stands, and wait for what I want done.`,
+    ...(todo ? [`${upToSpeed}, then:`, '', todo, ''] : [`${upToSpeed}, tell me where it stands, and wait for what I want done.`]),
     "Don't post on GitHub (no comments, reviews or replies).",
   ].join('\n');
 }

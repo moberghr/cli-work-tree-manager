@@ -11,8 +11,13 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   Start's "Waiting for your review", or `work tree --pr <link>` (`--pr 12
   <repo>`). The repo and branch come from the PR, and its Claude is told
   whose branch it is, to get up to speed and wait for what you want, and to
-  post nothing on GitHub. A PR from a fork is refused: its branch isn't on
-  origin, so nothing could be pushed to it.
+  post nothing on GitHub (with `--prompt`, what to do after reading up). A
+  PR from a fork is refused: its branch isn't on origin, so nothing could be
+  pushed to it; a fork's **Review** now opens on a branch of its own and
+  checks the PR out there (it used to open an empty branch of that name).
+- A session on someone else's PR — working on it or reviewing it — is no
+  longer handed that PR's review threads (they're its author's) or asked to
+  fix its failing checks: the PR watch tells your PRs from others' by author.
 
 ## 2.0.6 — 2026-10-07
 

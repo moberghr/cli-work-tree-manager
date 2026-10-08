@@ -8,6 +8,7 @@ import {
   groupProblem,
   originUrl,
   ownerRepo,
+  readGitConfig,
   samePathKey,
   scanForRepos,
   suggestAlias,
@@ -71,6 +72,25 @@ describe('origins and paths', () => {
       originUrl(String.raw`[remote "origin"]
 	url = "C:\\my repos\\o.git"`),
     ).toBe(String.raw`C:\my repos\o.git`);
+  });
+
+  it("readGitConfig: a repo's .git/config, a linked worktree's common config through gitdir + commondir, a submodule's own", () => {
+    expect(readGitConfig(path.join(root, 'api'))).toContain('moberghr/api');
+    expect(readGitConfig(path.join(root, 'iom/contracts'))).toBeNull(); // no config file
+    expect(readGitConfig(path.join(root, 'nope'))).toBeNull();
+    // A worktree of api: its .git file points into api/.git/worktrees/wt, whose commondir is ../..
+    const wtGit = path.join(root, 'api', '.git', 'worktrees', 'wt');
+    fs.mkdirSync(wtGit, { recursive: true });
+    fs.writeFileSync(path.join(wtGit, 'commondir'), '../..\n');
+    mk('wt-of-api');
+    fs.writeFileSync(path.join(root, 'wt-of-api', '.git'), `gitdir: ${wtGit}\n`);
+    expect(readGitConfig(path.join(root, 'wt-of-api'))).toContain('moberghr/api');
+    // A submodule: its gitdir holds its own config (no commondir), and a relative gitdir is the folder's.
+    mk('web/.git/modules/sub');
+    fs.writeFileSync(path.join(root, 'web/.git/modules/sub/config'), '[remote "origin"]\n\turl = git@github.com:moberghr/sub.git\n');
+    mk('web/sub');
+    fs.writeFileSync(path.join(root, 'web/sub/.git'), 'gitdir: ../.git/modules/sub\n');
+    expect(readGitConfig(path.join(root, 'web/sub'))).toContain('moberghr/sub');
   });
 
   it('one key for a path however it is written (case only on Windows)', () => {

@@ -141,6 +141,14 @@ describe('preflight', () => {
     expect((await shipPreflight(single(), none.run)).repos[0].pr?.reviewDecision).toBeUndefined();
   });
 
+  it("reads its author with the PR (the PR watch leaves someone else's alone), in the same gh call", async () => {
+    const { run, calls } = fakeRunner({ [P('api')]: ready({ pr: pr({ author: { login: 'dana' } }) }) });
+    expect((await shipPreflight(single(), run)).repos[0].pr?.author).toBe('dana');
+    expect(calls.filter((c) => c.cmd === 'gh').length).toBe(1);
+    const none = fakeRunner({ [P('api')]: ready({ pr: pr({ author: null }) }) });
+    expect((await shipPreflight(single(), none.run)).repos[0].pr?.author).toBeUndefined();
+  });
+
   it('askGh: a repo the caller says not to ask about makes no gh call and reads as no PR (no error)', async () => {
     const { run, calls } = fakeRunner({ [P('api')]: ready({ remote: false }) });
     const asked: Array<{ name: string; hasUpstream: boolean }> = [];

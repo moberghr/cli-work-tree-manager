@@ -80,12 +80,12 @@ export function fetchBranchCheck(target: string, branch: string): Promise<import
  * A PR to start a session on (GET /api/pr-start): its repo, branch, title and
  * author — or why not (a fork, closed, not one of your repos), as the server said.
  */
-export async function lookupPr(ref: string, target?: string): Promise<import('../../../core/pr/pr-ref.js').PrToStart> {
+export async function lookupPr(ref: string, target?: string): Promise<PrToStart> {
   const q = `ref=${encodeURIComponent(ref)}${target ? `&target=${encodeURIComponent(target)}` : ''}`;
   const res = await fetch(`/api/pr-start?${q}`, { headers: { Accept: 'application/json' } });
-  const body = (await res.json().catch(() => ({}))) as { pr?: import('../../../core/pr/pr-ref.js').PrToStart; error?: string };
-  if (!res.ok || !body.pr) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
-  return body.pr;
+  const body = (await res.json().catch(() => ({}))) as Partial<PrStartWire>;
+  if (res.ok && 'pr' in body && body.pr) return body.pr;
+  throw new Error('error' in body && body.error ? body.error : `${res.status} ${res.statusText}`);
 }
 
 export function fetchProjects(): Promise<{
@@ -301,6 +301,8 @@ export async function saveSetupFolders(worktreesRoot: string, reposFolder: strin
 
 type UpdateWire = import('../../../core/api-types.js').UpdateWire;
 type ReleaseNote = import('../../../core/api-types.js').ReleaseNote;
+type PrStartWire = import('../../../core/api-types.js').PrStartWire;
+type PrToStart = import('../../../core/api-types.js').PrToStart;
 
 export function fetchUpdates(): Promise<UpdateWire> {
   return getJson('/api/updates');

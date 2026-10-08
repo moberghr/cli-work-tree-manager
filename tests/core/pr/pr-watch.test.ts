@@ -201,6 +201,45 @@ describe('PR watch', () => {
     ]);
   });
 
+  it("someone else's PR (you work on it or review it): its threads and failing checks aren't handed to its Claude, nor counted as yours", async () => {
+    const fb = {
+      viewer: 'me',
+      reviews: [],
+      comments: [],
+      threads: [
+        {
+          id: 't1',
+          isResolved: false,
+          isOutdated: false,
+          path: 'a.ts',
+          line: 1,
+          comments: [{ id: 'c1', author: 'rev', association: 'MEMBER', body: 'fix', url: 'u', at: ENTERED }],
+        },
+      ],
+    } as unknown as ReviewFeedback;
+    const viewer = vi.fn(async () => 'Me');
+    const h = harness(
+      [repo('api', failing()), repo('web', pr({ author: 'dana', checks: 'fail', failing: [{ name: 'test' }] }))],
+      ON,
+      true,
+      fb,
+      {
+        viewer,
+      },
+    );
+    h.set([repo('api', { ...failing(), author: 'me' }), repo('web', pr({ author: 'dana', checks: 'fail', failing: [{ name: 'test' }] }))]);
+    await h.watch.tick();
+    // Yours (author me, any case): CI and the thread go to Claude; Dana's: neither, and no thread count.
+    const notes = h.deps.tell.mock.calls.map((c) => c[1]).join(' ');
+    expect(notes).toContain('fix');
+    expect(notes).not.toMatch(/web/);
+    expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(1);
+    expect(h.watch.state('s1')?.repos.find((r) => r.name === 'web')?.openThreads).toBeUndefined();
+    expect(h.watch.state('s1')?.repos.find((r) => r.name === 'api')?.openThreads).toBe(1);
+    // Who you are is asked when a PR has an author; without a known viewer, nothing is told apart.
+    expect(viewer).toHaveBeenCalled();
+  });
+
   it('a thread you answered leaves the last check at once, and comes back if the reviewer answers', async () => {
     const t = (id: string, comments: Array<{ author: string; at: string }>) => ({
       id,

@@ -523,6 +523,25 @@ export interface SessionWire {
 /** A session's PR stage, as the dashboard gets it. */
 export type PrStageWire = import('./pr/pr-stage.js').PrStage & { seen?: boolean };
 
+// ---- start on a PR ---------------------------------------------------------
+
+/** The PR a session is started on, as the lookup found it (core/pr/pr-start.ts). */
+export interface PrToStart {
+  /** The repo alias it belongs to (a group's repo: the session is that repo's alone). */
+  alias: string;
+  number: number;
+  title: string;
+  url: string;
+  /** Its head branch: on origin, so the session's pushes reach the PR. */
+  branch: string;
+  /** Where it merges into. */
+  base: string;
+  author: string;
+}
+
+/** GET /api/pr-start?ref=&target=: the PR, or (400) why not — a fork, closed, not one of your repos. */
+export type PrStartWire = { pr: PrToStart } | { error: string };
+
 // ---- ship -----------------------------------------------------------------
 
 export type ChecksState = 'pass' | 'fail' | 'pending' | 'none';
@@ -545,6 +564,8 @@ export interface ShipPr {
   failing?: FailingCheck[];
   /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or '' when the repo requires no review (gh's reviewDecision). */
   reviewDecision?: string;
+  /** Its author's login: a session on someone else's PR (work on it, review it) isn't handed its threads or CI notes. */
+  author?: string;
 }
 
 export interface FailingCheck {

@@ -13,6 +13,16 @@ export function jiraPrompt(issue: JiraIssue): string {
 }
 
 /**
+ * The New worktree dialog for a PR's Start or Review: its repo, its branch,
+ * and `prPrompt`. A fork's branch isn't on origin — `work tree` would make an
+ * empty one of that name — so its review gets a branch of its own
+ * (`review/pr-N`) and checks the PR's code out there.
+ */
+export function prPick(pr: PrInfo): { target: string; branch: string; prompt: string } {
+  return { target: pr.repoAlias, branch: pr.fork ? `review/pr-${pr.number}` : pr.branch, prompt: prPrompt(pr) };
+}
+
+/**
  * Someone else's PR is reviewed, never changed: read it, try it, and tell
  * me what I'd comment. Your own is continued: fix what's red, answer the
  * review.
@@ -23,6 +33,9 @@ export function prPrompt(pr: PrInfo): string {
       `Review PR #${pr.number}: ${pr.title}`,
       pr.url,
       '',
+      ...(pr.fork
+        ? [`It comes from a fork, so its branch isn't here: gh pr checkout ${pr.number} --detach gives you its code to try.`]
+        : []),
       `It isn't mine: read what it changes (gh pr diff ${pr.number}), run what's useful to check it, and tell me what you'd comment and why.`,
       "Don't commit, push or post anything on GitHub.",
     ].join('\n');

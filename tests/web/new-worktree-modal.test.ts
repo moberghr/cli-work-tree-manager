@@ -316,7 +316,7 @@ describe('start from a pull request', () => {
     await act(async () => type(prInput(), pr.url));
     await act(async () => void key(prInput(), 'Enter'));
     await flush();
-    expect(findPr).toHaveBeenCalledWith(pr.url, 'jobly'); // the project picked: a hint when two repos share the origin
+    expect(findPr).toHaveBeenCalledWith(pr.url, undefined); // a link names its repo: the picked project isn't sent
     expect(picker().value).toBe('jobly');
     expect(container.querySelector('[role="status"]')!.textContent).toContain(
       'PR #1927 by @ana: Faster payouts. On their branch feat/payouts: what you push lands in their PR',
@@ -342,6 +342,20 @@ describe('start from a pull request', () => {
     expect(container.querySelector('[role="alert"]')!.textContent).toContain('comes from a fork');
     expect(picker().value).toBe('work-tree');
     expect(container.querySelector('textarea')!.value).toBe('');
+  });
+
+  it('while it looks the PR up, the project and prompt wait (an answer would overwrite them)', async () => {
+    let answer: (v: typeof pr) => void = () => {};
+    await open({ findPr: vi.fn(() => new Promise<typeof pr>((r) => (answer = r))) });
+    await act(async () => link().click());
+    await act(async () => type(prInput(), '#1927'));
+    await act(async () => void key(prInput(), 'Enter'));
+    expect(picker().disabled).toBe(true);
+    expect(container.querySelector('textarea')!.disabled).toBe(true);
+    await act(async () => answer(pr));
+    await flush();
+    expect(picker().disabled).toBe(false);
+    expect(container.querySelector('textarea')!.disabled).toBe(false);
   });
 
   it('the note goes when the project no longer matches the PR', async () => {

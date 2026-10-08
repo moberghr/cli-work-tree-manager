@@ -30,6 +30,14 @@ describe('workOnPrPrompt', () => {
     expect(text).toContain("Don't post on GitHub");
   });
 
+  it('with an instruction: up to speed, then that (no waiting)', () => {
+    const text = workOnPrPrompt({ number: 12, title: 't', url: 'u', author: 'ana' }, '  fix the tests  ');
+    expect(text).toContain('gh pr diff 12), then:\n\nfix the tests\n');
+    expect(text).not.toContain('wait for what I want done');
+    expect(text).toContain("Don't post on GitHub");
+    expect(workOnPrPrompt({ number: 12, title: 't', url: 'u' }, '   ')).toContain('wait for what I want done');
+  });
+
   it('names no one when the author is unknown', () => {
     expect(workOnPrPrompt({ number: 3, title: 't', url: 'u' })).toContain("its author's branch");
   });

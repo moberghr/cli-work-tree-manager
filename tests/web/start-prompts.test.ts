@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { jiraPrompt, prPrompt } from '../../src/web/src/state/start-prompts.js';
+import { jiraPrompt, prPick, prPrompt } from '../../src/web/src/state/start-prompts.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
 
 const pr = (over: Partial<PrInfo> = {}): PrInfo => ({
@@ -50,5 +50,13 @@ describe('start prompts', () => {
     expect(p.split('\n')[0]).toBe('Review PR #42: Add CSV export');
     expect(p).toContain("Don't commit, push or post anything on GitHub.");
     expect(p).not.toContain('fix them');
+  });
+
+  it("a fork's PR is reviewed on a branch of its own, its code checked out there (its branch isn't on origin)", () => {
+    const fork = pr({ isMine: false, fork: true, branch: 'patch-1', repoAlias: 'web' });
+    expect(prPick(fork)).toEqual({ target: 'web', branch: 'review/pr-42', prompt: prPrompt(fork) });
+    expect(prPrompt(fork)).toContain('gh pr checkout 42 --detach');
+    expect(prPick(pr({ branch: 'feat/csv' })).branch).toBe('feat/csv');
+    expect(prPrompt(pr({ isMine: false }))).not.toContain('checkout');
   });
 });

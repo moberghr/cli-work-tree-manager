@@ -3,7 +3,7 @@ import { ProjectPicker } from './ProjectPicker.js';
 import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type ProjectSummary } from '../../api/panes.js';
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
-import { workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
+import { parsePrRef, workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
 
 interface Props {
   /** Pre-fill the modal (e.g. when opened from a PR or Jira issue). */
@@ -92,7 +92,9 @@ export function NewWorktreeModal({
     if (!prRef.trim() || prLooking) return;
     setPrLooking(true);
     setPrError(null);
-    findPr(prRef.trim(), target.trim() || undefined).then(
+    // A link names its repo (the project follows it); a bare number is the picked project's.
+    const ref = prRef.trim();
+    findPr(ref, parsePrRef(ref)?.repo ? undefined : target.trim() || undefined).then(
       (pr) => {
         setFromPr(pr);
         setTarget(pr.alias);
@@ -253,7 +255,7 @@ export function NewWorktreeModal({
               projects={targetOptions}
               value={target}
               onChange={setTarget}
-              disabled={submitting}
+              disabled={submitting || prLooking}
               inputRef={(el) => {
                 if (!initial?.target) firstFocusRef.current = el;
               }}
@@ -319,7 +321,7 @@ export function NewWorktreeModal({
               }}
               placeholder="Add CSV export to the invoices endpoint"
               rows={prompt.split('\n').length > 3 ? 8 : 4}
-              disabled={submitting}
+              disabled={submitting || prLooking}
             />
             <span className="wd-modal-hint">Leave it empty to just make the worktree. Ctrl+Enter creates.</span>
           </label>

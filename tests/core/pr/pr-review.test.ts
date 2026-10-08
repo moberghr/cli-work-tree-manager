@@ -10,6 +10,7 @@ import {
   parseReviewFeedback,
   reviewMessage,
   subAgentHint,
+  viewerLogin,
   type ReviewFeedback,
 } from '../../../src/core/pr/pr-review.js';
 import { threadsWithoutDraft } from '../../../src/server/routes/pr-reply-routes.js';
@@ -27,6 +28,19 @@ const seenStore = () => {
   const s = new Set<string>();
   return { has: (k: string) => s.has(k), add: (k: string) => void s.add(k) };
 };
+
+describe('viewerLogin', () => {
+  it('asks gh who you are once; a failed ask is asked again', async () => {
+    const run = vi.fn(async () => ({ code: 1, stdout: '', stderr: 'not logged in' }));
+    const viewer = viewerLogin(run);
+    expect(await viewer()).toBeNull();
+    run.mockResolvedValue({ code: 0, stdout: 'me\n', stderr: '' });
+    expect(await viewer()).toBe('me');
+    expect(await viewer()).toBe('me');
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledWith('gh', ['api', 'user', '--jq', '.login'], expect.any(String));
+  });
+});
 
 describe('parseReviewFeedback', () => {
   it('reads gh graphql output', () => {

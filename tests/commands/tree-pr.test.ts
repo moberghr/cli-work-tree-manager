@@ -68,15 +68,21 @@ describe('work tree --pr', () => {
     );
   });
 
-  it('a number is looked up in the target; your own --prompt wins over the default one', async () => {
+  it('a number is looked up in the target; your --prompt is what to do, after whose branch it is', async () => {
     await tree({ pr: '12', target: 'api', prompt: 'fix the tests' });
     expect(lookup.resolvePrToStart).toHaveBeenCalledWith('12', expect.anything(), 'api');
-    expect(launchAi).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.anything(),
-      expect.objectContaining({ initialPrompt: 'fix the tests' }),
-      expect.anything(),
-    );
+    const prompt = (vi.mocked(launchAi).mock.calls[0][2] as { initialPrompt?: string }).initialPrompt!;
+    expect(prompt).toContain("@ana's branch");
+    expect(prompt).toMatch(/gh pr diff 12\), then:\n\nfix the tests\n/);
+    expect(prompt).not.toContain('wait for what I want done');
+  });
+
+  it('back into its session: the first message is not sent again; your --prompt goes as it is', async () => {
+    await tree({ pr: '12', target: 'api' });
+    await tree({ pr: '12', target: 'api' });
+    expect(vi.mocked(launchAi).mock.calls[1][2]).toMatchObject({ initialPrompt: undefined });
+    await tree({ pr: '12', target: 'api', prompt: 'now the docs' });
+    expect(vi.mocked(launchAi).mock.calls[2][2]).toMatchObject({ initialPrompt: 'now the docs' });
   });
 
   it('refuses a branch, --here or --base beside it, and says why a lookup failed', async () => {

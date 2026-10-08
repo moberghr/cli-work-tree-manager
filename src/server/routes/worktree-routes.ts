@@ -18,6 +18,7 @@ import { toBaseSpec } from '../../core/git/base-spec.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { startSessionWithPrompt, type StartOutcome } from '../../core/sessions/session-start.js';
 import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
+import type { PrStartWire } from '../../core/api-types.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -71,7 +72,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   app.get('/api/pr-start', async (c) => {
     const ref = c.req.query('ref') ?? '';
     const r = await resolvePr(ref, c.req.query('target') || undefined);
-    return r.ok ? c.json({ pr: r.pr }) : c.json({ error: r.error }, 400);
+    return r.ok ? c.json<PrStartWire>({ pr: r.pr }) : c.json<PrStartWire>({ error: r.error }, 400);
   });
   app.post('/api/worktrees', zValidator('json', createSchema), async (c) => {
     const { target, base, jiraKey, prompt, name } = c.req.valid('json');

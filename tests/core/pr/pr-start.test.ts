@@ -48,9 +48,24 @@ describe('resolvePrToStart', () => {
     expect(run).toHaveBeenCalledWith('gh', expect.arrayContaining(['pr', 'view', '12', '--repo', 'acme/api']), '/r/api');
   });
 
-  it('prefers the given target when two aliases share the origin', async () => {
-    const r = await resolvePrToStart('https://github.com/acme/api/pull/12', config, 'api2', { run: runner(view()), gitConfig });
+  it('a target named beside a link must hold it: that repo (of two sharing the origin), or a group with it', async () => {
+    const run = runner(view());
+    const r = await resolvePrToStart('https://github.com/acme/api/pull/12', config, 'api2', { run, gitConfig });
     expect(r.ok && r.pr.alias).toBe('api2');
+    const inGroup = await resolvePrToStart(
+      'https://github.com/acme/api/pull/12',
+      { ...config, groups: { full: ['web', 'api2'] } },
+      'full',
+      {
+        run,
+        gitConfig,
+      },
+    );
+    expect(inGroup.ok && inGroup.pr.alias).toBe('api2');
+    expect(await resolvePrToStart('https://github.com/acme/api/pull/12', config, 'web', { run, gitConfig })).toEqual({
+      ok: false,
+      error: 'PR #12 is in api / api2 (acme/api), not web.',
+    });
   });
 
   it('a number needs a repo: refused without one, and for a group', async () => {
@@ -108,6 +123,37 @@ describe('resolvePrToStart', () => {
     expect(await resolvePrToStart('#12', config, 'api', { run: runner('not json'), gitConfig })).toMatchObject({ ok: false });
     expect(await resolvePrToStart('#12', config, 'api', { run: runner(view({ headRefName: '' })), gitConfig })).toMatchObject({
       ok: false,
+    });
+  });
+
+  describe('a local branch of the same name', () => {
+    /** gh answers the view; git: does the local branch exist, and which way does it stand to the PR's head. */
+    const git = (o: { local?: boolean; contains?: number; behind?: number }) =>
+      vi.fn<CommandRunner>(async (cmd, args) => {
+        const out = (code: number, stdout = '') => ({ code, stdout, stderr: '' });
+        if (cmd === 'gh') return out(0, view({ headRefOid: 'pr-head' }));
+        if (args[0] === 'rev-parse') return out(o.local ? 0 : 1);
+        if (args[0] === 'fetch') return out(0);
+        if (args[0] === 'merge-base') return out(args[2] === 'pr-head' ? (o.contains ?? 1) : (o.behind ?? 1));
+        return out(1);
+      });
+
+    it('none, ahead of the PR (your commits on top) or behind it (it fast-forwards): fine', async () => {
+      for (const o of [{ local: false }, { local: true, contains: 0 }, { local: true, contains: 1, behind: 0 }])
+        expect((await resolvePrToStart('#12', config, 'api', { run: git(o), gitConfig })).ok).toBe(true);
+    });
+
+    it('fetches the PR branch first, and refuses one gone another way (a force-push, or an unrelated branch)', async () => {
+      const run = git({ local: true, contains: 1, behind: 1 });
+      const r = await resolvePrToStart('#12', config, 'api', { run, gitConfig });
+      expect(r).toMatchObject({ ok: false, error: expect.stringContaining('have gone separate ways') });
+      expect(run).toHaveBeenCalledWith('git', ['fetch', '--quiet', 'origin', 'feat/export'], '/r/api');
+    });
+
+    it("when git can't tell (the PR's head isn't here), it doesn't refuse", async () => {
+      expect((await resolvePrToStart('#12', config, 'api', { run: git({ local: true, contains: 128, behind: 128 }), gitConfig })).ok).toBe(
+        true,
+      );
     });
   });
 });

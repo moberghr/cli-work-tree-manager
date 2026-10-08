@@ -256,7 +256,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
           'view',
           branch,
           '--json',
-          'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision',
+          'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision,author',
         ],
         repo.path,
       );
@@ -273,6 +273,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         updatedAt?: string;
         statusCheckRollup?: CheckRollupItem[];
         reviewDecision?: string | null;
+        author?: { login?: string } | null;
       };
       pr = {
         number: j.number,
@@ -285,6 +286,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
         ...(j.updatedAt ? { updatedAt: j.updatedAt } : {}),
         ...(typeof j.reviewDecision === 'string' ? { reviewDecision: j.reviewDecision } : {}),
+        ...(j.author?.login ? { author: j.author.login } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {

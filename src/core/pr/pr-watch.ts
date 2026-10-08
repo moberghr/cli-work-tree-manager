@@ -79,6 +79,9 @@ export interface PrWatchDeps {
   lookOnly?: boolean;
   /** The session's Claude runs in the PTY host with permission checks off. */
   runsUnsafe?: (sessionId: string) => boolean;
+  /** Who gh is signed in as: a PR by someone else (you work on it or review it) is theirs —
+   *  its review threads are addressed to its author, and its CI isn't yours to fix unasked. */
+  viewer?: () => Promise<string | null>;
   /** Review threads/comments on a PR (null when gh can't say). */
   reviewFeedback?: (repoPath: string, prNumber: number) => Promise<ReviewFeedback | null>;
   /** Per session: what was already acted on — CI head commits reported,
@@ -311,6 +314,12 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       return states.get(id) ?? null;
     }
     const opts = deps.options();
+    // Someone else's PR (a session working on it or reviewing it): its threads are for its
+    // author, and its Claude was told to wait for what you want. Shown, never handed over.
+    const viewer = pre.repos.some((r) => r.pr?.author) ? await (deps.viewer?.() ?? Promise.resolve(null)).catch(() => null) : null;
+    const theirs = new Set(
+      pre.repos.filter((r) => r.pr?.author && viewer && r.pr.author.toLowerCase() !== viewer.toLowerCase()).map((r) => r.name),
+    );
     // Review feedback per open PR: counts for the strip, and (when acting)
     // what's new for Claude.
     const feedback: Array<{ repo: string; number: number; items: FeedbackItem[] }> = [];
@@ -323,7 +332,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     const deliverReviews = !session.launchedUnsafe && !deps.runsUnsafe?.(id);
     if (deps.reviewFeedback && opts.reviewComments) {
       for (const r of pre.repos) {
-        if (r.pr?.state !== 'OPEN') continue;
+        if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
         // Nothing new can have been said on a PR that hasn't changed since
         // the last read (a comment or review moves its updatedAt).
         const key = `${id}:${r.name}`;
@@ -392,7 +401,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       } else note(`couldn't hand ${what} to its Claude; trying again next time`, 'warn');
     } else feedbackSeen.commit(); // only history / baselines: nothing to deliver
     if (opts.fixCi) {
-      const fresh = failingOf(ci).filter((f) => !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
+      const fresh = failingOf(ci).filter((f) => !theirs.has(f.repo) && !deps.told(id).has(`${id}:${f.repo}:${f.headSha}`));
       if (fresh.length) {
         const ciSeen = staged(id);
         for (const f of fresh) ciSeen.add(`${id}:${f.repo}:${f.headSha}`);

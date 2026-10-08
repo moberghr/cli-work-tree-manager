@@ -7,7 +7,7 @@ import { atomicWriteFile } from '../platform/fs-safe.js';
 import { loadHistory, saveHistory, type WorktreeSession } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { agentOf } from '../agents/index.js';
-import { originUrl } from '../worktree/repo-scan.js';
+import { originUrl, readGitConfig } from '../worktree/repo-scan.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 import { createInProcess, type CreateWorktree } from '../worktree/setup-child.js';
 import { readWebUrl, webServerResponds } from '../platform/web-discovery.js';
@@ -124,13 +124,7 @@ export function exportBundle(dest: string, now = new Date()): ExportResult {
   }
   const repos: MoveManifest['repos'] = {};
   for (const [alias, p] of Object.entries(config.repos)) {
-    let origin: string | null = null;
-    try {
-      origin = originUrl(fs.readFileSync(path.join(p, '.git', 'config'), 'utf-8'));
-    } catch {
-      /* not there, or not a plain repo */
-    }
-    repos[alias] = { path: p, origin };
+    repos[alias] = { path: p, origin: originUrl(readGitConfig(p) ?? '') };
   }
   const manifest: MoveManifest = {
     version: BUNDLE_VERSION,

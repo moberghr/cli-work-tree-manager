@@ -178,7 +178,9 @@ export const treeCommand: CommandModule = {
       }
       targetName = found.pr.alias;
       branchName = found.pr.branch;
-      initialPrompt ??= workOnPrPrompt(found.pr);
+      // The PR's context goes to a new session only (with your --prompt as what to do): back in
+      // one, your --prompt goes as it is, and nothing re-sends the first message.
+      if (!findSession(loadHistory(), targetName, branchName)) initialPrompt = workOnPrPrompt(found.pr, initialPrompt);
       console.log(
         chalk.cyan(`PR #${found.pr.number} by @${found.pr.author || '?'}: ${found.pr.title}, on its branch ${branchName} in ${targetName}`),
       );

@@ -49,7 +49,7 @@ import { taskSlug } from '../components/Dashboard/tabs/TasksTab.js';
 import { TasksPanel } from '../components/Dashboard/TasksPanel.js';
 import { NowTodayToggle } from '../components/Dashboard/NowTodayToggle.js';
 import { SessionDetail } from '../components/Dashboard/SessionDetail.js';
-import { jiraPrompt, prPrompt } from '../state/start-prompts.js';
+import { jiraPrompt, prPick } from '../state/start-prompts.js';
 import { workOnPrPrompt } from '../../../core/pr/pr-ref.js';
 import { ReviewQueueBar } from '../components/Dashboard/ReviewQueueBar.js';
 import { AssistantPanel } from '../components/Dashboard/AssistantPanel.js';
@@ -788,7 +788,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             prsNote={prsNote}
             membersOf={membersOf}
             onNewWorktree={() => openNew(null)}
-            onPickPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: prPrompt(pr) })}
+            onPickPr={(pr) => openNew(prPick(pr))}
             onWorkOnPr={(pr) => openNew({ target: pr.repoAlias, branch: pr.branch, prompt: workOnPrPrompt(pr) })}
             onOpenSession={(id) => openSession(id)}
             onManageRepos={() => goTab('repos')}

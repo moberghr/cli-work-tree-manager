@@ -28,6 +28,7 @@ import type {
   UpdateWire,
   ReleaseNote,
   SessionHistoryWire,
+  PrStartWire,
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
@@ -591,14 +592,20 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;
     if (!ref)
-      return c.json({ error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' }, 400);
+      return c.json<PrStartWire>(
+        { error: 'Give a pull request link (https://github.com/owner/repo/pull/123), or its number with a repo.' },
+        400,
+      );
     const pr = scenario
       .prs()
       .find((p) => p.number === ref.number && (ref.repo ? ref.repo.endsWith(`/${p.repoAlias}`) : !target || p.repoAlias === target));
-    if (!pr) return c.json({ error: `PR #${ref.number} isn't open in your repos.` }, 400);
+    if (!pr) return c.json<PrStartWire>({ error: `PR #${ref.number} isn't open in your repos.` }, 400);
     if (pr.fork)
-      return c.json({ error: `PR #${ref.number} comes from a fork: its branch isn't on origin, so a session couldn't push to it.` }, 400);
-    return c.json({
+      return c.json<PrStartWire>(
+        { error: `PR #${ref.number} comes from a fork: its branch isn't on origin, so a session couldn't push to it.` },
+        400,
+      );
+    return c.json<PrStartWire>({
       pr: {
         alias: pr.repoAlias,
         number: pr.number,

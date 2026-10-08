@@ -1,7 +1,5 @@
 import { execFile } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
-import { originUrl, ownerRepo } from '../worktree/repo-scan.js';
+import { originUrl, ownerRepo, readGitConfig } from '../worktree/repo-scan.js';
 
 export interface PullRequestInfo {
   number: number;
@@ -284,13 +282,7 @@ function defaultPrListDeps(): PrListDeps {
       }
     },
     listRepo: async (repoPath, alias) => fetchPullRequests(repoPath, alias, await (user ??= getCurrentUser())),
-    gitConfig: (repoPath) => {
-      try {
-        return fs.readFileSync(path.join(repoPath, '.git', 'config'), 'utf-8');
-      } catch {
-        return null;
-      }
-    },
+    gitConfig: readGitConfig,
   };
 }
 
