@@ -194,6 +194,75 @@ describe('Start', () => {
     expect([...rowOf('#99').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Review']);
   });
 
+  it('the repo is a column of its own; the title is the PR title, not styled as a heading (reviewed)', async () => {
+    render();
+    await flush();
+    const row = rowOf('#212');
+    expect(row.querySelector(':scope > .wd-start-repo')!.textContent).toBe('api');
+    expect(row.querySelector('.wd-start-what .wd-start-repo')).toBeNull();
+    expect(row.querySelector('.wd-start-what .wd-start-title')).toBeNull();
+    expect(row.querySelector('.wd-start-pr-title')!.textContent).toBe('Updated express and zod');
+  });
+
+  describe('quick filter by repo', () => {
+    const chips = () => [...container.querySelectorAll<HTMLButtonElement>('.wd-start-chip')];
+    const chip = (label: string) => chips().find((b) => b.textContent!.startsWith(label))!;
+    const shown = () => [...container.querySelectorAll('.wd-start-list .wd-start-key')].map((k) => k.textContent);
+    beforeEach(() => {
+      localStorage.clear();
+      api.prs = [
+        ...api.prs,
+        pr({ number: 300, title: 'Web thing', repoAlias: 'web' }),
+        pr({ number: 301, title: 'Other web', repoAlias: 'web', isMine: false, reviewRequested: true }),
+      ];
+    });
+
+    it('a chip per repo with its count, most first; All is pressed while none is chosen', async () => {
+      render();
+      await flush();
+      expect(chips().map((b) => b.textContent)).toEqual(['All', 'api 3', 'web 2']);
+      expect(chip('All').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('a chip shows only its repo in both lists; another adds its own; All shows everything again', async () => {
+      render();
+      await flush();
+      act(() => chip('web').click());
+      expect(shown()).toEqual(['#300', '#301']);
+      expect(chip('web').getAttribute('aria-pressed')).toBe('true');
+      expect(chip('All').getAttribute('aria-pressed')).toBe('false');
+      act(() => chip('api').click());
+      expect(shown()).toHaveLength(5);
+      act(() => chip('All').click());
+      expect(shown()).toHaveLength(5);
+      expect(chip('All').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('remembered in this browser; a remembered repo with no PRs any more is ignored (not an empty page)', async () => {
+      render();
+      await flush();
+      act(() => chip('web').click());
+      act(() => root.unmount());
+      root = createRoot(container);
+      render();
+      await flush();
+      expect(shown()).toEqual(['#300', '#301']);
+      api.prs = api.prs.filter((p) => p.repoAlias !== 'web');
+      act(() => root.unmount());
+      root = createRoot(container);
+      render();
+      await flush();
+      expect(shown()).toEqual(['#212', '#208', '#99']);
+    });
+
+    it('one repo only: no chips', async () => {
+      api.prs = api.prs.filter((p) => p.repoAlias === 'api');
+      render();
+      await flush();
+      expect(chips()).toEqual([]);
+    });
+  });
+
   it("says who opened someone else's PR (not on yours)", async () => {
     api.prs = [...api.prs.map((p) => (p.number === 99 ? { ...p, author: 'dana' } : { ...p, author: 'me' }))];
     render();

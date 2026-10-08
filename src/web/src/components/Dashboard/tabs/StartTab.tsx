@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { PrInfo } from '../../../api/panes.js';
 import type { SessionSummary } from '../../../api/client.js';
 import { isArchived, prsForSession } from '../../../state/session-display.js';
@@ -46,6 +47,37 @@ export function waitsForYourReview(pr: PrInfo): boolean {
   return !pr.isMine && !!pr.reviewRequested && pr.myReview === 'NONE';
 }
 
+/** The repos the PRs are in, with how many each, most first. Pure. */
+export function repoCounts(prs: PrInfo[]): Array<{ repo: string; count: number }> {
+  const n = new Map<string, number>();
+  for (const p of prs) n.set(p.repoAlias, (n.get(p.repoAlias) ?? 0) + 1);
+  return [...n].map(([repo, count]) => ({ repo, count })).sort((a, b) => b.count - a.count || a.repo.localeCompare(b.repo));
+}
+
+/** Only the PRs in the chosen repos; none chosen (or none of them there any more) is all. Pure. */
+export function inRepos(prs: PrInfo[], chosen: readonly string[]): PrInfo[] {
+  const live = chosen.filter((r) => prs.some((p) => p.repoAlias === r));
+  return live.length ? prs.filter((p) => live.includes(p.repoAlias)) : prs;
+}
+
+/** The repos chosen on Start, remembered per browser (a convenience: gone in a private window, that's fine). */
+const REPOS_KEY = 'work:start-repos';
+function storedRepos(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(REPOS_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function storeRepos(repos: string[]): void {
+  try {
+    localStorage.setItem(REPOS_KEY, JSON.stringify(repos));
+  } catch {
+    /* storage unavailable: the choice lasts this visit */
+  }
+}
+
 /**
  * Start: where new work comes from. New worktree and the repos on top; then
  * your pull requests and the ones waiting for your review, each with Start
@@ -63,8 +95,19 @@ export function StartTab({
   prsNote: prNote = null,
   membersOf,
 }: Props) {
-  const mine = (prs ?? []).filter((p) => p.isMine);
-  const toReview = (prs ?? []).filter(waitsForYourReview);
+  const allMine = (prs ?? []).filter((p) => p.isMine);
+  const allToReview = (prs ?? []).filter(waitsForYourReview);
+  // Quick filter by repo, over both lists: a chip per repo, several at once; none is all.
+  const counts = repoCounts([...allMine, ...allToReview]);
+  const [chosenRepos, setChosenRepos] = useState<string[]>(storedRepos);
+  const active = chosenRepos.filter((r) => counts.some((c) => c.repo === r));
+  const choose = (next: string[]) => {
+    setChosenRepos(next);
+    storeRepos(next);
+  };
+  const toggle = (repo: string) => choose(active.includes(repo) ? active.filter((r) => r !== repo) : [...active, repo]);
+  const mine = inRepos(allMine, active);
+  const toReview = inRepos(allToReview, active);
 
   const existing = (s: SessionSummary | undefined) =>
     s ? (
@@ -89,11 +132,39 @@ export function StartTab({
         </div>
       </header>
 
+      {counts.length > 1 && (
+        <div className="wd-start-filter" role="group" aria-label="Show pull requests in">
+          <button type="button" className="wd-start-chip" aria-pressed={active.length === 0} onClick={() => choose([])}>
+            All
+          </button>
+          {counts.map((c) => (
+            <button
+              key={c.repo}
+              type="button"
+              className="wd-start-chip"
+              aria-pressed={active.includes(c.repo)}
+              onClick={() => toggle(c.repo)}
+              title={
+                active.includes(c.repo)
+                  ? `Stop showing only ${c.repo}`
+                  : `Show ${c.repo}'s pull requests${active.length ? ' too' : ' only'}`
+              }
+            >
+              {c.repo} <span className="wd-start-chip-count">{c.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <section className="wd-start-section" aria-label="Your pull requests">
         <h2 className="wd-start-title">Your pull requests · GitHub</h2>
         {prNote && <p className="wd-start-note">{prNote}</p>}
         {!prNote && prs === null && <p className="wd-start-note">Loading…</p>}
-        {!prNote && prs !== null && mine.length === 0 && <p className="wd-start-note">No open pull requests of yours.</p>}
+        {!prNote && prs !== null && mine.length === 0 && (
+          <p className="wd-start-note">
+            {active.length ? `No open pull requests of yours in ${active.join(', ')}.` : 'No open pull requests of yours.'}
+          </p>
+        )}
         <PrList prs={mine} sessions={sessions} onPick={onPickPr} existing={existing} membersOf={membersOf} />
       </section>
 
@@ -128,13 +199,16 @@ function PrList({
       {prs.map((pr) => {
         const state = prState(pr);
         return (
-          <li key={`${pr.repoAlias}#${pr.number}`} className="wd-start-row">
+          <li key={`${pr.repoAlias}#${pr.number}`} className="wd-start-row wd-start-row-pr">
             <a className="wd-start-key wd-start-key-pr" href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub">
               #{pr.number}
             </a>
             <span className="wd-start-what" title={!pr.isMine && pr.author ? `${pr.title} — by @${pr.author}` : pr.title}>
-              <span className="wd-start-title">{pr.title}</span> <span className="wd-start-repo">{pr.repoAlias}</span>
+              <span className="wd-start-pr-title">{pr.title}</span>
               {!pr.isMine && pr.author && <span className="wd-start-author">· by @{pr.author}</span>}
+            </span>
+            <span className="wd-start-repo" title={pr.repoAlias}>
+              {pr.repoAlias}
             </span>
             <span className={`wd-start-state wd-start-state-${state.tone}`}>{state.text}</span>
             <span className="wd-start-action">

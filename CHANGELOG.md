@@ -7,6 +7,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 - Who opened a pull request on GitHub: "by @dana" on each PR's section in a
   session's PR tab, and on Start's rows for PRs that aren't yours.
+- Start's pull requests have the repo as a column of its own, and a quick
+  filter above them: a chip per repo (with how many), several at once, over
+  both lists — remembered in this browser.
 
 ## 2.0.8 — 2026-10-08
 

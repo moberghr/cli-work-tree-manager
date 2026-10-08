@@ -725,7 +725,7 @@ a.wd-pr-chip:hover {
   margin: 0;
   padding: 0;
 }
-/* key · what · state · Start (or the session already on it) */
+/* key · what · state · Start (or the session already on it); a PR row adds its repo before the state */
 .wd-start-row {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr) 140px 200px;
@@ -734,6 +734,9 @@ a.wd-pr-chip:hover {
   padding: 9px 4px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+}
+.wd-start-row-pr {
+  grid-template-columns: 96px minmax(0, 1fr) 160px 140px 200px;
 }
 .wd-start-key {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
@@ -753,9 +756,11 @@ a.wd-pr-chip:hover {
   white-space: nowrap;
 }
 .wd-start-repo {
-  margin-left: 6px;
   font-size: 12px;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wd-start-author {
   margin-left: 6px;
@@ -763,18 +768,43 @@ a.wd-pr-chip:hover {
   font-size: 12px;
   color: var(--muted);
 }
-/* A PR row's title truncates; its repo and author stay. */
+/* A PR row's title truncates; its author stays. */
 .wd-tab-start .wd-start-list .wd-start-what {
   display: flex;
   align-items: baseline;
 }
-.wd-start-title {
+.wd-start-pr-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wd-start-what > .wd-start-repo {
-  flex-shrink: 0;
+/* Start's quick filter: a chip per repo. */
+.wd-start-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 32px 0;
+}
+.wd-start-chip {
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.wd-start-chip:hover {
+  color: inherit;
+}
+.wd-start-chip[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.wd-start-chip-count {
+  margin-left: 2px;
+  opacity: 0.7;
 }
 .wd-start-state {
   font-size: 13px;
@@ -811,10 +841,15 @@ a.wd-pr-chip:hover {
   .wd-start-section {
     padding: 4px 12px 8px;
   }
-  .wd-start-row {
+  .wd-start-filter {
+    padding: 12px 12px 0;
+  }
+  .wd-start-row,
+  .wd-start-row-pr {
     grid-template-columns: 80px minmax(0, 1fr) auto;
   }
-  .wd-start-state {
+  .wd-start-state,
+  .wd-start-row-pr > .wd-start-repo {
     display: none;
   }
 }
