@@ -47,6 +47,16 @@ export interface ArchivedPr {
   state: string;
 }
 
+/** A repo's git-ignored files archiving copied (archive-ignored.ts). */
+export interface SavedIgnored {
+  files: number;
+  bytes: number;
+  /** Left out: over a cap. */
+  skipped: number;
+  /** Put back by a Restore (then not again). */
+  restoredAt?: string;
+}
+
 export interface ArchiveRecord {
   sessionId: string;
   target: string;
@@ -82,6 +92,9 @@ export interface ArchiveRecord {
   buildFolders?: { folders: number; bytes: number };
   /** Uncommitted work saved because the worktree was removed (repo alias → where it is): Restore puts it back (archive-uncommitted.ts). */
   uncommitted?: Record<string, SavedUncommitted>;
+  /** Git-ignored files that aren't build output (local settings, the editor's state), copied because the
+   *  worktree was removed (repo alias → how many): Restore puts them back (archive-ignored.ts). */
+  ignored?: Record<string, SavedIgnored>;
   /** What was still waiting in it when archived (a merged session isn't held up by these): they stay in
    *  state.db with the session, so Restore brings them back — drafts in the header, notes delivered on
    *  its next turn. Listed here so the archive says what it holds. */
@@ -113,6 +126,8 @@ export interface ArchiveDeps {
   ) => Promise<{ saved: Record<string, SavedUncommitted>; error: string | null }>;
   /** Drop saves that weren't needed (the worktree stayed). */
   dropSaved?: (s: WorktreeSession, saved: Record<string, SavedUncommitted>, archiveDir: string) => Promise<void>;
+  /** Copy each repo's git-ignored files that aren't build output into `<archiveDir>/ignored/<repo>` (archive-ignored.ts). */
+  saveIgnored?: (s: WorktreeSession, archiveDir: string) => Promise<Record<string, SavedIgnored>>;
   removeWorktree: (s: WorktreeSession) => Promise<boolean>;
   /** After a removal git refused: the session's folders left with no git in them (it stopped halfway). */
   halfRemoved?: (s: WorktreeSession) => string[];
@@ -271,7 +286,12 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let worktreeRemoved = false;
   let keptBecause: string | null = null;
   let leftovers: string[] = [];
+  let ignored: Record<string, SavedIgnored> = {};
+  const ignoredDir = path.join(dir, 'ignored');
   if (verdict.ok) {
+    // Local settings and the editor's state go with the folder: kept, so Restore brings them back.
+    fs.rmSync(ignoredDir, { recursive: true, force: true });
+    ignored = deps.saveIgnored ? await deps.saveIgnored(s, dir).catch(() => ({})) : {};
     worktreeRemoved = await deps.removeWorktree(s);
     // git deletes the files first and stops at one in use (Visual Studio's): the folder
     // that's left is no worktree any more. That's removed — and its save is the copy.
@@ -285,6 +305,10 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   if (!worktreeRemoved && Object.keys(saved).length) {
     await deps.dropSaved?.(s, saved, dir).catch(() => {});
     saved = {};
+  }
+  if (!worktreeRemoved && Object.keys(ignored).length) {
+    fs.rmSync(ignoredDir, { recursive: true, force: true });
+    ignored = {};
   }
   // What waits in it (kept with the session in state.db), listed in the record.
   const kept = deps.kept?.(id);
@@ -323,6 +347,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     ...(branchesDeleted.length ? { branchesDeleted } : {}),
     ...(buildFolders && buildFolders.folders ? { buildFolders } : {}),
     ...(Object.keys(saved).length ? { uncommitted: saved } : {}),
+    ...(Object.keys(ignored).length ? { ignored } : {}),
     ...(unrestored.length ? { unrestored } : {}),
     ...(keptAny(kept) ? { kept } : {}),
   };

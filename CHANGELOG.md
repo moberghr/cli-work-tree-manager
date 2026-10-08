@@ -14,6 +14,12 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   sets what's left aside, makes the worktree again on its branch, puts the
   save back and copies the files that were left over it. The dashboard says
   "not a git checkout any more" for such a folder.
+- Restore brings a session back as it was before Archive. Besides the
+  branch, the worktree and the uncommitted files, it now keeps the
+  worktree's git-ignored files that aren't build output — local settings
+  like `appsettings.Development.json` or `.env.local`, and the editor's
+  state (`.vs`) — and the Diff tab's turns (archiving deleted them). A
+  Restore that can't make the worktree says why.
 
 ## 2.0.7 — 2026-10-08
 

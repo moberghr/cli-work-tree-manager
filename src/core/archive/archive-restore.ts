@@ -3,6 +3,7 @@ import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from '../sessions/history.js';
 import { archiveDirFor, archiveRoot, readArchive, writeArchiveRecord } from './session-archive.js';
 import { restoreUncommitted } from './archive-uncommitted.js';
+import { restoreIgnored } from './archive-ignored.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { report } from '../platform/report.js';
 
@@ -44,8 +45,32 @@ export async function restoreArchivedUncommitted(
   return out;
 }
 
+/**
+ * And the git-ignored files archiving copied (local settings, the editor's
+ * state; archive-ignored.ts), once per repo, over what the new checkout has
+ * (`copyFiles` may have put a fresh copy there): they were the worktree's own.
+ */
+export function restoreArchivedIgnored(s: WorktreeSession, config: WorkConfig, root = archiveRoot()): string[] {
+  const id = sessionIdFor(s);
+  const rec = readArchive(id, root);
+  if (!rec?.worktreeRemoved || !rec.ignored) return [];
+  const dir = archiveDirFor(id, root);
+  const done: string[] = [];
+  for (const [alias, saved] of Object.entries(rec.ignored)) {
+    if (saved.restoredAt) continue;
+    const wt = worktreeFor(s, alias, config);
+    if (!wt) continue;
+    const n = restoreIgnored(path.join(dir, 'ignored', alias), wt);
+    saved.restoredAt = new Date().toISOString();
+    done.push(alias);
+    if (n) report('info', `${alias}: put back ${n} git-ignored file${n === 1 ? '' : 's'} (local settings, editor state) it had`);
+  }
+  if (done.length) writeArchiveRecord(rec, root);
+  return done;
+}
+
 /** The session's worktree of a repo: its only path, or (a group) the one named after the repo's folder. */
-function worktreeFor(s: WorktreeSession, alias: string, config: WorkConfig): string | null {
+export function worktreeFor(s: WorktreeSession, alias: string, config: WorkConfig): string | null {
   if (!s.isGroup) return s.paths[0] ?? null;
   const repo = config.repos[alias];
   if (!repo) return null;

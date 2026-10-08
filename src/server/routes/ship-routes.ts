@@ -52,7 +52,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     archived: boolean,
     force = false,
     merged = false,
-  ): Promise<{ ok: boolean; blocked?: string[]; message?: string }> => {
+  ): Promise<{ ok: boolean; blocked?: string[]; message?: string; error?: string }> => {
     const session = findSession(id);
     if (!session) return { ok: false };
     let ok: boolean;
@@ -65,7 +65,11 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       // it, leftover.ts): recreate it from the branch
       // (`work tree` / setupWorktree also puts the conversation back and un-archives it).
       const config = loadConfig();
-      ok = !!config && (await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config)).ok;
+      if (!config) return { ok: false, error: 'no config' };
+      const made = await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config);
+      // A Restore that couldn't make the worktree says why (a folder in use, a branch gone…), not "unknown session".
+      if (!made.ok) return { ok: false, error: `Couldn't restore it: ${made.error}` };
+      ok = true;
     } else {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);
@@ -140,6 +144,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     const r = await archive(c.req.param('id'), body.archived, body.force === true);
     // Work still waiting in it: say what, and let the user decide (force).
     if (r.blocked) return c.json({ error: r.message, blocked: r.blocked }, 409);
+    if (r.error) return c.json({ error: r.error }, 500);
     return r.ok ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
   });
 }

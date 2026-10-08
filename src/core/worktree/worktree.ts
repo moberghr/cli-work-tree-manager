@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { agentFor } from '../agents/index.js';
-import { restoreArchivedUncommitted } from '../archive/archive-restore.js';
+import { restoreArchivedIgnored, restoreArchivedUncommitted } from '../archive/archive-restore.js';
 import { isLeftover, putLeftoverBack, setLeftoverAside, takeLeftover } from './leftover.js';
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
@@ -501,6 +501,8 @@ export async function setupWorktree(
       await restoreArchivedUncommitted(session, config).catch((err: Error) =>
         report('warn', `couldn't put back its uncommitted changes: ${err.message}`),
       );
+    // Its git-ignored files (local settings, the editor's state) archiving kept.
+    if (session) bestEffort('put back its local settings', () => restoreArchivedIgnored(session, config));
     // And what was left of a half-removed worktree: over the checkout, or — when the
     // archive's save already put its changes back — only the files that aren't there.
     for (const p of result.paths) putBackLeftover(p);

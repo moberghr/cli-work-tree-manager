@@ -221,6 +221,19 @@ describe('ship routes', () => {
     expect(create).toHaveBeenCalledWith({ target: session.target, branch: session.branch }, expect.anything());
   });
 
+  it("a Restore that can't make the worktree says why, not 'unknown session'", async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: false as const, error: 'a file in it is in use: close it and try again' }));
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(session.paths[0], { recursive: true });
+    const res = await post(a, `/api/sessions/${id}/archive`, { archived: false });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Couldn't restore it: a file in it is in use: close it and try again" });
+  });
+
   it('archive refuses with what is still waiting (409), and goes ahead with force', async () => {
     const id = sessionIdFor(session);
     rememberSent(id, [{ threadId: 'PRRT_abcdef', repo: 'api', prNumber: 5, url: 'u', where: null, reviewer: 'r', excerpt: 'e' }]);

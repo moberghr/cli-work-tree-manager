@@ -17,11 +17,11 @@ import { readPendingForSession } from '../comments/pending-delivery.js';
 import { listReplies } from '../pr/pr-replies.js';
 import { stopDev } from '../worktree/dev-server.js';
 import { buildFoldersOf, clearBuildFolders } from '../cleanup/build-folders.js';
-import { clearCheckpoints } from '../diff/checkpoint.js';
-import { scopeHashForPaths } from '../diff/scope-manager.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { summarizeArchive } from './archive-summary.js';
 import { isLeftover } from '../worktree/leftover.js';
+import { saveIgnored, type SavedIgnored } from './archive-ignored.js';
+import { worktreeFor } from './archive-restore.js';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -126,6 +126,17 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       }
     },
     halfRemoved: (s) => s.paths.filter(isLeftover),
+    saveIgnored: async (s, dir) => {
+      const cfg = loadConfig();
+      const out: Record<string, SavedIgnored> = {};
+      for (const [alias] of repoPaths(s, cfg)) {
+        const wt = cfg ? worktreeFor(s, alias, cfg) : null;
+        if (!wt || !fs.existsSync(wt)) continue;
+        const r = saveIgnored(wt, path.join(dir, 'ignored', alias));
+        if (r.files || r.skipped) out[alias] = r;
+      }
+      return out;
+    },
     removeWorktree: async (s) => {
       if (s.paths.every((p) => !fs.existsSync(p))) return true;
       return teardownWorktree(s.target, s.isGroup, s.branch, config(), true, s.paths);
@@ -184,15 +195,9 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     tidy: async (s, heads) => {
       const cfg = loadConfig();
       const repos = repoPaths(s, cfg);
-      // Its per-turn checkpoints: refs in the repos, and their manifest.
-      try {
-        clearCheckpoints(
-          scopeHashForPaths(s.paths),
-          repos.map(([, r]) => r),
-        );
-      } catch {
-        /* best effort: orphaned refs only cost a little space */
-      }
+      // Its per-turn checkpoints stay (refs in the repos, and their manifest): Restore puts the
+      // worktree back at the same path, so the Diff tab's turns come back with it. They go when
+      // the session is deleted (clearSessionCheckpoints).
       // A local branch already in the main branch goes (its tip is recorded,
       // and reachable from the main branch, so Restore can recreate it). A
       // squash-merged one stays: its commits are reachable from nothing else.
