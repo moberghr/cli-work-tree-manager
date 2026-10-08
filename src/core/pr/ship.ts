@@ -286,7 +286,8 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         ...(j.mergedAt ? { mergedAt: j.mergedAt } : {}),
         ...(j.updatedAt ? { updatedAt: j.updatedAt } : {}),
         ...(typeof j.reviewDecision === 'string' ? { reviewDecision: j.reviewDecision } : {}),
-        ...(j.author?.login ? { author: j.author.login } : {}),
+        // gh pr view names an app `app/dependabot`; the search API, `dependabot`.
+        ...(j.author?.login ? { author: j.author.login.replace(/^app\//, '') } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {

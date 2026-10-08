@@ -758,8 +758,23 @@ a.wd-pr-chip:hover {
   color: var(--muted);
 }
 .wd-start-author {
+  margin-left: 6px;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--muted);
+}
+/* A PR row's title truncates; its repo and author stay. */
+.wd-tab-start .wd-start-list .wd-start-what {
+  display: flex;
+  align-items: baseline;
+}
+.wd-start-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-start-what > .wd-start-repo {
+  flex-shrink: 0;
 }
 .wd-start-state {
   font-size: 13px;

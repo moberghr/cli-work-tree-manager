@@ -199,6 +199,9 @@ describe('Start', () => {
     render();
     await flush();
     expect(rowOf('#99').textContent).toContain('by @dana');
+    // A long title truncates; the author is in its own span after it, and in the tooltip.
+    expect(rowOf('#99').querySelector('.wd-start-what > .wd-start-author')!.textContent).toBe('· by @dana');
+    expect(rowOf('#99').querySelector('.wd-start-what')!.getAttribute('title')).toContain('by @dana');
     expect(rowOf('#208').textContent).not.toContain('by @');
   });
 

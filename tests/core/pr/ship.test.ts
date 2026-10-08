@@ -147,6 +147,9 @@ describe('preflight', () => {
     expect(calls.filter((c) => c.cmd === 'gh').length).toBe(1);
     const none = fakeRunner({ [P('api')]: ready({ pr: pr({ author: null }) }) });
     expect((await shipPreflight(single(), none.run)).repos[0].pr?.author).toBeUndefined();
+    // An app, as gh pr view names it (`app/dependabot`), reads as the search API has it.
+    const bot = fakeRunner({ [P('api')]: ready({ pr: pr({ author: { login: 'app/dependabot' } }) }) });
+    expect((await shipPreflight(single(), bot.run)).repos[0].pr?.author).toBe('dependabot');
   });
 
   it('askGh: a repo the caller says not to ask about makes no gh call and reads as no PR (no error)', async () => {

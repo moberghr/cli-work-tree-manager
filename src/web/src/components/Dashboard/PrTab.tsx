@@ -201,7 +201,7 @@ function PrSectionView({
         </button>
         <strong className="wd-pr-name">{prName(s, isGroup)}</strong>
         {s.title && <span className="wd-pr-title">{s.title}</span>}
-        {s.author && (
+        {s.author && !s.mine && (
           <span className="wd-pr-author" title={`Opened on GitHub by @${s.author}`}>
             by @{s.author}
           </span>

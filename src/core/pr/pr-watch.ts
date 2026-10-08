@@ -363,6 +363,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     }
     const ci: SessionCi = {
       checkedAt: new Date(now()).toISOString(),
+      ...(viewer ? { viewer } : {}),
       repos: pre.repos.map((r) => ({
         name: r.name,
         pr: r.pr,

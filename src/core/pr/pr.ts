@@ -113,7 +113,8 @@ function toPrInfo(pr: GhPr, repoAlias: string, currentUser: string): PullRequest
       conflicting: pr.mergeable === 'CONFLICTING',
       reviewRequested: !!currentUser && (pr.reviewRequests ?? []).some((r) => r?.login?.toLowerCase() === currentUser.toLowerCase()),
       repoAlias,
-      author: pr.author?.login ?? '',
+      // Only when who you are is known: isMine is false for all of them otherwise, and your own would read "by @you".
+      ...(currentUser && pr.author?.login ? { author: pr.author.login } : {}),
       fork: pr.isCrossRepository === true,
     };
   }

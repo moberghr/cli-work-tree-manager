@@ -38,6 +38,9 @@ describe('parsePrJson', () => {
     expect(parsePrJson(gh({ reviewRequests: [{ login: 'cy' }, { name: 'core-team' }] }), 'api', 'bo')[0].reviewRequested).toBe(false);
     // Who you are unknown: nothing is asked of you, and nothing is yours.
     expect(parsePrJson(gh({ reviewRequests: [{ login: 'bo' }] }), 'api', '')[0]).toMatchObject({ reviewRequested: false, isMine: false });
+    // …and no author either: with isMine false for all, your own PRs would read "by @you" (reviewed).
+    expect(parsePrJson(gh({}), 'api', '')[0].author).toBeUndefined();
+    expect(parsePrJson(gh({}), 'api', 'bo')[0].author).toBe('ana');
   });
 
   it('failing checks still read as failing', () => {

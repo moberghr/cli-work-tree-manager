@@ -553,6 +553,7 @@ export class DemoScenario {
           pr: {
             number: 216,
             url: 'https://github.com/example/api/pull/216',
+            author: 'ivana', // a colleague's PR you're working on: the PR tab says whose
             state: 'OPEN',
             isDraft: false,
             mergeStateStatus: 'BLOCKED',
@@ -1057,9 +1058,10 @@ export class DemoScenario {
     if (!s) return null;
     return {
       checkedAt: new Date(this.now()).toISOString(),
+      viewer: 'you',
       repos: s.repos.map((r) => ({
         name: r.name,
-        pr: r.pr,
+        pr: r.pr ? { author: 'you', ...r.pr } : r.pr,
         done: r.pr?.state === 'MERGED',
         ...(r.pr?.state === 'OPEN' && r.openThreads ? { openThreads: r.openThreads } : {}),
       })),

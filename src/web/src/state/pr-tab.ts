@@ -18,6 +18,8 @@ export interface PrSection {
   title: string | null;
   /** Who opened it on GitHub, when known (the PR watch's `gh pr view`, else the dashboard's list). */
   author: string | null;
+  /** You did (the watch's viewer, else the list's isMine): its author isn't shown. */
+  mine: boolean;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
   kind: PrStageKind;
   checks: 'pass' | 'fail' | 'pending' | 'none';
@@ -33,6 +35,13 @@ const LISTED_CHECKS: Record<PrInfo['checksStatus'], PrSection['checks']> = {
   PENDING: 'pending',
   NONE: 'none',
 };
+
+/** What the dashboard's list adds to a watched PR: its title, and who opened it (an empty login is unknown). */
+function fromList(pr: { author?: string }, l: PrInfo | undefined, viewer: string | undefined) {
+  const author = pr.author || l?.author || null;
+  const mine = viewer && author ? author.toLowerCase() === viewer.toLowerCase() : (l?.isMine ?? false);
+  return { title: l?.title ?? null, author, mine };
+}
 
 /** A PR from the dashboard's list, read by the PR watch's own rule (`stageOfPr`): the same PR has the same stage wherever it comes from. */
 function kindOfListed(p: PrInfo): PrStageKind {
@@ -60,8 +69,11 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
             repo: r.name,
             number: r.pr.number,
             url: r.pr.url,
-            title: listed.find((p) => p.url === r.pr!.url)?.title ?? null,
-            author: r.pr.author ?? listed.find((p) => p.url === r.pr!.url)?.author ?? null,
+            ...fromList(
+              r.pr,
+              listed.find((p) => p.url === r.pr!.url),
+              ci?.viewer,
+            ),
             state: r.pr.state,
             kind: stageOfPr(r.pr),
             checks: r.pr.checks,
@@ -78,7 +90,8 @@ export function prSections(ci: SessionCi | null, listed: PrInfo[]): PrSection[] 
     number: p.number,
     url: p.url,
     title: p.title,
-    author: p.author ?? null,
+    author: p.author || null,
+    mine: p.isMine,
     state: 'OPEN',
     kind: kindOfListed(p),
     checks: LISTED_CHECKS[p.checksStatus],

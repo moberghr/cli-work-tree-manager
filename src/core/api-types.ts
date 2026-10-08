@@ -690,6 +690,8 @@ export interface DevServerState {
 /** GET /api/sessions/:id/ci — what GitHub says about the session's PRs. */
 export interface SessionCi {
   checkedAt: string;
+  /** Who gh is signed in as, when the watch knew it: tells your PRs from others' (the PR tab's "by @…"). */
+  viewer?: string;
   repos: Array<{
     name: string;
     pr: ShipPr | null;

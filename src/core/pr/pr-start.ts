@@ -106,7 +106,7 @@ export async function resolvePrToStart(
       url: pr.url ?? '',
       branch: pr.headRefName,
       base: pr.baseRefName ?? '',
-      author: pr.author?.login ?? '',
+      author: (pr.author?.login ?? '').replace(/^app\//, ''),
     },
   };
 }

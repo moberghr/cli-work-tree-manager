@@ -132,9 +132,9 @@ function PrList({
             <a className="wd-start-key wd-start-key-pr" href={pr.url} target="_blank" rel="noreferrer" title="Open on GitHub">
               #{pr.number}
             </a>
-            <span className="wd-start-what" title={pr.title}>
-              {pr.title} <span className="wd-start-repo">{pr.repoAlias}</span>
-              {!pr.isMine && pr.author && <span className="wd-start-author"> · by @{pr.author}</span>}
+            <span className="wd-start-what" title={!pr.isMine && pr.author ? `${pr.title} — by @${pr.author}` : pr.title}>
+              <span className="wd-start-title">{pr.title}</span> <span className="wd-start-repo">{pr.repoAlias}</span>
+              {!pr.isMine && pr.author && <span className="wd-start-author">· by @{pr.author}</span>}
             </span>
             <span className={`wd-start-state wd-start-state-${state.tone}`}>{state.text}</span>
             <span className="wd-start-action">

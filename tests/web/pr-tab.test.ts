@@ -59,6 +59,25 @@ describe('prSections', () => {
     expect(s[1].failing).toEqual([{ name: 'build', url: 'https://ci/1' }]);
   });
 
+  it('the author of a watched PR comes from the list when the watch has none; an empty login is unknown; yours is marked mine (reviewed)', () => {
+    const watched = (author?: string) =>
+      ({
+        checkedAt: '',
+        viewer: 'Domagoj',
+        repos: [{ name: 'frontend', done: false, pr: { ...shipPr(1927), ...(author !== undefined ? { author } : {}) } }],
+      }) as unknown as SessionCi;
+    expect(prSections(watched(), [listed(1927, { author: 'dana', isMine: false })])[0]).toMatchObject({ author: 'dana', mine: false });
+    expect(prSections(watched(''), [listed(1927, { author: '' })])[0].author).toBeNull();
+    expect(prSections(watched('domagoj'), [])[0]).toMatchObject({ author: 'domagoj', mine: true }); // the watch's viewer, any case
+    // No viewer known: the list's isMine says.
+    const noViewer = {
+      checkedAt: '',
+      repos: [{ name: 'frontend', done: false, pr: { ...shipPr(1927), author: 'me' } }],
+    } as unknown as SessionCi;
+    expect(prSections(noViewer, [listed(1927, { isMine: true })])[0].mine).toBe(true);
+    expect(prSections(noViewer, [])[0].mine).toBe(false);
+  });
+
   it('who opened it: from the PR watch, else from the PR list; unknown is null', () => {
     const withAuthors = {
       ...ci,

@@ -118,6 +118,17 @@ describe('the PR tab', () => {
     expect(container.querySelector('.wd-pr-summary')!.textContent).toContain('3 things want you across 2 PRs');
   });
 
+  it('your own PR says no "by @you" (the watch knows who you are) (reviewed)', async () => {
+    h.ci = {
+      checkedAt: '',
+      viewer: 'me',
+      repos: [{ name: 'frontend', done: false, pr: shipPr(1927, { author: 'Me' }) }],
+    } as unknown as SessionCi;
+    h.replies = { replies: [], waiting: [] } as unknown as RepliesWire;
+    await render();
+    expect(container.querySelector('.wd-pr-author')).toBeNull();
+  });
+
   it('one Ask on top for every trusted thread with no reply, across the PRs — a plan, nothing changed', async () => {
     h.ci = {
       checkedAt: '',

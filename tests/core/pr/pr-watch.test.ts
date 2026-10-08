@@ -236,8 +236,9 @@ describe('PR watch', () => {
     expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(1);
     expect(h.watch.state('s1')?.repos.find((r) => r.name === 'web')?.openThreads).toBeUndefined();
     expect(h.watch.state('s1')?.repos.find((r) => r.name === 'api')?.openThreads).toBe(1);
-    // Who you are is asked when a PR has an author; without a known viewer, nothing is told apart.
+    // Who you are is asked when a PR has an author, and kept with the check (the PR tab's "by @…").
     expect(viewer).toHaveBeenCalled();
+    expect(h.watch.state('s1')?.viewer).toBe('Me');
   });
 
   it('a thread you answered leaves the last check at once, and comes back if the reviewer answers', async () => {
