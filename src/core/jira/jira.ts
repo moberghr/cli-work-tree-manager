@@ -74,22 +74,15 @@ function parseIssuesJson(stdout: string, siteUrl: string): JiraIssue[] {
   });
 }
 
+/**
+ * Your open issues: by the status's category, not `resolution = Unresolved` — service-desk workflows set a
+ * resolution on issues still open ("Waiting for feedback", a Review), which hid them from the Jira tab (SSD-2465).
+ */
+export const MY_ISSUES_JQL = 'assignee = currentUser() AND statusCategory != Done AND status NOT IN (Archived) ORDER BY updated DESC';
+
 async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
   try {
-    const stdout = await execAsync(
-      'acli',
-      [
-        'jira',
-        'workitem',
-        'search',
-        '--jql',
-        'assignee = currentUser() AND resolution = Unresolved AND status NOT IN (Archived, Done) ORDER BY updated DESC',
-        '--json',
-        '--limit',
-        '50',
-      ],
-      15000,
-    );
+    const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', MY_ISSUES_JQL, '--json', '--limit', '50'], 15000);
     if (!stdout) return [];
     return parseIssuesJson(stdout, siteUrl);
   } catch {
