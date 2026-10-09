@@ -599,6 +599,34 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: YYYY-MM-DD, from ≤ to' }, 400);
     return c.json(demoTime.days(from, to));
   });
+  // Outlook and Teams: a pretend sign-in that "completes" a few seconds after the code is shown.
+  let demoGraph: { account: string | null; login: { userCode: string; verificationUri: string; expiresAt: string } | null } = {
+    account: null,
+    login: null,
+  };
+  const graphWire = () => ({ ready: true, why: null, ...demoGraph, error: null });
+  app.get('/api/time/graph', (c) => c.json(graphWire()));
+  app.post('/api/time/graph/connect', (c) => {
+    demoGraph = {
+      account: null,
+      login: {
+        userCode: 'DEMO-1234',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        expiresAt: new Date(scenario.clockMs() + 900_000).toISOString(),
+      },
+    };
+    setTimeout(() => {
+      demoGraph = { account: 'you@example.com', login: null };
+      broadcast({ event: 'time-graph-changed', data: {} });
+    }, 4000).unref?.();
+    return c.json(graphWire());
+  });
+  app.post('/api/time/graph/disconnect', (c) => {
+    demoGraph = { account: null, login: null };
+    broadcast({ event: 'time-graph-changed', data: {} });
+    return c.json(graphWire());
+  });
+
   app.get('/api/time/:day', (c) => {
     const day = c.req.param('day');
     if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);

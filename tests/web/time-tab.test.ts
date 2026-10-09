@@ -42,6 +42,9 @@ const api = vi.hoisted(() => ({
   save: vi.fn(),
   rebuild: vi.fn(),
   post: vi.fn(),
+  graph: { ready: true, why: null, account: null, login: null, error: null } as import('../../src/core/api-types.js').TimeGraphWire,
+  connect: vi.fn(),
+  disconnect: vi.fn(),
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchTimeDays: async () => api.days,
@@ -49,6 +52,9 @@ vi.mock('../../src/web/src/api/panes.js', () => ({
   saveTimeDay: (day: string, change: unknown) => api.save(day, change),
   rebuildTimeDay: (day: string) => api.rebuild(day),
   postTimeDay: (day: string) => api.post(day),
+  fetchTimeGraph: async () => api.graph,
+  connectTimeGraph: () => api.connect(),
+  disconnectTimeGraph: () => api.disconnect(),
 }));
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 const { TimeTab, dayLabel, hoursText, postOutcome } = await import('../../src/web/src/components/Dashboard/tabs/TimeTab.js');
@@ -194,6 +200,46 @@ describe('the Time tab', () => {
     expect(
       postOutcome({ posted: 1, removed: 1, kept: 0, coveredByHand: 1, otherByHand: 0, failed: [{ key: 'SD-X', error: 'no such issue' }] }),
     ).toBe('Tempo: 1 posted, 1 removed, 1 you had logged by hand. Not posted: SD-X (no such issue).');
+  });
+
+  it('Outlook & Teams: Connect shows the code to enter; signed in: from whom, Disconnect', async () => {
+    api.connect.mockResolvedValue({
+      ...api.graph,
+      login: { userCode: 'ABCD-1234', verificationUri: 'https://microsoft.com/devicelogin', expiresAt: 'x' },
+    });
+    await render();
+    expect(container.querySelector('.wd-time-graph')!.textContent).toContain('not connected');
+    await act(async () => button('Connect').click());
+    expect(container.querySelector('.wd-time-graph')!.textContent).toContain('enter ABCD-1234 at microsoft.com/devicelogin');
+    act(() => root.unmount());
+    root = createRoot(container);
+    api.graph = { ...api.graph, account: 'you@moberg.hr' };
+    api.disconnect.mockResolvedValue({ ...api.graph, account: null });
+    await render();
+    expect(container.querySelector('.wd-time-graph')!.textContent).toContain('meetings and chats from you@moberg.hr');
+    await act(async () => button('Disconnect').click());
+    expect(api.disconnect).toHaveBeenCalled();
+    api.graph = { ...api.graph, account: null };
+  });
+
+  it('meetings and chats in the evidence; what the AI step placed is marked', async () => {
+    api.day = dayWire({
+      evidence: {
+        sessions: [{ sessionId: 's', label: 'api · chore/pdf', key: 'SD-2', minutes: 12, guessed: true }],
+        commits: [],
+        jira: [],
+        meetings: [
+          { subject: 'Daily standup', start: '09:30', end: '09:45', minutes: 15, key: null },
+          { subject: 'PDF refinement', start: '14:00', end: '15:00', minutes: 60, key: 'SD-2', guessed: true },
+        ],
+        chats: [{ chat: 'Payments', messages: 3, sample: ['x'], key: 'SD-2', guessed: true }],
+      },
+    });
+    await render();
+    const ev = container.querySelector('.wd-time-evidence')!;
+    expect(ev.querySelector('[aria-label="Meetings"]')!.textContent).toContain('SD-434 09:30–09:45 Daily standup · 15 min'); // unplaced: the gap ticket
+    expect(ev.querySelectorAll('.wd-time-ai')).toHaveLength(3);
+    expect(ev.querySelector('[aria-label="Chats"]')!.textContent).toContain('Teams: Payments · 3 messages of yours');
   });
 
   it('hours read as hours', () => {

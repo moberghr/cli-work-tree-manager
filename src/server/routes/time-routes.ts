@@ -1,5 +1,14 @@
 import type { Hono } from 'hono';
-import type { TimeDaysWire, TimeDayWire, TimePostWire } from '../../core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimePostWire } from '../../core/api-types.js';
+import {
+  finishDeviceLogin,
+  graphAccount,
+  graphApp,
+  signOutGraph,
+  startDeviceLogin,
+  type DeviceLogin,
+  type GraphApp,
+} from '../../core/time/graph.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
 import { localDay, parseEntries } from '../../core/time/time-view.js';
 import { readDay, updateDay } from '../../core/time/time-store.js';
@@ -15,6 +24,9 @@ import type { TimeEntry } from '../../core/time/allocate.js';
  *   PUT  /api/time/:day           — your rows ({entries}, null = back to the suggestion), a day off ({dayOff})
  *   POST /api/time/:day/rebuild   — gather its evidence again
  *   POST /api/time/:day/post      — make Tempo's day what the tab shows (tempo.ts: what's there read first)
+ *   GET  /api/time/graph          — Outlook and Teams: signed in, a sign-in under way (its code), or why not
+ *   POST /api/time/graph/connect  — start the device-code sign-in; it finishes in the background (`time-graph-changed`)
+ *   POST /api/time/graph/disconnect
  *
  * Each change broadcasts `time-changed`.
  */
@@ -29,10 +41,88 @@ const realTempo: TempoAccess = () => {
   return s.ready ? { api: tempoClient(s.token), accountId: s.accountId } : { why: s.why };
 };
 
+/** Microsoft Graph sign-in (graph.ts), passed in for tests. */
+export interface GraphAccess {
+  app: () => GraphApp | { why: string };
+  start: (app: GraphApp) => Promise<DeviceLogin>;
+  finish: (app: GraphApp, login: DeviceLogin) => Promise<string>;
+  account: () => string | null;
+  signOut: () => void;
+}
+
+const realGraph: GraphAccess = {
+  app: () => graphApp(loadConfig()?.time?.graph, process.env),
+  start: (a) => startDeviceLogin(a),
+  finish: (a, l) => finishDeviceLogin(a, l),
+  account: graphAccount,
+  signOut: signOutGraph,
+};
+
 export function mountTimeRoutes(
   app: Hono,
-  opts: { deps: TimeDeps; broadcast: (event: string, data: unknown) => void; tempo?: TempoAccess },
+  opts: {
+    deps: TimeDeps;
+    broadcast: (event: string, data: unknown) => void;
+    tempo?: TempoAccess;
+    graph?: GraphAccess;
+    /** Signed in or out of Outlook and Teams: the days' evidence changes (work web rebuilds today). */
+    onGraphChanged?: () => void;
+  },
 ): void {
+  const graph = opts.graph ?? realGraph;
+  let login: DeviceLogin | null = null;
+  let loginError: string | null = null;
+  const graphWire = (): TimeGraphWire => {
+    const a = graph.app();
+    return {
+      ready: !('why' in a),
+      why: 'why' in a ? a.why : null,
+      account: graph.account(),
+      login: login
+        ? { userCode: login.userCode, verificationUri: login.verificationUri, expiresAt: new Date(login.expiresAt).toISOString() }
+        : null,
+      error: loginError,
+    };
+  };
+  const graphChanged = () => {
+    opts.broadcast('time-graph-changed', {});
+    opts.onGraphChanged?.();
+  };
+
+  app.get('/api/time/graph', (c) => c.json<TimeGraphWire>(graphWire()));
+  app.post('/api/time/graph/connect', async (c) => {
+    const a = graph.app();
+    if ('why' in a) return c.json({ error: a.why }, 409);
+    let l: DeviceLogin;
+    try {
+      l = await graph.start(a);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 502);
+    }
+    login = l;
+    loginError = null;
+    // Finishes when the code is entered (or it expires): then today again, with meetings and chats.
+    void graph.finish(a, l).then(
+      () => {
+        if (login === l) login = null;
+        graphChanged();
+      },
+      (err: Error) => {
+        if (login === l) login = null;
+        loginError = err.message;
+        graphChanged();
+      },
+    );
+    return c.json<TimeGraphWire>(graphWire());
+  });
+  app.post('/api/time/graph/disconnect', (c) => {
+    graph.signOut();
+    login = null;
+    loginError = null;
+    graphChanged();
+    return c.json<TimeGraphWire>(graphWire());
+  });
+
   const changed = (day: string) => opts.broadcast('time-changed', { day });
   const tempo = opts.tempo ?? realTempo;
   const withPosting = (w: TimeDayWire): TimeDayWire => {

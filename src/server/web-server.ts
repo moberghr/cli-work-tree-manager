@@ -889,7 +889,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
 
   // The Time tab (core/time): each day's hours per ticket, kept current as you go.
-  mountTimeRoutes(app, { deps: timeDeps, broadcast });
+  mountTimeRoutes(app, { deps: timeDeps, broadcast, onGraphChanged: () => void timeKeeper?.run() });
 
   // The sessions list's manual order (drag to reorder).
   mountSessionOrderRoutes(app, { broadcast });

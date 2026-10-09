@@ -2,6 +2,7 @@ import type { WorktreeSession } from '../sessions/session-types.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import type { TimeCommitEvidence, TimeDaysWire, TimeDayWire, TimeEvidence, TimeJiraEvidence } from '../api-types.js';
 import { issueKeys } from './allocate.js';
+import { applyPlacement, classifyPrompt, parsePlacement, placementOf, unplacedHash, unplacedItems } from './classify.js';
 import { readDay, readDays, saveBuilt } from './time-store.js';
 import { activityOf, dayWireOf, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
 
@@ -24,6 +25,14 @@ export interface TimeDeps {
   /** Titles of these issue keys (the ones it can find). */
   titles: (keys: string[]) => Promise<Record<string, string>>;
   settings: () => TimeConfig;
+  /** Outlook meetings that day (Graph; absent or failing: none). */
+  meetings?: (day: string) => Promise<TimeEvidence['meetings']>;
+  /** Teams chats you wrote in that day. */
+  chats?: (day: string) => Promise<TimeEvidence['chats']>;
+  /** Tickets the AI step may place things on, besides the day's own (your assigned issues). */
+  candidates?: () => Promise<Array<{ key: string; title: string }>>;
+  /** The AI step (runInternal): the answer, or null when it can't run. */
+  classify?: (prompt: string) => Promise<string | null>;
   /** A Jira issue's numeric id (Tempo wants it), cached. */
   issueId?: (key: string) => Promise<number | null>;
   now?: () => number;
@@ -48,14 +57,70 @@ export async function buildDay(day: string, deps: TimeDeps): Promise<TimeDayReco
         .map((k) => k.split('-')[0]),
   );
   const commits = (await deps.commits(day).catch(() => [])).map((c) => ({ ...c, keys: issueKeys(c.subject, projects) }));
-  const evidence: TimeEvidence = { sessions: sessions.sort((a, b) => b.minutes - a.minutes), commits, jira };
-  const titles: Record<string, string> = { ...(readDay(day)?.titles ?? {}) };
+  const meetings = deps.meetings ? await deps.meetings(day).catch(() => undefined) : undefined;
+  const chats = deps.chats ? await deps.chats(day).catch(() => undefined) : undefined;
+  let evidence: TimeEvidence = {
+    sessions: sessions.sort((a, b) => b.minutes - a.minutes),
+    commits,
+    jira,
+    ...(meetings ? { meetings } : {}),
+    ...(chats ? { chats } : {}),
+  };
+  const prev = readDay(day);
+  const titles: Record<string, string> = { ...(prev?.titles ?? {}) };
   for (const j of jira) titles[j.key] = j.summary;
   const wanted = [...new Set([...activityOf(evidence).map((a) => a.key), settings.gapTicket, settings.timeOffTicket])].filter(
     (k): k is string => !!k && !titles[k],
   );
   if (wanted.length) Object.assign(titles, await deps.titles(wanted).catch(() => ({})));
+  evidence = await placeTheRest(evidence, prev?.evidence, titles, settings, deps);
   return saveBuilt({ day, evidence, titles, builtAt: new Date(deps.now?.() ?? Date.now()).toISOString() });
+}
+
+/**
+ * The AI step (classify.ts) over what the day couldn't place by itself — asked
+ * only when that changed since the last ask; the earlier answer is kept otherwise.
+ */
+async function placeTheRest(
+  ev: TimeEvidence,
+  prev: TimeEvidence | undefined,
+  titles: Record<string, string>,
+  settings: TimeConfig,
+  deps: TimeDeps,
+): Promise<TimeEvidence> {
+  if (!deps.classify) return ev;
+  const items = unplacedItems(ev);
+  if (!items.length) return ev;
+  const extra = deps.candidates ? await deps.candidates().catch(() => []) : [];
+  for (const c of extra) titles[c.key] ??= c.title;
+  const keys = [
+    ...new Set(
+      [...activityOf(ev).map((a) => a.key), ...extra.map((c) => c.key), settings.gapTicket, settings.timeOffTicket].filter(
+        (k): k is string => !!k,
+      ),
+    ),
+  ];
+  const hash = unplacedHash(items, keys);
+  if (prev?.classifiedFor === hash) return applyPlacement(ev, placementOf(prev), hash);
+  const answer = await deps
+    .classify(
+      classifyPrompt(
+        items,
+        keys.map((key) => ({ key, title: titles[key] ?? '' })),
+        settings.gapTicket,
+      ),
+    )
+    .catch(() => null);
+  if (answer === null) return ev; // it couldn't run: asked again next time
+  return applyPlacement(
+    ev,
+    parsePlacement(
+      answer,
+      items.map((i) => i.id),
+      keys,
+    ),
+    hash,
+  );
 }
 
 /** A stored day as the tab shows it. */

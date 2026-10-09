@@ -40,10 +40,11 @@ export const DEFAULT_TIME_SETTINGS: TimeSettings = {
   holidays: [],
 };
 
-/** What a ticket got that day: measured minutes, or only touched (commits, a transition). */
+/** What a ticket got that day: measured Claude minutes (× multiplier), your own minutes on it (a meeting: 1:1), or only touched (0). */
 export interface TicketActivity {
   key: string;
   minutes: number;
+  direct?: number;
 }
 
 export interface TimeEntry {
@@ -57,8 +58,16 @@ export interface DaySuggestion {
   unallocated: number;
 }
 
-/** A day's suggestion. `dayOff`: all of it to the time-off ticket. */
-export function suggestDay(activity: readonly TicketActivity[], s: TimeSettings, opts: { dayOff?: boolean } = {}): DaySuggestion {
+/**
+ * A day's suggestion. `dayOff`: all of it to the time-off ticket.
+ * `reserveMinutes`: meetings no ticket got — kept for the gap ticket, so
+ * the tickets' share shrinks to leave them room.
+ */
+export function suggestDay(
+  activity: readonly TicketActivity[],
+  s: TimeSettings,
+  opts: { dayOff?: boolean; reserveMinutes?: number } = {},
+): DaySuggestion {
   // Whole steps, so sums are exact.
   const units = (h: number) => Math.round(h / s.stepHours);
   const day = units(s.dayHours);
@@ -69,15 +78,22 @@ export function suggestDay(activity: readonly TicketActivity[], s: TimeSettings,
       : { entries: [], unallocated: s.dayHours };
 
   // One row per ticket; the gap ticket's own time goes into what it gets at the end.
-  const minutes = new Map<string, number>();
+  const minutes = new Map<string, { claude: number; direct: number }>();
   for (const a of activity) {
     if (!a.key || a.key === s.gapTicket) continue;
-    minutes.set(a.key, (minutes.get(a.key) ?? 0) + Math.max(0, a.minutes));
+    const m = minutes.get(a.key) ?? { claude: 0, direct: 0 };
+    m.claude += Math.max(0, a.minutes);
+    m.direct += Math.max(0, a.direct ?? 0);
+    minutes.set(a.key, m);
   }
   const min = Math.max(1, units(s.minHours));
-  // Room for tickets: the cap, and the day less the gap ticket's minimum when there is one.
-  const room = Math.max(0, Math.min(units(s.capHours), day - (s.gapTicket ? min : 0)));
-  const raw = [...minutes].map(([key, m]) => ({ key, raw: m > 0 ? (m / 60) * s.multiplier : s.minHours }));
+  // Room for tickets: the cap, and the day less what the gap ticket keeps (its minimum, or the meetings it has).
+  const reserve = s.gapTicket ? Math.max(min, units((opts.reserveMinutes ?? 0) / 60)) : 0;
+  const room = Math.max(0, Math.min(units(s.capHours), day - reserve));
+  const raw = [...minutes].map(([key, m]) => {
+    const h = (m.claude / 60) * s.multiplier + m.direct / 60;
+    return { key, raw: h > 0 ? h : s.minHours };
+  });
   const total = raw.reduce((n, r) => n + r.raw, 0);
   const scale = total > room * s.stepHours && total > 0 ? (room * s.stepHours) / total : 1;
   let rows = raw

@@ -123,6 +123,23 @@ export async function postTimeDay(day: string): Promise<TimePostWire> {
   return body;
 }
 
+type TimeGraphWire = import('../../../core/api-types.js').TimeGraphWire;
+
+export function fetchTimeGraph(): Promise<TimeGraphWire> {
+  return getJson<TimeGraphWire>('/api/time/graph');
+}
+
+async function postGraph(what: 'connect' | 'disconnect'): Promise<TimeGraphWire> {
+  const res = await fetch(`/api/time/graph/${what}`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as TimeGraphWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
+}
+
+/** Start the Microsoft sign-in: the answer carries the code to enter. */
+export const connectTimeGraph = () => postGraph('connect');
+export const disconnectTimeGraph = () => postGraph('disconnect');
+
 /** Gather a day's evidence again. */
 export async function rebuildTimeDay(day: string): Promise<TimeDayWire> {
   const res = await fetch(`/api/time/${encodeURIComponent(day)}/rebuild`, { method: 'POST' });

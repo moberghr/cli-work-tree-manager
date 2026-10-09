@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import { mountTimeRoutes } from '../../../src/server/routes/time-routes.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import type { TimeDeps } from '../../../src/core/time/time-days.js';
-import type { TimeDaysWire, TimeDayWire, TimePostWire } from '../../../src/core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeGraphWire, TimePostWire } from '../../../src/core/api-types.js';
+import type { GraphAccess } from '../../../src/server/routes/time-routes.js';
 import type { TempoApi, TempoWorklog } from '../../../src/core/time/tempo.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 
@@ -32,6 +33,69 @@ const send = (a: Hono, method: string, url: string, body?: unknown) =>
     headers: { 'Content-Type': 'application/json' },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
+
+describe('connecting Outlook and Teams', () => {
+  const graphApp = (over: Partial<GraphAccess> = {}) => {
+    let account: string | null = null;
+    let finish: (v: string) => void = () => {};
+    let fail: (e: Error) => void = () => {};
+    const access: GraphAccess = {
+      app: () => ({ clientId: 'c', tenantId: 't' }),
+      start: async () => ({
+        userCode: 'ABCD-1234',
+        verificationUri: 'https://microsoft.com/devicelogin',
+        deviceCode: 'd',
+        expiresAt: Date.parse('2026-10-08T12:15:00Z'),
+        intervalMs: 5000,
+      }),
+      finish: () =>
+        new Promise<string>((res, rej) => {
+          finish = (v) => {
+            account = v;
+            res(v);
+          };
+          fail = rej;
+        }),
+      account: () => account,
+      signOut: () => (account = null),
+      ...over,
+    };
+    const a = new Hono();
+    const broadcast = vi.fn();
+    const onGraphChanged = vi.fn();
+    mountTimeRoutes(a, { deps, broadcast, graph: access, onGraphChanged });
+    return { a, broadcast, onGraphChanged, finish: (v: string) => finish(v), fail: (e: Error) => fail(e) };
+  };
+  const status = async (a: Hono) => (await (await a.request('/api/time/graph')).json()) as TimeGraphWire;
+
+  it('connect shows the code; once entered: signed in, the tab told, today rebuilt; disconnect signs out', async () => {
+    const g = graphApp();
+    expect(await status(g.a)).toEqual({ ready: true, why: null, account: null, login: null, error: null });
+    const started = (await (await send(g.a, 'POST', '/api/time/graph/connect')).json()) as TimeGraphWire;
+    expect(started.login).toEqual({
+      userCode: 'ABCD-1234',
+      verificationUri: 'https://microsoft.com/devicelogin',
+      expiresAt: '2026-10-08T12:15:00.000Z',
+    });
+    g.finish('you@moberg.hr');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await status(g.a)).toMatchObject({ account: 'you@moberg.hr', login: null });
+    expect(g.broadcast).toHaveBeenCalledWith('time-graph-changed', {});
+    expect(g.onGraphChanged).toHaveBeenCalled();
+    expect(((await (await send(g.a, 'POST', '/api/time/graph/disconnect')).json()) as TimeGraphWire).account).toBeNull();
+  });
+
+  it("a sign-in that fails says why; no app registration: refused with it; GET /api/time/graph isn't a day", async () => {
+    const g = graphApp();
+    await send(g.a, 'POST', '/api/time/graph/connect');
+    g.fail(new Error('The sign-in code expired: connect again.'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await status(g.a)).toMatchObject({ login: null, error: 'The sign-in code expired: connect again.' });
+    const none = graphApp({ app: () => ({ why: 'No app to sign in with' }) });
+    expect((await send(none.a, 'POST', '/api/time/graph/connect')).status).toBe(409);
+    expect(await status(none.a)).toMatchObject({ ready: false, why: 'No app to sign in with' });
+  });
+});
 
 describe('posting a day to Tempo', () => {
   const tempoApp = (api: TempoApi | null) => {

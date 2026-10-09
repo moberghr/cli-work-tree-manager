@@ -537,6 +537,8 @@ export interface TimeSessionEvidence {
   label: string;
   key: string | null;
   minutes: number;
+  /** Its ticket is the AI step's guess (classify.ts), not its branch or Jira key. */
+  guessed?: true;
 }
 
 export interface TimeCommitEvidence {
@@ -544,6 +546,27 @@ export interface TimeCommitEvidence {
   sha: string;
   subject: string;
   keys: string[];
+  guessed?: true;
+}
+
+/** A meeting from Outlook that day (Graph): it goes to its ticket when the AI step places it, else to the gap ticket. */
+export interface TimeMeetingEvidence {
+  subject: string;
+  /** Local `HH:MM`. */
+  start: string;
+  end: string;
+  minutes: number;
+  key?: string | null;
+  guessed?: true;
+}
+
+/** A Teams chat you wrote in that day: how many of your messages, a few of them shortened (what the AI step reads). */
+export interface TimeChatEvidence {
+  chat: string;
+  messages: number;
+  sample: string[];
+  key?: string | null;
+  guessed?: true;
 }
 
 /** An issue you did something to that day in Jira (moved it). */
@@ -557,6 +580,10 @@ export interface TimeEvidence {
   sessions: TimeSessionEvidence[];
   commits: TimeCommitEvidence[];
   jira: TimeJiraEvidence[];
+  meetings?: TimeMeetingEvidence[];
+  chats?: TimeChatEvidence[];
+  /** What the AI step last placed (a hash of the unplaced items): it isn't asked again until they change. */
+  classifiedFor?: string;
 }
 
 /** empty: nothing built yet; draft: the suggestion; edited: your rows; off: a day off; not-workday: a weekend or holiday;
@@ -596,6 +623,19 @@ export interface TimeDayWire {
   posted: { at: string; entries: TimeEntryWire[] } | null;
   /** Whether it can post (a Tempo token and your account id), or why not. Set by the server. */
   posting?: { ready: boolean; why: string | null };
+}
+
+/** GET /api/time/graph: Outlook and Teams for the Time tab (Microsoft Graph). */
+export interface TimeGraphWire {
+  /** Can it sign in at all (an app registration), or why not. */
+  ready: boolean;
+  why: string | null;
+  /** Signed in as. */
+  account: string | null;
+  /** A sign-in under way: the code to enter at the address. */
+  login: { userCode: string; verificationUri: string; expiresAt: string } | null;
+  /** How the last sign-in went wrong. */
+  error: string | null;
 }
 
 /** POST /api/time/:day/post */

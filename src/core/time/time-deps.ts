@@ -2,7 +2,9 @@ import { loadConfig } from '../platform/config.js';
 import { loadHistory } from '../sessions/history.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
-import { issueIdOf, searchIssues } from '../jira/jira.js';
+import { fetchMyIssues, issueIdOf, searchIssues } from '../jira/jira.js';
+import { runInternal } from '../diff/checkpoint-summary.js';
+import { chatsOn, graphApp, graphToken, meetingsOn } from './graph.js';
 import { readIssueIds, rememberIssueId } from './time-store.js';
 import { ISSUE_KEY } from './allocate.js';
 import type { TimeDeps } from './time-days.js';
@@ -13,6 +15,11 @@ import { timeSettings } from './time-view.js';
  * `git log` in every enrolled repo (your commits, by each repo's
  * `user.email`), and Jira through `acli` (what you moved; titles).
  */
+async function graphTokenNow(): Promise<string | null> {
+  const app = graphApp(loadConfig()?.time?.graph, process.env);
+  return 'why' in app ? null : graphToken(app);
+}
+
 export function defaultTimeDeps(): TimeDeps {
   return {
     sessions: () => loadHistory(),
@@ -59,6 +66,17 @@ export function defaultTimeDeps(): TimeDeps {
       return Object.fromEntries(issues.map((i) => [i.key, i.summary]));
     },
     settings: () => timeSettings(loadConfig()?.time),
+    // Outlook and Teams only once you signed in (the Time tab's Connect): none otherwise.
+    meetings: async (day) => {
+      const token = await graphTokenNow();
+      return token ? meetingsOn(day, token) : undefined;
+    },
+    chats: async (day) => {
+      const token = await graphTokenNow();
+      return token ? chatsOn(day, token) : undefined;
+    },
+    candidates: async () => (await fetchMyIssues()).map((i) => ({ key: i.key, title: i.summary })),
+    classify: (prompt) => runInternal(prompt, 60_000, { small: true }),
     issueId: async (key) => {
       const known = readIssueIds()[key];
       if (known !== undefined) return known;

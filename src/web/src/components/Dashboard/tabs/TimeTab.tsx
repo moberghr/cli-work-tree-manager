@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { TimeDaySummary, TimeDaysWire, TimeDayWire, TimeEntryWire, TimePostWire } from '../../../../../core/api-types.js';
-import { fetchTimeDay, fetchTimeDays, postTimeDay, rebuildTimeDay, saveTimeDay } from '../../../api/panes.js';
+import type {
+  TimeDaySummary,
+  TimeDaysWire,
+  TimeDayWire,
+  TimeEntryWire,
+  TimeGraphWire,
+  TimePostWire,
+} from '../../../../../core/api-types.js';
+import {
+  connectTimeGraph,
+  disconnectTimeGraph,
+  fetchTimeDay,
+  fetchTimeDays,
+  fetchTimeGraph,
+  postTimeDay,
+  rebuildTimeDay,
+  saveTimeDay,
+} from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 
 /** "Thu 8 Oct". Pure. */
@@ -139,6 +155,7 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
           </p>
         )}
       </header>
+      <GraphLine />
       {days && !days.settings.gapTicket && (
         <p className="wd-time-hint">
           No ticket for the rest of the day is set, so it stays unallocated. Set <code>time.gapTicket</code> (and{' '}
@@ -336,12 +353,24 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
 
 function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id: string) => void }) {
   const ev = day.evidence;
-  if (!ev.sessions.length && !ev.commits.length && !ev.jira.length)
+  const meetings = ev.meetings ?? [];
+  const chats = ev.chats ?? [];
+  if (!ev.sessions.length && !ev.commits.length && !ev.jira.length && !meetings.length && !chats.length)
     return (
       <p className="wd-time-note">
         {day.builtAt ? 'Nothing found for this day.' : 'Not gathered yet: work does it in the background, or Gather again.'}
       </p>
     );
+  const ticket = (key: string | null | undefined, guessed?: true, none = 'no ticket') => (
+    <span className="wd-time-ev-key">
+      {key ?? none}
+      {guessed && (
+        <span className="wd-time-ai" title="Placed by the AI step: nothing in it named a ticket">
+          AI
+        </span>
+      )}
+    </span>
+  );
   return (
     <div className="wd-time-evidence">
       <h3>Why</h3>
@@ -352,7 +381,7 @@ function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id
               <button type="button" className="wd-link-button" onClick={() => onOpenSession(s.sessionId)}>
                 {s.label}
               </button>{' '}
-              <span className="wd-time-ev-key">{s.key ?? 'no ticket'}</span> · {s.minutes} min of Claude
+              {ticket(s.key, s.guessed)} · {s.minutes} min of Claude
             </li>
           ))}
         </ul>
@@ -361,7 +390,7 @@ function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id
         <ul aria-label="Commits">
           {ev.commits.map((c) => (
             <li key={c.sha}>
-              <span className="wd-time-ev-key">{c.keys.join(', ') || 'no ticket'}</span> {c.repo}: {c.subject}
+              {ticket(c.keys.join(', ') || null, c.guessed)} {c.repo}: {c.subject}
             </li>
           ))}
         </ul>
@@ -370,11 +399,79 @@ function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id
         <ul aria-label="Jira">
           {ev.jira.map((j) => (
             <li key={j.key}>
-              <span className="wd-time-ev-key">{j.key}</span> {j.summary} — {j.what}
+              {ticket(j.key)} {j.summary} — {j.what}
+            </li>
+          ))}
+        </ul>
+      )}
+      {meetings.length > 0 && (
+        <ul aria-label="Meetings">
+          {meetings.map((m, i) => (
+            <li key={i}>
+              {ticket(m.key, m.guessed, day.settings.gapTicket ?? 'no ticket')} {m.start}–{m.end} {m.subject} · {m.minutes} min
+            </li>
+          ))}
+        </ul>
+      )}
+      {chats.length > 0 && (
+        <ul aria-label="Chats">
+          {chats.map((c, i) => (
+            <li key={i}>
+              {ticket(c.key, c.guessed)} Teams: {c.chat} · {c.messages} message{c.messages === 1 ? '' : 's'} of yours
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/** Outlook and Teams: connect (a code to enter at Microsoft), signed in as, or why it can't. */
+function GraphLine() {
+  const [g, setG] = useState<TimeGraphWire | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetchTimeGraph().then(setG, () => setG(null));
+  }, []);
+  useEffect(() => load(), [load]);
+  useSse('/events', { events: { 'time-graph-changed': load } });
+  const run = (p: Promise<TimeGraphWire>) => {
+    setBusy(true);
+    setError(null);
+    p.then(setG, (e: Error) => setError(e.message)).finally(() => setBusy(false));
+  };
+  if (!g) return null;
+  return (
+    <p className="wd-time-graph">
+      Outlook &amp; Teams:{' '}
+      {g.account ? (
+        <>
+          meetings and chats from <strong>{g.account}</strong>{' '}
+          <button type="button" className="wd-link-button" disabled={busy} onClick={() => run(disconnectTimeGraph())}>
+            Disconnect
+          </button>
+        </>
+      ) : g.login ? (
+        <>
+          enter <strong className="wd-time-code">{g.login.userCode}</strong> at{' '}
+          <a href={g.login.verificationUri} target="_blank" rel="noreferrer">
+            {g.login.verificationUri.replace(/^https:\/\//, '')}
+          </a>{' '}
+          to connect (waiting…)
+        </>
+      ) : g.ready ? (
+        <>
+          not connected{' '}
+          <button type="button" className="wd-link-button" disabled={busy} onClick={() => run(connectTimeGraph())}>
+            Connect
+          </button>
+          {g.error && <span className="wd-time-error-inline"> · {g.error}</span>}
+        </>
+      ) : (
+        <span>{g.why}</span>
+      )}
+      {error && <span className="wd-time-error-inline"> · {error}</span>}
+    </p>
   );
 }

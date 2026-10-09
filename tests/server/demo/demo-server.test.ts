@@ -268,6 +268,10 @@ describe('demo server', () => {
     expect(await (await put({ dayOff: true })).json()).toMatchObject({ status: 'off', entries: [{ key: 'HR-1', hours: 7.5 }] });
     expect((await put({ entries: [{ key: 'PAY-12', hours: 1.1 }] })).status).toBe(400);
     await put({ dayOff: false });
+    expect(await get('/api/time/graph')).toMatchObject({ ready: true, account: null });
+    expect(await (await fetch(server.url + 'api/time/graph/connect', { method: 'POST' })).json()).toMatchObject({
+      login: { userCode: 'DEMO-1234' },
+    });
     const posted = await (await fetch(server.url + `api/time/${workday.day}/post`, { method: 'POST' })).json();
     expect(posted).toMatchObject({ posted: 1, failed: [], day: { status: 'posted' } });
   });

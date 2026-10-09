@@ -57,13 +57,20 @@ export function daysBetween(from: string, to: string): string[] {
   return out;
 }
 
-/** What the evidence says each ticket got: Claude minutes, or touched (a commit, a move). */
+/** What the evidence says each ticket got: Claude minutes, a meeting's minutes, or touched (a commit, a move, a chat). */
 export function activityOf(ev: TimeEvidence): TicketActivity[] {
   return [
     ...ev.sessions.filter((s) => s.key).map((s) => ({ key: s.key!, minutes: s.minutes })),
     ...ev.commits.flatMap((c) => c.keys.map((key) => ({ key, minutes: 0 }))),
     ...ev.jira.map((j) => ({ key: j.key, minutes: 0 })),
+    ...(ev.meetings ?? []).filter((m) => m.key).map((m) => ({ key: m.key!, minutes: 0, direct: m.minutes })),
+    ...(ev.chats ?? []).filter((c) => c.key).map((c) => ({ key: c.key!, minutes: 0 })),
   ];
+}
+
+/** Meeting minutes no ticket got (or the gap ticket got): the gap ticket keeps room for them. */
+export function unplacedMeetingMinutes(ev: TimeEvidence, gapTicket: string | null): number {
+  return (ev.meetings ?? []).filter((m) => !m.key || m.key === gapTicket).reduce((n, m) => n + m.minutes, 0);
 }
 
 export const settingsWire = (s: TimeSettings): TimeSettingsWire => ({
@@ -83,7 +90,7 @@ export function dayWireOf(day: string, settings: TimeSettings, rec: TimeDayRecor
   const workday = isWorkday(day, settings);
   const evidence = rec?.evidence ?? EMPTY;
   const dayOff = rec?.dayOff ?? false;
-  const s = suggestDay(activityOf(evidence), settings, { dayOff });
+  const s = suggestDay(activityOf(evidence), settings, { dayOff, reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket) });
   const edited = !!rec?.edited && !dayOff;
   const entries = edited ? rec!.edited! : s.entries;
   const posted = rec?.posted ?? null;
@@ -135,7 +142,18 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   for (const day of daysBetween(from, to).reverse()) {
     const rec = recs.get(day) ?? null;
     const workday = isWorkday(day, settings);
-    if (!workday && !(rec && (rec.evidence.sessions.length || rec.evidence.commits.length || rec.edited || rec.dayOff || rec.posted)))
+    if (
+      !workday &&
+      !(
+        rec &&
+        (rec.evidence.sessions.length ||
+          rec.evidence.commits.length ||
+          rec.evidence.meetings?.length ||
+          rec.edited ||
+          rec.dayOff ||
+          rec.posted)
+      )
+    )
       continue;
     const w = dayWireOf(day, settings, rec);
     days.push({ day, status: w.status, workday, total: w.total, tickets: w.entries.length });

@@ -32,6 +32,8 @@ export interface WorkConfig {
     projects?: string[];
     /** Posting to Tempo: the env variable with the token (default TEMPO_API_TOKEN) and your Jira account id (else JIRA_ACCOUNT_ID). */
     tempo?: { tokenEnv?: string; accountId?: string };
+    /** Outlook and Teams through Microsoft Graph: the app registration to sign in with (else GRAPH_CLIENT_ID / GRAPH_TENANT_ID). */
+    graph?: { clientId?: string; tenantId?: string };
   };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
