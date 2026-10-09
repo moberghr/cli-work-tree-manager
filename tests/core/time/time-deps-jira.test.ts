@@ -20,7 +20,7 @@ vi.mock('../../../src/core/jira/jira.js', () => ({
   issueIdOf: async () => null,
 }));
 
-const { jiraOn } = await import('../../../src/core/time/time-deps.js');
+const { jiraOn, defaultTimeDeps } = await import('../../../src/core/time/time-deps.js');
 
 afterEach(() => {
   jql.length = 0;
@@ -53,5 +53,17 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
     account.id = 'acc-1';
     account.updatedByFails = true;
     await expect(jiraOn('2026-10-07')).rejects.toThrow('not supported');
+  });
+
+  it("a day's Jira is read once until the next full run: a turn's run doesn't ask acli again", async () => {
+    const deps = defaultTimeDeps();
+    await deps.jiraMoved('2026-10-07');
+    const asked = jql.length;
+    deps.fresh?.('local');
+    await deps.jiraMoved('2026-10-07');
+    expect(jql.length).toBe(asked);
+    deps.fresh?.('all');
+    await deps.jiraMoved('2026-10-07');
+    expect(jql.length).toBeGreaterThan(asked);
   });
 });

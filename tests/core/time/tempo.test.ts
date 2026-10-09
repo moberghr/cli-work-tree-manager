@@ -123,6 +123,20 @@ describe("planDay (what to do to Tempo's day)", () => {
     expect(r).toMatchObject({ kept: 1, posted: 0, failed: [] });
   });
 
+  it('a worklog of ours you moved in Tempo: new rows start after where it is now, not where we put it', () => {
+    // Posted SD-1 at 09:00 for 2 h; you moved it to 15:00.
+    const p = planDay(
+      [
+        { key: 'SD-1', issueId: 1, seconds: 7200 },
+        { key: 'SD-2', issueId: 2, seconds: 3600 },
+      ],
+      [wl(10, 1, 7200, '15:00:00')],
+      [ours(10, 'SD-1', 1, 7200)],
+    );
+    expect(p.keep.map((k) => k.tempoWorklogId)).toEqual([10]);
+    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '17:00:00']]);
+  });
+
   it('new rows start where what stays ends, by its real start time (not 09:00 plus the hours)', () => {
     // By hand: an hour at 09:00 and two hours at 13:00 → the new row starts at 15:00, overlapping nothing.
     const p = planDay([{ key: 'SD-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);

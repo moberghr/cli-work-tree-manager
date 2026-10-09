@@ -18,7 +18,7 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-const { fetchMyIssues, fetchMyIssuesOrThrow, MY_ISSUES_JQL } = await import('../../../src/core/jira/jira.js');
+const { fetchMyIssues, fetchMyIssuesOrThrow, MY_ISSUES_JQL, myAccountId } = await import('../../../src/core/jira/jira.js');
 
 describe('your issues (the Jira tab)', () => {
   it("open by the status's category, not by resolution: a service desk sets one on issues still open (SSD-2465, Waiting for feedback)", async () => {
@@ -37,5 +37,12 @@ describe('your issues (the Jira tab)', () => {
     const search = calls.find((a) => a.includes('search'))!;
     expect(search).toContain('--paginate');
     expect(search).not.toContain('--limit');
+  });
+
+  it("your account id that can't be told (no assignee in the answer): not asked again for a while", async () => {
+    calls.length = 0;
+    expect(await myAccountId()).toBeNull(); // the made-up answer has no assignee
+    expect(await myAccountId()).toBeNull();
+    expect(calls.filter((a) => a.includes('assignee'))).toHaveLength(1);
   });
 });

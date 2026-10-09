@@ -395,6 +395,42 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(Object.keys(rec.titles).filter((k) => k.startsWith('PAY-'))).toEqual(['PAY-105']);
   });
 
+  it("within Claude Code's keep (30 days) a read of none is believed: minutes measured too high come down; a failed read keeps them", async () => {
+    const day = '2026-09-21';
+    const now = () => Date.parse('2026-09-23T12:00:00');
+    await buildDay(day, deps({ now }));
+    const fix = (s: { branch: string }) => s.branch === 'fix/thing';
+    // fix/thing now reads 0 (a correct read): gone from the day. chore/deps' read fails: kept.
+    const rec = await buildDay(
+      day,
+      deps({
+        now,
+        minutesOn: async (s) => {
+          if (s.branch === 'chore/deps') throw new Error('unreadable');
+          return fix(s) || s.branch === 'feat/idle' ? 0 : 30;
+        },
+      }),
+    );
+    expect(rec.evidence.sessions.map((s) => s.label).sort()).toEqual(['api · chore/deps', 'api · feat/SD-3850-pos-key']);
+  });
+
+  it('the AI step sees at most 50 candidates beyond the day, the hints first; a backlog that changes asks about no day again', async () => {
+    const prompts: string[] = [];
+    const backlog = (n: number) => Array.from({ length: n }, (_, i) => ({ key: `PAY-${100 + i}`, title: `Backlog ${i}` }));
+    const d = (candidates: Array<{ key: string; title: string }>) =>
+      deps({
+        sessions: () => [session({ branch: 'chore/pdf' })],
+        minutesOn: async () => 30,
+        commits: async () => [],
+        candidates: async () => candidates,
+        classify: async (prompt) => (prompts.push(prompt), '{"place":[]}'),
+      });
+    await buildDay('2026-05-11', d(backlog(200)));
+    expect((prompts[0].match(/^- PAY-/gm) ?? []).length).toBe(50);
+    await buildDay('2026-05-11', d(backlog(201))); // one more assigned to you
+    expect(prompts).toHaveLength(1);
+  });
+
   it('gathering a day twice at once (Gather again while the keeper builds) is one build', async () => {
     let calls = 0;
     const d = deps({

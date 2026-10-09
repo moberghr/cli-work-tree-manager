@@ -282,6 +282,16 @@ describe('posting a day to Tempo', () => {
     expect(day.status).toBe('changed'); // Tempo has the earlier rows: post again
   });
 
+  it('a post that put nothing in Tempo (every row refused) pins nothing: the day stays the suggestion', async () => {
+    const api = tempoWithState();
+    api.create.mockRejectedValue(new Error('Tempo post: 403 no permission'));
+    const a = tempoApp(api);
+    await send(a, 'POST', '/api/time/2026-09-25/rebuild');
+    const r = (await (await send(a, 'POST', '/api/time/2026-09-25/post')).json()) as TimePostWire;
+    expect(r.posted).toBe(0);
+    expect(r.day.edited).toBe(false);
+  });
+
   it("Tempo's day can't be read: nothing changed, and it says why", async () => {
     const api = fake();
     api.list.mockRejectedValue(new Error('Tempo list: 401 Unauthorized'));

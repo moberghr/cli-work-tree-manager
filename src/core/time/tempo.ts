@@ -105,7 +105,11 @@ export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[
   }
   // New rows start where everything that stays has ended (by its real start time), one after another, from 09:00;
   // never past midnight (Tempo refuses a start of 24:00 or later): a late one ends at 24:00 instead.
-  const ends = [...keep.map((k) => secondsOf(k.startTime) + k.seconds), ...byHand.map((w) => secondsOf(w.startTime) + w.timeSpentSeconds)];
+  // Where each one that stays is now (a worklog of ours you moved in Tempo is where you put it, not where we did).
+  const ends = [
+    ...keep.map((k) => secondsOf(live.get(k.tempoWorklogId)?.startTime ?? k.startTime) + k.seconds),
+    ...byHand.map((w) => secondsOf(w.startTime) + w.timeSpentSeconds),
+  ];
   let at = Math.max(DAY_START_SECONDS, ...ends);
   const add = todo.map((r) => {
     const start = Math.max(0, Math.min(at, DAY_SECONDS - r.seconds));

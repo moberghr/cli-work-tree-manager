@@ -1381,12 +1381,13 @@ a.wd-pr-chip:hover {
   height: auto;
   min-height: 0;
 }
-/* The diff filling the window (its toolbar's Full screen; Esc leaves): over the top bar, the rail and the
-   session's header and tabs. Below dialogs, toasts and the update card, which still show over it. */
+/* The diff filling the window (its toolbar's Full screen; Esc leaves): over the top bar, the rail (20) and the
+   session's header and tabs — and under everything a key can open over it: the Ctrl+K assistant (40), the
+   panels (50–60), menus and dialogs (1000), toasts and the update card. */
 .wd-session-subtab-body.wd-diff-full {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 35;
   background: var(--bg);
 }
 .wd-diff-open-page {

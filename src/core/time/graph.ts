@@ -322,6 +322,8 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
     all.push(...(p.value ?? []));
     next = p['@odata.nextLink'];
   }
+  // Cut at the page limit: not the whole day — a failed read, so the day keeps the meetings it had.
+  if (next) throw new Error(`more calendar items than ${MAX_PAGES} pages`);
   // Each meeting within the day (a three-day offsite is this day's part of it), in order; time two meetings
   // share counts once (the later one gets only what the earlier didn't cover), so a day never holds more than it has.
   const events = all
@@ -476,11 +478,11 @@ export function plain(html: string): string {
   return html
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&') // last: `&amp;lt;` is the text "&lt;", not "<"
     .replace(/\s+/g, ' ')
     .trim();
 }

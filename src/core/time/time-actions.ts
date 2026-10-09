@@ -47,7 +47,10 @@ async function postNow(day: string, deps: TimeDeps, tempo: { api: TempoApi; acco
     // What you posted is what you reviewed: pinned as your rows, so a later rebuild (late turns, a new AI guess,
     // a changed setting) shows as a new suggestion beside it rather than turning the day "changed".
     // Only if the day still has no rows of yours: a save made while Tempo was being called wins.
-    ...(w.edited || w.dayOff ? {} : { editedIfUnset: w.entries.map((e) => ({ key: e.key, hours: e.hours })) }),
+    // And only when something of it is in Tempo now: a post that put nothing there pins nothing.
+    ...(w.edited || w.dayOff || r.posted + r.kept + r.coveredByHand === 0
+      ? {}
+      : { editedIfUnset: w.entries.map((e) => ({ key: e.key, hours: e.hours })) }),
     // What Tempo has now: a row that failed isn't in it, an old worklog that couldn't go still is (the day reads "changed": post again).
     posted: {
       at: new Date().toISOString(),

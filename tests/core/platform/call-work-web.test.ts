@@ -49,12 +49,19 @@ describe('callWorkWeb', () => {
     expect(await callWorkWeb('POST', '/api/refuse', {})).toEqual({ ok: false, status: 409, error: 'it is archived: restore it first' });
   });
 
-  it('a work web that doesn’t answer in time: status 0, not a hang', async () => {
+  it('a work web that doesn’t answer in time: not a hang, and NOT "none running" (-1) — it may still be at it', async () => {
     await serve(() => {}); // never answers
     expect(await callWorkWeb('GET', '/api/x', undefined, 300)).toMatchObject({
       ok: false,
-      status: 0,
-      error: expect.stringContaining('did not answer'),
+      status: -1,
+      error: expect.stringContaining('did not answer in time'),
     });
+  });
+
+  it('a recorded address nothing listens on (a work web that ended): none running (0)', async () => {
+    await serve(() => {});
+    await new Promise<void>((r) => server!.close(() => r()));
+    server = null;
+    expect(await callWorkWeb('GET', '/api/x', undefined, 2000)).toMatchObject({ ok: false, status: 0 });
   });
 });

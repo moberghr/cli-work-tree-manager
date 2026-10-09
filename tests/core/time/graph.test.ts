@@ -247,6 +247,20 @@ describe('meetings and chats', () => {
     expect(graphTime(undefined)).toBeNaN();
   });
 
+  it('a calendar cut at the page limit is a failed read (the day keeps its meetings), not the day', async () => {
+    const endless = vi.fn(async () =>
+      json({
+        value: [{ subject: 'Hold', start: { dateTime: '2026-10-08T09:00:00' }, end: { dateTime: '2026-10-08T09:30:00' } }],
+        '@odata.nextLink': 'https://graph.microsoft.com/v1.0/more',
+      }),
+    ) as unknown as typeof fetch;
+    await expect(meetingsOn('2026-10-08', 'tok', endless)).rejects.toThrow('more calendar items than');
+  });
+
+  it("a message's text decoded once: shown '&lt;script&gt;' stays that text", () => {
+    expect(plain('<p>&amp;lt;script&amp;gt; &amp; more</p>')).toBe('&lt;script&gt; & more');
+  });
+
   it('a calendar with more than a page of items is read to its end', async () => {
     const urls: string[] = [];
     const fetchImpl = vi.fn(async (url: string | URL) => {

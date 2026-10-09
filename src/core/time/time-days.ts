@@ -5,7 +5,7 @@ import { issueKeys } from './allocate.js';
 import { applyPlacement, classifyPrompt, parsePlacement, placementOf, unplacedHash, unplacedItems } from './classify.js';
 import { readDay, readDays, saveBuilt } from './time-store.js';
 import { hintKey } from './hints.js';
-import { activityOf, addDays, dayWireOf, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
+import { activityOf, addDays, dayWireOf, localDay, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
 
 /**
  * The Time tab's days, gathered and stored: what was worked on each day
@@ -47,6 +47,12 @@ export interface TimeDeps {
   issueId?: (key: string) => Promise<number | null>;
   now?: () => number;
 }
+
+/** How long Claude Code keeps its transcripts (its `cleanupPeriodDays` default): a day older reads nothing, not "none". */
+export const TRANSCRIPTS_KEPT_DAYS = 30;
+
+/** Candidate tickets beyond the day's own that the AI step is shown. */
+export const CANDIDATES_SHOWN = 50;
 
 /** Sessions' minutes read at once (each read goes through a session's transcripts). */
 const MINUTES_AT_ONCE = 4;
@@ -104,12 +110,14 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   const start = Date.parse(`${day}T00:00:00`);
   const end = Date.parse(`${addDays(day, 1)}T00:00:00`);
   const could = all.filter((s) => !(Date.parse(s.createdAt) >= end) && !(Date.parse(s.archivedAt ?? '') < start));
-  const read: number[] = [];
+  // Each session's minutes, or null when its read failed.
+  const read: Array<number | null> = [];
   for (let i = 0; i < could.length; i += MINUTES_AT_ONCE)
-    read.push(...(await Promise.all(could.slice(i, i + MINUTES_AT_ONCE).map((s) => deps.minutesOn(s, day).then(Math.round, () => 0)))));
+    read.push(...(await Promise.all(could.slice(i, i + MINUTES_AT_ONCE).map((s) => deps.minutesOn(s, day).then(Math.round, () => null)))));
+  const unread = new Set(could.filter((_, i) => read[i] === null).map(sessionIdFor));
   for (const [i, s] of could.entries()) {
     const minutes = read[i];
-    if (minutes <= 0) continue;
+    if (minutes === null || minutes <= 0) continue;
     const label = `${s.target} · ${s.title?.trim() || s.branch}`;
     sessions.push({
       sessionId: sessionIdFor(s),
@@ -123,10 +131,15 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     // Before the reach of the work-time reader nothing can be read again: the day keeps its sessions.
     if (deps.minutesFrom && day < deps.minutesFrom()) sessions = had.sessions;
     else {
-      // A session the day had that reads nothing now — deleted since, its transcripts gone (Claude Code keeps
-      // them about 30 days), or a read that failed — keeps its minutes: a day's past work doesn't shrink.
-      const read = new Set(sessions.map((x) => x.sessionId));
-      sessions.push(...had.sessions.filter((h) => !read.has(h.sessionId)));
+      // A session the day had keeps its minutes when they can't be read now: deleted since, its read failed, or
+      // the day is past what Claude Code keeps of its transcripts (about 30 days). Read now as nothing — a
+      // successful read — it had none: a figure measured too high comes down.
+      const ids = new Set(all.map(sessionIdFor));
+      const transcriptsGone = day < addDays(localDay(deps.now?.() ?? Date.now()), -(TRANSCRIPTS_KEPT_DAYS - 1));
+      const got = new Set(sessions.map((x) => x.sessionId));
+      sessions.push(
+        ...had.sessions.filter((h) => !got.has(h.sessionId) && (!ids.has(h.sessionId) || unread.has(h.sessionId) || transcriptsGone)),
+      );
     }
   }
   const commits = (await deps.commits(day).catch(() => had?.commits ?? [])).map(({ repo, sha, subject }) => {
@@ -178,7 +191,7 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   }
   // A placeholder (to create in Jira) has no title there: the hint's summary.
   for (const h of hinted) if (h.title) titles[h.key] ??= h.title;
-  evidence = await placeTheRest(evidence, prev?.evidence, titles, settings, deps, [...assigned, ...hinted]);
+  evidence = await placeTheRest(evidence, prev?.evidence, titles, settings, deps, [...hinted, ...assigned]);
   // A ticket the AI step put something on has its title kept (only those).
   for (const c of [...assigned, ...hinted])
     if (c.title && !titles[c.key] && activityOf(evidence).some((a) => a.key === c.key)) titles[c.key] = c.title;
@@ -207,17 +220,16 @@ async function placeTheRest(
   if (!deps.classify) return ev;
   const items = unplacedItems(ev);
   if (!items.length) return ev;
-  // The prompt's titles: the day's, and the candidates' — not kept with the day (a whole backlog of them).
+  // Candidates beyond the day's own: at most CANDIDATES_SHOWN of them (the hints, then your most recently updated
+  // issues) — a backlog of hundreds would only make the prompt long. Their titles aren't kept with the day.
+  const shown = extra.slice(0, CANDIDATES_SHOWN);
   const promptTitles: Record<string, string> = { ...titles };
-  for (const c of extra) promptTitles[c.key] ??= c.title;
-  const keys = [
-    ...new Set(
-      [...activityOf(ev).map((a) => a.key), ...extra.map((c) => c.key), settings.gapTicket, settings.timeOffTicket].filter(
-        (k): k is string => !!k,
-      ),
-    ),
-  ];
-  const hash = unplacedHash(items, keys);
+  for (const c of shown) promptTitles[c.key] ??= c.title;
+  const own = [...activityOf(ev).map((a) => a.key), settings.gapTicket, settings.timeOffTicket].filter((k): k is string => !!k);
+  const keys = [...new Set([...own, ...shown.map((c) => c.key)])];
+  // Asked again when the day's items or its own tickets change — not when an issue is assigned or closed somewhere
+  // in your backlog: that would ask again about every day, and move placements on days long done.
+  const hash = unplacedHash(items, [...new Set(own)]);
   if (prev?.classifiedFor === hash) return applyPlacement(ev, placementOf(prev), hash);
   const answer = await deps
     .classify(

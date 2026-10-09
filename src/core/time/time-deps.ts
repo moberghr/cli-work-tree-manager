@@ -169,12 +169,24 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
   let chats: { from: string; at: number; read: Promise<ChatsRead> } | null = null;
   let assigned: { at: number; list: Promise<Array<{ key: string; title: string }>> } | null = null;
+  // What a turn doesn't move, read once until the next full run: a day's meetings, its Jira, its tickets' titles
+  // (network: Graph and acli, every two minutes while Claude works otherwise).
+  const slow = new Map<string, { at: number; read: Promise<unknown> }>();
+  const once = <T>(key: string, read: () => Promise<T>): Promise<T> => {
+    const c = slow.get(key);
+    if (c && Date.now() - c.at <= READ_FRESH_MS) return c.read as Promise<T>;
+    const p = read();
+    slow.set(key, { at: Date.now(), read: p });
+    p.catch(() => slow.delete(key)); // a failed read isn't kept
+    return p;
+  };
   return {
     fresh: (what = 'all') => {
       workTime.clear();
       logs.clear();
       if (what === 'local') return;
       chats = null;
+      slow.clear();
       assigned = null;
     },
     sessions: () => loadHistory(),
@@ -218,14 +230,14 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
       }
       return out;
     },
-    jiraMoved: jiraOn,
-    titles: (keys) => titlesOf(keys, searchIssuesOrThrow),
+    jiraMoved: (day) => once(`jira:${day}`, () => jiraOn(day)),
+    titles: (keys) => once(`titles:${[...keys].sort().join(',')}`, () => titlesOf(keys, searchIssuesOrThrow)),
     settings: () => timeSettings(loadConfig()?.time),
     // Outlook and Teams only once you signed in (the Time tab's Connect): none otherwise. A sign-in that stopped
     // working, or no network, throws (graphToken): the day keeps the meetings and chats it had.
     meetings: async (day) => {
       const token = await graphTokenNow();
-      return token ? meetingsOn(day, token) : undefined;
+      return token ? once(`meetings:${day}`, () => meetingsOn(day, token)) : undefined;
     },
     chats: async (day) => {
       const token = await graphTokenNow();

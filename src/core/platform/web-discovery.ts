@@ -243,7 +243,10 @@ export type WorkWebAnswer<T> =
  * Call a route of the running work web (what only it can do: type into a
  * terminal it owns, start a Claude in the PTY host). Unlike askWorkWeb, a
  * refusal comes back with its reason, and "no work web" is its own answer
- * (status 0), so the caller can say how to start one.
+ * (status 0: none recorded, or the connection refused), so the caller can say
+ * how to start one — or do it itself. A work web that didn't answer in time
+ * (or dropped the connection) is NOT "none" (status -1): it may still be doing
+ * it, and doing it here too would do it twice (two posts to Tempo).
  */
 export async function callWorkWeb<T>(
   method: 'GET' | 'POST' | 'PUT',
@@ -263,6 +266,12 @@ export async function callWorkWeb<T>(
     if (res.ok && json) return { ok: true, body: json };
     return { ok: false, status: res.status, error: typeof json?.error === 'string' ? json.error : `work web answered ${res.status}` };
   } catch (err) {
-    return { ok: false, status: 0, error: `work web did not answer (${(err as Error).message})` };
+    const code = (err as { cause?: { code?: string } }).cause?.code;
+    if (code === 'ECONNREFUSED') return { ok: false, status: 0, error: 'work web is not running (its address answers nothing)' };
+    return {
+      ok: false,
+      status: -1,
+      error: `work web did not answer in time (${(err as Error).message}): it may still be at it — look again in a moment`,
+    };
   }
 }

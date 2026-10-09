@@ -117,6 +117,9 @@ export async function issueIdOf(key: string): Promise<number | null> {
 }
 
 let accountIdCache: string | null = null;
+/** When it last couldn't tell: not asked again for a while (each ask is an acli process, and every Jira lookup asks). */
+let accountIdMissedAt = 0;
+const ACCOUNT_RETRY_MS = 10 * 60_000;
 
 /**
  * Your Jira account id (what `updatedBy()` wants: acli refuses `currentUser()`
@@ -125,6 +128,7 @@ let accountIdCache: string | null = null;
  */
 export async function myAccountId(): Promise<string | null> {
   if (accountIdCache) return accountIdCache;
+  if (Date.now() - accountIdMissedAt < ACCOUNT_RETRY_MS) return null;
   try {
     const stdout = await execAsync(
       'acli',
@@ -147,8 +151,9 @@ export async function myAccountId(): Promise<string | null> {
     const id = (list[0] as { fields?: { assignee?: { accountId?: unknown } } } | undefined)?.fields?.assignee?.accountId;
     accountIdCache = typeof id === 'string' && id ? id : null;
   } catch {
-    return null;
+    accountIdCache = null;
   }
+  if (!accountIdCache) accountIdMissedAt = Date.now();
   return accountIdCache;
 }
 
