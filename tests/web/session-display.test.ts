@@ -197,7 +197,11 @@ describe('SessionRail rows', () => {
     act(() =>
       root.render(
         createElement(SessionRail, {
-          sessions: [s({ id: 'q', attention: att('idle', true) }), s({ id: 'n', attention: att('needs_input', false, 'Allow Bash?') })],
+          // Created at different times, so the rail's order (newest first) doesn't hang on the clock ticking between them.
+          sessions: [
+            s({ id: 'q', createdAt: minsAgo(900), attention: att('idle', true) }),
+            s({ id: 'n', createdAt: minsAgo(1000), attention: att('needs_input', false, 'Allow Bash?') }),
+          ],
           activeSessionId: 'q',
           onSelect: () => {},
           onNewWorktree: () => {},
