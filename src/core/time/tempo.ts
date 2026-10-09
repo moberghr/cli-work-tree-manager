@@ -46,6 +46,8 @@ export interface DayPlan {
   remove: PostedWorklog[];
   /** Rows a worklog you made by hand already covers (same issue and time): not posted again. */
   coveredByHand: Array<DayRow & { tempoWorklogId: number }>;
+  /** Rows on an issue you logged by hand for another time: not posted (Tempo would have the issue twice) — yours to settle. */
+  differsByHand: Array<DayRow & { handSeconds: number }>;
   /** To post, with their start times. */
   add: Array<DayRow & { startTime: string }>;
   /** Your own worklogs that day that no row matches: left alone, and said. */
@@ -71,6 +73,7 @@ export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[
   const byHand = inTempo.filter((w) => !ourIds.has(w.tempoWorklogId));
   const keep: PostedWorklog[] = [];
   const coveredByHand: DayPlan['coveredByHand'] = [];
+  const differsByHand: DayPlan['differsByHand'] = [];
   const usedHand = new Set<number>();
   const todo: DayRow[] = [];
   const left = [...mine];
@@ -87,6 +90,12 @@ export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[
       coveredByHand.push({ ...r, tempoWorklogId: h.tempoWorklogId });
       continue;
     }
+    const other = byHand.filter((w) => !usedHand.has(w.tempoWorklogId) && w.issueId === r.issueId);
+    if (other.length) {
+      for (const w of other) usedHand.add(w.tempoWorklogId);
+      differsByHand.push({ ...r, handSeconds: other.reduce((n, w) => n + w.timeSpentSeconds, 0) });
+      continue;
+    }
     todo.push(r);
   }
   // New rows start where everything that stays has ended (by its real start time), one after another, from 09:00;
@@ -98,7 +107,7 @@ export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[
     at = start + r.seconds;
     return { ...r, startTime: hhmmss(start) };
   });
-  return { keep, remove: left, coveredByHand, add, otherByHand: byHand.filter((w) => !usedHand.has(w.tempoWorklogId)) };
+  return { keep, remove: left, coveredByHand, differsByHand, add, otherByHand: byHand.filter((w) => !usedHand.has(w.tempoWorklogId)) };
 }
 
 /** The calls (tempoClient has the real ones). */
@@ -208,6 +217,12 @@ export async function postDay(
     else rows.push({ key: e.key, issueId, seconds: Math.round(e.hours * 3600) });
   }
   const plan = planDay(rows, await deps.api.list(deps.accountId, day), ours);
+  const hours = (sec: number) => `${Math.round((sec / 3600) * 100) / 100} h`;
+  for (const d of plan.differsByHand)
+    failed.push({
+      key: d.key,
+      error: `you logged ${hours(d.handSeconds)} on it by hand in Tempo (this row: ${hours(d.seconds)}): change one of them`,
+    });
   const now: PostedWorklog[] = [...plan.keep];
   const stuck: PostedWorklog[] = [];
   let removed = 0;

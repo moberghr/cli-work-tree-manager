@@ -106,8 +106,11 @@ async function readOn(
   }
 }
 
-/** How long the session's Claude worked: in all, per day (the last two weeks), and the prompts it was given. */
-/** `days`: how far back `byDay` reaches (the Time tab's catch-up asks for its own). */
+/**
+ * How long the session's Claude worked: in all, per day (the last `days`, two
+ * weeks unless asked — the Time tab's catch-up asks for its own), and the
+ * prompts it was given.
+ */
 export async function sessionWorkTime(s: WorktreeSession, now = Date.now(), days = DAYS_SHOWN): Promise<WorkTimeWire> {
   const steps: WorkStep[] = [];
   let prompts = 0;

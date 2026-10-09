@@ -99,7 +99,8 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
 export async function fetchMyIssuesOrThrow(): Promise<JiraIssue[]> {
   const probe = await probeAcli();
   if (!probe.available) throw new Error('acli is not available (installed and signed in?)');
-  const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', MY_ISSUES_JQL, '--json', '--limit', '50'], 15000);
+  // All of them, not the 50 most recently updated: one the watch never saw would look newly assigned once it's updated.
+  const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', MY_ISSUES_JQL, '--json', '--paginate'], 60_000);
   return stdout ? parseIssuesJson(stdout, probe.siteUrl) : [];
 }
 

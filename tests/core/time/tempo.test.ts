@@ -75,6 +75,32 @@ describe("planDay (what to do to Tempo's day)", () => {
     expect(p.remove).toEqual([]);
   });
 
+  it('an issue you logged by hand for another time: its row is not posted (Tempo would have it twice), and says why', async () => {
+    const p = planDay(
+      [
+        { key: 'PAY-1', issueId: 1, seconds: 3 * 3600 },
+        { key: 'SD-2', issueId: 2, seconds: 3600 },
+      ],
+      [wl(50, 1, 2 * 3600)],
+      [],
+    );
+    expect(p.differsByHand).toEqual([{ key: 'PAY-1', issueId: 1, seconds: 10800, handSeconds: 7200 }]);
+    expect(p.add.map((a) => a.key)).toEqual(['SD-2']);
+    expect(p.otherByHand).toEqual([]);
+    const api = { list: vi.fn(async () => [wl(50, 1, 2 * 3600)]), create: vi.fn(async () => 9), remove: vi.fn(async () => {}) };
+    const r = await postDay(
+      '2026-10-08',
+      [
+        { key: 'PAY-1', hours: 3 },
+        { key: 'SD-2', hours: 1 },
+      ],
+      [],
+      { api, accountId: 'a', issueId: async (k) => ({ 'PAY-1': 1, 'SD-2': 2 })[k] ?? null },
+    );
+    expect(api.create).toHaveBeenCalledTimes(1);
+    expect(r.failed).toEqual([{ key: 'PAY-1', error: 'you logged 2 h on it by hand in Tempo (this row: 3 h): change one of them' }]);
+  });
+
   it('new rows start where what stays ends, by its real start time (not 09:00 plus the hours)', () => {
     // By hand: an hour at 09:00 and two hours at 13:00 → the new row starts at 15:00, overlapping nothing.
     const p = planDay([{ key: 'SD-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);

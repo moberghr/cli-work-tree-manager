@@ -240,9 +240,8 @@ describe('POST /api/assistant/context', () => {
     const { updateDay } = await import('../../../src/core/time/time-store.js');
     expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('On the Time tab: 2026-10-08, empty.');
     updateDay('2026-10-08', { edited: [{ key: 'SD-1', hours: 7.5 }] });
-    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain(
-      'On the Time tab: 2026-10-08, edited. Rows: SD-1 7.5 h',
-    );
+    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('On the Time tab: 2026-10-08, edited.');
+    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('Rows: SD-1 7.5 h');
     await post({ tab: 'time', day: '../etc' });
     expect(assistantContextDay()).toBeNull();
     await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day

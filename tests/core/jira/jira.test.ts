@@ -18,7 +18,7 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-const { fetchMyIssues, MY_ISSUES_JQL } = await import('../../../src/core/jira/jira.js');
+const { fetchMyIssues, fetchMyIssuesOrThrow, MY_ISSUES_JQL } = await import('../../../src/core/jira/jira.js');
 
 describe('your issues (the Jira tab)', () => {
   it("open by the status's category, not by resolution: a service desk sets one on issues still open (SSD-2465, Waiting for feedback)", async () => {
@@ -29,5 +29,13 @@ describe('your issues (the Jira tab)', () => {
     expect(issues.map((i) => [i.key, i.status, i.url])).toEqual([
       ['SSD-2465', 'Waiting for feedback', 'https://example.atlassian.net/browse/SSD-2465'],
     ]);
+  });
+
+  it('for the Jira watch: all of them (paginated, not the 50 most recently updated)', async () => {
+    calls.length = 0;
+    expect((await fetchMyIssuesOrThrow()).map((i) => i.key)).toEqual(['SSD-2465']);
+    const search = calls.find((a) => a.includes('search'))!;
+    expect(search).toContain('--paginate');
+    expect(search).not.toContain('--limit');
   });
 });

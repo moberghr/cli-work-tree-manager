@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hintKey, placeholderKeys, type TicketHint } from '../../../src/core/time/hints.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
-import { buildDay, dayWire, type TimeDeps } from '../../../src/core/time/time-days.js';
+import { buildDay, dayWire, daysWire, type TimeDeps } from '../../../src/core/time/time-days.js';
 import { readDay } from '../../../src/core/time/time-store.js';
 import { describeTimeDay, type TimeConfig } from '../../../src/core/time/time-view.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -72,6 +72,20 @@ describe('a day built with what the timesheet tool had', () => {
     // Jira can't be asked this time: what it said before stands.
     await buildDay('2026-09-15', deps({ titles: async () => Promise.reject(new Error('acli')) }));
     expect(readDay('2026-09-15')?.resolved).toEqual(['SD-1']);
+  });
+
+  it('a weekend day with only Jira moves or chats is listed (its tickets get time)', async () => {
+    await buildDay(
+      '2026-09-12', // a Saturday
+      deps({
+        sessions: () => [],
+        commits: async () => [],
+        meetings: async () => [],
+        chats: async () => [],
+        jiraMoved: async () => [{ key: 'SD-1', summary: 'One', what: 'moved (now Done)' }],
+      }),
+    );
+    expect(daysWire('2026-09-12', '2026-09-12', S).days.map((d) => d.day)).toEqual(['2026-09-12']);
   });
 
   it('a vacation day (time.vacation) is a day off on the time-off ticket, whatever was ticked or worked', async () => {

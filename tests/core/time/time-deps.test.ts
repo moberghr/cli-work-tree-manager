@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { commitsWrittenOn, titlesOf } from '../../../src/core/time/time-deps.js';
+import { commitsWrittenOn, resetRefusedKeys, titlesOf } from '../../../src/core/time/time-deps.js';
 
 describe('your commits that day (time-deps.ts)', () => {
   // Author dates as git prints them (%aI); local times, so the test holds in any time zone.
@@ -13,6 +13,8 @@ describe('your commits that day (time-deps.ts)', () => {
       line('a3', at(8, 16), 'noreply@github.com', 'SD-1: the feature (#212)'),
       line('a4', at(8, 17), 'you@moberg.hr', 'a subject\twith a tab'),
       line('a5', 'not a date', 'you@moberg.hr', 'broken'),
+      line('a6', at(8, 18), 'you@moberg.hr', 'index on feat/PAY-12-x: abc123 wip'), // a stash's own commits
+      line('a7', at(8, 18), 'you@moberg.hr', 'untracked files on feat/PAY-12-x: abc123 wip'),
     ].join('\n');
     expect(commitsWrittenOn(out, '2026-10-08')).toEqual([
       { sha: 'a1', subject: 'SD-1: written today' },
@@ -44,6 +46,23 @@ describe("the day's ticket titles (titlesOf)", () => {
       'SD-1': { title: 'One', done: true },
       'SD-2': { title: 'Two', done: false },
     });
+  });
+
+  it("a key Jira refused stays out of the next searches (an hour), so a day with one isn't asked key by key every rebuild", async () => {
+    resetRefusedKeys();
+    search.mockClear();
+    const t0 = Date.parse('2026-10-08T10:00:00Z');
+    await titlesOf(['SD-1', 'FOO-12', 'SD-2'], search, t0);
+    search.mockClear();
+    expect(await titlesOf(['SD-1', 'FOO-12', 'SD-2'], search, t0 + 60_000)).toEqual({
+      'SD-1': { title: 'One', done: true },
+      'SD-2': { title: 'Two', done: false },
+    });
+    expect(search).toHaveBeenCalledTimes(1); // one search, without FOO-12
+    search.mockClear();
+    await titlesOf(['SD-1', 'FOO-12', 'SD-2'], search, t0 + 2 * 3600_000); // an hour on: asked again
+    expect(search.mock.calls.some(([q]) => q.includes('FOO-12'))).toBe(true);
+    resetRefusedKeys();
   });
 
   it('acli down (every search refused): throws, so the day keeps what it had', async () => {

@@ -80,7 +80,14 @@ export function createTimeKeeper(
     busy = (async () => {
       do {
         again = false;
-        await runNow();
+        // Never a rejection: callers fire it and forget (work web), and an unhandled one ends the process.
+        await runNow().catch((err: Error) => {
+          try {
+            opts.activity?.start('time', 'Updating the Time tab').fail(err.message);
+          } catch {
+            /* nothing more to tell */
+          }
+        });
       } while (again);
     })().finally(() => (busy = null));
     return busy;

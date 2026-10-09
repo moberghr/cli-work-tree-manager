@@ -5,7 +5,7 @@ import { issueKeys } from './allocate.js';
 import { applyPlacement, classifyPrompt, parsePlacement, placementOf, unplacedHash, unplacedItems } from './classify.js';
 import { readDay, readDays, saveBuilt } from './time-store.js';
 import { hintKey } from './hints.js';
-import { activityOf, dayWireOf, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
+import { activityOf, addDays, dayWireOf, daysWireOf, sessionTicket, type TimeConfig, type TimeDayRecord } from './time-view.js';
 
 /**
  * The Time tab's days, gathered and stored: what was worked on each day
@@ -40,6 +40,9 @@ export interface TimeDeps {
   issueId?: (key: string) => Promise<number | null>;
   now?: () => number;
 }
+
+/** Sessions' minutes read at once (each read goes through a session's transcripts). */
+const MINUTES_AT_ONCE = 4;
 
 /** Builds under way, per day: a second (Gather again while the keeper builds) gets the first one's answer. */
 const building = new Map<string, Promise<TimeDayRecord>>();
@@ -84,8 +87,15 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     ...Object.keys(hints ?? {}),
   ]);
   let sessions: TimeEvidence['sessions'] = [];
-  for (const s of all) {
-    const minutes = Math.round(await deps.minutesOn(s, day).catch(() => 0));
+  // Only sessions that could have worked that day (made by its end, not archived before it began), read a few at a time.
+  const start = Date.parse(`${day}T00:00:00`);
+  const end = Date.parse(`${addDays(day, 1)}T00:00:00`);
+  const could = all.filter((s) => !(Date.parse(s.createdAt) >= end) && !(Date.parse(s.archivedAt ?? '') < start));
+  const read: number[] = [];
+  for (let i = 0; i < could.length; i += MINUTES_AT_ONCE)
+    read.push(...(await Promise.all(could.slice(i, i + MINUTES_AT_ONCE).map((s) => deps.minutesOn(s, day).then(Math.round, () => 0)))));
+  for (const [i, s] of could.entries()) {
+    const minutes = read[i];
     if (minutes <= 0) continue;
     const label = `${s.target} · ${s.title?.trim() || s.branch}`;
     sessions.push({
