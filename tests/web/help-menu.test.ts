@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { UpdateWire } from '../../src/core/api-types.js';
 import { HelpMenu, updateStatus } from '../../src/web/src/components/Dashboard/HelpMenu.js';
+import { versionMismatch } from '../../src/core/updates/updates.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -111,5 +112,24 @@ describe('HelpMenu (the top bar)', () => {
     );
     expect(updateStatus(wire({}))).toBeNull();
     expect(updateStatus(null)).toBeNull();
+  });
+
+  it("the app and its window's work web on different versions: a warning sign in the pill, and in the menu why and what to do", () => {
+    const mismatch = versionMismatch('2.0.10', '2.0.9-dev.17+9913d67');
+    act(() => root.render(createElement(HelpMenu, { updates: wire({ running: '2.0.10' }), mismatch })));
+    expect(helpButton().querySelector('.wd-help-mismatch')!.textContent).toBe('⚠');
+    expect(helpButton().textContent).toBe('⚠v2.0.10');
+    expect(helpButton().title).toContain('this window shows work web v2.0.9-dev.17+9913d67');
+    expect(helpButton().getAttribute('aria-label')).toBe('Help: work v2.0.10, work web is v2.0.9-dev.17+9913d67');
+    act(() => helpButton().click());
+    expect(container.querySelector('.wd-help-mismatch-note')!.textContent).toContain('Quit and reopen the app');
+  });
+
+  it('no mismatch (the same version, or no app: a browser tab): no sign', () => {
+    expect(versionMismatch('2.0.10', '2.0.10')).toBeNull();
+    expect(versionMismatch(null, '2.0.10')).toBeNull();
+    expect(versionMismatch('2.0.10', undefined)).toBeNull();
+    act(() => root.render(createElement(HelpMenu, { updates: wire({}), mismatch: null })));
+    expect(helpButton().querySelector('.wd-help-mismatch')).toBeNull();
   });
 });

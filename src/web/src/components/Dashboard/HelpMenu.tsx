@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { UpdateWire } from '../../../../core/api-types.js';
 import { VERSION } from '../../version.js';
 import { ProgressBar } from './UpdateStrip.js';
+import { mismatchText, type VersionMismatch } from '../../../../core/updates/updates.js';
 
 export interface HelpMenuProps {
   updates?: UpdateWire | null;
@@ -13,6 +14,8 @@ export interface HelpMenuProps {
   onShortcuts?: () => void;
   /** The desktop app has an update downloaded: restart onto it. */
   onRestart?: () => void;
+  /** The app and the work web its window shows are different versions (updates.ts versionMismatch). */
+  mismatch?: VersionMismatch | null;
 }
 
 /** Where an update stands, in a few words ("2.1.0 is ready to install"), or null when there's nothing to say. Pure. */
@@ -34,7 +37,7 @@ export function updateStatus(updates: UpdateWire | null | undefined): string | n
  * shortcuts. A dot on the button when an update is there. A popover
  * (`data-popover`): Esc or a click elsewhere closes it, shortcuts keep working.
  */
-export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShortcuts, onRestart }: HelpMenuProps) {
+export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShortcuts, onRestart, mismatch }: HelpMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -64,10 +67,15 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
         type="button"
         className={'wd-help-btn' + (updates?.available ? ' wd-help-btn-update' : '')}
         aria-expanded={open}
-        aria-label={`Help: work v${running}${status ? `, ${status}` : ''}`}
-        title={`work v${running}${status ? ` · ${status}` : ''}\nHelp: updates, what's new, keyboard shortcuts`}
+        aria-label={`Help: work v${running}${status ? `, ${status}` : ''}${mismatch ? `, work web is v${mismatch.server}` : ''}`}
+        title={`work v${running}${status ? ` · ${status}` : ''}${mismatch ? `\n⚠ ${mismatchText(mismatch)}` : ''}\nHelp: updates, what's new, keyboard shortcuts`}
         onClick={() => setOpen((o) => !o)}
       >
+        {mismatch && (
+          <span className="wd-help-mismatch" aria-hidden="true">
+            ⚠
+          </span>
+        )}
         v{running}
       </button>
       {open && (
@@ -76,6 +84,12 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
             work v{running}
             {status && <span className="wd-help-status"> · {status}</span>}
           </p>
+          {mismatch && (
+            <p className="wd-help-mismatch-note" role="note">
+              <span aria-hidden="true">⚠ </span>
+              {mismatchText(mismatch)}
+            </p>
+          )}
           {updates?.available?.how === 'downloading' && typeof updates.available.progress === 'number' && (
             <ProgressBar value={updates.available.progress} />
           )}

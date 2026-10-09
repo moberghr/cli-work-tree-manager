@@ -3156,6 +3156,23 @@ a.wd-pr-chip:hover {
   background: var(--hover);
   color: var(--fg);
 }
+/* The app and its window's work web are different versions: a warning sign in the pill, and the why in its menu. */
+.wd-help-mismatch {
+  margin-right: 4px;
+  color: var(--warn-fg);
+}
+.wd-help-mismatch-note {
+  margin: 4px 8px 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid var(--warn-fg);
+  border-radius: 6px;
+  color: var(--fg);
+}
+.wd-help-mismatch-note > span {
+  color: var(--warn-fg);
+}
 /* An update is there: a dot on the button. */
 .wd-help-btn-update::after {
   content: '';

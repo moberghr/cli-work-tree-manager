@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- The desktop app says when its window shows a work web of another version
+  (a checkout's, an npm install's, one left from before an update): a yellow
+  ⚠ in the version pill, and in its menu which versions and how to put them
+  together (quit and reopen the app).
+
 ## 2.0.10 — 2026-10-09
 
 - A **Time** tab (`g h`): each workday's hours per Jira ticket, suggested from

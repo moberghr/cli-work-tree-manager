@@ -146,6 +146,30 @@ export function whatsNewFor(i: { running: string; seen: string | null; usedBefor
   return i.notes.some((n) => n.version === i.running) ? i.running : null;
 }
 
+/** The desktop app's version and the work web its window shows, when they differ. */
+export interface VersionMismatch {
+  app: string;
+  server: string;
+}
+
+/**
+ * The app runs one version and its window shows a work web of another — a
+ * checkout's (`npm link`), an npm install's, or one from before an update
+ * that kept running. The app replaces such a work web when it starts
+ * (`replace_other_version`), so quitting and reopening it puts them together.
+ * Null when they agree, or either isn't known (a browser tab has no app).
+ * Pure.
+ */
+export function versionMismatch(app: string | null | undefined, server: string | null | undefined): VersionMismatch | null {
+  if (!app || !server || app === server) return null;
+  return { app, server };
+}
+
+/** The mismatch in words, for the version pill's tooltip and its menu. Pure. */
+export function mismatchText(m: VersionMismatch): string {
+  return `The app is v${m.app}, but this window shows work web v${m.server} — another work on this computer (a checkout's, an npm install's, or one left from before an update). Quit and reopen the app: it starts its own.`;
+}
+
 /** How an install kind is told, from where work's package sits. Pure: paths as given. */
 export function installKindOf(packageRoot: string | null, configDir: string, hasGit: boolean): InstallKind {
   if (!packageRoot) return 'npm';

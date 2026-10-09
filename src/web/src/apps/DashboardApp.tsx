@@ -5,6 +5,7 @@ import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
+import { versionMismatch } from '../../../core/updates/updates.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
@@ -862,6 +863,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
             onRestart={() => void restartToUpdate()}
+            // In the app: its own version against the work web this window shows (the server's own `running`).
+            mismatch={desk ? versionMismatch(desk.update.appVersion, upd.updates?.running) : null}
           />
         }
         tasks={<TasksPanel open={tasksOpen} onOpenChange={setTasksOpen} onPick={(t) => openNew({ branch: 'todo/' + taskSlug(t.text) })} />}
