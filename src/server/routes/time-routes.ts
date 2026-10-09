@@ -11,12 +11,11 @@ import {
   type GraphApp,
 } from '../../core/time/graph.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
-import { addDays, isDay, localDay, parseEntries } from '../../core/time/time-view.js';
+import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { updateDay } from '../../core/time/time-store.js';
 import { tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
 import { postStoredDay } from '../../core/time/time-actions.js';
 import { loadConfig } from '../../core/platform/config.js';
-import type { TimeEntry } from '../../core/time/allocate.js';
 
 /**
  * The Time tab:
@@ -32,9 +31,6 @@ import type { TimeEntry } from '../../core/time/allocate.js';
  *
  * Each change broadcasts `time-changed`.
  */
-
-/** The most days one list asks for (a quarter): a range from year 1 would hold up every request while it's worked out. */
-export const MAX_RANGE_DAYS = 92;
 
 /** How to reach Tempo now, or why not: the token from the environment, never sent to the browser. */
 export type TempoAccess = () => { api: TempoApi; accountId: string } | { why: string };
@@ -142,11 +138,10 @@ export function mountTimeRoutes(
   };
 
   app.get('/api/time', (c) => {
-    const to = c.req.query('to') ?? localDay();
-    const from = c.req.query('from') ?? addDays(to, -13);
-    if (!isDay(from) || !isDay(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
-    if (addDays(from, MAX_RANGE_DAYS - 1) < to) return c.json({ error: `at most ${MAX_RANGE_DAYS} days at once` }, 400);
-    return c.json<TimeDaysWire>(daysWire(from, to, opts.deps.settings()));
+    const settings = opts.deps.settings();
+    const r = timeRange({ from: c.req.query('from'), to: c.req.query('to') }, localDay(), settings.catchUpDays ?? DEFAULT_CATCH_UP_DAYS);
+    if ('error' in r) return c.json({ error: r.error }, 400);
+    return c.json<TimeDaysWire>(daysWire(r.from, r.to, settings));
   });
 
   app.get('/api/time/:day', (c) => {
@@ -174,17 +169,10 @@ export function mountTimeRoutes(
   app.put('/api/time/:day', async (c) => {
     const day = c.req.param('day');
     if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
-    const body = (await c.req.json().catch(() => null)) as { entries?: unknown; dayOff?: unknown } | null;
-    if (!body || (body.entries === undefined && body.dayOff === undefined)) return c.json({ error: 'entries or dayOff' }, 400);
     const settings = opts.deps.settings();
-    let edited: TimeEntry[] | null | undefined;
-    if (body.entries !== undefined) {
-      edited = body.entries === null ? null : parseEntries(body.entries, settings.stepHours);
-      if (edited === null && body.entries !== null)
-        return c.json({ error: `entries: issue keys, hours in steps of ${settings.stepHours}, each key once` }, 400);
-    }
-    if (body.dayOff !== undefined && typeof body.dayOff !== 'boolean') return c.json({ error: 'dayOff: boolean' }, 400);
-    updateDay(day, { ...(edited !== undefined ? { edited } : {}), ...(typeof body.dayOff === 'boolean' ? { dayOff: body.dayOff } : {}) });
+    const change = dayChange(await c.req.json().catch(() => null), settings.stepHours);
+    if ('error' in change) return c.json({ error: change.error }, 400);
+    updateDay(day, change);
     changed(day);
     return c.json<TimeDayWire>(withPosting(dayWire(day, settings)));
   });

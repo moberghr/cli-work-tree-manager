@@ -34,7 +34,9 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
       { key: 'SSD-2486', summary: 'Commented on', what: 'updated by you (a comment or an edit)' },
     ]);
     // acli refuses currentUser() inside updatedBy(): the account id, and the day's own bounds (not the next day's date).
-    expect(jql[1]).toBe('issuekey IN updatedBy("acc-1", "2026/10/07 00:00", "2026/10/07 23:59")');
+    expect(jql[0]).toBe('status CHANGED BY currentUser() DURING ("2026/10/07 00:00", "2026/10/08 00:00")');
+    // To the next day's start: a change at 23:59:30 is on the day.
+    expect(jql[1]).toBe('issuekey IN updatedBy("acc-1", "2026/10/07 00:00", "2026/10/08 00:00")');
   });
 
   it('the account id from JIRA_ACCOUNT_ID first; none known: the moves alone; updatedBy refused: a failure (the day keeps what it had)', async () => {

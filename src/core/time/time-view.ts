@@ -12,6 +12,7 @@ import {
 } from './allocate.js';
 import type { PostedWorklog } from './tempo.js';
 import { dayKey } from '../conversations/work-time-view.js';
+import { asData } from './fence.js';
 import { placeholderKeys, type TicketHint } from './hints.js';
 
 /**
@@ -192,6 +193,41 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   return { days, settings: settingsWire(settings) };
 }
 
+/** The most days one list asks for (a quarter): a range from year 1 would hold up every request while it's worked out. */
+export const MAX_RANGE_DAYS = 92;
+
+/**
+ * `GET /api/time`'s range, as both servers read it: `to` (default today) and
+ * `from` (default as far back as the keeper builds, `time.catchUpDays`, so
+ * every day it gathered is listed), real days, at most MAX_RANGE_DAYS.
+ */
+export function timeRange(
+  q: { from?: string; to?: string },
+  today: string,
+  catchUpDays: number,
+): { from: string; to: string } | { error: string } {
+  const to = q.to ?? today;
+  const from = q.from ?? (isDay(to) ? addDays(to, -(Math.min(catchUpDays, MAX_RANGE_DAYS) - 1)) : '');
+  if (!isDay(from) || !isDay(to) || from > to) return { error: 'from and to: real days (YYYY-MM-DD), from ≤ to' };
+  if (addDays(from, MAX_RANGE_DAYS - 1) < to) return { error: `at most ${MAX_RANGE_DAYS} days at once` };
+  return { from, to };
+}
+
+/** `PUT /api/time/:day`'s body, as both servers read it: your rows (null = back to the suggestion) and/or a day off. */
+export function dayChange(body: unknown, step: number): { edited?: TimeEntry[] | null; dayOff?: boolean } | { error: string } {
+  const b = body as { entries?: unknown; dayOff?: unknown } | null;
+  if (!b || typeof b !== 'object' || (b.entries === undefined && b.dayOff === undefined)) return { error: 'entries or dayOff' };
+  if (b.dayOff !== undefined && typeof b.dayOff !== 'boolean') return { error: 'dayOff: boolean' };
+  const out: { edited?: TimeEntry[] | null; dayOff?: boolean } = typeof b.dayOff === 'boolean' ? { dayOff: b.dayOff } : {};
+  if (b.entries === null) out.edited = null;
+  else if (b.entries !== undefined) {
+    const edited = parseEntries(b.entries, step);
+    if (!edited) return { error: `entries: issue keys, hours in steps of ${step}, each key once` };
+    out.edited = edited;
+  }
+  return out;
+}
+
 /** Rows as sent: real issue keys, hours in steps of the setting, each key once. Null when they aren't. */
 export function parseEntries(v: unknown, step: number): TimeEntry[] | null {
   if (!Array.isArray(v) || v.length > 50) return null;
@@ -213,8 +249,10 @@ export function parseEntries(v: unknown, step: number): TimeEntry[] | null {
  * — and how to change it (`work timesheet`, which asks before it does).
  */
 export function describeTimeDay(w: TimeDayWire): string {
+  // Every text from others through asData: one line, no fence marker (a subject can't close the fence early).
+  const d = (text: string) => asData(text, 200);
   const rows = (es: readonly TimeEntry[]) =>
-    es.map((e) => `${e.key} ${e.hours} h${w.titles[e.key] ? ` (${w.titles[e.key]})` : ''}`).join(', ') || 'nothing';
+    es.map((e) => `${e.key} ${e.hours} h${w.titles[e.key] ? ` (${d(w.titles[e.key])})` : ''}`).join(', ') || 'nothing';
   const ev = w.evidence;
   // Titles, commit and meeting subjects, chat names: written by others too (anyone can send an invite) — fenced as
   // data, as the AI step's prompt does (classify.ts), never read as instructions.
@@ -229,15 +267,17 @@ export function describeTimeDay(w: TimeDayWire): string {
     ...(w.resolved?.length ? [`  Done in Jira already: ${w.resolved.join(', ')}.`] : []),
     ...(w.placeholders?.length ? [`  Placeholders, to create in Jira before posting: ${w.placeholders.join(', ')}.`] : []),
     ...ev.sessions.map(
-      (s) => `  Session ${s.label}: ${s.minutes} min of Claude, ticket ${s.key ?? 'none'}${s.guessed ? ' (AI guess)' : ''}.`,
+      (s) => `  Session ${d(s.label)}: ${s.minutes} min of Claude, ticket ${s.key ?? 'none'}${s.guessed ? ' (AI guess)' : ''}.`,
     ),
-    ...ev.commits.map((c) => `  Commit ${c.repo}: ${c.subject} — ${c.keys.join(', ') || 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`),
-    ...ev.jira.map((j) => `  Jira ${j.key} ${j.summary}: ${j.what}.`),
+    ...ev.commits.map(
+      (c) => `  Commit ${d(c.repo)}: ${d(c.subject)} — ${c.keys.join(', ') || 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`,
+    ),
+    ...ev.jira.map((j) => `  Jira ${j.key} ${d(j.summary)}: ${d(j.what)}.`),
     ...(ev.meetings ?? []).map(
-      (m) => `  Meeting ${m.start}–${m.end} ${m.subject} (${m.minutes} min): ${m.key ?? 'gap ticket'}${m.guessed ? ' (AI guess)' : ''}.`,
+      (m) => `  Meeting ${m.start}–${m.end} ${d(m.subject)} (${m.minutes} min): ${m.key ?? 'gap ticket'}${m.guessed ? ' (AI guess)' : ''}.`,
     ),
     ...(ev.chats ?? []).map(
-      (c) => `  Teams chat ${c.chat}: ${c.messages} messages, ${c.key ?? 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`,
+      (c) => `  Teams chat ${d(c.chat)}: ${c.messages} messages, ${c.key ?? 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`,
     ),
     '>>>',
     `  Rules: Claude minutes × ${w.settings.multiplier}, ${w.settings.stepHours} h steps, at least ${w.settings.minHours} h a ticket, the rest to ${w.settings.gapTicket ?? 'nothing (no gap ticket set)'}.`,

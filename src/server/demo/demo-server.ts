@@ -40,7 +40,7 @@ import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { createDemoTime } from './demo-time.js';
-import { addDays, isDay, localDay, parseEntries } from '../../core/time/time-view.js';
+import { dayChange, DEFAULT_CATCH_UP_DAYS, isDay, localDay, timeRange } from '../../core/time/time-view.js';
 import { mountDemoReplies } from './demo-replies.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
@@ -592,11 +592,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
   const demoTime = createDemoTime(() => scenario.clockMs());
   app.get('/api/time', (c) => {
-    const to = c.req.query('to') ?? localDay(scenario.clockMs());
-    const from = c.req.query('from') ?? addDays(to, -13);
-    if (!isDay(from) || !isDay(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
-    if (addDays(from, 91) < to) return c.json({ error: 'at most 92 days at once' }, 400);
-    return c.json(demoTime.days(from, to));
+    const r = timeRange({ from: c.req.query('from'), to: c.req.query('to') }, localDay(scenario.clockMs()), DEFAULT_CATCH_UP_DAYS);
+    if ('error' in r) return c.json({ error: r.error }, 400);
+    return c.json(demoTime.days(r.from, r.to));
   });
   // Outlook and Teams: a pretend sign-in that "completes" a few seconds after the code is shown.
   let demoGraph: { account: string | null; login: { userCode: string; verificationUri: string; expiresAt: string } | null } = {
@@ -634,17 +632,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.put('/api/time/:day', async (c) => {
     const day = c.req.param('day');
     if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
-    const body = (await c.req.json().catch(() => null)) as { entries?: unknown; dayOff?: unknown } | null;
-    if (!body || (body.entries === undefined && body.dayOff === undefined)) return c.json({ error: 'entries or dayOff' }, 400);
-    const edited =
-      body.entries === undefined ? undefined : body.entries === null ? null : parseEntries(body.entries, demoTime.settings.stepHours);
-    if (body.entries !== undefined && body.entries !== null && edited === null)
-      return c.json({ error: `entries: issue keys, hours in steps of ${demoTime.settings.stepHours}, each key once` }, 400);
-    if (body.dayOff !== undefined && typeof body.dayOff !== 'boolean') return c.json({ error: 'dayOff: boolean' }, 400);
-    const w = demoTime.update(day, {
-      ...(edited !== undefined ? { edited } : {}),
-      ...(typeof body.dayOff === 'boolean' ? { dayOff: body.dayOff } : {}),
-    });
+    const change = dayChange(await c.req.json().catch(() => null), demoTime.settings.stepHours);
+    if ('error' in change) return c.json({ error: change.error }, 400);
+    const w = demoTime.update(day, change);
     broadcast({ event: 'time-changed', data: { day } });
     return c.json(w);
   });

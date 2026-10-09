@@ -112,6 +112,48 @@ describe('the device-code sign-in', () => {
     signOutGraph();
   });
 
+  it("a refused refresh after another one already rotated the token: the new tokens stand, no 'connect again'", async () => {
+    const ok = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token')
+        ? json({ access_token: 'acc-a', refresh_token: 'ref-a', expires_in: 3600 })
+        : json({ userPrincipalName: 'you@moberg.hr' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await finishDeviceLogin(APP, login, { fetchImpl: ok, sleep: async () => {}, now: () => 1 }); // ref-a
+    const later = Date.now() + 10 * 3600_000;
+    // While this refresh (with ref-a) is in flight, another process refreshes and stores ref-b; ours is then refused.
+    const refusedAfterOther = (async (url: string | URL) => {
+      if (!String(url).endsWith('/token')) return json({});
+      const file = path.join(getConfigDir(), 'graph-token.json');
+      const cur = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(file, JSON.stringify({ ...cur, refreshToken: 'ref-b', accessToken: 'acc-b', expiresAt: later + 3600_000 }));
+      return json({ error: 'invalid_grant' }, 400);
+    }) as unknown as typeof fetch;
+    expect(await graphToken(APP, refusedAfterOther, later)).toBe('acc-b');
+    expect(graphProblem(APP)).toBeNull();
+    signOutGraph();
+  });
+
+  it('Disconnect while a refresh is under way: the refresh writes nothing back (you stay signed out)', async () => {
+    const ok = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token')
+        ? json({ access_token: 'acc-1', refresh_token: 'ref-1', expires_in: 3600 })
+        : json({ userPrincipalName: 'you@moberg.hr' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await finishDeviceLogin(APP, login, { fetchImpl: ok, sleep: async () => {}, now: () => 1 });
+    const signOutMidway = (async (url: string | URL) => {
+      if (String(url).endsWith('/token')) {
+        signOutGraph(); // the user clicks Disconnect now
+        return json({ access_token: 'acc-2', refresh_token: 'ref-2', expires_in: 3600 });
+      }
+      return json({ userPrincipalName: 'you@moberg.hr' });
+    }) as unknown as typeof fetch;
+    await graphToken(APP, signOutMidway, Date.now() + 10 * 3600_000);
+    expect(graphAccount()).toBeNull();
+    expect(fs.existsSync(path.join(getConfigDir(), 'graph-token.json'))).toBe(false);
+  });
+
   it('signed in with another app registration than config names now: connect again', async () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
@@ -273,7 +315,8 @@ describe('meetings and chats', () => {
         });
       return json({}, 404);
     }) as unknown as typeof fetch;
-    const byDay = await chatsSince('2026-10-06', 'tok', fetchImpl);
+    const { byDay, incompleteThrough } = await chatsSince('2026-10-06', 'tok', fetchImpl);
+    expect(incompleteThrough).toBeNull();
     expect(byDay.get('2026-10-08')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['on it'], mentions: ['SSD-2465'] }]);
     expect(byDay.get('2026-10-07')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['SD-1 done'], mentions: ['SD-1'] }]);
     expect(byDay.has('2026-10-06')).toBe(false); // you didn't write that day
@@ -302,6 +345,28 @@ describe('meetings and chats', () => {
       return json({}, 404);
     }) as unknown as typeof fetch;
     expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([{ id: 'c1', chat: 'Busy', messages: 1, sample: ['mine'] }]);
+  });
+
+  it('a chat busier than the pages read: the days it may have missed say so (they keep what they had), the rest stand', async () => {
+    const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).toISOString();
+    let page = 0;
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/me?')) return json({ id: 'me-1' });
+      if (u.includes('/me/chats?'))
+        return json({ value: [{ id: 'c1', topic: 'Busy', lastMessagePreview: { createdDateTime: at(8, 15) } }] });
+      // Every page has more: today's messages, then the 7th's, and the read stops at the page limit on the 7th.
+      page++;
+      const t = page < 5 ? at(8, 14, page) : at(7, 14, page);
+      return json({
+        value: [{ createdDateTime: t, lastModifiedDateTime: t, from: { user: { id: 'me-1' } }, body: { content: `m${page}` } }],
+        '@odata.nextLink': `https://graph.microsoft.com/v1.0/c1-${page + 1}`,
+      });
+    }) as unknown as typeof fetch;
+    const r = await chatsSince('2026-10-06', 'tok', fetchImpl);
+    expect(r.incompleteThrough).toBe('2026-10-07');
+    expect(r.byDay.get('2026-10-08')?.[0]).toMatchObject({ chat: 'Busy', messages: 4 });
+    await expect(chatsOn('2026-10-07', 'tok', fetchImpl)).rejects.toThrow('more Teams messages than were read');
   });
 
   it("a day gone by: chats and messages are read page by page back to the day's start, and no further", async () => {

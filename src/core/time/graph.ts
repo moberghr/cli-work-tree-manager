@@ -79,6 +79,23 @@ function writeTokens(t: TokenFile): void {
   withFileLockSync(file, () => atomicWriteFile(file, JSON.stringify(t)));
 }
 
+/**
+ * Change the tokens as they are now, under the lock (a read-modify-write: the
+ * keeper and a `work timesheet` may refresh at once). `change` gets what's
+ * there and returns what to write, or null to leave it. Not signed in (the
+ * file gone — Disconnect): nothing is written, so a refresh that was under way
+ * can't sign you back in.
+ */
+function updateTokens(change: (cur: TokenFile) => TokenFile | null): void {
+  const file = tokenPath();
+  if (!fs.existsSync(file)) return;
+  withFileLockSync(file, () => {
+    const cur = readTokens();
+    const next = cur && change(cur);
+    if (next) atomicWriteFile(file, JSON.stringify(next));
+  });
+}
+
 /** Signed in as whom, if at all. */
 export function graphAccount(): string | null {
   return readTokens()?.account || null;
@@ -97,7 +114,10 @@ export function graphProblem(app: GraphApp | { why: string }): string | null {
 }
 
 export function signOutGraph(): void {
-  fs.rmSync(tokenPath(), { force: true });
+  const file = tokenPath();
+  if (!fs.existsSync(file)) return;
+  // Under the lock, so a refresh writing at that moment finishes first (and then finds no file).
+  withFileLockSync(file, () => fs.rmSync(file, { force: true }));
 }
 
 type Fetch = typeof fetch;
@@ -198,7 +218,7 @@ interface TokenAnswer {
  * old. Then who you are (`/me`), best effort: a failure keeps the account
  * known before.
  */
-async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch): Promise<string> {
+async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch, opts: { refresh?: boolean } = {}): Promise<string> {
   const before = readTokens();
   const tokens: TokenFile = {
     refreshToken: j.refresh_token ?? before?.refreshToken ?? '',
@@ -207,14 +227,17 @@ async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch
     account: before?.account ?? '',
     clientId: app.clientId,
   };
-  writeTokens(tokens);
+  // A refresh only updates a sign-in that's still there (Disconnect meanwhile wins); a new sign-in writes it.
+  if (opts.refresh) updateTokens(() => tokens);
+  else writeTokens(tokens);
   const who = await fetchImpl(`${GRAPH}/me?$select=userPrincipalName,id`, {
     headers: { Authorization: `Bearer ${j.access_token}` },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
     .then((me) => me.json() as Promise<{ userPrincipalName?: string }>)
     .catch(() => ({}) as { userPrincipalName?: string });
-  if (who.userPrincipalName && who.userPrincipalName !== tokens.account) writeTokens({ ...tokens, account: who.userPrincipalName });
+  if (who.userPrincipalName && who.userPrincipalName !== tokens.account)
+    updateTokens((cur) => (cur.accessToken === tokens.accessToken ? { ...cur, account: who.userPrincipalName! } : null));
   return who.userPrincipalName ?? tokens.account;
 }
 
@@ -240,10 +263,21 @@ export async function graphToken(app: GraphApp, fetchImpl: Fetch = fetch, now = 
   if (!res.ok || !j.access_token) {
     // The sign-in itself refused: said until you connect again. Throttling (429) or a server error may pass: tried again next time.
     const gone = !!j.error && SIGN_IN_GONE.has(j.error);
-    if (gone) writeTokens({ ...t, problem: EXPIRED });
+    if (gone) {
+      // Another refresh may have just rotated it (the keeper and a Gather at once): its new tokens stand.
+      let renewed: string | null = null;
+      updateTokens((cur) => {
+        if (cur.refreshToken !== t.refreshToken) {
+          renewed = cur.expiresAt > now ? cur.accessToken : null;
+          return null;
+        }
+        return { ...cur, problem: EXPIRED };
+      });
+      if (renewed) return renewed;
+    }
     throw new Error(gone ? EXPIRED : `Microsoft sign-in: ${res.status}${j.error ? ` ${j.error}` : ''}`);
   }
-  await keep(app, j, now, fetchImpl);
+  await keep(app, j, now, fetchImpl, { refresh: true });
   return j.access_token;
 }
 
@@ -340,7 +374,16 @@ const oldestAt = (times: Array<string | undefined>) => {
 
 /** Teams chats where you wrote that day: who with, how many messages, a few of yours, shortened. */
 export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fetch): Promise<TimeChatEvidence[]> {
-  return (await chatsSince(day, token, fetchImpl)).get(day) ?? [];
+  const r = await chatsSince(day, token, fetchImpl);
+  if (r.incompleteThrough && day <= r.incompleteThrough) throw new Error('more Teams messages than were read for that day');
+  return r.byDay.get(day) ?? [];
+}
+
+/** A read of the chats: per day, and the last day it may have missed messages of (a chat busier than MAX_PAGES), if any. */
+export interface ChatsRead {
+  byDay: Map<string, TimeChatEvidence[]>;
+  /** Days up to this one may lack messages: not to be taken as the day's chats (it keeps what it had). */
+  incompleteThrough: string | null;
 }
 
 /**
@@ -351,7 +394,7 @@ export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fet
  * are taken from others' messages; their text is neither kept nor given to
  * the AI step). A whole catch-up costs one read, not one per day.
  */
-export async function chatsSince(firstDay: string, token: string, fetchImpl: Fetch = fetch): Promise<Map<string, TimeChatEvidence[]>> {
+export async function chatsSince(firstDay: string, token: string, fetchImpl: Fetch = fetch): Promise<ChatsRead> {
   const from = dayBounds(firstDay).from.getTime();
   const me = await getJson<{ id?: string }>(`${GRAPH}/me?$select=id`, token, fetchImpl);
   const active: Chat[] = [];
@@ -363,6 +406,7 @@ export async function chatsSince(firstDay: string, token: string, fetchImpl: Fet
     next = oldestAt(value.map((c) => c.lastMessagePreview?.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
   }
   const out = new Map<string, TimeChatEvidence[]>();
+  let incompleteThrough: string | null = null;
   for (const c of active) {
     if (!c.id) continue;
     const msgs: Msg[] = [];
@@ -374,6 +418,11 @@ export async function chatsSince(firstDay: string, token: string, fetchImpl: Fet
       // Graph lists them by last change, newest first: an old message edited today sits on the first page, so
       // the stop is by that order's own time — nothing changed before the day's start can be from it.
       more = oldestAt(value.map((m) => m.lastModifiedDateTime ?? m.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
+    }
+    // Stopped at the page limit with more to go: the days back to the oldest message read may be missing some.
+    if (more) {
+      const reached = localDay(oldestAt(msgs.map((m) => m.lastModifiedDateTime ?? m.createdDateTime)));
+      if (!incompleteThrough || reached > incompleteThrough) incompleteThrough = reached;
     }
     const byDay = new Map<string, Msg[]>();
     for (const m of msgs) {
@@ -398,7 +447,7 @@ export async function chatsSince(firstDay: string, token: string, fetchImpl: Fet
       out.set(d, list);
     }
   }
-  return out;
+  return { byDay: out, incompleteThrough };
 }
 
 /** A message's HTML as plain text. */

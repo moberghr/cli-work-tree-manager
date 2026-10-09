@@ -1,12 +1,14 @@
+import fs from 'node:fs';
 import { loadConfig } from '../platform/config.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
 import { loadHistory } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
 import { fetchMyIssuesOrThrow, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
-import { chatsSince, graphApp, graphToken, meetingsOn } from './graph.js';
-import type { TimeChatEvidence, TimeJiraEvidence } from '../api-types.js';
+import { chatsSince, graphApp, graphToken, meetingsOn, type ChatsRead } from './graph.js';
+import type { TimeJiraEvidence } from '../api-types.js';
 import { readIssueIds, rememberIssueId } from './time-store.js';
 import { isIssueKey } from './allocate.js';
 import type { TimeDeps } from './time-days.js';
@@ -54,14 +56,16 @@ const READ_FRESH_MS = 30 * 60_000;
 /** What you did in Jira that day: status changes, and anything else you updated (a comment, an edit) — `updatedBy()`, by account id. */
 export async function jiraOn(day: string): Promise<TimeJiraEvidence[]> {
   const d = day.replace(/-/g, '/');
+  // To the next day's start, not 23:59: a change in a day's last minute would be on no day at all.
+  const end = addDays(day, 1).replace(/-/g, '/');
   // Throws when acli can't answer: the day keeps what it had (time-days.ts), rather than "did nothing".
-  const moved = await searchIssuesOrThrow(`status CHANGED BY currentUser() DURING ("${d} 00:00", "${d} 23:59")`);
+  const moved = await searchIssuesOrThrow(`status CHANGED BY currentUser() DURING ("${d} 00:00", "${end} 00:00")`);
   const out: TimeJiraEvidence[] = moved.map((i) => ({ key: i.key, summary: i.summary, what: `moved (now ${i.status || 'changed'})` }));
   const account = loadConfig()?.time?.tempo?.accountId || process.env.JIRA_ACCOUNT_ID || (await myAccountId());
   if (account && /^[\w:-]+$/.test(account)) {
-    // The day's own bounds, as the status search has them (a bare end date may mean the whole of it, or its start).
+    // The same bounds, with times (a bare end date may mean the whole of that day, or its start).
     // A failure throws too: half the answer would drop the day's commented-on issues.
-    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d} 00:00", "${d} 23:59")`);
+    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d} 00:00", "${end} 00:00")`);
     for (const i of updated)
       if (!out.some((o) => o.key === i.key)) out.push({ key: i.key, summary: i.summary, what: 'updated by you (a comment or an edit)' });
   }
@@ -110,39 +114,56 @@ export function resetRefusedKeys(): void {
   refused.clear();
 }
 
+/** What `defaultTimeDeps` reads with (tests pass their own). */
+export interface TimeIo {
+  git: (cwd: string, args: string[]) => Promise<{ status: number | null; stdout: string }>;
+  workTime: (s: WorktreeSession, now: number, days: number) => Promise<{ byDay: Array<{ day: string; ms: number }> }>;
+  /** Enrolled repos: alias → folder. */
+  repos: () => Record<string, string>;
+  exists: (folder: string) => boolean;
+}
+
+const realIo: TimeIo = {
+  git: (cwd, args) => runGitAsync(cwd, { args }),
+  workTime: (s, now, days) => sessionWorkTime(s, now, days),
+  repos: () => loadConfig()?.repos ?? {},
+  exists: (folder) => fs.existsSync(folder),
+};
+
 /**
  * Your commits in one repo since a day, read once (a catch-up asks day by day,
  * oldest first: one `git log` from the oldest serves the rest).
  * `--exclude=refs/stash` keeps a stash's commits out; `--since` is the
  * committer date, never before the author date, so every commit written
  * since is in (and more, which `commitsWrittenOn` drops); `--fixed-strings`:
- * the email as it is (`jane+work@corp.com` isn't a pattern).
+ * the email as it is (`jane+work@corp.com` isn't a pattern). No email set:
+ * none of yours to find (''). A git that fails throws: the day keeps the
+ * commits it had.
  */
-async function commitLog(repo: string, from: string): Promise<string | null> {
-  const email = (await runGitAsync(repo, { args: ['config', 'user.email'] })).stdout.trim();
-  if (!email) return null;
-  const log = await runGitAsync(repo, {
-    args: [
-      'log',
-      '--exclude=refs/stash',
-      '--all',
-      '--no-merges',
-      '--fixed-strings',
-      `--since=${from} 00:00:00`,
-      `--author=${email}`,
-      '--format=%H%x09%aI%x09%ce%x09%s',
-    ],
-  });
-  return log.status === 0 ? log.stdout : null;
+async function commitLog(git: TimeIo['git'], repo: string, from: string): Promise<string> {
+  const email = (await git(repo, ['config', 'user.email'])).stdout.trim();
+  if (!email) return '';
+  const log = await git(repo, [
+    'log',
+    '--exclude=refs/stash',
+    '--all',
+    '--no-merges',
+    '--fixed-strings',
+    `--since=${from} 00:00:00`,
+    `--author=${email}`,
+    '--format=%H%x09%aI%x09%ce%x09%s',
+  ]);
+  if (log.status !== 0) throw new Error(`git log failed in ${repo}`);
+  return log.stdout;
 }
 
-export function defaultTimeDeps(): TimeDeps {
+export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
   const catchUpDays = () => timeSettings(loadConfig()?.time).catchUpDays ?? DEFAULT_CATCH_UP_DAYS;
   // A session's working time, read once for every day a run builds (each read goes through all its transcripts).
   const workTime = new Map<string, { at: number; byDay: Promise<Map<string, number>> }>();
-  const logs = new Map<string, { from: string; at: number; out: Promise<string | null> }>();
+  const logs = new Map<string, { from: string; at: number; out: Promise<string> }>();
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
-  let chats: { from: string; at: number; byDay: Promise<Map<string, TimeChatEvidence[]>> } | null = null;
+  let chats: { from: string; at: number; read: Promise<ChatsRead> } | null = null;
   let assigned: { at: number; list: Promise<Array<{ key: string; title: string }>> } | null = null;
   return {
     fresh: () => {
@@ -156,7 +177,7 @@ export function defaultTimeDeps(): TimeDeps {
       const id = sessionIdFor(s);
       let w = workTime.get(id);
       if (!w || Date.now() - w.at > READ_FRESH_MS) {
-        const byDay = sessionWorkTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
+        const byDay = io.workTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
         w = { at: Date.now(), byDay };
         workTime.set(id, w);
         byDay.catch(() => workTime.delete(id)); // a failed read isn't kept
@@ -165,22 +186,24 @@ export function defaultTimeDeps(): TimeDeps {
     },
     minutesFrom: () => addDays(localDay(), -(catchUpDays() - 1)),
     commits: async (day) => {
-      const repos = [...new Set(Object.values(loadConfig()?.repos ?? {}))];
+      const repos = io.repos();
+      const aliasOf = new Map<string, string>();
+      for (const [alias, folder] of Object.entries(repos)) if (!aliasOf.has(folder)) aliasOf.set(folder, alias);
       const seen = new Set<string>();
       const out: Array<{ repo: string; sha: string; subject: string }> = [];
-      for (const repo of repos) {
+      for (const repo of aliasOf.keys()) {
+        if (!io.exists(repo)) continue; // a folder gone: nothing to read there (not a failure)
         let l = logs.get(repo);
         if (!l || day < l.from || Date.now() - l.at > READ_FRESH_MS) {
-          l = { from: day, at: Date.now(), out: commitLog(repo, day).catch(() => null) };
+          const read = commitLog(io.git, repo, day);
+          l = { from: day, at: Date.now(), out: read };
           logs.set(repo, l);
+          read.catch(() => logs.delete(repo)); // a failed read isn't kept
         }
-        const stdout = await l.out;
-        if (stdout === null) continue;
-        const alias = Object.entries(loadConfig()?.repos ?? {}).find(([, p]) => p === repo)?.[0] ?? repo;
-        for (const c of commitsWrittenOn(stdout, day)) {
+        for (const c of commitsWrittenOn(await l.out, day)) {
           if (seen.has(c.sha)) continue;
           seen.add(c.sha);
-          out.push({ repo: alias, ...c });
+          out.push({ repo: aliasOf.get(repo) ?? repo, ...c });
         }
       }
       return out;
@@ -198,11 +221,14 @@ export function defaultTimeDeps(): TimeDeps {
       const token = await graphTokenNow();
       if (!token) return undefined;
       if (!chats || day < chats.from || Date.now() - chats.at > READ_FRESH_MS) {
-        const byDay = chatsSince(day, token);
-        chats = { from: day, at: Date.now(), byDay };
-        byDay.catch(() => (chats = null)); // a failed read isn't kept
+        const read = chatsSince(day, token);
+        chats = { from: day, at: Date.now(), read };
+        read.catch(() => (chats = null)); // a failed read isn't kept
       }
-      return (await chats.byDay).get(day) ?? [];
+      const r = await chats.read;
+      // A chat busier than was read reached back only so far: a day before that isn't known, and keeps what it had.
+      if (r.incompleteThrough && day <= r.incompleteThrough) throw new Error('more Teams messages than were read for that day');
+      return r.byDay.get(day) ?? [];
     },
     // Throws when acli can't list them: the day keeps its AI answer and the projects it knew (time-days.ts).
     candidates: () => {
