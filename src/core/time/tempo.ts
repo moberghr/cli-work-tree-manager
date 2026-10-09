@@ -67,8 +67,13 @@ const secondsOf = (t: string) => {
 
 /** What to do to make Tempo's day the rows wanted. Pure. */
 export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[], ours: readonly PostedWorklog[]): DayPlan {
-  const live = new Set(inTempo.map((w) => w.tempoWorklogId));
-  const mine = ours.filter((o) => live.has(o.tempoWorklogId)); // gone from Tempo (deleted there): forgotten
+  // Ours as Tempo has them now: gone (deleted there) is forgotten; changed there by hand (its time or issue) is
+  // yours from then on — never kept as if unchanged, never deleted.
+  const live = new Map(inTempo.map((w) => [w.tempoWorklogId, w]));
+  const mine = ours.filter((o) => {
+    const w = live.get(o.tempoWorklogId);
+    return !!w && w.timeSpentSeconds === o.seconds && w.issueId === o.issueId;
+  });
   const ourIds = new Set(mine.map((o) => o.tempoWorklogId));
   const byHand = inTempo.filter((w) => !ourIds.has(w.tempoWorklogId));
   const keep: PostedWorklog[] = [];
@@ -212,7 +217,9 @@ export async function postDay(
   const failed: PostResult['failed'] = [];
   const rows: DayRow[] = [];
   for (const e of entries) {
-    const issueId = await deps.issueId(e.key).catch(() => null);
+    // The id work posted it under before, when Jira can't say now: a row left out would read as "not wanted", and
+    // its worklog would be deleted.
+    const issueId = (await deps.issueId(e.key).catch(() => null)) ?? ours.find((o) => o.key === e.key)?.issueId ?? null;
     if (issueId === null) failed.push({ key: e.key, error: 'no such issue in Jira (or acli could not say)' });
     else rows.push({ key: e.key, issueId, seconds: Math.round(e.hours * 3600) });
   }

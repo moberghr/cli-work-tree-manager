@@ -11,6 +11,8 @@ import {
   graphAccount,
   graphApp,
   graphProblem,
+  graphTime,
+  NEW_ACCOUNT,
   graphToken,
   meetingsOn,
   OTHER_APP,
@@ -134,6 +136,24 @@ describe('the device-code sign-in', () => {
     signOutGraph();
   });
 
+  it("a new sign-in isn't shown as the account signed in before, when Microsoft can't say who it is", async () => {
+    const asOld = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token')
+        ? json({ access_token: 'a1', refresh_token: 'r1', expires_in: 3600 })
+        : json({ userPrincipalName: 'old@corp.com' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await finishDeviceLogin(APP, login, { fetchImpl: asOld, sleep: async () => {}, now: () => 1 });
+    expect(graphAccount()).toBe('old@corp.com');
+    const meDown = (async (url: string | URL) => {
+      if (String(url).endsWith('/token')) return json({ access_token: 'a2', refresh_token: 'r2', expires_in: 3600 });
+      throw new Error('timeout');
+    }) as unknown as typeof fetch;
+    await finishDeviceLogin(APP, login, { fetchImpl: meDown, sleep: async () => {}, now: () => 1 }); // connect again, as someone else
+    expect(graphAccount()).toBe(NEW_ACCOUNT);
+    signOutGraph();
+  });
+
   it('Disconnect while a refresh is under way: the refresh writes nothing back (you stay signed out)', async () => {
     const ok = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
@@ -217,6 +237,14 @@ describe('meetings and chats', () => {
       { subject: 'Daily', start: '09:30', end: '09:45', minutes: 15 },
       { subject: 'PDF refinement', start: '14:00', end: '15:00', minutes: 60 },
     ]);
+  });
+
+  it('meeting times in the zone Graph gives them: local when it honoured ours, UTC when it fell back, an offset when one is there', () => {
+    expect(graphTime({ dateTime: '2026-10-08T14:00:00.0000000', timeZone: 'Europe/Zagreb' })).toBe(new Date(2026, 9, 8, 14).getTime());
+    expect(graphTime({ dateTime: '2026-10-08T12:00:00.0000000', timeZone: 'UTC' })).toBe(Date.UTC(2026, 9, 8, 12));
+    expect(graphTime({ dateTime: '2026-10-08T12:00:00Z' })).toBe(Date.UTC(2026, 9, 8, 12));
+    expect(graphTime({ dateTime: '2026-10-08T14:00:00+02:00' })).toBe(Date.UTC(2026, 9, 8, 12));
+    expect(graphTime(undefined)).toBeNaN();
   });
 
   it('a calendar with more than a page of items is read to its end', async () => {

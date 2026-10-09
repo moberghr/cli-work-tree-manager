@@ -7,7 +7,7 @@ import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
 import { fetchMyIssuesOrThrow, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
-import { chatsSince, graphApp, graphToken, meetingsOn, type ChatsRead } from './graph.js';
+import { chatsOf, chatsSince, graphApp, graphToken, meetingsOn, type ChatsRead } from './graph.js';
 import type { TimeJiraEvidence } from '../api-types.js';
 import { readIssueIds, rememberIssueId } from './time-store.js';
 import { isIssueKey } from './allocate.js';
@@ -191,16 +191,21 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
       for (const [alias, folder] of Object.entries(repos)) if (!aliasOf.has(folder)) aliasOf.set(folder, alias);
       const seen = new Set<string>();
       const out: Array<{ repo: string; sha: string; subject: string }> = [];
-      for (const repo of aliasOf.keys()) {
-        if (!io.exists(repo)) continue; // a folder gone: nothing to read there (not a failure)
-        let l = logs.get(repo);
-        if (!l || day < l.from || Date.now() - l.at > READ_FRESH_MS) {
-          const read = commitLog(io.git, repo, day);
-          l = { from: day, at: Date.now(), out: read };
-          logs.set(repo, l);
-          read.catch(() => logs.delete(repo)); // a failed read isn't kept
-        }
-        for (const c of commitsWrittenOn(await l.out, day)) {
+      // Every repo's read started at once (each a git process), then taken in order.
+      const reads = [...aliasOf.keys()]
+        .filter((repo) => io.exists(repo)) // a folder gone: nothing to read there (not a failure)
+        .map((repo) => {
+          let l = logs.get(repo);
+          if (!l || day < l.from || Date.now() - l.at > READ_FRESH_MS) {
+            const read = commitLog(io.git, repo, day);
+            l = { from: day, at: Date.now(), out: read };
+            logs.set(repo, l);
+            read.catch(() => logs.delete(repo)); // a failed read isn't kept
+          }
+          return { repo, out: l.out };
+        });
+      for (const { repo, out: log } of reads) {
+        for (const c of commitsWrittenOn(await log, day)) {
           if (seen.has(c.sha)) continue;
           seen.add(c.sha);
           out.push({ repo: aliasOf.get(repo) ?? repo, ...c });
@@ -225,10 +230,8 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
         chats = { from: day, at: Date.now(), read };
         read.catch(() => (chats = null)); // a failed read isn't kept
       }
-      const r = await chats.read;
       // A chat busier than was read reached back only so far: a day before that isn't known, and keeps what it had.
-      if (r.incompleteThrough && day <= r.incompleteThrough) throw new Error('more Teams messages than were read for that day');
-      return r.byDay.get(day) ?? [];
+      return chatsOf(await chats.read, day);
     },
     // Throws when acli can't list them: the day keeps its AI answer and the projects it knew (time-days.ts).
     candidates: () => {

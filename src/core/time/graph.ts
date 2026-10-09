@@ -167,6 +167,8 @@ export async function startDeviceLogin(app: GraphApp, fetchImpl: Fetch = fetch, 
 }
 
 export const CANCELLED = 'The sign-in was cancelled.';
+/** Who a new sign-in is, until Microsoft says (`/me`). */
+export const NEW_ACCOUNT = 'your Microsoft account';
 
 /** Wait for the code to be entered (polling as Microsoft asks); keeps the tokens. Resolves with the account, or throws why not. */
 export async function finishDeviceLogin(
@@ -224,7 +226,8 @@ async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch
     refreshToken: j.refresh_token ?? before?.refreshToken ?? '',
     accessToken: j.access_token!,
     expiresAt: now + ((j.expires_in ?? 3600) - 60) * 1000,
-    account: before?.account ?? '',
+    // A refresh keeps who it was; a new sign-in may be another account: not the old one's name (until /me says).
+    account: opts.refresh ? (before?.account ?? '') : NEW_ACCOUNT,
     clientId: app.clientId,
   };
   // A refresh only updates a sign-in that's still there (Disconnect meanwhile wins); a new sign-in writes it.
@@ -302,8 +305,8 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
   type Event = {
     id?: string;
     subject?: string;
-    start?: { dateTime?: string };
-    end?: { dateTime?: string };
+    start?: { dateTime?: string; timeZone?: string };
+    end?: { dateTime?: string; timeZone?: string };
     isAllDay?: boolean;
     isCancelled?: boolean;
     showAs?: string;
@@ -319,15 +322,14 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
     all.push(...(p.value ?? []));
     next = p['@odata.nextLink'];
   }
-  const j = { value: all };
   // Each meeting within the day (a three-day offsite is this day's part of it), in order; time two meetings
   // share counts once (the later one gets only what the earlier didn't cover), so a day never holds more than it has.
-  const events = (j.value ?? [])
+  const events = all
     .filter((e) => !(e.isAllDay || e.isCancelled || e.showAs === 'free' || e.responseStatus?.response === 'declined'))
     .map((e) => ({
       e,
-      start: Math.max(Date.parse(e.start?.dateTime ?? ''), from.getTime()),
-      end: Math.min(Date.parse(e.end?.dateTime ?? ''), to.getTime()),
+      start: Math.max(graphTime(e.start), from.getTime()),
+      end: Math.min(graphTime(e.end), to.getTime()),
     }))
     .filter((x) => x.end > x.start)
     .sort((a, b) => a.start - b.start);
@@ -354,6 +356,19 @@ const hhmm = (ms: number) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+/**
+ * A calendar time as Graph gives it: a `dateTime` with no offset, in the zone
+ * `timeZone` names — local when it honoured our `Prefer: outlook.timezone`,
+ * UTC when it didn't (it falls back to UTC): read as such, not as local,
+ * which would shift every meeting by the offset. NaN when unreadable.
+ */
+export function graphTime(t: { dateTime?: string; timeZone?: string } | undefined): number {
+  const dt = t?.dateTime ?? '';
+  if (!dt) return NaN;
+  if (/[zZ]|[+-]\d\d:?\d\d$/.test(dt.slice(19))) return Date.parse(dt); // carries its own offset
+  return /^(utc|etc\/utc|coordinated universal time|gmt)$/i.test(t?.timeZone ?? '') ? Date.parse(`${dt}Z`) : Date.parse(dt);
+}
+
 /** How many pages of chats, and of one chat's messages, are read at most (50 each). */
 export const MAX_PAGES = 10;
 
@@ -374,7 +389,11 @@ const oldestAt = (times: Array<string | undefined>) => {
 
 /** Teams chats where you wrote that day: who with, how many messages, a few of yours, shortened. */
 export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fetch): Promise<TimeChatEvidence[]> {
-  const r = await chatsSince(day, token, fetchImpl);
+  return chatsOf(await chatsSince(day, token, fetchImpl), day);
+}
+
+/** A day's chats from a read; throws for a day the read may have missed messages of (it keeps what it had). */
+export function chatsOf(r: ChatsRead, day: string): TimeChatEvidence[] {
   if (r.incompleteThrough && day <= r.incompleteThrough) throw new Error('more Teams messages than were read for that day');
   return r.byDay.get(day) ?? [];
 }

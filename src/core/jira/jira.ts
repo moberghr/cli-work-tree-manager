@@ -116,11 +116,6 @@ export async function issueIdOf(key: string): Promise<number | null> {
   }
 }
 
-/** Issues a JQL search finds (no URLs); [] when acli isn't there or fails. */
-export async function searchIssues(jql: string, limit = 50): Promise<JiraIssue[]> {
-  return searchIssuesOrThrow(jql, limit).catch(() => []);
-}
-
 let accountIdCache: string | null = null;
 
 /**

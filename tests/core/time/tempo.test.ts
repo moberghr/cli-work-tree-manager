@@ -101,6 +101,28 @@ describe("planDay (what to do to Tempo's day)", () => {
     expect(r.failed).toEqual([{ key: 'PAY-1', error: 'you logged 2 h on it by hand in Tempo (this row: 3 h): change one of them' }]);
   });
 
+  it('a worklog work posted and you then changed by hand in Tempo is yours: never kept as if unchanged, never deleted', () => {
+    // Posted PAY-12 at 2 h; you made it 3 h in Tempo.
+    const edited = planDay([{ key: 'PAY-12', issueId: 12, seconds: 7200 }], [wl(10, 12, 3 * 3600)], [ours(10, 'PAY-12', 12, 7200)]);
+    expect(edited.keep).toEqual([]);
+    expect(edited.remove).toEqual([]);
+    expect(edited.differsByHand.map((d) => [d.key, d.handSeconds])).toEqual([['PAY-12', 10800]]);
+    // The row changed instead: still not deleted.
+    const changed = planDay([{ key: 'PAY-12', issueId: 12, seconds: 3600 }], [wl(10, 12, 3 * 3600)], [ours(10, 'PAY-12', 12, 7200)]);
+    expect(changed.remove).toEqual([]);
+  });
+
+  it("Jira can't give an issue's id now: the id work posted it under before, so its worklog isn't taken for unwanted", async () => {
+    const api = { list: vi.fn(async () => [wl(10, 12, 7200)]), create: vi.fn(async () => 9), remove: vi.fn(async () => {}) };
+    const r = await postDay('2026-10-08', [{ key: 'PAY-12', hours: 2 }], [ours(10, 'PAY-12', 12, 7200)], {
+      api,
+      accountId: 'a',
+      issueId: async () => Promise.reject(new Error('acli: signed out')),
+    });
+    expect(api.remove).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ kept: 1, posted: 0, failed: [] });
+  });
+
   it('new rows start where what stays ends, by its real start time (not 09:00 plus the hours)', () => {
     // By hand: an hour at 09:00 and two hours at 13:00 → the new row starts at 15:00, overlapping nothing.
     const p = planDay([{ key: 'SD-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);

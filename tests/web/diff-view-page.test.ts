@@ -95,4 +95,26 @@ describe("the Diff tab's own page and full screen", () => {
     });
     expect(onFullScreen).toHaveBeenLastCalledWith(false);
   });
+
+  it('Esc that closes the Changes picker (or anything else open) is theirs: full screen stays', async () => {
+    const onFullScreen = vi.fn();
+    act(() => root.render(createElement(DiffView, { session: session(), onFullScreen, fullScreen: true })));
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+    const esc = () =>
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      });
+    esc();
+    expect(onFullScreen).not.toHaveBeenCalled();
+    // A menu open somewhere (a row's menu, a dialog): its Esc too.
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    document.body.appendChild(menu);
+    esc();
+    expect(onFullScreen).not.toHaveBeenCalled();
+    menu.remove();
+    esc();
+    expect(onFullScreen).toHaveBeenLastCalledWith(false);
+  });
 });

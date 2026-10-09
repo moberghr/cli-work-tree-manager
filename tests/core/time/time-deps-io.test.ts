@@ -57,6 +57,25 @@ describe('your commits, as defaultTimeDeps reads them', () => {
     expect(gone.calls.some((c) => c.cwd === '/r/web')).toBe(false);
   });
 
+  it("every repo's git log starts at once (the slowest sets the wait, not their sum)", async () => {
+    const started: string[] = [];
+    let releaseApi: () => void = () => {};
+    const slowApi = new Promise<void>((r) => (releaseApi = r));
+    const t = io({
+      git: async (cwd, args) => {
+        if (args[0] === 'config') return { status: 0, stdout: 'me@corp.com' };
+        started.push(cwd);
+        if (cwd === '/r/api') await slowApi;
+        return { status: 0, stdout: '' };
+      },
+    });
+    const done = defaultTimeDeps(t).commits('2026-10-07');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(started).toEqual(['/r/api', '/r/web']); // web's began while api's still runs
+    releaseApi();
+    await done;
+  });
+
   it("a session's working time is read once per run, not once per day", async () => {
     const workTime = vi.fn(async () => ({ byDay: [{ day: '2026-10-07', ms: 30 * 60_000 }] }));
     const deps = defaultTimeDeps(io({ workTime }));

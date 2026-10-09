@@ -29,6 +29,7 @@ import { useCommentJump } from '../../hooks/use-comment-jump.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../../hooks/use-scrollspy.js';
 import { COMMENTS_SPEC, ResizeDivider, useResizableSize, useSidebarWidth } from '../Layout/ResizeDivider.js';
 import { useLookedFor } from '../../hooks/use-looked.js';
+import { modalOpen } from '../../state/modal-open.js';
 import { fileSignature, newestCheckpoint } from '../../state/diff-seen.js';
 import {
   historyItems,
@@ -87,8 +88,11 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   }, [session.id, session.archivedAt]);
   useEffect(() => {
     if (!fullScreen) return;
+    // Esc leaves — unless it closed something on the way (the diff's pickers mark it used) or a menu or dialog is
+    // open and takes it: that Esc is theirs. (The top bar's popovers are under the full-screen diff.)
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) onFullScreen?.(false);
+      if (e.key !== 'Escape' || e.defaultPrevented || modalOpen()) return;
+      onFullScreen?.(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

@@ -78,7 +78,8 @@ export function SessionDetail({
   const [prFor, setPrFor] = useState<string | null>(null);
   // The diff filling the window; another session opens as usual.
   const [diffFull, setDiffFull] = useState(false);
-  useEffect(() => setDiffFull(false), [session.id]);
+  // Left (another session, or another of its tabs): full screen is over, and doesn't come back by itself.
+  useEffect(() => setDiffFull(false), [session.id, subTab]);
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
