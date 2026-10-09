@@ -12,6 +12,10 @@ vi.mock('../../../src/core/jira/jira.js', async (orig) => ({
   ...(await orig<typeof import('../../../src/core/jira/jira.js')>()),
   fetchJiraPane: async () => ({ available: jira.available, issues: jira.available ? jira.issues : [] }),
   fetchMyIssues: async () => jira.issues,
+  fetchMyIssuesOrThrow: async () => {
+    if (!jira.available) throw new Error('acli is not available');
+    return jira.issues;
+  },
 }));
 
 const { mountJiraWatchRoutes, aboutRepo, watchTargets } = await import('../../../src/server/routes/jira-watch-routes.js');

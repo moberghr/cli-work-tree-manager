@@ -54,12 +54,16 @@ export function resolveLinkTarget(filePath: string): string {
 export function atomicWriteFile(filePath: string, content: string, renameSync: (from: string, to: string) => void = fs.renameSync): void {
   const target = resolveLinkTarget(filePath);
   const tmpPath = `${target}.tmp-${process.pid}`;
-  fs.writeFileSync(tmpPath, content, 'utf-8');
+  let mode: number | undefined;
   try {
-    fs.chmodSync(tmpPath, fs.statSync(target).mode & 0o777);
+    mode = fs.statSync(target).mode & 0o777;
   } catch {
     /* target is new — default umask is right */
   }
+  // Created with the target's mode, so a private file (graph-token.json, 0600) is never readable by others meanwhile.
+  fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', ...(mode !== undefined ? { mode } : {}) });
+  // A leftover temp file from a crash keeps its old mode: set it.
+  if (mode !== undefined) fs.chmodSync(tmpPath, mode);
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(tmpPath, target);

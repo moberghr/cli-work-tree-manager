@@ -118,7 +118,13 @@ export function saveBuilt(built: Omit<TimeDayRecord, 'edited' | 'dayOff' | 'post
 /** Change what you set on a day (your rows, a day off); a day never built gets a record with no evidence yet. */
 export function updateDay(
   day: string,
-  change: { edited?: TimeEntry[] | null; dayOff?: boolean; posted?: TimeDayRecord['posted'] },
+  change: {
+    edited?: TimeEntry[] | null;
+    /** Your rows, only when the day has none and isn't off as it is now (a post pinning what it posted). */
+    editedIfUnset?: TimeEntry[];
+    dayOff?: boolean;
+    posted?: TimeDayRecord['posted'];
+  },
 ): TimeDayRecord {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM time_days WHERE day = ?').get(day) as { data: string } | undefined;
@@ -129,6 +135,7 @@ export function updateDay(
     const next: TimeDayRecord = {
       ...base,
       ...(change.edited !== undefined ? { edited: change.edited } : {}),
+      ...(change.editedIfUnset && base.edited === null && !base.dayOff ? { edited: change.editedIfUnset } : {}),
       ...(change.dayOff !== undefined ? { dayOff: change.dayOff } : {}),
       ...(change.posted !== undefined ? { posted: change.posted } : {}),
     };

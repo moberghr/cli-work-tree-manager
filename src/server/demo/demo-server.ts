@@ -589,14 +589,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const s = scenario.create(body.target, branch, prompt);
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
-  // A PR to start a session on: from the demo's PR list, by number (in `target`) or link.
   // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
   const demoTime = createDemoTime(() => scenario.clockMs());
-  const DAY = { test: isDay };
   app.get('/api/time', (c) => {
     const to = c.req.query('to') ?? localDay(scenario.clockMs());
-    const from = c.req.query('from') ?? localDay(Date.parse(`${to}T12:00:00`) - 13 * 24 * 3600_000);
-    if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
+    const from = c.req.query('from') ?? addDays(to, -13);
+    if (!isDay(from) || !isDay(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
     if (addDays(from, 91) < to) return c.json({ error: 'at most 92 days at once' }, 400);
     return c.json(demoTime.days(from, to));
   });
@@ -630,12 +628,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
 
   app.get('/api/time/:day', (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
     return c.json(demoTime.day(day));
   });
   app.put('/api/time/:day', async (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
     const body = (await c.req.json().catch(() => null)) as { entries?: unknown; dayOff?: unknown } | null;
     if (!body || (body.entries === undefined && body.dayOff === undefined)) return c.json({ error: 'entries or dayOff' }, 400);
     const edited =
@@ -652,17 +650,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   });
   app.post('/api/time/:day/post', (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
     const r = demoTime.post(day);
     broadcast({ event: 'time-changed', data: { day } });
     return c.json(r);
   });
   app.post('/api/time/:day/rebuild', (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
     return c.json(demoTime.day(day));
   });
 
+  // A PR to start a session on: from the demo's PR list, by number (in `target`) or link.
   app.get('/api/pr-start', (c) => {
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;

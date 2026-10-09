@@ -87,8 +87,19 @@ describe('the Jira watch', () => {
     expect(await sweepJira(d)).toEqual({ started: 0, suggested: 0, waiting: 0 });
     expect(d.started).toEqual([]);
     expect(readDecision('SSD-2465')).toMatchObject({ action: 'baseline' });
+    // A sweep where acli couldn't list them fails, and uses nothing up (it would have adopted nothing).
+    withDb((db) => db.prepare("DELETE FROM meta WHERE key = 'jira-watch:list-version'").run());
+    const down = deps([], sure('straumur-backend'), {
+      fetchIssues: async () => {
+        throw new Error('acli is not available');
+      },
+    });
+    await expect(sweepJira(down)).rejects.toThrow('acli is not available');
+    const back = deps([issue('SD-1'), issue('SSD-2465'), issue('SSD-2470')], sure('straumur-backend'));
+    expect(await sweepJira(back)).toEqual({ started: 0, suggested: 0, waiting: 0 }); // adopted now
+    expect(readDecision('SSD-2470')).toMatchObject({ action: 'baseline' });
     // After that, a really new one is started as before.
-    const later = deps([issue('SD-1'), issue('SSD-2465'), issue('SD-9')], sure('straumur-backend'));
+    const later = deps([issue('SD-1'), issue('SSD-2465'), issue('SSD-2470'), issue('SD-9')], sure('straumur-backend'));
     expect(await sweepJira(later)).toMatchObject({ started: 1 });
     expect(later.started.map((x) => x.key)).toEqual(['SD-9']);
   });

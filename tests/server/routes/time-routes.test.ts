@@ -261,6 +261,27 @@ describe('posting a day to Tempo', () => {
     expect(rebuilt.suggested).not.toEqual(posted.day.entries);
   });
 
+  it('rows saved while a post was calling Tempo stay yours: the post pins its rows only on a day that still had none', async () => {
+    const api = tempoWithState();
+    let saveDuring: (() => Promise<unknown>) | null = null;
+    const slow = {
+      ...api,
+      list: vi.fn(async () => {
+        await saveDuring?.();
+        return api.list();
+      }),
+    };
+    const a = tempoApp(slow);
+    await send(a, 'POST', '/api/time/2026-09-28/rebuild');
+    saveDuring = async () => {
+      await send(a, 'PUT', '/api/time/2026-09-28', { entries: [{ key: 'SD-1', hours: 7.5 }] });
+    };
+    await send(a, 'POST', '/api/time/2026-09-28/post');
+    const day = (await (await a.request('/api/time/2026-09-28')).json()) as TimeDayWire;
+    expect(day.entries).toEqual([{ key: 'SD-1', hours: 7.5 }]); // the save, not the rows the post started with
+    expect(day.status).toBe('changed'); // Tempo has the earlier rows: post again
+  });
+
   it("Tempo's day can't be read: nothing changed, and it says why", async () => {
     const api = fake();
     api.list.mockRejectedValue(new Error('Tempo list: 401 Unauthorized'));

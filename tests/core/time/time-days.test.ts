@@ -268,6 +268,21 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(rec.evidence.sessions.map((s) => s.minutes).sort((a, b) => a - b)).toEqual([6, 12, 30]);
   });
 
+  it('a session still there whose minutes read nothing now (transcripts gone, a failed read) keeps what the day had', async () => {
+    await buildDay('2026-05-05', deps());
+    const before = readDay('2026-05-05')!
+      .evidence.sessions.map((s) => s.minutes)
+      .sort((a, b) => a - b);
+    const gone = deps({
+      minutesOn: async (s) => {
+        if (s.branch === 'fix/thing') throw new Error('unreadable');
+        return s.branch === 'feat/SD-3850-pos-key' ? 30 : 0; // chore/deps reads 0 now; feat/idle never worked
+      },
+    });
+    const rec = await buildDay('2026-05-05', gone);
+    expect(rec.evidence.sessions.map((s) => s.minutes).sort((a, b) => a - b)).toEqual(before);
+  });
+
   it('gathering a day twice at once (Gather again while the keeper builds) is one build', async () => {
     let calls = 0;
     const d = deps({
@@ -337,9 +352,10 @@ describe('the keeper (time-keeper.ts)', () => {
     const spy = { ...d, sessions: () => (built.push('x'), []) };
     const changed = vi.fn();
     const k = createTimeKeeper(spy, { changed, now: () => now });
-    await Promise.all([k.run(), k.run()]); // the second joins the first
-    expect(built.length).toBe(10); // 10 workdays in the 14 days to Friday, today included
-    expect(changed).toHaveBeenCalledTimes(1);
+    // Asked again while it runs: that run read before it, so one more follows (today only), not two at once.
+    await Promise.all([k.run(), k.run(), k.run()]);
+    expect(built.length).toBe(11); // 10 workdays in the 14 days to Friday, today included; then today again
+    expect(changed).toHaveBeenCalledTimes(2);
     built.length = 0;
     await k.run();
     expect(built.length).toBe(1); // today only

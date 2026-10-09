@@ -270,23 +270,39 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
       responseStatus?: { response?: string };
     }>;
   }>(url, token, fetchImpl, { Prefer: `outlook.timezone="${tz}"` });
+  // Each meeting within the day (a three-day offsite is this day's part of it), in order; time two meetings
+  // share counts once (the later one gets only what the earlier didn't cover), so a day never holds more than it has.
+  const events = (j.value ?? [])
+    .filter((e) => !(e.isAllDay || e.isCancelled || e.showAs === 'free' || e.responseStatus?.response === 'declined'))
+    .map((e) => ({
+      e,
+      start: Math.max(Date.parse(e.start?.dateTime ?? ''), from.getTime()),
+      end: Math.min(Date.parse(e.end?.dateTime ?? ''), to.getTime()),
+    }))
+    .filter((x) => x.end > x.start)
+    .sort((a, b) => a.start - b.start);
   const out: TimeMeetingEvidence[] = [];
-  for (const e of j.value ?? []) {
-    if (e.isAllDay || e.isCancelled || e.showAs === 'free' || e.responseStatus?.response === 'declined') continue;
-    const start = e.start?.dateTime ?? '';
-    const end = e.end?.dateTime ?? '';
-    const minutes = Math.round((Date.parse(end) - Date.parse(start)) / 60_000);
+  let covered = -Infinity;
+  for (const { e, start, end } of events) {
+    const minutes = Math.round((end - Math.max(start, Math.min(covered, end))) / 60_000);
+    covered = Math.max(covered, end);
     if (!(minutes > 0)) continue;
     out.push({
       ...(e.id ? { id: e.id } : {}),
       subject: e.subject?.trim() || '(no subject)',
-      start: start.slice(11, 16),
-      end: end.slice(11, 16),
+      start: hhmm(start),
+      end: end >= to.getTime() ? '24:00' : hhmm(end),
       minutes,
     });
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start));
+  return out;
 }
+
+/** A local time as `HH:MM`. */
+const hhmm = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
 
 /** How many pages of chats, and of one chat's messages, are read at most (50 each). */
 export const MAX_PAGES = 10;

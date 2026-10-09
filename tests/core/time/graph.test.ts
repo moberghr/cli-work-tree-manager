@@ -159,6 +159,32 @@ describe('meetings and chats', () => {
     ]);
   });
 
+  it("meetings within the day: an offsite over three days is this day's part; time two meetings share counts once", async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({
+        value: [
+          { subject: 'Offsite', start: { dateTime: '2026-10-07T09:00:00' }, end: { dateTime: '2026-10-09T17:00:00' } },
+          { subject: 'Overlapping', start: { dateTime: '2026-10-08T10:00:00' }, end: { dateTime: '2026-10-08T11:00:00' } },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+    const m = await meetingsOn('2026-10-08', 'tok', fetchImpl);
+    // The offsite holds the whole day (24 h of it); the hour inside it adds nothing and isn't listed.
+    expect(m).toEqual([{ subject: 'Offsite', start: '00:00', end: '24:00', minutes: 1440 }]);
+    const partial = vi.fn(async () =>
+      json({
+        value: [
+          { subject: 'A', start: { dateTime: '2026-10-08T10:00:00' }, end: { dateTime: '2026-10-08T11:00:00' } },
+          { subject: 'B', start: { dateTime: '2026-10-08T10:30:00' }, end: { dateTime: '2026-10-08T12:00:00' } },
+        ],
+      }),
+    ) as unknown as typeof fetch;
+    expect((await meetingsOn('2026-10-08', 'tok', partial)).map((x) => [x.subject, x.minutes])).toEqual([
+      ['A', 60],
+      ['B', 60],
+    ]);
+  });
+
   it('chats: only ones you wrote in that day, your messages only, as plain text', async () => {
     const day = new Date('2026-10-08T12:00:00');
     const iso = (h: number) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h).toISOString();

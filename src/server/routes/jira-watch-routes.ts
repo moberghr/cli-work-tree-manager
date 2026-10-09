@@ -5,7 +5,7 @@ import { loadConfig } from '../../core/platform/config.js';
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
-import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, type JiraIssue } from '../../core/jira/jira.js';
+import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, fetchMyIssuesOrThrow, type JiraIssue } from '../../core/jira/jira.js';
 import { jiraPrompt } from '../../core/jira/jira-prompt.js';
 import { runInternal } from '../../core/diff/checkpoint-summary.js';
 import { startSessionWithPrompt } from '../../core/sessions/session-start.js';
@@ -112,7 +112,8 @@ export function mountJiraWatchRoutes(
         if (!readSettings().enabled) return;
         const run = opts.activity?.start('jira-watch', 'Looking for newly assigned Jira issues');
         const deps: WatchDeps = {
-          fetchIssues: fetchMyIssues,
+          // Throws when acli can't list them: the sweep fails (said in Activity) rather than reading "none".
+          fetchIssues: fetchMyIssuesOrThrow,
           detail: fetchIssueDetail,
           targets: () => watchTargets(),
           sessions: () => loadHistory(),

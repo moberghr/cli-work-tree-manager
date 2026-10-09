@@ -100,9 +100,10 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     // Before the reach of the work-time reader nothing can be read again: the day keeps its sessions.
     if (deps.minutesFrom && day < deps.minutesFrom()) sessions = had.sessions;
     else {
-      // A session deleted since can't be read again either: its minutes stay.
-      const ids = new Set(all.map(sessionIdFor));
-      sessions.push(...had.sessions.filter((h) => !ids.has(h.sessionId)));
+      // A session the day had that reads nothing now — deleted since, its transcripts gone (Claude Code keeps
+      // them about 30 days), or a read that failed — keeps its minutes: a day's past work doesn't shrink.
+      const read = new Set(sessions.map((x) => x.sessionId));
+      sessions.push(...had.sessions.filter((h) => !read.has(h.sessionId)));
     }
   }
   const commits = (await deps.commits(day).catch(() => had?.commits ?? [])).map(({ repo, sha, subject }) => {
@@ -137,8 +138,9 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   for (const j of jira) titles[j.key] = j.summary;
   // The day's tickets, asked every build: titles, and which Jira has as done (said on their rows).
   const hinted = Object.entries(hints ?? {}).map(([key, h]) => ({ key, title: h.summary ?? '' }));
+  // Placeholders aren't in Jira (yet): not asked about.
   const keys = [...new Set([...activityOf(evidence).map((a) => a.key), settings.gapTicket, settings.timeOffTicket])].filter(
-    (k): k is string => !!k,
+    (k): k is string => !!k && !hints?.[k]?.placeholder,
   );
   let resolved = prev?.resolved ?? [];
   if (keys.length) {

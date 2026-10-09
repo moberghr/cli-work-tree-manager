@@ -104,6 +104,21 @@ describe('atomicWriteFile', () => {
     expect(fs.readFileSync(link, 'utf8')).toBe('new');
   });
 
+  it.skipIf(process.platform === 'win32')(
+    "the temp file is the target's mode from the start (a private file is never readable by others)",
+    () => {
+      fs.writeFileSync(link, 'old', { mode: 0o600 });
+      fs.chmodSync(link, 0o600);
+      let modeSeen = -1;
+      atomicWriteFile(link, 'secret', (from, to) => {
+        modeSeen = fs.statSync(from).mode & 0o777;
+        fs.renameSync(from, to);
+      });
+      expect(modeSeen).toBe(0o600);
+      expect(fs.statSync(link).mode & 0o777).toBe(0o600);
+    },
+  );
+
   it('gives up on a rename that keeps failing, and removes its tmp file', () => {
     fs.writeFileSync(link, 'old');
     const always = () => {

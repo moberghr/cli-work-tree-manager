@@ -1,5 +1,6 @@
 import { loadConfig } from '../platform/config.js';
 import { loadHistory } from '../sessions/history.js';
+import { sessionIdFor } from '../sessions/session-id.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
 import { fetchMyIssues, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
@@ -58,13 +59,52 @@ export async function jiraOn(day: string): Promise<TimeJiraEvidence[]> {
   return out;
 }
 
+/** How long one read of a session's working time serves (a catch-up asks it once per day it builds). */
+const WORK_TIME_FRESH_MS = 60_000;
+
+/**
+ * Titles of these keys and whether each is done, in one search; when that is
+ * refused (one key that doesn't exist fails the whole JQL — a branch's
+ * `FOO-12`), each key alone, keeping the ones found. Throws when none could be
+ * asked about (acli down): the day keeps what it had.
+ */
+export async function titlesOf(
+  keys: string[],
+  search: (jql: string, limit: number) => Promise<Array<{ key: string; summary: string; statusCategory?: string }>>,
+): Promise<Record<string, { title: string; done: boolean }>> {
+  const valid = keys.filter(isIssueKey);
+  if (!valid.length) return {};
+  const of = (issues: Array<{ key: string; summary: string; statusCategory?: string }>) =>
+    issues.map((i) => [i.key, { title: i.summary, done: i.statusCategory === 'done' }] as const);
+  try {
+    return Object.fromEntries(of(await search(`key in (${valid.join(', ')})`, valid.length)));
+  } catch (err) {
+    if (valid.length === 1) throw err;
+    const one = await Promise.all(valid.map((k) => search(`key = ${k}`, 1).then(of, () => null)));
+    if (one.every((r) => r === null)) throw err;
+    return Object.fromEntries(one.flatMap((r) => r ?? []));
+  }
+}
+
 export function defaultTimeDeps(): TimeDeps {
   const catchUpDays = () => timeSettings(loadConfig()?.time).catchUpDays ?? DEFAULT_CATCH_UP_DAYS;
+  // A session's working time, read once for every day a run builds (each read goes through all its transcripts).
+  const workTime = new Map<string, { at: number; byDay: Promise<Map<string, number>> }>();
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
   let chats: { from: string; at: number; byDay: Promise<Map<string, TimeChatEvidence[]>> } | null = null;
   return {
     sessions: () => loadHistory(),
-    minutesOn: async (s, day) => ((await sessionWorkTime(s, Date.now(), catchUpDays())).byDay.find((d) => d.day === day)?.ms ?? 0) / 60_000,
+    minutesOn: async (s, day) => {
+      const id = sessionIdFor(s);
+      let w = workTime.get(id);
+      if (!w || Date.now() - w.at > WORK_TIME_FRESH_MS) {
+        const byDay = sessionWorkTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
+        w = { at: Date.now(), byDay };
+        workTime.set(id, w);
+        byDay.catch(() => workTime.delete(id)); // a failed read isn't kept
+      }
+      return ((await w.byDay).get(day) ?? 0) / 60_000;
+    },
     minutesFrom: () => addDays(localDay(), -(catchUpDays() - 1)),
     commits: async (day) => {
       const repos = [...new Set(Object.values(loadConfig()?.repos ?? {}))];
@@ -74,8 +114,17 @@ export function defaultTimeDeps(): TimeDeps {
         const email = (await runGitAsync(repo, { args: ['config', 'user.email'] })).stdout.trim();
         if (!email) continue;
         // --since is the committer date, never before the author date: every commit written that day is in, and more.
+        // --fixed-strings: the email as it is (`jane+work@corp.com` isn't a pattern).
         const log = await runGitAsync(repo, {
-          args: ['log', '--all', '--no-merges', `--since=${day} 00:00:00`, `--author=${email}`, '--format=%H%x09%aI%x09%ce%x09%s'],
+          args: [
+            'log',
+            '--all',
+            '--no-merges',
+            '--fixed-strings',
+            `--since=${day} 00:00:00`,
+            `--author=${email}`,
+            '--format=%H%x09%aI%x09%ce%x09%s',
+          ],
         });
         if (log.status !== 0) continue;
         const alias = Object.entries(loadConfig()?.repos ?? {}).find(([, p]) => p === repo)?.[0] ?? repo;
@@ -88,13 +137,7 @@ export function defaultTimeDeps(): TimeDeps {
       return out;
     },
     jiraMoved: jiraOn,
-    titles: async (keys) => {
-      // Only well-formed keys: one bad key fails the whole JQL. Throws when acli can't answer (the day keeps what it had).
-      const valid = keys.filter(isIssueKey);
-      if (!valid.length) return {};
-      const issues = await searchIssuesOrThrow(`key in (${valid.join(', ')})`, valid.length);
-      return Object.fromEntries(issues.map((i) => [i.key, { title: i.summary, done: i.statusCategory === 'done' }]));
-    },
+    titles: (keys) => titlesOf(keys, searchIssuesOrThrow),
     settings: () => timeSettings(loadConfig()?.time),
     // Outlook and Teams only once you signed in (the Time tab's Connect): none otherwise. A sign-in that stopped
     // working, or no network, throws (graphToken): the day keeps the meetings and chats it had.

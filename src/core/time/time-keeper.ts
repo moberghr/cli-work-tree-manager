@@ -70,8 +70,19 @@ export function createTimeKeeper(
     else run?.done(days.length === 1 ? 'today updated' : `${days.length} days built`);
   }
 
-  const run = () => {
-    busy ??= runNow().finally(() => (busy = null));
+  // Asked while a run is under way (a turn ended, Outlook connected): that run read before it, so another follows.
+  let again = false;
+  const run = (): Promise<void> => {
+    if (busy) {
+      again = true;
+      return busy;
+    }
+    busy = (async () => {
+      do {
+        again = false;
+        await runNow();
+      } while (again);
+    })().finally(() => (busy = null));
     return busy;
   };
   return {

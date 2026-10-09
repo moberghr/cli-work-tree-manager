@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { commitsWrittenOn } from '../../../src/core/time/time-deps.js';
+import { describe, expect, it, vi } from 'vitest';
+import { commitsWrittenOn, titlesOf } from '../../../src/core/time/time-deps.js';
 
 describe('your commits that day (time-deps.ts)', () => {
   // Author dates as git prints them (%aI); local times, so the test holds in any time zone.
@@ -20,5 +20,36 @@ describe('your commits that day (time-deps.ts)', () => {
     ]);
     expect(commitsWrittenOn(out, '2026-10-06')).toEqual([{ sha: 'a2', subject: 'SD-2: written Tuesday, rebased today' }]);
     expect(commitsWrittenOn('', '2026-10-08')).toEqual([]);
+  });
+});
+
+describe("the day's ticket titles (titlesOf)", () => {
+  const issues: Record<string, { summary: string; statusCategory?: string }> = {
+    'SD-1': { summary: 'One', statusCategory: 'done' },
+    'SD-2': { summary: 'Two' },
+  };
+  // Like Jira: a key that doesn't exist fails the whole search.
+  const search = vi.fn(async (jql: string) => {
+    const keys = /key in \((.*)\)/.exec(jql)?.[1].split(', ') ?? [/key = (.*)/.exec(jql)![1]];
+    if (keys.some((k) => !issues[k])) throw new Error(`An issue with key '${keys.find((k) => !issues[k])}' does not exist`);
+    return keys.map((k) => ({ key: k, ...issues[k] }));
+  });
+
+  it("one search; one key Jira doesn't have (a branch's FOO-12): each key alone, keeping the ones found", async () => {
+    expect(await titlesOf(['SD-1', 'SD-2'], search)).toEqual({
+      'SD-1': { title: 'One', done: true },
+      'SD-2': { title: 'Two', done: false },
+    });
+    expect(await titlesOf(['SD-1', 'FOO-12', 'SD-2', 'not a key'], search)).toEqual({
+      'SD-1': { title: 'One', done: true },
+      'SD-2': { title: 'Two', done: false },
+    });
+  });
+
+  it('acli down (every search refused): throws, so the day keeps what it had', async () => {
+    const down = async () => {
+      throw new Error('acli: not signed in');
+    };
+    await expect(titlesOf(['SD-1', 'SD-2'], down)).rejects.toThrow('not signed in');
   });
 });

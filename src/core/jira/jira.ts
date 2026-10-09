@@ -90,6 +90,19 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
   }
 }
 
+/**
+ * Your open issues, or a throw when acli can't list them (not there, signed
+ * out, offline) — for the Jira watch, where "none" and "couldn't ask" must
+ * differ: an empty list taken for the truth would use up the one-time
+ * adoption of issues the list newly shows (`adoptListChange`).
+ */
+export async function fetchMyIssuesOrThrow(): Promise<JiraIssue[]> {
+  const probe = await probeAcli();
+  if (!probe.available) throw new Error('acli is not available (installed and signed in?)');
+  const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', MY_ISSUES_JQL, '--json', '--limit', '50'], 15000);
+  return stdout ? parseIssuesJson(stdout, probe.siteUrl) : [];
+}
+
 /** An issue's numeric id (Tempo wants it); null when acli can't say. */
 export async function issueIdOf(key: string): Promise<number | null> {
   try {
