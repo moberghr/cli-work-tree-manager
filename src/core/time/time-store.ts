@@ -56,7 +56,8 @@ function isRecord(v: unknown): v is TimeDayRecord {
     typeof r.builtAt === 'string' &&
     (r.edited === null || (Array.isArray(r.edited) && r.edited.every(isEntry))) &&
     typeof r.dayOff === 'boolean' &&
-    isPosted(r.posted)
+    isPosted(r.posted) &&
+    (r.resolved === undefined || (Array.isArray(r.resolved) && r.resolved.every((k) => typeof k === 'string')))
   );
 }
 

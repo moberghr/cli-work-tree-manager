@@ -107,7 +107,8 @@ async function readOn(
 }
 
 /** How long the session's Claude worked: in all, per day (the last two weeks), and the prompts it was given. */
-export async function sessionWorkTime(s: WorktreeSession, now = Date.now()): Promise<WorkTimeWire> {
+/** `days`: how far back `byDay` reaches (the Time tab's catch-up asks for its own). */
+export async function sessionWorkTime(s: WorktreeSession, now = Date.now(), days = DAYS_SHOWN): Promise<WorkTimeWire> {
   const steps: WorkStep[] = [];
   let prompts = 0;
   let firstMs: number | null = null;
@@ -131,7 +132,7 @@ export async function sessionWorkTime(s: WorktreeSession, now = Date.now()): Pro
     if (st.firstMs !== null) firstMs = firstMs === null ? st.firstMs : Math.min(firstMs, st.firstMs);
     if (st.lastMs !== null) lastMs = lastMs === null ? st.lastMs : Math.max(lastMs, st.lastMs);
   }
-  const since = now - DAYS_SHOWN * 24 * 3600_000;
+  const since = now - days * 24 * 3600_000;
   // Two transcripts working at the same time count that time once.
   const merged = mergeSteps(steps);
   return {

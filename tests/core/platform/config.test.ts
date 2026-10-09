@@ -192,6 +192,37 @@ describe("the Time tab's settings (time)", () => {
       graph: { clientId: 'cid' },
     });
   });
+
+  it('what the timesheet tool had: effort, vacation days, how far back, hints (a real key and words that mean it; else dropped)', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.work', 'config.json'),
+      JSON.stringify({
+        worktreesRoot: '/w',
+        repos: {},
+        time: {
+          effort: true,
+          vacation: ['2026-07-17', 'summer'],
+          catchUpDays: 500,
+          hints: {
+            'SSD-2222': { summary: ' Rapyd reconciliation ', matches: ['valitor', 'ab'], placeholder: false },
+            'SD-9001': { matches: ['fix-beta'], placeholder: true },
+            'not-a-key': { matches: ['x-y-z'] },
+            'SD-1': { matches: [] },
+          },
+        },
+      }),
+    );
+    expect(loadConfig()?.time).toEqual({
+      effort: true,
+      vacation: ['2026-07-17'],
+      catchUpDays: 92,
+      hints: {
+        'SSD-2222': { summary: 'Rapyd reconciliation', matches: ['valitor'] },
+        'SD-9001': { matches: ['fix-beta'], placeholder: true },
+      },
+    });
+  });
 });
 
 describe('validatePortRange', () => {

@@ -6,7 +6,16 @@ import type { TimeDaysWire, TimeDayWire } from '../../src/core/api-types.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const settings = { dayHours: 7.5, multiplier: 5, capHours: 7, stepHours: 0.25, minHours: 0.5, gapTicket: 'SD-434', timeOffTicket: 'INT-1' };
+const settings = {
+  dayHours: 7.5,
+  multiplier: 5,
+  capHours: 7,
+  stepHours: 0.25,
+  minHours: 0.5,
+  gapTicket: 'SD-434',
+  timeOffTicket: 'INT-1',
+  effort: false,
+};
 const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
   day: '2026-10-08',
   status: 'draft',
@@ -33,12 +42,17 @@ const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
   settings,
   posted: null,
   posting: { ready: true, why: null },
+  vacation: false,
+  resolved: [],
+  placeholders: [],
   ...over,
 });
 
 const api = vi.hoisted(() => ({
   days: null as unknown as TimeDaysWire,
   day: null as unknown as TimeDayWire,
+  /** When set, a day's fetch answers when the test says (out of order). */
+  fetchDay: null as null | ((day: string) => Promise<TimeDayWire>),
   save: vi.fn(),
   rebuild: vi.fn(),
   post: vi.fn(),
@@ -55,7 +69,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchTimeDays: async () => api.days,
-  fetchTimeDay: async () => api.day,
+  fetchTimeDay: (d: string) => (api.fetchDay ? api.fetchDay(d) : Promise.resolve(api.day)),
   saveTimeDay: (day: string, change: unknown) => api.save(day, change),
   rebuildTimeDay: (day: string) => api.rebuild(day),
   postTimeDay: (day: string) => api.post(day),
@@ -78,6 +92,7 @@ beforeEach(() => {
     settings,
   };
   api.day = dayWire();
+  api.fetchDay = null;
   api.save.mockReset().mockImplementation(async (_d: string, change: { entries?: unknown; dayOff?: boolean }) =>
     change.dayOff
       ? dayWire({ status: 'off', dayOff: true, entries: [{ key: 'INT-1', hours: 7.5 }] })
@@ -297,6 +312,36 @@ describe('the Time tab', () => {
     expect(onDayChange).toHaveBeenLastCalledWith('2026-10-08');
     act(() => button('Ask about this day').click());
     expect(onAsk).toHaveBeenCalled();
+  });
+
+  it("a slow answer for the day you left doesn't land on the day you're on", async () => {
+    const waiting = new Map<string, (w: TimeDayWire) => void>();
+    api.fetchDay = (d) => new Promise((res) => waiting.set(d, res));
+    act(() => root.render(createElement(TimeTab, { onOpenSession })));
+    await flush();
+    await flush();
+    act(() => button(new RegExp(`^${dayLabel('2026-10-07')}`)).click());
+    await flush();
+    // Tuesday answers first, then Monday's old request.
+    await act(async () => waiting.get('2026-10-07')!(dayWire({ day: '2026-10-07', entries: [{ key: 'SD-7', hours: 7.5 }] })));
+    await act(async () => waiting.get('2026-10-08')!(dayWire({ day: '2026-10-08', entries: [{ key: 'SD-8', hours: 7.5 }] })));
+    const keys = [...container.querySelectorAll<HTMLInputElement>('.wd-time-key')].map((i) => i.value);
+    expect(keys).toEqual(['SD-7']);
+  });
+
+  it('a resolved ticket and a placeholder are said on their rows; a vacation day is fixed as one', async () => {
+    api.day = dayWire({ resolved: ['SD-1'], placeholders: ['SD-434'] });
+    await render();
+    const titles = [...container.querySelectorAll('.wd-time-rows tbody .wd-time-title')].map((t) => t.textContent);
+    expect(titles).toEqual(['The thingresolved', 'Meetingscreate in Jira first']);
+    act(() => root.unmount());
+    root = createRoot(container);
+    api.day = dayWire({ dayOff: true, vacation: true, status: 'off', entries: [{ key: 'INT-1', hours: 7.5 }] });
+    await render();
+    const box = container.querySelector<HTMLInputElement>('.wd-time-off input')!;
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(true);
+    expect(container.querySelector('.wd-time-off')!.textContent).toBe('Vacation');
   });
 
   it('hours read as hours', () => {

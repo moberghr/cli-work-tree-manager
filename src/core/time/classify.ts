@@ -66,18 +66,15 @@ export function unplacedItems(ev: TimeEvidence): Unplaced[] {
       .map((c, i) => ({ c, i }))
       .filter(({ c }) => !c.keys.length || c.guessed)
       .map(({ c, i }) => ({ id: id.c[i], kind: 'commit' as const, text: `${c.repo}: ${c.subject}`, what: c.sha })),
-    ...(ev.meetings ?? []).map((m, i) => ({
-      id: id.m[i],
-      kind: 'meeting' as const,
-      text: `${m.start}–${m.end} ${m.subject}`,
-      what: meetingWhat(m),
-    })),
-    ...(ev.chats ?? []).map((c, i) => ({
-      id: id.t[i],
-      kind: 'chat' as const,
-      text: `${c.chat}: ${c.sample.join(' / ')}`,
-      what: chatWhat(c),
-    })),
+    // A meeting or chat that names its ticket (its subject, a key in the chat, a hint) isn't asked about.
+    ...(ev.meetings ?? [])
+      .map((m, i) => ({ m, i }))
+      .filter(({ m }) => !m.key || m.guessed)
+      .map(({ m, i }) => ({ id: id.m[i], kind: 'meeting' as const, text: `${m.start}–${m.end} ${m.subject}`, what: meetingWhat(m) })),
+    ...(ev.chats ?? [])
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !c.key || c.guessed)
+      .map(({ c, i }) => ({ id: id.t[i], kind: 'chat' as const, text: `${c.chat}: ${c.sample.join(' / ')}`, what: chatWhat(c) })),
   ];
 }
 
@@ -141,8 +138,8 @@ export function placementOf(ev: TimeEvidence): Record<string, string> {
   const out: Record<string, string> = {};
   ev.sessions.forEach((s, i) => s.guessed && s.key && (out[id.s[i]] = s.key));
   ev.commits.forEach((c, i) => c.guessed && c.keys[0] && (out[id.c[i]] = c.keys[0]));
-  (ev.meetings ?? []).forEach((m, i) => m.key && (out[id.m[i]] = m.key));
-  (ev.chats ?? []).forEach((c, i) => c.key && (out[id.t[i]] = c.key));
+  (ev.meetings ?? []).forEach((m, i) => m.guessed && m.key && (out[id.m[i]] = m.key));
+  (ev.chats ?? []).forEach((c, i) => c.guessed && c.key && (out[id.t[i]] = c.key));
   return out;
 }
 
@@ -166,9 +163,19 @@ export function applyPlacement(ev: TimeEvidence, placed: Record<string, string>,
         : c,
     ),
     meetings: (ev.meetings ?? []).map((m, i) =>
-      placed[id.m[i]] ? { ...m, key: placed[id.m[i]], guessed: true as const } : { ...m, key: null },
+      m.key && !m.guessed
+        ? m
+        : placed[id.m[i]]
+          ? { ...m, key: placed[id.m[i]], guessed: true as const }
+          : { ...m, key: null, guessed: undefined },
     ),
-    chats: (ev.chats ?? []).map((c, i) => (placed[id.t[i]] ? { ...c, key: placed[id.t[i]], guessed: true as const } : { ...c, key: null })),
+    chats: (ev.chats ?? []).map((c, i) =>
+      c.key && !c.guessed
+        ? c
+        : placed[id.t[i]]
+          ? { ...c, key: placed[id.t[i]], guessed: true as const }
+          : { ...c, key: null, guessed: undefined },
+    ),
     classifiedFor: hash,
   };
 }

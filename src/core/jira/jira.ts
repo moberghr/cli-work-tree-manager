@@ -107,6 +107,42 @@ export async function searchIssues(jql: string, limit = 50): Promise<JiraIssue[]
   return searchIssuesOrThrow(jql, limit).catch(() => []);
 }
 
+let accountIdCache: string | null = null;
+
+/**
+ * Your Jira account id (what `updatedBy()` wants: acli refuses `currentUser()`
+ * inside it), from an issue assigned to you; cached for the process. Null
+ * when it can't tell.
+ */
+export async function myAccountId(): Promise<string | null> {
+  if (accountIdCache) return accountIdCache;
+  try {
+    const stdout = await execAsync(
+      'acli',
+      [
+        'jira',
+        'workitem',
+        'search',
+        '--jql',
+        'assignee = currentUser() ORDER BY updated DESC',
+        '--fields',
+        'assignee',
+        '--json',
+        '--limit',
+        '1',
+      ],
+      15000,
+    );
+    const parsed = JSON.parse(stdout) as unknown;
+    const list = (Array.isArray(parsed) ? parsed : (parsed as { issues?: unknown[] } | null)?.issues) ?? [];
+    const id = (list[0] as { fields?: { assignee?: { accountId?: unknown } } } | undefined)?.fields?.assignee?.accountId;
+    accountIdCache = typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
+  return accountIdCache;
+}
+
 /** The same, but a failure (no acli, signed out, no network) throws: for callers that must tell "none" from "couldn't ask". */
 export async function searchIssuesOrThrow(jql: string, limit = 50): Promise<JiraIssue[]> {
   const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', jql, '--json', '--limit', String(limit)], 15000);

@@ -3,6 +3,27 @@ import { DEFAULT_TIME_SETTINGS, isWorkday, issueKeys, suggestDay, totalHours, ty
 
 const S: TimeSettings = { ...DEFAULT_TIME_SETTINGS, gapTicket: 'SD-434', timeOffTicket: 'INT-1' };
 
+describe("effort mode (time.effort: the timesheet tool's build --effort)", () => {
+  it('Claude minutes 1:1 in quarter hours, no minimum beyond a step, a ticket only touched gets nothing; the gap ticket the rest', () => {
+    const r = suggestDay(
+      [
+        { key: 'SD-1', minutes: 95 }, // 1.58 h → 1.5
+        { key: 'SD-2', minutes: 10 }, // 0.17 h → the nearest quarter, 0.25 (as the tool's _round_15)
+        { key: 'SD-3', minutes: 20 }, // 0.33 h → 0.25 (no 0.5 minimum)
+        { key: 'SD-4', minutes: 0 }, // a commit only: nothing
+        { key: 'SD-5', minutes: 5 }, // 0.08 h → under half a step: nothing
+      ],
+      { ...S, effort: true },
+    );
+    expect(r.entries).toEqual([
+      { key: 'SD-1', hours: 1.5 },
+      { key: 'SD-2', hours: 0.25 },
+      { key: 'SD-3', hours: 0.25 },
+      { key: 'SD-434', hours: 5.5 },
+    ]);
+  });
+});
+
 describe('suggestDay (the timesheet rules)', () => {
   it('Claude minutes × 5, in quarter hours, the rest of 7.5 h to the gap ticket', () => {
     const r = suggestDay(

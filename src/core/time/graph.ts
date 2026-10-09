@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from '../platform/config.js';
+import { atomicWriteFile, ensureFile, withFileLockSync } from '../platform/fs-safe.js';
+import { issueKeys } from './allocate.js';
+import { localDay } from './time-view.js';
 import type { TimeChatEvidence, TimeMeetingEvidence } from '../api-types.js';
 
 /**
@@ -63,11 +66,17 @@ function readTokens(): TokenFile | null {
   }
 }
 
+/**
+ * Under the file's lock, atomically (work web and a `work timesheet` may
+ * refresh at once). Only you can read it: the file is made 0600 before
+ * anything is in it, and the atomic write keeps the mode it finds.
+ */
 function writeTokens(t: TokenFile): void {
-  fs.mkdirSync(path.dirname(tokenPath()), { recursive: true });
-  const tmp = `${tokenPath()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(t), { mode: 0o600 });
-  fs.renameSync(tmp, tokenPath());
+  const file = tokenPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  ensureFile(file, '{}');
+  fs.chmodSync(file, 0o600);
+  withFileLockSync(file, () => atomicWriteFile(file, JSON.stringify(t)));
 }
 
 /** Signed in as whom, if at all. */
@@ -294,41 +303,61 @@ const oldestAt = (times: Array<string | undefined>) => {
 
 /** Teams chats where you wrote that day: who with, how many messages, a few of yours, shortened. */
 export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fetch): Promise<TimeChatEvidence[]> {
-  const { from, to } = dayBounds(day);
+  return (await chatsSince(day, token, fetchImpl)).get(day) ?? [];
+}
+
+/**
+ * Every day's Teams chats from `firstDay` to now, read once: the chats with
+ * a message since, each paged back to that day (newest first). Per day, the
+ * chats you wrote in — how many of your messages, a few of them shortened —
+ * and the issue keys anyone there named that day (`mentions`: only the keys
+ * are taken from others' messages; their text is neither kept nor given to
+ * the AI step). A whole catch-up costs one read, not one per day.
+ */
+export async function chatsSince(firstDay: string, token: string, fetchImpl: Fetch = fetch): Promise<Map<string, TimeChatEvidence[]>> {
+  const from = dayBounds(firstDay).from.getTime();
   const me = await getJson<{ id?: string }>(`${GRAPH}/me?$select=id`, token, fetchImpl);
-  // Chats come newest message first: every one with a message since the day began, page by page.
   const active: Chat[] = [];
   let next: string | undefined = `${GRAPH}/me/chats?$top=50&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`;
   for (let page = 0; next && page < MAX_PAGES; page++) {
     const j: Paged<Chat> = await getJson(next, token, fetchImpl);
     const value = j.value ?? [];
-    active.push(...value.filter((c) => Date.parse(c.lastMessagePreview?.createdDateTime ?? '') >= from.getTime()));
-    next = oldestAt(value.map((c) => c.lastMessagePreview?.createdDateTime)) >= from.getTime() ? j['@odata.nextLink'] : undefined;
+    active.push(...value.filter((c) => Date.parse(c.lastMessagePreview?.createdDateTime ?? '') >= from));
+    next = oldestAt(value.map((c) => c.lastMessagePreview?.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
   }
-  const out: TimeChatEvidence[] = [];
+  const out = new Map<string, TimeChatEvidence[]>();
   for (const c of active) {
     if (!c.id) continue;
-    // Messages come newest first: back page by page to the day's start (a busy chat, or a day gone by, has more than a page since).
     const msgs: Msg[] = [];
     let more: string | undefined = `${GRAPH}/me/chats/${encodeURIComponent(c.id)}/messages?$top=50`;
     for (let page = 0; more && page < MAX_PAGES; page++) {
       const j: Paged<Msg> = await getJson(more, token, fetchImpl);
       const value = j.value ?? [];
       msgs.push(...value);
-      more = oldestAt(value.map((m) => m.createdDateTime)) >= from.getTime() ? j['@odata.nextLink'] : undefined;
+      more = oldestAt(value.map((m) => m.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
     }
-    const mine = msgs.filter((m) => {
+    const byDay = new Map<string, Msg[]>();
+    for (const m of msgs) {
       const at = Date.parse(m.createdDateTime ?? '');
-      return at >= from.getTime() && at < to.getTime() && m.from?.user?.id === me.id;
-    });
-    if (!mine.length) continue;
-    out.push({
-      id: c.id,
-      chat: c.topic?.trim() || (c.chatType === 'oneOnOne' ? 'a one-on-one chat' : 'a group chat'),
-      messages: mine.length,
-      sample: mine.slice(0, 5).map((m) => plain(m.body?.content ?? '').slice(0, 200)),
-    });
-    if (out.length >= 20) break;
+      if (!(at >= from)) continue;
+      const d = localDay(at);
+      byDay.set(d, [...(byDay.get(d) ?? []), m]);
+    }
+    for (const [d, dayMsgs] of byDay) {
+      const mine = dayMsgs.filter((m) => m.from?.user?.id === me.id);
+      if (!mine.length) continue;
+      const list = out.get(d) ?? [];
+      if (list.length >= 20) continue;
+      const mentions = [...new Set(dayMsgs.flatMap((m) => issueKeys(plain(m.body?.content ?? ''))))];
+      list.push({
+        id: c.id,
+        chat: c.topic?.trim() || (c.chatType === 'oneOnOne' ? 'a one-on-one chat' : 'a group chat'),
+        messages: mine.length,
+        sample: mine.slice(0, 5).map((m) => plain(m.body?.content ?? '').slice(0, 200)),
+        ...(mentions.length ? { mentions } : {}),
+      });
+      out.set(d, list);
+    }
   }
   return out;
 }

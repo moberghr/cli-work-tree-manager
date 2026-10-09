@@ -1,7 +1,7 @@
 import type { ActivityLog } from '../platform/activity.js';
 import { isWorkday } from './allocate.js';
 import { buildDay, type TimeDeps } from './time-days.js';
-import { addDays, daysBetween, localDay } from './time-view.js';
+import { addDays, daysBetween, DEFAULT_CATCH_UP_DAYS, localDay } from './time-view.js';
 import { readDays } from './time-store.js';
 
 /**
@@ -15,8 +15,8 @@ import { readDays } from './time-store.js';
  */
 
 export const TIME_EVERY_MS = 30 * 60_000;
-/** How far back days are caught up (the work time per day reaches two weeks). */
-export const CATCH_UP_DAYS = 14;
+/** How far back days are caught up when config `time.catchUpDays` doesn't say. */
+export const CATCH_UP_DAYS = DEFAULT_CATCH_UP_DAYS;
 /** A turn's end asks for today again, this long after (turns come in bursts). */
 export const AFTER_TURN_MS = 2 * 60_000;
 
@@ -45,8 +45,8 @@ export function createTimeKeeper(
 
   async function runNow(): Promise<void> {
     const today = localDay(now());
-    const from = addDays(today, -(CATCH_UP_DAYS - 1));
     const settings = deps.settings();
+    const from = addDays(today, -((settings.catchUpDays ?? CATCH_UP_DAYS) - 1));
     const builtAt = new Map(readDays(from, today).map((r) => [r.day, r.builtAt]));
     const days = daysBetween(from, today).filter((d) => {
       if (d === today) return true;

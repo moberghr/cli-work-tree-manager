@@ -4558,6 +4558,18 @@ a.wd-pr-chip:hover {
 .wd-time-title {
   color: var(--muted);
 }
+.wd-time-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.wd-time-tag-warn {
+  color: var(--del-fg);
+  border-color: currentColor;
+}
 .wd-time-total-label {
   text-align: right;
   color: var(--muted);

@@ -5,6 +5,7 @@ import { getConfigDir } from '../../../src/core/platform/config.js';
 import {
   CANCELLED,
   chatsOn,
+  chatsSince,
   EXPIRED,
   finishDeviceLogin,
   graphAccount,
@@ -187,6 +188,38 @@ describe('meetings and chats', () => {
       { id: 'c1', chat: 'Payments', messages: 1, sample: ['the PDF export & CSV'] },
     ]);
     expect(plain('<div>a&nbsp;<b>b</b></div>')).toBe('a b');
+  });
+
+  it("several days in one read, split by day; the keys anyone named, but none of others' words", async () => {
+    const at = (d: number, h: number) => new Date(2026, 9, d, h).toISOString();
+    const asked: string[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      asked.push(u);
+      if (u.includes('/me?')) return json({ id: 'me-1' });
+      if (u.includes('/me/chats?'))
+        return json({ value: [{ id: 'c1', topic: 'Payments', lastMessagePreview: { createdDateTime: at(8, 15) } }] });
+      if (u.includes('/chats/c1/'))
+        return json({
+          value: [
+            { createdDateTime: at(8, 15), from: { user: { id: 'me-1' } }, body: { content: 'on it' } },
+            {
+              createdDateTime: at(8, 14),
+              from: { user: { id: 'other' } },
+              body: { content: 'see <a href="https://x.atlassian.net/browse/SSD-2465">SSD-2465</a>, secret plans' },
+            },
+            { createdDateTime: at(7, 10), from: { user: { id: 'me-1' } }, body: { content: 'SD-1 done' } },
+            { createdDateTime: at(6, 10), from: { user: { id: 'other' } }, body: { content: 'only them that day: SD-9' } },
+          ],
+        });
+      return json({}, 404);
+    }) as unknown as typeof fetch;
+    const byDay = await chatsSince('2026-10-06', 'tok', fetchImpl);
+    expect(byDay.get('2026-10-08')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['on it'], mentions: ['SSD-2465'] }]);
+    expect(byDay.get('2026-10-07')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['SD-1 done'], mentions: ['SD-1'] }]);
+    expect(byDay.has('2026-10-06')).toBe(false); // you didn't write that day
+    expect(JSON.stringify([...byDay.values()])).not.toContain('secret plans');
+    expect(asked.filter((u) => u.includes('/chats/c1/'))).toHaveLength(1);
   });
 
   it("a day gone by: chats and messages are read page by page back to the day's start, and no further", async () => {

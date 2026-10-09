@@ -566,6 +566,8 @@ export interface TimeMeetingEvidence {
 
 /** A Teams chat you wrote in that day: how many of your messages, a few of them shortened (what the AI step reads). */
 export interface TimeChatEvidence {
+  /** Issue keys anyone in the chat named that day (only the keys are read from others' messages). */
+  mentions?: string[];
   /** Teams' id for the chat: untitled ones share a name ("a one-on-one chat"). */
   id?: string;
   chat: string;
@@ -604,6 +606,8 @@ export interface TimeSettingsWire {
   minHours: number;
   gapTicket: string | null;
   timeOffTicket: string | null;
+  /** Hours as measured (Claude minutes 1:1), not scaled. */
+  effort: boolean;
 }
 
 /** GET /api/time/:day */
@@ -627,6 +631,12 @@ export interface TimeDayWire {
   settings: TimeSettingsWire;
   /** When work last posted the day to Tempo, and what. */
   posted: { at: string; entries: TimeEntryWire[] } | null;
+  /** A vacation day (config `time.vacation`): a day off whatever was ticked. */
+  vacation: boolean;
+  /** Rows whose ticket Jira had as done when the day was gathered. */
+  resolved: string[];
+  /** Rows whose ticket is a placeholder (`time.hints`): create it in Jira before posting. */
+  placeholders: string[];
   /** Whether it can post (a Tempo token and your account id), or why not. Set by the server. */
   posting?: { ready: boolean; why: string | null };
 }

@@ -243,6 +243,24 @@ describe('posting a day to Tempo', () => {
     expect(api.day.filter((w) => w.issueId === 1).map((w) => w.timeSpentSeconds)).toEqual([10800]);
   });
 
+  it('a posted suggestion is pinned as your rows: a later rebuild with more Claude time shows a new suggestion, the day stays in Tempo', async () => {
+    let minutes = 30;
+    const a = new Hono();
+    mountTimeRoutes(a, {
+      deps: { ...deps, minutesOn: async () => minutes },
+      broadcast: vi.fn(),
+      tempo: () => ({ api: tempoWithState(), accountId: 'acc-1' }),
+    });
+    await send(a, 'POST', '/api/time/2026-09-30/rebuild');
+    const posted = (await (await send(a, 'POST', '/api/time/2026-09-30/post')).json()) as TimePostWire;
+    expect(posted.day).toMatchObject({ status: 'posted', edited: true });
+    minutes = 60;
+    const rebuilt = (await (await send(a, 'POST', '/api/time/2026-09-30/rebuild')).json()) as TimeDayWire;
+    expect(rebuilt.status).toBe('posted');
+    expect(rebuilt.entries).toEqual(posted.day.entries);
+    expect(rebuilt.suggested).not.toEqual(posted.day.entries);
+  });
+
   it("Tempo's day can't be read: nothing changed, and it says why", async () => {
     const api = fake();
     api.list.mockRejectedValue(new Error('Tempo list: 401 Unauthorized'));
@@ -251,6 +269,34 @@ describe('posting a day to Tempo', () => {
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: 'Tempo list: 401 Unauthorized' });
     expect(api.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('what the time routes refuse', () => {
+  it('days that are not real, and a list longer than a quarter (it would hold up every request)', async () => {
+    const { a } = app();
+    expect((await a.request('/api/time?from=0001-01-01&to=2026-10-08')).status).toBe(400);
+    expect((await a.request('/api/time?from=2026-07-01&to=2026-10-08')).status).toBe(400); // 100 days
+    expect((await a.request('/api/time?from=2026-07-09&to=2026-10-08')).status).toBe(200); // 92
+    expect((await a.request('/api/time/2026-02-31')).status).toBe(400);
+    expect((await send(a, 'PUT', '/api/time/2026-02-31', { dayOff: true })).status).toBe(400);
+    expect((await send(a, 'POST', '/api/time/2026-02-30/rebuild')).status).toBe(400);
+  });
+
+  it('a gather that fails says why (not a bare 500)', async () => {
+    const a = new Hono();
+    mountTimeRoutes(a, {
+      deps: {
+        ...deps,
+        sessions: () => {
+          throw new Error('database is locked');
+        },
+      },
+      broadcast: vi.fn(),
+    });
+    const res = await send(a, 'POST', '/api/time/2026-09-29/rebuild');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Couldn't gather the day: database is locked" });
   });
 });
 

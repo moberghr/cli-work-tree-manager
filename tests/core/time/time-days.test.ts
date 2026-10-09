@@ -180,9 +180,8 @@ describe('building a day (time-days.ts, state.db)', () => {
       [null, 6],
     ]);
     expect(rec.evidence.commits.map((c) => c.keys)).toEqual([['SD-3901'], []]); // not UTF-8
-    expect(rec.titles['SD-3777']).toBe('Moved one'); // from Jira's own answer, not asked again
-    expect(d.titles).toHaveBeenCalledWith(expect.arrayContaining(['SD-3850', 'SD-3900', 'SD-3901', 'SD-434', 'INT-1']));
-    expect(d.titles.mock.calls[0][0]).not.toContain('SD-3777');
+    expect(rec.titles['SD-3777']).toBe('Title of SD-3777'); // every key asked each build (its title, whether it's done)
+    expect(d.titles).toHaveBeenCalledWith(expect.arrayContaining(['SD-3850', 'SD-3900', 'SD-3901', 'SD-3777', 'SD-434', 'INT-1']));
     const w = dayWire('2026-10-08', S);
     expect(w.status).toBe('draft');
     expect(w.entries.map((e) => e.key)).toEqual(['SD-3850', 'SD-3900', 'SD-3777', 'SD-3901', 'SD-434']);
@@ -213,20 +212,18 @@ describe('building a day (time-days.ts, state.db)', () => {
 
   it("a stored day whose posted record isn't whole is not read as a day (no crash over the list)", () => {
     withDb((d) =>
-      d
-        .prepare('INSERT OR REPLACE INTO time_days (day, data) VALUES (?, ?)')
-        .run(
-          '2026-09-02',
-          JSON.stringify({
-            day: '2026-09-02',
-            evidence: { sessions: [], commits: [], jira: [] },
-            titles: {},
-            builtAt: 'x',
-            edited: null,
-            dayOff: false,
-            posted: { at: 'x' },
-          }),
-        ),
+      d.prepare('INSERT OR REPLACE INTO time_days (day, data) VALUES (?, ?)').run(
+        '2026-09-02',
+        JSON.stringify({
+          day: '2026-09-02',
+          evidence: { sessions: [], commits: [], jira: [] },
+          titles: {},
+          builtAt: 'x',
+          edited: null,
+          dayOff: false,
+          posted: { at: 'x' },
+        }),
+      ),
     );
     expect(readDay('2026-09-02')).toBeNull();
     expect(() => daysWire('2026-09-01', '2026-09-03', S)).not.toThrow();
@@ -254,6 +251,74 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(dayWire('2026-10-02', S).entries).toEqual(before);
     const signedOut = await buildDay('2026-10-02', deps({ meetings: async () => undefined }));
     expect(signedOut.evidence.meetings).toBeUndefined();
+  });
+
+  it('a day older than the work-time reader reaches keeps its sessions; a session deleted since keeps its minutes', async () => {
+    await buildDay('2026-05-04', deps());
+    const before = readDay('2026-05-04')!.evidence.sessions;
+    // Now it's two months later: minutes read nothing for that day.
+    const late = deps({ minutesOn: async () => 0, minutesFrom: () => '2026-09-25' });
+    expect((await buildDay('2026-05-04', late)).evidence.sessions).toEqual(before);
+    // Within reach, but one session is gone from history: its minutes stay, the others are read again.
+    await buildDay('2026-10-05', deps());
+    const fewer = deps({
+      sessions: () => [session({ branch: 'feat/SD-3850-pos-key' }), session({ branch: 'fix/thing', jiraKey: 'SD-3900' })],
+    });
+    const rec = await buildDay('2026-10-05', fewer);
+    expect(rec.evidence.sessions.map((s) => s.minutes).sort((a, b) => a - b)).toEqual([6, 12, 30]);
+  });
+
+  it('gathering a day twice at once (Gather again while the keeper builds) is one build', async () => {
+    let calls = 0;
+    const d = deps({
+      jiraMoved: async () => {
+        calls++;
+        await new Promise((r) => setTimeout(r, 10));
+        return [];
+      },
+    });
+    const [a, b] = await Promise.all([buildDay('2026-10-06', d), buildDay('2026-10-06', d)]);
+    expect(calls).toBe(1);
+    expect(a).toBe(b);
+  });
+
+  it("keys in branches and commits count only for your projects (ISO-8601 isn't an issue); an empty projects list is no list", async () => {
+    const d = deps({
+      sessions: () => [session({ branch: 'feat/ISO-8601-dates' }), session({ branch: 'feat/SD-3850-x' })],
+      minutesOn: async () => 30,
+      commits: async () => [{ repo: 'api', sha: 'b1', subject: 'ISO-8601 dates for SD-3850' }],
+    });
+    const rec = await buildDay('2026-09-28', d);
+    expect(rec.evidence.sessions.map((s) => s.key).sort()).toEqual(['SD-3850', null].sort());
+    expect(rec.evidence.commits[0].keys).toEqual(['SD-3850']);
+    // time.projects: [] (or every entry dropped as invalid) means "work it out", not "everything".
+    const empty = await buildDay('2026-09-29', { ...d, settings: () => ({ ...S, projects: [] }) });
+    expect(empty.evidence.commits[0].keys).toEqual(['SD-3850']);
+  });
+
+  it("when the AI step can't run this time, its last answer stands (the hours don't move), and it's asked again next time", async () => {
+    const meeting = { subject: 'Refinement', start: '10:00', end: '11:00', minutes: 60 };
+    const answer = vi.fn(async (prompt: string) => {
+      const id = /\[(m\w+)\] meeting/.exec(prompt)![1];
+      return `{"place":[{"id":"${id}","key":"SD-3850"}]}`;
+    });
+    await buildDay('2026-09-30', deps({ meetings: async () => [meeting], classify: answer }));
+    expect(readDay('2026-09-30')!.evidence.meetings![0].key).toBe('SD-3850');
+    const busy = vi.fn(async () => null);
+    // Something changed (a new meeting), but the AI step can't run: the old placement stays.
+    const rec = await buildDay(
+      '2026-09-30',
+      deps({ meetings: async () => [meeting, { ...meeting, subject: 'Demo', start: '15:00', end: '15:30', minutes: 30 }], classify: busy }),
+    );
+    expect(rec.evidence.meetings!.find((m) => m.subject === 'Refinement')!.key).toBe('SD-3850');
+    await buildDay(
+      '2026-09-30',
+      deps({
+        meetings: async () => [meeting, { ...meeting, subject: 'Demo', start: '15:00', end: '15:30', minutes: 30 }],
+        classify: answer,
+      }),
+    );
+    expect(answer).toHaveBeenCalledTimes(2); // asked again once it could
   });
 
   it('the list reads stored days', async () => {
@@ -322,6 +387,19 @@ describe('the keeper (time-keeper.ts)', () => {
     expect(tried.length).toBe(10); // every workday tried
     expect(changed).toHaveBeenCalledTimes(1);
     expect(fail.mock.calls[0][0]).toMatch(/^1 of 10 not built — 2026-06-\d\d: database is locked$/);
+  });
+
+  it('reaches back as far as time.catchUpDays says', async () => {
+    const now = Date.parse('2026-04-24T15:00:00'); // a Friday
+    const built = new Set<string>();
+    const d = deps({
+      now: () => now,
+      minutesOn: async (_s, day) => (built.add(day), 0),
+      commits: async () => [],
+      jiraMoved: async () => [],
+    });
+    await createTimeKeeper({ ...d, settings: () => ({ ...S, catchUpDays: 30 }) }, { changed: vi.fn(), now: () => now }).run();
+    expect([...built].sort()[0]).toBe('2026-03-26'); // 30 days, today included (a Thursday)
   });
 
   it("a day's end is the next local midnight", () => {

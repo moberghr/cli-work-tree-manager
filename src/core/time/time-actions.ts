@@ -44,6 +44,9 @@ async function postNow(day: string, deps: TimeDeps, tempo: { api: TempoApi; acco
   });
   const failedKeys = new Set(r.failed.map((f) => f.key));
   updateDay(day, {
+    // What you posted is what you reviewed: pinned as your rows, so a later rebuild (late turns, a new AI guess,
+    // a changed setting) shows as a new suggestion beside it rather than turning the day "changed".
+    ...(w.edited || w.dayOff ? {} : { edited: w.entries.map((e) => ({ key: e.key, hours: e.hours })) }),
     // What Tempo has now: a row that failed isn't in it, an old worklog that couldn't go still is (the day reads "changed": post again).
     posted: {
       at: new Date().toISOString(),

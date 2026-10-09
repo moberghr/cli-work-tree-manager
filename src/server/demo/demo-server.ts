@@ -40,7 +40,7 @@ import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
 import { createDemoTime } from './demo-time.js';
-import { localDay, parseEntries } from '../../core/time/time-view.js';
+import { addDays, isDay, localDay, parseEntries } from '../../core/time/time-view.js';
 import { mountDemoReplies } from './demo-replies.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
@@ -592,11 +592,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // A PR to start a session on: from the demo's PR list, by number (in `target`) or link.
   // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
   const demoTime = createDemoTime(() => scenario.clockMs());
-  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const DAY = { test: isDay };
   app.get('/api/time', (c) => {
     const to = c.req.query('to') ?? localDay(scenario.clockMs());
     const from = c.req.query('from') ?? localDay(Date.parse(`${to}T12:00:00`) - 13 * 24 * 3600_000);
-    if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: YYYY-MM-DD, from ≤ to' }, 400);
+    if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
+    if (addDays(from, 91) < to) return c.json({ error: 'at most 92 days at once' }, 400);
     return c.json(demoTime.days(from, to));
   });
   // Outlook and Teams: a pretend sign-in that "completes" a few seconds after the code is shown.

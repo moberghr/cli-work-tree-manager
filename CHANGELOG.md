@@ -30,6 +30,16 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 - **Ask about this day** opens the Ctrl+K assistant on the day on screen,
   and `work timesheet show | set | reset | off | gather | post` does it
   all from a terminal.
+- What the timesheet tool had, in `time`: **hints** (its TICKET_HINTS:
+  words that mean a ticket, for worktrees and meetings that don't name it;
+  `placeholder` for a ticket still to create in Jira, said on its row),
+  **effort** (Claude minutes 1:1, its `build --effort`), **vacation** days,
+  and **catchUpDays** (how far back, up to 92). A ticket Jira has as done
+  says "resolved" on its row. Jira counts what you updated (a comment, an
+  edit), not only what you moved; a meeting whose subject names a ticket,
+  or a chat where someone named one, is on it without the AI step.
+- The **Jira** tab shows every open issue of yours: a service desk sets a
+  resolution on issues still waiting for feedback, which hid them.
 
 ## 2.0.9 — 2026-10-08
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   TimeDaySummary,
   TimeDaysWire,
@@ -84,6 +84,15 @@ export function TimeTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  // The day on screen now: an answer for another day (a slow fetch, a save, a post from before a switch) isn't shown.
+  const chosenRef = useRef<string | null>(null);
+  chosenRef.current = chosen;
+  const showDay = useCallback((w: TimeDayWire) => {
+    if (w.day !== chosenRef.current) return false;
+    setDay(w);
+    setRows(w.entries);
+    return true;
+  }, []);
 
   const loadDays = useCallback(() => {
     fetchTimeDays().then(
@@ -94,15 +103,15 @@ export function TimeTab({
       (e: Error) => setError(e.message),
     );
   }, []);
-  const loadDay = useCallback((d: string) => {
-    fetchTimeDay(d).then(
-      (w) => {
-        setDay(w);
-        setRows(w.entries);
-      },
-      (e: Error) => setError(e.message),
-    );
-  }, []);
+  const loadDay = useCallback(
+    (d: string) => {
+      fetchTimeDay(d).then(
+        (w) => void showDay(w),
+        (e: Error) => setError(e.message),
+      );
+    },
+    [showDay],
+  );
   useEffect(() => loadDays(), [loadDays]);
   useEffect(() => {
     setOutcome(null);
@@ -125,8 +134,7 @@ export function TimeTab({
     setOutcome(null);
     p.then(
       (w) => {
-        setDay(w);
-        setRows(w.entries);
+        showDay(w);
         loadDays();
       },
       (e: Error) => setError(e.message),
@@ -140,9 +148,7 @@ export function TimeTab({
     postTimeDay(day.day)
       .then(
         (r) => {
-          setDay(r.day);
-          setRows(r.day.entries);
-          setOutcome(postOutcome(r));
+          if (showDay(r.day)) setOutcome(postOutcome(r));
           loadDays();
         },
         (e: Error) => setError(e.message),
@@ -203,14 +209,14 @@ export function TimeTab({
               <h2>{dayLabel(day.day)}</h2>
               <span className={`wd-time-day-status wd-time-status-${day.status}`}>{statusText(day.status)}</span>
               <span className="wd-time-spacer" />
-              <label className="wd-time-off">
+              <label className="wd-time-off" title={day.vacation ? 'A vacation day (time.vacation in config.json)' : undefined}>
                 <input
                   type="checkbox"
                   checked={day.dayOff}
-                  disabled={busy}
+                  disabled={busy || day.vacation}
                   onChange={(e) => act(saveTimeDay(day.day, { dayOff: e.target.checked }))}
                 />
-                Day off
+                {day.vacation ? 'Vacation' : 'Day off'}
               </label>
               <button
                 type="button"
@@ -254,7 +260,22 @@ export function TimeTab({
                         onChange={(e) => setRow(i, { key: e.target.value.toUpperCase() })}
                       />
                     </td>
-                    <td className="wd-time-title">{day.titles[r.key] ?? ''}</td>
+                    <td className="wd-time-title">
+                      {day.titles[r.key] ?? ''}
+                      {day.placeholders?.includes(r.key) && (
+                        <span
+                          className="wd-time-tag wd-time-tag-warn"
+                          title="A placeholder in time.hints: create the ticket in Jira before posting"
+                        >
+                          create in Jira first
+                        </span>
+                      )}
+                      {day.resolved?.includes(r.key) && (
+                        <span className="wd-time-tag" title="Jira had this ticket as done when the day was gathered">
+                          resolved
+                        </span>
+                      )}
+                    </td>
                     <td className="wd-time-num">
                       <input
                         type="number"

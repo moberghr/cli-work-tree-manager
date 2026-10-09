@@ -27,6 +27,13 @@ export interface TimeSettings {
   timeOffTicket: string | null;
   /** Days that aren't workdays besides weekends (`YYYY-MM-DD`). */
   holidays: string[];
+  /** Your days off (`YYYY-MM-DD`): booked whole to the time-off ticket, whatever else happened (the timesheet tool's VACATION_DAYS). */
+  vacation: string[];
+  /**
+   * Hours as measured (the timesheet tool's `build --effort`): Claude minutes 1:1 in steps, no multiplier and no
+   * minimum beyond a step, a ticket only touched gets no row; the gap ticket takes the rest of the day.
+   */
+  effort: boolean;
 }
 
 export const DEFAULT_TIME_SETTINGS: TimeSettings = {
@@ -38,6 +45,8 @@ export const DEFAULT_TIME_SETTINGS: TimeSettings = {
   gapTicket: null,
   timeOffTicket: null,
   holidays: [],
+  vacation: [],
+  effort: false,
 };
 
 /** What a ticket got that day: measured Claude minutes (× multiplier), your own minutes on it (a meeting: 1:1), or only touched (0). */
@@ -86,13 +95,15 @@ export function suggestDay(
     m.direct += Math.max(0, a.direct ?? 0);
     minutes.set(a.key, m);
   }
-  const min = Math.max(1, units(s.minHours));
+  const min = s.effort ? 1 : Math.max(1, units(s.minHours));
+  const multiplier = s.effort ? 1 : s.multiplier;
   // Room for tickets: the cap, and the day less what the gap ticket keeps (its minimum, or the meetings it has).
   const reserve = s.gapTicket ? Math.max(min, units((opts.reserveMinutes ?? 0) / 60)) : 0;
   const room = Math.max(0, Math.min(units(s.capHours), day - reserve));
   const raw = [...minutes].map(([key, m]) => {
-    const h = (m.claude / 60) * s.multiplier + m.direct / 60;
-    return { key, raw: h > 0 ? h : s.minHours };
+    const h = (m.claude / 60) * multiplier + m.direct / 60;
+    // Only touched (a commit, an issue moved): the minimum — or, measuring effort, nothing.
+    return { key, raw: h > 0 ? h : s.effort ? 0 : s.minHours };
   });
   const total = raw.reduce((n, r) => n + r.raw, 0);
   const scale = total > room * s.stepHours && total > 0 ? (room * s.stepHours) / total : 1;

@@ -11,7 +11,7 @@ import {
   type GraphApp,
 } from '../../core/time/graph.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
-import { addDays, localDay, parseEntries } from '../../core/time/time-view.js';
+import { addDays, isDay, localDay, parseEntries } from '../../core/time/time-view.js';
 import { updateDay } from '../../core/time/time-store.js';
 import { tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
 import { postStoredDay } from '../../core/time/time-actions.js';
@@ -33,7 +33,8 @@ import type { TimeEntry } from '../../core/time/allocate.js';
  * Each change broadcasts `time-changed`.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** The most days one list asks for (a quarter): a range from year 1 would hold up every request while it's worked out. */
+export const MAX_RANGE_DAYS = 92;
 
 /** How to reach Tempo now, or why not: the token from the environment, never sent to the browser. */
 export type TempoAccess = () => { api: TempoApi; accountId: string } | { why: string };
@@ -143,19 +144,20 @@ export function mountTimeRoutes(
   app.get('/api/time', (c) => {
     const to = c.req.query('to') ?? localDay();
     const from = c.req.query('from') ?? addDays(to, -13);
-    if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: YYYY-MM-DD, from ≤ to' }, 400);
+    if (!isDay(from) || !isDay(to) || from > to) return c.json({ error: 'from and to: real days (YYYY-MM-DD), from ≤ to' }, 400);
+    if (addDays(from, MAX_RANGE_DAYS - 1) < to) return c.json({ error: `at most ${MAX_RANGE_DAYS} days at once` }, 400);
     return c.json<TimeDaysWire>(daysWire(from, to, opts.deps.settings()));
   });
 
   app.get('/api/time/:day', (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
     return c.json<TimeDayWire>(withPosting(dayWire(day, opts.deps.settings())));
   });
 
   app.post('/api/time/:day/post', async (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
     const t = tempo();
     if ('why' in t) return c.json({ error: t.why }, 409);
     let counts;
@@ -171,7 +173,7 @@ export function mountTimeRoutes(
 
   app.put('/api/time/:day', async (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
     const body = (await c.req.json().catch(() => null)) as { entries?: unknown; dayOff?: unknown } | null;
     if (!body || (body.entries === undefined && body.dayOff === undefined)) return c.json({ error: 'entries or dayOff' }, 400);
     const settings = opts.deps.settings();
@@ -189,8 +191,13 @@ export function mountTimeRoutes(
 
   app.post('/api/time/:day/rebuild', async (c) => {
     const day = c.req.param('day');
-    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
-    await buildDay(day, opts.deps);
+    if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
+    // One build of a day at a time (buildDay): a Gather while the keeper builds gets that build.
+    try {
+      await buildDay(day, opts.deps);
+    } catch (err) {
+      return c.json({ error: `Couldn't gather the day: ${(err as Error).message}` }, 500);
+    }
     changed(day);
     return c.json<TimeDayWire>(withPosting(dayWire(day, opts.deps.settings())));
   });

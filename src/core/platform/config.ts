@@ -31,6 +31,10 @@ export interface WorkConfig {
    *  projects whose keys count in commit subjects (default: the projects of your sessions' keys). */
   time?: Partial<import('../time/allocate.js').TimeSettings> & {
     projects?: string[];
+    /** How many days back the Time tab gathers (default 14, at most 92; Claude's own transcripts go back about 30). */
+    catchUpDays?: number;
+    /** Tickets a workstream maps to when nothing names them (the timesheet tool's TICKET_HINTS), by key. */
+    hints?: Record<string, import('../time/hints.js').TicketHint>;
     /** Posting to Tempo: the env variable with the token (default TEMPO_API_TOKEN) and your Jira account id (else JIRA_ACCOUNT_ID). */
     tempo?: { tokenEnv?: string; accountId?: string };
     /** Outlook and Teams through Microsoft Graph: the app registration to sign in with (else GRAPH_CLIENT_ID / GRAPH_TENANT_ID). */
@@ -195,6 +199,9 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
     return Object.keys(out).length ? out : undefined;
   };
   const days = stringList(t.holidays)?.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const vacation = stringList(t.vacation)?.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const hints = validateHints(t.hints);
+  const catchUp = typeof t.catchUpDays === 'number' && t.catchUpDays >= 1 ? { catchUpDays: Math.min(92, Math.floor(t.catchUpDays)) } : {};
   const projects = stringList(t.projects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
   const tempo = strs(t.tempo, ['tokenEnv', 'accountId']);
   const graph = strs(t.graph, ['clientId', 'tenantId']);
@@ -207,10 +214,33 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
     ...key('gapTicket'),
     ...key('timeOffTicket'),
     ...(days ? { holidays: days } : {}),
+    ...(vacation ? { vacation } : {}),
+    ...(typeof t.effort === 'boolean' ? { effort: t.effort } : {}),
+    ...catchUp,
+    ...(hints ? { hints } : {}),
     ...(projects ? { projects } : {}),
     ...(tempo ? { tempo } : {}),
     ...(graph ? { graph } : {}),
   };
+}
+
+/** `time.hints`: each a real issue key with what matches it (text found in a session, commit, meeting or chat). */
+function validateHints(raw: unknown): Record<string, import('../time/hints.js').TicketHint> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, import('../time/hints.js').TicketHint> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const h = v as Record<string, unknown> | null;
+    const matches = stringList(h?.matches)
+      ?.map((m) => m.trim())
+      .filter((m) => m.length >= 3);
+    if (!isIssueKey(k) || !matches?.length) continue;
+    out[k] = {
+      matches,
+      ...(typeof h?.summary === 'string' && h.summary.trim() ? { summary: h.summary.trim() } : {}),
+      ...(h?.placeholder === true ? { placeholder: true } : {}),
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** A list of non-empty strings, or undefined (not a list). */

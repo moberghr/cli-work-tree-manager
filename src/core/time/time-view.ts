@@ -11,6 +11,7 @@ import {
   type TimeSettings,
 } from './allocate.js';
 import type { PostedWorklog } from './tempo.js';
+import { placeholderKeys, type TicketHint } from './hints.js';
 
 /**
  * The Time tab's days as it shows them (pure: the server, the demo and the
@@ -31,9 +32,14 @@ export interface TimeDayRecord {
   dayOff: boolean;
   /** What work posted to Tempo, when, and the worklogs it made (tempo.ts). */
   posted?: { at: string; entries: TimeEntry[]; worklogs: PostedWorklog[] } | null;
+  /** The day's tickets Jira had as done when it was gathered (still yours to log to, but said). */
+  resolved?: string[];
 }
 
-export type TimeConfig = TimeSettings & { projects?: string[] };
+export type TimeConfig = TimeSettings & { projects?: string[]; hints?: Record<string, TicketHint>; catchUpDays?: number };
+
+/** How many days back the Time tab gathers when `time.catchUpDays` doesn't say. */
+export const DEFAULT_CATCH_UP_DAYS = 14;
 
 /** The settings as config.json has them, over the defaults. */
 export function timeSettings(cfg: (Partial<TimeSettings> & { projects?: string[] }) | undefined): TimeConfig {
@@ -41,8 +47,8 @@ export function timeSettings(cfg: (Partial<TimeSettings> & { projects?: string[]
 }
 
 /** A session's ticket: its Jira key, else one in its branch, else in its name. */
-export function sessionTicket(s: { jiraKey?: string; branch: string; title?: string }): string | null {
-  return s.jiraKey ?? issueKeys(s.branch)[0] ?? (s.title ? (issueKeys(s.title)[0] ?? null) : null);
+export function sessionTicket(s: { jiraKey?: string; branch: string; title?: string }, projects?: ReadonlySet<string>): string | null {
+  return s.jiraKey ?? issueKeys(s.branch, projects)[0] ?? (s.title ? (issueKeys(s.title, projects)[0] ?? null) : null);
 }
 
 /** A local `YYYY-MM-DD`. */
@@ -89,15 +95,22 @@ export const settingsWire = (s: TimeSettings): TimeSettingsWire => ({
   minHours: s.minHours,
   gapTicket: s.gapTicket,
   timeOffTicket: s.timeOffTicket,
+  effort: s.effort,
 });
 
 const EMPTY: TimeEvidence = { sessions: [], commits: [], jira: [] };
 
 /** A day as the tab shows it. */
-export function dayWireOf(day: string, settings: TimeSettings, rec: TimeDayRecord | null): TimeDayWire {
+export function dayWireOf(
+  day: string,
+  settings: TimeSettings & { hints?: Record<string, TicketHint> },
+  rec: TimeDayRecord | null,
+): TimeDayWire {
   const workday = isWorkday(day, settings);
   const evidence = rec?.evidence ?? EMPTY;
-  const dayOff = rec?.dayOff ?? false;
+  // A vacation day (config) is a day off whatever was ticked.
+  const vacation = settings.vacation.includes(day);
+  const dayOff = vacation || (rec?.dayOff ?? false);
   const s = suggestDay(activityOf(evidence), settings, { dayOff, reserveMinutes: unplacedMeetingMinutes(evidence, settings.gapTicket) });
   const edited = !!rec?.edited && !dayOff;
   const entries = edited ? rec!.edited! : s.entries;
@@ -130,6 +143,12 @@ export function dayWireOf(day: string, settings: TimeSettings, rec: TimeDayRecor
     builtAt: rec?.builtAt || null,
     settings: settingsWire(settings),
     posted: posted ? { at: posted.at, entries: posted.entries } : null,
+    vacation,
+    resolved: (rec?.resolved ?? []).filter((k) => entries.some((e) => e.key === k)),
+    placeholders: placeholderKeys(
+      entries.map((e) => e.key),
+      settings.hints,
+    ),
   };
 }
 
@@ -197,6 +216,9 @@ export function describeTimeDay(w: TimeDayWire): string {
     `On the Time tab: ${w.day}, ${w.status}. Rows: ${rows(w.entries)} — ${w.total} of ${w.settings.dayHours} h.`,
     ...(w.edited ? [`  work suggested: ${rows(w.suggested)}.`] : []),
     ...(w.posted ? [`  Posted to Tempo at ${w.posted.at}${w.status === 'changed' ? '; changed since' : ''}.`] : []),
+    ...(w.vacation ? ['  A vacation day (time.vacation in config.json).'] : []),
+    ...(w.resolved?.length ? [`  Done in Jira already: ${w.resolved.join(', ')}.`] : []),
+    ...(w.placeholders?.length ? [`  Placeholders, to create in Jira before posting: ${w.placeholders.join(', ')}.`] : []),
     `  Rules: Claude minutes × ${w.settings.multiplier}, ${w.settings.stepHours} h steps, at least ${w.settings.minHours} h a ticket, the rest to ${w.settings.gapTicket ?? 'nothing (no gap ticket set)'}.`,
     ...ev.sessions.map(
       (s) => `  Session ${s.label}: ${s.minutes} min of Claude, ticket ${s.key ?? 'none'}${s.guessed ? ' (AI guess)' : ''}.`,
@@ -215,12 +237,16 @@ export function describeTimeDay(w: TimeDayWire): string {
 }
 
 /** A day as typed: today, yesterday, or YYYY-MM-DD (a real date). Null otherwise. */
+/** A real `YYYY-MM-DD` (not 2026-02-31). */
+export function isDay(text: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) && localDay(Date.parse(`${text}T12:00:00`)) === text;
+}
+
 export function dayArg(text: string, now = Date.now()): string | null {
   const t = text.trim().toLowerCase();
   if (t === 'today') return localDay(now);
   if (t === 'yesterday') return addDays(localDay(now), -1);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
-  return localDay(Date.parse(`${t}T12:00:00`)) === t ? t : null;
+  return isDay(t) ? t : null;
 }
 
 /** `KEY=HOURS` arguments as rows (hours as numbers); null when one isn't. */
