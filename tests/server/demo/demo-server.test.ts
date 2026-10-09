@@ -267,6 +267,9 @@ describe('demo server', () => {
     expect(await (await put({ entries: [{ key: 'PAY-12', hours: 7.5 }] })).json()).toMatchObject({ status: 'edited', total: 7.5 });
     expect(await (await put({ dayOff: true })).json()).toMatchObject({ status: 'off', entries: [{ key: 'HR-1', hours: 7.5 }] });
     expect((await put({ entries: [{ key: 'PAY-12', hours: 1.1 }] })).status).toBe(400);
+    await put({ dayOff: false });
+    const posted = await (await fetch(server.url + `api/time/${workday.day}/post`, { method: 'POST' })).json();
+    expect(posted).toMatchObject({ posted: 1, failed: [], day: { status: 'posted' } });
   });
 
   it("looks a PR up to work on it: its repo, branch and author; a fork's is refused", async () => {

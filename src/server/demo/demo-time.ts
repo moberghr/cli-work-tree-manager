@@ -1,4 +1,4 @@
-import type { TimeDaysWire, TimeDayWire, TimeEvidence } from '../../core/api-types.js';
+import type { TimeDaysWire, TimeDayWire, TimeEvidence, TimePostWire } from '../../core/api-types.js';
 import { DEFAULT_TIME_SETTINGS, isWorkday, type TimeEntry } from '../../core/time/allocate.js';
 import { daysBetween, dayWireOf, daysWireOf, localDay, type TimeConfig, type TimeDayRecord } from '../../core/time/time-view.js';
 
@@ -50,7 +50,7 @@ function evidenceFor(n: number): TimeEvidence {
 }
 
 export function createDemoTime(now: () => number) {
-  const edits = new Map<string, { edited?: TimeEntry[] | null; dayOff?: boolean }>();
+  const edits = new Map<string, { edited?: TimeEntry[] | null; dayOff?: boolean; posted?: TimeDayRecord['posted'] }>();
   const record = (day: string): TimeDayRecord | null => {
     const today = localDay(now());
     if (day > today) return null;
@@ -66,6 +66,7 @@ export function createDemoTime(now: () => number) {
       builtAt: new Date(now()).toISOString(),
       edited: e.edited ?? null,
       dayOff: e.dayOff ?? false,
+      posted: e.posted ?? null,
     };
   };
   return {
@@ -78,10 +79,26 @@ export function createDemoTime(now: () => number) {
           .map(record)
           .filter((r): r is TimeDayRecord => !!r),
       ),
-    day: (day: string): TimeDayWire => dayWireOf(day, SETTINGS, record(day)),
+    day: (day: string): TimeDayWire => ({ ...dayWireOf(day, SETTINGS, record(day)), posting: { ready: true, why: null } }),
     update: (day: string, change: { edited?: TimeEntry[] | null; dayOff?: boolean }): TimeDayWire => {
       edits.set(day, { ...(edits.get(day) ?? {}), ...change });
-      return dayWireOf(day, SETTINGS, record(day));
+      return { ...dayWireOf(day, SETTINGS, record(day)), posting: { ready: true, why: null } };
+    },
+    /** "Posting": what the day shows is now what Tempo has (nothing leaves the demo). */
+    post: (day: string): TimePostWire => {
+      const w = dayWireOf(day, SETTINGS, record(day));
+      const before = record(day)?.posted?.entries ?? [];
+      const kept = w.entries.filter((e) => before.some((b) => b.key === e.key && b.hours === e.hours)).length;
+      edits.set(day, { ...(edits.get(day) ?? {}), posted: { at: new Date(now()).toISOString(), entries: w.entries, worklogs: [] } });
+      return {
+        posted: w.entries.length - kept,
+        removed: before.length - kept,
+        kept,
+        coveredByHand: 0,
+        otherByHand: 0,
+        failed: [],
+        day: { ...dayWireOf(day, SETTINGS, record(day)), posting: { ready: true, why: null } },
+      };
     },
     settings: SETTINGS,
   };

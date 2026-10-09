@@ -113,6 +113,16 @@ export async function saveTimeDay(day: string, change: { entries?: TimeEntryWire
   return body;
 }
 
+type TimePostWire = import('../../../core/api-types.js').TimePostWire;
+
+/** Post a day to Tempo as the tab shows it (your yes: the button); the server's reason on a refusal. */
+export async function postTimeDay(day: string): Promise<TimePostWire> {
+  const res = await fetch(`/api/time/${encodeURIComponent(day)}/post`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as TimePostWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
+}
+
 /** Gather a day's evidence again. */
 export async function rebuildTimeDay(day: string): Promise<TimeDayWire> {
   const res = await fetch(`/api/time/${encodeURIComponent(day)}/rebuild`, { method: 'POST' });

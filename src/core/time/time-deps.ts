@@ -2,7 +2,8 @@ import { loadConfig } from '../platform/config.js';
 import { loadHistory } from '../sessions/history.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
-import { searchIssues } from '../jira/jira.js';
+import { issueIdOf, searchIssues } from '../jira/jira.js';
+import { readIssueIds, rememberIssueId } from './time-store.js';
 import { ISSUE_KEY } from './allocate.js';
 import type { TimeDeps } from './time-days.js';
 import { timeSettings } from './time-view.js';
@@ -58,5 +59,12 @@ export function defaultTimeDeps(): TimeDeps {
       return Object.fromEntries(issues.map((i) => [i.key, i.summary]));
     },
     settings: () => timeSettings(loadConfig()?.time),
+    issueId: async (key) => {
+      const known = readIssueIds()[key];
+      if (known !== undefined) return known;
+      const id = await issueIdOf(key);
+      if (id !== null) rememberIssueId(key, id);
+      return id;
+    },
   };
 }

@@ -32,6 +32,26 @@ function isRecord(v: unknown): v is TimeDayRecord {
   );
 }
 
+/** Jira issue ids by key (Tempo wants the id), kept in state.db's meta: an issue's id never changes. */
+export function readIssueIds(): Record<string, number> {
+  return withDb((d) => {
+    const row = d.prepare("SELECT value FROM meta WHERE key = 'time:issue-ids'").get() as { value: string } | undefined;
+    const v = row ? json.parse(row.value) : null;
+    if (!v || typeof v !== 'object') return {};
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter((e): e is [string, number] => typeof e[1] === 'number'));
+  });
+}
+
+export function rememberIssueId(key: string, id: number): void {
+  tx((d) => {
+    const row = d.prepare("SELECT value FROM meta WHERE key = 'time:issue-ids'").get() as { value: string } | undefined;
+    const v = row ? json.parse(row.value) : null;
+    const ids = v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+    ids[key] = id;
+    d.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('time:issue-ids', ?)").run(JSON.stringify(ids));
+  });
+}
+
 export function readDay(day: string): TimeDayRecord | null {
   return withDb((d) => {
     const row = d.prepare('SELECT data FROM time_days WHERE day = ?').get(day) as { data: string } | undefined;
@@ -65,7 +85,10 @@ export function saveBuilt(built: Omit<TimeDayRecord, 'edited' | 'dayOff'>): Time
 }
 
 /** Change what you set on a day (your rows, a day off); a day never built gets a record with no evidence yet. */
-export function updateDay(day: string, change: { edited?: TimeEntry[] | null; dayOff?: boolean }): TimeDayRecord {
+export function updateDay(
+  day: string,
+  change: { edited?: TimeEntry[] | null; dayOff?: boolean; posted?: TimeDayRecord['posted'] },
+): TimeDayRecord {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM time_days WHERE day = ?').get(day) as { data: string } | undefined;
     const cur = row ? json.parse(row.data) : null;
@@ -76,6 +99,7 @@ export function updateDay(day: string, change: { edited?: TimeEntry[] | null; da
       ...base,
       ...(change.edited !== undefined ? { edited: change.edited } : {}),
       ...(change.dayOff !== undefined ? { dayOff: change.dayOff } : {}),
+      ...(change.posted !== undefined ? { posted: change.posted } : {}),
     };
     d.prepare('INSERT OR REPLACE INTO time_days (day, data) VALUES (?, ?)').run(day, JSON.stringify(next));
     return next;

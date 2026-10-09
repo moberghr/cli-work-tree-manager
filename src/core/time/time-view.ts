@@ -9,6 +9,7 @@ import {
   type TimeEntry,
   type TimeSettings,
 } from './allocate.js';
+import type { PostedWorklog } from './tempo.js';
 
 /**
  * The Time tab's days as it shows them (pure: the server, the demo and the
@@ -27,6 +28,8 @@ export interface TimeDayRecord {
   /** Your rows (null: the suggestion stands). */
   edited: TimeEntry[] | null;
   dayOff: boolean;
+  /** What work posted to Tempo, when, and the worklogs it made (tempo.ts). */
+  posted?: { at: string; entries: TimeEntry[]; worklogs: PostedWorklog[] } | null;
 }
 
 export type TimeConfig = TimeSettings & { projects?: string[] };
@@ -83,7 +86,20 @@ export function dayWireOf(day: string, settings: TimeSettings, rec: TimeDayRecor
   const s = suggestDay(activityOf(evidence), settings, { dayOff });
   const edited = !!rec?.edited && !dayOff;
   const entries = edited ? rec!.edited! : s.entries;
-  const status: TimeDayWire['status'] = dayOff ? 'off' : !workday ? 'not-workday' : edited ? 'edited' : rec?.builtAt ? 'draft' : 'empty';
+  const posted = rec?.posted ?? null;
+  const status: TimeDayWire['status'] = posted
+    ? sameEntries(posted.entries, entries)
+      ? 'posted'
+      : 'changed'
+    : dayOff
+      ? 'off'
+      : !workday
+        ? 'not-workday'
+        : edited
+          ? 'edited'
+          : rec?.builtAt
+            ? 'draft'
+            : 'empty';
   return {
     day,
     status,
@@ -98,7 +114,18 @@ export function dayWireOf(day: string, settings: TimeSettings, rec: TimeDayRecor
     titles: rec?.titles ?? {},
     builtAt: rec?.builtAt || null,
     settings: settingsWire(settings),
+    posted: posted ? { at: posted.at, entries: posted.entries } : null,
   };
+}
+
+/** The same rows, in any order. Pure. */
+export function sameEntries(a: readonly TimeEntry[], b: readonly TimeEntry[]): boolean {
+  const k = (es: readonly TimeEntry[]) =>
+    es
+      .map((e) => `${e.key}=${e.hours}`)
+      .sort()
+      .join(',');
+  return k(a) === k(b);
 }
 
 /** The days from `from` to `to`, newest first; a weekend or holiday shows only when something happened on it. */
@@ -108,7 +135,8 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   for (const day of daysBetween(from, to).reverse()) {
     const rec = recs.get(day) ?? null;
     const workday = isWorkday(day, settings);
-    if (!workday && !(rec && (rec.evidence.sessions.length || rec.evidence.commits.length || rec.edited || rec.dayOff))) continue;
+    if (!workday && !(rec && (rec.evidence.sessions.length || rec.evidence.commits.length || rec.edited || rec.dayOff || rec.posted)))
+      continue;
     const w = dayWireOf(day, settings, rec);
     days.push({ day, status: w.status, workday, total: w.total, tickets: w.entries.length });
   }

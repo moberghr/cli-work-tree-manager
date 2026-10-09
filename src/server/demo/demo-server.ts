@@ -621,6 +621,13 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     broadcast({ event: 'time-changed', data: { day } });
     return c.json(w);
   });
+  app.post('/api/time/:day/post', (c) => {
+    const day = c.req.param('day');
+    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    const r = demoTime.post(day);
+    broadcast({ event: 'time-changed', data: { day } });
+    return c.json(r);
+  });
   app.post('/api/time/:day/rebuild', (c) => {
     const day = c.req.param('day');
     if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);

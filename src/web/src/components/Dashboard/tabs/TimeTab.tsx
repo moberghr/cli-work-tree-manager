@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { TimeDaySummary, TimeDaysWire, TimeDayWire, TimeEntryWire } from '../../../../../core/api-types.js';
-import { fetchTimeDay, fetchTimeDays, rebuildTimeDay, saveTimeDay } from '../../../api/panes.js';
+import type { TimeDaySummary, TimeDaysWire, TimeDayWire, TimeEntryWire, TimePostWire } from '../../../../../core/api-types.js';
+import { fetchTimeDay, fetchTimeDays, postTimeDay, rebuildTimeDay, saveTimeDay } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
 
 /** "Thu 8 Oct". Pure. */
@@ -16,7 +16,29 @@ export function hoursText(h: number): string {
 
 /** A day's status in a word. Pure. */
 export function statusText(s: TimeDaySummary['status']): string {
-  return { empty: 'not gathered yet', draft: 'suggested', edited: 'edited', off: 'day off', 'not-workday': 'weekend / holiday' }[s];
+  return {
+    empty: 'not gathered yet',
+    draft: 'suggested',
+    edited: 'edited',
+    off: 'day off',
+    'not-workday': 'weekend / holiday',
+    posted: 'in Tempo',
+    changed: 'changed since posted',
+  }[s];
+}
+
+/** What a post did, in a line. Pure. */
+export function postOutcome(r: Omit<TimePostWire, 'day'>): string {
+  const parts = [
+    r.posted && `${r.posted} posted`,
+    r.removed && `${r.removed} removed`,
+    r.kept && `${r.kept} already there`,
+    r.coveredByHand && `${r.coveredByHand} you had logged by hand`,
+  ].filter(Boolean);
+  const head = parts.length ? `Tempo: ${parts.join(', ')}.` : 'Tempo already had the day as it is.';
+  const other = r.otherByHand ? ` ${r.otherByHand} other worklog${r.otherByHand === 1 ? '' : 's'} of yours that day left alone.` : '';
+  const failed = r.failed.length ? ` Not posted: ${r.failed.map((f) => `${f.key} (${f.error})`).join('; ')}.` : '';
+  return head + other + failed;
 }
 
 const sameRows = (a: readonly TimeEntryWire[], b: readonly TimeEntryWire[]) =>
@@ -25,8 +47,8 @@ const sameRows = (a: readonly TimeEntryWire[], b: readonly TimeEntryWire[]) =>
 /**
  * Time: each workday's hours per ticket, as work suggests them from what
  * you did (Claude's time per session, your commits, the issues you moved)
- * — kept current as you go — and as you change them. Nothing leaves work
- * from here yet; posting to Tempo comes next.
+ * — kept current as you go — and as you change them. A day goes to Tempo
+ * only when you click Post (tempo.ts reads Tempo's day first).
  */
 export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const [days, setDays] = useState<TimeDaysWire | null>(null);
@@ -35,6 +57,7 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
   const [rows, setRows] = useState<TimeEntryWire[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
 
   const loadDays = useCallback(() => {
     fetchTimeDays().then(
@@ -56,6 +79,7 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
   }, []);
   useEffect(() => loadDays(), [loadDays]);
   useEffect(() => {
+    setOutcome(null);
     if (chosen) loadDay(chosen);
   }, [chosen, loadDay]);
   useSse('/events', {
@@ -71,6 +95,7 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
   const act = (p: Promise<TimeDayWire>) => {
     setBusy(true);
     setError(null);
+    setOutcome(null);
     p.then(
       (w) => {
         setDay(w);
@@ -79,6 +104,23 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
       },
       (e: Error) => setError(e.message),
     ).finally(() => setBusy(false));
+  };
+
+  const post = () => {
+    if (!day) return;
+    setBusy(true);
+    setError(null);
+    postTimeDay(day.day)
+      .then(
+        (r) => {
+          setDay(r.day);
+          setRows(r.day.entries);
+          setOutcome(postOutcome(r));
+          loadDays();
+        },
+        (e: Error) => setError(e.message),
+      )
+      .finally(() => setBusy(false));
   };
 
   const dirty = !!day && !sameRows(rows, day.entries);
@@ -248,12 +290,41 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
                   Back to the suggestion
                 </button>
               )}
+              <button
+                type="button"
+                className="wd-btn-primary"
+                disabled={busy || dirty || !day.posting?.ready || !day.entries.length || day.status === 'posted'}
+                onClick={post}
+                title={
+                  dirty
+                    ? 'Save your changes first'
+                    : !day.posting?.ready
+                      ? (day.posting?.why ?? 'Posting is not set up')
+                      : day.status === 'posted'
+                        ? 'Tempo has the day as it is'
+                        : 'Make the day in Tempo what you see here: worklogs you made by hand are left alone'
+                }
+              >
+                {day.posted ? 'Post again' : 'Post to Tempo'}
+              </button>
               {day.edited && (
                 <span className="wd-time-note">
                   Suggested: {day.suggested.map((e) => `${e.key} ${hoursText(e.hours)}`).join(', ') || 'nothing'}
                 </span>
               )}
             </div>
+            {day.posting && !day.posting.ready && <p className="wd-time-note">{day.posting.why}</p>}
+            {day.posted && (
+              <p className="wd-time-note">
+                Posted {new Date(day.posted.at).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
+                {day.status === 'changed' ? ': changed since, post again to update Tempo.' : '.'}
+              </p>
+            )}
+            {outcome && (
+              <p className="wd-time-outcome" role="status">
+                {outcome}
+              </p>
+            )}
 
             <Evidence day={day} onOpenSession={onOpenSession} />
           </section>

@@ -4471,6 +4471,15 @@ a.wd-pr-chip:hover {
 .wd-time-status-edited {
   color: var(--accent);
 }
+.wd-time-status-posted {
+  color: var(--add-fg);
+}
+.wd-time-status-changed {
+  color: #b45309;
+}
+.wd-time-outcome {
+  font-size: 13px;
+}
 .wd-time-status-off,
 .wd-time-status-not-workday {
   font-style: italic;

@@ -97,6 +97,18 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
   }
 }
 
+/** An issue's numeric id (Tempo wants it); null when acli can't say. */
+export async function issueIdOf(key: string): Promise<number | null> {
+  try {
+    const stdout = await execAsync('acli', ['jira', 'workitem', 'view', key, '--json'], 15000);
+    const j = JSON.parse(stdout) as { id?: unknown };
+    const id = typeof j.id === 'string' ? Number(j.id) : j.id;
+    return typeof id === 'number' && Number.isFinite(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Issues a JQL search finds (no URLs); [] when acli isn't there or fails. */
 export async function searchIssues(jql: string, limit = 50): Promise<JiraIssue[]> {
   try {

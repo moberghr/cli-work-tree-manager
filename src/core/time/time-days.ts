@@ -24,6 +24,8 @@ export interface TimeDeps {
   /** Titles of these issue keys (the ones it can find). */
   titles: (keys: string[]) => Promise<Record<string, string>>;
   settings: () => TimeConfig;
+  /** A Jira issue's numeric id (Tempo wants it), cached. */
+  issueId?: (key: string) => Promise<number | null>;
   now?: () => number;
 }
 

@@ -31,6 +31,8 @@ const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
   titles: { 'SD-1': 'The thing', 'SD-434': 'Meetings' },
   builtAt: '2026-10-08T15:00:00Z',
   settings,
+  posted: null,
+  posting: { ready: true, why: null },
   ...over,
 });
 
@@ -39,15 +41,17 @@ const api = vi.hoisted(() => ({
   day: null as unknown as TimeDayWire,
   save: vi.fn(),
   rebuild: vi.fn(),
+  post: vi.fn(),
 }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchTimeDays: async () => api.days,
   fetchTimeDay: async () => api.day,
   saveTimeDay: (day: string, change: unknown) => api.save(day, change),
   rebuildTimeDay: (day: string) => api.rebuild(day),
+  postTimeDay: (day: string) => api.post(day),
 }));
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
-const { TimeTab, dayLabel, hoursText } = await import('../../src/web/src/components/Dashboard/tabs/TimeTab.js');
+const { TimeTab, dayLabel, hoursText, postOutcome } = await import('../../src/web/src/components/Dashboard/tabs/TimeTab.js');
 
 let container: HTMLDivElement;
 let root: Root;
@@ -152,6 +156,44 @@ describe('the Time tab', () => {
     api.days = { ...api.days, settings: { ...settings, gapTicket: null } };
     await render();
     expect(container.textContent).toContain('No ticket for the rest of the day is set');
+  });
+
+  it('Post to Tempo: only once saved; says what it did; then the day reads "in Tempo"', async () => {
+    api.post.mockResolvedValue({
+      posted: 2,
+      removed: 0,
+      kept: 0,
+      coveredByHand: 0,
+      otherByHand: 1,
+      failed: [],
+      day: dayWire({ status: 'posted', posted: { at: '2026-10-08T16:00:00Z', entries: dayWire().entries } }),
+    });
+    await render();
+    act(() => setValue(container.querySelectorAll<HTMLInputElement>('.wd-time-hours')[0], '3'));
+    expect(button('Post to Tempo').disabled).toBe(true); // save first
+    act(() => button('Undo changes').click());
+    await act(async () => button('Post to Tempo').click());
+    expect(api.post).toHaveBeenCalledWith('2026-10-08');
+    expect(container.querySelector('.wd-time-outcome')!.textContent).toBe('Tempo: 2 posted. 1 other worklog of yours that day left alone.');
+    expect(container.querySelector('.wd-time-detail-head .wd-time-day-status')!.textContent).toBe('in Tempo');
+    expect(button('Post again').disabled).toBe(true); // nothing changed since
+  });
+
+  it('posting not set up: the button says why', async () => {
+    api.day = dayWire({ posting: { ready: false, why: 'No Tempo token: set TEMPO_API_TOKEN' } });
+    await render();
+    expect(button('Post to Tempo').disabled).toBe(true);
+    expect(container.textContent).toContain('No Tempo token: set TEMPO_API_TOKEN');
+  });
+
+  it('what a post did, in a line', () => {
+    expect(postOutcome({ posted: 0, removed: 0, kept: 2, coveredByHand: 0, otherByHand: 0, failed: [] })).toBe('Tempo: 2 already there.');
+    expect(postOutcome({ posted: 0, removed: 0, kept: 0, coveredByHand: 0, otherByHand: 0, failed: [] })).toBe(
+      'Tempo already had the day as it is.',
+    );
+    expect(
+      postOutcome({ posted: 1, removed: 1, kept: 0, coveredByHand: 1, otherByHand: 0, failed: [{ key: 'SD-X', error: 'no such issue' }] }),
+    ).toBe('Tempo: 1 posted, 1 removed, 1 you had logged by hand. Not posted: SD-X (no such issue).');
   });
 
   it('hours read as hours', () => {

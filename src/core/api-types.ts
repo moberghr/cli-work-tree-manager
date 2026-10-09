@@ -559,8 +559,9 @@ export interface TimeEvidence {
   jira: TimeJiraEvidence[];
 }
 
-/** empty: nothing built yet; draft: the suggestion; edited: your rows; off: a day off; not-workday: a weekend or holiday. */
-export type TimeDayStatus = 'empty' | 'draft' | 'edited' | 'off' | 'not-workday';
+/** empty: nothing built yet; draft: the suggestion; edited: your rows; off: a day off; not-workday: a weekend or holiday;
+ *  posted: in Tempo as it stands; changed: posted, then changed (post again). */
+export type TimeDayStatus = 'empty' | 'draft' | 'edited' | 'off' | 'not-workday' | 'posted' | 'changed';
 
 export interface TimeSettingsWire {
   dayHours: number;
@@ -591,6 +592,23 @@ export interface TimeDayWire {
   titles: Record<string, string>;
   builtAt: string | null;
   settings: TimeSettingsWire;
+  /** When work last posted the day to Tempo, and what. */
+  posted: { at: string; entries: TimeEntryWire[] } | null;
+  /** Whether it can post (a Tempo token and your account id), or why not. Set by the server. */
+  posting?: { ready: boolean; why: string | null };
+}
+
+/** POST /api/time/:day/post */
+export interface TimePostWire {
+  posted: number;
+  removed: number;
+  kept: number;
+  /** Rows a worklog you made by hand in Tempo already covered (not posted again). */
+  coveredByHand: number;
+  /** Your own worklogs that day that no row matches: left alone. */
+  otherByHand: number;
+  failed: Array<{ key: string; error: string }>;
+  day: TimeDayWire;
 }
 
 export interface TimeDaySummary {
