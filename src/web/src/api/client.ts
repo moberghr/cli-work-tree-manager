@@ -539,6 +539,14 @@ export async function markDiffSeen(sessionId: string, checkpointId: number): Pro
   if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
 }
 
+/** Where the session's diff has a page of its own (the one `wd` opens); sets that page up first (a POST). */
+export async function sessionDiffPage(sessionId: string): Promise<string> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-page`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+  if (!res.ok || !body.url) throw new Error(body.error ?? `diff-page: ${res.status}`);
+  return body.url;
+}
+
 /** A session's diff: a scope (uncommitted, since branch), or a range between two points (diff-points.ts). */
 export function fetchSessionDiff(
   sessionId: string,

@@ -1381,6 +1381,18 @@ a.wd-pr-chip:hover {
   height: auto;
   min-height: 0;
 }
+/* The diff filling the window (its toolbar's Full screen; Esc leaves): over the top bar, the rail and the
+   session's header and tabs. Below dialogs, toasts and the update card, which still show over it. */
+.wd-session-subtab-body.wd-diff-full {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg);
+}
+.wd-diff-open-page {
+  text-decoration: none;
+  white-space: nowrap;
+}
 
 /* ---- Attention inbox ---------------------------------------------------
    State colors, shared by the inbox rows, the rail dots and the tab badge:

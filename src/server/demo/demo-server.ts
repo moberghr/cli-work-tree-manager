@@ -254,6 +254,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/sessions/:id/diff-seen', (c) =>
     scenario.checkpoints(c.req.param('id')) ? c.json({ seen: diffSeen.get(c.req.param('id')) ?? null }) : notFound(c),
   );
+  // A session's diff on a page of its own: the demo has no wd pages, so the dashboard's own Diff tab.
+  app.post('/api/sessions/:id/diff-page', (c) => {
+    const id = c.req.param('id');
+    if (!scenario.sessions.has(id)) return c.json({ error: 'unknown session' }, 404);
+    return c.json({ url: `/#/s/${encodeURIComponent(id)}/diff` });
+  });
   app.post('/api/sessions/:id/diff-seen', async (c) => {
     const id = c.req.param('id');
     if (!scenario.checkpoints(id)) return notFound(c);

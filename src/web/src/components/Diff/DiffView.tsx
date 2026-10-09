@@ -5,6 +5,7 @@ import {
   fetchSessionHistory,
   markDiffSeen,
   revertChange,
+  sessionDiffPage,
   type CheckpointEntry,
   type RepoData,
   type SessionCommit,
@@ -54,6 +55,9 @@ interface Props {
   /** Open on "Last turn" once the session's turns are known (the review
    *  queue, and finished sessions opened from the inbox). */
   startOnLastTurn?: boolean;
+  /** The diff fills the window (the session page hides its header, tabs and the rail around it); Esc leaves. */
+  fullScreen?: boolean;
+  onFullScreen?: (on: boolean) => void;
 }
 
 /**
@@ -65,8 +69,30 @@ interface Props {
  * All hooks must run unconditionally on every render — branching on
  * `diff === null` happens after the hooks.
  */
-export function DiffView({ session, startOnLastTurn = false }: Props) {
+export function DiffView({ session, startOnLastTurn = false, fullScreen = false, onFullScreen }: Props) {
   const [activeRepoName, setActiveRepoName] = useState<string | null>(null);
+  // The diff's page of its own (the one wd opens), set up when the tab opens, so the link is plain by the time it's clicked.
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setPageUrl(null);
+    if (session.archivedAt) return;
+    let live = true;
+    sessionDiffPage(session.id).then(
+      (url) => live && setPageUrl(url),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [session.id, session.archivedAt]);
+  useEffect(() => {
+    if (!fullScreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onFullScreen?.(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullScreen, onFullScreen]);
   // A repo tab you clicked stays yours; otherwise the first repo with changes is shown.
   const pickedRepo = useRef<string | null>(null);
   const [selection, setSelection] = useState<DiffSelection>(UNCOMMITTED);
@@ -370,6 +396,28 @@ export function DiffView({ session, startOnLastTurn = false }: Props) {
       </div>
       <div className="wd-web-difftoolbar-controls">
         <DiffModeToggle />
+        {pageUrl && (
+          <a
+            className="wd-btn-secondary wd-diff-open-page"
+            href={pageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open this diff in your browser, on a page of its own (as wd does)"
+          >
+            Open in browser ↗
+          </a>
+        )}
+        {onFullScreen && (
+          <button
+            type="button"
+            className="wd-btn-secondary wd-diff-fullscreen"
+            aria-pressed={fullScreen}
+            onClick={() => onFullScreen(!fullScreen)}
+            title={fullScreen ? 'Back to the session (Esc)' : 'Fill the window with the diff'}
+          >
+            {fullScreen ? 'Exit full screen' : 'Full screen'}
+          </button>
+        )}
       </div>
       <div
         className={'wd-diff-progress' + (busy ? ' wd-diff-progress-on' : '')}

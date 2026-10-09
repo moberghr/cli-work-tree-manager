@@ -19,6 +19,7 @@ import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
+import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
 import { mountAppUpdateRoutes } from './routes/app-update-routes.js';
 import { createUpdates, desktopUpdatePath, lookForUpdates } from '../core/updates/update-source.js';
@@ -899,6 +900,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountNoteRoutes(app, { broadcast });
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").
   mountDiffSeenRoutes(app);
+  // A session's diff on a page of its own (the one wd opens), for a browser window beside the app.
+  mountDiffPageRoutes(app, { ensureScope: sessionScope });
   // The Repos page: the repos in your folders, and the groups.
   mountRepoRoutes(app, { broadcast, activity, workBin: getWorkBin });
   mountSetupRoutes(app, { broadcast });

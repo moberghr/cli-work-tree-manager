@@ -38,6 +38,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   says "resolved" on its row. Jira counts what you updated (a comment, an
   edit), not only what you moved; a meeting whose subject names a ticket,
   or a chat where someone named one, is on it without the AI step.
+- The session's **Diff** tab: **Open in browser** (the diff on the page `wd`
+  opens, in your browser, beside the app) and **Full screen** (the diff fills
+  the window; Esc leaves).
 - The **Jira** tab shows every open issue of yours: a service desk sets a
   resolution on issues still waiting for feedback, which hid them.
 

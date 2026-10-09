@@ -610,6 +610,11 @@ export interface TimeSettingsWire {
   effort: boolean;
 }
 
+/** POST /api/sessions/:id/diff-page: where the session's diff has a page of its own (the one `wd` opens). */
+export interface DiffPageWire {
+  url: string;
+}
+
 /** GET /api/time/:day */
 export interface TimeDayWire {
   day: string;

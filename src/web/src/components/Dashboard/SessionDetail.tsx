@@ -76,6 +76,9 @@ export function SessionDetail({
   // The PR tab stays mounted once opened (hidden behind the others), so a draft
   // being edited survives a look at the terminal; per session (keyed below).
   const [prFor, setPrFor] = useState<string | null>(null);
+  // The diff filling the window; another session opens as usual.
+  const [diffFull, setDiffFull] = useState(false);
+  useEffect(() => setDiffFull(false), [session.id]);
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
@@ -115,8 +118,10 @@ export function SessionDetail({
         )}
         <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
       </nav>
-      <div className="wd-session-subtab-body">
-        {subTab === 'diff' && <DiffView session={session} startOnLastTurn={startOnLastTurn} />}
+      <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
+        {subTab === 'diff' && (
+          <DiffView session={session} startOnLastTurn={startOnLastTurn} fullScreen={diffFull} onFullScreen={setDiffFull} />
+        )}
         {subTab === 'term' &&
           (onTermSlot ? (
             // The dashboard's terminal deck draws the terminal over this slot,
