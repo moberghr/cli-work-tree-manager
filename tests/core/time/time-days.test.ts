@@ -307,6 +307,33 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(asked).toEqual(['feat/SD-3-that-day']);
   });
 
+  it("your assigned issues can't be read this time: the day's AI answer and its projects stay (the hours don't move)", async () => {
+    const asked: string[] = [];
+    const d = (candidates: TimeDeps['candidates']) =>
+      deps({
+        sessions: () => [session({ branch: 'feat/PAY-12-x' }), session({ branch: 'chore/pdf' })],
+        minutesOn: async () => 30,
+        commits: async () => [],
+        candidates,
+        classify: async (prompt) => {
+          asked.push(prompt);
+          const id = /\[(s\w+)\] session: api · chore\/pdf/.exec(prompt)![1];
+          return `{"place":[{"id":"${id}","key":"PAY-7"}]}`;
+        },
+      });
+    const first = await buildDay(
+      '2026-05-07',
+      d(async () => [{ key: 'PAY-7', title: 'PDF' }]),
+    );
+    expect(first.evidence.sessions.map((s) => s.key).sort()).toEqual(['PAY-12', 'PAY-7']); // PAY known from assigned
+    const down = await buildDay(
+      '2026-05-07',
+      d(async () => Promise.reject(new Error('acli: signed out'))),
+    );
+    expect(down.evidence.sessions.map((s) => s.key).sort()).toEqual(['PAY-12', 'PAY-7']);
+    expect(asked).toHaveLength(1); // not asked again without the candidates
+  });
+
   it('gathering a day twice at once (Gather again while the keeper builds) is one build', async () => {
     let calls = 0;
     const d = deps({
@@ -455,6 +482,18 @@ describe('the keeper (time-keeper.ts)', () => {
     );
     await expect(k.run()).resolves.toBeUndefined();
     expect(fail).toHaveBeenCalledWith('database is locked');
+  });
+
+  it('each run starts fresh (what was read for earlier days is read again)', async () => {
+    const fresh = vi.fn();
+    const now = Date.parse('2026-04-10T15:00:00');
+    const k = createTimeKeeper(
+      { ...deps({ now: () => now, minutesOn: async () => 0, commits: async () => [], jiraMoved: async () => [] }), fresh },
+      { changed: vi.fn(), now: () => now },
+    );
+    await k.run();
+    await k.run();
+    expect(fresh).toHaveBeenCalledTimes(2);
   });
 
   it("a day's end is the next local midnight", () => {

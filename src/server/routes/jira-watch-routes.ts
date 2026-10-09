@@ -5,7 +5,7 @@ import { loadConfig } from '../../core/platform/config.js';
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
-import { fetchIssueDetail, fetchJiraPane, fetchMyIssues, fetchMyIssuesOrThrow, type JiraIssue } from '../../core/jira/jira.js';
+import { fetchIssueDetail, fetchMyIssues, fetchMyIssuesOrThrow, type JiraIssue } from '../../core/jira/jira.js';
 import { jiraPrompt } from '../../core/jira/jira-prompt.js';
 import { runInternal } from '../../core/diff/checkpoint-summary.js';
 import { startSessionWithPrompt } from '../../core/sessions/session-start.js';
@@ -171,11 +171,13 @@ export function mountJiraWatchRoutes(
     if (typeof body?.enabled !== 'boolean') return c.json({ error: 'enabled (true/false) required' }, 400);
     let current: JiraIssue[] = [];
     if (body.enabled) {
-      // Without the list we can't tell old from new: turning it on would start your whole backlog.
-      const pane = await fetchJiraPane();
-      if (!pane.available)
+      // Without the whole list we can't tell old from new: turning it on would start your backlog. The same
+      // list the sweeps read (all of them, not the 50 the Jira tab shows), and a failed read refuses.
+      try {
+        current = await fetchMyIssuesOrThrow();
+      } catch {
         return c.json({ error: "Jira CLI (acli) isn't available or logged in: can't tell new issues from the ones you have" }, 409);
-      current = pane.issues;
+      }
     }
     const settings = setEnabled(body.enabled, current);
     opts.activity

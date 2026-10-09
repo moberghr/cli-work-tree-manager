@@ -94,6 +94,24 @@ describe('the device-code sign-in', () => {
     expect(await graphToken(APP, fetchImpl)).toBeNull();
   });
 
+  it('a refresh keeps the new tokens even when asking who you are fails after it (Microsoft rotated the refresh token)', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token')
+        ? json({ access_token: 'acc-9', refresh_token: 'ref-9', expires_in: 3600 })
+        : json({ userPrincipalName: 'you@moberg.hr' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1 }); // signed in, as you@moberg.hr
+    const meDown = vi.fn(async (url: string | URL) => {
+      if (String(url).endsWith('/token')) return json({ access_token: 'acc-10', refresh_token: 'ref-10', expires_in: 3600 });
+      throw new Error('network down');
+    }) as unknown as typeof fetch;
+    expect(await graphToken(APP, meDown, Date.now() + 100 * 3600_000)).toBe('acc-10');
+    const file = JSON.parse(fs.readFileSync(path.join(getConfigDir(), 'graph-token.json'), 'utf8')) as Record<string, string>;
+    expect(file).toMatchObject({ refreshToken: 'ref-10', accessToken: 'acc-10', account: 'you@moberg.hr' });
+    signOutGraph();
+  });
+
   it('signed in with another app registration than config names now: connect again', async () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
@@ -157,6 +175,21 @@ describe('meetings and chats', () => {
       { subject: 'Daily', start: '09:30', end: '09:45', minutes: 15 },
       { subject: 'PDF refinement', start: '14:00', end: '15:00', minutes: 60 },
     ]);
+  });
+
+  it('a calendar with more than a page of items is read to its end', async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      urls.push(String(url));
+      return String(url).endsWith('/page-2')
+        ? json({ value: [{ subject: 'Late', start: { dateTime: '2026-10-08T16:00:00' }, end: { dateTime: '2026-10-08T16:30:00' } }] })
+        : json({
+            value: [{ subject: 'Early', start: { dateTime: '2026-10-08T09:00:00' }, end: { dateTime: '2026-10-08T09:30:00' } }],
+            '@odata.nextLink': 'https://graph.microsoft.com/v1.0/page-2',
+          });
+    }) as unknown as typeof fetch;
+    expect((await meetingsOn('2026-10-08', 'tok', fetchImpl)).map((m) => m.subject)).toEqual(['Early', 'Late']);
+    expect(urls).toHaveLength(2);
   });
 
   it("meetings within the day: an offsite over three days is this day's part; time two meetings share counts once", async () => {
@@ -246,6 +279,29 @@ describe('meetings and chats', () => {
     expect(byDay.has('2026-10-06')).toBe(false); // you didn't write that day
     expect(JSON.stringify([...byDay.values()])).not.toContain('secret plans');
     expect(asked.filter((u) => u.includes('/chats/c1/'))).toHaveLength(1);
+  });
+
+  it("an old message edited today (listed first, by last change) doesn't stop the paging before the day's own messages", async () => {
+    const at = (d: number, h: number) => new Date(2026, 9, d, h).toISOString();
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/me?')) return json({ id: 'me-1' });
+      if (u.includes('/me/chats?'))
+        return json({ value: [{ id: 'c1', topic: 'Busy', lastMessagePreview: { createdDateTime: at(8, 15) } }] });
+      if (u.includes('/chats/c1/'))
+        return json({
+          value: [
+            { createdDateTime: at(1, 10), lastModifiedDateTime: at(8, 16), from: { user: { id: 'other' } }, body: { content: 'edited' } },
+          ],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/c1-2',
+        });
+      if (u.endsWith('/c1-2'))
+        return json({
+          value: [{ createdDateTime: at(8, 9), lastModifiedDateTime: at(8, 9), from: { user: { id: 'me-1' } }, body: { content: 'mine' } }],
+        });
+      return json({}, 404);
+    }) as unknown as typeof fetch;
+    expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([{ id: 'c1', chat: 'Busy', messages: 1, sample: ['mine'] }]);
   });
 
   it("a day gone by: chats and messages are read page by page back to the day's start, and no further", async () => {

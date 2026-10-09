@@ -56,6 +56,24 @@ describe('Jira watch routes', () => {
     expect(await (await req('GET', '/api/jira/watch')).json()).toMatchObject({ settings: { enabled: false, since: null } });
   });
 
+  it('turning it on takes all your issues as there (not the 50 the Jira tab lists): an older one is never "new"', async () => {
+    jira.issues = Array.from({ length: 80 }, (_, i) => ({
+      key: `SD-${i + 1}`,
+      summary: `Issue ${i + 1}`,
+      status: 'New',
+      issuetype: 'Task',
+      priority: 'Low',
+      url: `u${i + 1}`,
+    }));
+    const res = await app.request('/api/jira/watch', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(readDecision('SD-80')).toMatchObject({ action: 'baseline' });
+  });
+
   it("won't turn on without acli: it couldn't tell new issues from your backlog", async () => {
     jira.available = false;
     const res = await req('PUT', '/api/jira/watch', { enabled: true });

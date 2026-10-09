@@ -192,20 +192,30 @@ interface TokenAnswer {
   expires_in?: number;
 }
 
+/**
+ * Keep the tokens Microsoft just gave — first, before anything else can fail:
+ * a refresh rotates the refresh token, and losing the new one would leave the
+ * old. Then who you are (`/me`), best effort: a failure keeps the account
+ * known before.
+ */
 async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch): Promise<string> {
-  const me = await fetchImpl(`${GRAPH}/me?$select=userPrincipalName,id`, {
-    headers: { Authorization: `Bearer ${j.access_token}` },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  const who = (await me.json().catch(() => ({}))) as { userPrincipalName?: string };
-  writeTokens({
-    refreshToken: j.refresh_token ?? readTokens()?.refreshToken ?? '',
+  const before = readTokens();
+  const tokens: TokenFile = {
+    refreshToken: j.refresh_token ?? before?.refreshToken ?? '',
     accessToken: j.access_token!,
     expiresAt: now + ((j.expires_in ?? 3600) - 60) * 1000,
-    account: who.userPrincipalName ?? readTokens()?.account ?? '',
+    account: before?.account ?? '',
     clientId: app.clientId,
-  });
-  return who.userPrincipalName ?? '';
+  };
+  writeTokens(tokens);
+  const who = await fetchImpl(`${GRAPH}/me?$select=userPrincipalName,id`, {
+    headers: { Authorization: `Bearer ${j.access_token}` },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+    .then((me) => me.json() as Promise<{ userPrincipalName?: string }>)
+    .catch(() => ({}) as { userPrincipalName?: string });
+  if (who.userPrincipalName && who.userPrincipalName !== tokens.account) writeTokens({ ...tokens, account: who.userPrincipalName });
+  return who.userPrincipalName ?? tokens.account;
 }
 
 /**
@@ -255,21 +265,27 @@ const dayBounds = (day: string) => {
 export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = fetch): Promise<TimeMeetingEvidence[]> {
   const { from, to } = dayBounds(day);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const url =
+  type Event = {
+    id?: string;
+    subject?: string;
+    start?: { dateTime?: string };
+    end?: { dateTime?: string };
+    isAllDay?: boolean;
+    isCancelled?: boolean;
+    showAs?: string;
+    responseStatus?: { response?: string };
+  };
+  // Page by page: a day with shared calendars and holds can have more than a page.
+  const all: Event[] = [];
+  let next: string | undefined =
     `${GRAPH}/me/calendarView?startDateTime=${from.toISOString()}&endDateTime=${to.toISOString()}` +
     '&$select=id,subject,start,end,isAllDay,isCancelled,showAs,responseStatus&$top=100';
-  const j = await getJson<{
-    value?: Array<{
-      id?: string;
-      subject?: string;
-      start?: { dateTime?: string };
-      end?: { dateTime?: string };
-      isAllDay?: boolean;
-      isCancelled?: boolean;
-      showAs?: string;
-      responseStatus?: { response?: string };
-    }>;
-  }>(url, token, fetchImpl, { Prefer: `outlook.timezone="${tz}"` });
+  for (let page = 0; next && page < MAX_PAGES; page++) {
+    const p: Paged<Event> = await getJson(next, token, fetchImpl, { Prefer: `outlook.timezone="${tz}"` });
+    all.push(...(p.value ?? []));
+    next = p['@odata.nextLink'];
+  }
+  const j = { value: all };
   // Each meeting within the day (a three-day offsite is this day's part of it), in order; time two meetings
   // share counts once (the later one gets only what the earlier didn't cover), so a day never holds more than it has.
   const events = (j.value ?? [])
@@ -309,7 +325,12 @@ export const MAX_PAGES = 10;
 
 type Paged<T> = { value?: T[]; '@odata.nextLink'?: string };
 type Chat = { id?: string; topic?: string | null; chatType?: string; lastMessagePreview?: { createdDateTime?: string } | null };
-type Msg = { createdDateTime?: string; from?: { user?: { id?: string } } | null; body?: { content?: string } };
+type Msg = {
+  createdDateTime?: string;
+  lastModifiedDateTime?: string;
+  from?: { user?: { id?: string } } | null;
+  body?: { content?: string };
+};
 
 /** The earliest of these times (none: -Infinity, so no further page). */
 const oldestAt = (times: Array<string | undefined>) => {
@@ -350,7 +371,9 @@ export async function chatsSince(firstDay: string, token: string, fetchImpl: Fet
       const j: Paged<Msg> = await getJson(more, token, fetchImpl);
       const value = j.value ?? [];
       msgs.push(...value);
-      more = oldestAt(value.map((m) => m.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
+      // Graph lists them by last change, newest first: an old message edited today sits on the first page, so
+      // the stop is by that order's own time — nothing changed before the day's start can be from it.
+      more = oldestAt(value.map((m) => m.lastModifiedDateTime ?? m.createdDateTime)) >= from ? j['@odata.nextLink'] : undefined;
     }
     const byDay = new Map<string, Msg[]>();
     for (const m of msgs) {

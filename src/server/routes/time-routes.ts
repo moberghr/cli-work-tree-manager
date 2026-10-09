@@ -194,6 +194,7 @@ export function mountTimeRoutes(
     if (!isDay(day)) return c.json({ error: 'day: a real day, YYYY-MM-DD' }, 400);
     // One build of a day at a time (buildDay): a Gather while the keeper builds gets that build.
     try {
+      opts.deps.fresh?.(); // gathered again means read again
       await buildDay(day, opts.deps);
     } catch (err) {
       return c.json({ error: `Couldn't gather the day: ${(err as Error).message}` }, 500);

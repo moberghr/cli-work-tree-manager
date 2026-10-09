@@ -193,7 +193,11 @@ export function TimeTab({
                 type="button"
                 className={'wd-time-day' + (d.day === chosen ? ' wd-time-day-on' : '')}
                 aria-current={d.day === chosen}
-                onClick={() => setChosen(d.day)}
+                onClick={() => {
+                  // Unsaved rows would be lost: ask first.
+                  if (d.day !== chosen && dirty && !window.confirm('Leave this day without saving your changes?')) return;
+                  setChosen(d.day);
+                }}
               >
                 <span className="wd-time-day-date">{dayLabel(d.day)}</span>
                 <span className={`wd-time-day-status wd-time-status-${d.status}`}>{statusText(d.status)}</span>
@@ -213,7 +217,7 @@ export function TimeTab({
                 <input
                   type="checkbox"
                   checked={day.dayOff}
-                  disabled={busy || day.vacation}
+                  disabled={busy || day.vacation || dirty}
                   onChange={(e) => act(saveTimeDay(day.day, { dayOff: e.target.checked }))}
                 />
                 {day.vacation ? 'Vacation' : 'Day off'}
@@ -221,9 +225,9 @@ export function TimeTab({
               <button
                 type="button"
                 className="wd-btn-secondary"
-                disabled={busy}
+                disabled={busy || dirty}
                 onClick={() => act(rebuildTimeDay(day.day))}
-                title="Look at the day's sessions, commits and Jira again"
+                title={dirty ? 'Save or undo your changes first' : "Look at the day's sessions, commits and Jira again"}
               >
                 Gather again
               </button>

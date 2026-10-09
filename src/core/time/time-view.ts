@@ -11,6 +11,7 @@ import {
   type TimeSettings,
 } from './allocate.js';
 import type { PostedWorklog } from './tempo.js';
+import { dayKey } from '../conversations/work-time-view.js';
 import { placeholderKeys, type TicketHint } from './hints.js';
 
 /**
@@ -34,6 +35,8 @@ export interface TimeDayRecord {
   posted?: { at: string; entries: TimeEntry[]; worklogs: PostedWorklog[] } | null;
   /** The day's tickets Jira had as done when it was gathered (still yours to log to, but said). */
   resolved?: string[];
+  /** Your assigned issues when it was gathered (the AI step's candidates): used again when they can't be read. */
+  assigned?: string[];
 }
 
 export type TimeConfig = TimeSettings & { projects?: string[]; hints?: Record<string, TicketHint>; catchUpDays?: number };
@@ -51,10 +54,9 @@ export function sessionTicket(s: { jiraKey?: string; branch: string; title?: str
   return s.jiraKey ?? issueKeys(s.branch, projects)[0] ?? (s.title ? (issueKeys(s.title, projects)[0] ?? null) : null);
 }
 
-/** A local `YYYY-MM-DD`. */
+/** A local `YYYY-MM-DD` — the work-time reader's own day key, so a day's minutes are found under it. */
 export function localDay(ms = Date.now()): string {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dayKey(ms);
 }
 
 /** The day `n` calendar days from `day` (negative: before). Calendar days, not 24 h steps: a DST change has a day of 23 or 25. */

@@ -44,6 +44,7 @@ export function createTimeKeeper(
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   async function runNow(): Promise<void> {
+    deps.fresh?.();
     const today = localDay(now());
     const settings = deps.settings();
     const from = addDays(today, -((settings.catchUpDays ?? CATCH_UP_DAYS) - 1));

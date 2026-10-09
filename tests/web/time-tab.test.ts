@@ -344,6 +344,19 @@ describe('the Time tab', () => {
     expect(container.querySelector('.wd-time-off')!.textContent).toBe('Vacation');
   });
 
+  it("unsaved rows aren't thrown away: Day off and Gather again wait for Save or Undo; leaving the day asks", async () => {
+    await render();
+    act(() => setValue(container.querySelectorAll<HTMLInputElement>('.wd-time-hours')[0], '3'));
+    expect(button('Gather again').disabled).toBe(true);
+    expect(container.querySelector<HTMLInputElement>('.wd-time-off input')!.disabled).toBe(true);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    act(() => button(new RegExp(`^${dayLabel('2026-10-07')}`)).click());
+    expect(confirm).toHaveBeenCalled();
+    expect(container.querySelector('.wd-time-detail-head h2')!.textContent).toBe(dayLabel('2026-10-08')); // stayed
+    expect(container.querySelectorAll<HTMLInputElement>('.wd-time-hours')[0].value).toBe('3');
+    confirm.mockRestore();
+  });
+
   it('hours read as hours', () => {
     expect(hoursText(2.5)).toBe('2.5 h');
     expect(hoursText(0.25)).toBe('0.25 h');

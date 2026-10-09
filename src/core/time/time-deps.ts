@@ -3,7 +3,7 @@ import { loadHistory } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import { sessionWorkTime } from '../conversations/work-time-source.js';
 import { runGitAsync } from '../diff/git-tree-snapshot.js';
-import { fetchMyIssues, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
+import { fetchMyIssuesOrThrow, issueIdOf, myAccountId, searchIssuesOrThrow } from '../jira/jira.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { chatsSince, graphApp, graphToken, meetingsOn } from './graph.js';
 import type { TimeChatEvidence, TimeJiraEvidence } from '../api-types.js';
@@ -43,8 +43,13 @@ export function commitsWrittenOn(stdout: string, day: string): Array<{ sha: stri
   return out;
 }
 
-/** How long one read of the Teams chats serves the days after it (a catch-up asks day by day, oldest first). */
-const CHATS_FRESH_MS = 10 * 60_000;
+/**
+ * How long one read (a session's working time, a repo's commits, the Teams
+ * chats, your assigned issues) serves the days after it, at most: a run of the
+ * keeper starts fresh (`fresh`), and a catch-up of slow days (the AI step can
+ * take a minute) reads each once, not once per day.
+ */
+const READ_FRESH_MS = 30 * 60_000;
 
 /** What you did in Jira that day: status changes, and anything else you updated (a comment, an edit) — `updatedBy()`, by account id. */
 export async function jiraOn(day: string): Promise<TimeJiraEvidence[]> {
@@ -54,16 +59,14 @@ export async function jiraOn(day: string): Promise<TimeJiraEvidence[]> {
   const out: TimeJiraEvidence[] = moved.map((i) => ({ key: i.key, summary: i.summary, what: `moved (now ${i.status || 'changed'})` }));
   const account = loadConfig()?.time?.tempo?.accountId || process.env.JIRA_ACCOUNT_ID || (await myAccountId());
   if (account && /^[\w:-]+$/.test(account)) {
-    const next = addDays(day, 1).replace(/-/g, '/');
-    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d}", "${next}")`).catch(() => []);
+    // The day's own bounds, as the status search has them (a bare end date may mean the whole of it, or its start).
+    // A failure throws too: half the answer would drop the day's commented-on issues.
+    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d} 00:00", "${d} 23:59")`);
     for (const i of updated)
       if (!out.some((o) => o.key === i.key)) out.push({ key: i.key, summary: i.summary, what: 'updated by you (a comment or an edit)' });
   }
   return out;
 }
-
-/** How long one read of a session's working time serves (a catch-up asks it once per day it builds). */
-const WORK_TIME_FRESH_MS = 60_000;
 
 /**
  * Titles of these keys and whether each is done, in one search; when that is
@@ -133,9 +136,6 @@ async function commitLog(repo: string, from: string): Promise<string | null> {
   return log.status === 0 ? log.stdout : null;
 }
 
-/** How long one read of a repo's commits serves the days after its first. */
-const COMMITS_FRESH_MS = 60_000;
-
 export function defaultTimeDeps(): TimeDeps {
   const catchUpDays = () => timeSettings(loadConfig()?.time).catchUpDays ?? DEFAULT_CATCH_UP_DAYS;
   // A session's working time, read once for every day a run builds (each read goes through all its transcripts).
@@ -143,12 +143,19 @@ export function defaultTimeDeps(): TimeDeps {
   const logs = new Map<string, { from: string; at: number; out: Promise<string | null> }>();
   // One read of the chats serves every day after its first: a 14-day catch-up is one read, not fourteen.
   let chats: { from: string; at: number; byDay: Promise<Map<string, TimeChatEvidence[]>> } | null = null;
+  let assigned: { at: number; list: Promise<Array<{ key: string; title: string }>> } | null = null;
   return {
+    fresh: () => {
+      workTime.clear();
+      logs.clear();
+      chats = null;
+      assigned = null;
+    },
     sessions: () => loadHistory(),
     minutesOn: async (s, day) => {
       const id = sessionIdFor(s);
       let w = workTime.get(id);
-      if (!w || Date.now() - w.at > WORK_TIME_FRESH_MS) {
+      if (!w || Date.now() - w.at > READ_FRESH_MS) {
         const byDay = sessionWorkTime(s, Date.now(), catchUpDays()).then((t) => new Map(t.byDay.map((d) => [d.day, d.ms])));
         w = { at: Date.now(), byDay };
         workTime.set(id, w);
@@ -163,7 +170,7 @@ export function defaultTimeDeps(): TimeDeps {
       const out: Array<{ repo: string; sha: string; subject: string }> = [];
       for (const repo of repos) {
         let l = logs.get(repo);
-        if (!l || day < l.from || Date.now() - l.at > COMMITS_FRESH_MS) {
+        if (!l || day < l.from || Date.now() - l.at > READ_FRESH_MS) {
           l = { from: day, at: Date.now(), out: commitLog(repo, day).catch(() => null) };
           logs.set(repo, l);
         }
@@ -190,14 +197,22 @@ export function defaultTimeDeps(): TimeDeps {
     chats: async (day) => {
       const token = await graphTokenNow();
       if (!token) return undefined;
-      if (!chats || day < chats.from || Date.now() - chats.at > CHATS_FRESH_MS) {
+      if (!chats || day < chats.from || Date.now() - chats.at > READ_FRESH_MS) {
         const byDay = chatsSince(day, token);
         chats = { from: day, at: Date.now(), byDay };
         byDay.catch(() => (chats = null)); // a failed read isn't kept
       }
       return (await chats.byDay).get(day) ?? [];
     },
-    candidates: async () => (await fetchMyIssues()).map((i) => ({ key: i.key, title: i.summary })),
+    // Throws when acli can't list them: the day keeps its AI answer and the projects it knew (time-days.ts).
+    candidates: () => {
+      if (!assigned || Date.now() - assigned.at > READ_FRESH_MS) {
+        const list = fetchMyIssuesOrThrow().then((is) => is.map((i) => ({ key: i.key, title: i.summary })));
+        assigned = { at: Date.now(), list };
+        list.catch(() => (assigned = null)); // a failed read isn't kept
+      }
+      return assigned.list;
+    },
     classify: (prompt) => runInternal(prompt, 60_000, { small: true }),
     issueId: async (key) => {
       const known = readIssueIds()[key];

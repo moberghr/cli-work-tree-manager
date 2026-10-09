@@ -33,11 +33,11 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
       { key: 'SD-1', summary: 'Moved', what: 'moved (now Review)' },
       { key: 'SSD-2486', summary: 'Commented on', what: 'updated by you (a comment or an edit)' },
     ]);
-    // acli refuses currentUser() inside updatedBy(): the account id, the day to the next.
-    expect(jql[1]).toBe('issuekey IN updatedBy("acc-1", "2026/10/07", "2026/10/08")');
+    // acli refuses currentUser() inside updatedBy(): the account id, and the day's own bounds (not the next day's date).
+    expect(jql[1]).toBe('issuekey IN updatedBy("acc-1", "2026/10/07 00:00", "2026/10/07 23:59")');
   });
 
-  it('the account id from JIRA_ACCOUNT_ID first; none known, or updatedBy refused: the moves alone', async () => {
+  it('the account id from JIRA_ACCOUNT_ID first; none known: the moves alone; updatedBy refused: a failure (the day keeps what it had)', async () => {
     process.env.JIRA_ACCOUNT_ID = 'env-acc';
     await jiraOn('2026-10-07');
     expect(jql[1]).toContain('updatedBy("env-acc"');
@@ -46,6 +46,6 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
     expect((await jiraOn('2026-10-07')).map((j) => j.key)).toEqual(['SD-1']);
     account.id = 'acc-1';
     account.updatedByFails = true;
-    expect((await jiraOn('2026-10-07')).map((j) => j.key)).toEqual(['SD-1']);
+    await expect(jiraOn('2026-10-07')).rejects.toThrow('not supported');
   });
 });

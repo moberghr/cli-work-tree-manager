@@ -34,6 +34,8 @@ export interface TimeDeps {
   chats?: (day: string) => Promise<TimeEvidence['chats']>;
   /** Tickets the AI step may place things on, besides the day's own (your assigned issues). */
   candidates?: () => Promise<Array<{ key: string; title: string }>>;
+  /** Start a run afresh: what was read for earlier days is read again (the keeper's run, a Gather). */
+  fresh?: () => void;
   /** The AI step (runInternal): the answer, or null when it can't run. */
   classify?: (prompt: string) => Promise<string | null>;
   /** A Jira issue's numeric id (Tempo wants it), cached. */
@@ -78,7 +80,10 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   const had = prev?.builtAt ? prev.evidence : undefined;
   const all = deps.sessions();
   const jira = await deps.jiraMoved(day).catch(() => had?.jira ?? []);
-  const assigned = deps.candidates ? await deps.candidates().catch(() => []) : [];
+  // Your assigned issues (AI candidates, projects); not readable this time: the ones the day had, so neither moves.
+  const assigned = deps.candidates
+    ? await deps.candidates().catch(() => (prev?.assigned ?? []).map((key) => ({ key, title: prev?.titles[key] ?? '' })))
+    : [];
   const hints = settings.hints;
   const projects = projectsOf(settings, [
     ...all.map((s) => s.jiraKey),
@@ -172,6 +177,7 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
     titles,
     builtAt: new Date(deps.now?.() ?? Date.now()).toISOString(),
     ...(resolved.length ? { resolved } : {}),
+    ...(assigned.length ? { assigned: assigned.map((a) => a.key) } : {}),
   });
 }
 
