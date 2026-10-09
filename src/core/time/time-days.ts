@@ -34,8 +34,13 @@ export interface TimeDeps {
   chats?: (day: string) => Promise<TimeEvidence['chats']>;
   /** Tickets the AI step may place things on, besides the day's own (your assigned issues). */
   candidates?: () => Promise<Array<{ key: string; title: string }>>;
-  /** Start a run afresh: what was read for earlier days is read again (the keeper's run, a Gather). */
-  fresh?: () => void;
+  /**
+   * Start a run afresh: what was read for earlier days is read again (the
+   * keeper's run, a Gather). `local`: only what a turn changes (Claude
+   * minutes, commits); Teams and your assigned issues stand (network, and a
+   * turn doesn't move them).
+   */
+  fresh?: (what?: 'all' | 'local') => void;
   /** The AI step (runInternal): the answer, or null when it can't run. */
   classify?: (prompt: string) => Promise<string | null>;
   /** A Jira issue's numeric id (Tempo wants it), cached. */
@@ -55,10 +60,13 @@ const building = new Map<string, Promise<TimeDayRecord>>();
  * from it: a passing failure must not move the hours. One build of a day
  * at a time.
  */
-export function buildDay(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
+export function buildDay(day: string, deps: TimeDeps, opts: { again?: boolean } = {}): Promise<TimeDayRecord> {
   const running = building.get(day);
-  if (running) return running;
-  const p = buildNow(day, deps).finally(() => building.delete(day));
+  // A build under way read before this ask: joined, unless it's to be read again (a Gather) — then after it.
+  if (running && !opts.again) return running;
+  const p = (running ? running.catch(() => undefined).then(() => buildNow(day, deps)) : buildNow(day, deps)).finally(() => {
+    if (building.get(day) === p) building.delete(day);
+  });
   building.set(day, p);
   return p;
 }
@@ -171,6 +179,9 @@ async function buildNow(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   // A placeholder (to create in Jira) has no title there: the hint's summary.
   for (const h of hinted) if (h.title) titles[h.key] ??= h.title;
   evidence = await placeTheRest(evidence, prev?.evidence, titles, settings, deps, [...assigned, ...hinted]);
+  // A ticket the AI step put something on has its title kept (only those).
+  for (const c of [...assigned, ...hinted])
+    if (c.title && !titles[c.key] && activityOf(evidence).some((a) => a.key === c.key)) titles[c.key] = c.title;
   return saveBuilt({
     day,
     evidence,
@@ -196,7 +207,9 @@ async function placeTheRest(
   if (!deps.classify) return ev;
   const items = unplacedItems(ev);
   if (!items.length) return ev;
-  for (const c of extra) titles[c.key] ??= c.title;
+  // The prompt's titles: the day's, and the candidates' — not kept with the day (a whole backlog of them).
+  const promptTitles: Record<string, string> = { ...titles };
+  for (const c of extra) promptTitles[c.key] ??= c.title;
   const keys = [
     ...new Set(
       [...activityOf(ev).map((a) => a.key), ...extra.map((c) => c.key), settings.gapTicket, settings.timeOffTicket].filter(
@@ -210,7 +223,7 @@ async function placeTheRest(
     .classify(
       classifyPrompt(
         items,
-        keys.map((key) => ({ key, title: titles[key] ?? '' })),
+        keys.map((key) => ({ key, title: promptTitles[key] ?? '' })),
         settings.gapTicket,
       ),
     )

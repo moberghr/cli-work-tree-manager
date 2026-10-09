@@ -416,6 +416,8 @@ export interface ChatsRead {
 export async function chatsSince(firstDay: string, token: string, fetchImpl: Fetch = fetch): Promise<ChatsRead> {
   const from = dayBounds(firstDay).from.getTime();
   const me = await getJson<{ id?: string }>(`${GRAPH}/me?$select=id`, token, fetchImpl);
+  // Without your id nothing can be told yours (a bot's message has no user either: undefined === undefined).
+  if (!me.id) throw new Error('Microsoft Graph: no id for you');
   const active: Chat[] = [];
   let next: string | undefined = `${GRAPH}/me/chats?$top=50&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`;
   for (let page = 0; next && page < MAX_PAGES; page++) {

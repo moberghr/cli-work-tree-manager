@@ -53,19 +53,22 @@ export function commitsWrittenOn(stdout: string, day: string): Array<{ sha: stri
  */
 const READ_FRESH_MS = 30 * 60_000;
 
+/** Issues one day's Jira search returns at most (the default 50 would cut a sprint's close or a triage short). */
+export const JIRA_DAY_LIMIT = 500;
+
 /** What you did in Jira that day: status changes, and anything else you updated (a comment, an edit) — `updatedBy()`, by account id. */
 export async function jiraOn(day: string): Promise<TimeJiraEvidence[]> {
   const d = day.replace(/-/g, '/');
   // To the next day's start, not 23:59: a change in a day's last minute would be on no day at all.
   const end = addDays(day, 1).replace(/-/g, '/');
   // Throws when acli can't answer: the day keeps what it had (time-days.ts), rather than "did nothing".
-  const moved = await searchIssuesOrThrow(`status CHANGED BY currentUser() DURING ("${d} 00:00", "${end} 00:00")`);
+  const moved = await searchIssuesOrThrow(`status CHANGED BY currentUser() DURING ("${d} 00:00", "${end} 00:00")`, JIRA_DAY_LIMIT);
   const out: TimeJiraEvidence[] = moved.map((i) => ({ key: i.key, summary: i.summary, what: `moved (now ${i.status || 'changed'})` }));
   const account = loadConfig()?.time?.tempo?.accountId || process.env.JIRA_ACCOUNT_ID || (await myAccountId());
   if (account && /^[\w:-]+$/.test(account)) {
     // The same bounds, with times (a bare end date may mean the whole of that day, or its start).
     // A failure throws too: half the answer would drop the day's commented-on issues.
-    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d} 00:00", "${end} 00:00")`);
+    const updated = await searchIssuesOrThrow(`issuekey IN updatedBy("${account}", "${d} 00:00", "${end} 00:00")`, JIRA_DAY_LIMIT);
     for (const i of updated)
       if (!out.some((o) => o.key === i.key)) out.push({ key: i.key, summary: i.summary, what: 'updated by you (a comment or an edit)' });
   }
@@ -136,7 +139,7 @@ const realIo: TimeIo = {
  * `--exclude=refs/stash` keeps a stash's commits out; `--since` is the
  * committer date, never before the author date, so every commit written
  * since is in (and more, which `commitsWrittenOn` drops); `--fixed-strings`:
- * the email as it is (`jane+work@corp.com` isn't a pattern). No email set:
+ * the email as it is (`jane+work@corp.com` isn't a pattern), whole (`<…>`). No email set:
  * none of yours to find (''). A git that fails throws: the day keeps the
  * commits it had.
  */
@@ -150,7 +153,8 @@ async function commitLog(git: TimeIo['git'], repo: string, from: string): Promis
     '--no-merges',
     '--fixed-strings',
     `--since=${from} 00:00:00`,
-    `--author=${email}`,
+    // The address in its angle brackets: --author matches anywhere in "Name <email>", and `an@corp` is in `ivan@corp`.
+    `--author=<${email}>`,
     '--format=%H%x09%aI%x09%ce%x09%s',
   ]);
   if (log.status !== 0) throw new Error(`git log failed in ${repo}`);
@@ -166,9 +170,10 @@ export function defaultTimeDeps(io: TimeIo = realIo): TimeDeps {
   let chats: { from: string; at: number; read: Promise<ChatsRead> } | null = null;
   let assigned: { at: number; list: Promise<Array<{ key: string; title: string }>> } | null = null;
   return {
-    fresh: () => {
+    fresh: (what = 'all') => {
       workTime.clear();
       logs.clear();
+      if (what === 'local') return;
       chats = null;
       assigned = null;
     },

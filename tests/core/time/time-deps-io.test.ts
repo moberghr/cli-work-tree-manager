@@ -37,7 +37,8 @@ describe('your commits, as defaultTimeDeps reads them', () => {
     const logs = t.calls.filter((c) => c.args[0] === 'log');
     expect(logs.map((c) => c.cwd)).toEqual(['/r/api', '/r/web']); // not again for the second day
     expect(logs[0].args).toEqual(
-      expect.arrayContaining(['--exclude=refs/stash', '--all', '--no-merges', '--fixed-strings', '--author=jane+work@corp.com']),
+      // The email whole, in its brackets: `an@corp` must not match `ivan@corp`.
+      expect.arrayContaining(['--exclude=refs/stash', '--all', '--no-merges', '--fixed-strings', '--author=<jane+work@corp.com>']),
     );
     // --exclude must come before the --all it limits.
     expect(logs[0].args.indexOf('--exclude=refs/stash')).toBeLessThan(logs[0].args.indexOf('--all'));

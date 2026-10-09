@@ -1,5 +1,4 @@
 import type { ActivityLog } from '../platform/activity.js';
-import { isWorkday } from './allocate.js';
 import { buildDay, type TimeDeps } from './time-days.js';
 import { addDays, daysBetween, DEFAULT_CATCH_UP_DAYS, localDay } from './time-view.js';
 import { readDays } from './time-store.js';
@@ -8,7 +7,7 @@ import { readDays } from './time-store.js';
  * Keeps the Time tab's days current as you go (work web runs it): today
  * again after a turn ends and every half hour, and every day of the last two
  * weeks whose last build was before it ended — never built (a day you didn't
- * run work web, or before the tab existed; a workday), only edited (no
+ * run work web, or before the tab existed; a weekend or holiday too), only edited (no
  * evidence yet), or built while it was still going (its late turns count,
  * also after a night with work web closed). One run at a time; each run says
  * what it did in the Activity panel (kind `time`).
@@ -21,8 +20,14 @@ export const CATCH_UP_DAYS = DEFAULT_CATCH_UP_DAYS;
 export const AFTER_TURN_MS = 2 * 60_000;
 
 export interface TimeKeeper {
-  /** Build today, and any missing day. */
-  run: () => Promise<void>;
+  /**
+   * Build today, and any missing day. `local`: what a turn changed — your
+   * Claude minutes and commits — read afresh, the rest (Teams, your assigned
+   * issues) from the run before (they don't move with a turn, and reading
+   * them is network); a full run (the half-hourly one, Outlook connected)
+   * reads everything again.
+   */
+  run: (what?: 'all' | 'local') => Promise<void>;
   /** Today again, soon (after a turn). */
   soon: () => void;
   stop: () => void;
@@ -43,8 +48,8 @@ export function createTimeKeeper(
   let busy: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  async function runNow(): Promise<void> {
-    deps.fresh?.();
+  async function runNow(what: 'all' | 'local'): Promise<void> {
+    deps.fresh?.(what);
     const today = localDay(now());
     const settings = deps.settings();
     const from = addDays(today, -((settings.catchUpDays ?? CATCH_UP_DAYS) - 1));
@@ -52,7 +57,9 @@ export function createTimeKeeper(
     const days = daysBetween(from, today).filter((d) => {
       if (d === today) return true;
       const at = builtAt.get(d);
-      return at === undefined ? isWorkday(d, settings) : !at || Date.parse(at) < dayEnd(d);
+      // Never built: every day, a weekend or holiday too (you may have worked it with work web closed; the list
+      // shows a non-workday only when it has something).
+      return at === undefined || !at || Date.parse(at) < dayEnd(d);
     });
     const run = opts.activity?.start('time', days.length === 1 ? 'Updating today' : `Building ${days.length} days`);
     // One day that fails doesn't stop the rest; the days built are told either way.
@@ -71,25 +78,29 @@ export function createTimeKeeper(
     else run?.done(days.length === 1 ? 'today updated' : `${days.length} days built`);
   }
 
-  // Asked while a run is under way (a turn ended, Outlook connected): that run read before it, so another follows.
-  let again = false;
-  const run = (): Promise<void> => {
+  // Asked while a run is under way (a turn ended, Outlook connected): that run read before it, so another follows
+  // (reading everything when any of the asks wanted that).
+  let again: 'all' | 'local' | null = null;
+  const run = (what: 'all' | 'local' = 'all'): Promise<void> => {
     if (busy) {
-      again = true;
+      again = again === 'all' || what === 'all' ? 'all' : 'local';
       return busy;
     }
     busy = (async () => {
-      do {
-        again = false;
+      let next: 'all' | 'local' | null = what;
+      while (next) {
+        const kind = next;
+        again = null;
         // Never a rejection: callers fire it and forget (work web), and an unhandled one ends the process.
-        await runNow().catch((err: Error) => {
+        await runNow(kind).catch((err: Error) => {
           try {
             opts.activity?.start('time', 'Updating the Time tab').fail(err.message);
           } catch {
             /* nothing more to tell */
           }
         });
-      } while (again);
+        next = again;
+      }
     })().finally(() => (busy = null));
     return busy;
   };
@@ -99,7 +110,7 @@ export function createTimeKeeper(
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        void run();
+        void run('local');
       }, AFTER_TURN_MS);
       timer.unref?.();
     },

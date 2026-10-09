@@ -62,8 +62,13 @@ export function atomicWriteFile(filePath: string, content: string, renameSync: (
   }
   // Created with the target's mode, so a private file (graph-token.json, 0600) is never readable by others meanwhile.
   fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', ...(mode !== undefined ? { mode } : {}) });
-  // A leftover temp file from a crash keeps its old mode: set it.
-  if (mode !== undefined) fs.chmodSync(tmpPath, mode);
+  // A leftover temp file from a crash keeps its old mode: set it. A filesystem without modes (an SMB share) refuses: fine.
+  if (mode !== undefined)
+    try {
+      fs.chmodSync(tmpPath, mode);
+    } catch {
+      /* no modes here */
+    }
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(tmpPath, target);

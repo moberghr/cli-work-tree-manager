@@ -319,6 +319,15 @@ describe('meetings and chats', () => {
     expect(plain('<div>a&nbsp;<b>b</b></div>')).toBe('a b');
   });
 
+  it("Graph doesn't say who you are: the read fails (the day keeps its chats) rather than taking a bot's messages for yours", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) =>
+      String(url).includes('/me?')
+        ? json({})
+        : json({ value: [{ id: 'c1', topic: 'Bots', lastMessagePreview: { createdDateTime: new Date().toISOString() } }] }),
+    ) as unknown as typeof fetch;
+    await expect(chatsSince('2026-10-08', 'tok', fetchImpl)).rejects.toThrow('no id for you');
+  });
+
   it("several days in one read, split by day; the keys anyone named, but none of others' words", async () => {
     const at = (d: number, h: number) => new Date(2026, 9, d, h).toISOString();
     const asked: string[] = [];

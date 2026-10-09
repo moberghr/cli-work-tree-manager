@@ -183,7 +183,7 @@ export function mountTimeRoutes(
     // One build of a day at a time (buildDay): a Gather while the keeper builds gets that build.
     try {
       opts.deps.fresh?.(); // gathered again means read again
-      await buildDay(day, opts.deps);
+      await buildDay(day, opts.deps, { again: true }); // after a build under way, not joined to it: read since the click
     } catch (err) {
       return c.json({ error: `Couldn't gather the day: ${(err as Error).message}` }, 500);
     }

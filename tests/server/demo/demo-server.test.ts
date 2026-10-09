@@ -482,6 +482,13 @@ describe('demo server', () => {
     expect((await send('POST', `/api/sessions/${login.id}/open-terminal`)).status).toBe(501);
   });
 
+  it("a session's diff page: as the real route, an archived session has none (409)", async () => {
+    const live = await byBranch('feat/invoice-export');
+    expect(await (await send('POST', `/api/sessions/${live.id}/diff-page`)).json()).toEqual({ url: `/#/s/${live.id}/diff` });
+    await send('POST', `/api/sessions/${live.id}/archive`, { archived: true });
+    expect((await send('POST', `/api/sessions/${live.id}/diff-page`)).status).toBe(409);
+  });
+
   it('keeps the same Origin guard as the real server', async () => {
     const res = await fetch(server.url + 'api/tasks', {
       method: 'POST',

@@ -359,6 +359,42 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(asked).toHaveLength(1); // not asked again without the candidates
   });
 
+  it('Gather again while the keeper builds that day: a build after it (reading since the click), not the one under way', async () => {
+    let reads = 0;
+    const d = deps({
+      jiraMoved: async () => {
+        reads++;
+        await new Promise((r) => setTimeout(r, 10));
+        return [];
+      },
+    });
+    const keeper = buildDay('2026-10-09', d);
+    const gather = buildDay('2026-10-09', d, { again: true });
+    await Promise.all([keeper, gather]);
+    expect(reads).toBe(2);
+    expect(await gather).not.toBe(await keeper);
+  });
+
+  it("the AI step's candidate titles aren't kept with the day (a whole backlog); a ticket it placed something on keeps its own", async () => {
+    const backlog = Array.from({ length: 40 }, (_, i) => ({ key: `PAY-${100 + i}`, title: `Backlog ${i}` }));
+    const rec = await buildDay(
+      '2026-05-08',
+      deps({
+        sessions: () => [session({ branch: 'chore/pdf' })],
+        minutesOn: async () => 30,
+        commits: async () => [],
+        candidates: async () => backlog,
+        classify: async (prompt) => {
+          const id = /\[(s\w+)\] session/.exec(prompt)![1];
+          return `{"place":[{"id":"${id}","key":"PAY-105"}]}`;
+        },
+      }),
+    );
+    expect(rec.evidence.sessions[0].key).toBe('PAY-105');
+    expect(rec.titles['PAY-105']).toBe('Backlog 5');
+    expect(Object.keys(rec.titles).filter((k) => k.startsWith('PAY-'))).toEqual(['PAY-105']);
+  });
+
   it('gathering a day twice at once (Gather again while the keeper builds) is one build', async () => {
     let calls = 0;
     const d = deps({
@@ -421,7 +457,7 @@ describe('building a day (time-days.ts, state.db)', () => {
 });
 
 describe('the keeper (time-keeper.ts)', () => {
-  it('builds today and every missing workday of two weeks, once at a time; then only today', async () => {
+  it('builds today and every missing day of two weeks (weekends too: worked with work web closed), once at a time; then only today', async () => {
     const now = Date.parse('2026-08-14T15:00:00'); // a Friday, weeks before the days above
     const built: string[] = [];
     const d = deps({ now: () => now, minutesOn: async () => 0, commits: async () => [], jiraMoved: async () => [] });
@@ -430,7 +466,7 @@ describe('the keeper (time-keeper.ts)', () => {
     const k = createTimeKeeper(spy, { changed, now: () => now });
     // Asked again while it runs: that run read before it, so one more follows (today only), not two at once.
     await Promise.all([k.run(), k.run(), k.run()]);
-    expect(built.length).toBe(11); // 10 workdays in the 14 days to Friday, today included; then today again
+    expect(built.length).toBe(15); // the 14 days to Friday, today included; then today again
     expect(changed).toHaveBeenCalledTimes(2);
     built.length = 0;
     await k.run();
@@ -476,9 +512,9 @@ describe('the keeper (time-keeper.ts)', () => {
       activity: { start: () => ({ done: vi.fn(), fail, note: vi.fn(), progress: vi.fn() }) as never },
     });
     await k.run();
-    expect(tried.length).toBe(10); // every workday tried
+    expect(tried.length).toBe(14); // every day tried
     expect(changed).toHaveBeenCalledTimes(1);
-    expect(fail.mock.calls[0][0]).toMatch(/^1 of 10 not built — 2026-06-\d\d: database is locked$/);
+    expect(fail.mock.calls[0][0]).toMatch(/^1 of 14 not built — 2026-0[56]-\d\d: database is locked$/);
   });
 
   it('reaches back as far as time.catchUpDays says', async () => {
@@ -507,6 +543,23 @@ describe('the keeper (time-keeper.ts)', () => {
     );
     await expect(k.run()).resolves.toBeUndefined();
     expect(fail).toHaveBeenCalledWith('database is locked');
+  });
+
+  it('after a turn only what a turn changes is read again (Claude minutes, commits); the half-hourly run reads everything', async () => {
+    const fresh = vi.fn();
+    const now = Date.parse('2026-04-10T15:00:00');
+    const k = createTimeKeeper(
+      { ...deps({ now: () => now, minutesOn: async () => 0, commits: async () => [], jiraMoved: async () => [] }), fresh },
+      { changed: vi.fn(), now: () => now },
+    );
+    await k.run('local');
+    expect(fresh).toHaveBeenLastCalledWith('local');
+    await k.run();
+    expect(fresh).toHaveBeenLastCalledWith('all');
+    // A full run asked for while a local one runs: the one that follows reads everything.
+    fresh.mockClear();
+    await Promise.all([k.run('local'), k.run('all'), k.run('local')]);
+    expect(fresh.mock.calls).toEqual([['local'], ['all']]);
   });
 
   it('each run starts fresh (what was read for earlier days is read again)', async () => {

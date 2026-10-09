@@ -257,7 +257,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   // A session's diff on a page of its own: the demo has no wd pages, so the dashboard's own Diff tab.
   app.post('/api/sessions/:id/diff-page', (c) => {
     const id = c.req.param('id');
-    if (!scenario.sessions.has(id)) return c.json({ error: 'unknown session' }, 404);
+    const s = scenario.sessions.get(id);
+    if (!s) return c.json({ error: 'unknown session' }, 404);
+    // As the real route: an archived session has no diff page.
+    if (s.archivedAt) return c.json({ error: 'archived: restore it to see its diff' }, 409);
     return c.json({ url: `/#/s/${encodeURIComponent(id)}/diff` });
   });
   app.post('/api/sessions/:id/diff-seen', async (c) => {

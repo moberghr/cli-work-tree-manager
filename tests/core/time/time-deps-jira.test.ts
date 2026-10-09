@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // acli, as the Time tab asks it: the JQL recorded, the answers made up.
 const jql = vi.hoisted(() => [] as string[]);
+const limits = vi.hoisted(() => [] as Array<number | undefined>);
 const account = vi.hoisted(() => ({ id: 'acc-1' as string | null, updatedByFails: false }));
 vi.mock('../../../src/core/jira/jira.js', () => ({
-  searchIssuesOrThrow: async (q: string) => {
+  searchIssuesOrThrow: async (q: string, limit?: number) => {
     jql.push(q);
+    limits.push(limit);
     if (q.startsWith('status CHANGED')) return [{ key: 'SD-1', summary: 'Moved', status: 'Review' }];
     if (account.updatedByFails) throw new Error('not supported');
     return [
@@ -37,6 +39,8 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
     expect(jql[0]).toBe('status CHANGED BY currentUser() DURING ("2026/10/07 00:00", "2026/10/08 00:00")');
     // To the next day's start: a change at 23:59:30 is on the day.
     expect(jql[1]).toBe('issuekey IN updatedBy("acc-1", "2026/10/07 00:00", "2026/10/08 00:00")');
+    // Not acli's 50: a sprint's close or a triage moves more in a day.
+    expect(limits.slice(0, 2)).toEqual([500, 500]);
   });
 
   it('the account id from JIRA_ACCOUNT_ID first; none known: the moves alone; updatedBy refused: a failure (the day keeps what it had)', async () => {
