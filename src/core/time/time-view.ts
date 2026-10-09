@@ -177,3 +177,53 @@ export function parseEntries(v: unknown, step: number): TimeEntry[] | null {
   }
   return out;
 }
+
+/**
+ * A day in words, for the Ctrl+K assistant (what the Time tab shows): the
+ * rows, the suggestion when you changed them, and the evidence behind them
+ * — and how to change it (`work timesheet`, which asks before it does).
+ */
+export function describeTimeDay(w: TimeDayWire): string {
+  const rows = (es: readonly TimeEntry[]) =>
+    es.map((e) => `${e.key} ${e.hours} h${w.titles[e.key] ? ` (${w.titles[e.key]})` : ''}`).join(', ') || 'nothing';
+  const ev = w.evidence;
+  const lines = [
+    `On the Time tab: ${w.day}, ${w.status}. Rows: ${rows(w.entries)} — ${w.total} of ${w.settings.dayHours} h.`,
+    ...(w.edited ? [`  work suggested: ${rows(w.suggested)}.`] : []),
+    ...(w.posted ? [`  Posted to Tempo at ${w.posted.at}${w.status === 'changed' ? '; changed since' : ''}.`] : []),
+    `  Rules: Claude minutes × ${w.settings.multiplier}, ${w.settings.stepHours} h steps, at least ${w.settings.minHours} h a ticket, the rest to ${w.settings.gapTicket ?? 'nothing (no gap ticket set)'}.`,
+    ...ev.sessions.map(
+      (s) => `  Session ${s.label}: ${s.minutes} min of Claude, ticket ${s.key ?? 'none'}${s.guessed ? ' (AI guess)' : ''}.`,
+    ),
+    ...ev.commits.map((c) => `  Commit ${c.repo}: ${c.subject} — ${c.keys.join(', ') || 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`),
+    ...ev.jira.map((j) => `  Jira ${j.key} ${j.summary}: ${j.what}.`),
+    ...(ev.meetings ?? []).map(
+      (m) => `  Meeting ${m.start}–${m.end} ${m.subject} (${m.minutes} min): ${m.key ?? 'gap ticket'}${m.guessed ? ' (AI guess)' : ''}.`,
+    ),
+    ...(ev.chats ?? []).map(
+      (c) => `  Teams chat ${c.chat}: ${c.messages} messages, ${c.key ?? 'no ticket'}${c.guessed ? ' (AI guess)' : ''}.`,
+    ),
+    `  To change the day: \`work timesheet set ${w.day} KEY=HOURS …\` (all its rows), \`work timesheet reset ${w.day}\` (back to the suggestion), \`work timesheet off ${w.day}\`. Posting to Tempo is the user's: \`work timesheet post ${w.day}\` only when they ask.`,
+  ];
+  return lines.join('\n');
+}
+
+/** A day as typed: today, yesterday, or YYYY-MM-DD (a real date). Null otherwise. */
+export function dayArg(text: string, now = Date.now()): string | null {
+  const t = text.trim().toLowerCase();
+  if (t === 'today') return localDay(now);
+  if (t === 'yesterday') return localDay(now - 24 * 3600_000);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return localDay(Date.parse(`${t}T12:00:00`)) === t ? t : null;
+}
+
+/** `KEY=HOURS` arguments as rows (hours as numbers); null when one isn't. */
+export function parseRowArgs(args: readonly string[]): Array<{ key: string; hours: number }> | null {
+  const out: Array<{ key: string; hours: number }> = [];
+  for (const a of args) {
+    const m = /^([A-Za-z][A-Za-z0-9]*-\d+)=(\d+(?:\.\d+)?)$/.exec(a.trim());
+    if (!m) return null;
+    out.push({ key: m[1].toUpperCase(), hours: Number(m[2]) });
+  }
+  return out.length ? out : null;
+}

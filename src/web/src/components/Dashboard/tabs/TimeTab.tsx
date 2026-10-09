@@ -66,7 +66,17 @@ const sameRows = (a: readonly TimeEntryWire[], b: readonly TimeEntryWire[]) =>
  * — kept current as you go — and as you change them. A day goes to Tempo
  * only when you click Post (tempo.ts reads Tempo's day first).
  */
-export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+export function TimeTab({
+  onOpenSession,
+  onDayChange,
+  onAsk,
+}: {
+  onOpenSession: (id: string) => void;
+  /** The day on screen (the assistant is told about it). */
+  onDayChange?: (day: string | null) => void;
+  /** Open the Ctrl+K assistant on this day. */
+  onAsk?: () => void;
+}) {
   const [days, setDays] = useState<TimeDaysWire | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [day, setDay] = useState<TimeDayWire | null>(null);
@@ -97,7 +107,8 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
   useEffect(() => {
     setOutcome(null);
     if (chosen) loadDay(chosen);
-  }, [chosen, loadDay]);
+    onDayChange?.(chosen);
+  }, [chosen, loadDay, onDayChange]);
   useSse('/events', {
     events: {
       'time-changed': () => {
@@ -210,6 +221,16 @@ export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void
               >
                 Gather again
               </button>
+              {onAsk && (
+                <button
+                  type="button"
+                  className="wd-btn-secondary"
+                  onClick={onAsk}
+                  title="Talk the day over with the assistant (Ctrl+K): it sees the rows and why"
+                >
+                  Ask about this day
+                </button>
+              )}
             </div>
 
             <table className="wd-time-rows">

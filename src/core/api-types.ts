@@ -305,6 +305,8 @@ export interface AssistantView {
   sessionId?: string | null;
   /** Anything else worth saying (e.g. "12 cleanup candidates listed"). */
   note?: string;
+  /** The Time tab's day on screen (`YYYY-MM-DD`). */
+  day?: string;
 }
 
 // ---- cleanup --------------------------------------------------------------

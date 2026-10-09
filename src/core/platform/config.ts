@@ -179,6 +179,40 @@ function validateDevCommands(raw: unknown): Record<string, string> | undefined {
 }
 
 /** A list of non-empty strings, or undefined (not a list). */
+/** The Time tab's section as written: only well-formed values (a bad one is left to its default). */
+export function validateTime(raw: unknown): WorkConfig['time'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const t = raw as Record<string, unknown>;
+  const num = (k: string, min: number) => (typeof t[k] === 'number' && (t[k] as number) >= min ? { [k]: t[k] as number } : {});
+  const key = (k: string) => (typeof t[k] === 'string' && /^[A-Z][A-Z0-9]{1,9}-\d+$/.test(t[k] as string) ? { [k]: t[k] as string } : {});
+  const strs = (o: unknown, keys: string[]) => {
+    if (!o || typeof o !== 'object') return undefined;
+    const out: Record<string, string> = {};
+    for (const k of keys) {
+      const v = (o as Record<string, unknown>)[k];
+      if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+    }
+    return Object.keys(out).length ? out : undefined;
+  };
+  const days = stringList(t.holidays)?.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const projects = stringList(t.projects)?.filter((p) => /^[A-Z][A-Z0-9]{1,9}$/.test(p));
+  const tempo = strs(t.tempo, ['tokenEnv', 'accountId']);
+  const graph = strs(t.graph, ['clientId', 'tenantId']);
+  return {
+    ...num('dayHours', 0.25),
+    ...num('multiplier', 0),
+    ...num('capHours', 0),
+    ...num('stepHours', 0.01),
+    ...num('minHours', 0),
+    ...key('gapTicket'),
+    ...key('timeOffTicket'),
+    ...(days ? { holidays: days } : {}),
+    ...(projects ? { projects } : {}),
+    ...(tempo ? { tempo } : {}),
+    ...(graph ? { graph } : {}),
+  };
+}
+
 function stringList(raw: unknown): string[] | undefined {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : undefined;
 }
@@ -210,6 +244,7 @@ export function loadConfig(): WorkConfig | null {
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,
       prompts: validatePrompts(parsed.prompts),
+      time: validateTime(parsed.time),
       archive:
         parsed.archive && typeof parsed.archive === 'object'
           ? {

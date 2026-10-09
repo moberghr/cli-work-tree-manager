@@ -166,6 +166,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // The top bar's Tasks panel (g t).
   const [tasksOpen, setTasksOpen] = useState(false);
   const [assistantMounted, setAssistantMounted] = useState(false);
+  // The Time tab's day on screen: the assistant is told about it.
+  const [timeDay, setTimeDay] = useState<string | null>(null);
   const toggleAssistant = useCallback(() => {
     setAssistantMounted(true);
     setAssistantOpen((o) => !o);
@@ -688,9 +690,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     : `the ${TAB_LABEL[route.tab]} tab`;
   useEffect(() => {
     if (!assistantOpen) return;
-    const view = route.sessionId ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId } : { tab: route.tab };
+    const view = route.sessionId
+      ? { tab: 'session', sub: route.sessionSubTab, sessionId: route.sessionId }
+      : { tab: route.tab, ...(route.tab === 'time' && timeDay ? { day: timeDay } : {}) };
     void reportAssistantView(view).catch(() => {});
-  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab]);
+  }, [assistantOpen, route.tab, route.sessionId, route.sessionSubTab, timeDay]);
 
   // Opening a session that wanted you counts as having seen it — once per
   // unseen episode (keyed by when it entered that state), and only while
@@ -808,7 +812,16 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         );
         break;
       case 'time':
-        body = <TimeTab onOpenSession={(id) => openSession(id)} />;
+        body = (
+          <TimeTab
+            onOpenSession={(id) => openSession(id)}
+            onDayChange={setTimeDay}
+            onAsk={() => {
+              setAssistantMounted(true);
+              setAssistantOpen(true);
+            }}
+          />
+        );
         break;
       case 'repos':
         body = <ReposTab onBack={() => goTab('start')} />;

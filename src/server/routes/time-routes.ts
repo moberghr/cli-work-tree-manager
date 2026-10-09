@@ -11,8 +11,9 @@ import {
 } from '../../core/time/graph.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
 import { localDay, parseEntries } from '../../core/time/time-view.js';
-import { readDay, updateDay } from '../../core/time/time-store.js';
-import { postDay, tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
+import { updateDay } from '../../core/time/time-store.js';
+import { tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
+import { postStoredDay } from '../../core/time/time-actions.js';
 import { loadConfig } from '../../core/platform/config.js';
 import type { TimeEntry } from '../../core/time/allocate.js';
 
@@ -148,28 +149,15 @@ export function mountTimeRoutes(
     if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
     const t = tempo();
     if ('why' in t) return c.json({ error: t.why }, 409);
-    const settings = opts.deps.settings();
-    const w = dayWire(day, settings);
-    if (!opts.deps.issueId) return c.json({ error: 'no way to look issue ids up' }, 500);
-    let r;
+    let counts;
     try {
-      r = await postDay(day, w.entries, readDay(day)?.posted?.worklogs ?? [], {
-        api: t.api,
-        accountId: t.accountId,
-        issueId: opts.deps.issueId,
-      });
+      counts = await postStoredDay(day, opts.deps, t);
     } catch (err) {
       // Tempo's day couldn't be read: nothing was changed.
       return c.json({ error: (err as Error).message }, 502);
     }
-    const failedKeys = new Set(r.failed.map((f) => f.key));
-    updateDay(day, {
-      // What Tempo has now: a row that failed isn't in it (the day reads "changed": post again).
-      posted: { at: new Date().toISOString(), entries: w.entries.filter((e) => !failedKeys.has(e.key)), worklogs: r.ours },
-    });
     changed(day);
-    const { ours: _ours, ...counts } = r;
-    return c.json<TimePostWire>({ ...counts, day: withPosting(dayWire(day, settings)) });
+    return c.json<TimePostWire>({ ...counts, day: withPosting(dayWire(day, opts.deps.settings())) });
   });
 
   app.put('/api/time/:day', async (c) => {

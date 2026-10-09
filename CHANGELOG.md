@@ -14,8 +14,22 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   hours, at least half an hour a ticket, the rest to a gap ticket
   (`time.gapTicket`), days off to `time.timeOffTicket`, `time.holidays`.
   Unlike the tool, a day never goes over its hours. Edit a day's rows, mark
-  it off, or gather it again; your edits survive a rebuild. Nothing is
-  posted anywhere yet: Tempo comes next.
+  it off, or gather it again; your edits survive a rebuild.
+- **Post to Tempo**, per day, only on your click. work reads Tempo's day
+  first: what it posted before and you still want stays, what you took out
+  goes, worklogs you made by hand are never touched (and one that already
+  covers a row isn't posted again). Set `TEMPO_API_TOKEN` for work web and
+  `time.tempo.accountId`. A day then reads "in Tempo", or "changed since
+  posted".
+- **Outlook meetings and Teams chats** (Connect in the Time tab: a code to
+  enter at microsoft.com, with the timesheet tool's app registration in
+  `time.graph`). What no ticket could be read from — a session without a
+  key, a commit naming none, a meeting, a chat — is placed by the AI step
+  (no tools; only on the day's candidate tickets; marked "AI"). A meeting
+  on a ticket counts 1:1; the rest keep their room in the gap ticket.
+- **Ask about this day** opens the Ctrl+K assistant on the day on screen,
+  and `work timesheet show | set | reset | off | gather | post` does it
+  all from a terminal.
 
 ## 2.0.9 — 2026-10-08
 

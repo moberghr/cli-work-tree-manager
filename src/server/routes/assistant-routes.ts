@@ -8,6 +8,8 @@ export interface AssistantRoutesOptions {
   /** The web server's cached stats and overlaps, for the selected session. */
   wireOptions?: SessionWireOptions;
   overlapsFor?: (sessionId: string) => ReturnType<typeof sessionWire>['overlaps'];
+  /** The Time tab's day in words (time-view.ts describeTimeDay), when it's on screen. */
+  describeDay?: (day: string) => string;
 }
 
 /**
@@ -26,12 +28,14 @@ export function mountAssistantRoutes(app: Hono, opts: AssistantRoutesOptions = {
       ...(typeof body.sub === 'string' ? { sub: body.sub.slice(0, 40) } : {}),
       ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
       ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
+      ...(typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) ? { day: body.day } : {}),
     };
     const s = view.sessionId ? findSession(view.sessionId) : null;
     let wire = s ? sessionWire(s, opts.wireOptions) : null;
     const o = wire ? opts.overlapsFor?.(wire.id) : undefined;
     if (wire && o) wire = { ...wire, overlaps: o };
-    writeAssistantContext(describeView(view, wire));
+    const day = view.tab === 'time' && view.day ? opts.describeDay?.(view.day) : undefined;
+    writeAssistantContext(describeView(view, wire) + (day ? `\n${day}` : ''));
     return c.json({ ok: true });
   });
 }

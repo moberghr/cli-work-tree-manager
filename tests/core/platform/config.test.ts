@@ -163,6 +163,37 @@ describe('loadConfig', () => {
   });
 });
 
+describe("the Time tab's settings (time)", () => {
+  it('kept when loaded (reported: they were dropped, so a gap ticket never applied); a bad value is left to its default', () => {
+    fs.mkdirSync(path.join(tmpDir, '.work'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.work', 'config.json'),
+      JSON.stringify({
+        worktreesRoot: '/w',
+        repos: {},
+        time: {
+          gapTicket: 'SD-434',
+          timeOffTicket: 'not a key',
+          dayHours: 8,
+          multiplier: -1,
+          holidays: ['2026-12-25', 'xmas'],
+          projects: ['SD', 'sd'],
+          tempo: { accountId: ' acc-1 ', tokenEnv: 5 },
+          graph: { clientId: 'cid' },
+        },
+      }),
+    );
+    expect(loadConfig()?.time).toEqual({
+      gapTicket: 'SD-434',
+      dayHours: 8,
+      holidays: ['2026-12-25'],
+      projects: ['SD'],
+      tempo: { accountId: 'acc-1' },
+      graph: { clientId: 'cid' },
+    });
+  });
+});
+
 describe('validatePortRange', () => {
   it('accepts an in-bounds integer range', () => {
     expect(validatePortRange({ start: 3000, end: 3099 })).toEqual({ start: 3000, end: 3099 });

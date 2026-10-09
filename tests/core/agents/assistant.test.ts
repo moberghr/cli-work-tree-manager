@@ -119,6 +119,7 @@ describe('the assistant folder', () => {
       'work cleanup --json',
       'work overlaps --json',
       'work search encryption keys --json',
+      'work timesheet show 2026-10-08 --json',
     ]) {
       expect(allows(ASSISTANT_ALLOW, read), read).toBe(true);
       expect(claudeAllows(claudeSettingsAllow(), read), read).toBe(true);
@@ -132,6 +133,11 @@ describe('the assistant folder', () => {
       'git push --force',
       'work pr post PRRT_abc --resolve', // writes on GitHub in your name: Claude Code must ask
       'work pr post --all',
+      // A day's hours: changed only when asked; posting to Tempo is in your name.
+      'work timesheet set 2026-10-08 SD-1=7.5',
+      'work timesheet reset 2026-10-08',
+      'work timesheet off 2026-10-08',
+      'work timesheet post 2026-10-08',
       // Acting on another session: approving its tool call is yours to say, and a message or a start makes it act.
       'work answer --allow',
       'work answer api feat/x --allow',
@@ -215,5 +221,23 @@ describe('POST /api/assistant/context', () => {
     expect(readAssistantContext()).toContain(`api · feat/x (id ${id})`);
     expect((await post({})).status).toBe(400);
     expect(fs.existsSync(assistantDir())).toBe(true);
+  });
+
+  it("on the Time tab: the day on screen in words; a day that isn't a date is dropped", async () => {
+    const app = new Hono();
+    const describeDay = (day: string) => `On the Time tab: ${day}, draft.`;
+    mountAssistantRoutes(app, { describeDay });
+    const post = (body: unknown) =>
+      app.request('/api/assistant/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    await post({ tab: 'time', day: '2026-10-08' });
+    expect(readAssistantContext()).toContain('On the Time tab: 2026-10-08, draft.');
+    await post({ tab: 'time', day: '../etc' });
+    expect(readAssistantContext()).not.toContain('On the Time tab');
+    await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day
+    expect(readAssistantContext()).not.toContain('On the Time tab');
   });
 });

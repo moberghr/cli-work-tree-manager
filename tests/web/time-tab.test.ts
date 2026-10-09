@@ -242,6 +242,17 @@ describe('the Time tab', () => {
     expect(ev.querySelector('[aria-label="Chats"]')!.textContent).toContain('Teams: Payments · 3 messages of yours');
   });
 
+  it('tells the dashboard which day is on screen; Ask about this day opens the assistant', async () => {
+    const onDayChange = vi.fn();
+    const onAsk = vi.fn();
+    act(() => root.render(createElement(TimeTab, { onOpenSession, onDayChange, onAsk })));
+    await flush();
+    await flush();
+    expect(onDayChange).toHaveBeenLastCalledWith('2026-10-08');
+    act(() => button('Ask about this day').click());
+    expect(onAsk).toHaveBeenCalled();
+  });
+
   it('hours read as hours', () => {
     expect(hoursText(2.5)).toBe('2.5 h');
     expect(hoursText(0.25)).toBe('0.25 h');

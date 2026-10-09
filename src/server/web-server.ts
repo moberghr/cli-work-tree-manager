@@ -73,6 +73,8 @@ import { mountPrReplyRoutes, openThreadsOfCi } from './routes/pr-reply-routes.js
 import { applyArchiveRetention } from '../core/archive/archive-retention.js';
 import { defaultTimeDeps } from '../core/time/time-deps.js';
 import { createTimeKeeper, TIME_EVERY_MS } from '../core/time/time-keeper.js';
+import { dayWire } from '../core/time/time-days.js';
+import { describeTimeDay } from '../core/time/time-view.js';
 import { mountTimeRoutes } from './routes/time-routes.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
@@ -694,6 +696,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     overlapsFor: (id) =>
       (((sessionsCache ?? allSessionsCache)?.body as { sessions?: SessionWire[] } | undefined)?.sessions ?? []).find((w) => w.id === id)
         ?.overlaps,
+    describeDay: (day) => describeTimeDay(dayWire(day, timeDeps.settings())),
   });
 
   // PRs / Jira / Tasks read endpoints + tasks CRUD. Emits tasks-changed.

@@ -14,6 +14,7 @@ import {
   type TimeConfig,
 } from '../../../src/core/time/time-view.js';
 import { createTimeKeeper } from '../../../src/core/time/time-keeper.js';
+import { dayArg, describeTimeDay, parseRowArgs } from '../../../src/core/time/time-view.js';
 
 // Each test file has its own HOME (tests/setup), so state.db here is a throwaway.
 const S: TimeConfig = { ...DEFAULT_TIME_SETTINGS, gapTicket: 'SD-434', timeOffTicket: 'INT-1' };
@@ -114,6 +115,49 @@ describe('the pure view (time-view.ts)', () => {
     ).toBeNull();
     expect(parseEntries([{ key: 'SD-1', hours: 0 }], 0.25)).toBeNull();
     expect(parseEntries('nope', 0.25)).toBeNull();
+  });
+});
+
+describe('for the CLI and the assistant', () => {
+  it('a day as typed: today, yesterday, or a real YYYY-MM-DD', () => {
+    const now = Date.parse('2026-10-08T12:00:00');
+    expect(dayArg('today', now)).toBe('2026-10-08');
+    expect(dayArg(' Yesterday ', now)).toBe('2026-10-07');
+    expect(dayArg('2026-10-01', now)).toBe('2026-10-01');
+    expect(dayArg('2026-02-30', now)).toBeNull();
+    expect(dayArg('last week', now)).toBeNull();
+  });
+
+  it('rows as KEY=HOURS', () => {
+    expect(parseRowArgs(['sd-1=2.5', 'SD-434=5'])).toEqual([
+      { key: 'SD-1', hours: 2.5 },
+      { key: 'SD-434', hours: 5 },
+    ]);
+    expect(parseRowArgs(['SD-1:2'])).toBeNull();
+    expect(parseRowArgs([])).toBeNull();
+  });
+
+  it('a day in words: rows with titles, the suggestion when edited, the evidence, and how to change it (posting only when asked)', () => {
+    const w = dayWireOf('2026-10-08', S, {
+      day: '2026-10-08',
+      evidence: {
+        sessions: [{ sessionId: 'x', label: 'api · feat/SD-1-x', key: 'SD-1', minutes: 30 }],
+        commits: [],
+        jira: [],
+        meetings: [{ subject: 'Daily', start: '09:30', end: '09:45', minutes: 15, key: null }],
+      },
+      titles: { 'SD-1': 'One' },
+      builtAt: 'x',
+      edited: [{ key: 'SD-1', hours: 7.5 }],
+      dayOff: false,
+    });
+    const text = describeTimeDay(w);
+    expect(text).toContain('On the Time tab: 2026-10-08, edited. Rows: SD-1 7.5 h (One) — 7.5 of 7.5 h.');
+    expect(text).toContain('work suggested: SD-1 2.5 h (One), SD-434 5 h.');
+    expect(text).toContain('Session api · feat/SD-1-x: 30 min of Claude, ticket SD-1.');
+    expect(text).toContain('Meeting 09:30–09:45 Daily (15 min): gap ticket.');
+    expect(text).toContain('`work timesheet set 2026-10-08 KEY=HOURS …`');
+    expect(text).toContain('only when they ask');
   });
 });
 

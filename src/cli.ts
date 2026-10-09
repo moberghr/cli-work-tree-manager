@@ -43,6 +43,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['overlaps'], load: async () => (await import('./commands/overlaps.js')).overlapsCommand },
   { names: ['search'], load: async () => (await import('./commands/search.js')).searchCommand },
   { names: ['pr'], load: async () => (await import('./commands/pr.js')).prCommand },
+  { names: ['timesheet'], load: async () => (await import('./commands/timesheet.js')).timesheetCommand },
   { names: ['prune'], load: async () => (await import('./commands/prune.js')).pruneCommand },
   { names: ['sync'], load: async () => (await import('./commands/sync.js')).syncCommand },
   { names: ['todo'], load: async () => (await import('./commands/todo.js')).todoCommand },
