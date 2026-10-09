@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.0.10 — 2026-10-09
 
 - A **Time** tab (`g h`): each workday's hours per Jira ticket, suggested from
   what you did — Claude's working time in each session (its Jira key, or the
