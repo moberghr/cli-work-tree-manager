@@ -13,7 +13,7 @@ import {
   timeSettings,
   type TimeConfig,
 } from '../../../src/core/time/time-view.js';
-import { createTimeKeeper } from '../../../src/core/time/time-keeper.js';
+import { createTimeKeeper, dayEnd } from '../../../src/core/time/time-keeper.js';
 import { dayArg, describeTimeDay, parseRowArgs } from '../../../src/core/time/time-view.js';
 
 // Each test file has its own HOME (tests/setup), so state.db here is a throwaway.
@@ -195,6 +195,24 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(rec.evidence.sessions.length).toBe(3);
   });
 
+  it("a rebuild where a source fails keeps what the day had from it (the hours don't move); signed out of Outlook: no meetings", async () => {
+    const meeting = { subject: 'Refinement', start: '10:00', end: '13:00', minutes: 180 };
+    await buildDay('2026-10-02', deps({ meetings: async () => [meeting] }));
+    const before = dayWire('2026-10-02', S).entries;
+    const failing = deps({
+      jiraMoved: async () => Promise.reject(new Error('acli: not signed in')),
+      commits: async () => Promise.reject(new Error('git')),
+      meetings: async () => Promise.reject(new Error('The Microsoft sign-in stopped working')),
+    });
+    const rec = await buildDay('2026-10-02', failing);
+    expect(rec.evidence.jira.map((j) => j.key)).toEqual(['SD-3777']);
+    expect(rec.evidence.commits.map((c) => c.sha)).toEqual(['a1', 'a2']);
+    expect(rec.evidence.meetings).toEqual([meeting]);
+    expect(dayWire('2026-10-02', S).entries).toEqual(before);
+    const signedOut = await buildDay('2026-10-02', deps({ meetings: async () => undefined }));
+    expect(signedOut.evidence.meetings).toBeUndefined();
+  });
+
   it('the list reads stored days', async () => {
     await buildDay('2026-10-05', deps()); // a Monday
     expect(daysWire('2026-10-05', '2026-10-05', S).days).toEqual([
@@ -217,5 +235,27 @@ describe('the keeper (time-keeper.ts)', () => {
     built.length = 0;
     await k.run();
     expect(built.length).toBe(1); // today only
+  });
+
+  it('a day last built while it was still going is built again (late turns, a night with work web closed); a day only edited is gathered', async () => {
+    // Wednesday 2026-07-08 built at 15:00 that day, Tuesday only edited; it's Thursday now, in a fresh process.
+    await buildDay('2026-07-08', deps({ now: () => Date.parse('2026-07-08T15:00:00') }));
+    updateDay('2026-07-07', { edited: [{ key: 'SD-1', hours: 7.5 }] });
+    const now = Date.parse('2026-07-09T10:00:00');
+    const built: string[] = [];
+    const d = deps({ now: () => now, minutesOn: async (_s, day) => (built.push(day), 0) });
+    const k = createTimeKeeper(d, { changed: vi.fn(), now: () => now });
+    await k.run();
+    const days = new Set(built);
+    expect(days.has('2026-07-08')).toBe(true);
+    expect(days.has('2026-07-07')).toBe(true);
+    expect(readDay('2026-07-07')?.edited).toEqual([{ key: 'SD-1', hours: 7.5 }]); // kept
+    built.length = 0;
+    await k.run();
+    expect(new Set(built)).toEqual(new Set(['2026-07-09'])); // both now built after they ended
+  });
+
+  it("a day's end is the next local midnight", () => {
+    expect(dayEnd('2026-07-08')).toBe(Date.parse('2026-07-09T00:00:00'));
   });
 });

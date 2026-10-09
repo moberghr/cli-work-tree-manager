@@ -111,12 +111,13 @@ export async function issueIdOf(key: string): Promise<number | null> {
 
 /** Issues a JQL search finds (no URLs); [] when acli isn't there or fails. */
 export async function searchIssues(jql: string, limit = 50): Promise<JiraIssue[]> {
-  try {
-    const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', jql, '--json', '--limit', String(limit)], 15000);
-    return stdout ? parseIssuesJson(stdout, '') : [];
-  } catch {
-    return [];
-  }
+  return searchIssuesOrThrow(jql, limit).catch(() => []);
+}
+
+/** The same, but a failure (no acli, signed out, no network) throws: for callers that must tell "none" from "couldn't ask". */
+export async function searchIssuesOrThrow(jql: string, limit = 50): Promise<JiraIssue[]> {
+  const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', jql, '--json', '--limit', String(limit)], 15000);
+  return stdout ? parseIssuesJson(stdout, '') : [];
 }
 
 /**

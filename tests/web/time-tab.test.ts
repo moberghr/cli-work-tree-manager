@@ -42,7 +42,14 @@ const api = vi.hoisted(() => ({
   save: vi.fn(),
   rebuild: vi.fn(),
   post: vi.fn(),
-  graph: { ready: true, why: null, account: null, login: null, error: null } as import('../../src/core/api-types.js').TimeGraphWire,
+  graph: {
+    ready: true,
+    why: null,
+    account: null,
+    problem: null,
+    login: null,
+    error: null,
+  } as import('../../src/core/api-types.js').TimeGraphWire,
   connect: vi.fn(),
   disconnect: vi.fn(),
 }));
@@ -185,6 +192,24 @@ describe('the Time tab', () => {
     expect(button('Post again').disabled).toBe(true); // nothing changed since
   });
 
+  it('a posted day emptied since (all rows out): it can be taken out of Tempo; an empty day never posted: nothing to post', async () => {
+    api.day = dayWire({
+      status: 'changed',
+      entries: [],
+      total: 0,
+      posted: { at: '2026-10-08T16:00:00Z', entries: dayWire().entries },
+    });
+    await render();
+    expect(button('Take out of Tempo').disabled).toBe(false);
+    await act(async () => button('Take out of Tempo').click());
+    expect(api.post).toHaveBeenCalledWith('2026-10-08');
+    act(() => root.unmount());
+    root = createRoot(container);
+    api.day = dayWire({ entries: [], total: 0 });
+    await render();
+    expect(button('Post to Tempo').disabled).toBe(true);
+  });
+
   it('posting not set up: the button says why', async () => {
     api.day = dayWire({ posting: { ready: false, why: 'No Tempo token: set TEMPO_API_TOKEN' } });
     await render();
@@ -220,6 +245,27 @@ describe('the Time tab', () => {
     await act(async () => button('Disconnect').click());
     expect(api.disconnect).toHaveBeenCalled();
     api.graph = { ...api.graph, account: null };
+  });
+
+  it('signed in but it stopped working: says why, with Connect again (which shows the code)', async () => {
+    api.graph = {
+      ...api.graph,
+      account: 'you@moberg.hr',
+      problem: 'The Microsoft sign-in stopped working (expired or revoked): connect again.',
+    };
+    api.connect.mockResolvedValue({
+      ...api.graph,
+      login: { userCode: 'WXYZ-9876', verificationUri: 'https://microsoft.com/devicelogin', expiresAt: 'x' },
+    });
+    try {
+      await render();
+      expect(container.querySelector('.wd-time-graph')!.textContent).toContain('stopped working');
+      expect(container.querySelector('.wd-time-graph')!.textContent).not.toContain('meetings and chats from');
+      await act(async () => button('Connect again').click());
+      expect(container.querySelector('.wd-time-graph')!.textContent).toContain('enter WXYZ-9876');
+    } finally {
+      api.graph = { ...api.graph, account: null, problem: null };
+    }
   });
 
   it('meetings and chats in the evidence; what the AI step placed is marked', async () => {

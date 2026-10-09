@@ -39,6 +39,7 @@ describe('connecting Outlook and Teams', () => {
     let account: string | null = null;
     let finish: (v: string) => void = () => {};
     let fail: (e: Error) => void = () => {};
+    let cancelled: () => boolean = () => false;
     const access: GraphAccess = {
       app: () => ({ clientId: 'c', tenantId: 't' }),
       start: async () => ({
@@ -48,8 +49,9 @@ describe('connecting Outlook and Teams', () => {
         expiresAt: Date.parse('2026-10-08T12:15:00Z'),
         intervalMs: 5000,
       }),
-      finish: () =>
+      finish: (_app, _login, isCancelled) =>
         new Promise<string>((res, rej) => {
+          cancelled = isCancelled;
           finish = (v) => {
             account = v;
             res(v);
@@ -57,6 +59,7 @@ describe('connecting Outlook and Teams', () => {
           fail = rej;
         }),
       account: () => account,
+      problem: () => null,
       signOut: () => (account = null),
       ...over,
     };
@@ -64,13 +67,20 @@ describe('connecting Outlook and Teams', () => {
     const broadcast = vi.fn();
     const onGraphChanged = vi.fn();
     mountTimeRoutes(a, { deps, broadcast, graph: access, onGraphChanged });
-    return { a, broadcast, onGraphChanged, finish: (v: string) => finish(v), fail: (e: Error) => fail(e) };
+    return {
+      a,
+      broadcast,
+      onGraphChanged,
+      finish: (v: string) => finish(v),
+      fail: (e: Error) => fail(e),
+      cancelled: () => cancelled(),
+    };
   };
   const status = async (a: Hono) => (await (await a.request('/api/time/graph')).json()) as TimeGraphWire;
 
   it('connect shows the code; once entered: signed in, the tab told, today rebuilt; disconnect signs out', async () => {
     const g = graphApp();
-    expect(await status(g.a)).toEqual({ ready: true, why: null, account: null, login: null, error: null });
+    expect(await status(g.a)).toEqual({ ready: true, why: null, account: null, problem: null, login: null, error: null });
     const started = (await (await send(g.a, 'POST', '/api/time/graph/connect')).json()) as TimeGraphWire;
     expect(started.login).toEqual({
       userCode: 'ABCD-1234',
@@ -83,6 +93,22 @@ describe('connecting Outlook and Teams', () => {
     expect(g.broadcast).toHaveBeenCalledWith('time-graph-changed', {});
     expect(g.onGraphChanged).toHaveBeenCalled();
     expect(((await (await send(g.a, 'POST', '/api/time/graph/disconnect')).json()) as TimeGraphWire).account).toBeNull();
+  });
+
+  it('disconnect while waiting for the code gives that sign-in up (it keeps nothing, and says nothing)', async () => {
+    const g = graphApp();
+    await send(g.a, 'POST', '/api/time/graph/connect');
+    expect(g.cancelled()).toBe(false);
+    await send(g.a, 'POST', '/api/time/graph/disconnect');
+    expect(g.cancelled()).toBe(true);
+    g.fail(new Error('The sign-in was cancelled.'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await status(g.a)).toMatchObject({ login: null, error: null });
+  });
+
+  it('signed in but it stopped working: the line says why', async () => {
+    const g = graphApp({ account: () => 'you@moberg.hr', problem: () => 'The Microsoft sign-in stopped working' });
+    expect(await status(g.a)).toMatchObject({ account: 'you@moberg.hr', problem: 'The Microsoft sign-in stopped working' });
   });
 
   it("a sign-in that fails says why; no app registration: refused with it; GET /api/time/graph isn't a day", async () => {
@@ -153,6 +179,68 @@ describe('posting a day to Tempo', () => {
     expect(again).toMatchObject({ kept: 1, removed: 1, posted: 1 });
     expect(api.remove).toHaveBeenCalledWith(101);
     expect(again.day.status).toBe('posted');
+  });
+
+  /** Tempo as it would be: what's created is listed, what's removed isn't. */
+  const tempoWithState = () => {
+    let next = 100;
+    const day: TempoWorklog[] = [];
+    return {
+      list: vi.fn(async (): Promise<TempoWorklog[]> => {
+        await new Promise((r) => setTimeout(r, 5));
+        return [...day];
+      }),
+      create: vi.fn(async (b: { issueId: number; timeSpentSeconds: number; startDate: string; startTime: string }) => {
+        day.push({
+          tempoWorklogId: next,
+          issueId: b.issueId,
+          timeSpentSeconds: b.timeSpentSeconds,
+          startDate: b.startDate,
+          startTime: b.startTime,
+        });
+        return next++;
+      }),
+      remove: vi.fn(async (id: number) => {
+        day.splice(
+          day.findIndex((w) => w.tempoWorklogId === id),
+          1,
+        );
+      }),
+      day,
+    };
+  };
+
+  it('two posts of a day at once (two windows, or the assistant and a click): the second waits, and Tempo has each row once', async () => {
+    const api = tempoWithState();
+    const a = tempoApp(api);
+    await send(a, 'POST', '/api/time/2026-10-02/rebuild');
+    const [one, two] = await Promise.all([send(a, 'POST', '/api/time/2026-10-02/post'), send(a, 'POST', '/api/time/2026-10-02/post')]);
+    expect([one.status, two.status]).toEqual([200, 200]);
+    expect(api.create).toHaveBeenCalledTimes(2);
+    expect(api.day).toHaveLength(2);
+    expect(((await two.json()) as TimePostWire).kept).toBe(2);
+  });
+
+  it("an old worklog that couldn't be removed: no second one for that ticket, and the day reads changed (post again)", async () => {
+    const api = tempoWithState();
+    const a = tempoApp(api);
+    await send(a, 'POST', '/api/time/2026-10-01/rebuild');
+    await send(a, 'POST', '/api/time/2026-10-01/post');
+    await send(a, 'PUT', '/api/time/2026-10-01', {
+      entries: [
+        { key: 'SD-1', hours: 3 },
+        { key: 'SD-434', hours: 4.5 },
+      ],
+    });
+    api.remove.mockRejectedValueOnce(new Error('Tempo delete: 429'));
+    const r = (await (await send(a, 'POST', '/api/time/2026-10-01/post')).json()) as TimePostWire;
+    expect(r.failed.map((f) => f.key)).toEqual(['SD-1']);
+    expect(api.day.filter((w) => w.issueId === 1)).toHaveLength(1); // the old 2.5 h only
+    expect(r.day.status).toBe('changed');
+    const again = (await (await send(a, 'POST', '/api/time/2026-10-01/post')).json()) as TimePostWire;
+    expect(again.failed).toEqual([]);
+    expect(again.day.status).toBe('posted');
+    expect(api.day.filter((w) => w.issueId === 1).map((w) => w.timeSpentSeconds)).toEqual([10800]);
   });
 
   it("Tempo's day can't be read: nothing changed, and it says why", async () => {

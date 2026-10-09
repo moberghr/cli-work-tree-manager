@@ -3,12 +3,16 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { getConfigDir } from '../../../src/core/platform/config.js';
 import {
+  CANCELLED,
   chatsOn,
+  EXPIRED,
   finishDeviceLogin,
   graphAccount,
   graphApp,
+  graphProblem,
   graphToken,
   meetingsOn,
+  OTHER_APP,
   plain,
   signOutGraph,
   startDeviceLogin,
@@ -63,17 +67,51 @@ describe('the device-code sign-in', () => {
     expect(await graphToken(APP, fetchImpl, 2)).toBe('acc-1'); // still valid: no refresh
   });
 
-  it('an expired token is refreshed; a refused refresh means signed out in effect (null)', async () => {
+  it('an expired token is refreshed; a refused one throws and is said (connect again) until you do; signed out: null', async () => {
     const fetchImpl = vi.fn(async (url: string | URL) => {
       if (String(url).endsWith('/token')) return json({ access_token: 'acc-2', refresh_token: 'ref-2', expires_in: 3600 });
       return json({ userPrincipalName: 'you@moberg.hr' });
     }) as unknown as typeof fetch;
     expect(await graphToken(APP, fetchImpl, Date.now() + 10 * 3600_000)).toBe('acc-2');
+    expect(graphProblem(APP)).toBeNull();
+    // A server error may pass: thrown, not recorded.
+    const down = (async () => json({}, 503)) as unknown as typeof fetch;
+    await expect(graphToken(APP, down, Date.now() + 100 * 3600_000)).rejects.toThrow('Microsoft sign-in: 503');
+    expect(graphProblem(APP)).toBeNull();
     const refused = (async () => json({ error: 'invalid_grant' }, 400)) as unknown as typeof fetch;
-    expect(await graphToken(APP, refused, Date.now() + 100 * 3600_000)).toBeNull();
+    await expect(graphToken(APP, refused, Date.now() + 100 * 3600_000)).rejects.toThrow(EXPIRED);
+    expect(graphAccount()).toBe('you@moberg.hr');
+    expect(graphProblem(APP)).toBe(EXPIRED);
+    await expect(graphToken(APP, fetchImpl)).rejects.toThrow(EXPIRED); // not tried again
     signOutGraph();
     expect(graphAccount()).toBeNull();
+    expect(graphProblem(APP)).toBeNull();
     expect(await graphToken(APP, fetchImpl)).toBeNull();
+  });
+
+  it('signed in with another app registration than config names now: connect again', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token')
+        ? json({ access_token: 'acc-3', refresh_token: 'ref-3', expires_in: 3600 })
+        : json({ userPrincipalName: 'you@moberg.hr' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1 });
+    const other = { clientId: 'client-2', tenantId: 'tenant-1' };
+    expect(graphProblem(other)).toBe(OTHER_APP);
+    await expect(graphToken(other, fetchImpl)).rejects.toThrow(OTHER_APP);
+    signOutGraph();
+  });
+
+  it('a sign-in given up on (disconnected, or connecting again) keeps nothing, even when the code is entered after', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) =>
+      String(url).endsWith('/token') ? json({ access_token: 'acc-4', expires_in: 3600 }) : json({ userPrincipalName: 'you@moberg.hr' }),
+    ) as unknown as typeof fetch;
+    const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
+    await expect(finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1, cancelled: () => true })).rejects.toThrow(
+      CANCELLED,
+    );
+    expect(graphAccount()).toBeNull();
   });
 
   it('a declined or expired code says so', async () => {
@@ -143,5 +181,52 @@ describe('meetings and chats', () => {
     }) as unknown as typeof fetch;
     expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([{ chat: 'Payments', messages: 1, sample: ['the PDF export & CSV'] }]);
     expect(plain('<div>a&nbsp;<b>b</b></div>')).toBe('a b');
+  });
+
+  it("a day gone by: chats and messages are read page by page back to the day's start, and no further", async () => {
+    const day = new Date('2026-10-08T12:00:00');
+    const at = (d: number, h: number) => new Date(day.getFullYear(), day.getMonth(), day.getDate() + d, h).toISOString();
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      urls.push(u);
+      if (u.includes('/me?')) return json({ id: 'me-1' });
+      // Chats: page 1 all newer than the day; page 2 has the day's chat, then older; page 3 is never asked for.
+      if (u.includes('/me/chats?'))
+        return json({
+          value: [{ id: 'busy', topic: 'Busy', lastMessagePreview: { createdDateTime: at(1, 15) } }],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/chats-page-2',
+        });
+      if (u.endsWith('/chats-page-2'))
+        return json({
+          value: [
+            { id: 'same', topic: 'Same day', lastMessagePreview: { createdDateTime: at(0, 16) } },
+            { id: 'old', topic: 'Old', lastMessagePreview: { createdDateTime: at(-3, 9) } },
+          ],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/chats-page-3',
+        });
+      // The busy chat: a page from the next day, then one reaching into the day, then one before it (not read further).
+      if (u.includes('/chats/busy/messages'))
+        return json({
+          value: [{ createdDateTime: at(1, 15), from: { user: { id: 'me-1' } }, body: { content: 'next day' } }],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/busy-2',
+        });
+      if (u.endsWith('/busy-2'))
+        return json({
+          value: [
+            { createdDateTime: at(0, 17), from: { user: { id: 'me-1' } }, body: { content: 'on the day' } },
+            { createdDateTime: at(-1, 17), from: { user: { id: 'me-1' } }, body: { content: 'the day before' } },
+          ],
+          '@odata.nextLink': 'https://graph.microsoft.com/v1.0/busy-3',
+        });
+      if (u.includes('/chats/same/messages'))
+        return json({ value: [{ createdDateTime: at(0, 16), from: { user: { id: 'me-1' } }, body: { content: 'same' } }] });
+      return json({}, 404);
+    }) as unknown as typeof fetch;
+    expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([
+      { chat: 'Busy', messages: 1, sample: ['on the day'] },
+      { chat: 'Same day', messages: 1, sample: ['same'] },
+    ]);
+    expect(urls.some((u) => u.endsWith('/chats-page-3') || u.endsWith('/busy-3') || u.includes('/chats/old/'))).toBe(false);
   });
 });

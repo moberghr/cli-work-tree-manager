@@ -604,7 +604,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     account: null,
     login: null,
   };
-  const graphWire = () => ({ ready: true, why: null, ...demoGraph, error: null });
+  const graphWire = () => ({ ready: true, why: null, ...demoGraph, problem: null, error: null });
   app.get('/api/time/graph', (c) => c.json(graphWire()));
   app.post('/api/time/graph/connect', (c) => {
     demoGraph = {

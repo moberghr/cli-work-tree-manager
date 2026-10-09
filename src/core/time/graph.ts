@@ -39,6 +39,8 @@ interface TokenFile {
   expiresAt: number;
   account: string;
   clientId: string;
+  /** Why the sign-in stopped working (a refused refresh): connect again. */
+  problem?: string;
 }
 
 const tokenPath = () => path.join(getConfigDir(), 'graph-token.json');
@@ -53,6 +55,7 @@ function readTokens(): TokenFile | null {
           expiresAt: v.expiresAt,
           account: v.account ?? '',
           clientId: v.clientId ?? '',
+          ...(typeof v.problem === 'string' ? { problem: v.problem } : {}),
         }
       : null;
   } catch {
@@ -70,6 +73,18 @@ function writeTokens(t: TokenFile): void {
 /** Signed in as whom, if at all. */
 export function graphAccount(): string | null {
   return readTokens()?.account || null;
+}
+
+export const EXPIRED = 'The Microsoft sign-in stopped working (expired or revoked): connect again.';
+export const OTHER_APP = 'Signed in with another app registration than time.graph names now: connect again.';
+
+/** Signed in, but it no longer works, and why (a refused refresh, another app registration); null when fine or not signed in. */
+export function graphProblem(app: GraphApp | { why: string }): string | null {
+  const t = readTokens();
+  if (!t) return null;
+  if (t.problem) return t.problem;
+  if (!('why' in app) && t.clientId && t.clientId !== app.clientId) return OTHER_APP;
+  return null;
 }
 
 export function signOutGraph(): void {
@@ -111,11 +126,13 @@ export async function startDeviceLogin(app: GraphApp, fetchImpl: Fetch = fetch, 
   };
 }
 
+export const CANCELLED = 'The sign-in was cancelled.';
+
 /** Wait for the code to be entered (polling as Microsoft asks); keeps the tokens. Resolves with the account, or throws why not. */
 export async function finishDeviceLogin(
   app: GraphApp,
   login: DeviceLogin,
-  opts: { fetchImpl?: Fetch; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
+  opts: { fetchImpl?: Fetch; sleep?: (ms: number) => Promise<void>; now?: () => number; cancelled?: () => boolean } = {},
 ): Promise<string> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
@@ -123,6 +140,8 @@ export async function finishDeviceLogin(
   let interval = login.intervalMs;
   while (now() < login.expiresAt) {
     await sleep(interval);
+    // Disconnected, or another sign-in started: this one keeps nothing.
+    if (opts.cancelled?.()) throw new Error(CANCELLED);
     const res = await fetchImpl(loginUrl(app.tenantId, 'token'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -133,7 +152,10 @@ export async function finishDeviceLogin(
       }).toString(),
     });
     const j = (await res.json().catch(() => ({}))) as TokenAnswer & { error?: string; error_description?: string };
-    if (res.ok && j.access_token) return keep(app, j, now(), fetchImpl);
+    if (res.ok && j.access_token) {
+      if (opts.cancelled?.()) throw new Error(CANCELLED);
+      return keep(app, j, now(), fetchImpl);
+    }
     if (j.error === 'authorization_pending') continue;
     if (j.error === 'slow_down') {
       interval += 5000;
@@ -167,10 +189,17 @@ async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch
   return who.userPrincipalName ?? '';
 }
 
-/** An access token, refreshed when it ran out; null when not signed in (or the refresh was refused). */
+/**
+ * An access token, refreshed when it ran out; null when not signed in.
+ * Signed in but not working (a refused refresh — recorded, so the tab says
+ * "connect again" —, another app registration, no network) throws: the day
+ * then keeps the meetings and chats it had, rather than losing them.
+ */
 export async function graphToken(app: GraphApp, fetchImpl: Fetch = fetch, now = Date.now()): Promise<string | null> {
   const t = readTokens();
   if (!t) return null;
+  if (t.problem) throw new Error(t.problem);
+  if (t.clientId && t.clientId !== app.clientId) throw new Error(OTHER_APP);
   if (t.expiresAt > now) return t.accessToken;
   const res = await fetchImpl(loginUrl(app.tenantId, 'token'), {
     method: 'POST',
@@ -183,7 +212,12 @@ export async function graphToken(app: GraphApp, fetchImpl: Fetch = fetch, now = 
     }).toString(),
   });
   const j = (await res.json().catch(() => ({}))) as TokenAnswer;
-  if (!res.ok || !j.access_token) return null;
+  if (!res.ok || !j.access_token) {
+    // Refused (expired, revoked, a changed password): said until you connect again. A server error may pass.
+    const refused = res.status >= 400 && res.status < 500;
+    if (refused) writeTokens({ ...t, problem: EXPIRED });
+    throw new Error(refused ? EXPIRED : `Microsoft sign-in: ${res.status}`);
+  }
   await keep(app, j, now, fetchImpl);
   return j.access_token;
 }
@@ -232,21 +266,45 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
   return out.sort((a, b) => a.start.localeCompare(b.start));
 }
 
+/** How many pages of chats, and of one chat's messages, are read at most (50 each). */
+export const MAX_PAGES = 10;
+
+type Paged<T> = { value?: T[]; '@odata.nextLink'?: string };
+type Chat = { id?: string; topic?: string | null; chatType?: string; lastMessagePreview?: { createdDateTime?: string } | null };
+type Msg = { createdDateTime?: string; from?: { user?: { id?: string } } | null; body?: { content?: string } };
+
+/** The earliest of these times (none: -Infinity, so no further page). */
+const oldestAt = (times: Array<string | undefined>) => {
+  const ms = times.map((t) => Date.parse(t ?? '')).filter((n) => !Number.isNaN(n));
+  return ms.length ? Math.min(...ms) : -Infinity;
+};
+
 /** Teams chats where you wrote that day: who with, how many messages, a few of yours, shortened. */
 export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fetch): Promise<TimeChatEvidence[]> {
   const { from, to } = dayBounds(day);
   const me = await getJson<{ id?: string }>(`${GRAPH}/me?$select=id`, token, fetchImpl);
-  const chats = await getJson<{
-    value?: Array<{ id?: string; topic?: string | null; chatType?: string; lastMessagePreview?: { createdDateTime?: string } | null }>;
-  }>(`${GRAPH}/me/chats?$top=50&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`, token, fetchImpl);
+  // Chats come newest message first: every one with a message since the day began, page by page.
+  const active: Chat[] = [];
+  let next: string | undefined = `${GRAPH}/me/chats?$top=50&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`;
+  for (let page = 0; next && page < MAX_PAGES; page++) {
+    const j: Paged<Chat> = await getJson(next, token, fetchImpl);
+    const value = j.value ?? [];
+    active.push(...value.filter((c) => Date.parse(c.lastMessagePreview?.createdDateTime ?? '') >= from.getTime()));
+    next = oldestAt(value.map((c) => c.lastMessagePreview?.createdDateTime)) >= from.getTime() ? j['@odata.nextLink'] : undefined;
+  }
   const out: TimeChatEvidence[] = [];
-  for (const c of chats.value ?? []) {
-    const last = Date.parse(c.lastMessagePreview?.createdDateTime ?? '');
-    if (!c.id || !(last >= from.getTime())) continue;
-    const msgs = await getJson<{
-      value?: Array<{ createdDateTime?: string; from?: { user?: { id?: string } } | null; body?: { content?: string } }>;
-    }>(`${GRAPH}/me/chats/${encodeURIComponent(c.id)}/messages?$top=50`, token, fetchImpl);
-    const mine = (msgs.value ?? []).filter((m) => {
+  for (const c of active) {
+    if (!c.id) continue;
+    // Messages come newest first: back page by page to the day's start (a busy chat, or a day gone by, has more than a page since).
+    const msgs: Msg[] = [];
+    let more: string | undefined = `${GRAPH}/me/chats/${encodeURIComponent(c.id)}/messages?$top=50`;
+    for (let page = 0; more && page < MAX_PAGES; page++) {
+      const j: Paged<Msg> = await getJson(more, token, fetchImpl);
+      const value = j.value ?? [];
+      msgs.push(...value);
+      more = oldestAt(value.map((m) => m.createdDateTime)) >= from.getTime() ? j['@odata.nextLink'] : undefined;
+    }
+    const mine = msgs.filter((m) => {
       const at = Date.parse(m.createdDateTime ?? '');
       return at >= from.getTime() && at < to.getTime() && m.from?.user?.id === me.id;
     });

@@ -6,11 +6,12 @@ import { readDays } from './time-store.js';
 
 /**
  * Keeps the Time tab's days current as you go (work web runs it): today
- * again after a turn ends and every half hour, and every workday of the
- * last two weeks not built yet (a day you didn't run work web, or before
- * the tab existed). Yesterday is built once more the first time today, so
- * its late turns count. One run at a time; each run says what it did in
- * the Activity panel (kind `time`).
+ * again after a turn ends and every half hour, and every day of the last two
+ * weeks whose last build was before it ended — never built (a day you didn't
+ * run work web, or before the tab existed; a workday), only edited (no
+ * evidence yet), or built while it was still going (its late turns count,
+ * also after a night with work web closed). One run at a time; each run says
+ * what it did in the Activity panel (kind `time`).
  */
 
 export const TIME_EVERY_MS = 30 * 60_000;
@@ -27,6 +28,13 @@ export interface TimeKeeper {
   stop: () => void;
 }
 
+/** When a local day ends (the next one's midnight). */
+export function dayEnd(day: string): number {
+  const d = new Date(`${day}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+
 export function createTimeKeeper(
   deps: TimeDeps,
   opts: { activity?: Pick<ActivityLog, 'start'>; changed: () => void; now?: () => number },
@@ -34,17 +42,17 @@ export function createTimeKeeper(
   const now = opts.now ?? (() => Date.now());
   let busy: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let lastToday: string | null = null;
 
   async function runNow(): Promise<void> {
     const today = localDay(now());
     const from = localDay(now() - (CATCH_UP_DAYS - 1) * 24 * 3600_000);
     const settings = deps.settings();
-    const built = new Set(readDays(from, today).map((r) => r.day));
-    const days = daysBetween(from, today).filter((d) => d === today || (!built.has(d) && isWorkday(d, settings)));
-    // A new day: yesterday's last turns count too.
-    if (lastToday && lastToday !== today && !days.includes(lastToday)) days.push(lastToday);
-    lastToday = today;
+    const builtAt = new Map(readDays(from, today).map((r) => [r.day, r.builtAt]));
+    const days = daysBetween(from, today).filter((d) => {
+      if (d === today) return true;
+      const at = builtAt.get(d);
+      return at === undefined ? isWorkday(d, settings) : !at || Date.parse(at) < dayEnd(d);
+    });
     const run = opts.activity?.start('time', days.length === 1 ? 'Updating today' : `Building ${days.length} days`);
     try {
       for (const d of days) await buildDay(d, deps);

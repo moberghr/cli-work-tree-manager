@@ -133,6 +133,11 @@ export function isWorkday(day: string, s: Pick<TimeSettings, 'holidays'>): boole
 /** A Jira issue key, as found in a branch, a commit subject or a title. */
 export const ISSUE_KEY = /\b([A-Z][A-Z0-9]{1,9}-\d+)\b/g;
 
+/** Whether a string is one issue key, whole (a row's key, a configured ticket). */
+export function isIssueKey(s: string): boolean {
+  return new RegExp(`^${ISSUE_KEY.source}$`).test(s);
+}
+
 /** The issue keys in a text, only of the given projects when any are given (`UTF-8` isn't an issue). */
 export function issueKeys(text: string, projects?: ReadonlySet<string>): string[] {
   const out: string[] = [];

@@ -180,6 +180,8 @@ export interface PostResult {
   failed: Array<{ key: string; error: string }>;
   /** What work posted for the day now (to store). */
   ours: PostedWorklog[];
+  /** Worklogs of ours that should have gone and couldn't: still in Tempo. */
+  stuck: PostedWorklog[];
 }
 
 /** Make Tempo's day the rows wanted: remove, then post, recording each as it goes. */
@@ -198,6 +200,7 @@ export async function postDay(
   }
   const plan = planDay(rows, await deps.api.list(deps.accountId, day), ours);
   const now: PostedWorklog[] = [...plan.keep];
+  const stuck: PostedWorklog[] = [];
   let removed = 0;
   for (const r of plan.remove) {
     try {
@@ -205,11 +208,18 @@ export async function postDay(
       removed++;
     } catch (err) {
       now.push(r); // still there: still ours
+      stuck.push(r);
       failed.push({ key: r.key, error: (err as Error).message });
     }
   }
+  // An issue whose old worklog is still there gets no new one: Tempo would have both.
+  const blocked = new Set(stuck.map((r) => r.issueId));
   let posted = 0;
   for (const a of plan.add) {
+    if (blocked.has(a.issueId)) {
+      if (!failed.some((f) => f.key === a.key)) failed.push({ key: a.key, error: 'its earlier worklog could not be removed' });
+      continue;
+    }
     try {
       const id = await deps.api.create({
         issueId: a.issueId,
@@ -232,5 +242,6 @@ export async function postDay(
     otherByHand: plan.otherByHand.length,
     failed,
     ours: now,
+    stuck,
   };
 }

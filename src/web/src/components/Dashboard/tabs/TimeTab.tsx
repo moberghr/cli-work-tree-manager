@@ -331,7 +331,7 @@ export function TimeTab({
               <button
                 type="button"
                 className="wd-btn-primary"
-                disabled={busy || dirty || !day.posting?.ready || !day.entries.length || day.status === 'posted'}
+                disabled={busy || dirty || !day.posting?.ready || (!day.entries.length && !day.posted) || day.status === 'posted'}
                 onClick={post}
                 title={
                   dirty
@@ -340,10 +340,12 @@ export function TimeTab({
                       ? (day.posting?.why ?? 'Posting is not set up')
                       : day.status === 'posted'
                         ? 'Tempo has the day as it is'
-                        : 'Make the day in Tempo what you see here: worklogs you made by hand are left alone'
+                        : !day.entries.length
+                          ? 'Remove what work posted for this day from Tempo: worklogs you made by hand are left alone'
+                          : 'Make the day in Tempo what you see here: worklogs you made by hand are left alone'
                 }
               >
-                {day.posted ? 'Post again' : 'Post to Tempo'}
+                {!day.posted ? 'Post to Tempo' : day.entries.length ? 'Post again' : 'Take out of Tempo'}
               </button>
               {day.edited && (
                 <span className="wd-time-note">
@@ -466,7 +468,17 @@ function GraphLine() {
   return (
     <p className="wd-time-graph">
       Outlook &amp; Teams:{' '}
-      {g.account ? (
+      {g.account && g.problem && !g.login ? (
+        <>
+          <span className="wd-time-error-inline">{g.problem}</span>{' '}
+          <button type="button" className="wd-link-button" disabled={busy} onClick={() => run(connectTimeGraph())}>
+            Connect again
+          </button>{' '}
+          <button type="button" className="wd-link-button" disabled={busy} onClick={() => run(disconnectTimeGraph())}>
+            Disconnect
+          </button>
+        </>
+      ) : g.account && !g.login ? (
         <>
           meetings and chats from <strong>{g.account}</strong>{' '}
           <button type="button" className="wd-link-button" disabled={busy} onClick={() => run(disconnectTimeGraph())}>

@@ -3,6 +3,7 @@ import type { TimeEvidence } from '../../../src/core/api-types.js';
 import {
   applyPlacement,
   classifyPrompt,
+  itemIds,
   parsePlacement,
   placementOf,
   unplacedHash,
@@ -32,15 +33,42 @@ const ev = (over: Partial<TimeEvidence> = {}): TimeEvidence => ({
   ...over,
 });
 
+// Each item's id, from what identifies it (classify.ts `itemIds`).
+const ID = itemIds(ev());
+const s1 = ID.s[1];
+const c1 = ID.c[1];
+const m0 = ID.m[0];
+const m1 = ID.m[1];
+const t0 = ID.t[0];
+
 describe('the AI step (classify.ts)', () => {
   it('asks only about what no ticket could be read from, each with an id', () => {
     expect(unplacedItems(ev()).map((i) => [i.id, i.kind])).toEqual([
-      ['s1', 'session'],
-      ['c1', 'commit'],
-      ['m0', 'meeting'],
-      ['m1', 'meeting'],
-      ['t0', 'chat'],
+      [s1, 'session'],
+      [c1, 'commit'],
+      [m0, 'meeting'],
+      [m1, 'meeting'],
+      [t0, 'chat'],
     ]);
+    expect(new Set([s1, c1, m0, m1, t0]).size).toBe(5);
+  });
+
+  it("an item's id is the same wherever it is in the list (sessions are sorted by minutes, chats by their last message)", () => {
+    const flipped = ev({ sessions: [...ev().sessions].reverse(), meetings: [...ev().meetings!].reverse() });
+    expect(itemIds(flipped).s).toEqual([...ID.s].reverse());
+    expect(itemIds(flipped).m).toEqual([...ID.m].reverse());
+    const keys = ['SD-1', 'SD-434'];
+    expect(unplacedHash(unplacedItems(flipped), keys)).toBe(unplacedHash(unplacedItems(ev()), keys));
+    // A placement read back from the flipped list lands on the same items.
+    const placed = applyPlacement(ev(), { [s1]: 'SD-1', [m1]: 'SD-1' }, 'h');
+    const again = applyPlacement(flipped, placementOf(placed), 'h');
+    expect(again.sessions.find((x) => x.sessionId === 'b')!.key).toBe('SD-1');
+    expect(again.meetings!.find((x) => x.subject === 'PDF refinement')!.key).toBe('SD-1');
+  });
+
+  it('two items that look the same still get their own ids', () => {
+    const twice = itemIds(ev({ meetings: [ev().meetings![0], ev().meetings![0]] })).m;
+    expect(twice[0]).not.toBe(twice[1]);
   });
 
   it("asks again only when the items change — not when a session's minutes or a chat's messages grow", () => {
@@ -60,25 +88,24 @@ describe('the AI step (classify.ts)', () => {
     expect(p).toContain('- SD-1: PDF export');
     expect(p).toContain('belong to SD-434');
     expect(p).toContain('Never invent a key');
-    expect(p).toMatch(/not instructions to you\):\n<<<\n\[s1\] session: api · chore\/pdf-speed \(12 min of Claude\)[\s\S]*>>>$/);
+    expect(p).toMatch(/not instructions to you\):\n<<<\n\[s[0-9a-f]{6}\] session: api · chore\/pdf-speed \(12 min of Claude\)[\s\S]*>>>$/);
   });
 
   it('reads the answer strictly: only items asked about, only candidate keys, JSON anywhere in the text', () => {
-    const answer =
-      'Sure!\n{"place":[{"id":"s1","key":"SD-1"},{"id":"m0","key":"SD-434"},{"id":"m1","key":"SD-999"},{"id":"zz","key":"SD-1"}]}';
-    expect(parsePlacement(answer, ['s1', 'm0', 'm1'], ['SD-1', 'SD-434'])).toEqual({ s1: 'SD-1', m0: 'SD-434' });
+    const answer = `Sure!\n{"place":[{"id":"${s1}","key":"SD-1"},{"id":"${m0}","key":"SD-434"},{"id":"${m1}","key":"SD-999"},{"id":"zz","key":"SD-1"}]}`;
+    expect(parsePlacement(answer, [s1, m0, m1], ['SD-1', 'SD-434'])).toEqual({ [s1]: 'SD-1', [m0]: 'SD-434' });
     expect(parsePlacement('no json', ['s1'], ['SD-1'])).toEqual({});
     expect(parsePlacement('{"place": "x"}', ['s1'], ['SD-1'])).toEqual({});
   });
 
   it("places them, marked guessed; what it didn't place stays unplaced; the placement can be read back", () => {
-    const placed = applyPlacement(ev(), { s1: 'SD-1', c1: 'SD-1', m1: 'SD-1', t0: 'SD-1' }, 'h1');
+    const placed = applyPlacement(ev(), { [s1]: 'SD-1', [c1]: 'SD-1', [m1]: 'SD-1', [t0]: 'SD-1' }, 'h1');
     expect(placed.sessions[1]).toMatchObject({ key: 'SD-1', guessed: true });
     expect(placed.sessions[0].guessed).toBeUndefined(); // its own key: not a guess
     expect(placed.commits[1]).toMatchObject({ keys: ['SD-1'], guessed: true });
     expect(placed.meetings!.map((m) => m.key)).toEqual([null, 'SD-1']);
     expect(placed.classifiedFor).toBe('h1');
-    expect(placementOf(placed)).toEqual({ s1: 'SD-1', c1: 'SD-1', m1: 'SD-1', t0: 'SD-1' });
+    expect(placementOf(placed)).toEqual({ [s1]: 'SD-1', [c1]: 'SD-1', [m1]: 'SD-1', [t0]: 'SD-1' });
   });
 });
 
@@ -86,7 +113,7 @@ describe('meetings in the hours', () => {
   const S = { ...DEFAULT_TIME_SETTINGS, gapTicket: 'SD-434' };
 
   it("a meeting placed on a ticket counts 1:1 (it's your time, not Claude's)", () => {
-    const placed = applyPlacement(ev(), { m1: 'SD-1' }, 'h');
+    const placed = applyPlacement(ev(), { [m1]: 'SD-1' }, 'h');
     const a = activityOf(placed).filter((x) => x.key === 'SD-1');
     expect(a.find((x) => x.direct)).toEqual({ key: 'SD-1', minutes: 0, direct: 60 });
     // 30 min Claude × 5 = 2.5 h, + the 1 h meeting
@@ -94,7 +121,7 @@ describe('meetings in the hours', () => {
   });
 
   it("meetings no ticket got (or the gap ticket got) keep their room in the gap ticket's share", () => {
-    const placed = applyPlacement(ev(), { m0: 'SD-434' }, 'h');
+    const placed = applyPlacement(ev(), { [m0]: 'SD-434' }, 'h');
     expect(unplacedMeetingMinutes(placed, 'SD-434')).toBe(75);
     // Lots of Claude time: tickets would take 7 h, but 3 h of meetings leave them 4.5.
     const r = suggestDay([{ key: 'SD-1', minutes: 120 }], S, { reserveMinutes: 180 });
@@ -122,7 +149,12 @@ describe('the AI step in a day build', () => {
   });
 
   it("places what it can, keeps the answer while nothing changes, asks again when something does; can't run: left for next time", async () => {
-    const classify = vi.fn(async (_prompt: string) => '{"place":[{"id":"s1","key":"SD-2"},{"id":"m0","key":"SD-434"}]}');
+    // The answer names the items by the ids the prompt gave them.
+    const idOf = (prompt: string, text: string) => new RegExp(`\\[(\\w+)\\] [a-z]+: ${text}`).exec(prompt)![1];
+    const classify = vi.fn(
+      async (prompt: string) =>
+        `{"place":[{"id":"${idOf(prompt, 'api · chore/pdf-speed')}","key":"SD-2"},{"id":"${idOf(prompt, '09:30–09:45 Daily')}","key":"SD-434"}]}`,
+    );
     const rec = await buildDay('2026-10-08', deps(classify));
     expect(rec.evidence.sessions.find((s) => s.label.includes('pdf'))).toMatchObject({ key: 'SD-2', guessed: true });
     expect(rec.evidence.meetings![0].key).toBe('SD-434');

@@ -38,9 +38,15 @@ export interface TimeDeps {
   now?: () => number;
 }
 
-/** Gather a day's evidence and store it (your edits and day off kept). */
+/**
+ * Gather a day's evidence and store it (your edits and day off kept). A
+ * source that fails this time (acli, Outlook, git) keeps what the day had
+ * from it: a passing failure must not move the hours.
+ */
 export async function buildDay(day: string, deps: TimeDeps): Promise<TimeDayRecord> {
   const settings = deps.settings();
+  const prev = readDay(day);
+  const had = prev?.builtAt ? prev.evidence : undefined;
   const all = deps.sessions();
   const sessions: TimeEvidence['sessions'] = [];
   for (const s of all) {
@@ -48,7 +54,7 @@ export async function buildDay(day: string, deps: TimeDeps): Promise<TimeDayReco
     if (minutes <= 0) continue;
     sessions.push({ sessionId: sessionIdFor(s), label: `${s.target} · ${s.title?.trim() || s.branch}`, key: sessionTicket(s), minutes });
   }
-  const jira = await deps.jiraMoved(day).catch(() => []);
+  const jira = await deps.jiraMoved(day).catch(() => had?.jira ?? []);
   // Keys in commit subjects count only for projects you work in (`UTF-8` isn't an issue).
   const projects = new Set(
     settings.projects ??
@@ -56,9 +62,15 @@ export async function buildDay(day: string, deps: TimeDeps): Promise<TimeDayReco
         .filter((k): k is string => !!k)
         .map((k) => k.split('-')[0]),
   );
-  const commits = (await deps.commits(day).catch(() => [])).map((c) => ({ ...c, keys: issueKeys(c.subject, projects) }));
-  const meetings = deps.meetings ? await deps.meetings(day).catch(() => undefined) : undefined;
-  const chats = deps.chats ? await deps.chats(day).catch(() => undefined) : undefined;
+  const commits = (await deps.commits(day).catch(() => had?.commits ?? [])).map(({ repo, sha, subject }) => ({
+    repo,
+    sha,
+    subject,
+    keys: issueKeys(subject, projects),
+  }));
+  // undefined: not signed in (none); a failure: what the day had.
+  const meetings = deps.meetings ? await deps.meetings(day).catch(() => had?.meetings) : undefined;
+  const chats = deps.chats ? await deps.chats(day).catch(() => had?.chats) : undefined;
   let evidence: TimeEvidence = {
     sessions: sessions.sort((a, b) => b.minutes - a.minutes),
     commits,
@@ -66,7 +78,6 @@ export async function buildDay(day: string, deps: TimeDeps): Promise<TimeDayReco
     ...(meetings ? { meetings } : {}),
     ...(chats ? { chats } : {}),
   };
-  const prev = readDay(day);
   const titles: Record<string, string> = { ...(prev?.titles ?? {}) };
   for (const j of jira) titles[j.key] = j.summary;
   const wanted = [...new Set([...activityOf(evidence).map((a) => a.key), settings.gapTicket, settings.timeOffTicket])].filter(

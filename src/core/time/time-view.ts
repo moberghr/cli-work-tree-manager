@@ -1,6 +1,7 @@
 import type { TimeDaysWire, TimeDaySummary, TimeDayWire, TimeEvidence, TimeSettingsWire } from '../api-types.js';
 import {
   DEFAULT_TIME_SETTINGS,
+  isIssueKey,
   isWorkday,
   issueKeys,
   suggestDay,
@@ -161,8 +162,6 @@ export function daysWireOf(from: string, to: string, settings: TimeSettings, rec
   return { days, settings: settingsWire(settings) };
 }
 
-const ENTRY_KEY = /^[A-Z][A-Z0-9]{1,9}-\d+$/;
-
 /** Rows as sent: real issue keys, hours in steps of the setting, each key once. Null when they aren't. */
 export function parseEntries(v: unknown, step: number): TimeEntry[] | null {
   if (!Array.isArray(v) || v.length > 50) return null;
@@ -170,7 +169,7 @@ export function parseEntries(v: unknown, step: number): TimeEntry[] | null {
   for (const e of v) {
     const key = (e as { key?: unknown })?.key;
     const hours = (e as { hours?: unknown })?.hours;
-    if (typeof key !== 'string' || !ENTRY_KEY.test(key.trim()) || typeof hours !== 'number' || !(hours > 0) || hours > 24) return null;
+    if (typeof key !== 'string' || !isIssueKey(key.trim()) || typeof hours !== 'number' || !(hours > 0) || hours > 24) return null;
     if (Math.abs(hours / step - Math.round(hours / step)) > 1e-9) return null;
     if (out.some((x) => x.key === key.trim())) return null;
     out.push({ key: key.trim(), hours });

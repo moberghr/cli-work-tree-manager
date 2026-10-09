@@ -634,6 +634,8 @@ export interface TimeGraphWire {
   why: string | null;
   /** Signed in as. */
   account: string | null;
+  /** Signed in, but it stopped working (expired or revoked, another app registration): connect again. */
+  problem: string | null;
   /** A sign-in under way: the code to enter at the address. */
   login: { userCode: string; verificationUri: string; expiresAt: string } | null;
   /** How the last sign-in went wrong. */

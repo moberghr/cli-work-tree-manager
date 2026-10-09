@@ -4,6 +4,7 @@ import {
   finishDeviceLogin,
   graphAccount,
   graphApp,
+  graphProblem,
   signOutGraph,
   startDeviceLogin,
   type DeviceLogin,
@@ -46,16 +47,20 @@ const realTempo: TempoAccess = () => {
 export interface GraphAccess {
   app: () => GraphApp | { why: string };
   start: (app: GraphApp) => Promise<DeviceLogin>;
-  finish: (app: GraphApp, login: DeviceLogin) => Promise<string>;
+  /** Waits for the code; `cancelled` says when to give up and keep nothing (disconnected, or connecting again). */
+  finish: (app: GraphApp, login: DeviceLogin, cancelled: () => boolean) => Promise<string>;
   account: () => string | null;
+  /** Signed in, but it stopped working (a refused refresh, another app): why. */
+  problem: () => string | null;
   signOut: () => void;
 }
 
 const realGraph: GraphAccess = {
   app: () => graphApp(loadConfig()?.time?.graph, process.env),
   start: (a) => startDeviceLogin(a),
-  finish: (a, l) => finishDeviceLogin(a, l),
+  finish: (a, l, cancelled) => finishDeviceLogin(a, l, { cancelled }),
   account: graphAccount,
+  problem: () => graphProblem(graphApp(loadConfig()?.time?.graph, process.env)),
   signOut: signOutGraph,
 };
 
@@ -79,6 +84,7 @@ export function mountTimeRoutes(
       ready: !('why' in a),
       why: 'why' in a ? a.why : null,
       account: graph.account(),
+      problem: graph.problem(),
       login: login
         ? { userCode: login.userCode, verificationUri: login.verificationUri, expiresAt: new Date(login.expiresAt).toISOString() }
         : null,
@@ -103,17 +109,20 @@ export function mountTimeRoutes(
     login = l;
     loginError = null;
     // Finishes when the code is entered (or it expires): then today again, with meetings and chats.
-    void graph.finish(a, l).then(
-      () => {
-        if (login === l) login = null;
-        graphChanged();
-      },
-      (err: Error) => {
-        if (login === l) login = null;
-        loginError = err.message;
-        graphChanged();
-      },
-    );
+    void graph
+      .finish(a, l, () => login !== l)
+      .then(
+        () => {
+          if (login === l) login = null;
+          graphChanged();
+        },
+        (err: Error) => {
+          if (login !== l) return; // given up on: disconnected, or connecting again
+          login = null;
+          loginError = err.message;
+          graphChanged();
+        },
+      );
     return c.json<TimeGraphWire>(graphWire());
   });
   app.post('/api/time/graph/disconnect', (c) => {

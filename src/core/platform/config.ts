@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { atomicWriteFile } from './fs-safe.js';
 import { validatePrompts } from '../sessions/saved-prompts.js';
+import { isIssueKey } from '../time/allocate.js';
 import type { SavedPrompt } from '../api-types.js';
 
 /**
@@ -178,13 +179,12 @@ function validateDevCommands(raw: unknown): Record<string, string> | undefined {
   return out;
 }
 
-/** A list of non-empty strings, or undefined (not a list). */
 /** The Time tab's section as written: only well-formed values (a bad one is left to its default). */
 export function validateTime(raw: unknown): WorkConfig['time'] {
   if (!raw || typeof raw !== 'object') return undefined;
   const t = raw as Record<string, unknown>;
   const num = (k: string, min: number) => (typeof t[k] === 'number' && (t[k] as number) >= min ? { [k]: t[k] as number } : {});
-  const key = (k: string) => (typeof t[k] === 'string' && /^[A-Z][A-Z0-9]{1,9}-\d+$/.test(t[k] as string) ? { [k]: t[k] as string } : {});
+  const key = (k: string) => (typeof t[k] === 'string' && isIssueKey(t[k] as string) ? { [k]: t[k] as string } : {});
   const strs = (o: unknown, keys: string[]) => {
     if (!o || typeof o !== 'object') return undefined;
     const out: Record<string, string> = {};
@@ -213,6 +213,7 @@ export function validateTime(raw: unknown): WorkConfig['time'] {
   };
 }
 
+/** A list of non-empty strings, or undefined (not a list). */
 function stringList(raw: unknown): string[] | undefined {
   return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : undefined;
 }

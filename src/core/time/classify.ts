@@ -21,31 +21,67 @@ export interface Unplaced {
   what: string;
 }
 
+const short = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 6);
+
+/** Ids from what identifies each item (never its place in the list: sessions are sorted by minutes, chats by their last message). */
+function idsFor(prefix: string, whats: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return whats.map((w) => {
+    const id = prefix + short(w);
+    const n = seen.get(id) ?? 0;
+    seen.set(id, n + 1);
+    return n ? `${id}-${n}` : id;
+  });
+}
+
+/** Each evidence list's item ids, in its order. Pure. */
+export function itemIds(ev: TimeEvidence): { s: string[]; c: string[]; m: string[]; t: string[] } {
+  return {
+    s: idsFor(
+      's',
+      ev.sessions.map((x) => x.sessionId),
+    ),
+    c: idsFor(
+      'c',
+      ev.commits.map((x) => x.sha),
+    ),
+    m: idsFor(
+      'm',
+      (ev.meetings ?? []).map((x) => `${x.start} ${x.subject}`),
+    ),
+    t: idsFor(
+      't',
+      (ev.chats ?? []).map((x) => x.chat),
+    ),
+  };
+}
+
 /** What the day couldn't place by itself, each with an id the answer names. */
 export function unplacedItems(ev: TimeEvidence): Unplaced[] {
+  const id = itemIds(ev);
   return [
     ...ev.sessions
       .map((s, i) => ({ s, i }))
       .filter(({ s }) => !s.key || s.guessed)
-      .map(({ s, i }) => ({ id: `s${i}`, kind: 'session' as const, text: `${s.label} (${s.minutes} min of Claude)`, what: s.label })),
+      .map(({ s, i }) => ({ id: id.s[i], kind: 'session' as const, text: `${s.label} (${s.minutes} min of Claude)`, what: s.sessionId })),
     ...ev.commits
       .map((c, i) => ({ c, i }))
       .filter(({ c }) => !c.keys.length || c.guessed)
-      .map(({ c, i }) => ({ id: `c${i}`, kind: 'commit' as const, text: `${c.repo}: ${c.subject}`, what: c.sha })),
+      .map(({ c, i }) => ({ id: id.c[i], kind: 'commit' as const, text: `${c.repo}: ${c.subject}`, what: c.sha })),
     ...(ev.meetings ?? []).map((m, i) => ({
-      id: `m${i}`,
+      id: id.m[i],
       kind: 'meeting' as const,
       text: `${m.start}–${m.end} ${m.subject}`,
       what: `${m.start} ${m.subject}`,
     })),
-    ...(ev.chats ?? []).map((c, i) => ({ id: `t${i}`, kind: 'chat' as const, text: `${c.chat}: ${c.sample.join(' / ')}`, what: c.chat })),
+    ...(ev.chats ?? []).map((c, i) => ({ id: id.t[i], kind: 'chat' as const, text: `${c.chat}: ${c.sample.join(' / ')}`, what: c.chat })),
   ];
 }
 
-/** Whether the unplaced items changed since the last ask (the answer is kept until they do). */
+/** Whether the unplaced items changed since the last ask (the answer is kept until they do). Their order doesn't count. */
 export function unplacedHash(items: readonly Unplaced[], candidates: readonly string[]): string {
   return createHash('sha1')
-    .update(JSON.stringify([items.map((i) => [i.id, i.what]), [...candidates].sort()]))
+    .update(JSON.stringify([items.map((i) => `${i.id} ${i.what}`).sort(), [...candidates].sort()]))
     .digest('hex')
     .slice(0, 16);
 }
@@ -98,36 +134,38 @@ export function parsePlacement(answer: string, ids: readonly string[], keys: rea
 
 /** The placements a day's evidence carries (its guesses), by item id. Pure. */
 export function placementOf(ev: TimeEvidence): Record<string, string> {
+  const id = itemIds(ev);
   const out: Record<string, string> = {};
-  ev.sessions.forEach((s, i) => s.guessed && s.key && (out[`s${i}`] = s.key));
-  ev.commits.forEach((c, i) => c.guessed && c.keys[0] && (out[`c${i}`] = c.keys[0]));
-  (ev.meetings ?? []).forEach((m, i) => m.key && (out[`m${i}`] = m.key));
-  (ev.chats ?? []).forEach((c, i) => c.key && (out[`t${i}`] = c.key));
+  ev.sessions.forEach((s, i) => s.guessed && s.key && (out[id.s[i]] = s.key));
+  ev.commits.forEach((c, i) => c.guessed && c.keys[0] && (out[id.c[i]] = c.keys[0]));
+  (ev.meetings ?? []).forEach((m, i) => m.key && (out[id.m[i]] = m.key));
+  (ev.chats ?? []).forEach((c, i) => c.key && (out[id.t[i]] = c.key));
   return out;
 }
 
 /** The evidence with the placements applied (marked guessed); items not placed lose an old guess. Pure. */
 export function applyPlacement(ev: TimeEvidence, placed: Record<string, string>, hash: string): TimeEvidence {
+  const id = itemIds(ev);
   return {
     ...ev,
     sessions: ev.sessions.map((s, i) =>
       !s.key || s.guessed
-        ? placed[`s${i}`]
-          ? { ...s, key: placed[`s${i}`], guessed: true as const }
+        ? placed[id.s[i]]
+          ? { ...s, key: placed[id.s[i]], guessed: true as const }
           : { ...s, key: null, guessed: undefined }
         : s,
     ),
     commits: ev.commits.map((c, i) =>
       !c.keys.length || c.guessed
-        ? placed[`c${i}`]
-          ? { ...c, keys: [placed[`c${i}`]], guessed: true as const }
+        ? placed[id.c[i]]
+          ? { ...c, keys: [placed[id.c[i]]], guessed: true as const }
           : { ...c, keys: [], guessed: undefined }
         : c,
     ),
     meetings: (ev.meetings ?? []).map((m, i) =>
-      placed[`m${i}`] ? { ...m, key: placed[`m${i}`], guessed: true as const } : { ...m, key: null },
+      placed[id.m[i]] ? { ...m, key: placed[id.m[i]], guessed: true as const } : { ...m, key: null },
     ),
-    chats: (ev.chats ?? []).map((c, i) => (placed[`t${i}`] ? { ...c, key: placed[`t${i}`], guessed: true as const } : { ...c, key: null })),
+    chats: (ev.chats ?? []).map((c, i) => (placed[id.t[i]] ? { ...c, key: placed[id.t[i]], guessed: true as const } : { ...c, key: null })),
     classifiedFor: hash,
   };
 }

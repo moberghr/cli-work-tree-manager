@@ -135,6 +135,27 @@ describe('postDay', () => {
     expect(r.failed.map((f) => f.key)).toEqual(['SD-NOPE', 'SD-7', 'SD-1']);
     expect(r.posted).toBe(1);
     expect(r.ours.map((o) => o.key).sort()).toEqual(['SD-2', 'SD-7']);
+    expect(r.stuck.map((o) => o.key)).toEqual(['SD-7']);
+  });
+
+  it("a ticket whose old worklog couldn't be removed gets no new one (Tempo would have both)", async () => {
+    // SD-1 was posted at 2 h, now wanted at 3 h; the delete fails.
+    const a = api([wl(10, 1, 7200)]);
+    a.remove.mockRejectedValueOnce(new Error('Tempo delete: 429'));
+    const r = await postDay(
+      '2026-10-08',
+      [
+        { key: 'SD-1', hours: 3 },
+        { key: 'SD-2', hours: 1 },
+      ],
+      [ours(10, 'SD-1', 1, 7200)],
+      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'SD-1': 1, 'SD-2': 2 })[k] ?? null },
+    );
+    expect(a.create).toHaveBeenCalledTimes(1);
+    expect(a.create).toHaveBeenCalledWith(expect.objectContaining({ issueId: 2 }));
+    expect(r.failed).toEqual([{ key: 'SD-1', error: 'Tempo delete: 429' }]);
+    expect(r.stuck.map((o) => [o.key, o.seconds])).toEqual([['SD-1', 7200]]);
+    expect(r.ours.map((o) => o.key).sort()).toEqual(['SD-1', 'SD-2']);
   });
 });
 
