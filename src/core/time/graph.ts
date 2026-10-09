@@ -102,12 +102,23 @@ export interface DeviceLogin {
   intervalMs: number;
 }
 
-export async function startDeviceLogin(app: GraphApp, fetchImpl: Fetch = fetch, now = Date.now()): Promise<DeviceLogin> {
-  const res = await fetchImpl(loginUrl(app.tenantId, 'devicecode'), {
+/** Every call to Microsoft gives up after this: a hung connection must not hold a day's build (and the keeper) for ever. */
+export const TIMEOUT_MS = 30_000;
+
+/** Token-endpoint errors that mean the sign-in itself is gone (expired, revoked, a changed password). Others (throttling, a server error) pass. */
+const SIGN_IN_GONE = new Set(['invalid_grant', 'interaction_required', 'invalid_client', 'unauthorized_client', 'consent_required']);
+
+/** A form POST to the sign-in endpoints, with the timeout. */
+const postForm = (fetchImpl: Fetch, url: string, form: Record<string, string>) =>
+  fetchImpl(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: app.clientId, scope: GRAPH_SCOPES }).toString(),
+    body: new URLSearchParams(form).toString(),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+
+export async function startDeviceLogin(app: GraphApp, fetchImpl: Fetch = fetch, now = Date.now()): Promise<DeviceLogin> {
+  const res = await postForm(fetchImpl, loginUrl(app.tenantId, 'devicecode'), { client_id: app.clientId, scope: GRAPH_SCOPES });
   const j = (await res.json().catch(() => ({}))) as {
     user_code?: string;
     device_code?: string;
@@ -142,14 +153,10 @@ export async function finishDeviceLogin(
     await sleep(interval);
     // Disconnected, or another sign-in started: this one keeps nothing.
     if (opts.cancelled?.()) throw new Error(CANCELLED);
-    const res = await fetchImpl(loginUrl(app.tenantId, 'token'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        client_id: app.clientId,
-        device_code: login.deviceCode,
-      }).toString(),
+    const res = await postForm(fetchImpl, loginUrl(app.tenantId, 'token'), {
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      client_id: app.clientId,
+      device_code: login.deviceCode,
     });
     const j = (await res.json().catch(() => ({}))) as TokenAnswer & { error?: string; error_description?: string };
     if (res.ok && j.access_token) {
@@ -177,7 +184,10 @@ interface TokenAnswer {
 }
 
 async function keep(app: GraphApp, j: TokenAnswer, now: number, fetchImpl: Fetch): Promise<string> {
-  const me = await fetchImpl(`${GRAPH}/me?$select=userPrincipalName,id`, { headers: { Authorization: `Bearer ${j.access_token}` } });
+  const me = await fetchImpl(`${GRAPH}/me?$select=userPrincipalName,id`, {
+    headers: { Authorization: `Bearer ${j.access_token}` },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
   const who = (await me.json().catch(() => ({}))) as { userPrincipalName?: string };
   writeTokens({
     refreshToken: j.refresh_token ?? readTokens()?.refreshToken ?? '',
@@ -201,29 +211,25 @@ export async function graphToken(app: GraphApp, fetchImpl: Fetch = fetch, now = 
   if (t.problem) throw new Error(t.problem);
   if (t.clientId && t.clientId !== app.clientId) throw new Error(OTHER_APP);
   if (t.expiresAt > now) return t.accessToken;
-  const res = await fetchImpl(loginUrl(app.tenantId, 'token'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: app.clientId,
-      refresh_token: t.refreshToken,
-      scope: GRAPH_SCOPES,
-    }).toString(),
+  const res = await postForm(fetchImpl, loginUrl(app.tenantId, 'token'), {
+    grant_type: 'refresh_token',
+    client_id: app.clientId,
+    refresh_token: t.refreshToken,
+    scope: GRAPH_SCOPES,
   });
-  const j = (await res.json().catch(() => ({}))) as TokenAnswer;
+  const j = (await res.json().catch(() => ({}))) as TokenAnswer & { error?: string };
   if (!res.ok || !j.access_token) {
-    // Refused (expired, revoked, a changed password): said until you connect again. A server error may pass.
-    const refused = res.status >= 400 && res.status < 500;
-    if (refused) writeTokens({ ...t, problem: EXPIRED });
-    throw new Error(refused ? EXPIRED : `Microsoft sign-in: ${res.status}`);
+    // The sign-in itself refused: said until you connect again. Throttling (429) or a server error may pass: tried again next time.
+    const gone = !!j.error && SIGN_IN_GONE.has(j.error);
+    if (gone) writeTokens({ ...t, problem: EXPIRED });
+    throw new Error(gone ? EXPIRED : `Microsoft sign-in: ${res.status}${j.error ? ` ${j.error}` : ''}`);
   }
   await keep(app, j, now, fetchImpl);
   return j.access_token;
 }
 
 async function getJson<T>(url: string, token: string, fetchImpl: Fetch, headers: Record<string, string> = {}): Promise<T> {
-  const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}`, ...headers }, signal: AbortSignal.timeout(30_000) });
+  const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}`, ...headers }, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Microsoft Graph: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
   return (await res.json()) as T;
 }
@@ -242,9 +248,10 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const url =
     `${GRAPH}/me/calendarView?startDateTime=${from.toISOString()}&endDateTime=${to.toISOString()}` +
-    '&$select=subject,start,end,isAllDay,isCancelled,showAs,responseStatus&$top=100';
+    '&$select=id,subject,start,end,isAllDay,isCancelled,showAs,responseStatus&$top=100';
   const j = await getJson<{
     value?: Array<{
+      id?: string;
       subject?: string;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
@@ -261,7 +268,13 @@ export async function meetingsOn(day: string, token: string, fetchImpl: Fetch = 
     const end = e.end?.dateTime ?? '';
     const minutes = Math.round((Date.parse(end) - Date.parse(start)) / 60_000);
     if (!(minutes > 0)) continue;
-    out.push({ subject: e.subject?.trim() || '(no subject)', start: start.slice(11, 16), end: end.slice(11, 16), minutes });
+    out.push({
+      ...(e.id ? { id: e.id } : {}),
+      subject: e.subject?.trim() || '(no subject)',
+      start: start.slice(11, 16),
+      end: end.slice(11, 16),
+      minutes,
+    });
   }
   return out.sort((a, b) => a.start.localeCompare(b.start));
 }
@@ -310,6 +323,7 @@ export async function chatsOn(day: string, token: string, fetchImpl: Fetch = fet
     });
     if (!mine.length) continue;
     out.push({
+      id: c.id,
       chat: c.topic?.trim() || (c.chatType === 'oneOnOne' ? 'a one-on-one chat' : 'a group chat'),
       messages: mine.length,
       sample: mine.slice(0, 5).map((m) => plain(m.body?.content ?? '').slice(0, 200)),

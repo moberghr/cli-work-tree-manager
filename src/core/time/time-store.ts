@@ -14,6 +14,33 @@ export type { TimeDayRecord };
 const isEntry = (v: unknown): v is TimeEntry =>
   !!v && typeof v === 'object' && typeof (v as TimeEntry).key === 'string' && typeof (v as TimeEntry).hours === 'number';
 
+const isWorklog = (v: unknown): boolean => {
+  const w = v as Record<string, unknown> | null;
+  return (
+    !!w &&
+    typeof w === 'object' &&
+    typeof w.tempoWorklogId === 'number' &&
+    typeof w.key === 'string' &&
+    typeof w.issueId === 'number' &&
+    typeof w.seconds === 'number' &&
+    typeof w.startTime === 'string'
+  );
+};
+
+/** What was posted to Tempo, as stored: absent, or whole (its rows and the worklogs work made). */
+const isPosted = (v: unknown): boolean => {
+  if (v === undefined || v === null) return true;
+  const p = v as Record<string, unknown>;
+  return (
+    typeof p === 'object' &&
+    typeof p.at === 'string' &&
+    Array.isArray(p.entries) &&
+    p.entries.every(isEntry) &&
+    Array.isArray(p.worklogs) &&
+    p.worklogs.every(isWorklog)
+  );
+};
+
 function isRecord(v: unknown): v is TimeDayRecord {
   if (!v || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
@@ -28,7 +55,8 @@ function isRecord(v: unknown): v is TimeDayRecord {
     r.titles !== null &&
     typeof r.builtAt === 'string' &&
     (r.edited === null || (Array.isArray(r.edited) && r.edited.every(isEntry))) &&
-    typeof r.dayOff === 'boolean'
+    typeof r.dayOff === 'boolean' &&
+    isPosted(r.posted)
   );
 }
 
@@ -69,8 +97,8 @@ export function readDays(from: string, to: string): TimeDayRecord[] {
   );
 }
 
-/** A fresh build of the day: your edits and day off stay as they were. */
-export function saveBuilt(built: Omit<TimeDayRecord, 'edited' | 'dayOff'>): TimeDayRecord {
+/** A fresh build of the day: your edits, day off and what was posted to Tempo stay as they were. */
+export function saveBuilt(built: Omit<TimeDayRecord, 'edited' | 'dayOff' | 'posted'>): TimeDayRecord {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM time_days WHERE day = ?').get(built.day) as { data: string } | undefined;
     const cur = row ? json.parse(row.data) : null;
@@ -78,6 +106,8 @@ export function saveBuilt(built: Omit<TimeDayRecord, 'edited' | 'dayOff'>): Time
       ...built,
       edited: isRecord(cur) ? cur.edited : null,
       dayOff: isRecord(cur) ? cur.dayOff : false,
+      // The worklogs work made: without them a later post can't tell them from your own, and would post beside them.
+      ...(isRecord(cur) && cur.posted ? { posted: cur.posted } : {}),
     };
     d.prepare('INSERT OR REPLACE INTO time_days (day, data) VALUES (?, ?)').run(built.day, JSON.stringify(next));
     return next;

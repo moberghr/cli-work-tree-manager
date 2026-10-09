@@ -78,6 +78,10 @@ describe('the device-code sign-in', () => {
     const down = (async () => json({}, 503)) as unknown as typeof fetch;
     await expect(graphToken(APP, down, Date.now() + 100 * 3600_000)).rejects.toThrow('Microsoft sign-in: 503');
     expect(graphProblem(APP)).toBeNull();
+    // Throttled: passes too (the refresh token is still good).
+    const throttled = (async () => json({ error: 'temporarily_unavailable' }, 429)) as unknown as typeof fetch;
+    await expect(graphToken(APP, throttled, Date.now() + 100 * 3600_000)).rejects.toThrow('Microsoft sign-in: 429');
+    expect(graphProblem(APP)).toBeNull();
     const refused = (async () => json({ error: 'invalid_grant' }, 400)) as unknown as typeof fetch;
     await expect(graphToken(APP, refused, Date.now() + 100 * 3600_000)).rejects.toThrow(EXPIRED);
     expect(graphAccount()).toBe('you@moberg.hr');
@@ -179,7 +183,9 @@ describe('meetings and chats', () => {
         return json({ value: [{ createdDateTime: iso(10), from: { user: { id: 'other' } }, body: { content: 'x' } }] });
       return json({}, 404);
     }) as unknown as typeof fetch;
-    expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([{ chat: 'Payments', messages: 1, sample: ['the PDF export & CSV'] }]);
+    expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([
+      { id: 'c1', chat: 'Payments', messages: 1, sample: ['the PDF export & CSV'] },
+    ]);
     expect(plain('<div>a&nbsp;<b>b</b></div>')).toBe('a b');
   });
 
@@ -224,8 +230,8 @@ describe('meetings and chats', () => {
       return json({}, 404);
     }) as unknown as typeof fetch;
     expect(await chatsOn('2026-10-08', 'tok', fetchImpl)).toEqual([
-      { chat: 'Busy', messages: 1, sample: ['on the day'] },
-      { chat: 'Same day', messages: 1, sample: ['same'] },
+      { id: 'busy', chat: 'Busy', messages: 1, sample: ['on the day'] },
+      { id: 'same', chat: 'Same day', messages: 1, sample: ['same'] },
     ]);
     expect(urls.some((u) => u.endsWith('/chats-page-3') || u.endsWith('/busy-3') || u.includes('/chats/old/'))).toBe(false);
   });

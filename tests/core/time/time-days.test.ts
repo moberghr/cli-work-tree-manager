@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 import { DEFAULT_TIME_SETTINGS } from '../../../src/core/time/allocate.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../../src/core/time/time-days.js';
+import { withDb } from '../../../src/core/platform/db.js';
 import { readDay, updateDay } from '../../../src/core/time/time-store.js';
 import {
   daysBetween,
@@ -14,7 +15,7 @@ import {
   type TimeConfig,
 } from '../../../src/core/time/time-view.js';
 import { createTimeKeeper, dayEnd } from '../../../src/core/time/time-keeper.js';
-import { dayArg, describeTimeDay, parseRowArgs } from '../../../src/core/time/time-view.js';
+import { addDays, dayArg, describeTimeDay, parseRowArgs } from '../../../src/core/time/time-view.js';
 
 // Each test file has its own HOME (tests/setup), so state.db here is a throwaway.
 const S: TimeConfig = { ...DEFAULT_TIME_SETTINGS, gapTicket: 'SD-434', timeOffTicket: 'INT-1' };
@@ -128,6 +129,14 @@ describe('for the CLI and the assistant', () => {
     expect(dayArg('last week', now)).toBeNull();
   });
 
+  it('days are counted on the calendar, not in 24 h steps (a DST day has 23 or 25 hours)', () => {
+    // Europe's spring-forward in 2026 is 29 March: just after midnight on the 30th, yesterday is the 29th.
+    expect(dayArg('yesterday', Date.parse('2026-03-30T00:30:00'))).toBe('2026-03-29');
+    expect(addDays('2026-03-30', -1)).toBe('2026-03-29');
+    expect(addDays('2026-10-26', -13)).toBe('2026-10-13');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+  });
+
   it('rows as KEY=HOURS', () => {
     expect(parseRowArgs(['sd-1=2.5', 'SD-434=5'])).toEqual([
       { key: 'SD-1', hours: 2.5 },
@@ -187,6 +196,40 @@ describe('building a day (time-days.ts, state.db)', () => {
     expect(readDay('2026-10-07')?.edited).toEqual([{ key: 'SD-1', hours: 7.5 }]);
     updateDay('2026-09-01', { dayOff: true });
     expect(dayWire('2026-09-01', S)).toMatchObject({ status: 'off', builtAt: null });
+  });
+
+  it("a rebuild keeps what was posted to Tempo (work's worklog ids): the day stays in Tempo, and a later post can find them", async () => {
+    await buildDay('2026-10-01', deps());
+    const posted = {
+      at: '2026-10-01T17:00:00Z',
+      entries: dayWire('2026-10-01', S).entries,
+      worklogs: [{ tempoWorklogId: 7, key: 'SD-3850', issueId: 1, seconds: 9000, startTime: '09:00:00' }],
+    };
+    updateDay('2026-10-01', { posted });
+    await buildDay('2026-10-01', deps());
+    expect(readDay('2026-10-01')?.posted).toEqual(posted);
+    expect(dayWire('2026-10-01', S).status).toBe('posted');
+  });
+
+  it("a stored day whose posted record isn't whole is not read as a day (no crash over the list)", () => {
+    withDb((d) =>
+      d
+        .prepare('INSERT OR REPLACE INTO time_days (day, data) VALUES (?, ?)')
+        .run(
+          '2026-09-02',
+          JSON.stringify({
+            day: '2026-09-02',
+            evidence: { sessions: [], commits: [], jira: [] },
+            titles: {},
+            builtAt: 'x',
+            edited: null,
+            dayOff: false,
+            posted: { at: 'x' },
+          }),
+        ),
+    );
+    expect(readDay('2026-09-02')).toBeNull();
+    expect(() => daysWire('2026-09-01', '2026-09-03', S)).not.toThrow();
   });
 
   it('a source that fails leaves the rest: no Jira, still sessions and commits', async () => {
@@ -253,6 +296,32 @@ describe('the keeper (time-keeper.ts)', () => {
     built.length = 0;
     await k.run();
     expect(new Set(built)).toEqual(new Set(['2026-07-09'])); // both now built after they ended
+  });
+
+  it('a day that fails to build leaves the rest built, and the tab is still told', async () => {
+    const now = Date.parse('2026-06-12T15:00:00'); // a Friday
+    const tried: string[] = [];
+    const d = deps({ now: () => now, minutesOn: async () => 0, commits: async () => [], jiraMoved: async () => [] });
+    const failing = {
+      ...d,
+      sessions: () => {
+        const day = String(tried.length);
+        tried.push(day);
+        if (tried.length === 3) throw new Error('database is locked');
+        return [];
+      },
+    };
+    const changed = vi.fn();
+    const fail = vi.fn();
+    const k = createTimeKeeper(failing, {
+      changed,
+      now: () => now,
+      activity: { start: () => ({ done: vi.fn(), fail, note: vi.fn(), progress: vi.fn() }) as never },
+    });
+    await k.run();
+    expect(tried.length).toBe(10); // every workday tried
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(fail.mock.calls[0][0]).toMatch(/^1 of 10 not built — 2026-06-\d\d: database is locked$/);
   });
 
   it("a day's end is the next local midnight", () => {

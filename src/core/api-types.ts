@@ -553,6 +553,8 @@ export interface TimeCommitEvidence {
 
 /** A meeting from Outlook that day (Graph): it goes to its ticket when the AI step places it, else to the gap ticket. */
 export interface TimeMeetingEvidence {
+  /** Outlook's id for it (what the AI step's answer is kept by; absent in days gathered before). */
+  id?: string;
   subject: string;
   /** Local `HH:MM`. */
   start: string;
@@ -564,6 +566,8 @@ export interface TimeMeetingEvidence {
 
 /** A Teams chat you wrote in that day: how many of your messages, a few of them shortened (what the AI step reads). */
 export interface TimeChatEvidence {
+  /** Teams' id for the chat: untitled ones share a name ("a one-on-one chat"). */
+  id?: string;
   chat: string;
   messages: number;
   sample: string[];

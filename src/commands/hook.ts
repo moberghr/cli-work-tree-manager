@@ -14,7 +14,7 @@ import { loadConfig } from '../core/platform/config.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { recordStatusEvent, type StatusEvent } from '../core/status/session-status.js';
 import { bestEffort, bestEffortAsync } from '../core/platform/best-effort.js';
-import { readAssistantContext } from '../core/agents/assistant.js';
+import { assistantContextDay, readAssistantContext } from '../core/agents/assistant.js';
 import { agentById, type AgentAdapter, type TurnEdge } from '../core/agents/index.js';
 
 /**
@@ -310,7 +310,10 @@ async function handleHook(event: HookEvent, agentId = 'claude'): Promise<void> {
     // own folder): stdout becomes context for the prompt — what the user is
     // looking at in the dashboard.
     if (event === 'assistant-context') {
-      const text = readAssistantContext();
+      // The Time tab's day as it is now (Save, Post or a rebuild may have changed it since the tab said which).
+      const day = assistantContextDay();
+      const dayNow = day ? await import('../core/time/time-actions.js').then((m) => m.describeDayNow(day)).catch(() => null) : null;
+      const text = readAssistantContext(Date.now(), dayNow);
       if (text) process.stdout.write(text + '\n');
       return;
     }

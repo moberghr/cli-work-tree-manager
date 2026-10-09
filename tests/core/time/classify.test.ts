@@ -66,6 +66,19 @@ describe('the AI step (classify.ts)', () => {
     expect(again.meetings!.find((x) => x.subject === 'PDF refinement')!.key).toBe('SD-1');
   });
 
+  it("untitled chats (the same name) keep their own tickets when their order changes: they're known by Teams' id", () => {
+    const a = { id: 'chat-a', chat: 'a one-on-one chat', messages: 2, sample: ['the PDF'] };
+    const b = { id: 'chat-b', chat: 'a one-on-one chat', messages: 1, sample: ['payroll'] };
+    const day = ev({ chats: [a, b] });
+    const ids = itemIds(day).t;
+    const placed = applyPlacement(day, { [ids[0]]: 'PAY-1', [ids[1]]: 'SD-2' }, 'h');
+    const later = applyPlacement(ev({ chats: [b, a] }), placementOf(placed), 'h');
+    expect(later.chats!.map((c) => [c.id, c.key])).toEqual([
+      ['chat-b', 'SD-2'],
+      ['chat-a', 'PAY-1'],
+    ]);
+  });
+
   it('two items that look the same still get their own ids', () => {
     const twice = itemIds(ev({ meetings: [ev().meetings![0], ev().meetings![0]] })).m;
     expect(twice[0]).not.toBe(twice[1]);

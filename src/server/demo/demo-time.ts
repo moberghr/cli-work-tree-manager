@@ -1,6 +1,6 @@
 import type { TimeDaysWire, TimeDayWire, TimeEvidence, TimePostWire } from '../../core/api-types.js';
 import { DEFAULT_TIME_SETTINGS, isWorkday, type TimeEntry } from '../../core/time/allocate.js';
-import { daysBetween, dayWireOf, daysWireOf, localDay, type TimeConfig, type TimeDayRecord } from '../../core/time/time-view.js';
+import { addDays, daysBetween, dayWireOf, daysWireOf, localDay, type TimeConfig, type TimeDayRecord } from '../../core/time/time-view.js';
 
 /**
  * The demo's Time tab: two weeks of made-up evidence (sessions with Claude
@@ -54,7 +54,7 @@ export function createDemoTime(now: () => number) {
   const record = (day: string): TimeDayRecord | null => {
     const today = localDay(now());
     if (day > today) return null;
-    const all = daysBetween(localDay(now() - 13 * 24 * 3600_000), today);
+    const all = daysBetween(addDays(today, -13), today);
     const n = all.indexOf(day);
     const e = edits.get(day) ?? {};
     // Two weeks of work days; before that, nothing gathered.

@@ -45,16 +45,14 @@ export function itemIds(ev: TimeEvidence): { s: string[]; c: string[]; m: string
       'c',
       ev.commits.map((x) => x.sha),
     ),
-    m: idsFor(
-      'm',
-      (ev.meetings ?? []).map((x) => `${x.start} ${x.subject}`),
-    ),
-    t: idsFor(
-      't',
-      (ev.chats ?? []).map((x) => x.chat),
-    ),
+    m: idsFor('m', (ev.meetings ?? []).map(meetingWhat)),
+    t: idsFor('t', (ev.chats ?? []).map(chatWhat)),
   };
 }
+
+/** A meeting's and a chat's identity: Outlook's / Teams' id (untitled chats share a name), else, in days gathered before, what they show. */
+const meetingWhat = (m: { id?: string; start: string; subject: string }) => m.id ?? `${m.start} ${m.subject}`;
+const chatWhat = (c: { id?: string; chat: string }) => c.id ?? c.chat;
 
 /** What the day couldn't place by itself, each with an id the answer names. */
 export function unplacedItems(ev: TimeEvidence): Unplaced[] {
@@ -72,9 +70,14 @@ export function unplacedItems(ev: TimeEvidence): Unplaced[] {
       id: id.m[i],
       kind: 'meeting' as const,
       text: `${m.start}–${m.end} ${m.subject}`,
-      what: `${m.start} ${m.subject}`,
+      what: meetingWhat(m),
     })),
-    ...(ev.chats ?? []).map((c, i) => ({ id: id.t[i], kind: 'chat' as const, text: `${c.chat}: ${c.sample.join(' / ')}`, what: c.chat })),
+    ...(ev.chats ?? []).map((c, i) => ({
+      id: id.t[i],
+      kind: 'chat' as const,
+      text: `${c.chat}: ${c.sample.join(' / ')}`,
+      what: chatWhat(c),
+    })),
   ];
 }
 

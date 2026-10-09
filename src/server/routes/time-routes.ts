@@ -11,7 +11,7 @@ import {
   type GraphApp,
 } from '../../core/time/graph.js';
 import { buildDay, dayWire, daysWire, type TimeDeps } from '../../core/time/time-days.js';
-import { localDay, parseEntries } from '../../core/time/time-view.js';
+import { addDays, localDay, parseEntries } from '../../core/time/time-view.js';
 import { updateDay } from '../../core/time/time-store.js';
 import { tempoClient, tempoSetup, type TempoApi } from '../../core/time/tempo.js';
 import { postStoredDay } from '../../core/time/time-actions.js';
@@ -142,7 +142,7 @@ export function mountTimeRoutes(
 
   app.get('/api/time', (c) => {
     const to = c.req.query('to') ?? localDay();
-    const from = c.req.query('from') ?? localDay(Date.parse(`${to}T12:00:00`) - 13 * 24 * 3600_000);
+    const from = c.req.query('from') ?? addDays(to, -13);
     if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: YYYY-MM-DD, from ≤ to' }, 400);
     return c.json<TimeDaysWire>(daysWire(from, to, opts.deps.settings()));
   });

@@ -9,6 +9,7 @@ import {
   assistantDir,
   describeView,
   prepareAssistantDir,
+  assistantContextDay,
   readAssistantContext,
   writeAssistantContext,
 } from '../../../src/core/agents/assistant.js';
@@ -225,8 +226,7 @@ describe('POST /api/assistant/context', () => {
 
   it("on the Time tab: the day on screen in words; a day that isn't a date is dropped", async () => {
     const app = new Hono();
-    const describeDay = (day: string) => `On the Time tab: ${day}, draft.`;
-    mountAssistantRoutes(app, { describeDay });
+    mountAssistantRoutes(app);
     const post = (body: unknown) =>
       app.request('/api/assistant/context', {
         method: 'POST',
@@ -234,10 +234,18 @@ describe('POST /api/assistant/context', () => {
         body: JSON.stringify(body),
       });
     await post({ tab: 'time', day: '2026-10-08' });
-    expect(readAssistantContext()).toContain('On the Time tab: 2026-10-08, draft.');
+    expect(assistantContextDay()).toBe('2026-10-08');
+    // Described as it is at each prompt: a Save after the tab said which day shows at once.
+    const { describeDayNow } = await import('../../../src/core/time/time-actions.js');
+    const { updateDay } = await import('../../../src/core/time/time-store.js');
+    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('On the Time tab: 2026-10-08, empty.');
+    updateDay('2026-10-08', { edited: [{ key: 'SD-1', hours: 7.5 }] });
+    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain(
+      'On the Time tab: 2026-10-08, edited. Rows: SD-1 7.5 h',
+    );
     await post({ tab: 'time', day: '../etc' });
-    expect(readAssistantContext()).not.toContain('On the Time tab');
+    expect(assistantContextDay()).toBeNull();
     await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day
-    expect(readAssistantContext()).not.toContain('On the Time tab');
+    expect(assistantContextDay()).toBeNull();
   });
 });

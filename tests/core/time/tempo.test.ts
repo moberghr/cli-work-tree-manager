@@ -66,13 +66,31 @@ describe("planDay (what to do to Tempo's day)", () => {
         { key: 'SD-1', issueId: 1, seconds: 3600 },
         { key: 'SD-2', issueId: 2, seconds: 1800 },
       ],
-      [wl(50, 1, 3600), wl(51, 99, 1800)], // by hand: SD-1 an hour (covers the row), another issue
+      [wl(50, 1, 3600), wl(51, 99, 1800, '10:00:00')], // by hand: SD-1 an hour (covers the row), another issue after it
       [],
     );
     expect(p.coveredByHand.map((c) => [c.key, c.tempoWorklogId])).toEqual([['SD-1', 50]]);
     expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '10:30:00']]); // after the 1.5 h by hand
     expect(p.otherByHand.map((w) => w.tempoWorklogId)).toEqual([51]);
     expect(p.remove).toEqual([]);
+  });
+
+  it('new rows start where what stays ends, by its real start time (not 09:00 plus the hours)', () => {
+    // By hand: an hour at 09:00 and two hours at 13:00 → the new row starts at 15:00, overlapping nothing.
+    const p = planDay([{ key: 'SD-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);
+    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '15:00:00']]);
+  });
+
+  it('never a start at midnight or later (Tempo refuses it): a late row ends at 24:00', () => {
+    const p = planDay(
+      [
+        { key: 'SD-1', issueId: 1, seconds: 4 * 3600 },
+        { key: 'SD-2', issueId: 2, seconds: 3 * 3600 },
+      ],
+      [wl(50, 99, 12 * 3600, '09:00:00')], // a 12 h day by hand already: ends at 21:00
+      [],
+    );
+    expect(p.add.map((a) => a.startTime)).toEqual(['20:00:00', '21:00:00']);
   });
 
   it('a worklog work posted that was deleted in Tempo is forgotten (not deleted again), and its row posted', () => {

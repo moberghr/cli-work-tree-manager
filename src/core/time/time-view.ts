@@ -51,6 +51,13 @@ export function localDay(ms = Date.now()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** The day `n` calendar days from `day` (negative: before). Calendar days, not 24 h steps: a DST change has a day of 23 or 25. */
+export function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return localDay(d.getTime());
+}
+
 /** The days from `from` to `to`, inclusive. */
 export function daysBetween(from: string, to: string): string[] {
   const out: string[] = [];
@@ -211,7 +218,7 @@ export function describeTimeDay(w: TimeDayWire): string {
 export function dayArg(text: string, now = Date.now()): string | null {
   const t = text.trim().toLowerCase();
   if (t === 'today') return localDay(now);
-  if (t === 'yesterday') return localDay(now - 24 * 3600_000);
+  if (t === 'yesterday') return addDays(localDay(now), -1);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
   return localDay(Date.parse(`${t}T12:00:00`)) === t ? t : null;
 }

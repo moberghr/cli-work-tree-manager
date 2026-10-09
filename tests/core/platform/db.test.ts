@@ -186,7 +186,10 @@ describe('work state --export', () => {
     placeSession('s1', { section: 'x' });
     saveNote('s1', 'my note');
     addBlocker('s1', { kind: 'pr', url: 'https://github.com/a/b/pull/1', label: 'b#1' });
-    expect(stateSummary().counts).toMatchObject({ session_snooze: 1, rail_place: 1, session_notes: 1, session_blocks: 1 });
+    const { updateDay, rememberIssueId } = await import('../../../src/core/time/time-store.js');
+    updateDay('2026-10-08', { edited: [{ key: 'SD-1', hours: 7.5 }] });
+    rememberIssueId('SD-1', 10001);
+    expect(stateSummary().counts).toMatchObject({ session_snooze: 1, rail_place: 1, session_notes: 1, session_blocks: 1, time_days: 1 });
     const out = path.join(home, 'export-newer');
     exportLegacyState(out);
     const newer = JSON.parse(fs.readFileSync(path.join(out, 'newer-state.json'), 'utf-8'));
@@ -195,6 +198,8 @@ describe('work state --export', () => {
     expect(newer.meta['ui:rail-sections']).toEqual([{ id: 'x', name: 'Client X' }]);
     expect(newer.session_notes.s1).toMatchObject({ text: 'my note' });
     expect(newer.session_blocks.s1.by).toHaveLength(1);
+    expect(newer.time_days['2026-10-08'].edited).toEqual([{ key: 'SD-1', hours: 7.5 }]);
+    expect(newer.meta['time:issue-ids']).toEqual({ 'SD-1': 10001 });
   });
 
   it('writes the old JSON layout, and importing that gives back the same state', async () => {

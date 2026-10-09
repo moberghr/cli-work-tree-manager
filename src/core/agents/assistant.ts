@@ -128,6 +128,8 @@ export function prepareAssistantDir(agent: Pick<AgentAdapter, 'instructionsFile'
 interface StoredContext {
   at: string;
   text: string;
+  /** The Time tab's day on screen: described afresh at each prompt (rows change by Save, Post, a rebuild). */
+  day?: string;
 }
 
 /**
@@ -156,21 +158,35 @@ export function describeView(view: AssistantView, session: SessionWire | null, n
   return lines.join('\n');
 }
 
-export function writeAssistantContext(text: string, now = Date.now()): void {
+export function writeAssistantContext(text: string, now = Date.now(), day?: string): void {
   fs.mkdirSync(assistantDir(), { recursive: true });
-  const stored: StoredContext = { at: new Date(now).toISOString(), text };
+  const stored: StoredContext = { at: new Date(now).toISOString(), text, ...(day ? { day } : {}) };
   atomicWriteFile(contextFile(), JSON.stringify(stored));
 }
 
-/** What the hook adds to a prompt; null when the dashboard said nothing lately. */
-export function readAssistantContext(now = Date.now()): string | null {
+/** The day on screen, if the Time tab is: for the hook to describe as it is now. */
+export function assistantContextDay(now = Date.now()): string | null {
+  const s = readStored(now);
+  return s && typeof s.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.day) ? s.day : null;
+}
+
+function readStored(now: number): Partial<StoredContext> | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(contextFile(), 'utf-8')) as unknown;
-    const s = raw as Partial<StoredContext> | null;
+    const s = JSON.parse(fs.readFileSync(contextFile(), 'utf-8')) as Partial<StoredContext> | null;
     if (!s || typeof s.text !== 'string' || typeof s.at !== 'string') return null;
-    if (now - Date.parse(s.at) > CONTEXT_TTL_MS) return null;
-    return `[work dashboard] ${s.text}`;
+    return now - Date.parse(s.at) > CONTEXT_TTL_MS ? null : s;
   } catch {
     return null;
   }
+}
+
+/**
+ * What the hook adds to a prompt; null when the dashboard said nothing
+ * lately. `dayNow` describes the Time tab's day as it is at this prompt
+ * (the hook reads it from state.db), not as it was when the tab was opened.
+ */
+export function readAssistantContext(now = Date.now(), dayNow?: string | null): string | null {
+  const s = readStored(now);
+  if (!s) return null;
+  return `[work dashboard] ${s.text}${dayNow ? `\n${dayNow}` : ''}`;
 }

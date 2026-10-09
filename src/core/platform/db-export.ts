@@ -42,12 +42,13 @@ const TABLES = [
   'session_blocks',
   'worklogs',
   'diff_seen',
+  'time_days',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */
 const NEWER_BY_SESSION = ['session_snooze', 'rail_place', 'session_notes', 'session_blocks', 'diff_seen'];
 /** meta rows that are state, not counters. */
-const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch'];
+const NEWER_META = ['ui:session-order', 'ui:rail-sections', 'jira-watch', 'time:issue-ids'];
 
 export function stateSummary(): StateSummary {
   return withDb((d) => {
@@ -127,6 +128,8 @@ export function exportLegacyState(dir: string): string[] {
       day: r.day,
       ...((parse(String(r.data)) as object | null) ?? {}),
     }));
+    // The Time tab's days: your rows, days off, and the Tempo worklogs work made (without them a re-post can't tell them from yours).
+    newer.time_days = Object.fromEntries(all('SELECT day, data FROM time_days').map((r) => [r.day, parse(String(r.data))]));
     newer.meta = Object.fromEntries(
       NEWER_META.flatMap((k) => {
         const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(k) as { value: string } | undefined;

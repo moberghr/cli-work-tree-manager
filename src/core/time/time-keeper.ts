@@ -1,7 +1,7 @@
 import type { ActivityLog } from '../platform/activity.js';
 import { isWorkday } from './allocate.js';
 import { buildDay, type TimeDeps } from './time-days.js';
-import { daysBetween, localDay } from './time-view.js';
+import { addDays, daysBetween, localDay } from './time-view.js';
 import { readDays } from './time-store.js';
 
 /**
@@ -45,7 +45,7 @@ export function createTimeKeeper(
 
   async function runNow(): Promise<void> {
     const today = localDay(now());
-    const from = localDay(now() - (CATCH_UP_DAYS - 1) * 24 * 3600_000);
+    const from = addDays(today, -(CATCH_UP_DAYS - 1));
     const settings = deps.settings();
     const builtAt = new Map(readDays(from, today).map((r) => [r.day, r.builtAt]));
     const days = daysBetween(from, today).filter((d) => {
@@ -54,13 +54,20 @@ export function createTimeKeeper(
       return at === undefined ? isWorkday(d, settings) : !at || Date.parse(at) < dayEnd(d);
     });
     const run = opts.activity?.start('time', days.length === 1 ? 'Updating today' : `Building ${days.length} days`);
-    try {
-      for (const d of days) await buildDay(d, deps);
-      opts.changed();
-      run?.done(days.length === 1 ? 'today updated' : `${days.length} days built`);
-    } catch (err) {
-      run?.fail((err as Error).message);
+    // One day that fails doesn't stop the rest; the days built are told either way.
+    const failed: string[] = [];
+    let built = 0;
+    for (const d of days) {
+      try {
+        await buildDay(d, deps);
+        built++;
+      } catch (err) {
+        failed.push(`${d}: ${(err as Error).message}`);
+      }
     }
+    if (built) opts.changed();
+    if (failed.length) run?.fail(`${failed.length} of ${days.length} not built — ${failed.join('; ')}`);
+    else run?.done(days.length === 1 ? 'today updated' : `${days.length} days built`);
   }
 
   const run = () => {

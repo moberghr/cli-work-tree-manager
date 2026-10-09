@@ -55,6 +55,14 @@ export interface DayPlan {
 const hhmmss = (s: number) =>
   `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
+const DAY_SECONDS = 24 * 3600;
+
+/** A start time `HH:MM[:SS]` in seconds; none (or unreadable): 09:00, where work starts its rows. */
+const secondsOf = (t: string) => {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(t);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] ?? 0) : DAY_START_SECONDS;
+};
+
 /** What to do to make Tempo's day the rows wanted. Pure. */
 export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[], ours: readonly PostedWorklog[]): DayPlan {
   const live = new Set(inTempo.map((w) => w.tempoWorklogId));
@@ -81,13 +89,14 @@ export function planDay(rows: readonly DayRow[], inTempo: readonly TempoWorklog[
     }
     todo.push(r);
   }
-  // New rows start after everything that stays, one after another, from 09:00.
-  const staying = [...keep.map((k) => k.seconds), ...byHand.map((w) => w.timeSpentSeconds)].reduce((n, s) => n + s, 0);
-  let at = DAY_START_SECONDS + staying;
+  // New rows start where everything that stays has ended (by its real start time), one after another, from 09:00;
+  // never past midnight (Tempo refuses a start of 24:00 or later): a late one ends at 24:00 instead.
+  const ends = [...keep.map((k) => secondsOf(k.startTime) + k.seconds), ...byHand.map((w) => secondsOf(w.startTime) + w.timeSpentSeconds)];
+  let at = Math.max(DAY_START_SECONDS, ...ends);
   const add = todo.map((r) => {
-    const startTime = hhmmss(at);
-    at += r.seconds;
-    return { ...r, startTime };
+    const start = Math.max(0, Math.min(at, DAY_SECONDS - r.seconds));
+    at = start + r.seconds;
+    return { ...r, startTime: hhmmss(start) };
   });
   return { keep, remove: left, coveredByHand, add, otherByHand: byHand.filter((w) => !usedHand.has(w.tempoWorklogId)) };
 }

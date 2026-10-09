@@ -8,8 +8,6 @@ export interface AssistantRoutesOptions {
   /** The web server's cached stats and overlaps, for the selected session. */
   wireOptions?: SessionWireOptions;
   overlapsFor?: (sessionId: string) => ReturnType<typeof sessionWire>['overlaps'];
-  /** The Time tab's day in words (time-view.ts describeTimeDay), when it's on screen. */
-  describeDay?: (day: string) => string;
 }
 
 /**
@@ -34,8 +32,8 @@ export function mountAssistantRoutes(app: Hono, opts: AssistantRoutesOptions = {
     let wire = s ? sessionWire(s, opts.wireOptions) : null;
     const o = wire ? opts.overlapsFor?.(wire.id) : undefined;
     if (wire && o) wire = { ...wire, overlaps: o };
-    const day = view.tab === 'time' && view.day ? opts.describeDay?.(view.day) : undefined;
-    writeAssistantContext(describeView(view, wire) + (day ? `\n${day}` : ''));
+    // The Time tab's day is kept by date: the hook describes it as it is at each prompt.
+    writeAssistantContext(describeView(view, wire), Date.now(), view.tab === 'time' ? view.day : undefined);
     return c.json({ ok: true });
   });
 }
