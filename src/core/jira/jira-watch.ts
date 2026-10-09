@@ -66,6 +66,8 @@ export function setEnabled(enabled: boolean, current: JiraIssue[], now = new Dat
   return tx((d) => {
     const settings = { enabled, since: enabled ? at : null };
     d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(SETTINGS_KEY, JSON.stringify(settings));
+    // Turned on with today's list: nothing to adopt later.
+    if (enabled) d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LIST_VERSION_KEY, String(LIST_VERSION));
     if (enabled) {
       const put = d.prepare('INSERT OR IGNORE INTO jira_watch (issue_key, data) VALUES (?, ?)');
       for (const i of current) {
@@ -81,6 +83,37 @@ export function setEnabled(enabled: boolean, current: JiraIssue[], now = new Dat
       }
     }
     return settings;
+  });
+}
+
+/** Bumped when the query behind your issues changes what it lists: the first sweep after takes what it hadn't seen as there. */
+export const LIST_VERSION = 2;
+const LIST_VERSION_KEY = 'jira-watch:list-version';
+
+/**
+ * The first sweep on a new LIST_VERSION: every issue it hasn't decided on is
+ * recorded as already there (`baseline`) — it was assigned before, the list
+ * just didn't show it (an open issue with a resolution: SSD-2465). True when
+ * it did (nothing else to do this sweep).
+ */
+export function adoptListChange(issues: JiraIssue[], now = new Date()): boolean {
+  return tx((d) => {
+    const row = d.prepare('SELECT value FROM meta WHERE key = ?').get(LIST_VERSION_KEY) as { value: string } | undefined;
+    if (row && Number(row.value) >= LIST_VERSION) return false;
+    const put = d.prepare('INSERT OR IGNORE INTO jira_watch (issue_key, data) VALUES (?, ?)');
+    for (const i of issues) {
+      const decision: JiraDecision = {
+        key: i.key,
+        summary: i.summary,
+        url: i.url,
+        at: now.toISOString(),
+        action: 'baseline',
+        reason: 'already assigned to you; the list now shows open issues by status, not resolution',
+      };
+      put.run(i.key, JSON.stringify(decision));
+    }
+    d.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LIST_VERSION_KEY, String(LIST_VERSION));
+    return true;
   });
 }
 
@@ -207,6 +240,8 @@ export async function sweepJira(deps: WatchDeps): Promise<{ started: number; sug
   if (!readSettings().enabled) return out;
   const now = deps.now?.() ?? new Date();
   const issues = await deps.fetchIssues();
+  // Issues the list didn't show before (it now asks by status category, MY_ISSUES_JQL) aren't new: adopted once as there.
+  if (adoptListChange(issues, now)) return out;
   const known = new Set(listDecisions().map((d) => d.key));
   const fresh = issues.filter((i) => !known.has(i.key));
   if (fresh.length === 0) return out;

@@ -78,6 +78,21 @@ describe('the Jira watch', () => {
     expect(d.started).toEqual([]);
   });
 
+  it("on since before the list asked by status category: the issues it shows now for the first time aren't new (adopted, nothing started)", async () => {
+    setEnabled(true, [issue('SD-1')]);
+    // A watch turned on by an older work: no list version recorded.
+    const { withDb } = await import('../../../src/core/platform/db.js');
+    withDb((db) => db.prepare("DELETE FROM meta WHERE key = 'jira-watch:list-version'").run());
+    const d = deps([issue('SD-1'), issue('SSD-2465', 'Waiting for feedback')], sure('straumur-backend'));
+    expect(await sweepJira(d)).toEqual({ started: 0, suggested: 0, waiting: 0 });
+    expect(d.started).toEqual([]);
+    expect(readDecision('SSD-2465')).toMatchObject({ action: 'baseline' });
+    // After that, a really new one is started as before.
+    const later = deps([issue('SD-1'), issue('SSD-2465'), issue('SD-9')], sure('straumur-backend'));
+    expect(await sweepJira(later)).toMatchObject({ started: 1 });
+    expect(later.started.map((x) => x.key)).toEqual(['SD-9']);
+  });
+
   it('a newly assigned issue it is sure about: worktree feat/<KEY> in that project, started; once', async () => {
     setEnabled(true, []);
     const d = deps([issue('SD-2')], sure('straumur-backend'));
