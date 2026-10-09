@@ -3,6 +3,20 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- A **Time** tab (`g h`): each workday's hours per Jira ticket, suggested from
+  what you did — Claude's working time in each session (its Jira key, or the
+  key in its branch), your commits, the issues you moved — and kept current
+  as you go (after each turn, every half hour, and the last two weeks' days
+  you weren't running work). The timesheet tool's rules, as settings
+  (`time` in config.json): a 7.5 h day, Claude time ×5 capped at 7 h, quarter
+  hours, at least half an hour a ticket, the rest to a gap ticket
+  (`time.gapTicket`), days off to `time.timeOffTicket`, `time.holidays`.
+  Unlike the tool, a day never goes over its hours. Edit a day's rows, mark
+  it off, or gather it again; your edits survive a rebuild. Nothing is
+  posted anywhere yet: Tempo comes next.
+
 ## 2.0.9 — 2026-10-08
 
 - Who opened a pull request on GitHub: "by @dana" on each PR's section in a

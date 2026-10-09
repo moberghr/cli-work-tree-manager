@@ -1,0 +1,309 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { TimeDaySummary, TimeDaysWire, TimeDayWire, TimeEntryWire } from '../../../../../core/api-types.js';
+import { fetchTimeDay, fetchTimeDays, rebuildTimeDay, saveTimeDay } from '../../../api/panes.js';
+import { useSse } from '../../../api/events.js';
+
+/** "Thu 8 Oct". Pure. */
+export function dayLabel(day: string): string {
+  const d = new Date(`${day}T12:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+/** "2.5 h". Pure. */
+export function hoursText(h: number): string {
+  return `${Number.isInteger(h) ? h : h.toFixed(2).replace(/0$/, '')} h`;
+}
+
+/** A day's status in a word. Pure. */
+export function statusText(s: TimeDaySummary['status']): string {
+  return { empty: 'not gathered yet', draft: 'suggested', edited: 'edited', off: 'day off', 'not-workday': 'weekend / holiday' }[s];
+}
+
+const sameRows = (a: readonly TimeEntryWire[], b: readonly TimeEntryWire[]) =>
+  a.length === b.length && a.every((e, i) => e.key === b[i].key && e.hours === b[i].hours);
+
+/**
+ * Time: each workday's hours per ticket, as work suggests them from what
+ * you did (Claude's time per session, your commits, the issues you moved)
+ * — kept current as you go — and as you change them. Nothing leaves work
+ * from here yet; posting to Tempo comes next.
+ */
+export function TimeTab({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+  const [days, setDays] = useState<TimeDaysWire | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [day, setDay] = useState<TimeDayWire | null>(null);
+  const [rows, setRows] = useState<TimeEntryWire[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadDays = useCallback(() => {
+    fetchTimeDays().then(
+      (d) => {
+        setDays(d);
+        setChosen((c) => c ?? d.days[0]?.day ?? null);
+      },
+      (e: Error) => setError(e.message),
+    );
+  }, []);
+  const loadDay = useCallback((d: string) => {
+    fetchTimeDay(d).then(
+      (w) => {
+        setDay(w);
+        setRows(w.entries);
+      },
+      (e: Error) => setError(e.message),
+    );
+  }, []);
+  useEffect(() => loadDays(), [loadDays]);
+  useEffect(() => {
+    if (chosen) loadDay(chosen);
+  }, [chosen, loadDay]);
+  useSse('/events', {
+    events: {
+      'time-changed': () => {
+        loadDays();
+        // Don't pull rows from under an edit in progress.
+        if (chosen && (!day || sameRows(rows, day.entries))) loadDay(chosen);
+      },
+    },
+  });
+
+  const act = (p: Promise<TimeDayWire>) => {
+    setBusy(true);
+    setError(null);
+    p.then(
+      (w) => {
+        setDay(w);
+        setRows(w.entries);
+        loadDays();
+      },
+      (e: Error) => setError(e.message),
+    ).finally(() => setBusy(false));
+  };
+
+  const dirty = !!day && !sameRows(rows, day.entries);
+  const total = Math.round(rows.reduce((n, r) => n + (Number.isFinite(r.hours) ? r.hours : 0), 0) * 100) / 100;
+  const step = day?.settings.stepHours ?? 0.25;
+  const setRow = (i: number, change: Partial<TimeEntryWire>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...change } : r)));
+
+  return (
+    <div className="wd-dash-tab-pane wd-tab-time">
+      <header className="wd-tab-header">
+        <h1>Time</h1>
+        {days && (
+          <p className="wd-time-rules">
+            {hoursText(days.settings.dayHours)} a day · Claude time ×{days.settings.multiplier} · {hoursText(days.settings.stepHours)} steps
+            {days.settings.gapTicket ? ` · the rest to ${days.settings.gapTicket}` : ''}
+          </p>
+        )}
+      </header>
+      {days && !days.settings.gapTicket && (
+        <p className="wd-time-hint">
+          No ticket for the rest of the day is set, so it stays unallocated. Set <code>time.gapTicket</code> (and{' '}
+          <code>time.timeOffTicket</code>) in config.json.
+        </p>
+      )}
+      {error && (
+        <p className="wd-time-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="wd-time-body">
+        <ul className="wd-time-days" aria-label="Days">
+          {days === null && <li className="wd-time-note">Loading…</li>}
+          {days?.days.map((d) => (
+            <li key={d.day}>
+              <button
+                type="button"
+                className={'wd-time-day' + (d.day === chosen ? ' wd-time-day-on' : '')}
+                aria-current={d.day === chosen}
+                onClick={() => setChosen(d.day)}
+              >
+                <span className="wd-time-day-date">{dayLabel(d.day)}</span>
+                <span className={`wd-time-day-status wd-time-status-${d.status}`}>{statusText(d.status)}</span>
+                <span className="wd-time-day-total">{d.total ? hoursText(d.total) : '—'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {day && (
+          <section className="wd-time-detail" aria-label={`Hours on ${dayLabel(day.day)}`}>
+            <div className="wd-time-detail-head">
+              <h2>{dayLabel(day.day)}</h2>
+              <span className={`wd-time-day-status wd-time-status-${day.status}`}>{statusText(day.status)}</span>
+              <span className="wd-time-spacer" />
+              <label className="wd-time-off">
+                <input
+                  type="checkbox"
+                  checked={day.dayOff}
+                  disabled={busy}
+                  onChange={(e) => act(saveTimeDay(day.day, { dayOff: e.target.checked }))}
+                />
+                Day off
+              </label>
+              <button
+                type="button"
+                className="wd-btn-secondary"
+                disabled={busy}
+                onClick={() => act(rebuildTimeDay(day.day))}
+                title="Look at the day's sessions, commits and Jira again"
+              >
+                Gather again
+              </button>
+            </div>
+
+            <table className="wd-time-rows">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Title</th>
+                  <th className="wd-time-num">Hours</th>
+                  <th aria-label="Remove" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td>
+                      <input
+                        className="wd-time-key"
+                        value={r.key}
+                        aria-label="Ticket"
+                        disabled={busy || day.dayOff}
+                        onChange={(e) => setRow(i, { key: e.target.value.toUpperCase() })}
+                      />
+                    </td>
+                    <td className="wd-time-title">{day.titles[r.key] ?? ''}</td>
+                    <td className="wd-time-num">
+                      <input
+                        type="number"
+                        className="wd-time-hours"
+                        aria-label={`Hours on ${r.key}`}
+                        min={step}
+                        step={step}
+                        value={Number.isFinite(r.hours) ? r.hours : ''}
+                        disabled={busy || day.dayOff}
+                        onChange={(e) => setRow(i, { hours: e.target.valueAsNumber })}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="wd-link-button"
+                        aria-label={`Remove ${r.key}`}
+                        disabled={busy || day.dayOff}
+                        onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>
+                    {!day.dayOff && (
+                      <button
+                        type="button"
+                        className="wd-link-button"
+                        disabled={busy}
+                        onClick={() => setRows((rs) => [...rs, { key: '', hours: step * 2 }])}
+                      >
+                        + Add a ticket
+                      </button>
+                    )}
+                  </td>
+                  <td className="wd-time-total-label">Total</td>
+                  <td className={'wd-time-num' + (total !== day.settings.dayHours ? ' wd-time-off-total' : '')}>
+                    {hoursText(total)} / {hoursText(day.settings.dayHours)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+
+            <div className="wd-time-actions">
+              <button
+                type="button"
+                className="wd-btn-primary"
+                disabled={busy || !dirty}
+                onClick={() => act(saveTimeDay(day.day, { entries: rows }))}
+              >
+                Save
+              </button>
+              {dirty && (
+                <button type="button" className="wd-btn-secondary" disabled={busy} onClick={() => setRows(day.entries)}>
+                  Undo changes
+                </button>
+              )}
+              {day.edited && !dirty && (
+                <button
+                  type="button"
+                  className="wd-btn-secondary"
+                  disabled={busy}
+                  onClick={() => act(saveTimeDay(day.day, { entries: null }))}
+                >
+                  Back to the suggestion
+                </button>
+              )}
+              {day.edited && (
+                <span className="wd-time-note">
+                  Suggested: {day.suggested.map((e) => `${e.key} ${hoursText(e.hours)}`).join(', ') || 'nothing'}
+                </span>
+              )}
+            </div>
+
+            <Evidence day={day} onOpenSession={onOpenSession} />
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Evidence({ day, onOpenSession }: { day: TimeDayWire; onOpenSession: (id: string) => void }) {
+  const ev = day.evidence;
+  if (!ev.sessions.length && !ev.commits.length && !ev.jira.length)
+    return (
+      <p className="wd-time-note">
+        {day.builtAt ? 'Nothing found for this day.' : 'Not gathered yet: work does it in the background, or Gather again.'}
+      </p>
+    );
+  return (
+    <div className="wd-time-evidence">
+      <h3>Why</h3>
+      {ev.sessions.length > 0 && (
+        <ul aria-label="Sessions">
+          {ev.sessions.map((s) => (
+            <li key={s.sessionId}>
+              <button type="button" className="wd-link-button" onClick={() => onOpenSession(s.sessionId)}>
+                {s.label}
+              </button>{' '}
+              <span className="wd-time-ev-key">{s.key ?? 'no ticket'}</span> · {s.minutes} min of Claude
+            </li>
+          ))}
+        </ul>
+      )}
+      {ev.commits.length > 0 && (
+        <ul aria-label="Commits">
+          {ev.commits.map((c) => (
+            <li key={c.sha}>
+              <span className="wd-time-ev-key">{c.keys.join(', ') || 'no ticket'}</span> {c.repo}: {c.subject}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ev.jira.length > 0 && (
+        <ul aria-label="Jira">
+          {ev.jira.map((j) => (
+            <li key={j.key}>
+              <span className="wd-time-ev-key">{j.key}</span> {j.summary} — {j.what}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

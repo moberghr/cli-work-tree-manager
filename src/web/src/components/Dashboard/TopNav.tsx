@@ -39,6 +39,7 @@ const TABS: TabDef[] = [
   { key: 'sessions', label: 'Sessions', hotkey: 's' },
   { key: 'start', label: 'Start', hotkey: 'w' },
   { key: 'jira', label: 'Jira', hotkey: 'j' },
+  { key: 'time', label: 'Time', hotkey: 'h' },
 ];
 
 /** Pages reached from a tab show that tab as current: Today and Clean up are Sessions' views. */

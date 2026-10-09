@@ -39,6 +39,8 @@ import { applyPlacePatch, applySectionOp, cleanPlacePatch, cleanSectionOp, type 
 import { prUrl } from '../../core/rail/blocks.js';
 import { buildTimeline } from '../../core/conversations/timeline.js';
 import { createDemoActivity } from './demo-activity.js';
+import { createDemoTime } from './demo-time.js';
+import { localDay, parseEntries } from '../../core/time/time-view.js';
 import { mountDemoReplies } from './demo-replies.js';
 import { cleanStageRef } from '../../core/pr/pr-stage.js';
 import { parsePrRef } from '../../core/pr/pr-ref.js';
@@ -588,6 +590,43 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ sessionId: s.id, launchDir: s.paths[0], paths: s.paths, ...(prompt ? { started: 'started' } : {}) });
   });
   // A PR to start a session on: from the demo's PR list, by number (in `target`) or link.
+  // The Time tab: two weeks of made-up days (demo-time.ts), edits in memory.
+  const demoTime = createDemoTime(() => scenario.clockMs());
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  app.get('/api/time', (c) => {
+    const to = c.req.query('to') ?? localDay(scenario.clockMs());
+    const from = c.req.query('from') ?? localDay(Date.parse(`${to}T12:00:00`) - 13 * 24 * 3600_000);
+    if (!DAY.test(from) || !DAY.test(to) || from > to) return c.json({ error: 'from and to: YYYY-MM-DD, from ≤ to' }, 400);
+    return c.json(demoTime.days(from, to));
+  });
+  app.get('/api/time/:day', (c) => {
+    const day = c.req.param('day');
+    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    return c.json(demoTime.day(day));
+  });
+  app.put('/api/time/:day', async (c) => {
+    const day = c.req.param('day');
+    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    const body = (await c.req.json().catch(() => null)) as { entries?: unknown; dayOff?: unknown } | null;
+    if (!body || (body.entries === undefined && body.dayOff === undefined)) return c.json({ error: 'entries or dayOff' }, 400);
+    const edited =
+      body.entries === undefined ? undefined : body.entries === null ? null : parseEntries(body.entries, demoTime.settings.stepHours);
+    if (body.entries !== undefined && body.entries !== null && edited === null)
+      return c.json({ error: `entries: issue keys, hours in steps of ${demoTime.settings.stepHours}, each key once` }, 400);
+    if (body.dayOff !== undefined && typeof body.dayOff !== 'boolean') return c.json({ error: 'dayOff: boolean' }, 400);
+    const w = demoTime.update(day, {
+      ...(edited !== undefined ? { edited } : {}),
+      ...(typeof body.dayOff === 'boolean' ? { dayOff: body.dayOff } : {}),
+    });
+    broadcast({ event: 'time-changed', data: { day } });
+    return c.json(w);
+  });
+  app.post('/api/time/:day/rebuild', (c) => {
+    const day = c.req.param('day');
+    if (!DAY.test(day)) return c.json({ error: 'day: YYYY-MM-DD' }, 400);
+    return c.json(demoTime.day(day));
+  });
+
   app.get('/api/pr-start', (c) => {
     const ref = parsePrRef(c.req.query('ref') ?? '');
     const target = c.req.query('target') || undefined;

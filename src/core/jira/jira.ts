@@ -97,6 +97,16 @@ async function searchMyIssues(siteUrl: string): Promise<JiraIssue[]> {
   }
 }
 
+/** Issues a JQL search finds (no URLs); [] when acli isn't there or fails. */
+export async function searchIssues(jql: string, limit = 50): Promise<JiraIssue[]> {
+  try {
+    const stdout = await execAsync('acli', ['jira', 'workitem', 'search', '--jql', jql, '--json', '--limit', String(limit)], 15000);
+    return stdout ? parseIssuesJson(stdout, '') : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Combined availability check + issue fetch in one acli probe. Used by
  * the dashboard's Jira pane so a refresh only spawns `acli jira auth

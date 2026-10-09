@@ -26,6 +26,9 @@ export interface WorkConfig {
   ignoredRepos?: string[];
   /** The Jira watch (jira-watch.ts; turned on and off in the Jira tab): at most this many automatic starts a day (default 5). */
   jiraWatch?: { maxPerDay?: number };
+  /** The Time tab's rules (core/time/allocate.ts, defaults in DEFAULT_TIME_SETTINGS), and the Jira
+   *  projects whose keys count in commit subjects (default: the projects of your sessions' keys). */
+  time?: Partial<import('../time/allocate.js').TimeSettings> & { projects?: string[] };
   /** Stacked sessions (stack-sync.ts): bring a parent's new commits into the sessions stacked on it (default true). */
   stacks?: { autoUpdate?: boolean };
   /** The agent that writes work's own summaries — checkpoint names, catch-up, archive summaries, the Jira watch's choice (default `claude`; one without one-shot runs writes none). */

@@ -247,6 +247,28 @@ describe('demo server', () => {
     expect(await get<Check>('/api/branch-check?target=api&branch=fix/')).toMatchObject({ valid: false, free: null });
   });
 
+  it('the Time tab: two weeks of made-up days through the real suggestion; edits and days off kept', async () => {
+    type Days = { days: Array<{ day: string; status: string; total: number }>; settings: { gapTicket: string } };
+    const list = await get<Days>('/api/time');
+    expect(list.settings.gapTicket).toBe('OPS-1');
+    const workday = list.days.find((d) => d.status === 'draft')!;
+    expect(workday.total).toBe(7.5);
+    const day = await get<{ entries: Array<{ key: string; hours: number }>; evidence: { sessions: unknown[] } }>(
+      `/api/time/${workday.day}`,
+    );
+    expect(day.evidence.sessions.length).toBeGreaterThan(0);
+    expect(day.entries.at(-1)?.key).toBe('OPS-1');
+    const put = (body: unknown) =>
+      fetch(server.url + `api/time/${workday.day}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect(await (await put({ entries: [{ key: 'PAY-12', hours: 7.5 }] })).json()).toMatchObject({ status: 'edited', total: 7.5 });
+    expect(await (await put({ dayOff: true })).json()).toMatchObject({ status: 'off', entries: [{ key: 'HR-1', hours: 7.5 }] });
+    expect((await put({ entries: [{ key: 'PAY-12', hours: 1.1 }] })).status).toBe(400);
+  });
+
   it("looks a PR up to work on it: its repo, branch and author; a fork's is refused", async () => {
     const pr = await fetch(server.url + 'api/pr-start?ref=' + encodeURIComponent('https://github.com/example/api/pull/215'));
     expect(pr.status).toBe(200);

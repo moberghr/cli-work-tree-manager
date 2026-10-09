@@ -71,6 +71,9 @@ import { recentProcessTable } from '../core/platform/process.js';
 import { throttleTrailing } from '../core/platform/throttle.js';
 import { mountPrReplyRoutes, openThreadsOfCi } from './routes/pr-reply-routes.js';
 import { applyArchiveRetention } from '../core/archive/archive-retention.js';
+import { defaultTimeDeps } from '../core/time/time-deps.js';
+import { createTimeKeeper, TIME_EVERY_MS } from '../core/time/time-keeper.js';
+import { mountTimeRoutes } from './routes/time-routes.js';
 import { compressQuietCopies, syncConversation, syncConversations } from '../core/conversations/conversation-store.js';
 import { draftCounts } from '../core/pr/pr-replies.js';
 import { bestEffort } from '../core/platform/best-effort.js';
@@ -568,6 +571,21 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
   const sleepTimer = !jobs ? null : setInterval(() => void sleepIdle(), SLEEP_EVERY_MS);
 
+  // The Time tab's days (core/time/time-keeper.ts): today after each turn and
+  // every half hour, and the workdays of the last two weeks not built yet.
+  const timeDeps = defaultTimeDeps();
+  const timeSchedule = !jobs ? null : activity.schedule('time', 'Time: today and missing days', TIME_EVERY_MS);
+  const timeKeeper = !jobs ? null : createTimeKeeper(timeDeps, { activity, changed: () => broadcast('time-changed', {}) });
+  const keepTime = () => {
+    timeSchedule?.next(Date.now() + TIME_EVERY_MS);
+    void timeKeeper?.run();
+  };
+  const timeFirst = !jobs ? null : setTimeout(keepTime, 90_000);
+  timeFirst?.unref?.();
+  timeSchedule?.next(Date.now() + 90_000);
+  const timeTimer = !jobs ? null : setInterval(keepTime, TIME_EVERY_MS);
+  timeTimer?.unref?.();
+
   // Old archived conversations get compressed (archive-retention.ts): a few
   // minutes after start, then daily.
   const RETENTION_EVERY_MS = 24 * 3600_000;
@@ -849,6 +867,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
+      timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)
       // from its first hook on, not only once someone opens it.
@@ -868,6 +887,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
+
+  // The Time tab (core/time): each day's hours per ticket, kept current as you go.
+  mountTimeRoutes(app, { deps: timeDeps, broadcast });
 
   // The sessions list's manual order (drag to reorder).
   mountSessionOrderRoutes(app, { broadcast });
@@ -980,6 +1002,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       if (conversationsFirst) clearTimeout(conversationsFirst);
       if (updatesFirst) clearTimeout(updatesFirst);
       if (updatesTimer) clearInterval(updatesTimer);
+      if (timeFirst) clearTimeout(timeFirst);
+      if (timeTimer) clearInterval(timeTimer);
+      timeKeeper?.stop();
       fs.unwatchFile(desktopFile, onDesktopUpdate);
       for (const t of conversationSyncs.values()) clearTimeout(t);
       clearTimeout(sweepTimer);

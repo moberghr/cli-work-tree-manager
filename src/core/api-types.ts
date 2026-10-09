@@ -524,6 +524,89 @@ export interface SessionWire {
 /** A session's PR stage, as the dashboard gets it. */
 export type PrStageWire = import('./pr/pr-stage.js').PrStage & { seen?: boolean };
 
+// ---- time (the Time tab: a day's hours per ticket) -------------------------
+
+export interface TimeEntryWire {
+  key: string;
+  hours: number;
+}
+
+/** A session that worked that day: its Claude's minutes, and the ticket it is for (null: none known). */
+export interface TimeSessionEvidence {
+  sessionId: string;
+  label: string;
+  key: string | null;
+  minutes: number;
+}
+
+export interface TimeCommitEvidence {
+  repo: string;
+  sha: string;
+  subject: string;
+  keys: string[];
+}
+
+/** An issue you did something to that day in Jira (moved it). */
+export interface TimeJiraEvidence {
+  key: string;
+  summary: string;
+  what: string;
+}
+
+export interface TimeEvidence {
+  sessions: TimeSessionEvidence[];
+  commits: TimeCommitEvidence[];
+  jira: TimeJiraEvidence[];
+}
+
+/** empty: nothing built yet; draft: the suggestion; edited: your rows; off: a day off; not-workday: a weekend or holiday. */
+export type TimeDayStatus = 'empty' | 'draft' | 'edited' | 'off' | 'not-workday';
+
+export interface TimeSettingsWire {
+  dayHours: number;
+  multiplier: number;
+  capHours: number;
+  stepHours: number;
+  minHours: number;
+  gapTicket: string | null;
+  timeOffTicket: string | null;
+}
+
+/** GET /api/time/:day */
+export interface TimeDayWire {
+  day: string;
+  status: TimeDayStatus;
+  workday: boolean;
+  dayOff: boolean;
+  /** What work suggests from the evidence. */
+  suggested: TimeEntryWire[];
+  /** What will be posted: your rows when you edited, else the suggestion. */
+  entries: TimeEntryWire[];
+  edited: boolean;
+  /** Hours of the day no ticket has (no gap ticket set). */
+  unallocated: number;
+  total: number;
+  evidence: TimeEvidence;
+  /** Issue titles, by key. */
+  titles: Record<string, string>;
+  builtAt: string | null;
+  settings: TimeSettingsWire;
+}
+
+export interface TimeDaySummary {
+  day: string;
+  status: TimeDayStatus;
+  workday: boolean;
+  total: number;
+  tickets: number;
+}
+
+/** GET /api/time?from=&to= */
+export interface TimeDaysWire {
+  days: TimeDaySummary[];
+  settings: TimeSettingsWire;
+}
+
 // ---- start on a PR ---------------------------------------------------------
 
 /** The PR a session is started on, as the lookup found it (core/pr/pr-start.ts). */
@@ -860,7 +943,8 @@ export type ActivityKind =
   | 'stacks'
   | 'blocks'
   | 'groups'
-  | 'updates';
+  | 'updates'
+  | 'time';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {

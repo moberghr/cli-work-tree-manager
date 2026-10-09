@@ -62,6 +62,8 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/pr/pr-ref.ts', // pure: a PR's link or number, and its session's first prompt
       'src/core/updates/updates.ts', // pure: versions, release notes, what to offer
       'src/core/diff/diff-points.ts', // pure: the points a diff range runs between
+      'src/core/time/allocate.ts', // pure: a day's suggested hours per ticket
+      'src/core/time/time-view.ts', // pure: the Time tab's days as shown
     ]);
     const allowedPackages = new Set(['hono', 'hono/streaming', 'ws']);
     const offenders: string[] = [];

@@ -34,6 +34,7 @@ import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
 import { ReposTab } from '../components/Dashboard/tabs/ReposTab.js';
 import { JiraTab } from '../components/Dashboard/tabs/JiraTab.js';
+import { TimeTab } from '../components/Dashboard/tabs/TimeTab.js';
 import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
@@ -80,6 +81,7 @@ const TAB_LABEL: Record<DashboardTab, string> = {
   sessions: 'Sessions',
   start: 'Start',
   jira: 'Jira',
+  time: 'Time',
   repos: 'Repos',
   welcome: 'Welcome',
 };
@@ -541,6 +543,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           r: 'repos',
           c: 'cleanup',
           j: 'jira',
+          h: 'time',
           // The old chord for the PRs page: they're on Start.
           p: 'start',
         };
@@ -803,6 +806,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onOpenSession={(id) => openSession(id)}
           />
         );
+        break;
+      case 'time':
+        body = <TimeTab onOpenSession={(id) => openSession(id)} />;
         break;
       case 'repos':
         body = <ReposTab onBack={() => goTab('start')} />;

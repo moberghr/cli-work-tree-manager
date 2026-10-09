@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS worklogs (session_id TEXT NOT NULL, day TEXT NOT NULL
 
 -- How far you have looked at a session's diff: the Diff tab's "Since you last looked" (diff-seen.ts). (v8)
 CREATE TABLE IF NOT EXISTS diff_seen (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- The Time tab: each workday's evidence, suggested hours and your edits (core/time/time-store.ts). (v9)
+CREATE TABLE IF NOT EXISTS time_days (day TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.

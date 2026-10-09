@@ -88,6 +88,39 @@ export async function lookupPr(ref: string, target?: string): Promise<PrToStart>
   throw new Error('error' in body && body.error ? body.error : `${res.status} ${res.statusText}`);
 }
 
+type TimeDaysWire = import('../../../core/api-types.js').TimeDaysWire;
+type TimeDayWire = import('../../../core/api-types.js').TimeDayWire;
+type TimeEntryWire = import('../../../core/api-types.js').TimeEntryWire;
+
+/** The Time tab's days (two weeks back by default). */
+export function fetchTimeDays(): Promise<TimeDaysWire> {
+  return getJson<TimeDaysWire>('/api/time');
+}
+
+export function fetchTimeDay(day: string): Promise<TimeDayWire> {
+  return getJson<TimeDayWire>(`/api/time/${encodeURIComponent(day)}`);
+}
+
+/** Your rows for a day (null: back to the suggestion), or a day off; the server's reason on a refusal. */
+export async function saveTimeDay(day: string, change: { entries?: TimeEntryWire[] | null; dayOff?: boolean }): Promise<TimeDayWire> {
+  const res = await fetch(`/api/time/${encodeURIComponent(day)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(change),
+  });
+  const body = (await res.json().catch(() => ({}))) as TimeDayWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
+}
+
+/** Gather a day's evidence again. */
+export async function rebuildTimeDay(day: string): Promise<TimeDayWire> {
+  const res = await fetch(`/api/time/${encodeURIComponent(day)}/rebuild`, { method: 'POST' });
+  const body = (await res.json().catch(() => ({}))) as TimeDayWire & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  return body;
+}
+
 export function fetchProjects(): Promise<{
   singles: ProjectSummary[];
   groups: ProjectSummary[];
