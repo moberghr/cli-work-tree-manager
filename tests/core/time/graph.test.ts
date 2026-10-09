@@ -54,7 +54,7 @@ describe('the device-code sign-in', () => {
         if (polls === 2) return json({ error: 'slow_down' }, 400);
         return json({ access_token: 'acc-1', refresh_token: 'ref-1', expires_in: 3600 });
       }
-      if (u.includes('/me')) return json({ userPrincipalName: 'you@moberg.hr', id: 'me-1' });
+      if (u.includes('/me')) return json({ userPrincipalName: 'you@example.com', id: 'me-1' });
       return json({}, 404);
     }) as unknown as typeof fetch;
     const login = await startDeviceLogin(APP, fetchImpl, 0);
@@ -62,9 +62,9 @@ describe('the device-code sign-in', () => {
     expect(bodies[0]).toContain('scope=offline_access+User.Read+Calendars.Read+Chat.Read');
     const waits: number[] = [];
     const account = await finishDeviceLogin(APP, login, { fetchImpl, sleep: async (ms) => void waits.push(ms), now: () => 1 });
-    expect(account).toBe('you@moberg.hr');
+    expect(account).toBe('you@example.com');
     expect(waits).toEqual([5000, 5000, 10000]); // slowed down after slow_down
-    expect(graphAccount()).toBe('you@moberg.hr');
+    expect(graphAccount()).toBe('you@example.com');
     const file = path.join(getConfigDir(), 'graph-token.json');
     if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o077).toBe(0);
     expect(await graphToken(APP, fetchImpl, 2)).toBe('acc-1'); // still valid: no refresh
@@ -73,7 +73,7 @@ describe('the device-code sign-in', () => {
   it('an expired token is refreshed; a refused one throws and is said (connect again) until you do; signed out: null', async () => {
     const fetchImpl = vi.fn(async (url: string | URL) => {
       if (String(url).endsWith('/token')) return json({ access_token: 'acc-2', refresh_token: 'ref-2', expires_in: 3600 });
-      return json({ userPrincipalName: 'you@moberg.hr' });
+      return json({ userPrincipalName: 'you@example.com' });
     }) as unknown as typeof fetch;
     expect(await graphToken(APP, fetchImpl, Date.now() + 10 * 3600_000)).toBe('acc-2');
     expect(graphProblem(APP)).toBeNull();
@@ -87,7 +87,7 @@ describe('the device-code sign-in', () => {
     expect(graphProblem(APP)).toBeNull();
     const refused = (async () => json({ error: 'invalid_grant' }, 400)) as unknown as typeof fetch;
     await expect(graphToken(APP, refused, Date.now() + 100 * 3600_000)).rejects.toThrow(EXPIRED);
-    expect(graphAccount()).toBe('you@moberg.hr');
+    expect(graphAccount()).toBe('you@example.com');
     expect(graphProblem(APP)).toBe(EXPIRED);
     await expect(graphToken(APP, fetchImpl)).rejects.toThrow(EXPIRED); // not tried again
     signOutGraph();
@@ -100,17 +100,17 @@ describe('the device-code sign-in', () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
         ? json({ access_token: 'acc-9', refresh_token: 'ref-9', expires_in: 3600 })
-        : json({ userPrincipalName: 'you@moberg.hr' }),
+        : json({ userPrincipalName: 'you@example.com' }),
     ) as unknown as typeof fetch;
     const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
-    await finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1 }); // signed in, as you@moberg.hr
+    await finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1 }); // signed in, as you@example.com
     const meDown = vi.fn(async (url: string | URL) => {
       if (String(url).endsWith('/token')) return json({ access_token: 'acc-10', refresh_token: 'ref-10', expires_in: 3600 });
       throw new Error('network down');
     }) as unknown as typeof fetch;
     expect(await graphToken(APP, meDown, Date.now() + 100 * 3600_000)).toBe('acc-10');
     const file = JSON.parse(fs.readFileSync(path.join(getConfigDir(), 'graph-token.json'), 'utf8')) as Record<string, string>;
-    expect(file).toMatchObject({ refreshToken: 'ref-10', accessToken: 'acc-10', account: 'you@moberg.hr' });
+    expect(file).toMatchObject({ refreshToken: 'ref-10', accessToken: 'acc-10', account: 'you@example.com' });
     signOutGraph();
   });
 
@@ -118,7 +118,7 @@ describe('the device-code sign-in', () => {
     const ok = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
         ? json({ access_token: 'acc-a', refresh_token: 'ref-a', expires_in: 3600 })
-        : json({ userPrincipalName: 'you@moberg.hr' }),
+        : json({ userPrincipalName: 'you@example.com' }),
     ) as unknown as typeof fetch;
     const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
     await finishDeviceLogin(APP, login, { fetchImpl: ok, sleep: async () => {}, now: () => 1 }); // ref-a
@@ -158,7 +158,7 @@ describe('the device-code sign-in', () => {
     const ok = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
         ? json({ access_token: 'acc-1', refresh_token: 'ref-1', expires_in: 3600 })
-        : json({ userPrincipalName: 'you@moberg.hr' }),
+        : json({ userPrincipalName: 'you@example.com' }),
     ) as unknown as typeof fetch;
     const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
     await finishDeviceLogin(APP, login, { fetchImpl: ok, sleep: async () => {}, now: () => 1 });
@@ -167,7 +167,7 @@ describe('the device-code sign-in', () => {
         signOutGraph(); // the user clicks Disconnect now
         return json({ access_token: 'acc-2', refresh_token: 'ref-2', expires_in: 3600 });
       }
-      return json({ userPrincipalName: 'you@moberg.hr' });
+      return json({ userPrincipalName: 'you@example.com' });
     }) as unknown as typeof fetch;
     await graphToken(APP, signOutMidway, Date.now() + 10 * 3600_000);
     expect(graphAccount()).toBeNull();
@@ -178,7 +178,7 @@ describe('the device-code sign-in', () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
       String(url).endsWith('/token')
         ? json({ access_token: 'acc-3', refresh_token: 'ref-3', expires_in: 3600 })
-        : json({ userPrincipalName: 'you@moberg.hr' }),
+        : json({ userPrincipalName: 'you@example.com' }),
     ) as unknown as typeof fetch;
     const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
     await finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1 });
@@ -190,7 +190,7 @@ describe('the device-code sign-in', () => {
 
   it('a sign-in given up on (disconnected, or connecting again) keeps nothing, even when the code is entered after', async () => {
     const fetchImpl = vi.fn(async (url: string | URL) =>
-      String(url).endsWith('/token') ? json({ access_token: 'acc-4', expires_in: 3600 }) : json({ userPrincipalName: 'you@moberg.hr' }),
+      String(url).endsWith('/token') ? json({ access_token: 'acc-4', expires_in: 3600 }) : json({ userPrincipalName: 'you@example.com' }),
     ) as unknown as typeof fetch;
     const login = { userCode: 'X', verificationUri: 'u', deviceCode: 'd', expiresAt: 10, intervalMs: 1 };
     await expect(finishDeviceLogin(APP, login, { fetchImpl, sleep: async () => {}, now: () => 1, cancelled: () => true })).rejects.toThrow(
@@ -358,18 +358,18 @@ describe('meetings and chats', () => {
             {
               createdDateTime: at(8, 14),
               from: { user: { id: 'other' } },
-              body: { content: 'see <a href="https://x.atlassian.net/browse/SSD-2465">SSD-2465</a>, secret plans' },
+              body: { content: 'see <a href="https://x.atlassian.net/browse/OPS-2465">OPS-2465</a>, secret plans' },
             },
-            { createdDateTime: at(7, 10), from: { user: { id: 'me-1' } }, body: { content: 'SD-1 done' } },
-            { createdDateTime: at(6, 10), from: { user: { id: 'other' } }, body: { content: 'only them that day: SD-9' } },
+            { createdDateTime: at(7, 10), from: { user: { id: 'me-1' } }, body: { content: 'APP-1 done' } },
+            { createdDateTime: at(6, 10), from: { user: { id: 'other' } }, body: { content: 'only them that day: APP-9' } },
           ],
         });
       return json({}, 404);
     }) as unknown as typeof fetch;
     const { byDay, incompleteThrough } = await chatsSince('2026-10-06', 'tok', fetchImpl);
     expect(incompleteThrough).toBeNull();
-    expect(byDay.get('2026-10-08')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['on it'], mentions: ['SSD-2465'] }]);
-    expect(byDay.get('2026-10-07')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['SD-1 done'], mentions: ['SD-1'] }]);
+    expect(byDay.get('2026-10-08')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['on it'], mentions: ['OPS-2465'] }]);
+    expect(byDay.get('2026-10-07')).toEqual([{ id: 'c1', chat: 'Payments', messages: 1, sample: ['APP-1 done'], mentions: ['APP-1'] }]);
     expect(byDay.has('2026-10-06')).toBe(false); // you didn't write that day
     expect(JSON.stringify([...byDay.values()])).not.toContain('secret plans');
     expect(asked.filter((u) => u.includes('/chats/c1/'))).toHaveLength(1);

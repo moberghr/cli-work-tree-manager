@@ -10,7 +10,7 @@ vi.mock('node:child_process', () => ({
       null,
       JSON.stringify([
         {
-          key: 'SSD-2465',
+          key: 'OPS-2465',
           fields: { summary: 'EUR merchant', status: { name: 'Waiting for feedback', statusCategory: { key: 'indeterminate' } } },
         },
       ]),
@@ -21,19 +21,19 @@ vi.mock('node:child_process', () => ({
 const { fetchMyIssues, fetchMyIssuesOrThrow, MY_ISSUES_JQL, myAccountId } = await import('../../../src/core/jira/jira.js');
 
 describe('your issues (the Jira tab)', () => {
-  it("open by the status's category, not by resolution: a service desk sets one on issues still open (SSD-2465, Waiting for feedback)", async () => {
+  it("open by the status's category, not by resolution: a service desk sets one on issues still open (OPS-2465, Waiting for feedback)", async () => {
     expect(MY_ISSUES_JQL).not.toMatch(/resolution/i);
     expect(MY_ISSUES_JQL).toContain('statusCategory != Done');
     const issues = await fetchMyIssues();
     expect(calls.find((a) => a.includes('search'))).toContain(MY_ISSUES_JQL);
     expect(issues.map((i) => [i.key, i.status, i.url])).toEqual([
-      ['SSD-2465', 'Waiting for feedback', 'https://example.atlassian.net/browse/SSD-2465'],
+      ['OPS-2465', 'Waiting for feedback', 'https://example.atlassian.net/browse/OPS-2465'],
     ]);
   });
 
   it('for the Jira watch: all of them (paginated, not the 50 most recently updated)', async () => {
     calls.length = 0;
-    expect((await fetchMyIssuesOrThrow()).map((i) => i.key)).toEqual(['SSD-2465']);
+    expect((await fetchMyIssuesOrThrow()).map((i) => i.key)).toEqual(['OPS-2465']);
     const search = calls.find((a) => a.includes('search'))!;
     expect(search).toContain('--paginate');
     expect(search).not.toContain('--limit');

@@ -30,7 +30,7 @@ function normPath(p: string): string {
  * stored session path must canonicalize both sides the same way.
  *
  * Uses `realpathSync.native`: the plain `realpathSync` does NOT expand Windows
- * 8.3 short names (`DOMAGO~1` → `DomagojMedo`), so a session path under a
+ * 8.3 short names (`SAMDEV~1` → `SamDev`), so a session path under a
  * short-name parent would never match git's long-form toplevel. `.native`
  * resolves both 8.3 and symlinks. Falls back to {@link normPath} for paths
  * that don't exist (e.g. unit-test fixtures).

@@ -28,26 +28,26 @@ describe("planDay (what to do to Tempo's day)", () => {
   it('first post: every row, one after another from 09:00', () => {
     const p = planDay(
       [
-        { key: 'SD-1', issueId: 1, seconds: 9000 },
-        { key: 'SD-434', issueId: 434, seconds: 18000 },
+        { key: 'APP-1', issueId: 1, seconds: 9000 },
+        { key: 'APP-434', issueId: 434, seconds: 18000 },
       ],
       [],
       [],
     );
     expect(p.add.map((a) => [a.key, a.startTime])).toEqual([
-      ['SD-1', '09:00:00'],
-      ['SD-434', '11:30:00'],
+      ['APP-1', '09:00:00'],
+      ['APP-434', '11:30:00'],
     ]);
     expect(p.remove).toEqual([]);
   });
 
   it('posted before and still wanted: kept; changed or taken out: removed and the new one posted after what stays', () => {
-    const before = [ours(10, 'SD-1', 1, 9000), ours(11, 'SD-434', 434, 18000)];
+    const before = [ours(10, 'APP-1', 1, 9000), ours(11, 'APP-434', 434, 18000)];
     const p = planDay(
       [
-        { key: 'SD-1', issueId: 1, seconds: 9000 },
-        { key: 'SD-434', issueId: 434, seconds: 14400 },
-        { key: 'SD-2', issueId: 2, seconds: 3600 },
+        { key: 'APP-1', issueId: 1, seconds: 9000 },
+        { key: 'APP-434', issueId: 434, seconds: 14400 },
+        { key: 'APP-2', issueId: 2, seconds: 3600 },
       ],
       [wl(10, 1, 9000), wl(11, 434, 18000, '11:30:00')],
       before,
@@ -55,22 +55,22 @@ describe("planDay (what to do to Tempo's day)", () => {
     expect(p.keep.map((k) => k.tempoWorklogId)).toEqual([10]);
     expect(p.remove.map((k) => k.tempoWorklogId)).toEqual([11]);
     expect(p.add.map((a) => [a.key, a.startTime])).toEqual([
-      ['SD-434', '11:30:00'],
-      ['SD-2', '15:30:00'],
+      ['APP-434', '11:30:00'],
+      ['APP-2', '15:30:00'],
     ]);
   });
 
   it('your own worklogs are never touched; one that already covers a row means it is not posted twice', () => {
     const p = planDay(
       [
-        { key: 'SD-1', issueId: 1, seconds: 3600 },
-        { key: 'SD-2', issueId: 2, seconds: 1800 },
+        { key: 'APP-1', issueId: 1, seconds: 3600 },
+        { key: 'APP-2', issueId: 2, seconds: 1800 },
       ],
-      [wl(50, 1, 3600), wl(51, 99, 1800, '10:00:00')], // by hand: SD-1 an hour (covers the row), another issue after it
+      [wl(50, 1, 3600), wl(51, 99, 1800, '10:00:00')], // by hand: APP-1 an hour (covers the row), another issue after it
       [],
     );
-    expect(p.coveredByHand.map((c) => [c.key, c.tempoWorklogId])).toEqual([['SD-1', 50]]);
-    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '10:30:00']]); // after the 1.5 h by hand
+    expect(p.coveredByHand.map((c) => [c.key, c.tempoWorklogId])).toEqual([['APP-1', 50]]);
+    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['APP-2', '10:30:00']]); // after the 1.5 h by hand
     expect(p.otherByHand.map((w) => w.tempoWorklogId)).toEqual([51]);
     expect(p.remove).toEqual([]);
   });
@@ -79,23 +79,23 @@ describe("planDay (what to do to Tempo's day)", () => {
     const p = planDay(
       [
         { key: 'PAY-1', issueId: 1, seconds: 3 * 3600 },
-        { key: 'SD-2', issueId: 2, seconds: 3600 },
+        { key: 'APP-2', issueId: 2, seconds: 3600 },
       ],
       [wl(50, 1, 2 * 3600)],
       [],
     );
     expect(p.differsByHand).toEqual([{ key: 'PAY-1', issueId: 1, seconds: 10800, handSeconds: 7200 }]);
-    expect(p.add.map((a) => a.key)).toEqual(['SD-2']);
+    expect(p.add.map((a) => a.key)).toEqual(['APP-2']);
     expect(p.otherByHand).toEqual([]);
     const api = { list: vi.fn(async () => [wl(50, 1, 2 * 3600)]), create: vi.fn(async () => 9), remove: vi.fn(async () => {}) };
     const r = await postDay(
       '2026-10-08',
       [
         { key: 'PAY-1', hours: 3 },
-        { key: 'SD-2', hours: 1 },
+        { key: 'APP-2', hours: 1 },
       ],
       [],
-      { api, accountId: 'a', issueId: async (k) => ({ 'PAY-1': 1, 'SD-2': 2 })[k] ?? null },
+      { api, accountId: 'a', issueId: async (k) => ({ 'PAY-1': 1, 'APP-2': 2 })[k] ?? null },
     );
     expect(api.create).toHaveBeenCalledTimes(1);
     expect(r.failed).toEqual([{ key: 'PAY-1', error: 'you logged 2 h on it by hand in Tempo (this row: 3 h): change one of them' }]);
@@ -124,30 +124,30 @@ describe("planDay (what to do to Tempo's day)", () => {
   });
 
   it('a worklog of ours you moved in Tempo: new rows start after where it is now, not where we put it', () => {
-    // Posted SD-1 at 09:00 for 2 h; you moved it to 15:00.
+    // Posted APP-1 at 09:00 for 2 h; you moved it to 15:00.
     const p = planDay(
       [
-        { key: 'SD-1', issueId: 1, seconds: 7200 },
-        { key: 'SD-2', issueId: 2, seconds: 3600 },
+        { key: 'APP-1', issueId: 1, seconds: 7200 },
+        { key: 'APP-2', issueId: 2, seconds: 3600 },
       ],
       [wl(10, 1, 7200, '15:00:00')],
-      [ours(10, 'SD-1', 1, 7200)],
+      [ours(10, 'APP-1', 1, 7200)],
     );
     expect(p.keep.map((k) => k.tempoWorklogId)).toEqual([10]);
-    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '17:00:00']]);
+    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['APP-2', '17:00:00']]);
   });
 
   it('new rows start where what stays ends, by its real start time (not 09:00 plus the hours)', () => {
     // By hand: an hour at 09:00 and two hours at 13:00 → the new row starts at 15:00, overlapping nothing.
-    const p = planDay([{ key: 'SD-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);
-    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['SD-2', '15:00:00']]);
+    const p = planDay([{ key: 'APP-2', issueId: 2, seconds: 10800 }], [wl(50, 99, 3600), wl(51, 98, 7200, '13:00:00')], []);
+    expect(p.add.map((a) => [a.key, a.startTime])).toEqual([['APP-2', '15:00:00']]);
   });
 
   it('never a start at midnight or later (Tempo refuses it): a late row ends at 24:00', () => {
     const p = planDay(
       [
-        { key: 'SD-1', issueId: 1, seconds: 4 * 3600 },
-        { key: 'SD-2', issueId: 2, seconds: 3 * 3600 },
+        { key: 'APP-1', issueId: 1, seconds: 4 * 3600 },
+        { key: 'APP-2', issueId: 2, seconds: 3 * 3600 },
       ],
       [wl(50, 99, 12 * 3600, '09:00:00')], // a 12 h day by hand already: ends at 21:00
       [],
@@ -156,9 +156,9 @@ describe("planDay (what to do to Tempo's day)", () => {
   });
 
   it('a worklog work posted that was deleted in Tempo is forgotten (not deleted again), and its row posted', () => {
-    const p = planDay([{ key: 'SD-1', issueId: 1, seconds: 3600 }], [], [ours(10, 'SD-1', 1, 3600)]);
+    const p = planDay([{ key: 'APP-1', issueId: 1, seconds: 3600 }], [], [ours(10, 'APP-1', 1, 3600)]);
     expect(p.remove).toEqual([]);
-    expect(p.add.map((a) => a.key)).toEqual(['SD-1']);
+    expect(p.add.map((a) => a.key)).toEqual(['APP-1']);
   });
 });
 
@@ -177,11 +177,11 @@ describe('postDay', () => {
     const r = await postDay(
       '2026-10-08',
       [
-        { key: 'SD-1', hours: 2.5 },
-        { key: 'SD-434', hours: 5 },
+        { key: 'APP-1', hours: 2.5 },
+        { key: 'APP-434', hours: 5 },
       ],
       [],
-      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'SD-1': 1, 'SD-434': 434 })[k] ?? null },
+      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'APP-1': 1, 'APP-434': 434 })[k] ?? null },
     );
     expect(a.list).toHaveBeenCalledWith('acc-1', '2026-10-08');
     expect(a.create).toHaveBeenCalledWith({
@@ -193,8 +193,8 @@ describe('postDay', () => {
     });
     expect(r).toMatchObject({ posted: 2, removed: 0, kept: 0, failed: [] });
     expect(r.ours.map((o) => [o.tempoWorklogId, o.key])).toEqual([
-      [100, 'SD-1'],
-      [101, 'SD-434'],
+      [100, 'APP-1'],
+      [101, 'APP-434'],
     ]);
   });
 
@@ -205,37 +205,37 @@ describe('postDay', () => {
     const r = await postDay(
       '2026-10-08',
       [
-        { key: 'SD-1', hours: 1 },
-        { key: 'SD-2', hours: 1 },
+        { key: 'APP-1', hours: 1 },
+        { key: 'APP-2', hours: 1 },
         { key: 'SD-NOPE', hours: 1 },
       ],
-      [ours(10, 'SD-7', 7, 3600)],
-      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'SD-1': 1, 'SD-2': 2 })[k] ?? null },
+      [ours(10, 'APP-7', 7, 3600)],
+      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'APP-1': 1, 'APP-2': 2 })[k] ?? null },
     );
-    expect(r.failed.map((f) => f.key)).toEqual(['SD-NOPE', 'SD-7', 'SD-1']);
+    expect(r.failed.map((f) => f.key)).toEqual(['SD-NOPE', 'APP-7', 'APP-1']);
     expect(r.posted).toBe(1);
-    expect(r.ours.map((o) => o.key).sort()).toEqual(['SD-2', 'SD-7']);
-    expect(r.stuck.map((o) => o.key)).toEqual(['SD-7']);
+    expect(r.ours.map((o) => o.key).sort()).toEqual(['APP-2', 'APP-7']);
+    expect(r.stuck.map((o) => o.key)).toEqual(['APP-7']);
   });
 
   it("a ticket whose old worklog couldn't be removed gets no new one (Tempo would have both)", async () => {
-    // SD-1 was posted at 2 h, now wanted at 3 h; the delete fails.
+    // APP-1 was posted at 2 h, now wanted at 3 h; the delete fails.
     const a = api([wl(10, 1, 7200)]);
     a.remove.mockRejectedValueOnce(new Error('Tempo delete: 429'));
     const r = await postDay(
       '2026-10-08',
       [
-        { key: 'SD-1', hours: 3 },
-        { key: 'SD-2', hours: 1 },
+        { key: 'APP-1', hours: 3 },
+        { key: 'APP-2', hours: 1 },
       ],
-      [ours(10, 'SD-1', 1, 7200)],
-      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'SD-1': 1, 'SD-2': 2 })[k] ?? null },
+      [ours(10, 'APP-1', 1, 7200)],
+      { api: a, accountId: 'acc-1', issueId: async (k) => ({ 'APP-1': 1, 'APP-2': 2 })[k] ?? null },
     );
     expect(a.create).toHaveBeenCalledTimes(1);
     expect(a.create).toHaveBeenCalledWith(expect.objectContaining({ issueId: 2 }));
-    expect(r.failed).toEqual([{ key: 'SD-1', error: 'Tempo delete: 429' }]);
-    expect(r.stuck.map((o) => [o.key, o.seconds])).toEqual([['SD-1', 7200]]);
-    expect(r.ours.map((o) => o.key).sort()).toEqual(['SD-1', 'SD-2']);
+    expect(r.failed).toEqual([{ key: 'APP-1', error: 'Tempo delete: 429' }]);
+    expect(r.stuck.map((o) => [o.key, o.seconds])).toEqual([['APP-1', 7200]]);
+    expect(r.ours.map((o) => o.key).sort()).toEqual(['APP-1', 'APP-2']);
   });
 });
 

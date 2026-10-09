@@ -12,7 +12,7 @@ const at = (minAgo: number) => new Date(Date.now() - minAgo * 60_000).toISOStrin
 const session = (id: string, branch: string, minAgo: number, extra: Partial<SessionSummary> = {}): SessionSummary =>
   ({
     id,
-    target: 'straumur',
+    target: 'acme',
     branch,
     isGroup: false,
     paths: [`C:\\wt\\${id}`],
@@ -47,7 +47,7 @@ describe('switcherResults', () => {
   it('typed: a name or branch starting with it first, then anything that has it, archived last', () => {
     expect(switcherResults(SESSIONS, 'pdf').map((s) => s.id)).toEqual(['a', 'd']); // "PDF speed" starts with it; "update-pdf-lib" has a part that does too, used later
     expect(switcherResults(SESSIONS, 'notes').map((s) => s.id)).toEqual(['c']); // found, though archived
-    expect(switcherResults(SESSIONS, 'stra cards').map((s) => s.id)).toEqual(['b']); // every word, anywhere
+    expect(switcherResults(SESSIONS, 'acm cards').map((s) => s.id)).toEqual(['b']); // every word, anywhere
   });
 
   it('several words rank by each word: the one where every word starts a name part comes first', () => {

@@ -8,7 +8,7 @@ describe('parsePoint / pointParam', () => {
     const points: DiffPoint[] = [
       { kind: 'checkpoint', id: 3 },
       { kind: 'commit', repo: 'backend', sha: SHA },
-      { kind: 'parent', repo: 'straumur-frontend-ai', sha: '604e66a' },
+      { kind: 'parent', repo: 'acme-frontend-ai', sha: '604e66a' },
       { kind: 'head' },
       { kind: 'working' },
     ];

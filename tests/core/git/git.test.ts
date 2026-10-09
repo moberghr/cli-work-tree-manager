@@ -158,7 +158,7 @@ describe('parseWorktreeList', () => {
 
     const feature = entries.find((e) => e.branch === 'feature/test');
     expect(feature).toBeDefined();
-    // On Windows, temp dirs use short paths (DOMAGO~1) but git resolves to long paths.
+    // On Windows, temp dirs use short paths (SAMDEV~1) but git resolves to long paths.
     // Just check the path ends with the expected directory name.
     expect(feature!.path.replace(/\\/g, '/')).toContain('wt-feature');
   });

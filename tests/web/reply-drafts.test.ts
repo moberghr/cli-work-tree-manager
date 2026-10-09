@@ -126,7 +126,7 @@ describe('ReplyDrafts with nothing to post', () => {
   it('an open thread with no draft is listed — the comment, a link, Ask Claude to reply (reported: a count and nothing to see)', async () => {
     const open: OpenReviewThread = {
       threadId: 'PRRT_kwDOfront1',
-      repo: 'straumur-frontend-ai',
+      repo: 'acme-frontend-ai',
       prNumber: 1927,
       url: 'https://gh/1927#r1',
       where: 'payfac-admin/src/pages/inventory/inventory.mutations.ts:53',
@@ -154,7 +154,7 @@ describe('ReplyDrafts with nothing to post', () => {
   it('several threads fold under one heading, and one Ask sends them all in one note — for a plan, nothing changed or pushed', async () => {
     const thread = (n: number): OpenReviewThread => ({
       threadId: `PRRT_${n}`,
-      repo: 'straumur-frontend-ai',
+      repo: 'acme-frontend-ai',
       prNumber: 1944,
       url: `https://gh/1944#r${n}`,
       where: `payfac-admin/src/tab-${n}.tsx:50`,

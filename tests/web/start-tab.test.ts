@@ -53,7 +53,7 @@ const session = (over: Partial<SessionSummary>) =>
   ({ id: 's', target: 'api', branch: 'b', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '', ...over }) as SessionSummary;
 const SESSIONS = [
   session({ id: 'deps', branch: 'chore/deps-update' }),
-  session({ id: 'sd3', branch: 'feat/SD-3', jiraKey: 'SD-3' }),
+  session({ id: 'sd3', branch: 'feat/APP-3', jiraKey: 'APP-3' }),
   session({ id: 'gone', branch: 'feat/cache', archivedAt: '2026-10-01T00:00:00Z' }),
 ];
 
@@ -61,10 +61,10 @@ let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   api.issues = [
-    issue('SD-3', 'Review', 'indeterminate'),
-    issue('SD-1', 'New', 'new'),
-    issue('SD-2', 'In Progress', 'indeterminate'),
-    issue('SD-9', 'Done', 'done'),
+    issue('APP-3', 'Review', 'indeterminate'),
+    issue('APP-1', 'New', 'new'),
+    issue('APP-2', 'In Progress', 'indeterminate'),
+    issue('APP-9', 'Done', 'done'),
   ];
   api.prs = [
     pr({ number: 212, title: 'Updated express and zod', branch: 'chore/deps-update', checksStatus: 'FAILURE' }),
@@ -85,17 +85,17 @@ beforeEach(() => {
     settings: { enabled: false, since: null },
     decisions: [
       {
-        key: 'SD-1',
-        summary: 'Do SD-1',
+        key: 'APP-1',
+        summary: 'Do APP-1',
         url: 'u',
         at: '2026-10-01T10:00:00Z',
         action: 'suggested',
-        target: 'straumur',
+        target: 'acme',
         reason: 'could be either',
       },
       {
-        key: 'SD-2',
-        summary: 'Do SD-2',
+        key: 'APP-2',
+        summary: 'Do APP-2',
         url: 'u',
         at: '2026-10-01T10:00:00Z',
         action: 'started',
@@ -104,7 +104,7 @@ beforeEach(() => {
         reason: 'jobly work',
       },
     ],
-    targets: ['straumur', 'jobly'],
+    targets: ['acme', 'jobly'],
     lastRunAt: null,
     nextRunAt: null,
   };
@@ -160,16 +160,16 @@ describe('Start', () => {
     const keys = [...container.querySelectorAll('section[aria-label="Jira issues assigned to you"] .wd-start-key')].map(
       (k) => k.textContent,
     );
-    expect(keys).toEqual(['SD-1', 'SD-2', 'SD-3']);
+    expect(keys).toEqual(['APP-1', 'APP-2', 'APP-3']);
   });
 
   it('each issue and PR: Start, or a link to the session already on it', async () => {
     const j = renderJira();
     await flush();
-    act(() => rowOf('SD-1').querySelector<HTMLButtonElement>('button')!.click());
-    expect(j.onPickIssue).toHaveBeenCalledWith(expect.objectContaining({ key: 'SD-1' }));
-    const sd3 = rowOf('SD-3').querySelector<HTMLButtonElement>('.wd-start-existing')!;
-    expect(sd3.textContent).toBe('feat/SD-3 →');
+    act(() => rowOf('APP-1').querySelector<HTMLButtonElement>('button')!.click());
+    expect(j.onPickIssue).toHaveBeenCalledWith(expect.objectContaining({ key: 'APP-1' }));
+    const sd3 = rowOf('APP-3').querySelector<HTMLButtonElement>('.wd-start-existing')!;
+    expect(sd3.textContent).toBe('feat/APP-3 →');
     act(() => sd3.click());
     expect(j.onOpenSession).toHaveBeenCalledWith('sd3');
     const p = render();
@@ -305,11 +305,11 @@ describe('Start', () => {
   it('Jira: a watch suggestion: pick a project and Start in it (no dialog); a started one opens its session', async () => {
     const p = renderJira();
     await flush();
-    expect(container.textContent).toContain('not sure where it belongs — maybe straumur');
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Project for SD-1"]')!;
-    expect(select.value).toBe('straumur');
-    await act(async () => button('Start in straumur').click());
-    expect(api.startJiraIssue).toHaveBeenCalledWith('SD-1', 'straumur');
+    expect(container.textContent).toContain('not sure where it belongs — maybe acme');
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Project for APP-1"]')!;
+    expect(select.value).toBe('acme');
+    await act(async () => button('Start in acme').click());
+    expect(api.startJiraIssue).toHaveBeenCalledWith('APP-1', 'acme');
     expect(p.onPickIssue).not.toHaveBeenCalled();
     expect(container.textContent).toContain('started by itself in jobly');
     await act(async () => button('open').click());
@@ -341,7 +341,7 @@ describe('prState, and the session already on a PR or an issue', () => {
     expect(sessionForPr(pr({ branch: 'chore/deps-update' }), SESSIONS)?.id).toBe('deps');
     expect(sessionForPr(pr({ branch: 'feat/cache' }), SESSIONS)).toBeUndefined(); // archived
     expect(sessionForPr(pr({ branch: 'chore/deps-update', repoAlias: 'web' }), SESSIONS)).toBeUndefined();
-    expect(sessionForIssue(issue('SD-3', 'Review', 'indeterminate'), SESSIONS)?.id).toBe('sd3');
+    expect(sessionForIssue(issue('APP-3', 'Review', 'indeterminate'), SESSIONS)?.id).toBe('sd3');
   });
 });
 

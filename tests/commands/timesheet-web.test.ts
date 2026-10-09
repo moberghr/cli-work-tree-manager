@@ -50,7 +50,7 @@ describe('work timesheet, work web there but slow', () => {
   it("post, gather and set don't do it themselves: they say so (it may still be at it)", async () => {
     await expect(run(['post', '2026-10-08'])).rejects.toThrow('exit 1');
     await expect(run(['gather', '2026-10-08'])).rejects.toThrow('exit 1');
-    await expect(run(['set', '2026-10-08', 'SD-1=7.5'])).rejects.toThrow('exit 1');
+    await expect(run(['set', '2026-10-08', 'APP-1=7.5'])).rejects.toThrow('exit 1');
     expect(h.post).not.toHaveBeenCalled();
     expect(h.build).not.toHaveBeenCalled();
     expect(h.update).not.toHaveBeenCalled();

@@ -132,9 +132,9 @@ describe('reply drafts', () => {
       };
     const post = (answer: Awaited<ReturnType<CommandRunner>>) =>
       postReply('s1', T1, 'Agreed', { resolve: true, cwd: home, run: runWith(answer) });
-    expect(await post(threadNow({ me: 'jureperak', last: 'JurePerak' }))).toEqual({
+    expect(await post(threadNow({ me: 'reviewer-a', last: 'Reviewer-A' }))).toEqual({
       ok: false,
-      error: 'the last word in this thread is already yours (@jureperak): a reply would answer yourself',
+      error: 'the last word in this thread is already yours (@reviewer-a): a reply would answer yourself',
     });
     expect(await post(threadNow({ resolved: true }))).toMatchObject({ ok: false, error: expect.stringContaining('resolved') });
     expect(await post({ code: 1, stdout: '', stderr: 'HTTP 401' })).toMatchObject({

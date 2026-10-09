@@ -1,7 +1,7 @@
 /**
  * Ticket hints (config `time.hints`, the timesheet tool's TICKET_HINTS): a
  * workstream whose name doesn't carry its Jira key — a worktree named
- * `tmp-valitor-analysis` that is SSD-2222 "Rapyd reconciliation" — gets its
+ * `tmp-vendor-analysis` that is OPS-2222 "Payment reconciliation" — gets its
  * ticket from the words you list. A hint marked `placeholder` is a ticket
  * still to be created in Jira: the day shows it, and it can't be posted
  * until it exists. Pure (the server, the demo and the SPA share it).

@@ -30,7 +30,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(home, '.work'), { recursive: true });
   vi.spyOn(os, 'homedir').mockReturnValue(home);
   jira.available = true;
-  jira.issues = [{ key: 'SD-1', summary: 'Old one', status: 'New', issuetype: 'Task', priority: 'Low', url: 'u1' }];
+  jira.issues = [{ key: 'APP-1', summary: 'Old one', status: 'New', issuetype: 'Task', priority: 'Low', url: 'u1' }];
   events = [];
   app = new Hono();
   watch = mountJiraWatchRoutes(app, { broadcast: (e) => void events.push(e), lean: true });
@@ -49,7 +49,7 @@ describe('Jira watch routes', () => {
     expect(await (await req('GET', '/api/jira/watch')).json()).toMatchObject({ settings: { enabled: false }, decisions: [] });
     expect((await req('PUT', '/api/jira/watch', { enabled: true })).status).toBe(200);
     expect(events).toContain('jira-watch-changed');
-    expect(readDecision('SD-1')).toMatchObject({ action: 'baseline' });
+    expect(readDecision('APP-1')).toMatchObject({ action: 'baseline' });
     const state = await (await req('GET', '/api/jira/watch')).json();
     expect(state).toMatchObject({ settings: { enabled: true }, decisions: [] });
     expect((await req('PUT', '/api/jira/watch', { enabled: false })).status).toBe(200);
@@ -58,7 +58,7 @@ describe('Jira watch routes', () => {
 
   it('turning it on takes all your issues as there (not the 50 the Jira tab lists): an older one is never "new"', async () => {
     jira.issues = Array.from({ length: 80 }, (_, i) => ({
-      key: `SD-${i + 1}`,
+      key: `APP-${i + 1}`,
       summary: `Issue ${i + 1}`,
       status: 'New',
       issuetype: 'Task',
@@ -71,7 +71,7 @@ describe('Jira watch routes', () => {
       body: JSON.stringify({ enabled: true }),
     });
     expect(res.status).toBe(200);
-    expect(readDecision('SD-80')).toMatchObject({ action: 'baseline' });
+    expect(readDecision('APP-80')).toMatchObject({ action: 'baseline' });
   });
 
   it("won't turn on without acli: it couldn't tell new issues from your backlog", async () => {
@@ -83,11 +83,19 @@ describe('Jira watch routes', () => {
   });
 
   it('dismiss marks a suggestion done with; start refuses a project that is not yours', async () => {
-    saveDecision({ key: 'SD-2', summary: 's', url: 'u', at: new Date().toISOString(), action: 'suggested', target: 'x', reason: 'unsure' });
-    expect((await req('POST', '/api/jira/watch/SD-2/dismiss')).status).toBe(200);
-    expect(readDecision('SD-2')).toMatchObject({ action: 'dismissed' });
-    expect((await req('POST', '/api/jira/watch/SD-2/start', { target: 'not-a-project' })).status).toBe(400);
-    expect((await req('POST', '/api/jira/watch/SD-404/dismiss')).status).toBe(404);
+    saveDecision({
+      key: 'APP-2',
+      summary: 's',
+      url: 'u',
+      at: new Date().toISOString(),
+      action: 'suggested',
+      target: 'x',
+      reason: 'unsure',
+    });
+    expect((await req('POST', '/api/jira/watch/APP-2/dismiss')).status).toBe(200);
+    expect(readDecision('APP-2')).toMatchObject({ action: 'dismissed' });
+    expect((await req('POST', '/api/jira/watch/APP-2/start', { target: 'not-a-project' })).status).toBe(400);
+    expect((await req('POST', '/api/jira/watch/APP-404/dismiss')).status).toBe(404);
   });
 });
 
@@ -97,20 +105,20 @@ describe('what the model is told about your projects', () => {
     const b = path.join(home, 'b');
     fs.mkdirSync(a);
     fs.mkdirSync(b);
-    fs.writeFileSync(path.join(a, 'README.md'), '# a\n\n![badge](x)\n\nThe **payments** backend for Straumur merchants.\n');
+    fs.writeFileSync(path.join(a, 'README.md'), '# a\n\n![badge](x)\n\nThe **payments** backend for Acme merchants.\n');
     fs.writeFileSync(path.join(b, 'package.json'), JSON.stringify({ description: 'Merchant admin frontend' }));
-    expect(aboutRepo(a)).toBe('The payments backend for Straumur merchants.');
+    expect(aboutRepo(a)).toBe('The payments backend for Acme merchants.');
     expect(aboutRepo(b)).toBe('Merchant admin frontend');
     expect(
       watchTargets({
         worktreesRoot: home,
         repos: { backend: a, frontend: b },
-        groups: { straumur: ['backend', 'frontend'] },
+        groups: { acme: ['backend', 'frontend'] },
         copyFiles: [],
       }),
     ).toEqual([
-      { name: 'straumur', kind: 'group', members: ['backend', 'frontend'] },
-      { name: 'backend', kind: 'repo', members: ['a'], about: 'The payments backend for Straumur merchants.' },
+      { name: 'acme', kind: 'group', members: ['backend', 'frontend'] },
+      { name: 'backend', kind: 'repo', members: ['a'], about: 'The payments backend for Acme merchants.' },
       { name: 'frontend', kind: 'repo', members: ['b'], about: 'Merchant admin frontend' },
     ]);
   });

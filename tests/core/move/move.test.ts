@@ -35,10 +35,10 @@ describe('paths on the new computer', () => {
   const join = path.win32.join;
 
   it('the same places under the new home by default; any case and slash of the old one', () => {
-    const rules = remapRules(m, {}, 'C:\\Users\\domagoj', join);
+    const rules = remapRules(m, {}, 'C:\\Users\\sam', join);
     const move = (p: string) => remapPath(p, rules, true, join);
-    expect(move('C:\\Users\\ana\\source\\repos\\api')).toBe('C:\\Users\\domagoj\\source\\repos\\api');
-    expect(move('c:/users/ANA/source/worktrees/api/feat-x')).toBe('C:\\Users\\domagoj\\source\\worktrees\\api\\feat-x');
+    expect(move('C:\\Users\\ana\\source\\repos\\api')).toBe('C:\\Users\\sam\\source\\repos\\api');
+    expect(move('c:/users/ANA/source/worktrees/api/feat-x')).toBe('C:\\Users\\sam\\source\\worktrees\\api\\feat-x');
     // Outside the old home: stays where it was.
     expect(move('D:\\code\\web')).toBe('D:\\code\\web');
     // Only a whole folder name matches.
@@ -46,7 +46,7 @@ describe('paths on the new computer', () => {
   });
 
   it('--repos-root and --worktrees-root put them where you say, each repo in its folder name', () => {
-    const rules = remapRules(m, { reposRoot: 'E:\\repos', worktreesRoot: 'E:\\wt' }, 'C:\\Users\\domagoj', join);
+    const rules = remapRules(m, { reposRoot: 'E:\\repos', worktreesRoot: 'E:\\wt' }, 'C:\\Users\\sam', join);
     const move = (p: string) => remapPath(p, rules, true, join);
     expect(move('D:\\code\\web')).toBe('E:\\repos\\web');
     expect(move('C:\\Users\\ana\\source\\repos\\api')).toBe('E:\\repos\\api');

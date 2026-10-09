@@ -83,7 +83,7 @@ export const timesheetCommand: CommandModule = {
           const entries = rows && parseEntries(rows, defaultTimeDeps().settings().stepHours);
           if (!entries)
             fail(
-              `Rows: KEY=HOURS with hours in steps of ${defaultTimeDeps().settings().stepHours}, each key once (e.g. SD-1=2.5 SD-434=5)`,
+              `Rows: KEY=HOURS with hours in steps of ${defaultTimeDeps().settings().stepHours}, each key once (e.g. APP-1=2.5 APP-434=5)`,
             );
           print(await change(day, { entries }));
         },

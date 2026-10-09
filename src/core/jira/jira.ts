@@ -76,7 +76,7 @@ function parseIssuesJson(stdout: string, siteUrl: string): JiraIssue[] {
 
 /**
  * Your open issues: by the status's category, not `resolution = Unresolved` — service-desk workflows set a
- * resolution on issues still open ("Waiting for feedback", a Review), which hid them from the Jira tab (SSD-2465).
+ * resolution on issues still open ("Waiting for feedback", a Review), which hid them from the Jira tab.
  */
 export const MY_ISSUES_JQL = 'assignee = currentUser() AND statusCategory != Done AND status NOT IN (Archived) ORDER BY updated DESC';
 

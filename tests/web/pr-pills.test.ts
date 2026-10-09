@@ -20,7 +20,7 @@ afterEach(() => {
   container.remove();
 });
 
-const url = (n: number) => `https://github.com/kvika/straumur-backend/pull/${n}`;
+const url = (n: number) => `https://github.com/acme/acme-backend/pull/${n}`;
 const listed = (n: number, isDraft = false): PrInfo => ({
   number: n,
   title: `PR ${n}`,
@@ -31,7 +31,7 @@ const listed = (n: number, isDraft = false): PrInfo => ({
   reviewDecision: 'REVIEW_REQUIRED',
   myReview: 'NONE',
   isMine: true,
-  repoAlias: 'straumur-backend',
+  repoAlias: 'acme-backend',
 });
 // One branch, two PRs (into main and into dev): the PR watch holds only #3530.
 const session = {
@@ -39,7 +39,7 @@ const session = {
   prStage: {
     kind: 'in_review',
     text: 'PR #3530 · waiting for review',
-    prs: [{ repo: 'straumur-backend', number: 3530, url: url(3530), kind: 'in_review' }],
+    prs: [{ repo: 'acme-backend', number: 3530, url: url(3530), kind: 'in_review' }],
     key: 'k',
   },
 } as unknown as SessionSummary;

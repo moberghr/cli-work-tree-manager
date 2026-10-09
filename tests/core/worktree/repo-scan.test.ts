@@ -100,13 +100,13 @@ describe('origins and paths', () => {
 });
 
 describe('aliases', () => {
-  const config = { repos: { 'straumur-backend': '/r/straumur-backend-ai', api: '/r/api' }, groups: { shop: ['api', 'straumur-backend'] } };
+  const config = { repos: { 'acme-backend': '/r/acme-backend-ai', api: '/r/api' }, groups: { shop: ['api', 'acme-backend'] } };
   const taken = (a: string) => a in config.repos || a in config.groups;
 
   it('a folder name, made safe; taken → its parent in front, then -2', () => {
     expect(aliasFromFolder('EFCore.BulkExtensions')).toBe('efcore.bulkextensions');
     expect(aliasFromFolder('My Repo!')).toBe('my-repo');
-    expect(suggestAlias('/r/straumur-backend', taken)).toBe('r-straumur-backend');
+    expect(suggestAlias('/r/acme-backend', taken)).toBe('r-acme-backend');
     expect(suggestAlias('/r/iom/contracts', taken)).toBe('contracts');
   });
 
@@ -120,12 +120,12 @@ describe('aliases', () => {
   });
 
   it('groups: a free, valid name (when made), two enrolled repos or more', () => {
-    expect(groupProblem('shop', ['api', 'straumur-backend'], config, { creating: true })).toMatch(/already exists/);
-    expect(groupProblem('api', ['api', 'straumur-backend'], config, { creating: true })).toMatch(/alias/);
+    expect(groupProblem('shop', ['api', 'acme-backend'], config, { creating: true })).toMatch(/already exists/);
+    expect(groupProblem('api', ['api', 'acme-backend'], config, { creating: true })).toMatch(/alias/);
     expect(groupProblem('pair', ['api'], config, { creating: true })).toMatch(/at least two/);
     expect(groupProblem('pair', ['api', 'ghost'], config, { creating: true })).toMatch(/not enrolled: ghost/);
-    expect(groupProblem('pair', ['api', 'straumur-backend'], config, { creating: true })).toBeNull();
+    expect(groupProblem('pair', ['api', 'acme-backend'], config, { creating: true })).toBeNull();
     // An existing group keeps its name; only its repos are checked.
-    expect(groupProblem('shop', ['api', 'straumur-backend'], config, { creating: false })).toBeNull();
+    expect(groupProblem('shop', ['api', 'acme-backend'], config, { creating: false })).toBeNull();
   });
 });

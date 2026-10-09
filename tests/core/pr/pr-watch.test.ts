@@ -517,7 +517,7 @@ describe('PR watch', () => {
 
   it('merged at the checked-out commit with files left uncommitted: archived (they are saved); commits beyond the merge say what (reported)', () => {
     // fix/pdf-generation-speed: PR merged at the checked-out commit, three files left uncommitted.
-    const repoState = { ...repo('straumur-backend', merged(), false), localSha: 'aaa', dirtyFiles: 3 } as RepoShipState;
+    const repoState = { ...repo('acme-backend', merged(), false), localSha: 'aaa', dirtyFiles: 3 } as RepoShipState;
     repoState.pr = { ...repoState.pr!, headSha: 'aaa' };
     expect(autoArchiveVerdict({ repos: [repoState] }, { lastAccessedAt: ENTERED }, LATER)).toEqual({ archive: true });
     const other = { ...repoState, localSha: 'bbb' } as RepoShipState;
@@ -526,7 +526,7 @@ describe('PR watch', () => {
     });
     const ahead = { ...repoState, dirtyFiles: 0, ahead: 2 } as RepoShipState;
     expect(autoArchiveVerdict({ repos: [ahead] }, { lastAccessedAt: ENTERED }, LATER)).toMatchObject({
-      why: 'straumur-backend: PR merged, but 2 unpushed commits',
+      why: 'acme-backend: PR merged, but 2 unpushed commits',
     });
   });
 

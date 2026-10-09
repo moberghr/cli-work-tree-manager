@@ -64,9 +64,9 @@ describe('findSessionForCwd', () => {
     fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/staging\n');
     const old = session({ target: 'strumur-ops', branch: 'staging', paths: [dir], lastAccessedAt: '2026-01-01T00:00:00Z' });
-    const renamed = session({ target: 'straumur-ops', branch: 'staging', paths: [dir], lastAccessedAt: '2026-09-01T00:00:00Z' });
+    const renamed = session({ target: 'acme-ops', branch: 'staging', paths: [dir], lastAccessedAt: '2026-09-01T00:00:00Z' });
     saveHistory([old, renamed]);
-    expect(findSessionForCwd(dir)?.target).toBe('straumur-ops'); // the oldest used to win
+    expect(findSessionForCwd(dir)?.target).toBe('acme-ops'); // the oldest used to win
     saveHistory([{ ...renamed, archivedAt: '2026-09-30T00:00:00Z' }, old]);
     expect(findSessionForCwd(dir)?.target).toBe('strumur-ops');
     const other = session({ target: 'x', branch: 'feat/other', paths: [dir], lastAccessedAt: '2026-09-30T00:00:00Z' });

@@ -235,10 +235,10 @@ describe('railSessions — hundreds of sessions (reviewed: active ones were hidd
       // 50 old sessions of an alphabetically-first project…
       ...Array.from({ length: 50 }, (_, i) => mk(`old-${i}`, 'app-templates', 200 + i)),
       // …must not push the active work off the rail.
-      mk('active', 'straumur', 0),
-      mk('old-but-blocked', 'straumur', 90, { attention: { state: 'needs_input', seen: false, since: '', updatedAt: '', stale: false } }),
+      mk('active', 'acme', 0),
+      mk('old-but-blocked', 'acme', 90, { attention: { state: 'needs_input', seen: false, since: '', updatedAt: '', stale: false } }),
       mk('old-but-live', 'warp', 90, { ptyStatus: 'running' }),
-      mk('archived', 'straumur', 0, { archivedAt: '2026-09-01' }),
+      mk('archived', 'acme', 0, { archivedAt: '2026-09-01' }),
     ];
     const { current, older } = railSessions(sessions, now);
     expect(current.map((s: { id: string }) => s.id)).toEqual(['active', 'old-but-blocked', 'old-but-live']);

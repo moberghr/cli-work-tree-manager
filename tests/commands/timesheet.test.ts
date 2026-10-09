@@ -26,7 +26,7 @@ beforeEach(() => {
     repos: {},
     groups: {},
     copyFiles: [],
-    time: { gapTicket: 'SD-434', timeOffTicket: 'INT-1' },
+    time: { gapTicket: 'APP-434', timeOffTicket: 'HR-1' },
   });
 });
 afterEach(() => {
@@ -44,15 +44,15 @@ const text = () => out.join('\n').replace(/\x1b\[[0-9;]*m/g, '');
 
 describe('work timesheet', () => {
   it("set: all of a day's rows; show prints them; reset goes back; off books the time-off ticket", async () => {
-    await run(['set', '2026-10-08', 'sd-1=2.5', 'SD-434=5']);
+    await run(['set', '2026-10-08', 'app-1=2.5', 'APP-434=5']);
     expect(readDay('2026-10-08')?.edited).toEqual([
-      { key: 'SD-1', hours: 2.5 },
-      { key: 'SD-434', hours: 5 },
+      { key: 'APP-1', hours: 2.5 },
+      { key: 'APP-434', hours: 5 },
     ]);
     out = [];
     await run(['show', '2026-10-08']);
     expect(text()).toContain('2026-10-08  edited  7.5 / 7.5 h');
-    expect(text()).toMatch(/SD-1\s+2\.5 h/);
+    expect(text()).toMatch(/APP-1\s+2\.5 h/);
     out = [];
     await run(['show', '2026-10-08', '--json']);
     expect(JSON.parse(out[0])).toMatchObject({ day: '2026-10-08', status: 'edited', total: 7.5 });
@@ -60,13 +60,13 @@ describe('work timesheet', () => {
     expect(readDay('2026-10-08')?.edited).toBeNull();
     out = [];
     await run(['off', '2026-10-08']);
-    expect(text()).toContain('INT-1');
+    expect(text()).toContain('HR-1');
     await run(['off', '2026-10-08', '--undo']);
     expect(readDay('2026-10-08')?.dayOff).toBe(false);
   });
 
   it('refuses rows that are not KEY=HOURS in steps, and a day that is not one', async () => {
-    await expect(run(['set', '2026-10-08', 'SD-1=1.1'])).rejects.toThrow('exit 1');
+    await expect(run(['set', '2026-10-08', 'APP-1=1.1'])).rejects.toThrow('exit 1');
     expect(err.join('\n')).toContain('KEY=HOURS');
     await expect(run(['show', 'someday'])).rejects.toThrow('exit 1');
     expect(err.join('\n')).toContain('Not a day: someday');

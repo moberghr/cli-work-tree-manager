@@ -50,16 +50,14 @@ describe("who you are unknown (gh didn't say): nothing is handed over", () => {
           isOutdated: false,
           path: 'a.ts',
           line: 1,
-          comments: [
-            { id: 'c1', author: 'jureperak', association: 'MEMBER', body: '@domagojmedo we are safe here', url: 'u', createdAt: '' },
-          ],
+          comments: [{ id: 'c1', author: 'reviewer-a', association: 'MEMBER', body: '@samdev we are safe here', url: 'u', createdAt: '' }],
         },
       ],
     } as unknown as ReviewFeedback;
     const seen = new Set<string>();
     expect(newFeedback(fb, 's:api:7', { has: (k) => seen.has(k), add: (k) => void seen.add(k) })).toEqual([]);
     expect(openThreadsOf(fb)).toEqual([]);
-    expect(newFeedback({ ...fb, viewer: 'domagojmedo' }, 's:api:7', { has: () => false, add: () => {} })).toHaveLength(1);
+    expect(newFeedback({ ...fb, viewer: 'samdev' }, 's:api:7', { has: () => false, add: () => {} })).toHaveLength(1);
   });
 });
 

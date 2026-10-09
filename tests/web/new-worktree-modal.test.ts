@@ -9,10 +9,10 @@ import type { ProjectSummary } from '../../src/web/src/api/panes.js';
 const api = vi.hoisted(() => ({ createWorktree: vi.fn(), checkBranch: vi.fn() }));
 vi.mock('../../src/web/src/api/panes.js', () => ({
   fetchProjects: async () => ({
-    groups: [{ name: 'straumur', kind: 'group', members: ['straumur-backend', 'straumur-frontend'] }],
+    groups: [{ name: 'acme', kind: 'group', members: ['acme-backend', 'acme-frontend'] }],
     singles: [
       { name: 'jobly', kind: 'single', path: 'C:/repos/jobly' },
-      { name: 'straumur-backend', kind: 'single', path: 'C:/repos/straumur-backend-ai' },
+      { name: 'acme-backend', kind: 'single', path: 'C:/repos/acme-backend-ai' },
       { name: 'work-tree', kind: 'single', path: 'C:/repos/work-tree' },
     ],
   }),
@@ -65,13 +65,13 @@ async function open(props: Record<string, unknown> = {}) {
 describe('the project field', () => {
   it('every word must match the name, a group’s repos or the folder', () => {
     const all: ProjectSummary[] = [
-      { name: 'straumur', kind: 'group', members: ['straumur-backend', 'straumur-frontend'] },
+      { name: 'acme', kind: 'group', members: ['acme-backend', 'acme-frontend'] },
       { name: 'jobly', kind: 'single', path: 'C:/repos/jobly' },
-      { name: 'straumur-backend', kind: 'single', path: 'C:/repos/straumur-backend-ai' },
+      { name: 'acme-backend', kind: 'single', path: 'C:/repos/acme-backend-ai' },
     ];
     expect(matchProjects(all, 'job').map((p) => p.name)).toEqual(['jobly']);
-    expect(matchProjects(all, 'Straumur FRONT').map((p) => p.name)).toEqual(['straumur']);
-    expect(matchProjects(all, 'backend-ai').map((p) => p.name)).toEqual(['straumur-backend']);
+    expect(matchProjects(all, 'Acme FRONT').map((p) => p.name)).toEqual(['acme']);
+    expect(matchProjects(all, 'backend-ai').map((p) => p.name)).toEqual(['acme-backend']);
     expect(matchProjects(all, '  ').length).toBe(3);
   });
 
@@ -83,14 +83,14 @@ describe('the project field', () => {
     await act(async () => void key(picker(), 'Enter'));
     expect(picker().value).toBe('work-tree');
     expect(api.createWorktree).not.toHaveBeenCalled();
-    await act(async () => type(picker(), 'stra'));
+    await act(async () => type(picker(), 'acm'));
     await act(async () => void key(picker(), 'ArrowDown'));
     await act(async () => void key(picker(), 'Enter'));
-    expect(picker().value).toBe('straumur-backend');
+    expect(picker().value).toBe('acme-backend');
     await act(async () => type(picker(), 'zzz'));
     expect(container.textContent).toContain('No project matches');
     await act(async () => void key(picker(), 'Escape'));
-    expect(picker().value).toBe('straumur-backend'); // back to what was picked
+    expect(picker().value).toBe('acme-backend'); // back to what was picked
     expect(onClose).not.toHaveBeenCalled();
   });
 });
@@ -116,10 +116,10 @@ describe('the branch is optional for a repo', () => {
   });
 
   it('a group still needs one; and a base needs a branch', async () => {
-    await open({ initial: { target: 'straumur' } });
+    await open({ initial: { target: 'acme' } });
     await submit();
     expect(api.createWorktree).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('straumur is a group: give it a branch');
+    expect(container.textContent).toContain('acme is a group: give it a branch');
     act(() => root.unmount());
     root = createRoot(container);
     await open({ initial: { target: 'jobly', base: 'dev' } });

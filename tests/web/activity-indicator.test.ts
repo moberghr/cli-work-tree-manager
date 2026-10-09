@@ -53,7 +53,7 @@ const RUNNING: ActivityWire = {
       progress: { done: 13, total: 13 },
       summary: '13 sessions · 6 open PRs · 11 unresolved review threads',
       notes: [
-        { at: ago(195_000), level: 'action', text: 'straumur fix/x: archived: every PR merged, nothing uncommitted', sessionId: 's1' },
+        { at: ago(195_000), level: 'action', text: 'acme fix/x: archived: every PR merged, nothing uncommitted', sessionId: 's1' },
         { at: ago(195_000), level: 'info', text: 'api feat/y: a PR is merged, but kept: 2 uncommitted files', sessionId: 's2' },
       ],
     },

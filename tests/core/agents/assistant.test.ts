@@ -135,7 +135,7 @@ describe('the assistant folder', () => {
       'work pr post PRRT_abc --resolve', // writes on GitHub in your name: Claude Code must ask
       'work pr post --all',
       // A day's hours: changed only when asked; posting to Tempo is in your name.
-      'work timesheet set 2026-10-08 SD-1=7.5',
+      'work timesheet set 2026-10-08 APP-1=7.5',
       'work timesheet reset 2026-10-08',
       'work timesheet off 2026-10-08',
       'work timesheet post 2026-10-08',
@@ -239,9 +239,9 @@ describe('POST /api/assistant/context', () => {
     const { describeDayNow } = await import('../../../src/core/time/time-actions.js');
     const { updateDay } = await import('../../../src/core/time/time-store.js');
     expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('On the Time tab: 2026-10-08, empty.');
-    updateDay('2026-10-08', { edited: [{ key: 'SD-1', hours: 7.5 }] });
+    updateDay('2026-10-08', { edited: [{ key: 'APP-1', hours: 7.5 }] });
     expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('On the Time tab: 2026-10-08, edited.');
-    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('Rows: SD-1 7.5 h');
+    expect(readAssistantContext(Date.now(), describeDayNow('2026-10-08'))).toContain('Rows: APP-1 7.5 h');
     await post({ tab: 'time', day: '../etc' });
     expect(assistantContextDay()).toBeNull();
     await post({ tab: 'sessions', day: '2026-10-08' }); // another tab: no day

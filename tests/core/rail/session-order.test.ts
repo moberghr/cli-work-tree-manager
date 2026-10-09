@@ -12,7 +12,7 @@ describe('applyManualOrder', () => {
   });
 
   it('the ones you haven’t placed: newest created first, not by project name (reported: timesheet second after perf-check)', () => {
-    // As the rail hands them over (by project): straumur-backend before timesheet.
+    // As the rail hands them over (by project): acme-backend before timesheet.
     const list = [
       { id: 'perf', createdAt: '2026-10-01T11:31:49Z' },
       { id: 'timesheet', createdAt: '2026-10-02T07:47:25Z' },

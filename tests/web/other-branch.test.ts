@@ -18,12 +18,12 @@ describe('otherBranchText', () => {
         s({
           isGroup: true,
           onOtherBranch: [
-            { repo: 'frontend', branch: 'task/SD-1' },
+            { repo: 'frontend', branch: 'task/APP-1' },
             { repo: 'backend', branch: null },
           ],
         }),
       ),
-    ).toBe('frontend on task/SD-1, backend on a detached HEAD');
+    ).toBe('frontend on task/APP-1, backend on a detached HEAD');
   });
 
   it('a folder with no git left in it: not a git checkout, not "a detached HEAD"', () => {

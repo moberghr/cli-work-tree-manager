@@ -93,7 +93,7 @@ const LIST_VERSION_KEY = 'jira-watch:list-version';
 /**
  * The first sweep on a new LIST_VERSION: every issue it hasn't decided on is
  * recorded as already there (`baseline`) — it was assigned before, the list
- * just didn't show it (an open issue with a resolution: SSD-2465). True when
+ * just didn't show it (an open issue with a resolution: a service desk's). True when
  * it did (nothing else to do this sweep).
  */
 export function adoptListChange(issues: JiraIssue[], now = new Date()): boolean {

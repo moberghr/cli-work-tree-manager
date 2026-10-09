@@ -63,12 +63,12 @@ describe('prSections', () => {
     const watched = (author?: string) =>
       ({
         checkedAt: '',
-        viewer: 'Domagoj',
+        viewer: 'Sam',
         repos: [{ name: 'frontend', done: false, pr: { ...shipPr(1927), ...(author !== undefined ? { author } : {}) } }],
       }) as unknown as SessionCi;
     expect(prSections(watched(), [listed(1927, { author: 'dana', isMine: false })])[0]).toMatchObject({ author: 'dana', mine: false });
     expect(prSections(watched(''), [listed(1927, { author: '' })])[0].author).toBeNull();
-    expect(prSections(watched('domagoj'), [])[0]).toMatchObject({ author: 'domagoj', mine: true }); // the watch's viewer, any case
+    expect(prSections(watched('sam'), [])[0]).toMatchObject({ author: 'sam', mine: true }); // the watch's viewer, any case
     // No viewer known: the list's isMine says.
     const noViewer = {
       checkedAt: '',

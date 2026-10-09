@@ -12,8 +12,8 @@ const settings = {
   capHours: 7,
   stepHours: 0.25,
   minHours: 0.5,
-  gapTicket: 'SD-434',
-  timeOffTicket: 'INT-1',
+  gapTicket: 'APP-434',
+  timeOffTicket: 'HR-1',
   effort: false,
 };
 const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
@@ -22,22 +22,22 @@ const dayWire = (over: Partial<TimeDayWire> = {}): TimeDayWire => ({
   workday: true,
   dayOff: false,
   suggested: [
-    { key: 'SD-1', hours: 2.5 },
-    { key: 'SD-434', hours: 5 },
+    { key: 'APP-1', hours: 2.5 },
+    { key: 'APP-434', hours: 5 },
   ],
   entries: [
-    { key: 'SD-1', hours: 2.5 },
-    { key: 'SD-434', hours: 5 },
+    { key: 'APP-1', hours: 2.5 },
+    { key: 'APP-434', hours: 5 },
   ],
   edited: false,
   unallocated: 0,
   total: 7.5,
   evidence: {
-    sessions: [{ sessionId: 'sess-1', label: 'api · feat/SD-1-x', key: 'SD-1', minutes: 30 }],
-    commits: [{ repo: 'api', sha: 'a1', subject: 'SD-1: the thing', keys: ['SD-1'] }],
+    sessions: [{ sessionId: 'sess-1', label: 'api · feat/APP-1-x', key: 'APP-1', minutes: 30 }],
+    commits: [{ repo: 'api', sha: 'a1', subject: 'APP-1: the thing', keys: ['APP-1'] }],
     jira: [],
   },
-  titles: { 'SD-1': 'The thing', 'SD-434': 'Meetings' },
+  titles: { 'APP-1': 'The thing', 'APP-434': 'Meetings' },
   builtAt: '2026-10-08T15:00:00Z',
   settings,
   posted: null,
@@ -95,7 +95,7 @@ beforeEach(() => {
   api.fetchDay = null;
   api.save.mockReset().mockImplementation(async (_d: string, change: { entries?: unknown; dayOff?: boolean }) =>
     change.dayOff
-      ? dayWire({ status: 'off', dayOff: true, entries: [{ key: 'INT-1', hours: 7.5 }] })
+      ? dayWire({ status: 'off', dayOff: true, entries: [{ key: 'HR-1', hours: 7.5 }] })
       : change.entries === null
         ? dayWire() // back to the suggestion
         : dayWire({ status: 'edited', edited: true, entries: change.entries as TimeDayWire['entries'] }),
@@ -135,7 +135,7 @@ describe('the Time tab', () => {
     expect(rows.map((r) => r.querySelector('.wd-time-title')!.textContent)).toEqual(['The thing', 'Meetings']);
     expect(container.querySelector('.wd-time-rows tfoot')!.textContent).toContain('7.5 h / 7.5 h');
     expect(container.querySelector('.wd-time-evidence')!.textContent).toContain('30 min of Claude');
-    act(() => button('api · feat/SD-1-x').click());
+    act(() => button('api · feat/APP-1-x').click());
     expect(onOpenSession).toHaveBeenCalledWith('sess-1');
   });
 
@@ -146,24 +146,24 @@ describe('the Time tab', () => {
     act(() => setValue(hours[0], '3'));
     act(() => button('+ Add a ticket').click());
     const keys = container.querySelectorAll<HTMLInputElement>('.wd-time-key');
-    act(() => setValue(keys[2], 'sd-9'));
+    act(() => setValue(keys[2], 'app-9'));
     expect(container.querySelector('.wd-time-rows tfoot')!.textContent).toContain('8.5 h / 7.5 h');
     expect(button('Undo changes')).toBeTruthy();
     await act(async () => button('Save').click());
     expect(api.save).toHaveBeenCalledWith('2026-10-08', {
       entries: [
-        { key: 'SD-1', hours: 3 },
-        { key: 'SD-434', hours: 5 },
-        { key: 'SD-9', hours: 0.5 },
+        { key: 'APP-1', hours: 3 },
+        { key: 'APP-434', hours: 5 },
+        { key: 'APP-9', hours: 0.5 },
       ],
     });
     expect(container.querySelector('.wd-time-detail-head .wd-time-day-status')!.textContent).toBe('edited');
   });
 
   it('a day off; back to the suggestion when edited; Gather again', async () => {
-    api.day = dayWire({ status: 'edited', edited: true, entries: [{ key: 'SD-1', hours: 7.5 }] });
+    api.day = dayWire({ status: 'edited', edited: true, entries: [{ key: 'APP-1', hours: 7.5 }] });
     await render();
-    expect(container.textContent).toContain('Suggested: SD-1 2.5 h, SD-434 5 h');
+    expect(container.textContent).toContain('Suggested: APP-1 2.5 h, APP-434 5 h');
     await act(async () => button('Back to the suggestion').click());
     expect(api.save).toHaveBeenCalledWith('2026-10-08', { entries: null });
     await act(async () => container.querySelector<HTMLInputElement>('.wd-time-off input')!.click());
@@ -253,10 +253,10 @@ describe('the Time tab', () => {
     expect(container.querySelector('.wd-time-graph')!.textContent).toContain('enter ABCD-1234 at microsoft.com/devicelogin');
     act(() => root.unmount());
     root = createRoot(container);
-    api.graph = { ...api.graph, account: 'you@moberg.hr' };
+    api.graph = { ...api.graph, account: 'you@example.com' };
     api.disconnect.mockResolvedValue({ ...api.graph, account: null });
     await render();
-    expect(container.querySelector('.wd-time-graph')!.textContent).toContain('meetings and chats from you@moberg.hr');
+    expect(container.querySelector('.wd-time-graph')!.textContent).toContain('meetings and chats from you@example.com');
     await act(async () => button('Disconnect').click());
     expect(api.disconnect).toHaveBeenCalled();
     api.graph = { ...api.graph, account: null };
@@ -265,7 +265,7 @@ describe('the Time tab', () => {
   it('signed in but it stopped working: says why, with Connect again (which shows the code)', async () => {
     api.graph = {
       ...api.graph,
-      account: 'you@moberg.hr',
+      account: 'you@example.com',
       problem: 'The Microsoft sign-in stopped working (expired or revoked): connect again.',
     };
     api.connect.mockResolvedValue({
@@ -286,19 +286,19 @@ describe('the Time tab', () => {
   it('meetings and chats in the evidence; what the AI step placed is marked', async () => {
     api.day = dayWire({
       evidence: {
-        sessions: [{ sessionId: 's', label: 'api · chore/pdf', key: 'SD-2', minutes: 12, guessed: true }],
+        sessions: [{ sessionId: 's', label: 'api · chore/pdf', key: 'APP-2', minutes: 12, guessed: true }],
         commits: [],
         jira: [],
         meetings: [
           { subject: 'Daily standup', start: '09:30', end: '09:45', minutes: 15, key: null },
-          { subject: 'PDF refinement', start: '14:00', end: '15:00', minutes: 60, key: 'SD-2', guessed: true },
+          { subject: 'PDF refinement', start: '14:00', end: '15:00', minutes: 60, key: 'APP-2', guessed: true },
         ],
-        chats: [{ chat: 'Payments', messages: 3, sample: ['x'], key: 'SD-2', guessed: true }],
+        chats: [{ chat: 'Payments', messages: 3, sample: ['x'], key: 'APP-2', guessed: true }],
       },
     });
     await render();
     const ev = container.querySelector('.wd-time-evidence')!;
-    expect(ev.querySelector('[aria-label="Meetings"]')!.textContent).toContain('SD-434 09:30–09:45 Daily standup · 15 min'); // unplaced: the gap ticket
+    expect(ev.querySelector('[aria-label="Meetings"]')!.textContent).toContain('APP-434 09:30–09:45 Daily standup · 15 min'); // unplaced: the gap ticket
     expect(ev.querySelectorAll('.wd-time-ai')).toHaveLength(3);
     expect(ev.querySelector('[aria-label="Chats"]')!.textContent).toContain('Teams: Payments · 3 messages of yours');
   });
@@ -323,20 +323,20 @@ describe('the Time tab', () => {
     act(() => button(new RegExp(`^${dayLabel('2026-10-07')}`)).click());
     await flush();
     // Tuesday answers first, then Monday's old request.
-    await act(async () => waiting.get('2026-10-07')!(dayWire({ day: '2026-10-07', entries: [{ key: 'SD-7', hours: 7.5 }] })));
-    await act(async () => waiting.get('2026-10-08')!(dayWire({ day: '2026-10-08', entries: [{ key: 'SD-8', hours: 7.5 }] })));
+    await act(async () => waiting.get('2026-10-07')!(dayWire({ day: '2026-10-07', entries: [{ key: 'APP-7', hours: 7.5 }] })));
+    await act(async () => waiting.get('2026-10-08')!(dayWire({ day: '2026-10-08', entries: [{ key: 'APP-8', hours: 7.5 }] })));
     const keys = [...container.querySelectorAll<HTMLInputElement>('.wd-time-key')].map((i) => i.value);
-    expect(keys).toEqual(['SD-7']);
+    expect(keys).toEqual(['APP-7']);
   });
 
   it('a resolved ticket and a placeholder are said on their rows; a vacation day is fixed as one', async () => {
-    api.day = dayWire({ resolved: ['SD-1'], placeholders: ['SD-434'] });
+    api.day = dayWire({ resolved: ['APP-1'], placeholders: ['APP-434'] });
     await render();
     const titles = [...container.querySelectorAll('.wd-time-rows tbody .wd-time-title')].map((t) => t.textContent);
     expect(titles).toEqual(['The thingresolved', 'Meetingscreate in Jira first']);
     act(() => root.unmount());
     root = createRoot(container);
-    api.day = dayWire({ dayOff: true, vacation: true, status: 'off', entries: [{ key: 'INT-1', hours: 7.5 }] });
+    api.day = dayWire({ dayOff: true, vacation: true, status: 'off', entries: [{ key: 'HR-1', hours: 7.5 }] });
     await render();
     const box = container.querySelector<HTMLInputElement>('.wd-time-off input')!;
     expect(box.checked).toBe(true);

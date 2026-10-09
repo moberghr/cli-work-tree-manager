@@ -24,8 +24,8 @@ function worktree(name: string, head: string): string {
 
 describe('checkedOutBranch', () => {
   it("reads a worktree's branch through its .git file, and a base checkout's from .git/HEAD", () => {
-    expect(checkedOutBranch(worktree('a', 'ref: refs/heads/task/SD-3937-split-user-system-notes\n'))).toBe(
-      'task/SD-3937-split-user-system-notes',
+    expect(checkedOutBranch(worktree('a', 'ref: refs/heads/task/APP-3937-split-user-system-notes\n'))).toBe(
+      'task/APP-3937-split-user-system-notes',
     );
     fs.mkdirSync(path.join(tmp, 'base', '.git'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'base', '.git', 'HEAD'), 'ref: refs/heads/main\n');
@@ -42,8 +42,8 @@ describe('checkedOutBranch', () => {
 describe('otherBranches (the session wire)', () => {
   it('names the repos on another branch than the session’s, and nothing when they match', () => {
     const wt = worktree('c', 'ref: refs/heads/fix/terminal-encryption-key-nexo\n');
-    const s = { target: 'straumur-backend', branch: 'tmp/encryption-keys', isGroup: false, paths: [wt] };
-    expect(otherBranches(s)).toEqual({ onOtherBranch: [{ repo: 'straumur-backend', branch: 'fix/terminal-encryption-key-nexo' }] });
+    const s = { target: 'acme-backend', branch: 'tmp/encryption-keys', isGroup: false, paths: [wt] };
+    expect(otherBranches(s)).toEqual({ onOtherBranch: [{ repo: 'acme-backend', branch: 'fix/terminal-encryption-key-nexo' }] });
     expect(otherBranches({ ...s, branch: 'fix/terminal-encryption-key-nexo' })).toEqual({});
     expect(otherBranches({ ...s, archivedAt: 'x' })).toEqual({}); // archived: not shown
   });
@@ -51,15 +51,15 @@ describe('otherBranches (the session wire)', () => {
   it('a folder with no git left in it (a removal that stopped halfway) says so — not "detached" (reported)', () => {
     const left = path.join(tmp, 'accounting-missing-payment');
     fs.mkdirSync(path.join(left, 'src'), { recursive: true });
-    const s = { target: 'straumur-backend', branch: 'accounting/missing-payment', isGroup: false, paths: [left] };
-    expect(otherBranches(s)).toEqual({ onOtherBranch: [{ repo: 'straumur-backend', branch: null, noGit: true }] });
+    const s = { target: 'acme-backend', branch: 'accounting/missing-payment', isGroup: false, paths: [left] };
+    expect(otherBranches(s)).toEqual({ onOtherBranch: [{ repo: 'acme-backend', branch: null, noGit: true }] });
   });
 
   it('a group names each repo by its folder', () => {
-    const be = worktree('straumur-backend-ai', 'ref: refs/heads/task/notes-split\n');
-    const fe = worktree('straumur-frontend-ai', 'ref: refs/heads/task/SD-3937\n');
-    expect(otherBranches({ target: 'straumur', branch: 'task/notes-split', isGroup: true, paths: [be, fe] })).toEqual({
-      onOtherBranch: [{ repo: 'straumur-frontend-ai', branch: 'task/SD-3937' }],
+    const be = worktree('acme-backend-ai', 'ref: refs/heads/task/notes-split\n');
+    const fe = worktree('acme-frontend-ai', 'ref: refs/heads/task/APP-3937\n');
+    expect(otherBranches({ target: 'acme', branch: 'task/notes-split', isGroup: true, paths: [be, fe] })).toEqual({
+      onOtherBranch: [{ repo: 'acme-frontend-ai', branch: 'task/APP-3937' }],
     });
   });
 });

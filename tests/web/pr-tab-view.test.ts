@@ -57,7 +57,7 @@ afterEach(() => {
   container.remove();
 });
 
-const session = { id: 's1', target: 'straumur', branch: 'fix/x', isGroup: true, paths: ['/a', '/b'] } as unknown as SessionSummary;
+const session = { id: 's1', target: 'acme', branch: 'fix/x', isGroup: true, paths: ['/a', '/b'] } as unknown as SessionSummary;
 const shipPr = (number: number, over: Record<string, unknown> = {}) => ({
   number,
   url: `https://gh/${number}`,
@@ -100,7 +100,7 @@ describe('the PR tab', () => {
         {
           name: 'frontend',
           done: false,
-          pr: shipPr(1927, { checks: 'fail', failing: [{ name: 'build', url: 'https://ci/1' }], author: 'jureperak' }),
+          pr: shipPr(1927, { checks: 'fail', failing: [{ name: 'build', url: 'https://ci/1' }], author: 'reviewer-a' }),
         },
       ],
     } as unknown as SessionCi;
@@ -108,7 +108,7 @@ describe('the PR tab', () => {
     await render();
     const sections = [...container.querySelectorAll('.wd-pr-section')];
     expect(sections.map((s) => s.querySelector('.wd-pr-name')!.textContent)).toEqual(['frontend #1927', 'backend #3509']);
-    expect(sections[0].querySelector('.wd-pr-author')!.textContent).toBe('by @jureperak'); // who opened it
+    expect(sections[0].querySelector('.wd-pr-author')!.textContent).toBe('by @reviewer-a'); // who opened it
     expect(sections[1].querySelector('.wd-pr-author')).toBeNull(); // not known: nothing said
     expect(sections[0].textContent).toContain('Checks failing: build');
     expect(sections[0].textContent).toContain('2 unresolved review threads with no reply yet');

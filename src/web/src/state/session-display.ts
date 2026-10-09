@@ -88,7 +88,7 @@ export function railGroups(
  * Does a session match the search box? Every word must appear somewhere in
  * its branch, repo, folder, status summary or Jira key (any order, any case)
  * — the folder too, since a repo's alias and folder name can differ
- * (`straumur-backend` lives in `straumur-backend-ai`).
+ * (`acme-backend` lives in `acme-backend-ai`).
  */
 export function sessionMatches(s: SessionSummary, query: string): boolean {
   const words = query.toLowerCase().replace(/\\/g, '/').split(/\s+/).filter(Boolean);

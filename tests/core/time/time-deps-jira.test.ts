@@ -8,11 +8,11 @@ vi.mock('../../../src/core/jira/jira.js', () => ({
   searchIssuesOrThrow: async (q: string, limit?: number) => {
     jql.push(q);
     limits.push(limit);
-    if (q.startsWith('status CHANGED')) return [{ key: 'SD-1', summary: 'Moved', status: 'Review' }];
+    if (q.startsWith('status CHANGED')) return [{ key: 'APP-1', summary: 'Moved', status: 'Review' }];
     if (account.updatedByFails) throw new Error('not supported');
     return [
-      { key: 'SD-1', summary: 'Moved', status: 'Review' },
-      { key: 'SSD-2486', summary: 'Commented on', status: 'Waiting for feedback' },
+      { key: 'APP-1', summary: 'Moved', status: 'Review' },
+      { key: 'OPS-2486', summary: 'Commented on', status: 'Waiting for feedback' },
     ];
   },
   myAccountId: async () => account.id,
@@ -32,8 +32,8 @@ afterEach(() => {
 describe('what you did in Jira that day (time-deps.ts)', () => {
   it('status moves, and anything else you updated (a comment, an edit) by your account id; each issue once', async () => {
     expect(await jiraOn('2026-10-07')).toEqual([
-      { key: 'SD-1', summary: 'Moved', what: 'moved (now Review)' },
-      { key: 'SSD-2486', summary: 'Commented on', what: 'updated by you (a comment or an edit)' },
+      { key: 'APP-1', summary: 'Moved', what: 'moved (now Review)' },
+      { key: 'OPS-2486', summary: 'Commented on', what: 'updated by you (a comment or an edit)' },
     ]);
     // acli refuses currentUser() inside updatedBy(): the account id, and the day's own bounds (not the next day's date).
     expect(jql[0]).toBe('status CHANGED BY currentUser() DURING ("2026/10/07 00:00", "2026/10/08 00:00")');
@@ -49,7 +49,7 @@ describe('what you did in Jira that day (time-deps.ts)', () => {
     expect(jql[1]).toContain('updatedBy("env-acc"');
     delete process.env.JIRA_ACCOUNT_ID;
     account.id = null;
-    expect((await jiraOn('2026-10-07')).map((j) => j.key)).toEqual(['SD-1']);
+    expect((await jiraOn('2026-10-07')).map((j) => j.key)).toEqual(['APP-1']);
     account.id = 'acc-1';
     account.updatedByFails = true;
     await expect(jiraOn('2026-10-07')).rejects.toThrow('not supported');

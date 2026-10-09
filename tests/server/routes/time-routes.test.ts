@@ -11,14 +11,14 @@ import type { WorktreeSession } from '../../../src/core/sessions/session-types.j
 // Each test file has its own HOME (tests/setup): state.db is a throwaway.
 const deps: TimeDeps = {
   sessions: () => [
-    { target: 'api', branch: 'feat/SD-1-x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' } as WorktreeSession,
+    { target: 'api', branch: 'feat/APP-1-x', isGroup: false, paths: [], createdAt: '', lastAccessedAt: '' } as WorktreeSession,
   ],
   minutesOn: async () => 30,
   commits: async () => [],
   jiraMoved: async () => [],
-  titles: async () => ({ 'SD-1': 'One' }),
-  settings: () => ({ ...DEFAULT_TIME_SETTINGS, gapTicket: 'SD-434' }),
-  issueId: async (k) => ({ 'SD-1': 1, 'SD-434': 434, 'SD-9': 9 })[k] ?? null,
+  titles: async () => ({ 'APP-1': 'One' }),
+  settings: () => ({ ...DEFAULT_TIME_SETTINGS, gapTicket: 'APP-434' }),
+  issueId: async (k) => ({ 'APP-1': 1, 'APP-434': 434, 'APP-9': 9 })[k] ?? null,
 };
 
 function app() {
@@ -87,9 +87,9 @@ describe('connecting Outlook and Teams', () => {
       verificationUri: 'https://microsoft.com/devicelogin',
       expiresAt: '2026-10-08T12:15:00.000Z',
     });
-    g.finish('you@moberg.hr');
+    g.finish('you@example.com');
     await new Promise((r) => setTimeout(r, 0));
-    expect(await status(g.a)).toMatchObject({ account: 'you@moberg.hr', login: null });
+    expect(await status(g.a)).toMatchObject({ account: 'you@example.com', login: null });
     expect(g.broadcast).toHaveBeenCalledWith('time-graph-changed', {});
     expect(g.onGraphChanged).toHaveBeenCalled();
     expect(((await (await send(g.a, 'POST', '/api/time/graph/disconnect')).json()) as TimeGraphWire).account).toBeNull();
@@ -107,8 +107,8 @@ describe('connecting Outlook and Teams', () => {
   });
 
   it('signed in but it stopped working: the line says why', async () => {
-    const g = graphApp({ account: () => 'you@moberg.hr', problem: () => 'The Microsoft sign-in stopped working' });
-    expect(await status(g.a)).toMatchObject({ account: 'you@moberg.hr', problem: 'The Microsoft sign-in stopped working' });
+    const g = graphApp({ account: () => 'you@example.com', problem: () => 'The Microsoft sign-in stopped working' });
+    expect(await status(g.a)).toMatchObject({ account: 'you@example.com', problem: 'The Microsoft sign-in stopped working' });
   });
 
   it("a sign-in that fails says why; no app registration: refused with it; GET /api/time/graph isn't a day", async () => {
@@ -169,8 +169,8 @@ describe('posting a day to Tempo', () => {
     const edited = (await (
       await send(a, 'PUT', '/api/time/2026-10-06', {
         entries: [
-          { key: 'SD-1', hours: 2.5 },
-          { key: 'SD-9', hours: 5 },
+          { key: 'APP-1', hours: 2.5 },
+          { key: 'APP-9', hours: 5 },
         ],
       })
     ).json()) as TimeDayWire;
@@ -228,13 +228,13 @@ describe('posting a day to Tempo', () => {
     await send(a, 'POST', '/api/time/2026-10-01/post');
     await send(a, 'PUT', '/api/time/2026-10-01', {
       entries: [
-        { key: 'SD-1', hours: 3 },
-        { key: 'SD-434', hours: 4.5 },
+        { key: 'APP-1', hours: 3 },
+        { key: 'APP-434', hours: 4.5 },
       ],
     });
     api.remove.mockRejectedValueOnce(new Error('Tempo delete: 429'));
     const r = (await (await send(a, 'POST', '/api/time/2026-10-01/post')).json()) as TimePostWire;
-    expect(r.failed.map((f) => f.key)).toEqual(['SD-1']);
+    expect(r.failed.map((f) => f.key)).toEqual(['APP-1']);
     expect(api.day.filter((w) => w.issueId === 1)).toHaveLength(1); // the old 2.5 h only
     expect(r.day.status).toBe('changed');
     const again = (await (await send(a, 'POST', '/api/time/2026-10-01/post')).json()) as TimePostWire;
@@ -274,11 +274,11 @@ describe('posting a day to Tempo', () => {
     const a = tempoApp(slow);
     await send(a, 'POST', '/api/time/2026-09-28/rebuild');
     saveDuring = async () => {
-      await send(a, 'PUT', '/api/time/2026-09-28', { entries: [{ key: 'SD-1', hours: 7.5 }] });
+      await send(a, 'PUT', '/api/time/2026-09-28', { entries: [{ key: 'APP-1', hours: 7.5 }] });
     };
     await send(a, 'POST', '/api/time/2026-09-28/post');
     const day = (await (await a.request('/api/time/2026-09-28')).json()) as TimeDayWire;
-    expect(day.entries).toEqual([{ key: 'SD-1', hours: 7.5 }]); // the save, not the rows the post started with
+    expect(day.entries).toEqual([{ key: 'APP-1', hours: 7.5 }]); // the save, not the rows the post started with
     expect(day.status).toBe('changed'); // Tempo has the earlier rows: post again
   });
 
@@ -336,11 +336,11 @@ describe('time routes', () => {
     const { a, broadcast } = app();
     const built = (await (await send(a, 'POST', '/api/time/2026-10-08/rebuild')).json()) as TimeDayWire;
     expect(built.entries).toEqual([
-      { key: 'SD-1', hours: 2.5 },
-      { key: 'SD-434', hours: 5 },
+      { key: 'APP-1', hours: 2.5 },
+      { key: 'APP-434', hours: 5 },
     ]);
     expect(broadcast).toHaveBeenCalledWith('time-changed', { day: '2026-10-08' });
-    expect(((await (await a.request('/api/time/2026-10-08')).json()) as TimeDayWire).titles['SD-1']).toBe('One');
+    expect(((await (await a.request('/api/time/2026-10-08')).json()) as TimeDayWire).titles['APP-1']).toBe('One');
     const list = (await (await a.request('/api/time?from=2026-10-08&to=2026-10-08')).json()) as TimeDaysWire;
     expect(list.days).toEqual([{ day: '2026-10-08', status: 'draft', workday: true, total: 7.5, tickets: 2 }]);
   });
@@ -348,8 +348,8 @@ describe('time routes', () => {
   it('PUT saves your rows, null goes back to the suggestion, dayOff marks a day off', async () => {
     const { a } = app();
     await send(a, 'POST', '/api/time/2026-10-07/rebuild');
-    const mine = (await (await send(a, 'PUT', '/api/time/2026-10-07', { entries: [{ key: 'SD-9', hours: 7.5 }] })).json()) as TimeDayWire;
-    expect(mine).toMatchObject({ status: 'edited', entries: [{ key: 'SD-9', hours: 7.5 }] });
+    const mine = (await (await send(a, 'PUT', '/api/time/2026-10-07', { entries: [{ key: 'APP-9', hours: 7.5 }] })).json()) as TimeDayWire;
+    expect(mine).toMatchObject({ status: 'edited', entries: [{ key: 'APP-9', hours: 7.5 }] });
     const back = (await (await send(a, 'PUT', '/api/time/2026-10-07', { entries: null })).json()) as TimeDayWire;
     expect(back.status).toBe('draft');
     expect(((await (await send(a, 'PUT', '/api/time/2026-10-07', { dayOff: true })).json()) as TimeDayWire).status).toBe('off');
@@ -358,7 +358,7 @@ describe('time routes', () => {
   it('refuses a bad day, bad rows, an empty change, a bad range', async () => {
     const { a } = app();
     expect((await a.request('/api/time/yesterday')).status).toBe(400);
-    expect((await send(a, 'PUT', '/api/time/2026-10-07', { entries: [{ key: 'SD-9', hours: 1.1 }] })).status).toBe(400);
+    expect((await send(a, 'PUT', '/api/time/2026-10-07', { entries: [{ key: 'APP-9', hours: 1.1 }] })).status).toBe(400);
     expect((await send(a, 'PUT', '/api/time/2026-10-07', { entries: [{ key: 'nope', hours: 1 }] })).status).toBe(400);
     expect((await send(a, 'PUT', '/api/time/2026-10-07', {})).status).toBe(400);
     expect((await send(a, 'PUT', '/api/time/2026-10-07', { dayOff: 'yes' })).status).toBe(400);

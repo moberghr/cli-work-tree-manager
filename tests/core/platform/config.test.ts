@@ -172,22 +172,22 @@ describe("the Time tab's settings (time)", () => {
         worktreesRoot: '/w',
         repos: {},
         time: {
-          gapTicket: 'SD-434',
+          gapTicket: 'APP-434',
           timeOffTicket: 'not a key',
           dayHours: 8,
           multiplier: -1,
           holidays: ['2026-12-25', 'xmas'],
-          projects: ['SD', 'sd'],
+          projects: ['APP', 'app'],
           tempo: { accountId: ' acc-1 ', tokenEnv: 5 },
           graph: { clientId: 'cid' },
         },
       }),
     );
     expect(loadConfig()?.time).toEqual({
-      gapTicket: 'SD-434',
+      gapTicket: 'APP-434',
       dayHours: 8,
       holidays: ['2026-12-25'],
-      projects: ['SD'],
+      projects: ['APP'],
       tempo: { accountId: 'acc-1' },
       graph: { clientId: 'cid' },
     });
@@ -205,10 +205,10 @@ describe("the Time tab's settings (time)", () => {
           vacation: ['2026-07-17', 'summer'],
           catchUpDays: 500,
           hints: {
-            'SSD-2222': { summary: ' Rapyd reconciliation ', matches: ['valitor', 'ab'], placeholder: false },
-            'SD-9001': { matches: ['fix-beta'], placeholder: true },
+            'OPS-2222': { summary: ' Payments reconciliation ', matches: ['vendor', 'ab'], placeholder: false },
+            'APP-9001': { matches: ['fix-beta'], placeholder: true },
             'not-a-key': { matches: ['x-y-z'] },
-            'SD-1': { matches: [] },
+            'APP-1': { matches: [] },
           },
         },
       }),
@@ -218,8 +218,8 @@ describe("the Time tab's settings (time)", () => {
       vacation: ['2026-07-17'],
       catchUpDays: 92,
       hints: {
-        'SSD-2222': { summary: 'Rapyd reconciliation', matches: ['valitor'] },
-        'SD-9001': { matches: ['fix-beta'], placeholder: true },
+        'OPS-2222': { summary: 'Payments reconciliation', matches: ['vendor'] },
+        'APP-9001': { matches: ['fix-beta'], placeholder: true },
       },
     });
   });

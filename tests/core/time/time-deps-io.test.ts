@@ -17,7 +17,7 @@ function io(over: Partial<TimeIo> = {}) {
       if (args[0] === 'config') return { status: 0, stdout: 'jane+work@corp.com\n' };
       return {
         status: 0,
-        stdout: [logLine('a1', at(7, 10), 'SD-1: Tuesday'), logLine('a2', at(8, 10), 'SD-2: Wednesday')].join('\n'),
+        stdout: [logLine('a1', at(7, 10), 'APP-1: Tuesday'), logLine('a2', at(8, 10), 'APP-2: Wednesday')].join('\n'),
       };
     },
     workTime: async () => ({ byDay: [] }),
@@ -100,11 +100,11 @@ describe('what both servers read the same way (time-view.ts)', () => {
   });
 
   it('a change to a day: rows, back to the suggestion, a day off — or why not', () => {
-    expect(dayChange({ entries: [{ key: 'SD-1', hours: 7.5 }] }, 0.25)).toEqual({ edited: [{ key: 'SD-1', hours: 7.5 }] });
+    expect(dayChange({ entries: [{ key: 'APP-1', hours: 7.5 }] }, 0.25)).toEqual({ edited: [{ key: 'APP-1', hours: 7.5 }] });
     expect(dayChange({ entries: null, dayOff: true }, 0.25)).toEqual({ edited: null, dayOff: true });
     expect(dayChange({}, 0.25)).toEqual({ error: 'entries or dayOff' });
     expect(dayChange({ dayOff: 'yes' }, 0.25)).toEqual({ error: 'dayOff: boolean' });
-    expect(dayChange({ entries: [{ key: 'SD-1', hours: 1.1 }] }, 0.25)).toHaveProperty('error');
+    expect(dayChange({ entries: [{ key: 'APP-1', hours: 1.1 }] }, 0.25)).toHaveProperty('error');
   });
 
   it("others' text for a prompt's data fence: one line, no fence marker", () => {

@@ -33,14 +33,14 @@ const session = (id: string, target: string, branch: string, path: string, at = 
     port: null,
   }) as SessionSummary;
 const SESSIONS = [
-  session('a', 'straumur-backend', 'tmp/encryption-keys', 'C:\\repos\\worktrees\\straumur-backend-ai\\tmp-encryption-keys'),
+  session('a', 'acme-backend', 'tmp/encryption-keys', 'C:\\repos\\worktrees\\acme-backend-ai\\tmp-encryption-keys'),
   session('b', 'jobly', 'fix/retries', 'C:\\repos\\worktrees\\jobly\\fix-retries'),
   session('c', 'jobly', 'feat/old-dashboard', 'C:\\repos\\worktrees\\jobly\\feat-old-dashboard', old),
 ];
 
 describe('sessionMatches', () => {
   it('matches every word anywhere: branch, repo, folder, any order and case', () => {
-    expect(sessionMatches(SESSIONS[0], 'straumur-backend-ai')).toBe(true); // the folder, not the alias
+    expect(sessionMatches(SESSIONS[0], 'acme-backend-ai')).toBe(true); // the folder, not the alias
     expect(sessionMatches(SESSIONS[0], 'KEYS tmp')).toBe(true);
     expect(sessionMatches(SESSIONS[0], 'keys jobly')).toBe(false);
     expect(sessionMatches(SESSIONS[1], 'worktrees\\jobly')).toBe(true);
@@ -94,7 +94,7 @@ const key = (el: EventTarget, k: string) =>
 describe('SessionRail search', () => {
   it('filters as you type, older sessions included, and drag is off meanwhile', () => {
     render();
-    expect(names()).toEqual(['fix/retries', 'tmp/encryption-keys']); // the old one is hidden
+    expect(names()).toEqual(['tmp/encryption-keys', 'fix/retries']); // by project (acme, then jobly); the old one is hidden
     type('jobly');
     expect(names().sort()).toEqual(['feat/old-dashboard', 'fix/retries']);
     expect(container.querySelector('li[draggable="true"]')).toBeNull();
