@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  announceChange,
   linkedComments,
   scopeLinkedStoreIds,
   sessionLinkedStoreIds,
@@ -79,5 +80,17 @@ describe('viewersOf: who refetches when a store changed', () => {
   it("a session's store: its Diff tab and every scope page over its worktree", () => {
     expect(viewersOf('s1', [single, group])).toEqual({ sessionIds: ['s1'], scopeHashes: [scopeOf(single.paths)] });
     expect(viewersOf('unknown', [single])).toEqual({ sessionIds: ['unknown'], scopeHashes: [] });
+  });
+});
+
+describe('announceChange: both comment routes tell views the same way', () => {
+  it('each session listing the store by id, each scope page on its stream, with what changed', () => {
+    const told: string[] = [];
+    const tell = {
+      session: (id: string, d: Record<string, unknown>) => void told.push(`session ${id} ${String(d.sessionId)} ${String(d.id)}`),
+      scope: (hash: string, d: Record<string, unknown>) => void told.push(`scope ${hash === d.scopeHash} ${String(d.id)}`),
+    };
+    announceChange(`scope-${scopeOf([backend])}`, [single, group], tell, { id: 'c1' });
+    expect(told).toEqual(['session g1 g1 c1', 'scope true c1']);
   });
 });

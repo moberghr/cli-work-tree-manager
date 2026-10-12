@@ -9,13 +9,16 @@ import type { SessionSummary } from '../../src/web/src/api/client.js';
 // The Diff tab's "Open in browser" and full screen.
 const h = vi.hoisted(() => ({
   pageFor: vi.fn(async (id: string) => `/diff/hash-of-${id}`),
-  lines: vi.fn(async (_hash?: string, _repo?: string, _path?: string, start = 1, end = 1) => ({
+  lines: vi.fn(async (_hash?: string, _repo?: string, _path?: string, start = 1, end = 1, _ref?: string) => ({
     lines: Array.from({ length: end - start + 1 }, (_, i) => `line ${start + i}`),
     start,
     totalLines: 100,
     eof: false,
   })),
   repos: [] as unknown[],
+  history: { entries: [] as unknown[], commits: [] as unknown[] },
+  // A pick's diff waits on this while set: the last one stays on screen (stale).
+  hold: null as Promise<void> | null,
 }));
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
@@ -35,10 +38,13 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
   const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
-    fetchSessionDiff: (sessionId: string) => Promise.resolve({ sessionId, base: 'uncommitted', resolvedBase: 'main', repos: h.repos }),
+    fetchSessionDiff: async (sessionId: string, _base: string, range?: unknown) => {
+      if (range && h.hold) await h.hold;
+      return { sessionId, base: 'uncommitted', resolvedBase: 'main', repos: h.repos };
+    },
     fetchFileLines: (...a: Parameters<typeof h.lines>) => h.lines(...a),
     fetchCheckpoints: () => Promise.resolve([]),
-    fetchSessionHistory: () => Promise.resolve({ entries: [], commits: [] }),
+    fetchSessionHistory: () => Promise.resolve(h.history),
     fetchDiffSeen: () => Promise.resolve(null),
     sessionDiffPage: (id: string) => h.pageFor(id),
   };
@@ -53,6 +59,8 @@ beforeEach(() => {
   h.pageFor.mockClear();
   h.lines.mockClear();
   h.repos = [];
+  h.history = { entries: [], commits: [] };
+  h.hold = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -131,36 +139,7 @@ describe("the Diff tab's own page and full screen", () => {
   });
 
   it("the arrows between hunks, as on wd's own page: lines read through the session's scope, from the working tree here", async () => {
-    h.repos = [
-      {
-        name: 'repo',
-        root: '/tmp/repo',
-        files: [
-          {
-            path: 'src/a.ts',
-            oldPath: 'src/a.ts',
-            newPath: 'src/a.ts',
-            status: 'modified',
-            isBinary: false,
-            added: 1,
-            deleted: 0,
-            hunks: [
-              {
-                oldStart: 20,
-                oldLines: 1,
-                newStart: 20,
-                newLines: 2,
-                context: '',
-                lines: [
-                  { kind: 'context', content: 'kept', oldNum: 20, newNum: 20 },
-                  { kind: 'add', content: 'new', oldNum: null, newNum: 21 },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ];
+    h.repos = oneHunk();
     act(() => root.render(createElement(DiffView, { session: session() })));
     await flush();
     await flush();
@@ -173,4 +152,90 @@ describe("the Diff tab's own page and full screen", () => {
     expect(h.lines).toHaveBeenCalledWith('hash-of-s1', 'repo', 'src/a.ts', expect.any(Number), expect.any(Number), undefined);
     expect(container.textContent).toContain('line 1');
   });
+
+  it('the arrows come when the scope answers, without rebuilding the diff (what you were typing stays)', async () => {
+    h.repos = oneHunk();
+    let answer!: (url: string) => void;
+    h.pageFor.mockImplementationOnce(() => new Promise<string>((r) => (answer = r)));
+    act(() => root.render(createElement(DiffView, { session: session() })));
+    await flush();
+    await flush();
+    expect(container.querySelector('.wd-expander-btn')).toBeNull(); // nothing to read lines through yet
+    const picker = container.querySelector('.wd-history-btn');
+    expect(picker).not.toBeNull();
+    await act(async () => {
+      answer('/diff/hash-of-s1');
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(container.querySelector('.wd-expander-btn')).not.toBeNull();
+    expect(container.querySelector('.wd-history-btn')).toBe(picker); // the same element: nothing was remounted
+  });
+
+  it("reads at the version of the diff on screen: a turn's snapshot (kept under the repo's path) once it shows, not before", async () => {
+    h.repos = oneHunk();
+    h.history = {
+      entries: [
+        { id: 0, ts: '2026-09-01T00:00:00Z', label: 'Initial', repos: { '/tmp/repo': 'snap000' } },
+        { id: 1, ts: '2026-09-01T00:01:00Z', label: 'did it', repos: { '/tmp/repo': 'snap111' } },
+      ],
+      commits: [],
+    };
+    act(() => root.render(createElement(DiffView, { session: session() })));
+    await flush();
+    await flush();
+    let release!: () => void;
+    h.hold = new Promise<void>((r) => (release = r));
+    await act(async () => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+    const turn = [...container.querySelectorAll<HTMLButtonElement>('.wd-history-row')].find(
+      (r) => r.querySelector('.wd-history-tag')!.textContent === 'Turn 1',
+    )!;
+    await act(async () => turn.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await flush();
+    const expand = () =>
+      act(async () => {
+        container.querySelector<HTMLButtonElement>('.wd-expander-btn')!.click();
+        await new Promise((r) => setTimeout(r, 0));
+      });
+    // Still the working tree's diff on screen while the turn loads: read from the working tree.
+    await expand();
+    expect(h.lines.mock.calls.at(-1)?.[5]).toBeUndefined();
+    release();
+    await flush();
+    await flush();
+    await expand();
+    expect(h.lines.mock.calls.at(-1)?.[5]).toBe('snap111');
+  });
 });
+
+function oneHunk() {
+  return [
+    {
+      name: 'repo',
+      root: '/tmp/repo',
+      files: [
+        {
+          path: 'src/a.ts',
+          oldPath: 'src/a.ts',
+          newPath: 'src/a.ts',
+          status: 'modified',
+          isBinary: false,
+          added: 1,
+          deleted: 0,
+          hunks: [
+            {
+              oldStart: 20,
+              oldLines: 1,
+              newStart: 20,
+              newLines: 2,
+              context: '',
+              lines: [
+                { kind: 'context', content: 'kept', oldNum: 20, newNum: 20 },
+                { kind: 'add', content: 'new', oldNum: null, newNum: 21 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}

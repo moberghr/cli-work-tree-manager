@@ -1,6 +1,6 @@
 import type { WorktreeSession } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
-import { getCommentFileStore } from './comment-file-store.js';
+import { readStoresComments } from './comment-file-store.js';
 import { scopeStoreIdsForPaths } from './pending-delivery.js';
 import type { Comment } from './comment-types.js';
 
@@ -36,15 +36,20 @@ export function scopeLinkedStoreIds(hash: string, sessions: LinkedSession[]): st
   return [own, ...new Set(sessions.filter((s) => scopeStoreIdsForPaths(s.paths).includes(own)).map((s) => s.id))];
 }
 
-type Read = (storeId: string) => Comment[];
-const readStore: Read = (id) => getCommentFileStore(id).snapshot();
+export type Read = (storeId: string) => Comment[];
+
+/** These stores read in one query (they're mostly empty: a scope store has rows only once its page was commented on). */
+export function readerFor(storeIds: string[]): Read {
+  const rows = readStoresComments(storeIds);
+  return (id) => rows.get(id) ?? [];
+}
 
 /**
  * Every comment the view shows: the first store's whole, the linked ones'
  * without their drafts (a draft is that view's unsent review; this view's
  * Submit wouldn't send it). Oldest first, each comment once.
  */
-export function linkedComments(storeIds: string[], read: Read = readStore): Comment[] {
+export function linkedComments(storeIds: string[], read: Read = readerFor(storeIds)): Comment[] {
   const seen = new Set<string>();
   const out: Comment[] = [];
   storeIds.forEach((id, i) => {
@@ -58,7 +63,7 @@ export function linkedComments(storeIds: string[], read: Read = readStore): Comm
 }
 
 /** Which of these stores holds the comment (a delete, a resolve or a reply acts there), or null. */
-export function storeHolding(storeIds: string[], commentId: string, read: Read = readStore): string | null {
+export function storeHolding(storeIds: string[], commentId: string, read: Read = readerFor(storeIds)): string | null {
   return storeIds.find((id) => read(id).some((c) => c.id === commentId)) ?? null;
 }
 
@@ -75,4 +80,17 @@ export function viewersOf(storeId: string, sessions: LinkedSession[]): { session
     sessionIds: [storeId],
     scopeHashes: session ? scopeStoreIdsForPaths(session.paths).map((id) => id.slice('scope-'.length)) : [],
   };
+}
+
+/** How a front-end tells a view its comments changed: a session's Diff tab by id, a scope page on its own stream. */
+export interface Tell {
+  session: (sessionId: string, data: Record<string, unknown>) => void;
+  scope: (scopeHash: string, data: Record<string, unknown>) => void;
+}
+
+/** A store changed: every view listing it is told (both comment routes use this, so they can't drift apart). */
+export function announceChange(storeId: string, sessions: LinkedSession[], tell: Tell, data: Record<string, unknown>): void {
+  const { sessionIds, scopeHashes } = viewersOf(storeId, sessions);
+  for (const sessionId of sessionIds) tell.session(sessionId, { ...data, sessionId });
+  for (const scopeHash of scopeHashes) tell.scope(scopeHash, { ...data, scopeHash });
 }

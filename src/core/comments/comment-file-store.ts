@@ -45,6 +45,29 @@ export function readStoreComments(store: string): Comment[] {
   return withDb((d) => readRows(d, store));
 }
 
+/** Several stores' comments in one query, each in its order; a store with none isn't in the map. Caches nothing
+ *  (getCommentFileStore keeps every store it's asked for). */
+export function readStoresComments(stores: string[]): Map<string, Comment[]> {
+  const out = new Map<string, Comment[]>();
+  if (stores.length === 0) return out;
+  const marks = stores.map(() => '?').join(', ');
+  const rows = withDb(
+    (d) =>
+      d.prepare(`SELECT store, data FROM comments WHERE store IN (${marks}) ORDER BY rowid`).all(...stores) as Array<{
+        store: string;
+        data: string;
+      }>,
+  );
+  for (const r of rows) {
+    const c = json.parse(r.data);
+    if (!isComment(c)) continue;
+    const list = out.get(r.store) ?? [];
+    list.push(c);
+    out.set(r.store, list);
+  }
+  return out;
+}
+
 const cache = new Map<string, CommentFileStore>();
 
 export function getCommentFileStore(sessionId: string): CommentFileStore {

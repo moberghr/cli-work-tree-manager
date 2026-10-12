@@ -82,12 +82,10 @@ function MaybeExpand({
   refFor: (repo: string) => string | null | undefined;
   children: ReactNode;
 }) {
-  return scopeHash ? (
-    <ExpandProvider scopeHash={scopeHash} refFor={refFor}>
+  return (
+    <ExpandProvider scopeHash={scopeHash ?? undefined} refFor={refFor} ready={scopeHash !== null}>
       {children}
     </ExpandProvider>
-  ) : (
-    <>{children}</>
   );
 }
 
@@ -218,8 +216,6 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   // side is — the working tree (Uncommitted, Since branch, a span to it), HEAD, a commit, or a turn's snapshot.
   const expandHash = pageUrl?.startsWith('/diff/') ? pageUrl.slice('/diff/'.length) : null;
   const toPoint = range?.to;
-  const toCheckpoint = toPoint?.kind === 'checkpoint' ? entries.find((e) => e.id === toPoint.id) : undefined;
-  const refFor = useMemo(() => (repo: string) => linesRef(toPoint, toCheckpoint?.repos, repo), [toPoint, toCheckpoint]);
   const commitRepo = range
     ? ([range.from, range.to].map((p) => (p.kind === 'commit' || p.kind === 'parent' ? p.repo : null)).find((r) => r) ?? null)
     : null;
@@ -236,6 +232,12 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     () => (range ? fetchSessionDiff(session.id, 'uncommitted', range) : fetchSessionDiff(session.id, base)),
     [session.id, selectionKey(shown), range && pointParam(range.from), range && pointParam(range.to)],
   );
+  // Lines are read at the version of the diff ON SCREEN: a new pick's still loading while the last one shows (stale),
+  // so the point is taken when the diff arrives (stale answers are dropped, so it's the pick it was fetched for).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- on purpose: follows the diff shown, not the pick
+  const shownTo = useMemo(() => toPoint, [diff]);
+  const shownCheckpoint = shownTo?.kind === 'checkpoint' ? entries.find((e) => e.id === shownTo.id) : undefined;
+  const refFor = useMemo(() => (repo: string) => linesRef(shownTo, shownCheckpoint?.repos, repo), [shownTo, shownCheckpoint]);
 
   useSse(`/events?session=${encodeURIComponent(session.id)}`, {
     events: {

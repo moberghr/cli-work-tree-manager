@@ -4,25 +4,29 @@ import { zValidator } from '@hono/zod-validator';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
 import { findSession } from '../../core/sessions/web-state.js';
 import { peekPty, writeToPty } from '../../core/pty/pty-pool.js';
-import { NOTE_NUDGE, readPendingForSession } from '../../core/comments/pending-delivery.js';
+import { NOTE_NUDGE, readPendingForSession, readPendingForWorktree } from '../../core/comments/pending-delivery.js';
 import { readStatus } from '../../core/status/session-status.js';
 import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
 import {
+  announceChange,
   linkedComments,
   linkedSession,
   sessionLinkedStoreIds,
   storeHolding,
-  viewersOf,
   type LinkedSession,
+  type Tell,
 } from '../../core/comments/linked-stores.js';
-import { loadHistory, type WorktreeSession } from '../../core/sessions/history.js';
+import { loadHistory } from '../../core/sessions/history.js';
+
+/** A comments change as a scope page's stream carries it. */
+export type ScopeEvent = { scopeHash: string } & Record<string, unknown>;
 
 export interface MountOptions {
   /** Server-level broadcast — used to emit comments-changed events scoped
    *  by sessionId so the SPA can refetch the right session's comments. */
   broadcast: (event: string, data: unknown) => void;
   /** A `wd` scope's page lists this comment too (linked-stores.ts): tell its stream. */
-  notifyScope?: (scopeHash: string, data: Record<string, unknown>) => void;
+  notifyScope?: (data: ScopeEvent) => void;
 }
 
 /**
@@ -35,36 +39,41 @@ export function mountSessionCommentRoutes(app: Hono, opts: MountOptions): void {
     return findSession(id);
   }
 
-  // What the Diff tab lists: the session's comments, and those made on the browser diff page (its `wd` scopes').
-  const linked = (id: string, session: WorktreeSession): LinkedSession => ({ id, paths: session.paths });
-  const listFor = (id: string, session: WorktreeSession) => linkedComments(sessionLinkedStoreIds(linked(id, session)));
-
-  /** A store changed: every view listing it refetches — the sessions' (by id) and the scope pages' (their own streams). */
-  function changed(id: string, session: WorktreeSession, storeId: string, data: Record<string, unknown>): void {
-    const { sessionIds, scopeHashes } = viewersOf(storeId, [linked(id, session), ...loadHistory().map(linkedSession)]);
-    for (const sessionId of sessionIds) opts.broadcast('comments-changed', { ...data, sessionId });
-    for (const scopeHash of scopeHashes) opts.notifyScope?.(scopeHash, { ...data, scopeHash });
+  /** The session and the stores its Diff tab lists: its own, then its `wd` scopes' (the browser diff page's). */
+  function context(id: string) {
+    const session = requireSession(id);
+    if (!session) return null;
+    const self: LinkedSession = { id, paths: session.paths };
+    return { session, self, ids: sessionLinkedStoreIds(self) };
   }
+  type Context = NonNullable<ReturnType<typeof context>>;
+  const listFor = (ctx: Context) => linkedComments(ctx.ids);
+  const tell: Tell = {
+    session: (_sessionId, data) => opts.broadcast('comments-changed', data),
+    scope: (_scopeHash, data) => opts.notifyScope?.(data as ScopeEvent),
+  };
+  /** A store changed. Which sessions list a scope store takes the history; the session's own store is this one's alone. */
+  const changed = (ctx: Context, storeId: string, data: Record<string, unknown>) =>
+    announceChange(storeId, storeId === ctx.self.id ? [ctx.self] : [ctx.self, ...loadHistory().map(linkedSession)], tell, data);
 
   app.get('/api/sessions/:id/comments', (c) => {
-    const id = c.req.param('id');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
-    return c.json({ comments: listFor(id, session) });
+    const ctx = context(c.req.param('id'));
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
+    return c.json({ comments: listFor(ctx) });
   });
 
   app.post('/api/sessions/:id/comments', zValidator('json', commentInputSchema), (c) => {
     const id = c.req.param('id');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const ctx = context(id);
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
     const input = c.req.valid('json');
     // A reply goes where its thread is: a comment made on the browser diff page is in its scope's store.
-    const home = input.parentId ? (storeHolding(sessionLinkedStoreIds(linked(id, session)), input.parentId) ?? id) : id;
+    const home = input.parentId ? (storeHolding(ctx.ids, input.parentId) ?? id) : id;
     const store = getCommentFileStore(home);
     try {
       // Published there: the other view's drafts aren't listed here, so a draft reply would vanish.
       const comment = store.post(home === id ? input : { ...input, status: 'published' });
-      changed(id, session, home, { id: comment.id });
+      changed(ctx, home, { id: comment.id });
       // If a Claude is sitting in OUR own PTY (the Terminal tab is open
       // for this session), nudge it immediately by writing the pending
       // comments to stdin. The Stop / UserPromptSubmit hooks already
@@ -73,56 +82,53 @@ export function mountSessionCommentRoutes(app: Hono, opts: MountOptions): void {
       // A draft goes nowhere yet (it reaches Claude when the review is submitted).
       const delivery = comment.status === 'published' ? ownedPtyDelivery(id, comment.author) : null;
       if (delivery === 'typed') void typeAndSubmit(id, NOTE_NUDGE).catch(() => false);
-      return c.json({ comment, comments: listFor(id, session), delivery });
+      return c.json({ comment, comments: listFor(ctx), delivery });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }
   });
 
   app.delete('/api/sessions/:id/comments/:cid', (c) => {
-    const id = c.req.param('id');
     const cid = c.req.param('cid');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
-    const home = storeHolding(sessionLinkedStoreIds(linked(id, session)), cid);
-    if (home && getCommentFileStore(home).remove(cid)) changed(id, session, home, { deleted: cid });
-    return c.json({ comments: listFor(id, session) });
+    const ctx = context(c.req.param('id'));
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
+    const home = storeHolding(ctx.ids, cid);
+    if (home && getCommentFileStore(home).remove(cid)) changed(ctx, home, { deleted: cid });
+    return c.json({ comments: listFor(ctx) });
   });
 
   app.post('/api/sessions/:id/comments/:cid/resolve', zValidator('json', resolveSchema), (c) => {
-    const id = c.req.param('id');
     const cid = c.req.param('cid');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
-    const home = storeHolding(sessionLinkedStoreIds(linked(id, session)), cid);
+    const ctx = context(c.req.param('id'));
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
+    const home = storeHolding(ctx.ids, cid);
     const updated = home ? getCommentFileStore(home).setResolved(cid, c.req.valid('json').resolved) : null;
-    if (home && updated) changed(id, session, home, { id: updated.id });
-    return c.json({ comments: listFor(id, session) });
+    if (home && updated) changed(ctx, home, { id: updated.id });
+    return c.json({ comments: listFor(ctx) });
   });
 
   app.post('/api/sessions/:id/submit-review', zValidator('json', submitReviewSchema), (c) => {
     const id = c.req.param('id');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
-    const store = getCommentFileStore(id);
-    const result = store.submit(c.req.valid('json').summary);
-    changed(id, session, id, { submittedCount: result.drafts.length });
+    const ctx = context(id);
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
+    const result = getCommentFileStore(id).submit(c.req.valid('json').summary);
+    changed(ctx, id, { submittedCount: result.drafts.length });
     // The whole review goes to Claude as one message: an idle Claude in
     // our own PTY gets it now, not on its next turn.
     if (result.drafts.length > 0) void deliverViaOwnedPty(id, 'user');
     return c.json({
       count: result.drafts.length,
-      comments: listFor(id, session),
+      comments: listFor(ctx),
     });
   });
 
   app.post('/api/sessions/:id/discard-review', (c) => {
     const id = c.req.param('id');
-    const session = requireSession(id);
-    if (!session) return c.json({ error: 'unknown session' }, 404);
+    const ctx = context(id);
+    if (!ctx) return c.json({ error: 'unknown session' }, 404);
     const discarded = getCommentFileStore(id).discardDrafts();
-    if (discarded > 0) changed(id, session, id, {});
-    return c.json({ discarded, comments: listFor(id, session) });
+    if (discarded > 0) changed(ctx, id, {});
+    return c.json({ discarded, comments: listFor(ctx) });
   });
 }
 
@@ -144,7 +150,7 @@ export function mountSessionCommentRoutes(app: Hono, opts: MountOptions): void {
  * for user-authored comments (Claude's own replies aren't for Claude), and
  * never spawns a PTY (`peekPty` / `writeToPty` don't).
  */
-async function deliverViaOwnedPty(sessionId: string, author: string): Promise<void> {
+export async function deliverViaOwnedPty(sessionId: string, author: string): Promise<void> {
   if (ownedPtyDelivery(sessionId, author) !== 'typed') return;
   await typeAndSubmit(sessionId, NOTE_NUDGE).catch(() => false);
 }
@@ -159,7 +165,9 @@ async function deliverViaOwnedPty(sessionId: string, author: string): Promise<vo
 export function ownedPtyDelivery(sessionId: string, author: string): 'typed' | 'next-turn' | null {
   if (author !== 'user') return null;
   if (!peekPty(sessionId)) return null;
-  if (readPendingForSession(sessionId).length === 0) return null;
+  // Every store the hook hands over: a reply on the Diff tab to a thread from the browser page is in the scope's.
+  const session = findSession(sessionId);
+  if ((session ? readPendingForWorktree(session, sessionId) : readPendingForSession(sessionId)).length === 0) return null;
   return readStatus(sessionId)?.state === 'working' ? 'next-turn' : 'typed';
 }
 

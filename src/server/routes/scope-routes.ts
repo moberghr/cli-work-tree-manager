@@ -41,7 +41,15 @@ import { scopeHashForPaths, sessionOwnsScope } from '../../core/diff/scope-manag
 import { loadHistory } from '../../core/sessions/history.js';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
 import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
-import { linkedComments, linkedSession, scopeLinkedStoreIds, storeHolding, viewersOf } from '../../core/comments/linked-stores.js';
+import {
+  announceChange,
+  linkedComments,
+  linkedSession,
+  scopeLinkedStoreIds,
+  storeHolding,
+  type Tell,
+} from '../../core/comments/linked-stores.js';
+import { deliverViaOwnedPty } from './session-comment-routes.js';
 import { streamSSE } from 'hono/streaming';
 import { report } from '../../core/platform/report.js';
 
@@ -669,15 +677,18 @@ export function mountScopeRoutes(
   }
 
   // The page's stores: the scope's own, then the session(s) whose worktree it covers (the Diff tab's comments).
-  const linkedIds = (hash: string) => scopeLinkedStoreIds(hash, loadHistory().map(linkedSession));
-  const listFor = (hash: string) => linkedComments(linkedIds(hash));
-
-  /** A store changed: every view listing it refetches — the scope pages' (their streams) and the sessions' (by id). */
-  function storeChanged(storeId: string, data: Record<string, unknown>): void {
-    const { sessionIds, scopeHashes } = viewersOf(storeId, loadHistory().map(linkedSession));
-    for (const scopeHash of scopeHashes) emitCommentsChanged({ ...data, scopeHash });
-    for (const sessionId of sessionIds) opts.broadcast('comments-changed', { ...data, sessionId });
+  // Read once a request: the history and, per read, the stores in one query.
+  function context(hash: string) {
+    const sessions = loadHistory().map(linkedSession);
+    return { own: commentStoreIdForScope(hash), sessions, ids: scopeLinkedStoreIds(hash, sessions) };
   }
+  type Context = ReturnType<typeof context>;
+  const listFor = (ctx: Context) => linkedComments(ctx.ids);
+  const tell: Tell = {
+    scope: (_hash, data) => emitCommentsChanged(data as { scopeHash: string }),
+    session: (_id, data) => opts.broadcast('comments-changed', data),
+  };
+  const storeChanged = (ctx: Context, storeId: string, data: Record<string, unknown>) => announceChange(storeId, ctx.sessions, tell, data);
 
   // `?linked=1` (the page) adds the session's comments; without it, the scope's alone — what `wd -c` polls and
   // prints for its Claude, which gets the session's comments through its own hooks.
@@ -685,7 +696,7 @@ export function mountScopeRoutes(
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
     return c.json({
-      comments: c.req.query('linked') === '1' ? listFor(scope.hash) : commentStore(scope.hash).snapshot(),
+      comments: c.req.query('linked') === '1' ? listFor(context(scope.hash)) : commentStore(scope.hash).snapshot(),
       ended: scope.ended,
     });
   });
@@ -693,16 +704,18 @@ export function mountScopeRoutes(
   app.post('/api/scopes/:hash/comments', zValidator('json', commentInputSchema), (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const own = commentStoreIdForScope(scope.hash);
+    const ctx = context(scope.hash);
     const input = c.req.valid('json');
     // A reply goes where its thread is: a comment made on the Diff tab is in the session's store.
-    const home = input.parentId ? (storeHolding(linkedIds(scope.hash), input.parentId) ?? own) : own;
+    const home = input.parentId ? (storeHolding(ctx.ids, input.parentId) ?? ctx.own) : ctx.own;
     const store = getCommentFileStore(home);
     try {
       // Published there: the other view's drafts aren't listed here, so a draft reply would vanish.
-      const comment = store.post(home === own ? input : { ...input, status: 'published' });
-      storeChanged(home, { id: comment.id });
-      return c.json({ comment, comments: listFor(scope.hash) });
+      const comment = store.post(home === ctx.own ? input : { ...input, status: 'published' });
+      storeChanged(ctx, home, { id: comment.id });
+      // In the session's store, it's that session's Claude's: an idle one in the host gets it now, as from the Diff tab.
+      if (home !== ctx.own) void deliverViaOwnedPty(home, comment.author);
+      return c.json({ comment, comments: listFor(ctx) });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }
@@ -711,41 +724,43 @@ export function mountScopeRoutes(
   app.delete('/api/scopes/:hash/comments/:cid', (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const ctx = context(scope.hash);
     const cid = c.req.param('cid');
-    const home = storeHolding(linkedIds(scope.hash), cid);
-    if (home && getCommentFileStore(home).remove(cid)) storeChanged(home, { deleted: cid });
-    return c.json({ comments: listFor(scope.hash) });
+    const home = storeHolding(ctx.ids, cid);
+    if (home && getCommentFileStore(home).remove(cid)) storeChanged(ctx, home, { deleted: cid });
+    return c.json({ comments: listFor(ctx) });
   });
 
   app.post('/api/scopes/:hash/comments/:cid/resolve', zValidator('json', resolveSchema), (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
+    const ctx = context(scope.hash);
     const cid = c.req.param('cid');
-    const home = storeHolding(linkedIds(scope.hash), cid);
+    const home = storeHolding(ctx.ids, cid);
     const updated = home ? getCommentFileStore(home).setResolved(cid, c.req.valid('json').resolved) : null;
-    if (home && updated) storeChanged(home, { id: updated.id });
-    return c.json({ comments: listFor(scope.hash) });
+    if (home && updated) storeChanged(ctx, home, { id: updated.id });
+    return c.json({ comments: listFor(ctx) });
   });
 
   app.post('/api/scopes/:hash/submit-review', zValidator('json', submitReviewSchema), (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const store = commentStore(scope.hash);
-    const result = store.submit(c.req.valid('json').summary);
-    storeChanged(commentStoreIdForScope(scope.hash), { submittedCount: result.drafts.length });
+    const ctx = context(scope.hash);
+    const result = commentStore(scope.hash).submit(c.req.valid('json').summary);
+    storeChanged(ctx, ctx.own, { submittedCount: result.drafts.length });
     return c.json({
       count: result.drafts.length,
-      comments: listFor(scope.hash),
+      comments: listFor(ctx),
     });
   });
 
   app.post('/api/scopes/:hash/discard-review', (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const store = commentStore(scope.hash);
-    const discarded = store.discardDrafts();
-    if (discarded > 0) storeChanged(commentStoreIdForScope(scope.hash), {});
-    return c.json({ discarded, comments: listFor(scope.hash) });
+    const ctx = context(scope.hash);
+    const discarded = commentStore(scope.hash).discardDrafts();
+    if (discarded > 0) storeChanged(ctx, ctx.own, {});
+    return c.json({ discarded, comments: listFor(ctx) });
   });
 
   // End Review button hits this. Sets the scope's `ended` flag so the

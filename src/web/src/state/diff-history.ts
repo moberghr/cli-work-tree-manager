@@ -198,5 +198,9 @@ export function linesRef(
   if (to.kind === 'head') return 'HEAD';
   if (to.kind === 'commit') return to.sha;
   if (to.kind === 'parent') return `${to.sha}^`;
-  return checkpointRepos?.[repo] ?? null;
+  if (!checkpointRepos) return null;
+  // A turn's snapshot is kept per repo root (its full path); the diff names a repo by its folder (as diff-points reads it).
+  if (repo in checkpointRepos) return checkpointRepos[repo] ?? null;
+  const key = Object.keys(checkpointRepos).find((root) => (root.split(/[\\/]/).filter(Boolean).pop() ?? root) === repo);
+  return key ? (checkpointRepos[key] ?? null) : null;
 }

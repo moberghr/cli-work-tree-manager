@@ -15,6 +15,7 @@ import { disposeAllScopes, getScope, markScopeEnded } from '../../../src/core/di
 import { getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
 import { upsertSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
+import { NOTE_NUDGE } from '../../../src/core/comments/pending-delivery.js';
 import { git } from '../../../src/core/git/git.js';
 import { takeCheckpoint, loadManifest } from '../../../src/core/diff/checkpoint.js';
 
@@ -23,6 +24,14 @@ import { takeCheckpoint, loadManifest } from '../../../src/core/diff/checkpoint.
 // a deterministic, instant result.
 vi.mock('../../../src/core/diff/checkpoint-summary.js', () => ({
   summarizeCheckpoint: vi.fn(async () => 'mock summary'),
+}));
+
+// A session's Claude in the host, as a test says (none by default): what a reply from the page types into.
+const pty = vi.hoisted(() => ({ owned: new Set<string>(), writes: [] as string[] }));
+vi.mock('../../../src/core/pty/pty-pool.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/core/pty/pty-pool.js')>()),
+  peekPty: (id: string) => pty.owned.has(id),
+  writeToPty: async (_id: string, text: string) => (pty.writes.push(text), true),
 }));
 
 let tmpHome: string;
@@ -452,11 +461,17 @@ describe("the Diff tab's comments on the browser diff page (one worktree, two st
         .map((c) => c.body),
     ).toEqual(['from the tab', 'tab draft', 'agreed']);
 
+    // An idle Claude in the host gets a reply from the page at once, as one from the Diff tab.
+    pty.owned.add(sessionId);
+    await page.request(`/api/scopes/${hash}/comments`, json({ parentId: onTab.id, body: 'and rename it' }));
+    await vi.waitFor(() => expect(pty.writes[0]).toBe(NOTE_NUDGE), { timeout: 2000 });
+    pty.owned.clear();
+
     await page.request(`/api/scopes/${hash}/comments/${onTab.id}`, { method: 'DELETE' });
     expect(
       getCommentFileStore(sessionId)
         .snapshot()
         .map((c) => c.body),
-    ).toEqual(['tab draft', 'agreed']);
+    ).toEqual(['tab draft', 'agreed', 'and rename it']);
   });
 });

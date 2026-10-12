@@ -488,7 +488,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
 
   // Per-session comments (file-backed). Emits comments-changed via broadcast.
   // Scope pages list a session's comments too, so a change here reaches their streams (scopeApi is mounted later).
-  mountSessionCommentRoutes(app, { broadcast, notifyScope: (_hash, data) => scopeApi?.emitCommentsChanged(data as { scopeHash: string }) });
+  mountSessionCommentRoutes(app, { broadcast, notifyScope: (data) => scopeApi?.emitCommentsChanged(data) });
 
   // Driving a session from outside its terminal: send, start, stop, its screen (`work send` …).
   mountSessionControlRoutes(app, { broadcast });

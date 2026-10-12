@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadHistory, type WorktreeSession } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
-import { getCommentFileStore, readStoreComments } from './comment-file-store.js';
+import { getCommentFileStore, readStoreComments, readStoresComments } from './comment-file-store.js';
 import { scopeHashFor } from '../diff/repo-spec.js';
 import { tx, withDb, type Db } from '../platform/db.js';
 import type { Comment } from './comment-types.js';
@@ -142,21 +142,20 @@ export function scopeStoreIdsForPaths(paths: string[]): string[] {
  * so a comment surfaced here won't be re-delivered regardless of which
  * store it came from.
  */
-export function readPendingForWorktree(session: WorktreeSession): Comment[] {
-  const sessionId = sessionIdFor(session);
+export function readPendingForWorktree(session: WorktreeSession, sessionId: string = sessionIdFor(session)): Comment[] {
   const delivered = withDb((d) => deliveredIds(d, sessionId));
   const pending = isPendingFor(delivered);
+  const storeIds = [sessionId, ...scopeStoreIdsForPaths(session.paths)];
+  const rows = readStoresComments(storeIds); // one query: this runs for every row of /api/sessions
   const seen = new Set<string>();
   const out: Comment[] = [];
-  const collect = (storeId: string) => {
-    for (const c of readStoreComments(storeId)) {
+  for (const storeId of storeIds) {
+    for (const c of rows.get(storeId) ?? []) {
       if (seen.has(c.id) || !pending(c)) continue;
       seen.add(c.id);
       out.push(c);
     }
-  };
-  collect(sessionId);
-  for (const storeId of scopeStoreIdsForPaths(session.paths)) collect(storeId);
+  }
   return out;
 }
 

@@ -44,7 +44,7 @@ beforeEach(() => {
   pty.writes.length = 0;
   app = new Hono();
   scopeNotes.length = 0;
-  mountSessionCommentRoutes(app, { broadcast: () => {}, notifyScope: (hash, data) => void scopeNotes.push({ hash, data }) });
+  mountSessionCommentRoutes(app, { broadcast: () => {}, notifyScope: (data) => void scopeNotes.push({ hash: data.scopeHash, data }) });
 });
 afterEach(() => {
   clearCommentStoreCache();
@@ -178,6 +178,13 @@ describe("the browser diff page's comments on the Diff tab (one worktree, two st
         .snapshot()
         .map((c) => c.body),
     ).toEqual(['on it']);
+  });
+
+  it('a reply on the tab to a thread from the page is typed into an idle Claude, like any note', async () => {
+    const onPage = scopeStore().post({ side: 'general', body: 'from the page' });
+    const res = await post('/api/sessions/s2/comments', { parentId: onPage.id, body: 'and this too', status: 'published' });
+    expect(((await res.json()) as { delivery: string | null }).delivery).toBe('typed');
+    await vi.waitFor(() => expect(pty.writes).toEqual([NOTE_NUDGE, '\r']), { timeout: 2000 });
   });
 
   it("tells the page when the tab's own comments change", async () => {

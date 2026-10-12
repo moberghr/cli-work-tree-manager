@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readSessionMeta } from '../../../src/core/sessions/session-meta.js';
 import { clearCommentStoreCache, getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
 import type { WorktreeSession } from '../../../src/core/sessions/history.js';
+import { scopeStoreIdsForPaths } from '../../../src/core/comments/pending-delivery.js';
 
 let home: string;
 beforeEach(() => {
@@ -36,5 +37,13 @@ describe('readSessionMeta', () => {
     store.post({ body: 'renamed', author: 'claude', parentId: open.id });
     store.post({ body: 'still writing', status: 'draft' });
     expect(readSessionMeta('s1', session)).toMatchObject({ commentCount: 2, draftCount: 1, claudeCount: 1 });
+  });
+
+  it("counts what was said on the browser diff page too: the badge and what's waiting for Claude (its hooks hand both over)", () => {
+    const page = getCommentFileStore(scopeStoreIdsForPaths(session.paths)[0]);
+    page.post({ body: 'from the page' });
+    page.post({ body: 'page draft', status: 'draft' }); // that page's unsent review: neither listed nor waiting
+    getCommentFileStore('s1').post({ body: 'from the tab' });
+    expect(readSessionMeta('s1', session)).toMatchObject({ commentCount: 2, pendingForClaudeCount: 2, draftCount: 0 });
   });
 });

@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { clearCommentStoreCache, getCommentFileStore, readStoreComments } from '../../../src/core/comments/comment-file-store.js';
+import {
+  clearCommentStoreCache,
+  getCommentFileStore,
+  readStoreComments,
+  readStoresComments,
+} from '../../../src/core/comments/comment-file-store.js';
 import { withDb } from '../../../src/core/platform/db.js';
 import type { Comment } from '../../../src/core/comments/comment-types.js';
 
@@ -54,6 +59,17 @@ describe('comment-file-store', () => {
     getCommentFileStore('two').post({ body: 'b' });
     expect(readStoreComments('one').map((c) => c.body)).toEqual(['a']);
     expect(readStoreComments('two').map((c) => c.body)).toEqual(['b']);
+  });
+
+  it('reads several stores in one go, each in its order; an empty one is simply not there', () => {
+    getCommentFileStore('one').post({ body: 'a1' });
+    getCommentFileStore('two').post({ body: 'b' });
+    getCommentFileStore('one').post({ body: 'a2' });
+    const rows = readStoresComments(['one', 'two', 'none']);
+    expect(rows.get('one')!.map((c) => c.body)).toEqual(['a1', 'a2']);
+    expect(rows.get('two')!.map((c) => c.body)).toEqual(['b']);
+    expect(rows.has('none')).toBe(false);
+    expect(readStoresComments([]).size).toBe(0);
   });
 
   it('keeps comments in the order they were posted', () => {

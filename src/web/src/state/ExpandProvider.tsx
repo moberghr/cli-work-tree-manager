@@ -31,25 +31,33 @@ interface ExpandProviderProps {
    * (that side has no version for this repo), so expanding says so.
    */
   refFor?: (repo: string) => string | null | undefined;
+  /**
+   * False: nothing to read lines through yet (the Diff tab before its scope answered) — no arrows. The provider stays
+   * mounted either way: swapping it in would change the tree's root and rebuild the diff (a half-typed comment lost).
+   */
+  ready?: boolean;
 }
 
-export function ExpandProvider({ children, scopeHash, refFor }: ExpandProviderProps) {
-  const value = useMemo<ExpandContextValue>(
-    () => ({
-      loadLines: (repo, filePath, start, end) => {
-        const ref = refFor?.(repo);
-        if (ref === null) return Promise.reject(new Error('no version of this file to read here'));
-        return fetchFileLines(scopeHash, repo, filePath, start, end, ref);
-      },
-      fileHref: (repo, filePath) => {
-        const params = new URLSearchParams({ repo, path: filePath });
-        const ref = refFor?.(repo);
-        if (ref) params.set('ref', ref);
-        const base = scopeHash ? `/file/${encodeURIComponent(scopeHash)}` : '/file';
-        return `${base}?${params.toString()}`;
-      },
-    }),
-    [scopeHash, refFor],
+export function ExpandProvider({ children, scopeHash, refFor, ready = true }: ExpandProviderProps) {
+  const value = useMemo<ExpandContextValue | null>(
+    () =>
+      !ready
+        ? null
+        : {
+            loadLines: (repo, filePath, start, end) => {
+              const ref = refFor?.(repo);
+              if (ref === null) return Promise.reject(new Error('no version of this file to read here'));
+              return fetchFileLines(scopeHash, repo, filePath, start, end, ref);
+            },
+            fileHref: (repo, filePath) => {
+              const params = new URLSearchParams({ repo, path: filePath });
+              const ref = refFor?.(repo);
+              if (ref) params.set('ref', ref);
+              const base = scopeHash ? `/file/${encodeURIComponent(scopeHash)}` : '/file';
+              return `${base}?${params.toString()}`;
+            },
+          },
+    [scopeHash, refFor, ready],
   );
   return <ExpandCtx.Provider value={value}>{children}</ExpandCtx.Provider>;
 }

@@ -3,7 +3,7 @@ import { sessionStatusView } from '../status/turn-activity.js';
 import type { ActivityState } from '../api-types.js';
 import { readSessionActivity } from './session-activity.js';
 import { linkedComments, sessionLinkedStoreIds } from '../comments/linked-stores.js';
-import { readPendingForSession } from '../comments/pending-delivery.js';
+import { readPendingForWorktree } from '../comments/pending-delivery.js';
 import type { WorktreeSession } from './history.js';
 import { readStatus, type EffectiveStatus } from '../status/session-status.js';
 
@@ -52,7 +52,8 @@ export function readSessionMeta(sessionId: string, session: WorktreeSession): Se
     if (!c.parentId && !c.resolved) open++;
   }
   const activity = readSessionActivity(session);
-  const pending = readPendingForSession(sessionId).length;
+  // What the hooks will hand over: the session's and its scopes' (readPendingForWorktree), as the badges count.
+  const pending = readPendingForWorktree(session, sessionId).length;
   const status = readStatus(sessionId);
   return {
     draftCount: drafts,

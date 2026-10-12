@@ -148,4 +148,12 @@ describe('linesRef: where the lines between hunks are read from', () => {
     // A turn with no commit for this repo then: nothing to read (the arrows say so), not the working tree.
     expect(linesRef({ kind: 'checkpoint', id: 3 }, { api: 'def5678', web: null }, 'web')).toBeNull();
   });
+
+  it("finds a turn's snapshot under its repo's full path, as the manifest keeps it (the diff names the folder)", () => {
+    const repos = { 'C:/wt/shop/feat-x/api': 'def5678', '/home/me/wt/shop/feat-x/web': null };
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, repos, 'api')).toBe('def5678');
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, { 'C:\\wt\\shop\\feat-x\\api': 'abc' }, 'api')).toBe('abc');
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, repos, 'web')).toBeNull();
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, repos, 'docs')).toBeNull();
+  });
 });
