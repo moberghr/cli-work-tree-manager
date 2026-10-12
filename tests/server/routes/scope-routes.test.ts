@@ -13,6 +13,8 @@ import { Hono } from 'hono';
 import { mountScopeRoutes } from '../../../src/server/routes/scope-routes.js';
 import { disposeAllScopes, getScope, markScopeEnded } from '../../../src/core/diff/scope-manager.js';
 import { getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
+import { upsertSession } from '../../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { git } from '../../../src/core/git/git.js';
 import { takeCheckpoint, loadManifest } from '../../../src/core/diff/checkpoint.js';
 
@@ -408,5 +410,53 @@ describe('re-baseline on branch advance', () => {
     // Give any (incorrect) async re-baseline a chance to run.
     await new Promise((r) => setTimeout(r, 100));
     expect(loadManifest(hash).entries.length).toBe(before);
+  });
+});
+
+describe("the Diff tab's comments on the browser diff page (one worktree, two stores)", () => {
+  type Listed = { comments: { id: string; body: string; resolved?: boolean }[] };
+  const json = (body: unknown) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  it("lists the session's comments with ?linked=1 (the page), never for wd -c's poll, and acts on them where they're kept", async () => {
+    const events: { event: string; data: { sessionId?: string; scopeHash?: string } }[] = [];
+    const page = new Hono();
+    mountScopeRoutes(page, { broadcast: (event, data) => void events.push({ event, data: data as never }) });
+    await upsertSession('repo', false, 'feat/x', [repoDir]);
+    const sessionId = sessionIdFor({ target: 'repo', branch: 'feat/x' });
+    const res0 = await page.request('/api/scopes', json({ paths: [repoDir], label: 'repo' }));
+    const hash = ((await res0.json()) as { hash: string }).hash;
+
+    const onTab = getCommentFileStore(sessionId).post({ side: 'general', body: 'from the tab' });
+    getCommentFileStore(sessionId).post({ side: 'general', body: 'tab draft', status: 'draft' });
+    await page.request(`/api/scopes/${hash}/comments`, json({ side: 'general', body: 'from the page' }));
+
+    const linked = (await (await page.request(`/api/scopes/${hash}/comments?linked=1`)).json()) as Listed;
+    expect(linked.comments.map((c) => c.body)).toEqual(['from the tab', 'from the page']);
+    // wd -c prints what it polls for its Claude; the session's comments reach that Claude through its hooks.
+    const raw = (await (await page.request(`/api/scopes/${hash}/comments`)).json()) as Listed;
+    expect(raw.comments.map((c) => c.body)).toEqual(['from the page']);
+
+    events.length = 0;
+    const res = await page.request(`/api/scopes/${hash}/comments/${onTab.id}/resolve`, json({ resolved: true }));
+    expect(((await res.json()) as Listed).comments.find((c) => c.id === onTab.id)?.resolved).toBe(true);
+    expect(getCommentFileStore(sessionId).snapshot()[0].resolved).toBe(true);
+    // The Diff tab hears of it, and so does this page's stream.
+    expect(events.map((e) => e.data.sessionId ?? `scope ${e.data.scopeHash}`)).toEqual(
+      expect.arrayContaining([sessionId, `scope ${hash}`]),
+    );
+
+    await page.request(`/api/scopes/${hash}/comments`, json({ parentId: onTab.id, body: 'agreed' }));
+    expect(
+      getCommentFileStore(sessionId)
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['from the tab', 'tab draft', 'agreed']);
+
+    await page.request(`/api/scopes/${hash}/comments/${onTab.id}`, { method: 'DELETE' });
+    expect(
+      getCommentFileStore(sessionId)
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['tab draft', 'agreed']);
   });
 });

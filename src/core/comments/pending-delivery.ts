@@ -123,7 +123,7 @@ export function readPendingForSession(sessionId: string): Comment[] {
  *  `registerScope` hashes `path.resolve()`d roots, so we resolve here too or
  *  the hashes won't line up. Mirrors `scope-manager.commentStoreIdForScope`
  *  (`scope-<hash>`). */
-function scopeStoreIdsForPaths(paths: string[]): string[] {
+export function scopeStoreIdsForPaths(paths: string[]): string[] {
   const resolved = paths.map((p) => path.resolve(p));
   const ids = new Set<string>();
   ids.add(`scope-${scopeHashFor(resolved)}`);

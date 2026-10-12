@@ -68,7 +68,8 @@ export function scopeReviewApi(): ReviewApi {
 export function scopeHashReviewApi(hash: string): ReviewApi {
   const base = `/api/scopes/${encodeURIComponent(hash)}`;
   return {
-    fetch: () => getJson<{ comments: Comment[] }>(`${base}/comments`).then((r) => r.comments),
+    // With the comments made on the Diff tab of the session this worktree is (`linked=1`).
+    fetch: () => getJson<{ comments: Comment[] }>(`${base}/comments?linked=1`).then((r) => r.comments),
     post: (input) => postJson(`${base}/comments`, input),
     delete: async (id) => {
       const res = await fetch(`${base}/comments/${encodeURIComponent(id)}`, { method: 'DELETE' });

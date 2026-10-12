@@ -19,23 +19,32 @@ vi.mock('../../../src/core/pty/pty-pool.js', () => ({
   },
 }));
 vi.mock('../../../src/core/sessions/web-state.js', () => ({
-  findSession: (id: string) => (id === 's1' ? { target: 'repo', branch: 'b', paths: [] } : undefined),
+  findSession: (id: string) =>
+    id === 's1'
+      ? { target: 'repo', branch: 'b', paths: [] }
+      : id === 's2'
+        ? { target: 'repo', branch: 'c', paths: [`${process.cwd()}/wt-c`] }
+        : undefined,
 }));
 
 import { mountSessionCommentRoutes, SUBMIT_DELAY_MS, typeAndSubmit } from '../../../src/server/routes/session-comment-routes.js';
 import { clearCommentStoreCache } from '../../../src/core/comments/comment-file-store.js';
 import { formatPendingForPrompt, NOTE_NUDGE, readPendingForSession } from '../../../src/core/comments/pending-delivery.js';
 import { recordStatusEvent } from '../../../src/core/status/session-status.js';
+import { getCommentFileStore } from '../../../src/core/comments/comment-file-store.js';
+import { scopeStoreIdsForPaths } from '../../../src/core/comments/pending-delivery.js';
 
 let home: string;
 let app: Hono;
+const scopeNotes: { hash: string; data: Record<string, unknown> }[] = [];
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'scr-'));
   vi.spyOn(os, 'homedir').mockReturnValue(home);
   clearCommentStoreCache();
   pty.writes.length = 0;
   app = new Hono();
-  mountSessionCommentRoutes(app, { broadcast: () => {} });
+  scopeNotes.length = 0;
+  mountSessionCommentRoutes(app, { broadcast: () => {}, notifyScope: (hash, data) => void scopeNotes.push({ hash, data }) });
 });
 afterEach(() => {
   clearCommentStoreCache();
@@ -123,5 +132,61 @@ describe('typeAndSubmit', () => {
       ),
     ).toBe(false);
     expect(writes).toEqual(['x']);
+  });
+});
+
+describe("the browser diff page's comments on the Diff tab (one worktree, two stores)", () => {
+  type Listed = { comments: { id: string; body: string; status: string; resolved?: boolean }[] };
+  // The scope `wd` registers for s2's worktree: the browser page (`/diff/<hash>`) posts there.
+  const scopeStore = () => getCommentFileStore(scopeStoreIdsForPaths([`${process.cwd()}/wt-c`])[0]);
+  const scopeHash = () => scopeStoreIdsForPaths([`${process.cwd()}/wt-c`])[0].slice('scope-'.length);
+  const list = async () => ((await (await app.request('/api/sessions/s2/comments')).json()) as Listed).comments;
+
+  it("lists them beside the session's own, but not the page's unsent drafts", async () => {
+    const onPage = scopeStore().post({ side: 'general', body: 'from the page' });
+    scopeStore().post({ side: 'general', body: 'page draft', status: 'draft' });
+    await post('/api/sessions/s2/comments', { side: 'general', body: 'from the tab', status: 'published', author: 'claude' });
+    expect((await list()).map((c) => c.body)).toEqual(['from the page', 'from the tab']);
+    expect((await list())[0].id).toBe(onPage.id);
+  });
+
+  it('resolves, answers and deletes one where it is kept, and tells the page', async () => {
+    const onPage = scopeStore().post({ side: 'general', body: 'from the page' });
+
+    let res = await post(`/api/sessions/s2/comments/${onPage.id}/resolve`, { resolved: true });
+    expect(((await res.json()) as Listed).comments[0].resolved).toBe(true);
+    expect(scopeStore().snapshot()[0].resolved).toBe(true);
+    expect(scopeNotes.map((n) => n.hash)).toEqual([scopeHash()]);
+
+    // A reply joins its thread in the page's store, sent (a draft there would show on neither view).
+    res = await post('/api/sessions/s2/comments', { parentId: onPage.id, body: 'on it', status: 'draft', author: 'claude' });
+    expect(res.status).toBe(200);
+    expect(
+      scopeStore()
+        .snapshot()
+        .map((c) => [c.body, c.status]),
+    ).toEqual([
+      ['from the page', 'published'],
+      ['on it', 'published'],
+    ]);
+    expect(getCommentFileStore('s2').snapshot()).toEqual([]);
+
+    res = await app.request(`/api/sessions/s2/comments/${onPage.id}`, { method: 'DELETE' });
+    expect(((await res.json()) as Listed).comments.map((c) => c.body)).toEqual(['on it']);
+    expect(
+      scopeStore()
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['on it']);
+  });
+
+  it("tells the page when the tab's own comments change", async () => {
+    await post('/api/sessions/s2/comments', { side: 'general', body: 'mine', status: 'published', author: 'claude' });
+    expect(scopeNotes).toEqual([{ hash: scopeHash(), data: expect.objectContaining({ scopeHash: scopeHash() }) }]);
+    expect(
+      getCommentFileStore('s2')
+        .snapshot()
+        .map((c) => c.body),
+    ).toEqual(['mine']);
   });
 });

@@ -8,6 +8,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 - The session's **Diff** tab has the arrows between hunks that `wd`'s own
   page has: more lines around a change, read at the version shown (the
   working tree, a commit, or one of Claude's turns).
+- Comments are the same in the app and in the browser: the session's Diff
+  tab lists those made on its diff page in the browser, and that page lists
+  the Diff tab's. Resolving, answering or deleting one works from either.
 - A Restore that can't go through says why where you clicked it — for
   example that Visual Studio still has a file open in what's left of the
   session's folder — instead of only in the button's tooltip.

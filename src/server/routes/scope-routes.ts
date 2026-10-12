@@ -41,6 +41,7 @@ import { scopeHashForPaths, sessionOwnsScope } from '../../core/diff/scope-manag
 import { loadHistory } from '../../core/sessions/history.js';
 import { getCommentFileStore } from '../../core/comments/comment-file-store.js';
 import { commentInputSchema, resolveSchema, submitReviewSchema } from '../../core/comments/comment-schemas.js';
+import { linkedComments, linkedSession, scopeLinkedStoreIds, storeHolding, viewersOf } from '../../core/comments/linked-stores.js';
 import { streamSSE } from 'hono/streaming';
 import { report } from '../../core/platform/report.js';
 
@@ -75,6 +76,8 @@ export function mountScopeRoutes(
   ensureScope: (paths: string[], label?: string) => Scope;
   sessionScope: (paths: string[], label?: string) => Scope;
   releaseSessionScope: (paths: string[], clearRefs: boolean) => boolean;
+  /** A comment of this scope's page changed (a session's, which the page lists too): tell its stream and the dashboard. */
+  emitCommentsChanged: (payload: { scopeHash: string } & Record<string, unknown>) => void;
 } {
   // -- Lifecycle -----------------------------------------------------------
 
@@ -665,11 +668,24 @@ export function mountScopeRoutes(
     return getCommentFileStore(commentStoreIdForScope(hash));
   }
 
+  // The page's stores: the scope's own, then the session(s) whose worktree it covers (the Diff tab's comments).
+  const linkedIds = (hash: string) => scopeLinkedStoreIds(hash, loadHistory().map(linkedSession));
+  const listFor = (hash: string) => linkedComments(linkedIds(hash));
+
+  /** A store changed: every view listing it refetches — the scope pages' (their streams) and the sessions' (by id). */
+  function storeChanged(storeId: string, data: Record<string, unknown>): void {
+    const { sessionIds, scopeHashes } = viewersOf(storeId, loadHistory().map(linkedSession));
+    for (const scopeHash of scopeHashes) emitCommentsChanged({ ...data, scopeHash });
+    for (const sessionId of sessionIds) opts.broadcast('comments-changed', { ...data, sessionId });
+  }
+
+  // `?linked=1` (the page) adds the session's comments; without it, the scope's alone — what `wd -c` polls and
+  // prints for its Claude, which gets the session's comments through its own hooks.
   app.get('/api/scopes/:hash/comments', (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
     return c.json({
-      comments: commentStore(scope.hash).snapshot(),
+      comments: c.req.query('linked') === '1' ? listFor(scope.hash) : commentStore(scope.hash).snapshot(),
       ended: scope.ended,
     });
   });
@@ -677,14 +693,16 @@ export function mountScopeRoutes(
   app.post('/api/scopes/:hash/comments', zValidator('json', commentInputSchema), (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const store = commentStore(scope.hash);
+    const own = commentStoreIdForScope(scope.hash);
+    const input = c.req.valid('json');
+    // A reply goes where its thread is: a comment made on the Diff tab is in the session's store.
+    const home = input.parentId ? (storeHolding(linkedIds(scope.hash), input.parentId) ?? own) : own;
+    const store = getCommentFileStore(home);
     try {
-      const comment = store.post(c.req.valid('json'));
-      emitCommentsChanged({
-        scopeHash: scope.hash,
-        id: comment.id,
-      });
-      return c.json({ comment, comments: store.snapshot() });
+      // Published there: the other view's drafts aren't listed here, so a draft reply would vanish.
+      const comment = store.post(home === own ? input : { ...input, status: 'published' });
+      storeChanged(home, { id: comment.id });
+      return c.json({ comment, comments: listFor(scope.hash) });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }
@@ -693,29 +711,20 @@ export function mountScopeRoutes(
   app.delete('/api/scopes/:hash/comments/:cid', (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const store = commentStore(scope.hash);
-    const removed = store.remove(c.req.param('cid'));
-    if (removed) {
-      emitCommentsChanged({
-        scopeHash: scope.hash,
-        deleted: c.req.param('cid'),
-      });
-    }
-    return c.json({ comments: store.snapshot() });
+    const cid = c.req.param('cid');
+    const home = storeHolding(linkedIds(scope.hash), cid);
+    if (home && getCommentFileStore(home).remove(cid)) storeChanged(home, { deleted: cid });
+    return c.json({ comments: listFor(scope.hash) });
   });
 
   app.post('/api/scopes/:hash/comments/:cid/resolve', zValidator('json', resolveSchema), (c) => {
     const scope = getScope(c.req.param('hash'));
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
-    const store = commentStore(scope.hash);
-    const updated = store.setResolved(c.req.param('cid'), c.req.valid('json').resolved);
-    if (updated) {
-      emitCommentsChanged({
-        scopeHash: scope.hash,
-        id: updated.id,
-      });
-    }
-    return c.json({ comments: store.snapshot() });
+    const cid = c.req.param('cid');
+    const home = storeHolding(linkedIds(scope.hash), cid);
+    const updated = home ? getCommentFileStore(home).setResolved(cid, c.req.valid('json').resolved) : null;
+    if (home && updated) storeChanged(home, { id: updated.id });
+    return c.json({ comments: listFor(scope.hash) });
   });
 
   app.post('/api/scopes/:hash/submit-review', zValidator('json', submitReviewSchema), (c) => {
@@ -723,13 +732,10 @@ export function mountScopeRoutes(
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
     const store = commentStore(scope.hash);
     const result = store.submit(c.req.valid('json').summary);
-    emitCommentsChanged({
-      scopeHash: scope.hash,
-      submittedCount: result.drafts.length,
-    });
+    storeChanged(commentStoreIdForScope(scope.hash), { submittedCount: result.drafts.length });
     return c.json({
       count: result.drafts.length,
-      comments: store.snapshot(),
+      comments: listFor(scope.hash),
     });
   });
 
@@ -738,10 +744,8 @@ export function mountScopeRoutes(
     if (!scope) return c.json({ error: 'unknown scope' }, 404);
     const store = commentStore(scope.hash);
     const discarded = store.discardDrafts();
-    if (discarded > 0) {
-      emitCommentsChanged({ scopeHash: scope.hash });
-    }
-    return c.json({ discarded, comments: store.snapshot() });
+    if (discarded > 0) storeChanged(commentStoreIdForScope(scope.hash), {});
+    return c.json({ discarded, comments: listFor(scope.hash) });
   });
 
   // End Review button hits this. Sets the scope's `ended` flag so the
@@ -853,5 +857,5 @@ export function mountScopeRoutes(
 
   /** A session's scope, by its paths (archive / delete). */
   const releaseSessionScope = (paths: string[], clearRefs: boolean) => dropScope(scopeHashForPaths(paths), { clearRefs });
-  return { ensureScope, sessionScope, releaseSessionScope };
+  return { ensureScope, sessionScope, releaseSessionScope, emitCommentsChanged };
 }

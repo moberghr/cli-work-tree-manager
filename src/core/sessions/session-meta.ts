@@ -2,7 +2,7 @@ import { peekPty } from '../pty/pty-pool.js';
 import { sessionStatusView } from '../status/turn-activity.js';
 import type { ActivityState } from '../api-types.js';
 import { readSessionActivity } from './session-activity.js';
-import { getCommentFileStore } from '../comments/comment-file-store.js';
+import { linkedComments, sessionLinkedStoreIds } from '../comments/linked-stores.js';
 import { readPendingForSession } from '../comments/pending-delivery.js';
 import type { WorktreeSession } from './history.js';
 import { readStatus, type EffectiveStatus } from '../status/session-status.js';
@@ -40,7 +40,8 @@ export interface SessionMeta {
  * Claude's transcript directory (the sessionId hash alone isn't enough).
  */
 export function readSessionMeta(sessionId: string, session: WorktreeSession): SessionMeta {
-  const comments = getCommentFileStore(sessionId).snapshot();
+  // As the Diff tab lists them: with those made on the browser diff page (linked-stores.ts).
+  const comments = linkedComments(sessionLinkedStoreIds({ id: sessionId, paths: session.paths }));
   let drafts = 0;
   let claude = 0;
   let open = 0;
