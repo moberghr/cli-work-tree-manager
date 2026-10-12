@@ -23,6 +23,7 @@ import {
   saveSessionOrder,
   type NotifyEvent,
   type SessionSummary,
+  archiveCancelled,
   setArchived,
   snoozeSession,
   unsnoozeSession,
@@ -228,7 +229,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       setArchived: (x: SessionSummary, archived: boolean) =>
         void setArchived(x.id, archived).then(
           () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
-          (err: Error) => showToast({ text: err.message, kind: 'error' }),
+          (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),
         ),
       openTerminal: (x: SessionSummary) =>
         void openInTerminal(x.id).catch((err: Error) => showToast({ text: `Couldn't open a terminal: ${err.message}`, kind: 'error' })),

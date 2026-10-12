@@ -43,4 +43,31 @@ describe('ArchiveButton (the session header)', () => {
     expect(btn().textContent).toBe('Restore ⚠');
     expect(btn().title).toBe(why);
   });
+
+  it('archived or restored some other way meanwhile: the ⚠ of the last try is over', async () => {
+    h.setArchived.mockRejectedValue(new Error('refused'));
+    act(() => root.render(createElement(ArchiveButton, { sessionId: 's1', archived: false })));
+    const btn = () => container.querySelector<HTMLButtonElement>('.wd-session-archive')!;
+    await act(async () => {
+      btn().click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(btn().textContent).toBe('Archive ⚠');
+    // Archived from the rail (or a key, or the PR watch): not a "Restore ⚠" with the old refusal.
+    act(() => root.render(createElement(ArchiveButton, { sessionId: 's1', archived: true })));
+    expect(btn().textContent).toBe('Restore');
+  });
+
+  it('"Archive it anyway?" → Cancel is your choice: no error shown', async () => {
+    h.setArchived.mockRejectedValue(Object.assign(new Error('Not archived: a reply draft'), { cancelled: true }));
+    const onError = vi.fn();
+    act(() => root.render(createElement(ArchiveButton, { sessionId: 's1', archived: false, onError })));
+    const btn = () => container.querySelector<HTMLButtonElement>('.wd-session-archive')!;
+    await act(async () => {
+      btn().click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(btn().textContent).toBe('Archive');
+  });
 });

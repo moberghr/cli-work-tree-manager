@@ -325,6 +325,15 @@ describe('Sessions tab search', () => {
       });
       expect(container.querySelector('.wd-archive-hit-error')!.textContent).toBe(why);
       expect(container.querySelector('.wd-archive-hit-error')!.getAttribute('role')).toBe('alert');
+      // Another search: the old refusal isn't shown again under a later result for the same session.
+      act(() => {
+        setValue.call(box, 'reports');
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(container.querySelector('.wd-archive-hit-error')).toBeNull();
     } finally {
       vi.useRealTimers();
     }

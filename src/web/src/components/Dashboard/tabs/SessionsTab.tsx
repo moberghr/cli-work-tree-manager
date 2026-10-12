@@ -8,6 +8,7 @@ import {
   placeSession,
   searchConversations,
   sendPromptToSession,
+  archiveCancelled,
   setArchived,
   snoozeSession,
   type ConversationHit,
@@ -118,15 +119,18 @@ export function SessionsTab({
     if (!on) setPicked(new Set());
   };
   const [rowMenu, setRowMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
-  // Why a row's Archive / Restore was refused (the dashboard's own menu says it in a toast; this is the tab alone).
+  // Why a row's Archive / Restore was refused (the dashboard's own menu says it in a toast; this is the tab alone):
+  // cleared by the next try, dismissable; a cancelled "Archive anyway?" isn't one.
   const [actionError, setActionError] = useState<string | null>(null);
+  const runArchive = (x: SessionSummary, archived: boolean) => {
+    setActionError(null);
+    void setArchived(x.id, archived).catch((err: Error) => !archiveCancelled(err) && setActionError(err.message));
+  };
   const menuItems = (x: SessionSummary): MenuItem[] =>
     menuFor
       ? menuFor(x)
       : [
-          isArchived(x)
-            ? { label: 'Restore', run: () => void setArchived(x.id, false).catch((err: Error) => setActionError(err.message)) }
-            : { label: 'Archive', run: () => void setArchived(x.id, true).catch((err: Error) => setActionError(err.message)) },
+          isArchived(x) ? { label: 'Restore', run: () => runArchive(x, false) } : { label: 'Archive', run: () => runArchive(x, true) },
           { label: 'Delete…', run: () => onDeleteSession(x), danger: true, separated: true },
         ];
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
@@ -318,7 +322,10 @@ export function SessionsTab({
     <div className="wd-dash-tab-pane wd-tab-sessions">
       {actionError && (
         <p className="wd-tab-error" role="alert">
-          {actionError}
+          {actionError}{' '}
+          <button type="button" className="wd-link-button" onClick={() => setActionError(null)}>
+            Dismiss
+          </button>
         </p>
       )}
       <header className="wd-tab-header">
@@ -516,9 +523,10 @@ export function SessionsTab({
 function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
   const [hits, setHits] = useState<ConversationHit[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
-  // Why a Restore was refused (its folder held by an editor, the branch gone…), under its hit.
+  // Why a Restore was refused (its folder held by an editor, the branch gone…), under its hit — for this search only.
   const [refused, setRefused] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => {
+    setRefused(null);
     const q = query.trim();
     if (q.length < 2) {
       setHits([]);
@@ -564,7 +572,7 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
                     setRestoring(h.sessionId);
                     setRefused(null);
                     void setArchived(h.sessionId, false)
-                      .catch((err: Error) => setRefused({ id: h.sessionId, text: err.message }))
+                      .catch((err: Error) => !archiveCancelled(err) && setRefused({ id: h.sessionId, text: err.message }))
                       .finally(() => setRestoring(null));
                   }}
                 >

@@ -8,7 +8,7 @@ import { WorkTimeChip } from './WorkTimeChip.js';
 import { BehindChip, MergedParentChip } from './BehindChip.js';
 import { AwayLink, CatchUpPanel, useCatchUp } from './CatchUp.js';
 import { useArchivePending } from '../../api/archive-pending.js';
-import { renameSession, setArchived, type SessionSummary } from '../../api/client.js';
+import { archiveCancelled, renameSession, setArchived, type SessionSummary } from '../../api/client.js';
 import type { PrInfo } from '../../api/panes.js';
 import { isArchived } from '../../state/session-display.js';
 import { ClaudesChip, ContextChip, OtherBranchChip, OverlapChip, StackChip, PrChips, PrStageChip, StatusLine } from './SessionBits.js';
@@ -170,6 +170,11 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [renameKey, setRenameKey] = useState(0);
   const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
+  // Why an Archive / Restore here was refused: its own line (not `note`, which other actions use), gone once the
+  // session's archived state changes — whichever way it changed (the rail, a key, the PR watch).
+  const [archiveNote, setArchiveNote] = useState<string | null>(null);
+  const archivedNow = isArchived(session);
+  useEffect(() => setArchiveNote(null), [archivedNow]);
   const dev = useDevState(session.id);
   const catchUp = useCatchUp(session.id);
   // One line from what the session's row says (no fetch): the PR tab has the rest.
@@ -246,13 +251,18 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
               {note.text}
             </span>
           )}
+          {archiveNote && (
+            <span className="wd-session-action-note wd-session-action-note-error" role="alert">
+              {archiveNote}
+            </span>
+          )}
           <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
           <ArchiveButton
             sessionId={session.id}
             archived={archived}
             // Why it didn't work, where the header says how things went (a Restore refused: what holds its folder).
-            onStart={() => setNote(null)}
-            onError={(text) => setNote({ text, error: true })}
+            onStart={() => setArchiveNote(null)}
+            onError={setArchiveNote}
           />
           <button
             ref={moreRef}
@@ -377,10 +387,13 @@ export function ArchiveButton({
   const pending = useArchivePending(sessionId);
   const busy = pending !== undefined;
   const [error, setError] = useState<string | null>(null);
+  // Archived or restored some other way meanwhile: what this button said about the last try is over.
+  useEffect(() => setError(null), [archived]);
   const onClick = () => {
     setError(null);
     onStart?.();
     setArchived(sessionId, !archived).catch((err: Error) => {
+      if (archiveCancelled(err)) return; // "Archive it anyway?" → Cancel: your choice
       setError(err.message);
       onError?.(err.message);
     });

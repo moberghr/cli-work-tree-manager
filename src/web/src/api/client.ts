@@ -190,6 +190,9 @@ export function setArchived(
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
 }
 
+/** An archive the user called off ("Archive it anyway?" → Cancel): their choice, not a failure to show. */
+export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?: unknown } | null)?.cancelled === true;
+
 async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean) =>
@@ -203,7 +206,7 @@ async function sendArchived(sessionId: string, archived: boolean, confirm: (ques
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
     const waiting = body.blocked ?? [];
     if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
-      throw new Error(`Not archived: ${waiting.join('; ')}`);
+      throw Object.assign(new Error(`Not archived: ${waiting.join('; ')}`), { cancelled: true });
     }
     res = await send(true);
   }
