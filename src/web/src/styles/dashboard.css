@@ -643,6 +643,11 @@ a.wd-pr-chip:hover {
   color: var(--del-fg, #d1242f);
   font-size: 13px;
 }
+.wd-archive-hit-error {
+  margin: 4px 0;
+  color: var(--del-fg, #d1242f);
+  font-size: 12px;
+}
 
 /* ---- Sessions tab: dense table -------------------------------------------*/
 

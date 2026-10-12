@@ -118,13 +118,15 @@ export function SessionsTab({
     if (!on) setPicked(new Set());
   };
   const [rowMenu, setRowMenu] = useState<{ s: SessionSummary; x: number; y: number } | null>(null);
+  // Why a row's Archive / Restore was refused (the dashboard's own menu says it in a toast; this is the tab alone).
+  const [actionError, setActionError] = useState<string | null>(null);
   const menuItems = (x: SessionSummary): MenuItem[] =>
     menuFor
       ? menuFor(x)
       : [
           isArchived(x)
-            ? { label: 'Restore', run: () => void setArchived(x.id, false).catch(() => {}) }
-            : { label: 'Archive', run: () => void setArchived(x.id, true).catch(() => {}) },
+            ? { label: 'Restore', run: () => void setArchived(x.id, false).catch((err: Error) => setActionError(err.message)) }
+            : { label: 'Archive', run: () => void setArchived(x.id, true).catch((err: Error) => setActionError(err.message)) },
           { label: 'Delete…', run: () => onDeleteSession(x), danger: true, separated: true },
         ];
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
@@ -314,6 +316,11 @@ export function SessionsTab({
 
   return (
     <div className="wd-dash-tab-pane wd-tab-sessions">
+      {actionError && (
+        <p className="wd-tab-error" role="alert">
+          {actionError}
+        </p>
+      )}
       <header className="wd-tab-header">
         <h1>
           Sessions {viewToggle}{' '}
@@ -509,6 +516,8 @@ export function SessionsTab({
 function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: string) => void }) {
   const [hits, setHits] = useState<ConversationHit[]>([]);
   const [restoring, setRestoring] = useState<string | null>(null);
+  // Why a Restore was refused (its folder held by an editor, the branch gone…), under its hit.
+  const [refused, setRefused] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
@@ -553,13 +562,21 @@ function ConversationHits({ query, onOpen }: { query: string; onOpen: (id: strin
                   title={h.worktreeRemoved ? 'Recreate its worktree from the branch and continue the conversation' : 'Bring it back'}
                   onClick={() => {
                     setRestoring(h.sessionId);
-                    void setArchived(h.sessionId, false).finally(() => setRestoring(null));
+                    setRefused(null);
+                    void setArchived(h.sessionId, false)
+                      .catch((err: Error) => setRefused({ id: h.sessionId, text: err.message }))
+                      .finally(() => setRestoring(null));
                   }}
                 >
                   {restoring === h.sessionId ? 'Restoring…' : 'Restore'}
                 </button>
               )}
             </div>
+            {refused?.id === h.sessionId && (
+              <p className="wd-archive-hit-error" role="alert">
+                {refused.text}
+              </p>
+            )}
             {h.snippets.map((sn, i) => (
               <p key={i} className="wd-archive-hit-snippet">
                 <span className="wd-tab-header-muted">{sn.role === 'you' ? 'You' : sn.role === 'summary' ? 'Summary' : 'Claude'}:</span>{' '}

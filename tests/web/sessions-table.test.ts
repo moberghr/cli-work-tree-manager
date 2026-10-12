@@ -6,7 +6,7 @@ import type { SessionAttention, SessionSummary } from '../../src/web/src/api/cli
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const h = vi.hoisted(() => ({ setArchived: vi.fn(), openInTerminal: vi.fn() }));
+const h = vi.hoisted(() => ({ setArchived: vi.fn(), openInTerminal: vi.fn(), search: vi.fn() }));
 /** The fake setArchived, through the in-flight store as the real one goes (archive-pending.ts). */
 const trackedSetArchived = vi.hoisted(() => async () => {
   const { trackArchive } = await import('../../src/web/src/api/archive-pending.js');
@@ -15,6 +15,7 @@ const trackedSetArchived = vi.hoisted(() => async () => {
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
   ...(await trackedSetArchived()),
+  searchConversations: (q: string) => h.search(q),
 }));
 vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/panes.js')>()),
@@ -28,6 +29,7 @@ let root: Root;
 beforeEach(() => {
   h.setArchived.mockReset().mockResolvedValue({ ok: true });
   h.openInTerminal.mockReset().mockResolvedValue({ ok: true });
+  h.search.mockReset().mockResolvedValue([]);
   try {
     localStorage.clear();
   } catch {
@@ -285,5 +287,46 @@ describe('Sessions tab search', () => {
       box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(rows().length).toBeGreaterThan(1);
+  });
+
+  it('a Restore refused from the conversation results says why, under that result (it used to say nothing)', async () => {
+    vi.useFakeTimers();
+    try {
+      h.search.mockResolvedValue([
+        {
+          sessionId: 'old',
+          target: 'api',
+          branch: 'tmp/report-fail',
+          archived: true,
+          archivedAt: minsAgo(60),
+          worktreeRemoved: true,
+          snippets: [],
+        },
+      ]);
+      const why =
+        "Couldn't restore it: C:/wt/tmp-report-fail is what's left of its worktree, and a file in it is in use (Visual Studio, an editor, a terminal?): close it and try again";
+      h.setArchived.mockRejectedValue(new Error(why));
+      render();
+      const box = container.querySelector<HTMLInputElement>('.wd-tab-search')!;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      act(() => {
+        setValue.call(box, 'report');
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      const restore = [...container.querySelectorAll<HTMLButtonElement>('.wd-archive-hit button')].find(
+        (b) => b.textContent === 'Restore',
+      )!;
+      await act(async () => {
+        restore.click();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(container.querySelector('.wd-archive-hit-error')!.textContent).toBe(why);
+      expect(container.querySelector('.wd-archive-hit-error')!.getAttribute('role')).toBe('alert');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

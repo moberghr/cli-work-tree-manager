@@ -3,6 +3,12 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- A Restore that can't go through says why where you clicked it — for
+  example that Visual Studio still has a file open in what's left of the
+  session's folder — instead of only in the button's tooltip.
+
 ## 2.0.11 — 2026-10-09
 
 - The desktop app says when its window shows a work web of another version

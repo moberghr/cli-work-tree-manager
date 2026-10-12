@@ -247,7 +247,13 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
             </span>
           )}
           <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
-          <ArchiveButton sessionId={session.id} archived={archived} />
+          <ArchiveButton
+            sessionId={session.id}
+            archived={archived}
+            // Why it didn't work, where the header says how things went (a Restore refused: what holds its folder).
+            onStart={() => setNote(null)}
+            onError={(text) => setNote({ text, error: true })}
+          />
           <button
             ref={moreRef}
             type="button"
@@ -354,7 +360,18 @@ export function SessionTitle({ session, autoEdit = false }: { session: SessionSu
 
 /** Archive stops the session's Claude but keeps worktree, branch and
  *  conversation; it drops off the rail and inbox until unarchived. */
-function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: boolean }) {
+export function ArchiveButton({
+  sessionId,
+  archived,
+  onStart,
+  onError,
+}: {
+  sessionId: string;
+  archived: boolean;
+  onStart?: () => void;
+  /** Why it was refused, shown beside it (a tooltip alone went unseen). */
+  onError?: (text: string) => void;
+}) {
   // In flight is kept outside this button (archive-pending.ts): leaving the
   // session and coming back makes a new button, which must still say so.
   const pending = useArchivePending(sessionId);
@@ -362,7 +379,11 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
   const [error, setError] = useState<string | null>(null);
   const onClick = () => {
     setError(null);
-    setArchived(sessionId, !archived).catch((err: Error) => setError(err.message));
+    onStart?.();
+    setArchived(sessionId, !archived).catch((err: Error) => {
+      setError(err.message);
+      onError?.(err.message);
+    });
   };
   return (
     <button
@@ -375,7 +396,7 @@ function ArchiveButton({ sessionId, archived }: { sessionId: string; archived: b
         (archived ? 'Bring it back to the rail and inbox' : 'Stop its Claude and hide it; worktree, branch and conversation are kept')
       }
     >
-      {busy ? (pending ? 'Archiving…' : 'Restoring…') : archived ? 'Restore' : error ? 'Archive ⚠' : 'Archive'}
+      {busy ? (pending ? 'Archiving…' : 'Restoring…') : archived ? (error ? 'Restore ⚠' : 'Restore') : error ? 'Archive ⚠' : 'Archive'}
     </button>
   );
 }
