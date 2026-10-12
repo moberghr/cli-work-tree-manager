@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  linesRef,
   historyItems,
   inSelection,
   lastTurn,
@@ -133,5 +134,18 @@ describe('emptyDiffMessage', () => {
     expect(emptyDiffMessage(pick('t:1'), undefined)).toBe('This changed no files.');
     expect(emptyDiffMessage(pick('t:1', 'u'), undefined)).toBe('Nothing changed in this span.');
     expect(emptyDiffMessage(pick('t:1'), undefined, 'Since you looked')).toBe('Nothing changed since you last looked.');
+  });
+});
+
+describe('linesRef: where the lines between hunks are read from', () => {
+  it("the working tree for what isn't committed; HEAD, a commit, the commit before it, or a turn's snapshot otherwise", () => {
+    expect(linesRef(undefined, undefined, 'api')).toBeUndefined(); // Uncommitted / Since branch
+    expect(linesRef({ kind: 'working' }, undefined, 'api')).toBeUndefined();
+    expect(linesRef({ kind: 'head' }, undefined, 'api')).toBe('HEAD');
+    expect(linesRef({ kind: 'commit', repo: 'api', sha: 'abc1234' }, undefined, 'api')).toBe('abc1234');
+    expect(linesRef({ kind: 'parent', repo: 'api', sha: 'abc1234' }, undefined, 'api')).toBe('abc1234^');
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, { api: 'def5678', web: null }, 'api')).toBe('def5678');
+    // A turn with no commit for this repo then: nothing to read (the arrows say so), not the working tree.
+    expect(linesRef({ kind: 'checkpoint', id: 3 }, { api: 'def5678', web: null }, 'web')).toBeNull();
   });
 });

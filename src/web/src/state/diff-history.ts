@@ -181,3 +181,22 @@ export function selectionLabel(items: HistoryItem[], sel: DiffSelection): string
 export function selectionKey(sel: DiffSelection): string {
   return sel.kind === 'scope' ? sel.base : `${sel.fromKey}..${sel.toKey}${sel.from ? `@${JSON.stringify(sel.from)}` : ''}`;
 }
+
+/**
+ * Which version the lines between hunks are read from, for the diff's newer
+ * side (`to`): the working tree (undefined: nothing picked, Uncommitted, Since
+ * branch, a span to the working tree), `HEAD`, a commit (a parent point: the
+ * commit before it), or a turn's snapshot of this repo — null when the turn
+ * has none for it (the repo had no commit then). Pure.
+ */
+export function linesRef(
+  to: DiffPoint | undefined,
+  checkpointRepos: Record<string, string | null> | undefined,
+  repo: string,
+): string | null | undefined {
+  if (!to || to.kind === 'working') return undefined;
+  if (to.kind === 'head') return 'HEAD';
+  if (to.kind === 'commit') return to.sha;
+  if (to.kind === 'parent') return `${to.sha}^`;
+  return checkpointRepos?.[repo] ?? null;
+}

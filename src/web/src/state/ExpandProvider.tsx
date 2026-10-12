@@ -24,19 +24,32 @@ interface ExpandProviderProps {
   children: ReactNode;
   /** Scope hash for the `work web` endpoint; undefined → standalone server. */
   scopeHash?: string;
+  /**
+   * The version the diff's newer side is, per repo: undefined = the working
+   * tree (the default); a ref (a commit, `HEAD`) = lines read from it — a
+   * commit or a turn shown in the dashboard's Diff tab; null = none to read
+   * (that side has no version for this repo), so expanding says so.
+   */
+  refFor?: (repo: string) => string | null | undefined;
 }
 
-export function ExpandProvider({ children, scopeHash }: ExpandProviderProps) {
+export function ExpandProvider({ children, scopeHash, refFor }: ExpandProviderProps) {
   const value = useMemo<ExpandContextValue>(
     () => ({
-      loadLines: (repo, filePath, start, end) => fetchFileLines(scopeHash, repo, filePath, start, end),
+      loadLines: (repo, filePath, start, end) => {
+        const ref = refFor?.(repo);
+        if (ref === null) return Promise.reject(new Error('no version of this file to read here'));
+        return fetchFileLines(scopeHash, repo, filePath, start, end, ref);
+      },
       fileHref: (repo, filePath) => {
         const params = new URLSearchParams({ repo, path: filePath });
+        const ref = refFor?.(repo);
+        if (ref) params.set('ref', ref);
         const base = scopeHash ? `/file/${encodeURIComponent(scopeHash)}` : '/file';
         return `${base}?${params.toString()}`;
       },
     }),
-    [scopeHash],
+    [scopeHash, refFor],
   );
   return <ExpandCtx.Provider value={value}>{children}</ExpandCtx.Provider>;
 }

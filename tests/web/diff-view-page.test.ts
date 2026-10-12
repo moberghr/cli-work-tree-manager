@@ -7,7 +7,16 @@ import type { SessionSummary } from '../../src/web/src/api/client.js';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The Diff tab's "Open in browser" and full screen.
-const h = vi.hoisted(() => ({ pageFor: vi.fn(async (id: string) => `/diff/hash-of-${id}`) }));
+const h = vi.hoisted(() => ({
+  pageFor: vi.fn(async (id: string) => `/diff/hash-of-${id}`),
+  lines: vi.fn(async (_hash?: string, _repo?: string, _path?: string, start = 1, end = 1) => ({
+    lines: Array.from({ length: end - start + 1 }, (_, i) => `line ${start + i}`),
+    start,
+    totalLines: 100,
+    eof: false,
+  })),
+  repos: [] as unknown[],
+}));
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
 vi.mock('../../src/web/src/api/review-api.js', () => ({
@@ -26,7 +35,8 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
   const actual = await importActual<typeof import('../../src/web/src/api/client.js')>();
   return {
     ...actual,
-    fetchSessionDiff: (sessionId: string) => Promise.resolve({ sessionId, base: 'uncommitted', resolvedBase: 'main', repos: [] }),
+    fetchSessionDiff: (sessionId: string) => Promise.resolve({ sessionId, base: 'uncommitted', resolvedBase: 'main', repos: h.repos }),
+    fetchFileLines: (...a: Parameters<typeof h.lines>) => h.lines(...a),
     fetchCheckpoints: () => Promise.resolve([]),
     fetchSessionHistory: () => Promise.resolve({ entries: [], commits: [] }),
     fetchDiffSeen: () => Promise.resolve(null),
@@ -41,6 +51,8 @@ let root: Root;
 beforeEach(() => {
   localStorage.clear();
   h.pageFor.mockClear();
+  h.lines.mockClear();
+  h.repos = [];
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -116,5 +128,49 @@ describe("the Diff tab's own page and full screen", () => {
     menu.remove();
     esc();
     expect(onFullScreen).toHaveBeenLastCalledWith(false);
+  });
+
+  it("the arrows between hunks, as on wd's own page: lines read through the session's scope, from the working tree here", async () => {
+    h.repos = [
+      {
+        name: 'repo',
+        root: '/tmp/repo',
+        files: [
+          {
+            path: 'src/a.ts',
+            oldPath: 'src/a.ts',
+            newPath: 'src/a.ts',
+            status: 'modified',
+            isBinary: false,
+            added: 1,
+            deleted: 0,
+            hunks: [
+              {
+                oldStart: 20,
+                oldLines: 1,
+                newStart: 20,
+                newLines: 2,
+                context: '',
+                lines: [
+                  { kind: 'context', content: 'kept', oldNum: 20, newNum: 20 },
+                  { kind: 'add', content: 'new', oldNum: null, newNum: 21 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    act(() => root.render(createElement(DiffView, { session: session() })));
+    await flush();
+    await flush();
+    const arrow = container.querySelector<HTMLButtonElement>('.wd-expander-btn');
+    expect(arrow).not.toBeNull();
+    await act(async () => {
+      arrow!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(h.lines).toHaveBeenCalledWith('hash-of-s1', 'repo', 'src/a.ts', expect.any(Number), expect.any(Number), undefined);
+    expect(container.textContent).toContain('line 1');
   });
 });
