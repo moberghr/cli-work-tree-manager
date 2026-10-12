@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { STATUS_LETTER } from '../../utils/status.js';
 import { buildTree, type TreeNode } from '../../utils/tree.js';
+import { RowMenu } from '../Dashboard/RowMenu.js';
+import { filesUnder, viewedMenuItems } from '../../state/tree-viewed.js';
 
 /**
  * Build the coverage-badge tooltip. Always states the line-coverage percent;
@@ -35,10 +37,23 @@ interface Props {
 interface FileTreeProps extends Props {
   /** Map of anchor → viewed-flag. Drives the strikethrough styling. */
   viewedAnchors?: Set<string>;
+  /** Mark files viewed or not: a right-click on a folder (every file under it) or a file offers it. Without it, no menu. */
+  onMarkViewed?: (paths: string[], viewed: boolean) => void;
 }
 
-export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors }: FileTreeProps) {
+/** A right-click on a tree row: where, and on what. */
+type OpenMenu = { x: number; y: number; node: TreeNode };
+
+export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors, onMarkViewed }: FileTreeProps) {
   const [query, setQuery] = useState('');
+  const [menu, setMenu] = useState<OpenMenu | null>(null);
+  const onMenu = onMarkViewed
+    ? (e: MouseEvent, node: TreeNode) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY, node });
+      }
+    : undefined;
+  const items = menu && onMarkViewed ? viewedMenuItems(filesUnder(menu.node), viewedAnchors ?? new Set(), onMarkViewed) : [];
   const q = query.trim().toLowerCase();
 
   // We filter the flat list first, then rebuild the tree from the survivors
@@ -60,10 +75,11 @@ export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors }: F
       ) : (
         <ul className="wd-tree-root">
           {tree.map((n, i) => (
-            <TreeNodeView key={i} node={n} selectedAnchor={selectedAnchor ?? null} viewedAnchors={viewedAnchors} />
+            <TreeNodeView key={i} node={n} selectedAnchor={selectedAnchor ?? null} viewedAnchors={viewedAnchors} onMenu={onMenu} />
           ))}
         </ul>
       )}
+      {menu && items.length > 0 && <RowMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -72,22 +88,24 @@ function TreeNodeView({
   node,
   selectedAnchor,
   viewedAnchors,
+  onMenu,
 }: {
   node: TreeNode;
   selectedAnchor: string | null;
   viewedAnchors?: Set<string>;
+  onMenu?: (e: MouseEvent, node: TreeNode) => void;
 }) {
   if (node.kind === 'dir') {
     return (
       <li className="wd-tree-dir">
         <details open>
-          <summary>
+          <summary onContextMenu={onMenu && ((e) => onMenu(e, node))}>
             <span className="wd-tree-caret"></span>
             {node.name}
           </summary>
           <ul>
             {node.children.map((c, i) => (
-              <TreeNodeView key={i} node={c} selectedAnchor={selectedAnchor} viewedAnchors={viewedAnchors} />
+              <TreeNodeView key={i} node={c} selectedAnchor={selectedAnchor} viewedAnchors={viewedAnchors} onMenu={onMenu} />
             ))}
           </ul>
         </details>
@@ -118,6 +136,7 @@ function TreeNodeView({
           el.scrollIntoView({ block: 'start' });
         }}
         title={node.file.path}
+        onContextMenu={onMenu && ((e) => onMenu(e, node))}
       >
         <span className={`wd-tree-status wd-status-${node.file.status}`}>{STATUS_LETTER[node.file.status]}</span>
         <span className="wd-tree-name">{node.name}</span>

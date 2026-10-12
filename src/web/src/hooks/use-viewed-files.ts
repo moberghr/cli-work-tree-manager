@@ -43,6 +43,8 @@ export function useViewedFiles(
   viewedPaths: Set<string>;
   viewedAnchors: Set<string>;
   toggle: (path: string, next: boolean) => void;
+  /** Several at once (a folder's files, from the tree's right-click): one store pass, one render. */
+  setMany: (paths: string[], next: boolean) => void;
 } {
   const [keys, setKeys] = useState<Set<string>>(() => readScope(scopeKey));
 
@@ -53,16 +55,20 @@ export function useViewedFiles(
 
   const viewedPaths = useMemo(() => viewedFrom(keys, signatures), [keys, signatures]);
 
-  const toggle = useCallback(
-    (path: string, next: boolean) => {
-      // One tick per file: drop the old one (its old change, or a bare path) first.
-      for (const k of readScope(scopeKey)) if (k === path || k.startsWith(`${path}#`)) setViewed(scopeKey, k, false);
-      const sig = signatures?.get(path);
-      if (next) setViewed(scopeKey, sig ? `${path}#${sig}` : path, true);
+  const setMany = useCallback(
+    (paths: string[], next: boolean) => {
+      const stored = [...readScope(scopeKey)];
+      for (const path of paths) {
+        // One tick per file: drop the old one (its old change, or a bare path) first.
+        for (const k of stored) if (k === path || k.startsWith(`${path}#`)) setViewed(scopeKey, k, false);
+        const sig = signatures?.get(path);
+        if (next) setViewed(scopeKey, sig ? `${path}#${sig}` : path, true);
+      }
       setKeys(readScope(scopeKey));
     },
     [scopeKey, signatures],
   );
+  const toggle = useCallback((path: string, next: boolean) => setMany([path], next), [setMany]);
 
   const viewedAnchors = new Set<string>();
   for (const p of viewedPaths) {
@@ -70,5 +76,5 @@ export function useViewedFiles(
     if (anchor) viewedAnchors.add(anchor);
   }
 
-  return { viewedPaths, viewedAnchors, toggle };
+  return { viewedPaths, viewedAnchors, toggle, setMany };
 }

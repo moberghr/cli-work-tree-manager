@@ -365,7 +365,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
 
   const scopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}` : `scope:${context.scopeLabel}:_pending`;
   const hunkScopeKey = activeRepo ? `scope:${context.scopeLabel}:${activeRepo.name}:hunks` : '';
-  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor);
+  const { viewedPaths, viewedAnchors, toggle: toggleViewed, setMany: markViewed } = useViewedFiles(scopeKey, pathToAnchor);
   const activeAnchor = useScrollspy(activeRepo?.name ?? '_pending');
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -548,7 +548,13 @@ export function ReviewApp({ context, scopeHash }: Props) {
         <aside ref={sidebarRef} className={'wd-web-review-sidebar' + (sidebarScrolls ? ' wd-sidebar-scrolls' : '')}>
           {!isEmpty && activeRepo && (
             <>
-              <FileTree files={activeRepo.files} startIndex={activeStart} selectedAnchor={activeAnchor} viewedAnchors={viewedAnchors} />
+              <FileTree
+                files={activeRepo.files}
+                startIndex={activeStart}
+                selectedAnchor={activeAnchor}
+                viewedAnchors={viewedAnchors}
+                onMarkViewed={markViewed}
+              />
               {!readOnly && <CommentsPanel repoName={activeRepo.name} onOpenRepo={setActiveRepoName} />}
             </>
           )}

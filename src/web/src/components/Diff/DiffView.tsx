@@ -300,7 +300,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const hunkScopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}:hunks` : '';
   // A Viewed tick holds while the file's change is the one you ticked (fileSignature).
   const signatures = useMemo(() => new Map((activeRepo?.files ?? []).map((f) => [f.path, fileSignature(f)])), [activeRepo]);
-  const { viewedPaths, viewedAnchors, toggle: toggleViewed } = useViewedFiles(scopeKey, pathToAnchor, signatures);
+  const { viewedPaths, viewedAnchors, toggle: toggleViewed, setMany: markViewed } = useViewedFiles(scopeKey, pathToAnchor, signatures);
   const activeAnchor = useScrollspy(`${session.id}:${activeRepo?.name ?? '_pending'}`);
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useSidebarWidth();
   const { size: commentsHeight, setSize: setCommentsHeight } = useResizableSize(COMMENTS_SPEC);
@@ -501,6 +501,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
                       startIndex={activeStart}
                       selectedAnchor={activeAnchor}
                       viewedAnchors={viewedAnchors}
+                      onMarkViewed={markViewed}
                     />
                   </div>
                   <SidebarComments
