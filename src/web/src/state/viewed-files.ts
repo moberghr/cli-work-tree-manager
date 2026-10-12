@@ -21,3 +21,8 @@ export function setViewed(scope: string, filePath: string, viewed: boolean): voi
 export function readScope(scope: string): Set<string> {
   return store.readScope(scope);
 }
+
+/** Change a scope's ticks in one store pass. Returns them after. */
+export function updateScope(scope: string, change: (keys: Set<string>) => void): Set<string> {
+  return store.update(scope, change);
+}

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { readScope, setViewed } from '../state/viewed-files.js';
+import { readScope, updateScope } from '../state/viewed-files.js';
+
+/** A tick's signature part: fileSignature's shape (`added.deleted.hash`), so a `#` in a path is never taken for one. */
+const SIGNED = /#(\d+\.\d+\.[0-9a-z]+)$/;
+
+/** A stored tick: `path#signature`, or a bare `path` (from before signatures, or the wd page's, which has none). Pure. */
+export function tickOf(key: string): { path: string; signature?: string } {
+  const m = SIGNED.exec(key);
+  return m ? { path: key.slice(0, m.index), signature: m[1] } : { path: key };
+}
 
 /**
  * Which files a tick says are viewed, from the stored keys: `path#signature`
@@ -10,13 +19,8 @@ import { readScope, setViewed } from '../state/viewed-files.js';
 export function viewedFrom(keys: Set<string>, signatures?: Map<string, string>): Set<string> {
   const out = new Set<string>();
   for (const k of keys) {
-    const at = k.lastIndexOf('#');
-    if (at < 0) {
-      out.add(k);
-      continue;
-    }
-    const path = k.slice(0, at);
-    if (!signatures || signatures.get(path) === k.slice(at + 1)) out.add(path);
+    const { path, signature } = tickOf(k);
+    if (signature === undefined || !signatures || signatures.get(path) === signature) out.add(path);
   }
   return out;
 }
@@ -57,14 +61,17 @@ export function useViewedFiles(
 
   const setMany = useCallback(
     (paths: string[], next: boolean) => {
-      const stored = [...readScope(scopeKey)];
-      for (const path of paths) {
+      const these = new Set(paths);
+      const after = updateScope(scopeKey, (keys) => {
         // One tick per file: drop the old one (its old change, or a bare path) first.
-        for (const k of stored) if (k === path || k.startsWith(`${path}#`)) setViewed(scopeKey, k, false);
-        const sig = signatures?.get(path);
-        if (next) setViewed(scopeKey, sig ? `${path}#${sig}` : path, true);
-      }
-      setKeys(readScope(scopeKey));
+        for (const k of [...keys]) if (these.has(tickOf(k).path)) keys.delete(k);
+        if (!next) return;
+        for (const path of paths) {
+          const sig = signatures?.get(path);
+          keys.add(sig ? `${path}#${sig}` : path);
+        }
+      });
+      setKeys(after);
     },
     [scopeKey, signatures],
   );

@@ -4,8 +4,9 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ParsedFile } from '../../src/web/src/api/client.js';
 import { FileTree } from '../../src/web/src/components/Sidebar/FileTree.js';
-import { useViewedFiles } from '../../src/web/src/hooks/use-viewed-files.js';
-import { filesUnder, viewedMenuItems } from '../../src/web/src/state/tree-viewed.js';
+import { tickOf, useViewedFiles, viewedFrom } from '../../src/web/src/hooks/use-viewed-files.js';
+import { readScope } from '../../src/web/src/state/viewed-files.js';
+import { filesUnder, keepReadingPlace, viewedMenuItems } from '../../src/web/src/state/tree-viewed.js';
 import { buildTree } from '../../src/web/src/utils/tree.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -92,9 +93,9 @@ describe('useViewedFiles: setMany', () => {
       ['c', 'wd-file-2'],
     ]);
     const sigs = new Map([
-      ['a', 's1'],
-      ['b', 's2'],
-      ['c', 's3'],
+      ['a', '1.0.s1'],
+      ['b', '1.0.s2'],
+      ['c', '1.0.s3'],
     ]);
     function Harness() {
       hook = useViewedFiles('scope-x', anchors, sigs);
@@ -107,5 +108,58 @@ describe('useViewedFiles: setMany', () => {
     act(() => hook.setMany(['a', 'b'], false));
     expect([...hook.viewedPaths]).toEqual(['c']);
     expect([...hook.viewedAnchors]).toEqual(['wd-file-2']);
+  });
+  it('a # in a path is part of the path: only a signature’s shape is read as one', () => {
+    expect(tickOf('samples/C#/Foo.cs')).toEqual({ path: 'samples/C#/Foo.cs' });
+    expect(tickOf('src/a#b.ts#3.1.k2x')).toEqual({ path: 'src/a#b.ts', signature: '3.1.k2x' });
+    expect([...viewedFrom(new Set(['samples/C#/Foo.cs']), new Map())]).toEqual(['samples/C#/Foo.cs']);
+
+    let hook!: ReturnType<typeof useViewedFiles>;
+    function Harness() {
+      hook = useViewedFiles('scope-y', new Map());
+      return null;
+    }
+    act(() => root.render(createElement(Harness)));
+    act(() => hook.setMany(['src/a#b.ts', 'samples/C#/Foo.cs'], true));
+    act(() => hook.setMany(['src/a'], true));
+    act(() => hook.setMany(['src/a'], false)); // leaves src/a#b.ts alone
+    expect([...hook.viewedPaths].sort()).toEqual(['samples/C#/Foo.cs', 'src/a#b.ts']);
+    act(() => hook.setMany(['src/a#b.ts', 'samples/C#/Foo.cs'], false));
+    expect(readScope('scope-y').size).toBe(0); // and an emptied scope is pruned
+    expect(localStorage.getItem('work-web:viewed-files')).toBe('{}');
+  });
+});
+
+describe('the menu’s files stay the ones it was opened on', () => {
+  it('a new diff closes the menu', () => {
+    act(() => root.render(createElement(FileTree, { files, startIndex: 0, onMarkViewed: () => {} })));
+    rightClick([...container.querySelectorAll('summary')].find((s) => s.textContent === 'src')!);
+    expect(menuLabels()).toEqual(['Mark 3 files as viewed']);
+    act(() => root.render(createElement(FileTree, { files: files.slice(1), startIndex: 4, onMarkViewed: () => {} })));
+    expect(document.querySelector('.wd-row-menu')).toBeNull();
+  });
+});
+
+describe('keepReadingPlace', () => {
+  it('holds the file the reader is in where it was, after files above it collapse', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => frames.push(f));
+    const scrollBy = vi.fn();
+    vi.stubGlobal('scrollBy', scrollBy);
+    const above = document.createElement('article');
+    const reading = document.createElement('article');
+    above.className = reading.className = 'wd-file';
+    document.body.append(above, reading);
+    let top = -200; // the reader is 200px into the file they read
+    above.getBoundingClientRect = () => ({ top: -3000, bottom: -2000 }) as DOMRect;
+    reading.getBoundingClientRect = () => ({ top, bottom: top + 900 }) as DOMRect;
+    keepReadingPlace(() => {
+      top = -1900; // the file above collapsed: everything moved up 1700px
+    });
+    while (frames.length) frames.shift()!(0);
+    expect(scrollBy).toHaveBeenCalledWith(0, -1700);
+    above.remove();
+    reading.remove();
+    vi.unstubAllGlobals();
   });
 });

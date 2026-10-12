@@ -1,5 +1,10 @@
 import type { ParsedFile } from '../api/client.js';
 
+/** A file's article id in the diff (and its tree row's link): the diff's order, across repos. */
+export function anchorFor(index: number): string {
+  return `wd-file-${index}`;
+}
+
 export interface TreeFileLeaf {
   kind: 'file';
   name: string;

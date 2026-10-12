@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
-import { startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
+import { isTerminalReply, startPtyHost, type PtyHostHandle } from '../../../src/core/pty/pty-host.js';
 import { PtyRegistry, type PtyLike } from '../../../src/core/pty/pty-registry.js';
 import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 
@@ -132,8 +132,34 @@ describe('PTY host', () => {
     app.ws.send(JSON.stringify({ type: 'input', data: 'x' }));
     await tick();
     expect(pty.log.slice(-2)).toEqual(['resize 90x30', 'write x']);
+    // The terminal answering a query, or losing focus, isn't someone using it: the grid stays the app's.
+    terminal.ws.send(JSON.stringify({ type: 'input', data: '\x1b[O' }));
+    terminal.ws.send(JSON.stringify({ type: 'input', data: '\x1b[?62;22c' }));
+    await tick();
+    expect(pty.log.slice(-2)).toEqual(['write \x1b[O', 'write \x1b[?62;22c']);
     terminal.ws.close();
     app.ws.close();
+  });
+
+  it('a terminal reply is told from typing', () => {
+    for (const reply of [
+      '\x1b[I',
+      '\x1b[O',
+      '\x1b[?1;2c',
+      '\x1b[>0;276;0c',
+      '\x1b[12;40R',
+      '\x1b[0n',
+      '\x1b[?1u',
+      '\x1b[?2004;1$y',
+      '\x1b[8;50;200t',
+      '\x1b]11;rgb:0000/0000/0000\x1b\\',
+      '\x1b]10;rgb:ffff/ffff/ffff\x07',
+      '\x1bP>|xterm.js\x1b\\',
+      '\x1b[O\x1b[I',
+    ])
+      expect(isTerminalReply(reply), JSON.stringify(reply)).toBe(true);
+    for (const typed of ['k', '\r', '\x1b', '\x1b[A', '\x1b[200~paste\x1b[201~', '\x1b[<0;10;5M', '\x1b[O' + 'k', '\x03'])
+      expect(isTerminalReply(typed), JSON.stringify(typed)).toBe(false);
   });
 
   it('refuses a spawn whose cwd does not exist', async () => {

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { RepoData } from '../../api/client.js';
-import { buildTree, flattenTreeFiles } from '../../utils/tree.js';
+import { anchorFor, buildTree, flattenTreeFiles } from '../../utils/tree.js';
 import { DiffFile } from './DiffFile.js';
 
 interface Props {
@@ -43,7 +43,7 @@ export function DiffRepo({ repo, startIndex, review, viewedPaths, onToggleViewed
         <DiffFile
           key={leaf.file.path}
           file={leaf.file}
-          anchor={`wd-file-${leaf.index}`}
+          anchor={anchorFor(leaf.index)}
           review={review}
           repo={repo.name}
           viewed={viewedPaths?.has(leaf.file.path)}

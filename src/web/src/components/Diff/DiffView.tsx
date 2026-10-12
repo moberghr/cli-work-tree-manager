@@ -22,6 +22,7 @@ import { DiffUpdateChip } from './DiffUpdateChip.js';
 import { DiffModeToggle } from './DiffModeToggle.js';
 import { HistoryPicker } from './HistoryPicker.js';
 import { FileTree } from '../Sidebar/FileTree.js';
+import { anchorFor } from '../../utils/tree.js';
 import { CommentsPanel } from '../Sidebar/CommentsPanel.js';
 import { GeneralPane } from '../Review/GeneralPane.js';
 import { PendingPill } from '../Review/PendingPill.js';
@@ -291,7 +292,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     const map = new Map<string, string>();
     if (!activeRepo) return map;
     activeRepo.files.forEach((f, i) => {
-      map.set(f.path, `wd-file-${activeStart + i}`);
+      map.set(f.path, anchorFor(activeStart + i));
     });
     return map;
   }, [activeRepo, activeStart]);

@@ -28,6 +28,7 @@ import { PendingPill } from '../components/Review/PendingPill.js';
 import { EndReviewButton } from '../components/Review/EndReviewButton.js';
 import { GeneralPane } from '../components/Review/GeneralPane.js';
 import { FileTree } from '../components/Sidebar/FileTree.js';
+import { anchorFor } from '../utils/tree.js';
 import { CommentsPanel } from '../components/Sidebar/CommentsPanel.js';
 import { useViewedFiles } from '../hooks/use-viewed-files.js';
 import { useFollowActiveInSidebar, useScrollspy } from '../hooks/use-scrollspy.js';
@@ -358,7 +359,7 @@ export function ReviewApp({ context, scopeHash }: Props) {
     const map = new Map<string, string>();
     if (!activeRepo) return map;
     activeRepo.files.forEach((f, i) => {
-      map.set(f.path, `wd-file-${activeStart + i}`);
+      map.set(f.path, anchorFor(activeStart + i));
     });
     return map;
   }, [activeRepo, activeStart]);

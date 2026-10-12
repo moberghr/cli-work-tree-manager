@@ -16,6 +16,8 @@ export interface ScopeMapStore {
   set(scope: string, itemKey: string, on: boolean): void;
   /** Every set key within `scope`, as a Set. */
   readScope(scope: string): Set<string>;
+  /** Change `scope`'s keys in one read and one write (many at once); prunes it when empty. Returns the keys after. */
+  update(scope: string, change: (keys: Set<string>) => void): Set<string>;
 }
 
 type ScopeMap = Record<string, Record<string, boolean>>;
@@ -54,6 +56,15 @@ export function createScopeMapStore(storageKey: string): ScopeMapStore {
     },
     readScope(scope) {
       return new Set(Object.keys(read()[scope] ?? {}));
+    },
+    update(scope, change) {
+      const map = read();
+      const keys = new Set(Object.keys(map[scope] ?? {}));
+      change(keys);
+      if (keys.size === 0) delete map[scope];
+      else map[scope] = Object.fromEntries([...keys].map((k) => [k, true]));
+      write(map);
+      return keys;
     },
   };
 }

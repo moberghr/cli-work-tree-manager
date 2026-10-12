@@ -13,6 +13,18 @@ const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
 const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen)?$/;
 const MAX_BODY = 1024 * 1024;
 
+/**
+ * Input a terminal sends on its own, with nobody typing: focus in/out, answers to the agent's queries (device
+ * attributes, cursor position, status, mode and keyboard-flag reports, window size), OSC / DCS / APC replies. Every
+ * attached client answers a query, and a hidden one still reports focus, so these must not count as using a client —
+ * only typing (keys, a paste, a click) does. Pure.
+ */
+const REPLY =
+  /^(?:\x1b\[[IO]|\x1b\[[?>=][\d;]*c|\x1b\[\d+;\d+R|\x1b\[\??\d*n|\x1b\[\?\d*u|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][\s\S]*?\x1b\\)+$/;
+export function isTerminalReply(data: string): boolean {
+  return REPLY.test(data);
+}
+
 export interface PtyHostHandle {
   info: HostInfo;
   registry: PtyRegistry;
@@ -195,7 +207,8 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           return;
         }
         if (msg.type === 'input' && typeof msg.data === 'string') {
-          if (size) registry.resize(id, size.cols, size.rows); // back to this client's grid first (a no-op when it is)
+          // Back to this client's grid first (a no-op when it is) — when someone typed in it, not for its own replies.
+          if (size && !isTerminalReply(msg.data)) registry.resize(id, size.cols, size.rows);
           registry.write(id, msg.data);
         } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
           size = { cols: msg.cols, rows: msg.rows };

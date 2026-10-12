@@ -239,8 +239,9 @@ export class PtyRegistry {
   }
 
   /** Last writer wins — with several clients attached (browser + a real
-   *  terminal) the one that most recently resized sets the grid, like
-   *  tmux's `window-size latest`. */
+   *  terminal) the host calls this when one resizes AND when one is typed in
+   *  (its own grid again), so the client used last sets the grid, like
+   *  tmux's `window-size latest` (pty-host.ts). */
   resize(id: string, cols: number, rows: number): void {
     const e = this.entries.get(id);
     if (!e || e.pty.exited) return;

@@ -1,9 +1,9 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { ParsedFile } from '../../api/client.js';
 import { STATUS_LETTER } from '../../utils/status.js';
-import { buildTree, type TreeNode } from '../../utils/tree.js';
+import { anchorFor, buildTree, type TreeNode } from '../../utils/tree.js';
 import { RowMenu } from '../Dashboard/RowMenu.js';
-import { filesUnder, viewedMenuItems } from '../../state/tree-viewed.js';
+import { filesUnder, keepReadingPlace, viewedMenuItems } from '../../state/tree-viewed.js';
 
 /**
  * Build the coverage-badge tooltip. Always states the line-coverage percent;
@@ -53,7 +53,15 @@ export function FileTree({ files, startIndex, selectedAnchor, viewedAnchors, onM
         setMenu({ x: e.clientX, y: e.clientY, node });
       }
     : undefined;
-  const items = menu && onMarkViewed ? viewedMenuItems(filesUnder(menu.node), viewedAnchors ?? new Set(), onMarkViewed) : [];
+  // The menu names the files it was opened on: a new diff (an update applied, another repo's tab) closes it, rather
+  // than marking files by indices that now mean others.
+  useEffect(() => setMenu(null), [files, startIndex]);
+  const items =
+    menu && onMarkViewed
+      ? viewedMenuItems(filesUnder(menu.node), viewedAnchors ?? new Set(), (paths, viewed) =>
+          keepReadingPlace(() => onMarkViewed(paths, viewed)),
+        )
+      : [];
   const q = query.trim().toLowerCase();
 
   // We filter the flat list first, then rebuild the tree from the survivors
@@ -112,7 +120,7 @@ function TreeNodeView({
       </li>
     );
   }
-  const anchor = `wd-file-${node.index}`;
+  const anchor = anchorFor(node.index);
   const active = anchor === selectedAnchor;
   const viewed = viewedAnchors?.has(anchor) ?? false;
   const stats =

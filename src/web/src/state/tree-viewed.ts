@@ -1,9 +1,9 @@
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
-import { flattenTreeFiles, type TreeNode } from '../utils/tree.js';
+import { anchorFor, flattenTreeFiles, type TreeNode } from '../utils/tree.js';
 
 /** The files a right-click in the tree acts on: the file itself, or every file under the folder (as the tree shows it). */
 export function filesUnder(node: TreeNode): Array<{ path: string; anchor: string }> {
-  return flattenTreeFiles([node]).map((leaf) => ({ path: leaf.file.path, anchor: `wd-file-${leaf.index}` }));
+  return flattenTreeFiles([node]).map((leaf) => ({ path: leaf.file.path, anchor: anchorFor(leaf.index) }));
 }
 
 /**
@@ -25,4 +25,33 @@ export function viewedMenuItems(
   if (seen.length > 0)
     items.push({ label: one ? 'Mark as not viewed' : `Mark ${n(seen.length)} as not viewed`, run: () => mark(seen, false) });
   return items;
+}
+
+/** The nearest ancestor that scrolls (the diff pane), else the page. */
+function scrollerOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void } {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY;
+    if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+  }
+  return window;
+}
+
+/**
+ * Run `mark` and keep the reader where they were: marking a folder viewed collapses every file in it at once, and the
+ * ones above the reader would otherwise pull the diff up under them by their whole height. The file article the
+ * reader is in is held at the same place on screen, once the collapse has laid out (two frames, as DiffFile's own
+ * toggle waits).
+ */
+export function keepReadingPlace(mark: () => void): void {
+  const at = [...document.querySelectorAll<HTMLElement>('article.wd-file')].find((a) => a.getBoundingClientRect().bottom > 0);
+  const before = at?.getBoundingClientRect().top;
+  mark();
+  if (!at || before === undefined) return;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (!at.isConnected) return;
+      const moved = at.getBoundingClientRect().top - before;
+      if (moved !== 0) scrollerOf(at).scrollBy(0, moved);
+    }),
+  );
 }
