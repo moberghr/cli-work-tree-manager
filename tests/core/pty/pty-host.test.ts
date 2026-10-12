@@ -10,12 +10,15 @@ import { PtyHostClient } from '../../../src/core/pty/pty-host-client.js';
 class EchoPty implements PtyLike {
   readonly pty = { pid: 1 };
   exited = false;
+  /** What reached it, in order: writes and resizes. */
+  readonly log: string[] = [];
   onExit?: (code: number) => void;
   private out?: (d: string) => void;
   setOutputHandler(h?: (d: string) => void) {
     this.out = h;
   }
   write(d: string) {
+    this.log.push(`write ${d}`);
     if (d === 'quit') {
       this.exited = true;
       this.onExit?.(3);
@@ -23,10 +26,14 @@ class EchoPty implements PtyLike {
     }
     this.out?.(`echo:${d}`);
   }
-  resize() {}
+  resize(cols: number, rows: number) {
+    this.log.push(`resize ${cols}x${rows}`);
+  }
   dispose() {}
 }
 
+/** Every PTY the host spawned, newest last. */
+const spawned: EchoPty[] = [];
 let dir: string;
 let host: PtyHostHandle;
 let client: PtyHostClient;
@@ -35,7 +42,11 @@ const tool = { cmd: 'claude', baseArgs: [], unsafeFlag: '', resumeFlag: '--conti
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pty-host-'));
   const registry = new PtyRegistry({
-    spawner: () => new EchoPty(),
+    spawner: () => {
+      const p = new EchoPty();
+      spawned.push(p);
+      return p;
+    },
     hasConversation: () => false,
     sessionsPath: path.join(dir, 'pty-sessions.json'),
   });
@@ -98,6 +109,31 @@ describe('PTY host', () => {
     a.ws.send(JSON.stringify({ type: 'input', data: 'quit' }));
     await a.closed;
     expect(a.control.at(-1)).toEqual({ type: 'exit', code: 3 });
+  });
+
+  it('the client used last sets the size: typing in a terminal brings the PTY back to its grid after the app resized it', async () => {
+    await client.spawn('s4', { cwd: dir, tool: tool as never });
+    const pty = spawned.at(-1)!;
+    const terminal = attach('s4');
+    const app = attach('s4');
+    await Promise.all([terminal.opened, app.opened]);
+    terminal.ws.send(JSON.stringify({ type: 'resize', cols: 200, rows: 50 }));
+    await tick();
+    app.ws.send(JSON.stringify({ type: 'resize', cols: 90, rows: 30 })); // the session opened in the app
+    await tick();
+    expect(pty.log.at(-1)).toBe('resize 90x30');
+    terminal.ws.send(JSON.stringify({ type: 'input', data: 'k' }));
+    await tick();
+    // Its grid first, so the agent redraws for the terminal it's typed in, then the keys.
+    expect(pty.log.slice(-2)).toEqual(['resize 200x50', 'write k']);
+    terminal.ws.send(JSON.stringify({ type: 'input', data: 'j' }));
+    await tick();
+    expect(pty.log.at(-1)).toBe('write j'); // the same grid: nothing to resize
+    app.ws.send(JSON.stringify({ type: 'input', data: 'x' }));
+    await tick();
+    expect(pty.log.slice(-2)).toEqual(['resize 90x30', 'write x']);
+    terminal.ws.close();
+    app.ws.close();
   });
 
   it('refuses a spawn whose cwd does not exist', async () => {

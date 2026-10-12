@@ -182,6 +182,10 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
         attached.start();
       });
       if (attached.exitedWith !== null) return;
+      // This client's own grid. The PTY has one size for all its clients: the one used last sets it — resized OR typed
+      // in (tmux's `window-size latest` counts both). With "last resize" alone, opening the session in the app shrank
+      // the PTY to the app's grid, and a terminal attached to it stayed drawn for that size while you typed in it.
+      let size: { cols: number; rows: number } | null = null;
       ws.on('message', (raw, isBinary) => {
         if (isBinary) return;
         let msg: ClientFrame;
@@ -191,8 +195,10 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
           return;
         }
         if (msg.type === 'input' && typeof msg.data === 'string') {
+          if (size) registry.resize(id, size.cols, size.rows); // back to this client's grid first (a no-op when it is)
           registry.write(id, msg.data);
         } else if (msg.type === 'resize' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
+          size = { cols: msg.cols, rows: msg.rows };
           registry.resize(id, msg.cols, msg.rows);
         }
       });
