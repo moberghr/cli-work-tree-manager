@@ -8,6 +8,7 @@ import {
   UNCOMMITTED,
   type DiffSelection,
   type HistoryItem,
+  type LookEntry,
 } from '../../state/diff-history.js';
 import { relativeTime } from '../../utils/time.js';
 
@@ -19,6 +20,8 @@ interface Props {
   /** The shortcuts on top: present only when they mean something. */
   lastTurn: DiffSelection | null;
   sinceLooked: DiffSelection | null;
+  /** Your looks, newest first (yourLooks): the newest is "Last look" on top, all of them a section above the history. */
+  looks?: LookEntry[];
   /** A group: the commits listed are this repo's (the tab on screen). */
   commitsOf?: string | null;
 }
@@ -29,8 +32,12 @@ interface Props {
  * first. A click shows just that one; Shift+click shows the span from the
  * last click to it, across commits and turns. Always there, in either scope.
  */
-export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooked, commitsOf }: Props) {
+/** Looks shown before "Show all". */
+const LOOKS_SHOWN = 5;
+
+export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooked, looks = [], commitsOf }: Props) {
   const [open, setOpen] = useState(false);
+  const [allLooks, setAllLooks] = useState(false);
   // Where a Shift+click span starts: the last row clicked.
   const [anchor, setAnchor] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -103,12 +110,46 @@ export function HistoryPicker({ items, selection, onSelect, lastTurn, sinceLooke
               )}
               {preset('Last turn', lastTurn)}
               {preset('Since you looked', sinceLooked)}
+              {looks[0] && preset('Last look', { ...looks[0].selection, label: 'Last look' }, looks[0].when)}
             </div>
             <div className="wd-checkpoint-pop-hint">
               Click: just that one · Shift+click: from the last click to it
               {commitsOf ? ` · commits of ${commitsOf}, turns of every repo` : ''}
             </div>
           </div>
+          {looks.length > 0 && (
+            <div className="wd-history-looks" role="group" aria-label="Your looks">
+              <div className="wd-history-section">Your looks</div>
+              {(allLooks ? looks : looks.slice(0, LOOKS_SHOWN)).map((l) => {
+                const on = selectionKey(selection) === selectionKey(l.selection);
+                return (
+                  <button
+                    key={l.key}
+                    type="button"
+                    role="option"
+                    aria-selected={on}
+                    className={'wd-checkpoint-pop-row wd-history-row wd-history-row-look' + (on ? ' wd-checkpoint-pop-in-range' : '')}
+                    onClick={() => {
+                      setAnchor(null);
+                      choose(l.selection);
+                    }}
+                  >
+                    <span className="wd-history-mark" aria-hidden="true">
+                      ◉
+                    </span>
+                    <span className="wd-history-tag">{l.when}</span>
+                    <span className="wd-checkpoint-pop-label">{l.turns}</span>
+                  </button>
+                );
+              })}
+              {!allLooks && looks.length > LOOKS_SHOWN && (
+                <button type="button" className="wd-link-button wd-history-more" onClick={() => setAllLooks(true)}>
+                  Show all {looks.length}
+                </button>
+              )}
+              <div className="wd-history-section">History</div>
+            </div>
+          )}
           {rows.map((it) => {
             const on = inSelection(items, selection, it.key);
             return (

@@ -76,6 +76,15 @@ export function parseHash(hash: string): DashboardRoute {
   return DEFAULT_ROUTE;
 }
 
+/**
+ * Moving to another session (the rail, j/k, `n`): it opens on its terminal, whatever tab the one you left was on —
+ * a Diff or PR tab is about that session, and the terminal is where a session is picked up. The tab you came from
+ * (the breadcrumb's) stays. Pure.
+ */
+export function switchTo(route: DashboardRoute, sessionId: string): DashboardRoute {
+  return { tab: route.tab, sessionId, sessionSubTab: 'term' };
+}
+
 export function toHash(route: DashboardRoute): string {
   if (route.sessionId) {
     return `#/s/${encodeURIComponent(route.sessionId)}/${route.sessionSubTab}`;

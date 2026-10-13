@@ -532,14 +532,17 @@ export function fetchDiffSeen(sessionId: string): Promise<import('../../../core/
   ).then((r) => r.seen);
 }
 
-/** You looked as far as this turn (only moves forward). */
-export async function markDiffSeen(sessionId: string, checkpointId: number): Promise<void> {
+/** You looked as far as this turn (only moves forward). Returns the mark as stored after. */
+export async function markDiffSeen(sessionId: string, checkpointId: number): Promise<import('../../../core/api-types.js').DiffSeen | null> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ checkpointId }),
   });
   if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
+  // The mark as stored after, with your looks (null from a server that doesn't say).
+  const body = (await res.json().catch(() => null)) as { seen?: import('../../../core/api-types.js').DiffSeen } | null;
+  return body?.seen ?? null;
 }
 
 /** Where the session's diff has a page of its own (the one `wd` opens); sets that page up first (a POST). */

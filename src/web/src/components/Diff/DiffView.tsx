@@ -41,12 +41,13 @@ import {
   selectionKey,
   selectionRange,
   sinceLooked,
+  yourLooks,
   SINCE_BRANCH,
   UNCOMMITTED,
   type DiffSelection,
 } from '../../state/diff-history.js';
 import { emptyDiffMessage, orderRepoTabs, preferredRepo } from '../../state/diff-view.js';
-import type { DiffSeen } from '../../../../core/api-types.js';
+import type { DiffLook, DiffSeen } from '../../../../core/api-types.js';
 import { pointParam } from '../../../../core/diff/diff-points.js';
 
 /** Looked at this long (visible, focused) and the diff counts as seen. */
@@ -155,11 +156,14 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   // "Since you looked": how far you had looked when this visit began (kept for
   // the whole visit; looking now moves the server's mark, not this one).
   const [seenAtOpen, setSeenAtOpen] = useState<DiffSeen | null | undefined>(undefined);
+  // Your looks (diff-looks.ts), kept current: a look this visit adds one, to see again later.
+  const [looks, setLooks] = useState<DiffLook[]>([]);
   useEffect(() => {
     setSelection(UNCOMMITTED);
     setEntries([]);
     setCommits([]);
     setSeenAtOpen(undefined);
+    setLooks([]);
     pickedRepo.current = null;
     scopeHash.current = null;
     if (historyTimer.current) clearTimeout(historyTimer.current);
@@ -167,7 +171,11 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     loadHistory();
     const id = session.id;
     fetchDiffSeen(id).then(
-      (s) => historyFor.current === id && setSeenAtOpen(s),
+      (s) => {
+        if (historyFor.current !== id) return;
+        setSeenAtOpen(s);
+        setLooks(s?.looks ?? []);
+      },
       () => historyFor.current === id && setSeenAtOpen(null),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -186,6 +194,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const items = useMemo(() => historyItems(entries, commits, isGroup ? activeRepoName : null), [entries, commits, isGroup, activeRepoName]);
   const turnShortcut = useMemo(() => lastTurn(allItems), [allItems]);
   const lookedShortcut = useMemo(() => sinceLooked(allItems, entries, seenAtOpen?.checkpointId), [allItems, entries, seenAtOpen]);
+  const lookEntries = useMemo(() => yourLooks(allItems, entries, looks), [allItems, entries, looks]);
 
   const newest = newestCheckpoint(entries);
   // Once per visit: open on the last turn when asked to (the review queue),
@@ -205,7 +214,12 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   }, [startOnLastTurn, turnShortcut, lookedShortcut, seenAtOpen, entries.length, session.id]);
   // Looked at it for a few seconds: that's how far you have seen, for next time.
   useLookedFor(newest === null ? null : `${session.id}:${newest}`, LOOKED_MS, () => {
-    if (newest !== null) void markDiffSeen(session.id, newest).catch(() => {});
+    if (newest === null) return;
+    const id = session.id;
+    void markDiffSeen(id, newest).then(
+      (s) => s && historyFor.current === id && setLooks(s.looks ?? []),
+      () => {},
+    );
   });
 
   // A span whose rows are gone (a commit rewritten by a rebase) shows what's uncommitted instead.
@@ -398,6 +412,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
           onSelect={setSelection}
           lastTurn={turnShortcut}
           sinceLooked={lookedShortcut}
+          looks={lookEntries}
           commitsOf={isGroup ? activeRepoName : null}
         />
       </div>

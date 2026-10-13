@@ -258,6 +258,16 @@ export interface SetupWire {
 export interface DiffSeen {
   checkpointId: number;
   at: string;
+  /** Your looks, oldest first (diff-looks.ts): what "Since you looked" showed each time, to see again. */
+  looks?: DiffLook[];
+}
+
+/** One look at a session's diff: the turns (checkpoint ids) it went from and to, and when (started, last grew). */
+export interface DiffLook {
+  from: number;
+  to: number;
+  startedAt: string;
+  at: string;
 }
 
 /** A commit of one of the session's repos since its branch left its base: the Diff tab's picker lists them with the turns. */

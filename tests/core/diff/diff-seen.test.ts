@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { markDiffSeen, readDiffSeen } from '../../../src/core/diff/diff-seen.js';
+import { LOOK_JOIN_MS, MAX_LOOKS, nextSeen } from '../../../src/core/diff/diff-looks.js';
 import { mountDiffSeenRoutes } from '../../../src/server/routes/diff-seen-routes.js';
 import { removeSession, saveHistory } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -37,10 +38,52 @@ describe('how far you have looked at a diff (state.db)', () => {
     expect((await post({ checkpointId: 1 }, 'nope')).status).toBe(404);
   });
 
+  it('keeps your looks in the same record: the second look on is recorded, and read back', () => {
+    const sid = 'looks-store';
+    markDiffSeen(sid, 2, new Date('2026-10-04T10:00:00Z'));
+    markDiffSeen(sid, 5, new Date('2026-10-04T12:00:00Z'));
+    expect(readDiffSeen(sid)).toEqual({
+      checkpointId: 5,
+      at: '2026-10-04T12:00:00.000Z',
+      looks: [{ from: 2, to: 5, startedAt: '2026-10-04T12:00:00.000Z', at: '2026-10-04T12:00:00.000Z' }],
+    });
+  });
+
   it('goes with the session', async () => {
     saveHistory([session]);
     markDiffSeen(id, 1);
     await removeSession(session.target, session.branch);
     expect(readDiffSeen(id)).toBeNull();
+  });
+});
+
+describe('your looks (nextSeen, pure)', () => {
+  const t = (min: number) => new Date(Date.parse('2026-10-04T10:00:00Z') + min * 60_000);
+
+  it('the first look records none (nothing to show "since"); each move after it is a look from where it was', () => {
+    const first = nextSeen(null, 3, t(0));
+    expect(first.looks).toBeUndefined();
+    const second = nextSeen(first, 6, t(60));
+    expect(second.looks).toEqual([{ from: 3, to: 6, startedAt: t(60).toISOString(), at: t(60).toISOString() }]);
+    expect(nextSeen(second, 6, t(61))).toBe(second); // not further: unchanged
+    expect(nextSeen(second, 4, t(61))).toBe(second);
+  });
+
+  it('moves close together are one sitting: the look grows; after a pause a new one starts', () => {
+    let seen = nextSeen(nextSeen(null, 1, t(0)), 2, t(30));
+    seen = nextSeen(seen, 4, t(35)); // you stayed while Claude finished two more turns
+    expect(seen.looks).toEqual([{ from: 1, to: 4, startedAt: t(30).toISOString(), at: t(35).toISOString() }]);
+    seen = nextSeen(seen, 5, t(35 + LOOK_JOIN_MS / 60_000 + 1));
+    expect(seen.looks?.map((l) => [l.from, l.to])).toEqual([
+      [1, 4],
+      [4, 5],
+    ]);
+  });
+
+  it(`keeps the last ${MAX_LOOKS}`, () => {
+    let seen = nextSeen(null, 0, t(0));
+    for (let i = 1; i <= MAX_LOOKS + 5; i++) seen = nextSeen(seen, i, t(i * 60));
+    expect(seen.looks).toHaveLength(MAX_LOOKS);
+    expect(seen.looks?.at(-1)).toMatchObject({ from: MAX_LOOKS + 4, to: MAX_LOOKS + 5 });
   });
 });

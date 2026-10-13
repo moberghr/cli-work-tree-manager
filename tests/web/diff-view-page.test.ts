@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   history: { entries: [] as unknown[], commits: [] as unknown[] },
   // A pick's diff waits on this while set: the last one stays on screen (stale).
   hold: null as Promise<void> | null,
+  // How far you had looked, with your looks (GET …/diff-seen).
+  seen: null as unknown,
 }));
 
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
@@ -45,7 +47,7 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
     fetchFileLines: (...a: Parameters<typeof h.lines>) => h.lines(...a),
     fetchCheckpoints: () => Promise.resolve([]),
     fetchSessionHistory: () => Promise.resolve(h.history),
-    fetchDiffSeen: () => Promise.resolve(null),
+    fetchDiffSeen: () => Promise.resolve(h.seen),
     sessionDiffPage: (id: string) => h.pageFor(id),
   };
 });
@@ -61,6 +63,7 @@ beforeEach(() => {
   h.repos = [];
   h.history = { entries: [], commits: [] };
   h.hold = null;
+  h.seen = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -81,6 +84,31 @@ const session = (over: Partial<SessionSummary> = {}): SessionSummary => ({
   ...over,
 });
 const flush = () => act(async () => new Promise((r) => setTimeout(r, 0)));
+
+describe('your looks on the Diff tab', () => {
+  it('the looks the server keeps are in the picker: Last look on top, and Your looks', async () => {
+    h.history = {
+      entries: [0, 1, 2, 3, 4].map((id) => ({ id, ts: `2026-10-06T08:0${id}:00Z`, repos: {} })),
+      commits: [],
+    };
+    h.seen = {
+      checkpointId: 4,
+      at: '2026-10-06T09:00:00Z',
+      looks: [{ from: 2, to: 4, startedAt: '2026-10-06T09:00:00Z', at: '2026-10-06T09:00:00Z' }],
+    };
+    act(() => root.render(createElement(DiffView, { session: session() })));
+    await flush();
+    await flush();
+    act(() => container.querySelector<HTMLButtonElement>('.wd-history-btn')!.click());
+    const last = [...container.querySelectorAll<HTMLButtonElement>('.wd-checkpoint-pop-preset')].find((b) =>
+      b.textContent?.startsWith('Last look'),
+    );
+    expect(last).toBeTruthy();
+    expect(container.querySelector('.wd-history-row-look')?.textContent).toContain('Turns 3–4');
+    act(() => last!.click());
+    expect(container.querySelector('.wd-history-btn-label')?.textContent).toBe('Last look');
+  });
+});
 
 describe("the Diff tab's own page and full screen", () => {
   it('Open in browser: the page wd opens for this diff, set up when the tab opens, opened outside the app', async () => {

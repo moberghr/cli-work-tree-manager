@@ -8,6 +8,8 @@ import {
   selectionLabel,
   selectionRange,
   sinceLooked,
+  lookWhen,
+  yourLooks,
   SINCE_BRANCH,
   UNCOMMITTED,
 } from '../../src/web/src/state/diff-history.js';
@@ -104,6 +106,39 @@ describe('a pick', () => {
     // Nothing after it, or never looked: not offered.
     expect(sinceLooked(items, entries, 2)).toBeNull();
     expect(sinceLooked(items, entries, null)).toBeNull();
+  });
+});
+
+describe('your looks', () => {
+  const entries = [entry(0, 0), entry(1, 10, 'Wrote it'), entry(2, 30), entry(3, 40), entry(4, 50)];
+  const items = historyItems(entries, [commit('api', 'aaaaaaa', 20)], null);
+  const look = (from: number, to: number, startedAt: string) => ({ from, to, startedAt, at: startedAt });
+  const now = new Date('2026-10-06T15:00:00');
+
+  it('each is the span it showed: after the turn you had seen, to the one you looked as far as; newest first', () => {
+    const [newer, older] = yourLooks(items, entries, [look(1, 2, '2026-10-05T17:40:00'), look(2, 4, '2026-10-06T14:05:00')], now);
+    expect(newer).toMatchObject({
+      when: `Today ${new Date('2026-10-06T14:05:00').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      turns: 'Turns 3–4',
+    });
+    expect(selectionRange(items, newer.selection)).toEqual({ from: { kind: 'checkpoint', id: 2 }, to: { kind: 'checkpoint', id: 4 } });
+    expect(items.filter((i) => inSelection(items, newer.selection, i.key)).map((i) => i.tag)).toEqual(['Turn 3', 'Turn 4']);
+    // A commit made between the two turns is in it; nothing after the last turn is.
+    expect(items.filter((i) => inSelection(items, older.selection, i.key)).map((i) => i.tag)).toEqual(['aaaaaaa', 'Turn 2']);
+    expect(older.turns).toBe('Turn 2');
+    expect(older.when.startsWith('Yesterday ')).toBe(true);
+    expect(selectionLabel(items, newer.selection)).toBe(`Your look · ${newer.when}`);
+  });
+
+  it('one whose turns are gone is left out; none, nothing', () => {
+    expect(yourLooks(items, entries, [look(7, 9, '2026-10-06T14:05:00')], now)).toEqual([]);
+    expect(yourLooks(items, entries, undefined, now)).toEqual([]);
+  });
+
+  it('lookWhen: today, yesterday, else the day', () => {
+    expect(lookWhen('2026-10-06T09:00:00', now).startsWith('Today ')).toBe(true);
+    expect(lookWhen('2026-10-05T09:00:00', now).startsWith('Yesterday ')).toBe(true);
+    expect(lookWhen('2026-10-01T09:00:00', now)).toMatch(/1/);
   });
 });
 

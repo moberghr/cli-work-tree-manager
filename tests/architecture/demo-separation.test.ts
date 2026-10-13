@@ -42,6 +42,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/server/presence.ts', // pure who's-watching registry
       'src/core/pr/pr-watch.ts', // pure PR-watch policy (all I/O injected)
       'src/core/diff/overlap.ts', // pure: which sessions change the same files
+      'src/core/diff/diff-looks.ts', // pure: your looks at a diff (the mark moving forward)
       'src/core/sessions/saved-prompts.ts', // pure: the default one-click prompts
       'src/core/conversations/digest.ts', // pure: the Today digest from given inputs
       'src/core/platform/build-stamp.ts', // one stat of the entry file

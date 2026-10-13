@@ -1,4 +1,5 @@
 import type { CheckpointEntry, DiffPoint, SessionCommit } from '../api/client.js';
+import type { DiffLook } from '../../../core/api-types.js';
 
 /**
  * What the Diff tab's "Changes" picker lists, and what a pick means. A
@@ -148,6 +149,57 @@ export function sinceLooked(items: HistoryItem[], entries: CheckpointEntry[], se
     from: { kind: 'checkpoint', id: seenId },
     label: 'Since you looked',
   };
+}
+
+/** When a look was, the way people say it: "Today 14:05", "Yesterday 17:40", "Mon 6 Oct 09:12" (local time). Pure. */
+export function lookWhen(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86_400_000);
+  if (days === 0) return `Today ${time}`;
+  if (days === 1) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} ${time}`;
+}
+
+/** One of your looks, for the picker: what it showed (a selection), when, and which turns. */
+export interface LookEntry {
+  key: string;
+  selection: Extract<DiffSelection, { kind: 'range' }>;
+  when: string;
+  turns: string;
+}
+
+/**
+ * Your looks (diff-looks.ts), newest first, each as the span it showed then: from
+ * the turn you had looked at to the turn you looked as far as — the same diff
+ * "Since you looked" showed, ending at that turn. One whose turns are gone (the
+ * oldest dropped past MAX_CHECKPOINTS) is left out. Pure.
+ */
+export function yourLooks(items: HistoryItem[], entries: CheckpointEntry[], looks: DiffLook[] | undefined, now = new Date()): LookEntry[] {
+  const ids = new Set(entries.map((e) => e.id));
+  const out: LookEntry[] = [];
+  for (const look of [...(looks ?? [])].reverse()) {
+    if (!ids.has(look.from) || !ids.has(look.to)) continue;
+    const fromAt = Date.parse(entries.find((e) => e.id === look.from)!.ts);
+    const toKey = `t:${look.to}`;
+    const toIdx = items.findIndex((x) => x.key === toKey);
+    if (toIdx < 0) continue;
+    // The first thing after the turn you had seen, up to the one you looked as far as (commits between included).
+    const first = items
+      .slice(0, toIdx + 1)
+      .find((x) => (x.after.kind === 'checkpoint' ? x.after.id > look.from : (Date.parse(x.at ?? '') || 0) > fromAt));
+    if (!first) continue;
+    const when = lookWhen(look.startedAt, now);
+    const n = look.to - look.from;
+    out.push({
+      key: `${look.from}-${look.to}-${look.startedAt}`,
+      selection: { kind: 'range', fromKey: first.key, toKey, from: { kind: 'checkpoint', id: look.from }, label: `Your look · ${when}` },
+      when,
+      turns: n === 1 ? `Turn ${look.to}` : `Turns ${look.from + 1}–${look.to}`,
+    });
+  }
+  return out;
 }
 
 /**

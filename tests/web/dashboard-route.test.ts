@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_ROUTE, LAST_ROUTE_KEY, initialHash, parseHash, saveLastRoute, toHash } from '../../src/web/src/state/dashboard-route.js';
+import {
+  DEFAULT_ROUTE,
+  LAST_ROUTE_KEY,
+  initialHash,
+  parseHash,
+  saveLastRoute,
+  switchTo,
+  toHash,
+} from '../../src/web/src/state/dashboard-route.js';
 
 describe('parseHash', () => {
   it('returns the default route for empty / "#" / "#/"', () => {
@@ -64,6 +72,22 @@ describe('parseHash', () => {
   it('falls back to default for unrecognised hashes (no silent misroute)', () => {
     expect(parseHash('#/garbage')).toEqual(DEFAULT_ROUTE);
     expect(parseHash('#/sessions/extra/junk')).toEqual(DEFAULT_ROUTE);
+  });
+});
+
+describe('switchTo (the rail, j/k, n)', () => {
+  it('the next session opens on its terminal, whatever tab the one you left was on; the breadcrumb tab stays', () => {
+    expect(switchTo({ tab: 'inbox', sessionId: 'a', sessionSubTab: 'diff' }, 'b')).toEqual({
+      tab: 'inbox',
+      sessionId: 'b',
+      sessionSubTab: 'term',
+    });
+    expect(switchTo({ tab: 'sessions', sessionId: 'a', sessionSubTab: 'pr' }, 'b').sessionSubTab).toBe('term');
+    expect(switchTo({ tab: 'start', sessionId: null, sessionSubTab: 'term' }, 'b')).toEqual({
+      tab: 'start',
+      sessionId: 'b',
+      sessionSubTab: 'term',
+    });
   });
 });
 

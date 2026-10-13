@@ -71,6 +71,7 @@ import {
   initialHash,
   parseHash,
   saveLastRoute,
+  switchTo,
   toHash,
   type DashboardRoute,
   type DashboardTab,
@@ -457,13 +458,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     [showToast],
   );
 
-  // Moving between sessions (rail, j/k) keeps the tab you are on — comparing
-  // diffs across sessions stays on the diff; entering from elsewhere lands
-  // on the terminal.
-  const hopTo = useCallback(
-    (sessionId: string) => openSession(sessionId, route.sessionId ? route.sessionSubTab : 'term'),
-    [openSession, route.sessionId, route.sessionSubTab],
-  );
+  // Moving between sessions (rail, j/k, n) opens the next one on its terminal (switchTo), not on the tab you were on.
+  const hopTo = useCallback((sessionId: string) => openSession(sessionId, switchTo(route, sessionId).sessionSubTab), [openSession, route]);
 
   // Review queue ("Review all" on the inbox): finished sessions one by one.
   const [reviewQueue, setReviewQueue] = useState<ReviewQueue | null>(null);

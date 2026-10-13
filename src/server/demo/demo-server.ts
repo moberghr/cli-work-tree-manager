@@ -7,6 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
+import { nextSeen } from '../../core/diff/diff-looks.js';
 import type {
   AgentsWire,
   RestartWire,
@@ -280,7 +281,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return entries ? c.json({ scopeHash: `demo-${c.req.param('id')}`, entries, commits } satisfies SessionHistoryWire) : notFound(c);
   });
 
-  // How far you have looked at a session's diff: in memory, moving forward only (as diff-seen.ts).
+  // How far you have looked at a session's diff, and your looks: in memory, moving forward only (nextSeen, as diff-seen.ts).
   const diffSeen = new Map<string, DiffSeen>();
   app.get('/api/sessions/:id/diff-seen', (c) =>
     scenario.checkpoints(c.req.param('id')) ? c.json({ seen: diffSeen.get(c.req.param('id')) ?? null }) : notFound(c),
@@ -300,8 +301,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown } | null;
     const cp = body?.checkpointId;
     if (typeof cp !== 'number' || !Number.isInteger(cp) || cp < 0) return c.json({ error: 'expected {checkpointId}' }, 400);
-    const old = diffSeen.get(id);
-    if (!old || old.checkpointId < cp) diffSeen.set(id, { checkpointId: cp, at: new Date().toISOString() });
+    diffSeen.set(id, nextSeen(diffSeen.get(id) ?? null, cp, new Date()));
     return c.json({ seen: diffSeen.get(id)! });
   });
 
