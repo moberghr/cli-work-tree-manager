@@ -7,7 +7,6 @@ import type { PrInfo } from '../../src/web/src/api/panes.js';
 import {
   agentCan,
   agentName,
-  defaultSubTab,
   displayStatus,
   ageBucket,
   formatDiffStat,
@@ -111,14 +110,6 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(statusBucket('open')).toBe('idle');
     expect(statusBucket('recent')).toBe('idle');
     expect(statusBucket('stale')).toBe('stale');
-  });
-
-  it('opens sessions on the terminal, unseen finished work on the diff', () => {
-    expect(defaultSubTab(s({ id: 'a', attention: att('needs_input', false) }))).toBe('term');
-    expect(defaultSubTab(s({ id: 'a', attention: att('working', true) }))).toBe('term');
-    expect(defaultSubTab(s({ id: 'a', attention: att('idle', false) }))).toBe('diff');
-    expect(defaultSubTab(s({ id: 'a', attention: att('idle', true) }))).toBe('term');
-    expect(defaultSubTab(s({ id: 'a' }))).toBe('term');
   });
 
   it('stable order: project, then most recently entered — ignores status', () => {

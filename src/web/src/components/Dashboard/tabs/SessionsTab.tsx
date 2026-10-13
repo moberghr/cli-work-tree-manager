@@ -16,15 +16,7 @@ import {
 } from '../../../api/client.js';
 import { removeWorktree } from '../../../api/panes.js';
 import type { SessionSubTab } from '../../../state/dashboard-route.js';
-import {
-  DISPLAY_LABEL,
-  defaultSubTab,
-  displayStatus,
-  isArchived,
-  statusBucket,
-  CONTEXT_WARN,
-  type StatusBucket,
-} from '../../../state/session-display.js';
+import { DISPLAY_LABEL, displayStatus, isArchived, statusBucket, CONTEXT_WARN, type StatusBucket } from '../../../state/session-display.js';
 import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
@@ -306,7 +298,7 @@ export function SessionsTab({
           <SessionRow
             key={s.id}
             session={s}
-            onOpen={() => onOpenSession(s.id, defaultSubTab(s))}
+            onOpen={() => onOpenSession(s.id, 'term')}
             onMenu={(x, y) => setRowMenu({ s, x, y })}
             selecting={selecting}
             picked={picked.has(s.id)}

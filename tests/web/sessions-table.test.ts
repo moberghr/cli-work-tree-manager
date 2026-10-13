@@ -167,7 +167,7 @@ describe('Sessions table', () => {
     expect([...document.querySelectorAll('[role=menuitem]')].map((b) => b.textContent)).toContain('Restore');
   });
 
-  it('a row click opens the session where you would act on it', () => {
+  it('a row click opens the session on its terminal, finished work too', () => {
     const { onOpen } = render();
     act(() =>
       rows()
@@ -181,7 +181,7 @@ describe('Sessions table', () => {
     );
     expect(onOpen.mock.calls).toEqual([
       ['blocked', 'term'],
-      ['done', 'diff'],
+      ['done', 'term'],
     ]);
   });
 

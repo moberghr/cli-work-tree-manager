@@ -1,19 +1,11 @@
 import type { SessionSummary } from '../api/client.js';
 import type { PrInfo } from '../api/panes.js';
-import type { SessionSubTab } from './dashboard-route.js';
 
 // The status vocabulary (Needs your input / Working / Idle / Stale, the age
 // sections) lives in core, shared with `work sessions`.
 export * from '../../../core/sessions/session-view.js';
-import { displayStatus } from '../../../core/sessions/session-view.js';
 import { applyManualOrder } from '../../../core/rail/session-order.js';
 import { groupRail, type RailGroup, type RailLayout } from '../../../core/rail/rail-layout.js';
-
-/** Where opening a session should land: its terminal — except finished
- *  work you haven't looked at yet, which opens on the diff to review. */
-export function defaultSubTab(s: SessionSummary): SessionSubTab {
-  return displayStatus(s) === 'done' ? 'diff' : 'term';
-}
 
 /** The session's agent as you'd name it ("Claude Code"); a row from a server before agents had names: Claude. */
 export function agentName(s: Pick<SessionSummary, 'agent'>): string {

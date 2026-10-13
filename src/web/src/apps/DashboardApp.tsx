@@ -43,7 +43,7 @@ import { WelcomeTab } from '../components/Dashboard/tabs/WelcomeTab.js';
 import { fetchSetup } from '../api/panes.js';
 import { needsSetup } from '../state/setup.js';
 import { fetchProjects, fetchPrs, openInEditor, openInTerminal, type PrInfo } from '../api/panes.js';
-import { defaultSubTab, isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
+import { isArchived, prsForSession, railGroups, type PrLookup } from '../state/session-display.js';
 import { useSse } from '../api/events.js';
 import { DashboardLayout } from '../components/Dashboard/DashboardLayout.js';
 import { ActivityIndicator } from '../components/Dashboard/ActivityIndicator.js';
@@ -592,7 +592,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
         if (next) {
           e.preventDefault();
-          openSession(next.id, defaultSubTab(next));
+          hopTo(next.id); // its terminal, as every move to another session (switchTo)
         }
         return;
       }
