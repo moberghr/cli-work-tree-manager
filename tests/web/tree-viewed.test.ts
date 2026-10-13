@@ -162,4 +162,29 @@ describe('keepReadingPlace', () => {
     reading.remove();
     vi.unstubAllGlobals();
   });
+
+  it('in a scrolling pane, the file being read is the first below the pane’s top, not one hidden under the header', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => frames.push(f));
+    const pane = document.createElement('div');
+    pane.style.overflowY = 'auto';
+    Object.defineProperties(pane, { scrollHeight: { value: 5000 }, clientHeight: { value: 600 } });
+    pane.getBoundingClientRect = () => ({ top: 120 }) as DOMRect; // the header and toolbar above it
+    pane.scrollBy = vi.fn() as never;
+    const underHeader = document.createElement('article');
+    const reading = document.createElement('article');
+    underHeader.className = reading.className = 'wd-file';
+    pane.append(underHeader, reading);
+    document.body.append(pane);
+    let top = 100;
+    underHeader.getBoundingClientRect = () => ({ top: -400, bottom: 80 }) as DOMRect; // ends under the header
+    reading.getBoundingClientRect = () => ({ top, bottom: top + 900 }) as DOMRect;
+    keepReadingPlace(() => {
+      top = -500; // files above it collapsed
+    });
+    while (frames.length) frames.shift()!(0);
+    expect(pane.scrollBy).toHaveBeenCalledWith(0, -600);
+    pane.remove();
+    vi.unstubAllGlobals();
+  });
 });

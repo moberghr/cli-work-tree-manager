@@ -7,6 +7,9 @@ import {
   createRestarter,
   installedAt,
   installedAtCache,
+  installTime,
+  QUEUE_RECHECK_MS,
+  TURN_END_GRACE_MS,
   outdatedPtys,
   PRINTING_MS,
   RESTART_AT_ONCE,
@@ -48,17 +51,32 @@ describe('which agents run a version from before their tool updated', () => {
       const file = path.join(dir, 'claude.exe');
       fs.writeFileSync(file, 'x');
       const npm = new Date('1985-10-26T08:15:00Z');
-      fs.utimesSync(file, npm, npm); // npm's fixed date on every unpacked file: the change time says when
+      fs.utimesSync(file, npm, npm); // npm's fixed date on every unpacked file: its creation (or change) says when
       expect(installedAt('claude', () => file)!).toBeGreaterThan(Date.now() - 60_000);
-      // Any other mtime is when it was written: a later chmod or relink (the change time) doesn't make it new.
-      const written = new Date('2026-10-11T11:12:00Z');
-      fs.utimesSync(file, written, written);
-      expect(installedAt('claude', () => file)).toBe(written.getTime());
       expect(installedAt('claude', () => null)).toBeNull();
       expect(installedAt('claude', () => path.join(dir, 'missing'))).toBeNull();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("installTime: the later of written and created; npm's fixed date counts as neither; a chmod (the change time) never", () => {
+    const t = (iso: string) => Date.parse(iso);
+    const npm = t('1985-10-26T08:15:00Z');
+    // A new file of the build's date, copied in today: created today.
+    expect(
+      installTime({ mtimeMs: t('2026-10-10T00:00:00Z'), birthtimeMs: t('2026-10-12T09:00:00Z'), ctimeMs: t('2026-10-12T09:00:00Z') }),
+    ).toBe(t('2026-10-12T09:00:00Z'));
+    // Written after it was created (an in-place update).
+    expect(
+      installTime({ mtimeMs: t('2026-10-12T09:00:00Z'), birthtimeMs: t('2026-09-01T00:00:00Z'), ctimeMs: t('2026-10-12T09:00:00Z') }),
+    ).toBe(t('2026-10-12T09:00:00Z'));
+    // A chmod today moves only the change time: not an update.
+    expect(
+      installTime({ mtimeMs: t('2026-10-10T00:00:00Z'), birthtimeMs: t('2026-10-10T00:00:00Z'), ctimeMs: t('2026-10-13T08:00:00Z') }),
+    ).toBe(t('2026-10-10T00:00:00Z'));
+    // npm's date where creation isn't recorded (0): the unpacking's change time.
+    expect(installTime({ mtimeMs: npm, birthtimeMs: 0, ctimeMs: t('2026-10-12T09:00:00Z') })).toBe(t('2026-10-12T09:00:00Z'));
   });
 
   it('findOnPath: the first PATH match, with PATHEXT on Windows; a path is itself', () => {
@@ -97,7 +115,12 @@ describe('restarting', () => {
     const notes: string[] = [];
     const reports: number[] = [];
     const changed = vi.fn();
-    const timers: Array<() => void> = [];
+    const timers: Array<(() => void) & { ms?: number }> = [];
+    /** Run the timers set so far (a turn end's grace, the queue's recheck), then let their restarts land. */
+    const fire = async (ms?: number) => {
+      for (const f of timers.splice(0).filter((f) => ms === undefined || f.ms === ms)) f();
+      await new Promise((res) => setTimeout(res, 0));
+    };
     const r = createRestarter({
       restart: async (id) => {
         if (id === 'c') throw new Error('host said no');
@@ -111,24 +134,27 @@ describe('restarting', () => {
         for (const n of batch) notes.push(`${n.level} ${n.id}: ${n.text}`);
       },
       changed,
-      later: (fn) => void timers.push(fn),
+      later: (fn, ms) => void timers.push(Object.assign(fn, { ms })),
     });
-    return { r, restarted, notes, reports, changed, timers };
+    return { r, restarted, notes, reports, changed, timers, fire };
   };
 
   it('restarts the idle ones now and the busy one when its turn ends — never mid-turn', async () => {
     const busy = new Set(['b']);
-    const { r, restarted, changed } = setup(busy);
+    const { r, restarted, changed, fire } = setup(busy);
     const out = await r.request(['a', 'b', 'x']); // x isn't running: nothing to restart
     expect(out).toEqual({ now: ['a'], later: ['b'], failed: [] });
     expect(restarted).toEqual(['a']);
     expect(r.queued()).toEqual(['b']);
     expect(changed).toHaveBeenCalled();
-    await r.turnEnded('b'); // a hook fired, but it is still working (a Stop that handed it more)
+    r.turnEnded('b'); // a hook fired, but it is still working (a Stop that handed it more)
+    await fire(TURN_END_GRACE_MS);
     expect(restarted).toEqual(['a']);
     busy.delete('b');
-    await r.turnEnded('a'); // not queued: nothing
-    await r.turnEnded('b');
+    r.turnEnded('a'); // not queued: nothing
+    r.turnEnded('b');
+    expect(restarted).toEqual(['a']); // not at once: its turn-end hooks still run as its children
+    await fire(TURN_END_GRACE_MS);
     expect(restarted).toEqual(['a', 'b']);
     expect(r.queued()).toEqual([]);
   });
@@ -148,24 +174,28 @@ describe('restarting', () => {
   it('right after its turn, its last message (printed a moment ago) does not keep it queued', async () => {
     const busy = new Set(['b']);
     const printing = new Set(['b']);
-    const { r, restarted } = setup(busy, new Set(['b']), printing);
+    const { r, restarted, fire } = setup(busy, new Set(['b']), printing);
     await r.request(['b']);
     busy.delete('b'); // the Stop: idle now, its final message printed a second ago
-    await r.turnEnded('b');
+    r.turnEnded('b');
+    await fire(TURN_END_GRACE_MS);
     expect(restarted).toEqual(['b']);
   });
 
-  it('a turn-end the status has not caught up with yet: looked at again shortly, once', async () => {
-    const busy = new Set(['b']);
-    const { r, restarted, timers } = setup(busy, new Set(['b']));
+  it('while anything waits it is looked at again every so often: a turn no hook reported, or a terminal only redrawing', async () => {
+    const busy = new Set<string>();
+    const printing = new Set(['b']); // idle, but it redrew a moment ago (opened, resized)
+    const { r, restarted, timers, fire } = setup(busy, new Set(['b']), printing);
+    expect((await r.request(['b'])).later).toEqual(['b']);
+    expect(timers.map((t) => t.ms)).toEqual([QUEUE_RECHECK_MS]); // one recheck, not one per request
     await r.request(['b']);
-    await r.turnEnded('b'); // still reads as working
-    expect(restarted).toEqual([]);
     expect(timers).toHaveLength(1);
-    busy.delete('b');
-    timers[0]();
-    await new Promise((res) => setTimeout(res, 0));
+    await fire(QUEUE_RECHECK_MS); // still redrawing: checked again later
+    expect(restarted).toEqual([]);
+    printing.delete('b');
+    await fire(QUEUE_RECHECK_MS);
     expect(restarted).toEqual(['b']);
+    expect(timers).toEqual([]); // nothing waits: no more rechecks
   });
 
   it('one request is one report (one Activity run), its decisions in a line', async () => {
@@ -173,7 +203,7 @@ describe('restarting', () => {
     await r.request(['a', 'b', 'c']);
     expect(reports).toEqual([3]);
     expect(notes).toEqual([
-      'info b: restarts its agent when its turn ends (it is working or waiting on you)',
+      'info b: restarts when its turn ends (it is working or waiting on you)',
       'action a: restarted its agent (its conversation goes on)',
       "warn c: couldn't restart its agent: host said no",
     ]);
@@ -183,8 +213,8 @@ describe('restarting', () => {
         { id: 'b', text: '', level: 'info' },
         { id: 'c', text: '', level: 'warn' },
       ]),
-    ).toBe('1 restarted · 1 after its turn · 1 failed');
-    expect(restartNotesSummary([])).toBe('nothing to restart');
+    ).toBe("1 session restarted · 1 restarts when its turn ends · 1 couldn't.");
+    expect(restartNotesSummary([])).toBe('Nothing to restart.');
   });
 
   it('asked again while one runs, it shares that one (and its failure)', async () => {
@@ -205,6 +235,18 @@ describe('restarting', () => {
     expect(calls).toBe(1);
     expect((await second).failed).toEqual([{ id: 'a', error: 'did not stop' }]);
     expect((await first).failed).toEqual([{ id: 'a', error: 'did not stop' }]);
+  });
+
+  it('on a PTY host from before restart-in-place, it says how it went instead', async () => {
+    const notes: string[] = [];
+    const r = createRestarter({
+      restart: async () => 'stopped and started again (an older PTY host)',
+      busy: () => false,
+      running: () => true,
+      report: (batch) => notes.push(...batch.map((n) => n.text)),
+    });
+    expect((await r.request(['a'])).now).toEqual(['a']);
+    expect(notes).toEqual(['stopped and started again (an older PTY host)']);
   });
 
   it('a restart that fails is reported, with why', async () => {

@@ -27,13 +27,15 @@ export function viewedMenuItems(
   return items;
 }
 
-/** The nearest ancestor that scrolls (the diff pane), else the page. */
-function scrollerOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void } {
+/** The nearest ancestor that scrolls (the diff pane), else the page, and where its visible part starts. */
+function scrollerOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void; top: number } {
   for (let p = el.parentElement; p; p = p.parentElement) {
     const y = getComputedStyle(p).overflowY;
-    if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) {
+      return { scrollBy: (x, dy) => p.scrollBy(x, dy), top: p.getBoundingClientRect().top };
+    }
   }
-  return window;
+  return { scrollBy: (x, dy) => window.scrollBy(x, dy), top: 0 };
 }
 
 /**
@@ -43,15 +45,19 @@ function scrollerOf(el: HTMLElement): { scrollBy: (x: number, y: number) => void
  * toggle waits).
  */
 export function keepReadingPlace(mark: () => void): void {
-  const at = [...document.querySelectorAll<HTMLElement>('article.wd-file')].find((a) => a.getBoundingClientRect().bottom > 0);
+  const articles = [...document.querySelectorAll<HTMLElement>('article.wd-file')];
+  // The pane's own top, not the window's: in the dashboard the header and toolbar sit above it, and a file
+  // ending under them isn't the one being read.
+  const scroller = articles[0] ? scrollerOf(articles[0]) : null;
+  const at = scroller ? articles.find((a) => a.getBoundingClientRect().bottom > scroller.top) : undefined;
   const before = at?.getBoundingClientRect().top;
   mark();
-  if (!at || before === undefined) return;
+  if (!at || !scroller || before === undefined) return;
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       if (!at.isConnected) return;
       const moved = at.getBoundingClientRect().top - before;
-      if (moved !== 0) scrollerOf(at).scrollBy(0, moved);
+      if (moved !== 0) scroller.scrollBy(0, moved);
     }),
   );
 }

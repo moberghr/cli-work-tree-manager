@@ -4,6 +4,7 @@ import { callWorkWeb } from '../core/platform/web-discovery.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { loadHistory } from '../core/sessions/history.js';
 import type { RestartWire } from '../core/api-types.js';
+import { LATER_TEXT } from '../core/pty/restart-view.js';
 import { sessionFromArgs, sessionPositionals } from './shared/session-arg.js';
 
 /**
@@ -38,7 +39,7 @@ export const restartCommand: CommandModule = {
     }
     const { now, later, failed } = r.body;
     for (const id of now) console.log(`${label(id)}: restarted`);
-    for (const id of later) console.log(`${label(id)}: restarts when its turn ends (it is working or waiting on you)`);
+    for (const id of later) console.log(`${label(id)}: ${LATER_TEXT} (it is working or waiting on you)`);
     for (const f of failed) console.error(chalk.red(`${label(f.id)}: couldn't restart: ${f.error}`));
     if (!now.length && !later.length && !failed.length)
       console.log(argv.outdated ? 'Every agent runs its newest version.' : 'Nothing to restart.');

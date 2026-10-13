@@ -902,7 +902,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
-      void restarter.turnEnded(id).catch(() => {}); // a restart that waited for this turn to end
+      restarter.turnEnded(id); // a restart that waited for this turn to end (after its hooks have run)
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)

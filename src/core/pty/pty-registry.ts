@@ -300,7 +300,10 @@ export class PtyRegistry {
     // exit subscribers have fired, so tell this client now — otherwise it
     // would sit on a dead screen, its input silently dropped.
     const exitedWith = e.pty.exited && !e.restarting ? (e.exitCode ?? 0) : null;
-    const settled = e.pty.serializeSettled;
+    // Mid-restart the process in the entry is the old one, already disposed (its screen with it): nothing of it to
+    // send or wait on — the new one draws from scratch, straight to this client.
+    const restarting = !!e.restarting;
+    const settled = restarting ? undefined : e.pty.serializeSettled;
     // Held output while the settled snapshot is taken; null = passed straight on.
     let held: string[] | null = settled ? [] : null;
     const sub = (d: string) => (held ? held.push(d) : onData(d));
@@ -309,7 +312,7 @@ export class PtyRegistry {
       e.exitSubscribers.add(onExit);
     }
     const snapshot = (data: string): ReplaySnapshot => ({ data, cols: e.cols, rows: e.rows });
-    const replay = snapshot(e.pty.serialize?.() || e.replay);
+    const replay = snapshot(restarting ? '' : e.pty.serialize?.() || e.replay);
     return {
       exitedWith,
       replay,

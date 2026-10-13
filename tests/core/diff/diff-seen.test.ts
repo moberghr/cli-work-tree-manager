@@ -96,6 +96,8 @@ describe('your looks (nextSeen, pure)', () => {
     expect(after.looks).toEqual(before.looks); // kept (they hide themselves: their turns' times no longer match)
     // Same numbering, an older window: still no going back.
     expect(nextSeen(before, 11, t(130), '2026-10-04T09:30:00Z')).toBe(before);
+    // A window still on the diff from before the re-baseline (the old numbering's higher turn, an older time): no going back either.
+    expect(nextSeen(after, 9, t(140), '2026-10-04T09:45:00Z')).toBe(after);
     // Each look keeps its turns' times.
     expect(before.looks?.[0]).toMatchObject({ fromTs: '2026-10-04T09:00:00Z', toTs: '2026-10-04T10:00:00Z' });
   });

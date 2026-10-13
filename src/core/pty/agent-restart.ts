@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { findOnPath } from '../platform/find-on-path.js';
 import type { PtyInfo } from './pty-host-protocol.js';
+import { LATER_TEXT, restartCountsText } from './restart-view.js';
 
 /**
  * Restarting the agents in the PTY host — after their tool updated (Claude Code
@@ -15,8 +16,10 @@ const PACKED_MTIME_BEFORE = Date.parse('1990-01-01T00:00:00Z');
 
 /**
  * When the file a tool's command runs was installed, following links
- * (`~/.local/bin/claude` → `versions/2.1.296`): its modification time — or, for a
- * file npm unpacked with its fixed old date, its change time (the unpacking).
+ * (`~/.local/bin/claude` → `versions/2.1.296`): the later of its modification time
+ * and its creation — an updater that copies the new file keeping its build date
+ * still creates it now. A file npm unpacked with its fixed old date, on a system
+ * that doesn't record creation, falls back to its change time (the unpacking).
  * Not the change time otherwise: a chmod or a relink moves it, and every running
  * agent would read as outdated. Null when it isn't on PATH.
  */
@@ -24,11 +27,17 @@ export function installedAt(cmd: string, find: (cmd: string) => string | null = 
   const file = find(cmd);
   if (!file) return null;
   try {
-    const st = fs.statSync(fs.realpathSync(file));
-    return st.mtimeMs < PACKED_MTIME_BEFORE ? st.ctimeMs : st.mtimeMs;
+    return installTime(fs.statSync(fs.realpathSync(file)));
   } catch {
     return null;
   }
+}
+
+/** installedAt's rule on a file's times. Pure. */
+export function installTime(st: { mtimeMs: number; ctimeMs: number; birthtimeMs: number }): number {
+  const real = (ms: number) => (ms >= PACKED_MTIME_BEFORE ? ms : null);
+  const known = [real(st.mtimeMs), real(st.birthtimeMs)].filter((x): x is number => x !== null);
+  return known.length ? Math.max(...known) : st.ctimeMs;
 }
 
 /**
@@ -86,8 +95,8 @@ export function restartPlan(ids: readonly string[], busy: (id: string) => boolea
 export const RESTART_AT_ONCE = 3;
 
 export interface RestarterDeps {
-  /** Restart its agent in place (the host keeps attached terminals). */
-  restart: (id: string) => Promise<void>;
+  /** Restart its agent in place (the host keeps attached terminals); a string: how it went instead (an older host). */
+  restart: (id: string) => Promise<string | void>;
   /** Working, or waiting on you: not now. `turnEnded`: its turn just ended (the Stop), so the final message it
    *  printed a moment ago isn't work going on. */
   busy: (id: string, opts?: { turnEnded?: boolean }) => boolean;
@@ -106,25 +115,26 @@ export interface RestartNote {
   level: 'action' | 'info' | 'warn';
 }
 
+type OneRestart = { ok: true; how: string } | { ok: false; error: string };
+
 export interface RestartOutcome {
   now: string[];
   later: string[];
   failed: Array<{ id: string; error: string }>;
 }
 
-/** One request's decisions in a line, for its Activity run: "2 restarted · 1 after its turn · 1 failed". Pure. */
+/** One request's decisions in a line, for its Activity run (restart-view.ts's wording). Pure. */
 export function restartNotesSummary(notes: readonly RestartNote[]): string {
   const n = (level: RestartNote['level']) => notes.filter((x) => x.level === level).length;
-  const parts = [
-    n('action') && `${n('action')} restarted`,
-    n('info') && `${n('info')} after ${n('info') === 1 ? 'its turn' : 'their turns'}`,
-    n('warn') && `${n('warn')} failed`,
-  ].filter(Boolean);
-  return parts.join(' · ') || 'nothing to restart';
+  return restartCountsText({ restarted: n('action'), later: n('info'), failed: n('warn') });
 }
 
-/** After a turn ends, how long before looking once more at a queued one that still read as busy. */
-export const AFTER_TURN_RECHECK_MS = 15_000;
+/** While anything waits, how often it is looked at again: a turn whose end no hook reported, or a terminal that was
+ *  only redrawing (the printing check) — never left for the 5-minute sweep, which `--dev` and lean don't run. */
+export const QUEUE_RECHECK_MS = 15_000;
+/** After a turn ends, how long before its agent is restarted: the Stop's own hooks (`work hook turn-end`: the
+ *  checkpoint, the status) run as its children, and stopping it at once would kill them mid-way. */
+export const TURN_END_GRACE_MS = 10_000;
 
 /**
  * Restarts now what can go now, and the rest when their turn ends (`turnEnded`,
@@ -135,17 +145,17 @@ export const AFTER_TURN_RECHECK_MS = 15_000;
  */
 export function createRestarter(deps: RestarterDeps) {
   const queued = new Set<string>();
-  const inFlight = new Map<string, Promise<string | null>>();
+  const inFlight = new Map<string, Promise<OneRestart>>();
   const later = deps.later ?? ((fn: () => void, ms: number) => void setTimeout(fn, ms).unref?.());
 
-  /** Restart one; resolves to null when it restarted, else why not. */
-  const one = (id: string): Promise<string | null> => {
+  /** Restart one: how it went (a different way, on an older host), or why not. */
+  const one = (id: string): Promise<OneRestart> => {
     const running = inFlight.get(id);
     if (running) return running;
     queued.delete(id);
     const p = deps.restart(id).then(
-      () => null,
-      (err: Error) => err.message,
+      (how): OneRestart => ({ ok: true, how: how || 'restarted its agent (its conversation goes on)' }),
+      (err: Error): OneRestart => ({ ok: false, error: err.message }),
     );
     inFlight.set(id, p);
     void p.finally(() => inFlight.delete(id));
@@ -159,13 +169,13 @@ export function createRestarter(deps: RestarterDeps) {
     const queue = [...ids];
     const worker = async () => {
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-        const error = await one(id);
-        if (error === null) {
+        const r = await one(id);
+        if (r.ok) {
           ok.add(id);
-          notes.push({ id, text: 'restarted its agent (its conversation goes on)', level: 'action' });
+          notes.push({ id, text: r.how, level: 'action' });
         } else {
-          failed.push({ id, error });
-          notes.push({ id, text: `couldn't restart its agent: ${error}`, level: 'warn' });
+          failed.push({ id, error: r.error });
+          notes.push({ id, text: `couldn't restart its agent: ${r.error}`, level: 'warn' });
         }
       }
     };
@@ -187,11 +197,25 @@ export function createRestarter(deps: RestarterDeps) {
     const notes: RestartNote[] = [];
     for (const id of plan.later) {
       queued.add(id);
-      notes.push({ id, text: 'restarts its agent when its turn ends (it is working or waiting on you)', level: 'info' });
+      notes.push({ id, text: `${LATER_TEXT} (it is working or waiting on you)`, level: 'info' });
     }
     const { done, failed } = await run(plan.now, notes);
     finish(notes);
+    tick();
     return { now: done, later: plan.later, failed };
+  };
+
+  // While anything waits, it is looked at again every QUEUE_RECHECK_MS.
+  let ticking = false;
+  const tick = () => {
+    if (ticking || queued.size === 0) return;
+    ticking = true;
+    later(() => {
+      ticking = false;
+      void retry()
+        .catch(() => {})
+        .finally(tick);
+    }, QUEUE_RECHECK_MS);
   };
 
   /** Restart the queued ones (or `only`) that can go now; a queued one stopped meanwhile is dropped. */
@@ -214,10 +238,9 @@ export function createRestarter(deps: RestarterDeps) {
     request,
     retry: () => retry(),
     /** A session's turn ended: restart it if it was waiting for that — and if it still reads as busy, look again shortly. */
-    turnEnded: async (id: string): Promise<void> => {
+    turnEnded: (id: string): void => {
       if (!queued.has(id)) return;
-      await retry(id, { turnEnded: true });
-      if (queued.has(id)) later(() => void retry(id).catch(() => {}), AFTER_TURN_RECHECK_MS);
+      later(() => void retry(id, { turnEnded: true }).catch(() => {}), TURN_END_GRACE_MS);
     },
     queued: (): string[] => [...queued],
   };

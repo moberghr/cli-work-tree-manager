@@ -45,7 +45,7 @@ export function mountAgentRestartRoutes(app: Hono, opts: { deps: AgentRestartDep
     const live = (await deps.list().catch(() => [])).filter((p) => !p.exited);
     let ids: string[];
     if (body.all === true) ids = live.map((p) => p.id);
-    else if (body.outdated === true) ids = agentsWire(live, deps).outdated.map((o) => o.id);
+    else if (body.outdated === true) ids = outdatedPtys(live, deps.installedAt).map((p) => p.id);
     else if (Array.isArray(body.ids) && body.ids.length > 0 && body.ids.every((i) => typeof i === 'string')) {
       ids = body.ids as string[];
       const running = new Set(live.map((p) => p.id));

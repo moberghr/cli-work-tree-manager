@@ -48,6 +48,9 @@ function rebaselined(old: DiffSeen, checkpointId: number, ts: string | undefined
 export function nextSeen(old: DiffSeen | null, checkpointId: number, now: Date, ts?: string): DiffSeen {
   const fresh = !!old && rebaselined(old, checkpointId, ts);
   if (old && old.checkpointId >= checkpointId && !fresh) return old;
+  // A turn older than the marked one is behind it, whatever its number: a window still showing the diff from
+  // before a re-baseline (higher numbers, the old numbering) never takes the mark back.
+  if (old?.ts && ts && Date.parse(ts) < Date.parse(old.ts)) return old;
   const at = now.toISOString();
   const looks = (old?.looks ?? []).filter(isLook);
   if (old && !fresh) {

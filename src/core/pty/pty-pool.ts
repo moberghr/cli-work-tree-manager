@@ -258,7 +258,7 @@ export async function writeToPty(sessionId: string, data: string): Promise<boole
  * kept attached (agent-restart.ts). A host from before that call: stopped and
  * started again (an open Terminal tab then offers Enter, as after a stop).
  */
-export async function restartPty(sessionId: string): Promise<void> {
+export async function restartPty(sessionId: string): Promise<string | void> {
   const c = await getClient(false);
   if (!c) throw new Error('the PTY host is not running');
   const how = await c.restart(sessionId);
@@ -266,8 +266,13 @@ export async function restartPty(sessionId: string): Promise<void> {
   if (how === 'unsupported') {
     await disposePty(sessionId);
     if (!(await ensurePty(sessionId))) throw new Error('its agent could not be started again');
+    return OLD_HOST_RESTART;
   }
 }
+
+/** How a restart on a PTY host from before restart-in-place went: what differs, and the way to the real thing. */
+export const OLD_HOST_RESTART =
+  'stopped and started again (an older PTY host: open terminals show it ended, and it runs with only the variables `hostEnv` keeps; `work pty-host --restart` gets restarts in place)';
 
 /** Kill one session's PTY (if any). Called before removing a worktree so
  *  the Claude process doesn't hold its cwd open (Windows refuses to delete

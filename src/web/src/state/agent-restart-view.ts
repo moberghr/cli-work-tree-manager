@@ -1,4 +1,5 @@
 import type { AgentsWire, RestartWire } from '../../../core/api-types.js';
+import { LATER_TEXT, restartCountsText } from '../../../core/pty/restart-view.js';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -35,15 +36,10 @@ export function restartLabel(w: AgentsWire): string | null {
 export function queuedText(w: AgentsWire): string | null {
   const asked = new Set(w.queued);
   const n = w.outdated.filter((o) => asked.has(o.id)).length;
-  return n === 0 ? null : `${n} ${n === 1 ? 'restarts when its turn ends' : 'restart when their turns end'}.`;
+  return n === 0 ? null : `${n} ${n === 1 ? LATER_TEXT : 'restart when their turns end'}.`;
 }
 
 /** How a restart went, in a line. Pure. */
 export function restartSummary(r: RestartWire): string {
-  const parts: string[] = [];
-  if (r.now.length) parts.push(`${plural(r.now.length, 'session')} restarted`);
-  if (r.later.length)
-    parts.push(`${r.later.length} ${r.later.length === 1 ? 'restarts when its turn ends' : 'restart when their turns end'}`);
-  if (r.failed.length) parts.push(`${r.failed.length} couldn't: ${r.failed[0].error}`);
-  return parts.length ? `${parts.join(' · ')}.` : 'Nothing to restart.';
+  return restartCountsText({ restarted: r.now.length, later: r.later.length, failed: r.failed.length, firstError: r.failed[0]?.error });
 }

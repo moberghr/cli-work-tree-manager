@@ -15,12 +15,14 @@ const MAX_BODY = 1024 * 1024;
 
 /**
  * Input a terminal sends on its own, with nobody typing: focus in/out, answers to the agent's queries (device
- * attributes, cursor position, status, mode and keyboard-flag reports, window size), OSC / DCS / APC replies. Every
- * attached client answers a query, and a hidden one still reports focus, so these must not count as using a client —
- * only typing (keys, a paste, a click) does. Pure.
+ * attributes, cursor position, status, mode and keyboard-flag reports, window size), OSC / DCS / APC replies — and
+ * the mouse moving with no button down (SGR motion reports, codes 35 + modifiers), which hovering over a terminal
+ * sends. Every attached client answers a query, and a hidden one still reports focus, so these must not count as
+ * using a client — only typing (keys, a paste, a click, a drag) does. A cursor-position report at row 1 and columns
+ * 2–8 looks just like Shift/Alt/Ctrl+F3 (`ESC[1;2R` …), so it is taken for the key. Pure.
  */
 const REPLY =
-  /^(?:\x1b\[[IO]|\x1b\[[?>=][\d;]*c|\x1b\[\d+;\d+R|\x1b\[\??\d*n|\x1b\[\?\d*u|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][\s\S]*?\x1b\\)+$/;
+  /^(?:\x1b\[[IO]|\x1b\[[?>=][\d;]*c|\x1b\[(?!1;[2-8]R)\d+;\d+R|\x1b\[\??\d*n|\x1b\[\?\d*u|\x1b\[\??[\d;]*\$y|\x1b\[\d+(?:;\d+)*t|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P_][\s\S]*?\x1b\\|\x1b\[<(?:35|39|43|47|51|55|59|63);\d+;\d+M)+$/;
 export function isTerminalReply(data: string): boolean {
   return REPLY.test(data);
 }

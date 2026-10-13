@@ -531,4 +531,34 @@ describe('restart', () => {
     await expect(first).rejects.toThrow(/didn't stop/);
     await expect(second).rejects.toThrow(/didn't stop/);
   });
+
+  it('a client attaching mid-restart does not wait on the old screen (disposed: its settle may never come)', async () => {
+    const reg = new PtyRegistry({
+      spawner: (spec) => {
+        const p = spawner(spec) as FakePty & { serializeSettled?: () => Promise<string>; serialize?: () => string };
+        p.serialize = () => 'old screen';
+        p.serializeSettled = () => new Promise<string>(() => {}); // a disposed screen never answers
+        return p;
+      },
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+    });
+    reg.spawn('s', spec());
+    const restarting = reg.restart('s');
+    const out: string[] = [];
+    const a = reg.attach(
+      's',
+      (d) => out.push(d),
+      () => {},
+    )!;
+    expect(a.replay.data).toBe('');
+    const ready = await Promise.race([a.ready, new Promise((r) => setTimeout(() => r('stuck'), 50))]);
+    expect(ready).not.toBe('stuck');
+    a.start();
+    spawned[0].pty.exit(0);
+    await restarting;
+    spawned[1].pty.emit('fresh');
+    expect(out).toEqual(['fresh']);
+  });
 });

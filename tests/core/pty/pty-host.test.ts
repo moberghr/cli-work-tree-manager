@@ -160,9 +160,23 @@ describe('PTY host', () => {
       '\x1b]10;rgb:ffff/ffff/ffff\x07',
       '\x1bP>|xterm.js\x1b\\',
       '\x1b[O\x1b[I',
+      '\x1b[<35;10;5M', // the mouse moving, no button down (hovering)
+      '\x1b[<39;10;5M\x1b[<35;11;5M', // …with Shift, then without
     ])
       expect(isTerminalReply(reply), JSON.stringify(reply)).toBe(true);
-    for (const typed of ['k', '\r', '\x1b', '\x1b[A', '\x1b[200~paste\x1b[201~', '\x1b[<0;10;5M', '\x1b[O' + 'k', '\x03'])
+    for (const typed of [
+      'k',
+      '\r',
+      '\x1b',
+      '\x1b[A',
+      '\x1b[200~paste\x1b[201~',
+      '\x1b[<0;10;5M', // a click
+      '\x1b[<32;12;5M', // a drag (left button down)
+      '\x1b[1;2R', // Shift+F3, not a cursor report
+      '\x1b[1;5R', // Ctrl+F3
+      '\x1b[O' + 'k',
+      '\x03',
+    ])
       expect(isTerminalReply(typed), JSON.stringify(typed)).toBe(false);
   });
 
