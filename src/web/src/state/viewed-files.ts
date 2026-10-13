@@ -10,19 +10,11 @@ import { createScopeMapStore } from './scope-map-store.js';
 
 const store = createScopeMapStore('work-web:viewed-files');
 
-export function isViewed(scope: string, filePath: string): boolean {
-  return store.has(scope, filePath);
-}
-
-export function setViewed(scope: string, filePath: string, viewed: boolean): void {
-  store.set(scope, filePath, viewed);
-}
-
 export function readScope(scope: string): Set<string> {
   return store.readScope(scope);
 }
 
-/** Change a scope's ticks in one store pass. Returns them after. */
+/** Change a scope's ticks in one store pass (the one way to write them: use-viewed-files keeps one tick per file). Returns them after. */
 export function updateScope(scope: string, change: (keys: Set<string>) => void): Set<string> {
   return store.update(scope, change);
 }

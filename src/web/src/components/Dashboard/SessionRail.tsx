@@ -415,8 +415,11 @@ export function SessionRail({
             if (dragId && drop) e.preventDefault();
           }}
           onDragLeave={(e) => {
-            // Out of the list: no bar, and a release there moves nothing.
-            if (dragId && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
+            // Out of the list: no bar, and a release there moves nothing. Told by where the pointer is, not
+            // relatedTarget, which WebKit (the macOS app) leaves null going from one row to the next.
+            if (!dragId) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            if (e.clientX <= r.left || e.clientX >= r.right || e.clientY <= r.top || e.clientY >= r.bottom) setDrop(null);
           }}
           onDrop={(e) => {
             e.preventDefault();

@@ -228,6 +228,13 @@ export function outputStatus(sessionId: string, now = Date.now()): SessionAttent
   return o ? statusFromOutput(o, now) : null;
 }
 
+/** When a session's terminal last printed (ms, from the refresh cache); null with no PTY or a host that doesn't say. */
+export function ptyLastOutputMs(sessionId: string): number | null {
+  const at = outputs.get(sessionId)?.lastOutputAt;
+  const ms = at ? Date.parse(at) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function peekPty(sessionId: string): boolean {
   return live.has(sessionId);
 }

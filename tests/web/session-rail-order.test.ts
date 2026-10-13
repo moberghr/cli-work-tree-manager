@@ -119,13 +119,20 @@ describe('SessionRail order', () => {
     const [first, , third] = rows();
     const list = container.querySelector('.wd-dash-rail-list')!;
     vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: 0, bottom: 600 } as DOMRect);
     drag(third, 'dragstart');
     drag(first, 'dragover', 5);
-    const leave = new Event('dragleave', { bubbles: true });
-    Object.defineProperty(leave, 'relatedTarget', { value: document.body });
-    act(() => {
-      list.dispatchEvent(leave);
-    });
+    const leave = (clientX: number, clientY: number) => {
+      // WebKit leaves relatedTarget null, even going from one row to the next: only the pointer says where it is.
+      const ev = new Event('dragleave', { bubbles: true });
+      Object.defineProperties(ev, { relatedTarget: { value: null }, clientX: { value: clientX }, clientY: { value: clientY } });
+      act(() => {
+        list.dispatchEvent(ev);
+      });
+    };
+    leave(100, 30); // between two rows, still inside the list
+    expect(first.className).toContain('wd-dash-rail-drop-before');
+    leave(400, 30); // out over the page
     expect(first.className).not.toContain('wd-dash-rail-drop-before');
     drag(list, 'drop');
     expect(onReorder).not.toHaveBeenCalled();

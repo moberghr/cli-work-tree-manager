@@ -410,3 +410,102 @@ describe('attaching while the screen is still parsing (a late attacher must not 
     expect(got).toEqual(['world']);
   });
 });
+
+describe('restart', () => {
+  const spec = () => ({ cwd: dir, tool, keptEnv: { JAVA_HOME: '/jdk' } });
+
+  it('the new process goes into the same entry: clients get its output, a detach after it still detaches', async () => {
+    const reg = makeRegistry(() => true);
+    reg.spawn('s', spec());
+    const old = spawned[0].pty;
+    const out: string[] = [];
+    const exits: number[] = [];
+    const a = reg.attach(
+      's',
+      (d) => out.push(d),
+      (c) => exits.push(c),
+    )!;
+    a.start();
+    const restarting = reg.restart('s');
+    old.exit(0); // the old one stops
+    const info = await restarting;
+    const fresh = spawned[1];
+    expect(fresh.spec).toMatchObject({ resume: true, env: expect.objectContaining({ JAVA_HOME: '/jdk' }) });
+    expect(info).toMatchObject({ exited: false, clients: 1, pid: fresh.pty.pty.pid });
+    fresh.pty.emit('hello');
+    expect(out).toEqual(['hello']);
+    expect(exits).toEqual([]); // the old one's end isn't the session's
+    a.detach();
+    expect(reg.get('s')?.clients).toBe(0);
+    expect(Object.keys(readSaved())).toEqual(['s']);
+  });
+
+  it('a client attaching while it restarts joins it (not told it ended), and a spawn meanwhile starts no second one', async () => {
+    const reg = makeRegistry();
+    reg.spawn('s', spec());
+    const old = spawned[0].pty;
+    const restarting = reg.restart('s');
+    old.exited = true; // exited, the new one not started yet
+    const out: string[] = [];
+    const b = reg.attach(
+      's',
+      (d) => out.push(d),
+      () => {},
+    )!;
+    expect(b.exitedWith).toBeNull();
+    b.start();
+    reg.spawn('s', spec());
+    expect(spawned).toHaveLength(1);
+    old.onExit?.(0);
+    await restarting;
+    spawned[1].pty.emit('new');
+    expect(out).toEqual(['new']);
+    expect(spawned).toHaveLength(2);
+  });
+
+  it('an old one that does not stop in time is left running and tracked: no second agent on its conversation', async () => {
+    const reg = makeRegistry();
+    reg.spawn('s', spec());
+    await expect(reg.restart('s', 20)).rejects.toThrow(/didn't stop/);
+    expect(spawned).toHaveLength(1);
+    const exits: number[] = [];
+    reg
+      .attach(
+        's',
+        () => {},
+        (c) => exits.push(c),
+      )!
+      .start();
+    spawned[0].pty.exit(0); // when it does end, it ends the usual way
+    expect(exits).toEqual([0]);
+  });
+
+  it('a new one that cannot start ends the session as a kill does: its terminals are told', async () => {
+    let fail = false;
+    const reg = new PtyRegistry({
+      spawner: (s) => {
+        if (fail) throw new Error('spawn claude ENOENT');
+        return spawner(s);
+      },
+      hasConversation: () => false,
+      sessionsPath,
+      cwdExists: () => true,
+    });
+    reg.spawn('s', spec());
+    const exits: number[] = [];
+    reg
+      .attach(
+        's',
+        () => {},
+        (c) => exits.push(c),
+      )!
+      .start();
+    fail = true;
+    const restarting = reg.restart('s');
+    spawned[0].pty.exit(0);
+    await expect(restarting).rejects.toThrow(/ENOENT/);
+    expect(exits).toEqual([1]);
+    expect(reg.get('s')).toBeNull();
+    expect(readSaved()).toEqual({});
+  });
+});

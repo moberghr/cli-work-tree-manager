@@ -12,7 +12,8 @@ import { restartSummary } from '../state/agent-restart-view.js';
 export function useOutdatedAgents(api = { fetchAgents, restartAgents }) {
   const [agents, setAgents] = useState<AgentsWire | null>(null);
   const [restarting, setRestarting] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  // How the last restart went, for the update it was about: the next one (a new install time) starts without it.
+  const [said, setSaid] = useState<{ text: string; about: string | null } | null>(null);
   const load = useCallback(() => {
     api.fetchAgents().then(setAgents, () => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
@@ -26,18 +27,20 @@ export function useOutdatedAgents(api = { fetchAgents, restartAgents }) {
 
   const restart = useCallback(() => {
     setRestarting(true);
-    setNote(null);
+    setSaid(null);
+    const about = agents?.installedAt ?? null;
     api
       .restartAgents({ outdated: true })
       .then(
-        (r) => setNote(restartSummary(r)),
-        (err: Error) => setNote(`Couldn't restart: ${err.message}`),
+        (r) => setSaid({ text: restartSummary(r), about }),
+        (err: Error) => setSaid({ text: `Couldn't restart: ${err.message}`, about }),
       )
       .finally(() => {
         setRestarting(false);
         load();
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
-  }, [load]);
-  return { agents, restart, restarting, note };
+  }, [load, agents?.installedAt]);
+  const note = said && said.about === (agents?.installedAt ?? null) ? said.text : null;
+  return { agents, restart, restarting, note, reload: load };
 }

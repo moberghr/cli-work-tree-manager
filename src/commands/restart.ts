@@ -30,7 +30,7 @@ export const restartCommand: CommandModule = {
       if (!s) return;
       body = { ids: [sessionIdFor(s)] };
     }
-    const r = await callWorkWeb<RestartWire>('POST', '/api/agents/restart', body, 60_000);
+    const r = await callWorkWeb<RestartWire>('POST', '/api/agents/restart', body, 180_000);
     if (!r.ok) {
       console.error(chalk.red(r.error));
       process.exitCode = 1;

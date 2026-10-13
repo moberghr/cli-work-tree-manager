@@ -41,6 +41,19 @@ export function outdatedPtys(ptys: readonly PtyInfo[], toolInstalledAt: (tool: s
   });
 }
 
+/** How recently a terminal printed for its agent to count as at work: a working one redraws its spinner, an idle one prints nothing. */
+export const PRINTING_MS = 10_000;
+
+/**
+ * At work, for a restart: its status (the hooks' as the dashboard reads it, corrected by the transcript and
+ * decayed) is working or waiting on you — or its terminal printed in the last few seconds, which is all an
+ * agent with no status has (the Ctrl+K assistant, a tool with no hooks) and catches a turn the hooks missed. Pure.
+ */
+export function busyForRestart(state: 'working' | 'needs_input' | 'idle' | null, lastOutputMs: number | null, now = Date.now()): boolean {
+  if (state === 'working' || state === 'needs_input') return true;
+  return lastOutputMs !== null && now - lastOutputMs < PRINTING_MS;
+}
+
 /** Which of `ids` restart now and which after their turn (working, or waiting on you). Pure. */
 export function restartPlan(ids: readonly string[], busy: (id: string) => boolean): { now: string[]; later: string[] } {
   const now: string[] = [];
@@ -48,6 +61,9 @@ export function restartPlan(ids: readonly string[], busy: (id: string) => boolea
   for (const id of new Set(ids)) (busy(id) ? later : now).push(id);
   return { now, later };
 }
+
+/** Restarts run this many at a time. */
+export const RESTART_AT_ONCE = 3;
 
 export interface RestarterDeps {
   /** Restart its agent in place (the host keeps attached terminals). */
@@ -104,8 +120,14 @@ export function createRestarter(deps: RestarterDeps) {
       queued.add(id);
       deps.note?.(id, 'restarts its agent when its turn ends (it is working or waiting on you)', 'info');
     }
-    const done: string[] = [];
-    for (const id of now) if (await one(id, failed)) done.push(id);
+    // A few at a time: each waits for its old process to exit, and a dozen one after another outlast the caller.
+    const ok = new Set<string>();
+    const queue = [...now];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) if (await one(id, failed)) ok.add(id);
+    };
+    await Promise.all(Array.from({ length: Math.min(RESTART_AT_ONCE, queue.length) }, worker));
+    const done = now.filter((id) => ok.has(id));
     if (done.length || later.length) deps.changed?.();
     return { now: done, later, failed };
   };

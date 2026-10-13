@@ -106,14 +106,17 @@ import {
   outputStatus,
   peekPty,
   ptyPids,
+  ptyLastOutputMs,
   restartPty,
 } from '../core/pty/pty-pool.js';
-import { createRestarter, installedAt } from '../core/pty/agent-restart.js';
+import { busyForRestart, createRestarter, installedAt } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
 import { loadConfig } from '../core/platform/config.js';
 import { readStatus } from '../core/status/session-status.js';
+import { sessionStatusView } from '../core/status/turn-activity.js';
+import { readSessionActivity } from '../core/sessions/session-activity.js';
 import { resolveWebRoot } from '../core/platform/web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -545,15 +548,23 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // holding memory, and opening the session resumes the conversation.
   const SLEEP_EVERY_MS = 5 * 60_000;
   const sleepSchedule = !jobs ? null : activity.schedule('idle-sleep', 'Idle Claude check', SLEEP_EVERY_MS);
-  // Working, or waiting on you: not put to sleep, and not restarted until its turn ends.
+  // Working, or waiting on you: not put to sleep.
   const agentBusy = (id: string) => {
     const st = readStatus(id)?.state;
     return st === 'working' || st === 'needs_input';
   };
+  // Not restarted until its turn ends: the status as the dashboard shows it (a missed Stop decays), or a terminal
+  // still printing (all the assistant and a tool with no hooks have).
+  const restartBusy = (id: string) => {
+    const session = findSession(id);
+    const raw = session ? readStatus(id) : null;
+    const state = session && raw ? sessionStatusView(raw, session, readSessionActivity(session).lastActivity ?? 0).state : null;
+    return busyForRestart(state, ptyLastOutputMs(id));
+  };
   // Restarting agents (agent-restart.ts): after their tool updated, or when asked; never mid-turn.
   const restarter = createRestarter({
     restart: restartPty,
-    busy: agentBusy,
+    busy: restartBusy,
     running: peekPty,
     note: (id, text, level) => {
       const s = findSession(id);
@@ -566,7 +577,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       broadcast('sessions-changed', { ts: Date.now() });
     },
   });
-  mountAgentRestartRoutes(app, { deps: { list: listHostPtys, installedAt: (tool) => installedAt(tool), busy: agentBusy, restarter } });
+  mountAgentRestartRoutes(app, { deps: { list: listHostPtys, installedAt: (tool) => installedAt(tool), busy: restartBusy, restarter } });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     // A restart waiting on a turn whose end no hook reported (an interrupt): try again.

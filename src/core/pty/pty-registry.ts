@@ -71,6 +71,8 @@ interface Entry {
   exitCode: number | null;
   /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
   lastOutputAt: number;
+  /** Its agent is being restarted (restart): the old process's end isn't the session's, and a spawn waits for the new one. */
+  restarting?: boolean;
 }
 
 export interface RegistryDeps {
@@ -146,13 +148,13 @@ export class PtyRegistry {
   /** Spawn unless a live PTY already exists for `id` (idempotent). */
   spawn(id: string, spec: SpawnSpec & { keptEnv?: Record<string, string> }, restored = false): PtyInfo {
     const existing = this.entries.get(id);
-    if (existing && !existing.pty.exited) return this.info(existing);
+    if (existing && (!existing.pty.exited || existing.restarting)) return this.info(existing);
 
     // A spawn from a shell keeps the variables config `hostEnv` names; a
     // restore — or a respawn without a shell (the Terminal tab) — runs with
     // the host's environment plus what its session kept.
     const kept = spec.env ? keepEnv(spec.env, this.keepEnvNames()) : (spec.keptEnv ?? existing?.spec.keptEnv);
-    if (!spec.env && kept) spec = { ...spec, env: { ...(process.env as Record<string, string>), ...kept } };
+    if (!spec.env && kept) spec = { ...spec, env: this.respawnEnv(kept) };
 
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;
@@ -182,6 +184,21 @@ export class PtyRegistry {
       exitCode: null,
       lastOutputAt: Date.now(),
     };
+    this.wire(entry, pty);
+    this.entries.set(id, entry);
+    void this.persist();
+    return this.info(entry);
+  }
+
+  /** The env a spawn without a shell runs with: the host's, plus what its session kept (spawn). */
+  private respawnEnv(kept: Record<string, string> | undefined): Record<string, string> | undefined {
+    return kept ? { ...(process.env as Record<string, string>), ...kept } : undefined;
+  }
+
+  /** `pty` becomes the entry's process: its output to the entry's clients, its exit told to them (then forgotten). */
+  private wire(entry: Entry, pty: PtyLike): void {
+    const id = entry.id;
+    entry.pty = pty;
     // Raw history is only a fallback for PTYs that can't serialize their
     // screen (test fakes) — real sessions replay PtySession.serialize().
     const keepRaw = !pty.serialize;
@@ -218,9 +235,6 @@ export class PtyRegistry {
         }
       }, FORGET_EXITED_MS).unref?.();
     };
-    this.entries.set(id, entry);
-    void this.persist();
-    return this.info(entry);
   }
 
   /** The live PTY's visible screen as text; null when there is none (or
@@ -280,7 +294,7 @@ export class PtyRegistry {
     // Attaching to one that already exited (inside the linger window): its
     // exit subscribers have fired, so tell this client now — otherwise it
     // would sit on a dead screen, its input silently dropped.
-    const exitedWith = e.pty.exited ? (e.exitCode ?? 0) : null;
+    const exitedWith = e.pty.exited && !e.restarting ? (e.exitCode ?? 0) : null;
     const settled = e.pty.serializeSettled;
     // Held output while the settled snapshot is taken; null = passed straight on.
     let held: string[] | null = settled ? [] : null;
@@ -346,34 +360,73 @@ export class PtyRegistry {
 
   /**
    * Its agent stopped and started again in place, resuming its conversation (a
-   * tool that updated runs its new version): the terminals attached stay attached
-   * and see the new one draw, so a dashboard tab or `work attach` carries on, and
-   * the restore list keeps it. Null when there's no live PTY of that id.
+   * tool that updated runs its new version). The new process goes into the same
+   * entry, so the terminals attached stay attached (and a detach still finds them),
+   * see the new one draw, and one that attaches meanwhile joins it; the restore
+   * list keeps it. Null when there's no live PTY of that id.
+   *
+   * Never two agents on one conversation: an old one that hasn't exited within
+   * `timeoutMs` is left running and tracked, and the restart fails. A new one that
+   * can't start (its tool gone mid-update) ends the session as a kill does, its
+   * terminals told so.
    */
   async restart(id: string, timeoutMs = 3000): Promise<PtyInfo | null> {
     const e = this.entries.get(id);
-    if (!e || e.pty.exited) return null;
-    // The old process's end is no one's business: the clients stay for the new one.
-    const subscribers = [...e.subscribers];
-    const exitSubscribers = [...e.exitSubscribers];
-    e.subscribers.clear();
-    e.exitSubscribers.clear();
-    const exited = new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, timeoutMs);
-      e.pty.onExit = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-    });
-    e.pty.dispose();
-    await exited;
-    if (this.entries.get(id) !== e) return this.get(id); // replaced meanwhile
-    this.entries.delete(id);
-    const info = this.spawn(id, { ...e.spec, cols: e.cols, rows: e.rows });
-    const fresh = this.entries.get(id)!;
-    for (const s of subscribers) fresh.subscribers.add(s);
-    for (const s of exitSubscribers) fresh.exitSubscribers.add(s);
-    return { ...info, clients: fresh.subscribers.size };
+    if (!e || e.restarting) return e ? this.info(e) : null;
+    if (e.pty.exited) return null;
+    e.restarting = true;
+    try {
+      const old = e.pty;
+      const usual = old.onExit;
+      const stopped = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), timeoutMs);
+        old.onExit = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        old.dispose();
+      });
+      if (this.entries.get(id) !== e) return this.get(id); // killed meanwhile
+      if (!stopped) {
+        old.onExit = usual; // still ours: its exit goes the usual way
+        throw new Error(`its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; it is left running`);
+      }
+      let pty: PtyLike;
+      try {
+        pty = this.spawner({
+          ...e.spec,
+          env: this.respawnEnv(e.spec.keptEnv),
+          cols: e.cols,
+          rows: e.rows,
+          resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd),
+        });
+      } catch (err) {
+        // Nothing runs now: tell its terminals (they offer Enter to start it again) and forget it, as a kill does.
+        this.entries.delete(id);
+        const attached = [...e.exitSubscribers];
+        e.subscribers.clear();
+        e.exitSubscribers.clear();
+        await this.persist();
+        for (const cb of attached) {
+          try {
+            cb(1);
+          } catch {
+            /* that client is gone */
+          }
+        }
+        throw err;
+      }
+      e.exitCode = null;
+      e.replay = '';
+      e.startedAt = new Date().toISOString();
+      e.restored = false;
+      e.lastOutputAt = Date.now();
+      this.wire(e, pty);
+      void this.persist();
+      return this.info(e);
+    } finally {
+      e.restarting = false;
+    }
   }
 
   /**
