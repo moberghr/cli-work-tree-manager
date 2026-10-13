@@ -96,4 +96,38 @@ describe('SessionRail order', () => {
     drag(first, 'drop', 5);
     expect(onReorder).toHaveBeenCalledWith(['c', 'a', 'b']);
   });
+
+  it('a release between rows (no row under the pointer) still does what the bar shows', () => {
+    const onReorder = render([]);
+    const [first, , third] = rows();
+    const list = container.querySelector('.wd-dash-rail-list')!;
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    drag(third, 'dragstart');
+    drag(first, 'dragover', 35); // bottom half: the bar under the first row
+    // The gap below it: the list's own dragover must allow the drop (no 🚫).
+    const over = new Event('dragover', { bubbles: true, cancelable: true });
+    act(() => {
+      list.dispatchEvent(over);
+    });
+    expect(over.defaultPrevented).toBe(true);
+    drag(list, 'drop');
+    expect(onReorder).toHaveBeenCalledWith(['a', 'c', 'b']);
+  });
+
+  it('dragged out of the list, the bar goes and a release moves nothing', () => {
+    const onReorder = render([]);
+    const [first, , third] = rows();
+    const list = container.querySelector('.wd-dash-rail-list')!;
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 40 } as DOMRect);
+    drag(third, 'dragstart');
+    drag(first, 'dragover', 5);
+    const leave = new Event('dragleave', { bubbles: true });
+    Object.defineProperty(leave, 'relatedTarget', { value: document.body });
+    act(() => {
+      list.dispatchEvent(leave);
+    });
+    expect(first.className).not.toContain('wd-dash-rail-drop-before');
+    drag(list, 'drop');
+    expect(onReorder).not.toHaveBeenCalled();
+  });
 });

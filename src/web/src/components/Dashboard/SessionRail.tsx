@@ -242,6 +242,24 @@ export function SessionRail({
     setDragId(null);
     setDrop(null);
   };
+  // A release does what the rail shows: the bar (or the highlighted heading) last drawn. The list takes the drop, not
+  // the row under the pointer — between rows, or in the list's padding, there is none, and the browser showed 🚫 and
+  // did nothing while the bar still promised a move.
+  const applyDrop = () => {
+    if (dragId && drop) {
+      if ('group' in drop)
+        moveToGroup(
+          dragId,
+          groups.find((g) => g.key === drop.group),
+        );
+      else if (drop.id !== dragId) {
+        moveToGroup(dragId, groupOf.get(drop.id));
+        const i = shownIds.indexOf(drop.id);
+        move(dragId, drop.before ? drop.id : (shownIds[i + 1] ?? null));
+      }
+    }
+    endDrag();
+  };
 
   const saveSectionName = async (name: string) => {
     const n = naming;
@@ -296,15 +314,6 @@ export function SessionRail({
           const r = e.currentTarget.getBoundingClientRect();
           const before = e.clientY < r.top + r.height / 2;
           if (!over || over.before !== before) setDrop({ id: s.id, before });
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (dragId && drop && 'id' in drop) {
-            moveToGroup(dragId, groupOf.get(drop.id));
-            const i = shownIds.indexOf(drop.id);
-            move(dragId, drop.before ? drop.id : (shownIds[i + 1] ?? null));
-          }
-          endDrag();
         }}
         onDragEnd={endDrag}
       >
@@ -398,7 +407,22 @@ export function SessionRail({
       {!anySessions ? (
         <p className="wd-dash-rail-empty">No worktrees yet. Click + to create one.</p>
       ) : (
-        <ul className="wd-dash-rail-list" ref={listRef}>
+        <ul
+          className="wd-dash-rail-list"
+          ref={listRef}
+          onDragOver={(e) => {
+            // Anywhere in the list while a row is dragged (a row or a heading set where first): keep the drop allowed.
+            if (dragId && drop) e.preventDefault();
+          }}
+          onDragLeave={(e) => {
+            // Out of the list: no bar, and a release there moves nothing.
+            if (dragId && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            applyDrop();
+          }}
+        >
           {naming?.kind === 'new' && (
             <li>
               <SectionNameInput initial="" placeholder="New section name" onSave={saveSectionName} onDone={() => setNaming(null)} />
@@ -427,11 +451,6 @@ export function SessionRail({
                       if (!dragId || !canPlace) return;
                       e.preventDefault();
                       if (!dropHere) setDrop({ group: g.key });
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragId) moveToGroup(dragId, g);
-                      endDrag();
                     }}
                   >
                     <button
