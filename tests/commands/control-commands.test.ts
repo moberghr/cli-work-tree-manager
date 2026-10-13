@@ -27,6 +27,7 @@ const { waitCommand } = await import('../../src/commands/wait.js');
 const { startCommand } = await import('../../src/commands/start.js');
 const { stopCommand } = await import('../../src/commands/stop.js');
 const { answerCommand } = await import('../../src/commands/answer.js');
+const { restartCommand } = await import('../../src/commands/restart.js');
 
 let home: string;
 let wt: string;
@@ -172,6 +173,27 @@ describe('work start | stop | screen', () => {
     answer = () => ({ ok: false, status: 0, error: 'work web is not running (start it with `work web`, or open the desktop app)' });
     await run(startCommand, {});
     expect(errors.join('\n')).toContain('work web is not running');
+  });
+});
+
+describe('work restart', () => {
+  it('this folder’s session, or every outdated one; says which restarted, which wait for their turn, and which failed', async () => {
+    answer = () => ({ ok: true, body: { now: [id], later: [], failed: [] } });
+    await run(restartCommand);
+    expect(calls.at(-1)).toEqual({ method: 'POST', route: '/api/agents/restart', body: { ids: [id] } });
+    expect(out).toEqual(['api · feat/x: restarted']);
+    out.length = 0;
+    answer = () => ({ ok: true, body: { now: [], later: [id], failed: [{ id: 'assistant', error: 'host said no' }] } });
+    await run(restartCommand, { outdated: true });
+    expect(calls.at(-1)?.body).toEqual({ outdated: true });
+    expect(out).toEqual(['api · feat/x: restarts when its turn ends (it is working or waiting on you)']);
+    expect(errors.join('\n')).toContain("the assistant (Ctrl+K): couldn't restart: host said no");
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+    out.length = 0;
+    answer = () => ({ ok: true, body: { now: [], later: [], failed: [] } });
+    await run(restartCommand, { outdated: true });
+    expect(out).toEqual(['Every agent runs its newest version.']);
   });
 });
 

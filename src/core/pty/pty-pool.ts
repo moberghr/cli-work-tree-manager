@@ -246,6 +246,22 @@ export async function writeToPty(sessionId: string, data: string): Promise<boole
   return c ? c.write(sessionId, data) : false;
 }
 
+/**
+ * Restart a session's agent in the host, resuming its conversation, its terminals
+ * kept attached (agent-restart.ts). A host from before that call: stopped and
+ * started again (an open Terminal tab then offers Enter, as after a stop).
+ */
+export async function restartPty(sessionId: string): Promise<void> {
+  const c = await getClient(false);
+  if (!c) throw new Error('the PTY host is not running');
+  const how = await c.restart(sessionId);
+  if (how === 'not-running') throw new Error('its agent is not running in the PTY host');
+  if (how === 'unsupported') {
+    await disposePty(sessionId);
+    if (!(await ensurePty(sessionId))) throw new Error('its agent could not be started again');
+  }
+}
+
 /** Kill one session's PTY (if any). Called before removing a worktree so
  *  the Claude process doesn't hold its cwd open (Windows refuses to delete
  *  a directory that is some process's working directory). */

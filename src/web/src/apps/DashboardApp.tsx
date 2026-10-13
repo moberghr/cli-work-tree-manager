@@ -4,6 +4,8 @@ import { ShortcutsHelp } from '../components/Dashboard/ShortcutsHelp.js';
 import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
+import { useOutdatedAgents } from '../hooks/use-outdated-agents.js';
+import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
@@ -205,6 +207,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // Updates and release notes: the strip, the Activity panel's line, What's new —
   // which opens by itself once after an upgrade (on its version), and then counts as seen.
   const upd = useUpdates();
+  // Sessions whose Claude still runs a version from before Claude Code updated: restart them (agent-restart.ts).
+  const outdatedAgents = useOutdatedAgents();
   // Inside the desktop app, its version and update come from the app itself (use-desktop.ts).
   const desk = useDesktop();
   const updates = desk ? desktopWire(upd.updates, desk.update) : upd.updates;
@@ -864,6 +868,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onWhatsNew={() => setWhatsNew({ focus: null })}
             onShortcuts={() => setHelpOpen(true)}
             onRestart={() => void restartToUpdate()}
+            agents={outdatedAgents.agents}
+            onRestartAgents={outdatedAgents.restart}
+            restartingAgents={outdatedAgents.restarting}
+            agentsNote={outdatedAgents.note}
             // In the app: its own version against the work web this window shows (the server's own `running`).
             mismatch={desk ? versionMismatch(desk.update.appVersion, upd.updates?.running) : null}
           />
@@ -909,6 +917,15 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         restarting={desk ? desk.update?.state === 'installing' : upd.restarting}
         onWhatsNew={() => setWhatsNew({ focus: updates?.available?.version ?? null })}
       />
+      {/* One card at a time in that corner: work's own update first. */}
+      {!updates?.available && (
+        <AgentsRestartCard
+          agents={outdatedAgents.agents}
+          onRestart={outdatedAgents.restart}
+          restarting={outdatedAgents.restarting}
+          note={outdatedAgents.note}
+        />
+      )}
       {whatsNew && <WhatsNew focus={whatsNew.focus} onClose={closeWhatsNew} />}
       {keyMenu && <RowMenu x={keyMenu.x} y={keyMenu.y} anchor="right" items={keyMenu.items} onClose={() => setKeyMenu(null)} />}
       {blocking && (

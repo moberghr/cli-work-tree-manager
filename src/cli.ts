@@ -32,6 +32,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['wait'], load: async () => (await import('./commands/wait.js')).waitCommand },
   { names: ['start'], load: async () => (await import('./commands/start.js')).startCommand },
   { names: ['stop'], load: async () => (await import('./commands/stop.js')).stopCommand },
+  { names: ['restart'], load: async () => (await import('./commands/restart.js')).restartCommand },
   { names: ['answer'], load: async () => (await import('./commands/answer.js')).answerCommand },
   { names: ['list'], load: async () => (await import('./commands/list.js')).listCommand },
   { names: ['status'], load: async () => (await import('./commands/status.js')).statusCommand },

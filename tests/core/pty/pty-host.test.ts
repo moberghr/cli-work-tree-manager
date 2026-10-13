@@ -29,7 +29,11 @@ class EchoPty implements PtyLike {
   resize(cols: number, rows: number) {
     this.log.push(`resize ${cols}x${rows}`);
   }
-  dispose() {}
+  dispose() {
+    if (this.exited) return;
+    this.exited = true;
+    this.onExit?.(0);
+  }
 }
 
 /** Every PTY the host spawned, newest last. */
@@ -160,6 +164,25 @@ describe('PTY host', () => {
       expect(isTerminalReply(reply), JSON.stringify(reply)).toBe(true);
     for (const typed of ['k', '\r', '\x1b', '\x1b[A', '\x1b[200~paste\x1b[201~', '\x1b[<0;10;5M', '\x1b[O' + 'k', '\x03'])
       expect(isTerminalReply(typed), JSON.stringify(typed)).toBe(false);
+  });
+
+  it('restart: a new agent in place, the attached terminals kept and not told the old one ended', async () => {
+    await client.spawn('s5', { cwd: dir, tool: tool as never });
+    const before = spawned.at(-1)!;
+    const a = attach('s5');
+    await a.opened;
+    expect(await client.restart('s5')).toBe('restarted');
+    const after = spawned.at(-1)!;
+    expect(after).not.toBe(before);
+    expect(before.exited).toBe(true);
+    a.ws.send(JSON.stringify({ type: 'input', data: 'hi' }));
+    await tick();
+    expect(after.log).toContain('write hi'); // typed into the new one
+    expect(a.binary.join('')).toContain('echo:hi');
+    expect(a.control.filter((f) => (f as { type: string }).type === 'exit')).toEqual([]);
+    expect((await client.list()).find((p) => p.id === 's5')).toMatchObject({ exited: false, clients: 1 });
+    expect(await client.restart('nope')).toBe('not-running');
+    a.ws.close();
   });
 
   it('refuses a spawn whose cwd does not exist', async () => {

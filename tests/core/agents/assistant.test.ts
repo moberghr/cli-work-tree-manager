@@ -145,6 +145,8 @@ describe('the assistant folder', () => {
       'work send -m "run it"',
       'work start api feat/x',
       'work stop',
+      'work restart --outdated', // stops and starts other sessions' Claudes
+      'work restart --all',
     ]) {
       expect(allows(ASSISTANT_ALLOW, change), change).toBe(false);
       expect(claudeAllows(claudeSettingsAllow(), change), change).toBe(false);

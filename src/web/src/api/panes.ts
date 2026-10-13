@@ -176,7 +176,7 @@ export function fetchJira(): Promise<{
 // ---- the Jira watch ------------------------------------------------------------
 
 export type { JiraDecision, JiraWatchState } from '../../../core/api-types.js';
-import type { JiraWatchState } from '../../../core/api-types.js';
+import type { AgentsWire, JiraWatchState, RestartWire } from '../../../core/api-types.js';
 
 /** The server's error text, from a JSON `{error}` body when there is one. */
 function reason(err: unknown): Error {
@@ -380,6 +380,12 @@ export const checkForUpdates = () => postUpdates<UpdateWire>('/api/updates/check
 /** Restart the desktop app into the update it downloaded. */
 export const restartToUpdate = () => postUpdates<{ ok: true }>('/api/updates/restart');
 export const markNotesSeen = (version: string) => postUpdates<{ ok: true }>('/api/updates/seen', { version });
+/** The agents still running a version from before their tool updated (GET /api/agents). */
+export function fetchAgents(): Promise<AgentsWire> {
+  return getJson('/api/agents');
+}
+/** Restart agents: the outdated ones, or these (POST /api/agents/restart). */
+export const restartAgents = (which: { outdated: true } | { ids: string[] }) => postUpdates<RestartWire>('/api/agents/restart', which);
 export function fetchReleaseNotes(): Promise<{ releases: ReleaseNote[]; checkError: string | null }> {
   return getJson('/api/updates/notes');
 }

@@ -10,7 +10,7 @@ import { PROTOCOL_VERSION, hostInfoPath, type ClientFrame, type HostInfo, type S
 import { report } from '../platform/report.js';
 
 const ATTACH_PATH = /^\/ptys\/([^/?]+)\/attach(?:\?|$)/;
-const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen)?$/;
+const PTY_PATH = /^\/ptys\/([^/?]+)(\/write|\/screen|\/restart)?$/;
 const MAX_BODY = 1024 * 1024;
 
 /**
@@ -109,6 +109,11 @@ export async function startPtyHost(opts: { registry?: PtyRegistry; restore?: boo
         if (m[2] === '/screen' && req.method === 'GET') {
           const text = registry.screen(id);
           return text === null ? send(res, 404, { error: 'not found' }) : send(res, 200, { text });
+        }
+        // Additive (no protocol bump): an older host answers 404 "not found", and the pool stops and starts it instead.
+        if (m[2] === '/restart' && req.method === 'POST') {
+          const info = await registry.restart(id);
+          return info ? send(res, 200, info) : send(res, 409, { error: 'not running' });
         }
         if (m[2] === '/write' && req.method === 'POST') {
           const body = (await readBody(req)) as { data?: unknown };

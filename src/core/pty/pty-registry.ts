@@ -345,6 +345,38 @@ export class PtyRegistry {
   }
 
   /**
+   * Its agent stopped and started again in place, resuming its conversation (a
+   * tool that updated runs its new version): the terminals attached stay attached
+   * and see the new one draw, so a dashboard tab or `work attach` carries on, and
+   * the restore list keeps it. Null when there's no live PTY of that id.
+   */
+  async restart(id: string, timeoutMs = 3000): Promise<PtyInfo | null> {
+    const e = this.entries.get(id);
+    if (!e || e.pty.exited) return null;
+    // The old process's end is no one's business: the clients stay for the new one.
+    const subscribers = [...e.subscribers];
+    const exitSubscribers = [...e.exitSubscribers];
+    e.subscribers.clear();
+    e.exitSubscribers.clear();
+    const exited = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      e.pty.onExit = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    e.pty.dispose();
+    await exited;
+    if (this.entries.get(id) !== e) return this.get(id); // replaced meanwhile
+    this.entries.delete(id);
+    const info = this.spawn(id, { ...e.spec, cols: e.cols, rows: e.rows });
+    const fresh = this.entries.get(id)!;
+    for (const s of subscribers) fresh.subscribers.add(s);
+    for (const s of exitSubscribers) fresh.exitSubscribers.add(s);
+    return { ...info, clients: fresh.subscribers.size };
+  }
+
+  /**
    * Respawn everything in the persisted list. Called once at host startup.
    * Worktrees that no longer exist are dropped.
    */

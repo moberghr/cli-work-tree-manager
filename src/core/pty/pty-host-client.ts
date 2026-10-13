@@ -232,6 +232,24 @@ export class PtyHostClient {
     }
   }
 
+  /**
+   * Its agent restarted in place, the attached terminals kept (registry.restart).
+   * `unsupported`: a host from before the call (404) — stop and start it instead.
+   */
+  async restart(id: string): Promise<'restarted' | 'not-running' | 'unsupported'> {
+    const res = await fetch(`http://127.0.0.1:${this.info.port}/ptys/${encodeURIComponent(id)}/restart`, {
+      method: 'POST',
+      headers: { 'x-work-token': this.info.token },
+      // Waits for the old process to exit (up to 3 s) before the new one starts.
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return 'restarted';
+    if (res.status === 409) return 'not-running';
+    if (res.status === 404) return 'unsupported';
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error ?? `PTY host restart ${id}: ${res.status}`);
+  }
+
   async kill(id: string): Promise<void> {
     await this.call('DELETE', `/ptys/${encodeURIComponent(id)}`);
   }

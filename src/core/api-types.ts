@@ -1025,7 +1025,8 @@ export type ActivityKind =
   | 'blocks'
   | 'groups'
   | 'updates'
-  | 'time';
+  | 'time'
+  | 'agents';
 
 /** One thing a run decided or noticed ("archived …", "kept … because …"). */
 export interface ActivityNote {
@@ -1124,6 +1125,27 @@ export interface SendWire {
 /** POST /api/sessions/:id/agent/start | stop. */
 export interface AgentControlWire {
   how: 'started' | 'running' | 'stopped' | 'not-running';
+}
+
+/** GET /api/agents: the agents in the PTY host still running a version from before their tool was updated (agent-restart.ts). */
+export interface AgentsWire {
+  /** When the newest of their tools was installed (ISO): what a "Later" is for. Null when none is on PATH. */
+  installedAt: string | null;
+  outdated: Array<{
+    id: string;
+    tool: string;
+    startedAt: string;
+    /** Working or waiting on you: restarts after its turn. */ busy: boolean;
+  }>;
+  /** Asked to restart, waiting for their turn to end. */
+  queued: string[];
+}
+
+/** POST /api/agents/restart {ids} | {outdated: true} | {all: true}: restarted now, after their turn, or not (why). */
+export interface RestartWire {
+  now: string[];
+  later: string[];
+  failed: Array<{ id: string; error: string }>;
 }
 
 /** GET /api/sessions/:id/screen: its terminal as plain text (null: no terminal in the PTY host). */

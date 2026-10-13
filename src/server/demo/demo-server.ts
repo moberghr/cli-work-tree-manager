@@ -8,6 +8,8 @@ import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
 import type {
+  AgentsWire,
+  RestartWire,
   AnswerRequest,
   BranchCandidate,
   BuildFolderCandidate,
@@ -121,6 +123,35 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     else blocks.delete(id);
     broadcast({ event: 'sessions-changed', data: { ts: Date.now() } });
     return c.json({ ok: true });
+  });
+
+  // Restarting agents: the demo's first two live sessions run a Claude Code from before its update (an hour ago).
+  const claudeUpdatedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+  const outdated = new Set(
+    scenario
+      .list()
+      .filter((s) => !s.archivedAt)
+      .slice(0, 2)
+      .map((s) => s.id),
+  );
+  app.get('/api/agents', (c) =>
+    c.json({
+      installedAt: claudeUpdatedAt,
+      outdated: [...outdated].map((id) => ({
+        id,
+        tool: 'claude',
+        startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        busy: false,
+      })),
+      queued: [],
+    } satisfies AgentsWire),
+  );
+  app.post('/api/agents/restart', async (c) => {
+    const body = ((await c.req.json().catch(() => null)) ?? {}) as { ids?: unknown; outdated?: unknown; all?: unknown };
+    const ids = Array.isArray(body.ids) ? body.ids.filter((i): i is string => typeof i === 'string') : [...outdated];
+    for (const id of ids) outdated.delete(id);
+    broadcast({ event: 'agents-changed', data: { ts: Date.now() } });
+    return c.json({ now: ids, later: [], failed: [] } satisfies RestartWire);
   });
 
   // The PTY host's heartbeat: the demo's never stalls.

@@ -17,6 +17,9 @@ const host = {
   written: [] as Array<[string, string]>,
   live: new Set<string>(),
   failNextSpawn: false,
+  restarted: [] as string[],
+  /** What the host answers a restart: a host from before the call says `unsupported` (404). */
+  restartAnswer: 'restarted' as 'restarted' | 'not-running' | 'unsupported',
 };
 let hostRunning = false;
 const ensureHost = vi.fn(async () => {
@@ -64,6 +67,10 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
       host.written.push([id, data]);
       return true;
     }
+    async restart(id: string) {
+      host.restarted.push(id);
+      return host.restartAnswer;
+    }
     async kill(id: string) {
       host.killed.push(id);
       host.live.delete(id);
@@ -99,6 +106,8 @@ beforeEach(() => {
   host.written = [];
   host.live = new Set();
   host.failNextSpawn = false;
+  host.restarted = [];
+  host.restartAnswer = 'restarted';
   hostRunning = false;
   ensureHost.mockClear();
   findHost.mockClear();
@@ -241,6 +250,29 @@ describe('writeToPty / disposePty / detach', () => {
     await pool.ensurePty('single');
     pool.detachPtyPool();
     expect(host.killed).toEqual([]);
+  });
+});
+
+describe('restartPty', () => {
+  it('restarts in place in the host; one from before the call is stopped and started again', async () => {
+    const pool = await freshPool();
+    await pool.ensurePty('single');
+    host.spawned = [];
+    await pool.restartPty('single');
+    expect(host.restarted).toEqual(['single']);
+    expect(host.killed).toEqual([]);
+    host.restartAnswer = 'unsupported';
+    await pool.restartPty('single');
+    expect(host.killed).toEqual(['single']);
+    expect(host.spawned.map((s) => s.id)).toEqual(['single']);
+  });
+
+  it('says so when its agent is not running, or there is no host', async () => {
+    const pool = await freshPool();
+    await expect(pool.restartPty('single')).rejects.toThrow(/PTY host is not running/);
+    await pool.ensurePty('single');
+    host.restartAnswer = 'not-running';
+    await expect(pool.restartPty('single')).rejects.toThrow(/not running in the PTY host/);
   });
 });
 

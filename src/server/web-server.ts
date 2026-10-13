@@ -106,7 +106,10 @@ import {
   outputStatus,
   peekPty,
   ptyPids,
+  restartPty,
 } from '../core/pty/pty-pool.js';
+import { createRestarter, installedAt } from '../core/pty/agent-restart.js';
+import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
 import { loadConfig } from '../core/platform/config.js';
@@ -542,18 +545,38 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // holding memory, and opening the session resumes the conversation.
   const SLEEP_EVERY_MS = 5 * 60_000;
   const sleepSchedule = !jobs ? null : activity.schedule('idle-sleep', 'Idle Claude check', SLEEP_EVERY_MS);
+  // Working, or waiting on you: not put to sleep, and not restarted until its turn ends.
+  const agentBusy = (id: string) => {
+    const st = readStatus(id)?.state;
+    return st === 'working' || st === 'needs_input';
+  };
+  // Restarting agents (agent-restart.ts): after their tool updated, or when asked; never mid-turn.
+  const restarter = createRestarter({
+    restart: restartPty,
+    busy: agentBusy,
+    running: peekPty,
+    note: (id, text, level) => {
+      const s = findSession(id);
+      const run = activity.start('agents', 'Restarting agents');
+      run.note(`${s ? `${s.target} ${s.branch}` : id}: ${text}`, { level, sessionId: s ? id : undefined });
+      run.done(text);
+    },
+    changed: () => {
+      broadcast('agents-changed', { ts: Date.now() });
+      broadcast('sessions-changed', { ts: Date.now() });
+    },
+  });
+  mountAgentRestartRoutes(app, { deps: { list: listHostPtys, installedAt: (tool) => installedAt(tool), busy: agentBusy, restarter } });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
+    // A restart waiting on a turn whose end no hook reported (an interrupt): try again.
+    await restarter.retry().catch(() => {});
     const minutes = loadConfig()?.sleepIdleAfterMinutes ?? DEFAULT_SLEEP_AFTER_MINUTES;
     if (sleepAfterMs(minutes) === 0)
       return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
     const run = activity.start('idle-sleep', 'Looking for idle Claudes');
     const ptys = await listHostPtys().catch(() => []);
-    const busy = (id: string) => {
-      const st = readStatus(id)?.state;
-      return st === 'working' || st === 'needs_input';
-    };
-    const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), busy);
+    const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), agentBusy);
     for (const id of ids) {
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
       const s = findSession(id);
@@ -869,6 +892,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       : {}),
     onStatusChanged: (id) => {
       diffStats.invalidate(id);
+      void restarter.turnEnded(id).catch(() => {}); // a restart that waited for this turn to end
       timeKeeper?.soon(); // today's hours, after this turn
       if (jobs) void syncStacksAfter(id);
       // Make sure this session's turns are checkpointed ("last turn" diffs)

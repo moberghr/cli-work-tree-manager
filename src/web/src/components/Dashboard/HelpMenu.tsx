@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { UpdateWire } from '../../../../core/api-types.js';
+import type { AgentsWire, UpdateWire } from '../../../../core/api-types.js';
+import { outdatedText, queuedText, restartLabel } from '../../state/agent-restart-view.js';
 import { VERSION } from '../../version.js';
 import { ProgressBar } from './UpdateStrip.js';
 import { mismatchText, type VersionMismatch } from '../../../../core/updates/updates.js';
@@ -16,6 +17,11 @@ export interface HelpMenuProps {
   onRestart?: () => void;
   /** The app and the work web its window shows are different versions (updates.ts versionMismatch). */
   mismatch?: VersionMismatch | null;
+  /** Sessions whose agent runs a version from before its tool updated (GET /api/agents), and restarting them. */
+  agents?: AgentsWire | null;
+  onRestartAgents?: () => void;
+  restartingAgents?: boolean;
+  agentsNote?: string | null;
 }
 
 /** Where an update stands, in a few words ("2.1.0 is ready to install"), or null when there's nothing to say. Pure. */
@@ -37,7 +43,20 @@ export function updateStatus(updates: UpdateWire | null | undefined): string | n
  * shortcuts. A dot on the button when an update is there. A popover
  * (`data-popover`): Esc or a click elsewhere closes it, shortcuts keep working.
  */
-export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShortcuts, onRestart, mismatch }: HelpMenuProps) {
+export function HelpMenu({
+  updates,
+  onCheck,
+  checking,
+  note,
+  onWhatsNew,
+  onShortcuts,
+  onRestart,
+  mismatch,
+  agents,
+  onRestartAgents,
+  restartingAgents,
+  agentsNote,
+}: HelpMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -57,6 +76,8 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
   const running = updates?.running ?? VERSION;
   const status = updateStatus(updates);
   const canRestart = updates?.available?.how === 'restart' && !!onRestart;
+  const agentsText = outdatedText(agents);
+  const agentsLabel = agents && agentsText && onRestartAgents ? restartLabel(agents) : null;
   const pick = (fn?: () => void) => () => {
     setOpen(false);
     fn?.();
@@ -65,7 +86,7 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
     <div className="wd-help" ref={ref}>
       <button
         type="button"
-        className={'wd-help-btn' + (updates?.available ? ' wd-help-btn-update' : '')}
+        className={'wd-help-btn' + (updates?.available || agentsText ? ' wd-help-btn-update' : '')}
         aria-expanded={open}
         aria-label={`Help: work v${running}${status ? `, ${status}` : ''}${mismatch ? `, work web is v${mismatch.server}` : ''}`}
         title={`work v${running}${status ? ` · ${status}` : ''}${mismatch ? `\n⚠ ${mismatchText(mismatch)}` : ''}\nHelp: updates, what's new, keyboard shortcuts`}
@@ -98,6 +119,14 @@ export function HelpMenu({ updates, onCheck, checking, note, onWhatsNew, onShort
               Restart to update
             </button>
           )}
+          {agentsText && <p className="wd-help-note">{agentsText}</p>}
+          {agentsLabel && (
+            <button type="button" className="wd-row-menu-item" disabled={restartingAgents} onClick={onRestartAgents}>
+              {restartingAgents ? 'Restarting…' : `${agentsLabel} — each picks up its conversation`}
+            </button>
+          )}
+          {agents && agentsText && !agentsLabel && <p className="wd-help-note">{queuedText(agents)}</p>}
+          {agentsNote && <p className="wd-help-note">{agentsNote}</p>}
           {onCheck && (
             <button type="button" className="wd-row-menu-item" disabled={checking} onClick={onCheck}>
               {checking ? 'Checking…' : 'Check for updates'}
