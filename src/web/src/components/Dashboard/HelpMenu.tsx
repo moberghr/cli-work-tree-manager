@@ -22,6 +22,8 @@ export interface HelpMenuProps {
   onRestartAgents?: () => void;
   restartingAgents?: boolean;
   agentsNote?: string | null;
+  /** In the desktop app: flash its taskbar button when a session newly needs you (use-taskbar.ts). */
+  taskbarFlash?: { on: boolean; set: (on: boolean) => void };
 }
 
 /** Where an update stands, in a few words ("2.1.0 is ready to install"), or null when there's nothing to say. Pure. */
@@ -56,6 +58,7 @@ export function HelpMenu({
   onRestartAgents,
   restartingAgents,
   agentsNote,
+  taskbarFlash,
 }: HelpMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -137,6 +140,12 @@ export function HelpMenu({
             <button type="button" className="wd-row-menu-item" onClick={pick(onWhatsNew)}>
               What&apos;s new
             </button>
+          )}
+          {taskbarFlash && (
+            <label className="wd-row-menu-item wd-help-toggle">
+              <input type="checkbox" checked={taskbarFlash.on} onChange={(e) => taskbarFlash.set(e.target.checked)} /> Flash the taskbar
+              when a session needs you
+            </label>
           )}
           {onShortcuts && (
             <button type="button" className="wd-row-menu-item" onClick={pick(onShortcuts)}>

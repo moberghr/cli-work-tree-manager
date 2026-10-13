@@ -20,6 +20,7 @@
 //! `WORK_DESKTOP_URL` points it at a specific server instead (the latency
 //! script uses a throwaway one).
 
+mod badge;
 mod path_setup;
 mod runtime;
 mod updates;
@@ -32,7 +33,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tauri::{Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// The dev app (`npm run app:dev`: Cargo feature `dev` + tauri.dev.conf.json —
 /// "work dev", its own app id and the DEV icon). It shows the dev server
@@ -412,6 +413,9 @@ fn main() {
             if !DEV {
                 builder = builder.initialization_script(updates::PAGE_MARKER);
             }
+            // The Inbox count on the taskbar / Dock icon (badge.rs): in the dev app too.
+            builder = builder.initialization_script(updates::TASKBAR_MARKER);
+            let taskbar = app.handle().clone();
             builder = builder
                 // The page's asks to the app: a navigation to http://work-desktop.invalid/<ask>,
                 // cancelled here — Check for updates, Restart, or "send me the status".
@@ -426,6 +430,18 @@ fn main() {
                     }
                     Some(updates::PageAsk::Restart) => {
                         let _ = asks.send(updates::Request::Restart);
+                        false
+                    }
+                    Some(updates::PageAsk::Badge(n)) => {
+                        if let Some(w) = taskbar.get_webview_window("main") {
+                            badge::show(&w, n);
+                        }
+                        false
+                    }
+                    Some(updates::PageAsk::Attention) => {
+                        if let Some(w) = taskbar.get_webview_window("main") {
+                            badge::ask_attention(&w);
+                        }
                         false
                     }
                     None => url.host_str() != Some(updates::ASK_HOST),

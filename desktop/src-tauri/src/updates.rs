@@ -58,6 +58,10 @@ pub enum PageAsk {
     Hello,
     Check,
     Restart,
+    /// The Inbox count, for the taskbar / Dock icon (badge.rs).
+    Badge(u32),
+    /// A session needs you: flash the taskbar button (badge.rs), unless the window is in front.
+    Attention,
 }
 
 /// A navigation to http://work-desktop.invalid/<ask>, as an ask. Pure: anything else is none.
@@ -69,9 +73,20 @@ pub fn page_ask(host: Option<&str>, path: &str) -> Option<PageAsk> {
         "/hello" => Some(PageAsk::Hello),
         "/check" => Some(PageAsk::Check),
         "/restart" => Some(PageAsk::Restart),
-        _ => None,
+        "/attention" => Some(PageAsk::Attention),
+        _ => {
+            // A count: digits only, a few of them (anything else is not an ask).
+            let n = path.strip_prefix("/badge/")?;
+            if n.is_empty() || n.len() > 4 || !n.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            n.parse().ok().map(PageAsk::Badge)
+        }
     }
 }
+
+/// Run before the page's own scripts on every load, the dev app's too: it may show the Inbox count on the taskbar.
+pub const TASKBAR_MARKER: &str = "window.__workDesktopTaskbar = true;";
 
 /// Run before the page's own scripts on every load: it is in the app.
 pub const PAGE_MARKER: &str = "window.__workDesktop = { app: true, update: null };";
@@ -339,6 +354,13 @@ mod tests {
         assert_eq!(page_ask(Some("work-desktop.invalid"), "/check"), Some(PageAsk::Check));
         assert_eq!(page_ask(Some("work-desktop.invalid"), "/hello"), Some(PageAsk::Hello));
         assert_eq!(page_ask(Some("work-desktop.invalid"), "/rm"), None);
+        assert_eq!(page_ask(Some("work-desktop.invalid"), "/badge/3"), Some(PageAsk::Badge(3)));
+        assert_eq!(page_ask(Some("work-desktop.invalid"), "/badge/0"), Some(PageAsk::Badge(0)));
+        assert_eq!(page_ask(Some("work-desktop.invalid"), "/attention"), Some(PageAsk::Attention));
+        for bad in ["/badge/", "/badge/-1", "/badge/12345", "/badge/3x", "/badge/3/4", "/badge/%33"] {
+            assert_eq!(page_ask(Some("work-desktop.invalid"), bad), None, "{bad}");
+        }
+        assert_eq!(page_ask(Some("127.0.0.1"), "/badge/3"), None);
         // work web's own pages navigate as usual.
         assert_eq!(page_ask(Some("127.0.0.1"), "/restart"), None);
         assert_eq!(page_ask(None, "/restart"), None);

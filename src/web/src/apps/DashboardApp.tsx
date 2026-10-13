@@ -5,6 +5,7 @@ import { UpdateStrip } from '../components/Dashboard/UpdateStrip.js';
 import { WhatsNew } from '../components/Dashboard/WhatsNew.js';
 import { useUpdates } from '../hooks/use-updates.js';
 import { useOutdatedAgents } from '../hooks/use-outdated-agents.js';
+import { useTaskbar } from '../hooks/use-taskbar.js';
 import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
@@ -730,6 +731,13 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   useEffect(() => {
     document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
   }, [inboxCount]);
+  // In the desktop app, the same count on its taskbar / Dock icon, and a flash when a session newly waits on you.
+  const needingYouKey = sessions
+    .filter((s) => !isArchived(s) && !s.snoozed && s.attention?.state === 'needs_input')
+    .map((s) => s.id)
+    .join(',');
+  const needingYou = useMemo(() => new Set(needingYouKey ? needingYouKey.split(',') : []), [needingYouKey]);
+  const taskbar = useTaskbar(inboxCount, needingYou);
 
   // -- Render --------------------------------------------------------------
   let body: React.ReactNode;
@@ -875,6 +883,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onRestartAgents={outdatedAgents.restart}
             restartingAgents={outdatedAgents.restarting}
             agentsNote={outdatedAgents.note}
+            taskbarFlash={taskbar.inApp ? { on: taskbar.flashOn, set: taskbar.setFlashOn } : undefined}
             // In the app: its own version against the work web this window shows (the server's own `running`).
             mismatch={desk ? versionMismatch(desk.update.appVersion, upd.updates?.running) : null}
           />
