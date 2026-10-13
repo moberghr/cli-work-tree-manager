@@ -71,8 +71,12 @@ interface Entry {
   exitCode: number | null;
   /** When it last printed anything (ms): an idle Claude at its prompt prints nothing. */
   lastOutputAt: number;
-  /** Its agent is being restarted (restart): the old process's end isn't the session's, and a spawn waits for the new one. */
-  restarting?: boolean;
+  /** Its agent is being restarted (restart): the old process's end isn't the session's, a spawn starts no
+   *  second one, and a second restart gets this one's outcome. */
+  restarting?: Promise<PtyInfo | null>;
+  /** The environment it was started with, in memory only (never in the restore list: it can hold secrets), so a
+   *  restart runs as the session did; a restore after the host restarts has only what `hostEnv` kept. */
+  env?: Record<string, string>;
 }
 
 export interface RegistryDeps {
@@ -173,6 +177,7 @@ export class PtyRegistry {
       // the variables config `hostEnv` names do (keepEnv), so a restore after
       // a reboot gets the JAVA_HOME / PATH it was started with.
       spec: { cwd: spec.cwd, tool: spec.tool, port: spec.port, unsafe: spec.unsafe, ...(kept ? { keptEnv: kept } : {}) },
+      env: spec.env as Record<string, string> | undefined,
       pty,
       cols,
       rows,
@@ -370,63 +375,69 @@ export class PtyRegistry {
    * can't start (its tool gone mid-update) ends the session as a kill does, its
    * terminals told so.
    */
-  async restart(id: string, timeoutMs = 3000): Promise<PtyInfo | null> {
+  restart(id: string, timeoutMs = 3000): Promise<PtyInfo | null> {
     const e = this.entries.get(id);
-    if (!e || e.restarting) return e ? this.info(e) : null;
-    if (e.pty.exited) return null;
-    e.restarting = true;
-    try {
-      const old = e.pty;
-      const usual = old.onExit;
-      const stopped = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), timeoutMs);
-        old.onExit = () => {
-          clearTimeout(timer);
-          resolve(true);
-        };
-        old.dispose();
-      });
-      if (this.entries.get(id) !== e) return this.get(id); // killed meanwhile
-      if (!stopped) {
-        old.onExit = usual; // still ours: its exit goes the usual way
-        throw new Error(`its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; it is left running`);
-      }
-      let pty: PtyLike;
-      try {
-        pty = this.spawner({
-          ...e.spec,
-          env: this.respawnEnv(e.spec.keptEnv),
-          cols: e.cols,
-          rows: e.rows,
-          resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd),
-        });
-      } catch (err) {
-        // Nothing runs now: tell its terminals (they offer Enter to start it again) and forget it, as a kill does.
-        this.entries.delete(id);
-        const attached = [...e.exitSubscribers];
-        e.subscribers.clear();
-        e.exitSubscribers.clear();
-        await this.persist();
-        for (const cb of attached) {
-          try {
-            cb(1);
-          } catch {
-            /* that client is gone */
-          }
-        }
-        throw err;
-      }
-      e.exitCode = null;
-      e.replay = '';
-      e.startedAt = new Date().toISOString();
-      e.restored = false;
-      e.lastOutputAt = Date.now();
-      this.wire(e, pty);
-      void this.persist();
-      return this.info(e);
-    } finally {
-      e.restarting = false;
+    if (!e) return Promise.resolve(null);
+    // Asked twice (two windows, the CLI): both get the one restart's outcome, failure included.
+    if (e.restarting) return e.restarting;
+    if (e.pty.exited) return Promise.resolve(null);
+    const running = this.restartEntry(e, timeoutMs).finally(() => {
+      e.restarting = undefined;
+    });
+    e.restarting = running;
+    return running;
+  }
+
+  private async restartEntry(e: Entry, timeoutMs: number): Promise<PtyInfo | null> {
+    const id = e.id;
+    const old = e.pty;
+    const usual = old.onExit;
+    const stopped = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), timeoutMs);
+      old.onExit = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      old.dispose();
+    });
+    if (this.entries.get(id) !== e) return this.get(id); // killed meanwhile
+    if (!stopped) {
+      old.onExit = usual; // still ours: its exit goes the usual way
+      throw new Error(`its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; it is left running`);
     }
+    let pty: PtyLike;
+    try {
+      pty = this.spawner({
+        ...e.spec,
+        env: e.env ?? this.respawnEnv(e.spec.keptEnv),
+        cols: e.cols,
+        rows: e.rows,
+        resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd),
+      });
+    } catch (err) {
+      // Nothing runs now: tell its terminals (they offer Enter to start it again) and forget it, as a kill does.
+      this.entries.delete(id);
+      const attached = [...e.exitSubscribers];
+      e.subscribers.clear();
+      e.exitSubscribers.clear();
+      await this.persist();
+      for (const cb of attached) {
+        try {
+          cb(1);
+        } catch {
+          /* that client is gone */
+        }
+      }
+      throw err;
+    }
+    e.exitCode = null;
+    e.replay = '';
+    e.startedAt = new Date().toISOString();
+    e.restored = false;
+    e.lastOutputAt = Date.now();
+    this.wire(e, pty);
+    void this.persist();
+    return this.info(e);
   }
 
   /**

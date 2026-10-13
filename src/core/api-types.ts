@@ -258,6 +258,9 @@ export interface SetupWire {
 export interface DiffSeen {
   checkpointId: number;
   at: string;
+  /** That turn's own time (its checkpoint's `ts`): a re-baselined scope counts turns from 1 again, and the time
+   *  tells a reused number from the turn you saw. Absent on a mark from before. */
+  ts?: string;
   /** Your looks, oldest first (diff-looks.ts): what "Since you looked" showed each time, to see again. */
   looks?: DiffLook[];
 }
@@ -266,6 +269,9 @@ export interface DiffSeen {
 export interface DiffLook {
   from: number;
   to: number;
+  /** The two turns' own times (see DiffSeen.ts): a look whose numbers now name other turns isn't shown. */
+  fromTs?: string;
+  toTs?: string;
   startedAt: string;
   at: string;
 }

@@ -86,4 +86,17 @@ describe('your looks (nextSeen, pure)', () => {
     expect(seen.looks).toHaveLength(MAX_LOOKS);
     expect(seen.looks?.at(-1)).toMatchObject({ from: MAX_LOOKS + 4, to: MAX_LOOKS + 5 });
   });
+
+  it('a re-baselined scope (turns counted from 1 again): the mark starts over, no look across it', () => {
+    const before = nextSeen(nextSeen(null, 5, t(0), '2026-10-04T09:00:00Z'), 12, t(60), '2026-10-04T10:00:00Z');
+    expect(before.looks).toHaveLength(1);
+    // A rebase brought main in: turn 3 is newer than the marked turn 12.
+    const after = nextSeen(before, 3, t(120), '2026-10-04T11:00:00Z');
+    expect(after).toMatchObject({ checkpointId: 3, ts: '2026-10-04T11:00:00Z' });
+    expect(after.looks).toEqual(before.looks); // kept (they hide themselves: their turns' times no longer match)
+    // Same numbering, an older window: still no going back.
+    expect(nextSeen(before, 11, t(130), '2026-10-04T09:30:00Z')).toBe(before);
+    // Each look keeps its turns' times.
+    expect(before.looks?.[0]).toMatchObject({ fromTs: '2026-10-04T09:00:00Z', toTs: '2026-10-04T10:00:00Z' });
+  });
 });

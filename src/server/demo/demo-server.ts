@@ -298,10 +298,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/diff-seen', async (c) => {
     const id = c.req.param('id');
     if (!scenario.checkpoints(id)) return notFound(c);
-    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown; ts?: unknown } | null;
     const cp = body?.checkpointId;
     if (typeof cp !== 'number' || !Number.isInteger(cp) || cp < 0) return c.json({ error: 'expected {checkpointId}' }, 400);
-    diffSeen.set(id, nextSeen(diffSeen.get(id) ?? null, cp, new Date()));
+    const ts = typeof body?.ts === 'string' && Number.isFinite(Date.parse(body.ts)) ? body.ts : undefined;
+    diffSeen.set(id, nextSeen(diffSeen.get(id) ?? null, cp, new Date(), ts));
     return c.json({ seen: diffSeen.get(id)! });
   });
 

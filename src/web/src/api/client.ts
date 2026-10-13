@@ -533,11 +533,15 @@ export function fetchDiffSeen(sessionId: string): Promise<import('../../../core/
 }
 
 /** You looked as far as this turn (only moves forward). Returns the mark as stored after. */
-export async function markDiffSeen(sessionId: string, checkpointId: number): Promise<import('../../../core/api-types.js').DiffSeen | null> {
+export async function markDiffSeen(
+  sessionId: string,
+  checkpointId: number,
+  ts?: string,
+): Promise<import('../../../core/api-types.js').DiffSeen | null> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ checkpointId }),
+    body: JSON.stringify({ checkpointId, ...(ts ? { ts } : {}) }),
   });
   if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
   // The mark as stored after, with your looks (null from a server that doesn't say).

@@ -71,7 +71,6 @@ import {
   initialHash,
   parseHash,
   saveLastRoute,
-  switchTo,
   toHash,
   type DashboardRoute,
   type DashboardTab,
@@ -323,8 +322,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       'sessions-changed': () => setRefreshKey((n) => n + 1),
       'comments-changed': () => setRefreshKey((n) => n + 1),
       notify: (data) =>
-        showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id, kind) =>
-          notifyTarget.current.open(id, kind === 'needs_input' ? 'term' : 'diff'),
+        showNotify(data as NotifyEvent, notifyTarget.current.sessionId, (id) =>
+          // Its terminal, as every way into a session (a finished turn too: where you pick it up).
+          notifyTarget.current.open(id, 'term'),
         ),
     },
   });
@@ -458,8 +458,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     [showToast],
   );
 
-  // Moving between sessions (rail, j/k, n) opens the next one on its terminal (switchTo), not on the tab you were on.
-  const hopTo = useCallback((sessionId: string) => openSession(sessionId, switchTo(route, sessionId).sessionSubTab), [openSession, route]);
+  // Moving between sessions (rail, j/k, n) opens the next one on its terminal, not on the tab you were on.
+  const hopTo = useCallback((sessionId: string) => openSession(sessionId, 'term'), [openSession]);
 
   // Review queue ("Review all" on the inbox): finished sessions one by one.
   const [reviewQueue, setReviewQueue] = useState<ReviewQueue | null>(null);

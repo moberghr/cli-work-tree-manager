@@ -193,7 +193,10 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const allItems = useMemo(() => historyItems(entries, commits, null), [entries, commits]);
   const items = useMemo(() => historyItems(entries, commits, isGroup ? activeRepoName : null), [entries, commits, isGroup, activeRepoName]);
   const turnShortcut = useMemo(() => lastTurn(allItems), [allItems]);
-  const lookedShortcut = useMemo(() => sinceLooked(allItems, entries, seenAtOpen?.checkpointId), [allItems, entries, seenAtOpen]);
+  const lookedShortcut = useMemo(
+    () => sinceLooked(allItems, entries, seenAtOpen?.checkpointId, seenAtOpen?.ts),
+    [allItems, entries, seenAtOpen],
+  );
   const lookEntries = useMemo(() => yourLooks(allItems, entries, looks), [allItems, entries, looks]);
 
   const newest = newestCheckpoint(entries);
@@ -216,7 +219,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   useLookedFor(newest === null ? null : `${session.id}:${newest}`, LOOKED_MS, () => {
     if (newest === null) return;
     const id = session.id;
-    void markDiffSeen(id, newest).then(
+    void markDiffSeen(id, newest, entries.find((e) => e.id === newest)?.ts).then(
       (s) => s && historyFor.current === id && setLooks(s.looks ?? []),
       () => {},
     );

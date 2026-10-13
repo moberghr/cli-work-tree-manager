@@ -10,21 +10,41 @@ import type { PtyInfo } from './pty-host-protocol.js';
  * waiting on you restarts when its turn ends.
  */
 
+/** Before this, an mtime isn't when the file was installed: npm unpacks every file dated 1985-10-26. */
+const PACKED_MTIME_BEFORE = Date.parse('1990-01-01T00:00:00Z');
+
 /**
- * When the file a tool's command runs was installed: the newest of its change and
- * modification times (npm unpacks files with an old mtime; replacing or unpacking
- * a file moves its change time), following links (`~/.local/bin/claude` →
- * `versions/2.1.296`). Null when it isn't on PATH.
+ * When the file a tool's command runs was installed, following links
+ * (`~/.local/bin/claude` → `versions/2.1.296`): its modification time — or, for a
+ * file npm unpacked with its fixed old date, its change time (the unpacking).
+ * Not the change time otherwise: a chmod or a relink moves it, and every running
+ * agent would read as outdated. Null when it isn't on PATH.
  */
 export function installedAt(cmd: string, find: (cmd: string) => string | null = findOnPath): number | null {
   const file = find(cmd);
   if (!file) return null;
   try {
     const st = fs.statSync(fs.realpathSync(file));
-    return Math.max(st.mtimeMs, st.ctimeMs);
+    return st.mtimeMs < PACKED_MTIME_BEFORE ? st.ctimeMs : st.mtimeMs;
   } catch {
     return null;
   }
+}
+
+/**
+ * `installedAt` per tool, read again only after `ttlMs`: a lookup walks PATH with a
+ * stat per folder and extension, synchronously, and the dashboard asks every few
+ * minutes per window.
+ */
+export function installedAtCache(ttlMs = 60_000, look: (cmd: string) => number | null = installedAt, now: () => number = Date.now) {
+  const cache = new Map<string, { at: number | null; read: number }>();
+  return (cmd: string): number | null => {
+    const hit = cache.get(cmd);
+    if (hit && now() - hit.read < ttlMs) return hit.at;
+    const at = look(cmd);
+    cache.set(cmd, { at, read: now() });
+    return at;
+  };
 }
 
 /**
@@ -68,13 +88,22 @@ export const RESTART_AT_ONCE = 3;
 export interface RestarterDeps {
   /** Restart its agent in place (the host keeps attached terminals). */
   restart: (id: string) => Promise<void>;
-  /** Working, or waiting on you: not now. */
-  busy: (id: string) => boolean;
+  /** Working, or waiting on you: not now. `turnEnded`: its turn just ended (the Stop), so the final message it
+   *  printed a moment ago isn't work going on. */
+  busy: (id: string, opts?: { turnEnded?: boolean }) => boolean;
   /** Its agent runs in the host (a queued one stopped meanwhile needs nothing). */
   running: (id: string) => boolean;
-  /** One line per decision (the Activity panel), and a change worth showing. */
-  note?: (id: string, text: string, level: 'action' | 'info' | 'warn') => void;
+  /** What one request (or one turn's end) decided, at once: one Activity run, not one per session. */
+  report?: (notes: RestartNote[]) => void;
   changed?: () => void;
+  /** A look again a little later (default setTimeout, unref'd): a turn-end the status hasn't caught up with yet. */
+  later?: (fn: () => void, ms: number) => void;
+}
+
+export interface RestartNote {
+  id: string;
+  text: string;
+  level: 'action' | 'info' | 'warn';
 }
 
 export interface RestartOutcome {
@@ -83,77 +112,113 @@ export interface RestartOutcome {
   failed: Array<{ id: string; error: string }>;
 }
 
+/** One request's decisions in a line, for its Activity run: "2 restarted · 1 after its turn · 1 failed". Pure. */
+export function restartNotesSummary(notes: readonly RestartNote[]): string {
+  const n = (level: RestartNote['level']) => notes.filter((x) => x.level === level).length;
+  const parts = [
+    n('action') && `${n('action')} restarted`,
+    n('info') && `${n('info')} after ${n('info') === 1 ? 'its turn' : 'their turns'}`,
+    n('warn') && `${n('warn')} failed`,
+  ].filter(Boolean);
+  return parts.join(' · ') || 'nothing to restart';
+}
+
+/** After a turn ends, how long before looking once more at a queued one that still read as busy. */
+export const AFTER_TURN_RECHECK_MS = 15_000;
+
 /**
  * Restarts now what can go now, and the rest when their turn ends (`turnEnded`,
- * from the status hook) — or on a later `retry` (a turn whose end no hook
- * reported). One restart per session at a time.
+ * from the status hook — and once more a little later, should the status still
+ * say working then) or on a later `retry` (a turn whose end no hook reported).
+ * One restart per session at a time: asked again meanwhile, it shares that one's
+ * outcome.
  */
 export function createRestarter(deps: RestarterDeps) {
   const queued = new Set<string>();
-  const inFlight = new Set<string>();
+  const inFlight = new Map<string, Promise<string | null>>();
+  const later = deps.later ?? ((fn: () => void, ms: number) => void setTimeout(fn, ms).unref?.());
 
-  const one = async (id: string, failed: RestartOutcome['failed']): Promise<boolean> => {
-    if (inFlight.has(id)) return true;
-    inFlight.add(id);
+  /** Restart one; resolves to null when it restarted, else why not. */
+  const one = (id: string): Promise<string | null> => {
+    const running = inFlight.get(id);
+    if (running) return running;
     queued.delete(id);
-    try {
-      await deps.restart(id);
-      deps.note?.(id, 'restarted its agent (its conversation goes on)', 'action');
-      return true;
-    } catch (err) {
-      const error = (err as Error).message;
-      failed.push({ id, error });
-      deps.note?.(id, `couldn't restart its agent: ${error}`, 'warn');
-      return false;
-    } finally {
-      inFlight.delete(id);
-    }
+    const p = deps.restart(id).then(
+      () => null,
+      (err: Error) => err.message,
+    );
+    inFlight.set(id, p);
+    void p.finally(() => inFlight.delete(id));
+    return p;
+  };
+
+  /** Restart these, RESTART_AT_ONCE at a time; each waits for its old process to exit. */
+  const run = async (ids: string[], notes: RestartNote[]) => {
+    const failed: RestartOutcome['failed'] = [];
+    const ok = new Set<string>();
+    const queue = [...ids];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        const error = await one(id);
+        if (error === null) {
+          ok.add(id);
+          notes.push({ id, text: 'restarted its agent (its conversation goes on)', level: 'action' });
+        } else {
+          failed.push({ id, error });
+          notes.push({ id, text: `couldn't restart its agent: ${error}`, level: 'warn' });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(RESTART_AT_ONCE, queue.length) }, worker));
+    return { done: ids.filter((id) => ok.has(id)), failed };
+  };
+
+  const finish = (notes: RestartNote[]) => {
+    if (!notes.length) return;
+    deps.report?.(notes);
+    deps.changed?.();
   };
 
   const request = async (ids: readonly string[]): Promise<RestartOutcome> => {
-    const { now, later } = restartPlan(
+    const plan = restartPlan(
       ids.filter((id) => deps.running(id)),
-      deps.busy,
+      (id) => deps.busy(id),
     );
-    const failed: RestartOutcome['failed'] = [];
-    for (const id of later) {
+    const notes: RestartNote[] = [];
+    for (const id of plan.later) {
       queued.add(id);
-      deps.note?.(id, 'restarts its agent when its turn ends (it is working or waiting on you)', 'info');
+      notes.push({ id, text: 'restarts its agent when its turn ends (it is working or waiting on you)', level: 'info' });
     }
-    // A few at a time: each waits for its old process to exit, and a dozen one after another outlast the caller.
-    const ok = new Set<string>();
-    const queue = [...now];
-    const worker = async () => {
-      for (let id = queue.shift(); id !== undefined; id = queue.shift()) if (await one(id, failed)) ok.add(id);
-    };
-    await Promise.all(Array.from({ length: Math.min(RESTART_AT_ONCE, queue.length) }, worker));
-    const done = now.filter((id) => ok.has(id));
-    if (done.length || later.length) deps.changed?.();
-    return { now: done, later, failed };
+    const { done, failed } = await run(plan.now, notes);
+    finish(notes);
+    return { now: done, later: plan.later, failed };
   };
 
-  /** Restart the queued ones that can go now. */
-  const retry = async (only?: string): Promise<void> => {
-    const failed: RestartOutcome['failed'] = [];
-    let any = false;
+  /** Restart the queued ones (or `only`) that can go now; a queued one stopped meanwhile is dropped. */
+  const retry = async (only?: string, opts?: { turnEnded?: boolean }): Promise<void> => {
+    const notes: RestartNote[] = [];
+    const ready: string[] = [];
     for (const id of [...queued]) {
       if (only !== undefined && id !== only) continue;
       if (!deps.running(id)) {
         queued.delete(id); // stopped meanwhile: it starts on the new version anyway
-        any = true;
         continue;
       }
-      if (deps.busy(id)) continue;
-      any = (await one(id, failed)) || any;
+      if (!deps.busy(id, opts)) ready.push(id);
     }
-    if (any) deps.changed?.();
+    await run(ready, notes);
+    finish(notes);
   };
 
   return {
     request,
     retry: () => retry(),
-    /** A session's turn ended: restart it if it was waiting for that. */
-    turnEnded: (id: string) => (queued.has(id) ? retry(id) : Promise.resolve()),
+    /** A session's turn ended: restart it if it was waiting for that — and if it still reads as busy, look again shortly. */
+    turnEnded: async (id: string): Promise<void> => {
+      if (!queued.has(id)) return;
+      await retry(id, { turnEnded: true });
+      if (queued.has(id)) later(() => void retry(id).catch(() => {}), AFTER_TURN_RECHECK_MS);
+    },
     queued: (): string[] => [...queued],
   };
 }

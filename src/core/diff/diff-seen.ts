@@ -29,12 +29,12 @@ export function readDiffSeen(sessionId: string): DiffSeen | null {
  * window still showing an older diff, or a late request, never takes back
  * what you have seen. Returns what is stored after.
  */
-export function markDiffSeen(sessionId: string, checkpointId: number, now = new Date()): DiffSeen {
+export function markDiffSeen(sessionId: string, checkpointId: number, now = new Date(), ts?: string): DiffSeen {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM diff_seen WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
     const parsed = row ? json.parse(row.data) : null;
     const old = isSeen(parsed) ? parsed : null;
-    const seen = nextSeen(old, checkpointId, now);
+    const seen = nextSeen(old, checkpointId, now, ts);
     if (seen === old) return old;
     d.prepare('INSERT OR REPLACE INTO diff_seen (session_id, data) VALUES (?, ?)').run(sessionId, JSON.stringify(seen));
     return seen;

@@ -508,4 +508,27 @@ describe('restart', () => {
     expect(reg.get('s')).toBeNull();
     expect(readSaved()).toEqual({});
   });
+
+  it('asked twice, both get the one restart; it runs with the environment the session started with', async () => {
+    const reg = makeRegistry();
+    reg.spawn('s', { cwd: dir, tool, env: { PATH: '/nvm/bin', AWS_PROFILE: 'dev' } });
+    const first = reg.restart('s');
+    const second = reg.restart('s');
+    spawned[0].pty.exit(0);
+    const [a, b] = await Promise.all([first, second]);
+    expect(spawned).toHaveLength(2);
+    expect(a).toEqual(b);
+    expect(spawned[1].spec.env).toMatchObject({ PATH: '/nvm/bin', AWS_PROFILE: 'dev' });
+    // Never written to the restore list (it can hold secrets).
+    expect(JSON.stringify(readSaved())).not.toContain('AWS_PROFILE');
+  });
+
+  it('a second restart while the first fails gets that failure, not "restarted"', async () => {
+    const reg = makeRegistry();
+    reg.spawn('s', spec());
+    const first = reg.restart('s', 20);
+    const second = reg.restart('s', 20);
+    await expect(first).rejects.toThrow(/didn't stop/);
+    await expect(second).rejects.toThrow(/didn't stop/);
+  });
 });

@@ -28,23 +28,42 @@ export function isLook(v: unknown): v is DiffLook {
 }
 
 /**
- * The mark after you looked as far as `checkpointId`: unchanged when that isn't
- * further than it was (a second window on an older diff, a late request); else
- * moved, with the look recorded — or the last one grown, when it ended where this
- * starts within LOOK_JOIN_MS (you stayed while Claude finished more turns). The
- * first look of a session records none: there was no "since" to show.
+ * Whether the scope was re-baselined since the mark: turn numbers start over (a
+ * rebase, or main merged in, brought other work), so a number at or below the mark
+ * is a newer turn when its own time is later than the marked turn's.
  */
-export function nextSeen(old: DiffSeen | null, checkpointId: number, now: Date): DiffSeen {
-  if (old && old.checkpointId >= checkpointId) return old;
+function rebaselined(old: DiffSeen, checkpointId: number, ts: string | undefined): boolean {
+  return checkpointId <= old.checkpointId && !!ts && !!old.ts && Date.parse(ts) > Date.parse(old.ts);
+}
+
+/**
+ * The mark after you looked as far as `checkpointId` (a turn of time `ts`):
+ * unchanged when that isn't further than it was (a second window on an older diff,
+ * a late request); else moved, with the look recorded — or the last one grown, when
+ * it ended where this starts within LOOK_JOIN_MS (you stayed while Claude finished
+ * more turns). The first look of a session records none (there was no "since" to
+ * show), and neither does a move across a re-baseline (the turns before it are
+ * gone): the mark starts over in the new numbering.
+ */
+export function nextSeen(old: DiffSeen | null, checkpointId: number, now: Date, ts?: string): DiffSeen {
+  const fresh = !!old && rebaselined(old, checkpointId, ts);
+  if (old && old.checkpointId >= checkpointId && !fresh) return old;
   const at = now.toISOString();
   const looks = (old?.looks ?? []).filter(isLook);
-  if (old) {
+  if (old && !fresh) {
     const last = looks.at(-1);
-    if (last && last.to === old.checkpointId && now.getTime() - Date.parse(last.at) < LOOK_JOIN_MS) {
-      looks[looks.length - 1] = { ...last, to: checkpointId, at };
+    if (last && last.to === old.checkpointId && last.toTs === old.ts && now.getTime() - Date.parse(last.at) < LOOK_JOIN_MS) {
+      looks[looks.length - 1] = { ...last, to: checkpointId, ...(ts ? { toTs: ts } : {}), at };
     } else {
-      looks.push({ from: old.checkpointId, to: checkpointId, startedAt: at, at });
+      looks.push({
+        from: old.checkpointId,
+        to: checkpointId,
+        ...(old.ts ? { fromTs: old.ts } : {}),
+        ...(ts ? { toTs: ts } : {}),
+        startedAt: at,
+        at,
+      });
     }
   }
-  return { checkpointId, at, ...(looks.length ? { looks: looks.slice(-MAX_LOOKS) } : {}) };
+  return { checkpointId, at, ...(ts ? { ts } : {}), ...(looks.length ? { looks: looks.slice(-MAX_LOOKS) } : {}) };
 }

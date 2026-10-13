@@ -19,9 +19,11 @@ export function mountDiffSeenRoutes(app: Hono): void {
   app.post('/api/sessions/:id/diff-seen', async (c) => {
     const id = c.req.param('id');
     if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
-    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown; ts?: unknown } | null;
     const cp = body?.checkpointId;
     if (typeof cp !== 'number' || !Number.isInteger(cp) || cp < 0) return c.json({ error: 'expected {checkpointId}' }, 400);
-    return c.json({ seen: markDiffSeen(id, cp) } satisfies { seen: DiffSeen });
+    // The turn's own time, when the page says it (a re-baselined scope reuses numbers: diff-looks.ts).
+    const ts = typeof body?.ts === 'string' && Number.isFinite(Date.parse(body.ts)) ? body.ts : undefined;
+    return c.json({ seen: markDiffSeen(id, cp, new Date(), ts) } satisfies { seen: DiffSeen });
   });
 }

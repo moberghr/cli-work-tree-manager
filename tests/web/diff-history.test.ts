@@ -130,6 +130,14 @@ describe('your looks', () => {
     expect(selectionLabel(items, newer.selection)).toBe(`Your look · ${newer.when}`);
   });
 
+  it('a look whose turn numbers now name other turns (a re-baseline) is left out; so is Since you looked', () => {
+    const fresh = look(2, 4, '2026-10-06T14:05:00');
+    expect(yourLooks(items, entries, [{ ...fresh, fromTs: entries[2].ts, toTs: entries[4].ts }], now)).toHaveLength(1);
+    expect(yourLooks(items, entries, [{ ...fresh, fromTs: entries[2].ts, toTs: '2026-10-01T00:00:00Z' }], now)).toEqual([]);
+    expect(sinceLooked(items, entries, 2, entries[2].ts)).not.toBeNull();
+    expect(sinceLooked(items, entries, 2, '2026-10-01T00:00:00Z')).toBeNull();
+  });
+
   it('one whose turns are gone is left out; none, nothing', () => {
     expect(yourLooks(items, entries, [look(7, 9, '2026-10-06T14:05:00')], now)).toEqual([]);
     expect(yourLooks(items, entries, undefined, now)).toEqual([]);

@@ -134,10 +134,16 @@ export function lastTurn(items: HistoryItem[]): DiffSelection | null {
  * "Since you looked": from the turn you last saw to the working tree —
  * every turn and commit after it marked. Null when nothing came after it.
  */
-export function sinceLooked(items: HistoryItem[], entries: CheckpointEntry[], seenId: number | null | undefined): DiffSelection | null {
+export function sinceLooked(
+  items: HistoryItem[],
+  entries: CheckpointEntry[],
+  seenId: number | null | undefined,
+  /** The marked turn's own time: a re-baselined scope reuses its number for another turn, which isn't what you saw. */
+  seenTs?: string,
+): DiffSelection | null {
   if (seenId === null || seenId === undefined) return null;
   const seen = entries.find((e) => e.id === seenId);
-  if (!seen || !entries.some((e) => e.id > seenId)) return null;
+  if (!seen || (seenTs && seen.ts !== seenTs) || !entries.some((e) => e.id > seenId)) return null;
   const seenAt = Date.parse(seen.ts);
   const first = items.find(
     (x) => x.kind !== 'uncommitted' && (x.after.kind === 'checkpoint' ? x.after.id > seenId : (Date.parse(x.at ?? '') || 0) > seenAt),
@@ -177,10 +183,12 @@ export interface LookEntry {
  * oldest dropped past MAX_CHECKPOINTS) is left out. Pure.
  */
 export function yourLooks(items: HistoryItem[], entries: CheckpointEntry[], looks: DiffLook[] | undefined, now = new Date()): LookEntry[] {
-  const ids = new Set(entries.map((e) => e.id));
+  const tsOf = new Map(entries.map((e) => [e.id, e.ts]));
+  // Still the turns you saw: there, and (when the look says) the same turns, not a number reused after a re-baseline.
+  const same = (id: number, ts?: string) => tsOf.has(id) && (!ts || tsOf.get(id) === ts);
   const out: LookEntry[] = [];
   for (const look of [...(looks ?? [])].reverse()) {
-    if (!ids.has(look.from) || !ids.has(look.to)) continue;
+    if (!same(look.from, look.fromTs) || !same(look.to, look.toTs)) continue;
     const fromAt = Date.parse(entries.find((e) => e.id === look.from)!.ts);
     const toKey = `t:${look.to}`;
     const toIdx = items.findIndex((x) => x.key === toKey);
