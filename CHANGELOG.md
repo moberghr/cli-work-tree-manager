@@ -19,9 +19,10 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   per session).
 - Right-click a folder or a file in a diff's file tree to mark every file
   under it as viewed, or not viewed (the app's Diff tab and `wd`'s page).
-- Moving to another session (the list on the left, j/k, `n`, a row of the
+- Moving to another session (the list on the left, `n`, a row of the
   Sessions table, a notification) opens it on its **Terminal** tab, whatever
-  tab you were on.
+  tab you were on. j/k still keep the tab, so you can walk the sessions'
+  diffs from the keyboard.
 - With a session open both in the app and in a terminal (`work tree`,
   `work attach`), the one you type in sets the terminal's size: opening it
   in the app no longer leaves the other terminal drawn at the app's size.

@@ -126,15 +126,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     return c.json({ ok: true });
   });
 
-  // Restarting agents: the demo's first two live sessions run a Claude Code from before its update (an hour ago).
+  // Restarting agents: none outdated (the card would sit in the corner over the demo's pages); the routes answer as
+  // the real ones do, for a restart asked by id.
   const claudeUpdatedAt = new Date(Date.now() - 60 * 60_000).toISOString();
-  const outdated = new Set(
-    scenario
-      .list()
-      .filter((s) => !s.archivedAt)
-      .slice(0, 2)
-      .map((s) => s.id),
-  );
+  const outdated = new Set<string>();
   app.get('/api/agents', (c) =>
     c.json({
       installedAt: claudeUpdatedAt,

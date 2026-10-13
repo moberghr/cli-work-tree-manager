@@ -118,7 +118,11 @@ test('switching sessions marks the previous diff stale until the new one loads',
     await route.continue();
   });
 
-  await page.locator('.wd-dash-rail-item', { hasText: 'feat/b' }).click();
+  // j/k walk to the next session keeping the tab (a rail click opens its terminal): whichever way feat/b is.
+  const names = await page.locator('.wd-dash-rail-item .wd-dash-rail-name').allTextContents();
+  const down = names.findIndex((n) => n.includes('feat/b')) > names.findIndex((n) => n.includes('feat/a'));
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press(down ? 'j' : 'k');
   // The old diff stays on screen, dimmed and not clickable, with the bar under the toolbar running.
   await expect(main).toHaveClass(/wd-diff-stale/);
   await expect(main).toHaveAttribute('aria-busy', 'true');

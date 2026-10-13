@@ -460,6 +460,12 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
 
   // Moving between sessions (rail, j/k, n) opens the next one on its terminal, not on the tab you were on.
   const hopTo = useCallback((sessionId: string) => openSession(sessionId, 'term'), [openSession]);
+  // j/k walk the sessions with the keyboard: they keep the tab you are on (comparing diffs stays on the diff).
+  // Landing on a terminal would take the keyboard, and the next j would be typed into that session's Claude.
+  const walkTo = useCallback(
+    (sessionId: string) => openSession(sessionId, route.sessionId ? route.sessionSubTab : 'term'),
+    [openSession, route.sessionId, route.sessionSubTab],
+  );
 
   // Review queue ("Review all" on the inbox): finished sessions one by one.
   const [reviewQueue, setReviewQueue] = useState<ReviewQueue | null>(null);
@@ -592,7 +598,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         const next = queue.find((s) => s.id !== route.sessionId) ?? queue[0];
         if (next) {
           e.preventDefault();
-          hopTo(next.id); // its terminal, as every move to another session (switchTo)
+          hopTo(next.id); // its terminal, as every move to another session but j/k
         }
         return;
       }
@@ -613,7 +619,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         const next = sorted[nextIdx];
         if (next) {
           e.preventDefault();
-          hopTo(next.id);
+          walkTo(next.id);
         }
         return;
       }
@@ -655,6 +661,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     goTab,
     openSession,
     hopTo,
+    walkTo,
     route.sessionId,
     sessions,
     sessionOrder,
