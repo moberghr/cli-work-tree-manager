@@ -142,7 +142,7 @@ describe('restarting', () => {
   it('restarts the idle ones now and the busy one when its turn ends — never mid-turn', async () => {
     const busy = new Set(['b']);
     const { r, restarted, changed, fire } = setup(busy);
-    const out = await r.request(['a', 'b', 'x']); // x isn't running: nothing to restart
+    const out = await r.request(['a', 'b']); // what the route found running
     expect(out).toEqual({ now: ['a'], later: ['b'], failed: [] });
     expect(restarted).toEqual(['a']);
     expect(r.queued()).toEqual(['b']);
@@ -266,6 +266,10 @@ describe('busy, for a restart', () => {
     expect(busyForRestart(null, now - 2_000, now)).toBe(true);
     expect(busyForRestart(null, now - PRINTING_MS, now)).toBe(false);
     expect(busyForRestart('idle', now - 1_000, now)).toBe(true); // a turn the hooks missed is still printing
+    // Claude Code's own word: the assistant (no status) silent at a permission dialog is not idle.
+    expect(busyForRestart(null, now - 60_000, now, 'waiting')).toBe(true);
+    expect(busyForRestart(null, now - 60_000, now, 'busy')).toBe(true);
+    expect(busyForRestart(null, now - 60_000, now, 'idle')).toBe(false);
   });
 
   it('restarts a few at a time, not one after another', async () => {
@@ -301,5 +305,50 @@ describe('installedAtCache', () => {
     t = 61_000;
     at('claude');
     expect(look).toHaveBeenCalledTimes(3);
+  });
+
+  it('restarts what the caller found running (its list is fresh; the pool cache may not have it yet)', async () => {
+    const restarted: string[] = [];
+    const r = createRestarter({ restart: async (id) => void restarted.push(id), busy: () => false, running: () => false });
+    expect((await r.request(['just-started'])).now).toEqual(['just-started']);
+    expect(restarted).toEqual(['just-started']);
+  });
+
+  it('says when it looks at the waiting ones next (the Activity schedule), and notes one dropped because it was stopped', async () => {
+    const scheduled: Array<number | null> = [];
+    const notes: string[] = [];
+    const timers: Array<() => void> = [];
+    const running = new Set(['a']);
+    const r = createRestarter({
+      restart: async () => {},
+      busy: () => true,
+      running: (id) => running.has(id),
+      report: (batch) => notes.push(...batch.map((n) => `${n.id}: ${n.text}`)),
+      scheduled: (at) => scheduled.push(at),
+      later: (fn) => void timers.push(fn),
+    });
+    await r.request(['a']);
+    expect(typeof scheduled.at(-1)).toBe('number');
+    running.delete('a');
+    timers.shift()!();
+    await new Promise((res) => setTimeout(res, 0));
+    expect(notes.at(-1)).toBe('a: no longer waits to restart: it was stopped meanwhile (it starts on the new version)');
+    expect(scheduled.at(-1)).toBeNull();
+    expect(r.queued()).toEqual([]);
+  });
+
+  it('lists what it is restarting right now', async () => {
+    let release!: () => void;
+    const r = createRestarter({
+      restart: () => new Promise<void>((res) => (release = res)),
+      busy: () => false,
+      running: () => true,
+    });
+    const going = r.request(['a']);
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.restarting()).toEqual(['a']);
+    release();
+    await going;
+    expect(r.restarting()).toEqual([]);
   });
 });

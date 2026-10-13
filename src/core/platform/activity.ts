@@ -19,7 +19,8 @@ export interface RunHandle {
 }
 
 export interface ScheduleHandle {
-  next(atMs: number): void;
+  /** When it runs next; null: nothing to run now (a job that runs only while something waits). */
+  next(atMs: number | null): void;
   pause(untilMs: number, why: string): void;
   resume(): void;
 }
@@ -111,7 +112,7 @@ export function createActivityLog(opts: { now?: () => number; onChange?: () => v
       changed();
       return {
         next(atMs) {
-          s.nextAt = iso(atMs);
+          s.nextAt = atMs === null ? null : iso(atMs);
           changed();
         },
         pause(untilMs, why) {

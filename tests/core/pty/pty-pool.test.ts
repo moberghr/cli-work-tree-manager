@@ -20,6 +20,8 @@ const host = {
   restarted: [] as string[],
   /** What the host answers a restart: a host from before the call says `unsupported` (404). */
   restartAnswer: 'restarted' as 'restarted' | 'not-running' | 'unsupported',
+  /** The cached client's host moved (restarted on a new port): the first call fails. */
+  restartFailsOnce: false,
 };
 let hostRunning = false;
 const ensureHost = vi.fn(async () => {
@@ -68,6 +70,10 @@ vi.mock('../../../src/core/pty/pty-host-client.js', () => ({
       return true;
     }
     async restart(id: string) {
+      if (host.restartFailsOnce) {
+        host.restartFailsOnce = false;
+        throw new Error('fetch failed');
+      }
       host.restarted.push(id);
       return host.restartAnswer;
     }
@@ -265,6 +271,14 @@ describe('restartPty', () => {
     await pool.restartPty('single');
     expect(host.killed).toEqual(['single']);
     expect(host.spawned.map((s) => s.id)).toEqual(['single']);
+  });
+
+  it('a host that moved since the last look is found again, once (as ensurePty does)', async () => {
+    const pool = await freshPool();
+    await pool.ensurePty('single');
+    host.restartFailsOnce = true;
+    await pool.restartPty('single');
+    expect(host.restarted).toEqual(['single']);
   });
 
   it('says so when its agent is not running, or there is no host', async () => {

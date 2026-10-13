@@ -81,4 +81,13 @@ describe('activity log', () => {
     run.progress(2, 2);
     expect(before.running[0].progress).toBeNull();
   });
+
+  it('a schedule can say nothing is coming (a job that runs only while something waits)', () => {
+    const log = createActivityLog();
+    const s = log.schedule('agents', 'Agents waiting to restart', 15_000);
+    s.next(Date.parse('2026-10-13T10:00:00Z'));
+    expect(log.snapshot().schedules[0].nextAt).toBe('2026-10-13T10:00:00.000Z');
+    s.next(null);
+    expect(log.snapshot().schedules[0].nextAt).toBeNull();
+  });
 });

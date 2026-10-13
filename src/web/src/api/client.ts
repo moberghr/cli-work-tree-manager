@@ -537,11 +537,13 @@ export async function markDiffSeen(
   sessionId: string,
   checkpointId: number,
   ts?: string,
+  /** The mark's turn number as this page's list has it now: its time, or null (gone): a re-baseline, told to the server. */
+  marked?: { checkpointId: number; ts: string | null },
 ): Promise<import('../../../core/api-types.js').DiffSeen | null> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diff-seen`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ checkpointId, ...(ts ? { ts } : {}) }),
+    body: JSON.stringify({ checkpointId, ...(ts ? { ts } : {}), ...(marked ? { marked } : {}) }),
   });
   if (!res.ok) throw new Error(`diff-seen: ${res.status}`);
   // The mark as stored after, with your looks (null from a server that doesn't say).

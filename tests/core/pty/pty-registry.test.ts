@@ -463,11 +463,9 @@ describe('restart', () => {
     expect(spawned).toHaveLength(2);
   });
 
-  it('an old one that does not stop in time is left running and tracked: no second agent on its conversation', async () => {
+  it('an old one that does not stop in time: the session is ended as a stop is (terminals told), no second agent', async () => {
     const reg = makeRegistry();
     reg.spawn('s', spec());
-    await expect(reg.restart('s', 20)).rejects.toThrow(/didn't stop/);
-    expect(spawned).toHaveLength(1);
     const exits: number[] = [];
     reg
       .attach(
@@ -476,8 +474,11 @@ describe('restart', () => {
         (c) => exits.push(c),
       )!
       .start();
-    spawned[0].pty.exit(0); // when it does end, it ends the usual way
-    expect(exits).toEqual([0]);
+    await expect(reg.restart('s', 20)).rejects.toThrow(/didn't stop.*stopped/);
+    expect(spawned).toHaveLength(1);
+    expect(exits).toEqual([1]);
+    expect(reg.get('s')).toBeNull();
+    expect(readSaved()).toEqual({});
   });
 
   it('a new one that cannot start ends the session as a kill does: its terminals are told', async () => {

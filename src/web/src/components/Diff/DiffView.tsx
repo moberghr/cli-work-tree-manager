@@ -47,7 +47,7 @@ import {
   type DiffSelection,
 } from '../../state/diff-history.js';
 import { emptyDiffMessage, orderRepoTabs, preferredRepo } from '../../state/diff-view.js';
-import type { DiffLook, DiffSeen } from '../../../../core/api-types.js';
+import type { DiffSeen } from '../../../../core/api-types.js';
 import { pointParam } from '../../../../core/diff/diff-points.js';
 
 /** Looked at this long (visible, focused) and the diff counts as seen. */
@@ -157,13 +157,13 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   // the whole visit; looking now moves the server's mark, not this one).
   const [seenAtOpen, setSeenAtOpen] = useState<DiffSeen | null | undefined>(undefined);
   // Your looks (diff-looks.ts), kept current: a look this visit adds one, to see again later.
-  const [looks, setLooks] = useState<DiffLook[]>([]);
+  const [seenNow, setSeenNow] = useState<DiffSeen | null>(null);
   useEffect(() => {
     setSelection(UNCOMMITTED);
     setEntries([]);
     setCommits([]);
     setSeenAtOpen(undefined);
-    setLooks([]);
+    setSeenNow(null);
     pickedRepo.current = null;
     scopeHash.current = null;
     if (historyTimer.current) clearTimeout(historyTimer.current);
@@ -174,7 +174,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
       (s) => {
         if (historyFor.current !== id) return;
         setSeenAtOpen(s);
-        setLooks(s?.looks ?? []);
+        setSeenNow(s);
       },
       () => historyFor.current === id && setSeenAtOpen(null),
     );
@@ -197,7 +197,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     () => sinceLooked(allItems, entries, seenAtOpen?.checkpointId, seenAtOpen?.ts),
     [allItems, entries, seenAtOpen],
   );
-  const lookEntries = useMemo(() => yourLooks(allItems, entries, looks), [allItems, entries, looks]);
+  const lookEntries = useMemo(() => yourLooks(allItems, entries, seenNow?.looks), [allItems, entries, seenNow]);
 
   const newest = newestCheckpoint(entries);
   // Once per visit: open on the last turn when asked to (the review queue),
@@ -219,8 +219,12 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   useLookedFor(newest === null ? null : `${session.id}:${newest}`, LOOKED_MS, () => {
     if (newest === null) return;
     const id = session.id;
-    void markDiffSeen(id, newest, entries.find((e) => e.id === newest)?.ts).then(
-      (s) => s && historyFor.current === id && setLooks(s.looks ?? []),
+    // The mark's turn as this list has it now: another time (or none) means the scope was re-baselined.
+    const marked = seenNow
+      ? { checkpointId: seenNow.checkpointId, ts: entries.find((e) => e.id === seenNow.checkpointId)?.ts ?? null }
+      : undefined;
+    void markDiffSeen(id, newest, entries.find((e) => e.id === newest)?.ts, marked).then(
+      (s) => s && historyFor.current === id && setSeenNow(s),
       () => {},
     );
   });

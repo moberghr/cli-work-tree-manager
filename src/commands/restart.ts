@@ -24,6 +24,11 @@ export const restartCommand: CommandModule = {
     let body: { ids: string[] } | { outdated: true } | { all: true };
     const names = new Map(loadHistory().map((s) => [sessionIdFor(s), `${s.target} · ${s.branch}`]));
     const label = (id: string) => names.get(id) ?? (id === 'assistant' ? 'the assistant (Ctrl+K)' : id);
+    if ((argv.all || argv.outdated) && typeof argv.target === 'string') {
+      console.error(chalk.red(`--${argv.all ? 'all' : 'outdated'} restarts more than the session you named: give one or the other.`));
+      process.exitCode = 1;
+      return;
+    }
     if (argv.all) body = { all: true };
     else if (argv.outdated) body = { outdated: true };
     else {

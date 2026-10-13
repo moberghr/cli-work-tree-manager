@@ -6,7 +6,7 @@ import type { AgentsWire, RestartWire } from '../../src/core/api-types.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock('../../src/web/src/api/events.js', () => ({ useSse: () => {} }));
-const { useOutdatedAgents } = await import('../../src/web/src/hooks/use-outdated-agents.js');
+const { useOutdatedAgents, NOTE_SHOWN_MS } = await import('../../src/web/src/hooks/use-outdated-agents.js');
 
 let container: HTMLDivElement;
 let root: Root;
@@ -55,5 +55,34 @@ describe('useOutdatedAgents', () => {
     await flush();
     expect(hook.agents?.installedAt).toBe('2026-10-20T08:00:00.000Z');
     expect(hook.note).toBeNull();
+  });
+
+  it('the note goes after a couple of minutes: how one restart went, not a standing line in the menu', async () => {
+    vi.useFakeTimers();
+    try {
+      const wire: AgentsWire = {
+        installedAt: '2026-10-11T11:12:00.000Z',
+        outdated: [{ id: 'a', tool: 'claude', startedAt: '2026-10-08T09:00:00Z', busy: false }],
+        queued: [],
+      };
+      const api = {
+        fetchAgents: async () => wire,
+        restartAgents: async (): Promise<RestartWire> => ({ now: ['a'], later: [], failed: [] }),
+      };
+      let hook!: ReturnType<typeof useOutdatedAgents>;
+      function Harness() {
+        hook = useOutdatedAgents(api);
+        return null;
+      }
+      act(() => root.render(createElement(Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      act(() => hook.restart());
+      await act(async () => vi.advanceTimersByTimeAsync(0));
+      expect(hook.note).toBe('1 session restarted.');
+      await act(async () => vi.advanceTimersByTimeAsync(NOTE_SHOWN_MS));
+      expect(hook.note).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

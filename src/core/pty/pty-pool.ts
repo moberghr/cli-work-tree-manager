@@ -36,7 +36,7 @@ let live = new Set<string>();
 /** The pids of those PTYs' processes (the Claudes the app runs). */
 let livePids = new Set<number>();
 /** Each live PTY's tool and last output (for output-status.ts). */
-let outputs = new Map<string, PtyOutput>();
+let outputs = new Map<string, PtyOutput & { pid: number }>();
 let refreshTimer: NodeJS.Timeout | null = null;
 /** The heartbeat (host-health.ts): each list request is one. */
 const beat: HostBeat = { known: false, lastOkAt: null, latencyMs: null, lastError: null };
@@ -98,7 +98,7 @@ async function refresh(): Promise<void> {
     live = new Set(ptys.filter((p) => !p.exited).map((p) => p.id));
     livePids = new Set(ptys.filter((p) => !p.exited).map((p) => p.pid));
     outputs = new Map(
-      ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt }]),
+      ptys.filter((p) => !p.exited).map((p) => [p.id, { tool: p.tool, lastOutputAt: p.lastOutputAt, startedAt: p.startedAt, pid: p.pid }]),
     );
   } catch (err) {
     // Host went away (or was restarted on a new port) — rediscover next tick.
@@ -235,6 +235,11 @@ export function ptyLastOutputMs(sessionId: string): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** Its agent's process id in the host (from the refresh cache); null with no PTY. */
+export function ptyPid(sessionId: string): number | null {
+  return outputs.get(sessionId)?.pid ?? null;
+}
+
 export function peekPty(sessionId: string): boolean {
   return live.has(sessionId);
 }
@@ -259,9 +264,18 @@ export async function writeToPty(sessionId: string, data: string): Promise<boole
  * started again (an open Terminal tab then offers Enter, as after a stop).
  */
 export async function restartPty(sessionId: string): Promise<string | void> {
-  const c = await getClient(false);
+  let c = await getClient(false);
   if (!c) throw new Error('the PTY host is not running');
-  const how = await c.restart(sessionId);
+  let how: Awaited<ReturnType<PtyHostClient['restart']>>;
+  try {
+    how = await c.restart(sessionId);
+  } catch (err) {
+    // A stale client (the host restarted on a new port before the refresh noticed): once more, fresh.
+    client = null;
+    c = await getClient(false);
+    if (!c) throw err;
+    how = await c.restart(sessionId);
+  }
   if (how === 'not-running') throw new Error('its agent is not running in the PTY host');
   if (how === 'unsupported') {
     await disposePty(sessionId);

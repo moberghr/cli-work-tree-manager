@@ -35,12 +35,20 @@ export function agentsWire(ptys: readonly PtyInfo[], deps: Pick<AgentRestartDeps
   };
 }
 
-export function mountAgentRestartRoutes(app: Hono, opts: { deps: AgentRestartDeps }): void {
+export function mountAgentRestartRoutes(
+  app: Hono,
+  opts: {
+    deps: AgentRestartDeps;
+    /** Lists, but restarts nothing, and says why (the dev server: it shares the real host, and acts on nothing). */
+    lookOnly?: string;
+  },
+): void {
   const { deps } = opts;
 
   app.get('/api/agents', async (c) => c.json(agentsWire(await deps.list().catch(() => []), deps) satisfies AgentsWire));
 
   app.post('/api/agents/restart', async (c) => {
+    if (opts.lookOnly) return c.json({ error: opts.lookOnly }, 409);
     const body = ((await c.req.json().catch(() => null)) ?? {}) as { ids?: unknown; outdated?: unknown; all?: unknown };
     const live = (await deps.list().catch(() => [])).filter((p) => !p.exited);
     let ids: string[];
@@ -48,7 +56,8 @@ export function mountAgentRestartRoutes(app: Hono, opts: { deps: AgentRestartDep
     else if (body.outdated === true) ids = outdatedPtys(live, deps.installedAt).map((p) => p.id);
     else if (Array.isArray(body.ids) && body.ids.length > 0 && body.ids.every((i) => typeof i === 'string')) {
       ids = body.ids as string[];
-      const running = new Set(live.map((p) => p.id));
+      // Mid-restart the host lists it as exited: asked again, it shares that restart's outcome.
+      const running = new Set([...live.map((p) => p.id), ...deps.restarter.restarting()]);
       const notRunning = ids.filter((id) => !running.has(id));
       if (notRunning.length === ids.length) return c.json({ error: 'its agent is not running in the PTY host' }, 409);
       ids = ids.filter((id) => running.has(id));

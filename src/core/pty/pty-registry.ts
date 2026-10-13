@@ -394,7 +394,6 @@ export class PtyRegistry {
   private async restartEntry(e: Entry, timeoutMs: number): Promise<PtyInfo | null> {
     const id = e.id;
     const old = e.pty;
-    const usual = old.onExit;
     const stopped = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), timeoutMs);
       old.onExit = () => {
@@ -405,8 +404,13 @@ export class PtyRegistry {
     });
     if (this.entries.get(id) !== e) return this.get(id); // killed meanwhile
     if (!stopped) {
-      old.onExit = usual; // still ours: its exit goes the usual way
-      throw new Error(`its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; it is left running`);
+      // Its screen is gone with the dispose and the kill is on its way: not a session to keep showing (frozen
+      // terminals, input into a dying process). Ended as a stop is, and no second agent is started on its
+      // conversation while the old one may still be going.
+      await this.endEntry(e);
+      throw new Error(
+        `its agent didn't stop within ${Math.round(timeoutMs / 1000)} s; its session was stopped (open it to start it again)`,
+      );
     }
     let pty: PtyLike;
     try {
@@ -418,19 +422,7 @@ export class PtyRegistry {
         resume: this.hasConversation(e.spec.cwd, e.spec.tool.cmd),
       });
     } catch (err) {
-      // Nothing runs now: tell its terminals (they offer Enter to start it again) and forget it, as a kill does.
-      this.entries.delete(id);
-      const attached = [...e.exitSubscribers];
-      e.subscribers.clear();
-      e.exitSubscribers.clear();
-      await this.persist();
-      for (const cb of attached) {
-        try {
-          cb(1);
-        } catch {
-          /* that client is gone */
-        }
-      }
+      await this.endEntry(e); // nothing runs now
       throw err;
     }
     e.exitCode = null;
@@ -441,6 +433,22 @@ export class PtyRegistry {
     this.wire(e, pty);
     void this.persist();
     return this.info(e);
+  }
+
+  /** A restart that can't go on ends the session as a kill does: its terminals told (they offer Enter to start it again), forgotten. */
+  private async endEntry(e: Entry): Promise<void> {
+    if (this.entries.get(e.id) === e) this.entries.delete(e.id);
+    const attached = [...e.exitSubscribers];
+    e.subscribers.clear();
+    e.exitSubscribers.clear();
+    await this.persist();
+    for (const cb of attached) {
+      try {
+        cb(1);
+      } catch {
+        /* that client is gone */
+      }
+    }
   }
 
   /**

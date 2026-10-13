@@ -7,7 +7,7 @@ import { refuseReason } from '../local-origin.js';
 import { serveSpa } from '../spa-handler.js';
 import { commentInputSchema } from '../../core/comments/comment-schemas.js';
 import { DemoScenario, type DemoEvent } from './scenario.js';
-import { nextSeen } from '../../core/diff/diff-looks.js';
+import { markedTurn, nextSeen } from '../../core/diff/diff-looks.js';
 import type {
   AgentsWire,
   RestartWire,
@@ -298,11 +298,12 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.post('/api/sessions/:id/diff-seen', async (c) => {
     const id = c.req.param('id');
     if (!scenario.checkpoints(id)) return notFound(c);
-    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown; ts?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { checkpointId?: unknown; ts?: unknown; marked?: unknown } | null;
     const cp = body?.checkpointId;
     if (typeof cp !== 'number' || !Number.isInteger(cp) || cp < 0) return c.json({ error: 'expected {checkpointId}' }, 400);
     const ts = typeof body?.ts === 'string' && Number.isFinite(Date.parse(body.ts)) ? body.ts : undefined;
-    diffSeen.set(id, nextSeen(diffSeen.get(id) ?? null, cp, new Date(), ts));
+    const marked = markedTurn(body?.marked);
+    diffSeen.set(id, nextSeen(diffSeen.get(id) ?? null, cp, new Date(), ts, marked));
     return c.json({ seen: diffSeen.get(id)! });
   });
 

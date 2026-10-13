@@ -9,6 +9,9 @@ import { restartSummary } from '../state/agent-restart-view.js';
  * kept fresh: on load, when a restart changed something, and every five minutes (an
  * update lands without telling work). With Restart them, and how it went.
  */
+/** How long "2 sessions restarted." stays. */
+export const NOTE_SHOWN_MS = 2 * 60_000;
+
 export function useOutdatedAgents(api = { fetchAgents, restartAgents }) {
   const [agents, setAgents] = useState<AgentsWire | null>(null);
   const [restarting, setRestarting] = useState(false);
@@ -41,6 +44,12 @@ export function useOutdatedAgents(api = { fetchAgents, restartAgents }) {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the api is fixed for the hook's life
   }, [load, agents?.installedAt]);
+  // Said for a couple of minutes: how one restart went, not a standing line in the menu.
+  useEffect(() => {
+    if (!said) return;
+    const t = setTimeout(() => setSaid(null), NOTE_SHOWN_MS);
+    return () => clearTimeout(t);
+  }, [said]);
   const note = said && said.about === (agents?.installedAt ?? null) ? said.text : null;
   return { agents, restart, restarting, note, reload: load };
 }

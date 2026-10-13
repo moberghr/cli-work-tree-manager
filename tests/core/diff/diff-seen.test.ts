@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { markDiffSeen, readDiffSeen } from '../../../src/core/diff/diff-seen.js';
-import { LOOK_JOIN_MS, MAX_LOOKS, nextSeen } from '../../../src/core/diff/diff-looks.js';
+import { cleanSeen, LOOK_JOIN_MS, markedTurn, MAX_LOOKS, nextSeen } from '../../../src/core/diff/diff-looks.js';
 import { mountDiffSeenRoutes } from '../../../src/server/routes/diff-seen-routes.js';
 import { removeSession, saveHistory } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -100,5 +100,35 @@ describe('your looks (nextSeen, pure)', () => {
     expect(nextSeen(after, 9, t(140), '2026-10-04T09:45:00Z')).toBe(after);
     // Each look keeps its turns' times.
     expect(before.looks?.[0]).toMatchObject({ fromTs: '2026-10-04T09:00:00Z', toTs: '2026-10-04T10:00:00Z' });
+  });
+
+  it('the page says the marked turn is now another (the new numbering passed it): the mark starts over, no look across', () => {
+    const before = nextSeen(nextSeen(null, 3, t(0), '2026-10-04T09:00:00Z'), 5, t(1), '2026-10-04T09:10:00Z');
+    expect(before.looks).toHaveLength(1);
+    // A re-baseline, then new turns 1..7: turn 5 is another turn now, and 7 is past the old mark.
+    const after = nextSeen(before, 7, t(2), '2026-10-04T11:00:00Z', { checkpointId: 5, ts: '2026-10-04T10:50:00Z' });
+    expect(after).toMatchObject({ checkpointId: 7, ts: '2026-10-04T11:00:00Z' });
+    expect(after.looks).toEqual(before.looks); // the look you made stays as it was, not grown across numberings
+    // Gone from the list altogether: the same.
+    expect(nextSeen(before, 7, t(2), '2026-10-04T11:00:00Z', { checkpointId: 5, ts: null }).looks).toEqual(before.looks);
+    // The same turn as the mark's: an ordinary move.
+    expect(nextSeen(before, 7, t(2), '2026-10-04T11:00:00Z', { checkpointId: 5, ts: '2026-10-04T09:10:00Z' }).looks).toHaveLength(1);
+  });
+
+  it('a stored mark is shape-checked: bad looks and a bad time are dropped, a broken row is none', () => {
+    expect(cleanSeen({ checkpointId: 'x', at: 'now' })).toBeNull();
+    expect(cleanSeen(null)).toBeNull();
+    const ok = { from: 1, to: 2, startedAt: '2026-10-04T10:00:00Z', at: '2026-10-04T10:00:00Z' };
+    expect(
+      cleanSeen({
+        checkpointId: 2,
+        at: '2026-10-04T10:00:00Z',
+        ts: 'garbage',
+        looks: [ok, { from: 'a', to: 2 }, { ...ok, from: 3, to: 3 }],
+      }),
+    ).toEqual({ checkpointId: 2, at: '2026-10-04T10:00:00Z', looks: [ok] });
+    expect(markedTurn({ checkpointId: 5, ts: null })).toEqual({ checkpointId: 5, ts: null });
+    expect(markedTurn({ checkpointId: 5, ts: 'x' })).toBeUndefined();
+    expect(markedTurn('nope')).toBeUndefined();
   });
 });

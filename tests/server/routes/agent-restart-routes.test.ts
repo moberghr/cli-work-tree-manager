@@ -17,7 +17,7 @@ const pty = (id: string, startedAt: string, tool = 'claude'): PtyInfo => ({
   tool,
 });
 
-function setup() {
+function setup(lookOnly?: string) {
   const restarted: string[] = [];
   const busy = new Set(['b']);
   const ptys = [pty('a', '2026-10-08T09:00:00Z'), pty('b', '2026-10-08T09:00:00Z'), pty('c', '2026-10-12T09:00:00Z')];
@@ -33,7 +33,7 @@ function setup() {
     restarter,
   };
   const app = new Hono();
-  mountAgentRestartRoutes(app, { deps });
+  mountAgentRestartRoutes(app, { deps, lookOnly });
   const post = (body: unknown) =>
     app.request('/api/agents/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { app, post, restarted };
@@ -69,5 +69,13 @@ describe('POST /api/agents/restart', () => {
     expect((await post({ ids: [1] })).status).toBe(400);
     expect(((await (await post({ all: true })).json()) as RestartWire).now).toEqual(['a', 'c']);
     expect(restarted).toEqual(['c', 'a', 'c']);
+  });
+
+  it('the dev server restarts nothing, and says why', async () => {
+    const { post, restarted } = setup('the dev server restarts nothing');
+    const res = await post({ outdated: true });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('the dev server restarts nothing');
+    expect(restarted).toEqual([]);
   });
 });

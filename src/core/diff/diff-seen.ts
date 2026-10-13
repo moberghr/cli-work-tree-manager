@@ -1,6 +1,6 @@
 import type { DiffSeen } from '../api-types.js';
 import { json, tx, withDb } from '../platform/db.js';
-import { nextSeen } from './diff-looks.js';
+import { cleanSeen, nextSeen, type MarkedTurn } from './diff-looks.js';
 
 /**
  * How far you have looked at a session's diff: the newest of its turns
@@ -13,15 +13,9 @@ import { nextSeen } from './diff-looks.js';
  * earlier looks in the same record (diff-looks.ts: no schema change).
  */
 
-function isSeen(v: unknown): v is DiffSeen {
-  const o = v as DiffSeen | null;
-  return !!o && typeof o === 'object' && typeof o.checkpointId === 'number' && typeof o.at === 'string';
-}
-
 export function readDiffSeen(sessionId: string): DiffSeen | null {
   const row = withDb((d) => d.prepare('SELECT data FROM diff_seen WHERE session_id = ?').get(sessionId) as { data: string } | undefined);
-  const v = row ? json.parse(row.data) : null;
-  return isSeen(v) ? v : null;
+  return row ? cleanSeen(json.parse(row.data)) : null;
 }
 
 /**
@@ -29,12 +23,11 @@ export function readDiffSeen(sessionId: string): DiffSeen | null {
  * window still showing an older diff, or a late request, never takes back
  * what you have seen. Returns what is stored after.
  */
-export function markDiffSeen(sessionId: string, checkpointId: number, now = new Date(), ts?: string): DiffSeen {
+export function markDiffSeen(sessionId: string, checkpointId: number, now = new Date(), ts?: string, marked?: MarkedTurn): DiffSeen {
   return tx((d) => {
     const row = d.prepare('SELECT data FROM diff_seen WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
-    const parsed = row ? json.parse(row.data) : null;
-    const old = isSeen(parsed) ? parsed : null;
-    const seen = nextSeen(old, checkpointId, now, ts);
+    const old = row ? cleanSeen(json.parse(row.data)) : null;
+    const seen = nextSeen(old, checkpointId, now, ts, marked);
     if (seen === old) return old;
     d.prepare('INSERT OR REPLACE INTO diff_seen (session_id, data) VALUES (?, ?)').run(sessionId, JSON.stringify(seen));
     return seen;

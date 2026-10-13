@@ -194,6 +194,13 @@ describe('work restart', () => {
     answer = () => ({ ok: true, body: { now: [], later: [], failed: [] } });
     await run(restartCommand, { outdated: true });
     expect(out).toEqual(['Every agent runs its newest version.']);
+    // A session named with --all: one or the other, never everything by mistake.
+    const asked = calls.length;
+    await run(restartCommand, { target: 'api', branch: 'feat/x', all: true });
+    expect(calls.length).toBe(asked);
+    expect(errors.at(-1)).toContain('--all restarts more than the session you named');
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
   });
 });
 

@@ -107,9 +107,10 @@ import {
   peekPty,
   ptyPids,
   ptyLastOutputMs,
+  ptyPid,
   restartPty,
 } from '../core/pty/pty-pool.js';
-import { busyForRestart, createRestarter, installedAtCache, restartNotesSummary } from '../core/pty/agent-restart.js';
+import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
 import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
@@ -556,9 +557,15 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   const restartBusy = (id: string, opts?: { turnEnded?: boolean }) => {
     const session = findSession(id);
     // Right after its Stop, the final message it just printed isn't work going on.
-    return busyForRestart(session ? shownState(session) : null, opts?.turnEnded ? null : ptyLastOutputMs(id));
+    const pid = ptyPid(id);
+    // Claude Code's own word for its process: the assistant has no hook status, and a permission dialog prints nothing.
+    const live = pid === null ? null : (liveAgents().find((a) => a.pid === pid)?.state ?? null);
+    return busyForRestart(session ? shownState(session) : null, opts?.turnEnded ? null : ptyLastOutputMs(id), Date.now(), live);
   };
-  // Restarting agents (agent-restart.ts): after their tool updated, or when asked; never mid-turn.
+  // Restarting agents (agent-restart.ts): after their tool updated, or when asked; never mid-turn. The waiting ones
+  // are looked at again every QUEUE_RECHECK_MS while any wait (the Activity panel's schedule).
+  // Not in the dev server, which restarts nothing (its route says so).
+  const restartSchedule = dev ? null : activity.schedule('agents', 'Agents waiting to restart', QUEUE_RECHECK_MS);
   const restarter = createRestarter({
     restart: restartPty,
     busy: restartBusy,
@@ -575,8 +582,13 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       broadcast('agents-changed', { ts: Date.now() });
       broadcast('sessions-changed', { ts: Date.now() });
     },
+    scheduled: (nextAt) => restartSchedule?.next(nextAt),
   });
-  mountAgentRestartRoutes(app, { deps: { list: listHostPtys, installedAt: installedAtCache(), busy: restartBusy, restarter } });
+  mountAgentRestartRoutes(app, {
+    deps: { list: listHostPtys, installedAt: installedAtCache(), busy: restartBusy, restarter },
+    // The dev server shares the real PTY host and acts on nothing: the real work web restarts.
+    lookOnly: dev ? 'the dev server restarts nothing: use the real work web (the app, or `work restart`)' : undefined,
+  });
   const sleepIdle = async () => {
     sleepSchedule?.next(Date.now() + SLEEP_EVERY_MS);
     // A restart waiting on a turn whose end no hook reported (an interrupt): try again.

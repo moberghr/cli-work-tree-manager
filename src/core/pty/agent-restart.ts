@@ -74,11 +74,20 @@ export function outdatedPtys(ptys: readonly PtyInfo[], toolInstalledAt: (tool: s
 export const PRINTING_MS = 10_000;
 
 /**
- * At work, for a restart: its status (the hooks' as the dashboard reads it, corrected by the transcript and
- * decayed) is working or waiting on you — or its terminal printed in the last few seconds, which is all an
- * agent with no status has (the Ctrl+K assistant, a tool with no hooks) and catches a turn the hooks missed. Pure.
+ * At work, for a restart: what the agent itself says (Claude Code's own state for its process: mid-turn, or
+ * waiting on you; at a permission dialog it prints nothing, so only this tells), or its status (the hooks' as
+ * the dashboard reads it, corrected by the transcript and decayed) is working or waiting on you, or its
+ * terminal printed in the last few seconds, which catches a turn both missed. An agent that says nothing and
+ * has no status (a tool with no hooks or process state) has only the last: one silent at a prompt of its own
+ * can't be told from idle. Pure.
  */
-export function busyForRestart(state: 'working' | 'needs_input' | 'idle' | null, lastOutputMs: number | null, now = Date.now()): boolean {
+export function busyForRestart(
+  state: 'working' | 'needs_input' | 'idle' | null,
+  lastOutputMs: number | null,
+  now = Date.now(),
+  live: 'busy' | 'idle' | 'waiting' | null = null,
+): boolean {
+  if (live === 'busy' || live === 'waiting') return true;
   if (state === 'working' || state === 'needs_input') return true;
   return lastOutputMs !== null && now - lastOutputMs < PRINTING_MS;
 }
@@ -104,6 +113,8 @@ export interface RestarterDeps {
   running: (id: string) => boolean;
   /** What one request (or one turn's end) decided, at once: one Activity run, not one per session. */
   report?: (notes: RestartNote[]) => void;
+  /** When the waiting ones are looked at next (the Activity panel's schedule); null when nothing waits. */
+  scheduled?: (nextAt: number | null) => void;
   changed?: () => void;
   /** A look again a little later (default setTimeout, unref'd): a turn-end the status hasn't caught up with yet. */
   later?: (fn: () => void, ms: number) => void;
@@ -189,11 +200,9 @@ export function createRestarter(deps: RestarterDeps) {
     deps.changed?.();
   };
 
+  /** Restart these (the caller found them running in the host: its list is fresh, `running` is a cache). */
   const request = async (ids: readonly string[]): Promise<RestartOutcome> => {
-    const plan = restartPlan(
-      ids.filter((id) => deps.running(id)),
-      (id) => deps.busy(id),
-    );
+    const plan = restartPlan(ids, (id) => deps.busy(id));
     const notes: RestartNote[] = [];
     for (const id of plan.later) {
       queued.add(id);
@@ -208,8 +217,13 @@ export function createRestarter(deps: RestarterDeps) {
   // While anything waits, it is looked at again every QUEUE_RECHECK_MS.
   let ticking = false;
   const tick = () => {
-    if (ticking || queued.size === 0) return;
+    if (ticking) return;
+    if (queued.size === 0) {
+      deps.scheduled?.(null);
+      return;
+    }
     ticking = true;
+    deps.scheduled?.(Date.now() + QUEUE_RECHECK_MS);
     later(() => {
       ticking = false;
       void retry()
@@ -225,7 +239,8 @@ export function createRestarter(deps: RestarterDeps) {
     for (const id of [...queued]) {
       if (only !== undefined && id !== only) continue;
       if (!deps.running(id)) {
-        queued.delete(id); // stopped meanwhile: it starts on the new version anyway
+        queued.delete(id);
+        notes.push({ id, text: 'no longer waits to restart: it was stopped meanwhile (it starts on the new version)', level: 'info' });
         continue;
       }
       if (!deps.busy(id, opts)) ready.push(id);
@@ -243,6 +258,8 @@ export function createRestarter(deps: RestarterDeps) {
       later(() => void retry(id, { turnEnded: true }).catch(() => {}), TURN_END_GRACE_MS);
     },
     queued: (): string[] => [...queued],
+    /** Being restarted now (the host lists them as exited meanwhile: still this session's). */
+    restarting: (): string[] => [...inFlight.keys()],
   };
 }
 
