@@ -3,6 +3,35 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.0.13 — 2026-10-13
+
+- **Restart Claude sessions after Claude Code updates.** A running Claude
+  keeps the version it started with. When Claude Code has updated, the
+  version button gets a dot and a card says how many sessions still run the
+  old version; **Restart them** restarts each one, picking up its
+  conversation, with its terminal staying open. A session that is working or
+  waiting on you restarts when its turn ends, never in the middle of it.
+  From a terminal: `work restart`, `work restart <target> <branch>`,
+  `work restart --outdated` or `--all`.
+- **Your looks.** The Diff tab's **Changes** picker keeps what "Since you
+  looked" showed you each time: **Last look** gets back the diff you
+  reviewed most recently, and **Your looks** lists earlier ones (the last 20
+  per session).
+- Right-click a folder or a file in a diff's file tree to mark every file
+  under it as viewed, or not viewed (the app's Diff tab and `wd`'s page).
+- Moving to another session (the list on the left, j/k, `n`, a row of the
+  Sessions table, a notification) opens it on its **Terminal** tab, whatever
+  tab you were on.
+- With a session open both in the app and in a terminal (`work tree`,
+  `work attach`), the one you type in sets the terminal's size: opening it
+  in the app no longer leaves the other terminal drawn at the app's size.
+- Dragging a session in the list: letting go between two rows moves it
+  where the blue bar shows, instead of doing nothing.
+
+After updating, run `work pty-host --restart` once (it restarts your Claudes,
+each picking up its conversation): restarting in place and the terminal size
+fix live in the PTY host, which keeps running across updates.
+
 ## 2.0.12 — 2026-10-12
 
 - The session's **Diff** tab has the arrows between hunks that `wd`'s own
