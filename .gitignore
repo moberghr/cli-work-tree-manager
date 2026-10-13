@@ -13,6 +13,7 @@ tasks/todo.md
 playwright-report/
 test-results/
 
-# Tool output, never source: Claude Code agent worktrees, Playwright MCP snapshots
+# Tool output, never source: Claude Code agent worktrees, Playwright MCP snapshots, the mtk plugin's session metrics
 .claude/worktrees/
 .playwright-mcp/
+.mtk/
