@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { snoozeActive, snoozeFor, snoozeLabel, statusKey } from '../../../src/core/rail/snooze.js';
-import { inboxRank, wantsYou } from '../../../src/core/status/attention.js';
+import { inboxRank, waitsOnYou, wantsYou } from '../../../src/core/status/attention.js';
 
 const done = { attention: { state: 'idle' as const, since: '2026-10-01T10:00:00Z', seen: false }, openReviewThreads: 0 };
 
@@ -136,5 +136,15 @@ describe('a time of your choosing', () => {
     expect(snoozeUntil('2026-10-01T11:00:00Z', now)).toBeNull();
     expect(snoozeUntil('2026-12-01T09:00:00Z', now)).toBeNull();
     expect(snoozeUntil('nope', now)).toBeNull();
+  });
+});
+
+describe('waitsOnYou (what flashes the desktop app’s taskbar)', () => {
+  const at = (state: 'needs_input' | 'idle' | 'working', seen = false) => ({ attention: { state, seen, since: '2026-10-13T10:00:00Z' } });
+  it('a question waits on you; a snoozed one, a finished turn or work in progress does not', () => {
+    expect(waitsOnYou(at('needs_input'))).toBe(true);
+    expect(waitsOnYou({ ...at('needs_input'), snoozed: { until: null } })).toBe(false);
+    expect(waitsOnYou(at('idle'))).toBe(false);
+    expect(waitsOnYou(at('working', true))).toBe(false);
   });
 });

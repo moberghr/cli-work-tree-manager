@@ -105,6 +105,11 @@ export function compareInbox(a: InboxSubject, b: InboxSubject): number {
 }
 
 /** Wants you now — what the Inbox badge counts: needs input, done unseen, review comments, a PR that wants you. */
+/** It waits on your answer, as the Inbox's first section has it (not snoozed): what flashes the desktop app's taskbar. */
+export function waitsOnYou(s: InboxSubject): boolean {
+  return inboxRank(s) === 0;
+}
+
 export function wantsYou(s: InboxSubject): boolean {
   return inboxRank(s) <= 2;
 }

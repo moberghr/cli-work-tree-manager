@@ -3213,6 +3213,18 @@ a.wd-pr-chip:hover {
 .wd-help-status {
   color: var(--accent);
 }
+/* The version menu's switch: a row like its items, the box beside its text. */
+.wd-help-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wd-help-toggle input {
+  margin: 2px 0 0;
+}
 .wd-help-note {
   margin: 0 8px 4px;
   color: var(--muted);

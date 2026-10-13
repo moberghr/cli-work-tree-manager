@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { badgeAsk, inTaskbarApp, newlyNeedingYou, readFlashOn, writeFlashOn } from '../../src/web/src/state/taskbar.js';
 import { useTaskbar } from '../../src/web/src/hooks/use-taskbar.js';
+import { ASK_GAP_MS, createAskQueue } from '../../src/web/src/state/desktop-asks.js';
 import { HelpMenu } from '../../src/web/src/components/Dashboard/HelpMenu.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -48,43 +49,48 @@ describe('the taskbar count and flash (pure)', () => {
 });
 
 describe('useTaskbar', () => {
+  beforeEach(() => void vi.useFakeTimers());
+  afterEach(() => {
+    act(() => void vi.runAllTimers()); // the ask queue drains between tests
+    vi.useRealTimers();
+  });
+
   function mount(inApp: boolean) {
     const go = vi.fn<(url: string) => void>();
     let hook!: ReturnType<typeof useTaskbar>;
     // One component, its props changed between renders (a new function each time would remount it).
-    const props = { count: 0, waiting: new Set<string>() };
+    const props = { count: 0, waiting: new Set<string>(), ready: false };
     function Harness() {
-      hook = useTaskbar(props.count, props.waiting, go, inApp);
+      hook = useTaskbar(props.count, props.waiting, { ready: props.ready, go, inApp });
       return null;
     }
-    const render = (count: number, waiting: string[]) => {
-      props.count = count;
-      props.waiting = new Set(waiting);
+    const render = (count: number, waiting: string[], ready = true) => {
+      Object.assign(props, { count, waiting: new Set(waiting), ready });
       act(() => root.render(createElement(Harness, { key: 'one', n: count })));
+      act(() => void vi.advanceTimersByTime(ASK_GAP_MS * 5)); // the queued asks go out, one by one
     };
-    return { go, render, hook: () => hook };
+    return { go, render, hook: () => hook, asked: () => go.mock.calls.map((c) => c[0]) };
   }
 
-  it('in the app: the count on each change; a flash only for a session that starts waiting while it runs', () => {
-    const { go, render } = mount(true);
-    render(2, ['a']); // what was waiting when the app opened isn't news
-    expect(go.mock.calls.map((c) => c[0])).toEqual(['http://work-desktop.invalid/badge/2']);
+  it('nothing before the session list has come; then what was waiting is not news, a session that starts waiting is', () => {
+    const { render, asked } = mount(true);
+    render(0, [], false); // the page just opened: no list yet
+    expect(asked()).toEqual([]);
+    render(2, ['a']); // the list: 'a' was already waiting
+    expect(asked()).toEqual(['http://work-desktop.invalid/badge/2']);
     render(3, ['a', 'b']);
-    expect(go.mock.calls.map((c) => c[0]).slice(1)).toEqual([
-      'http://work-desktop.invalid/badge/3',
-      'http://work-desktop.invalid/attention',
-    ]);
+    expect(asked().slice(1)).toEqual(['http://work-desktop.invalid/badge/3', 'http://work-desktop.invalid/attention']);
     render(1, []);
-    expect(go.mock.calls.at(-1)?.[0]).toBe('http://work-desktop.invalid/badge/1');
+    expect(asked().at(-1)).toBe('http://work-desktop.invalid/badge/1');
   });
 
   it('the flash can be turned off; the count still shows', () => {
-    const { go, render, hook } = mount(true);
+    const { render, hook, asked } = mount(true);
     render(1, []);
     act(() => hook().setFlashOn(false));
     render(2, ['a']);
-    expect(go.mock.calls.map((c) => c[0])).not.toContain('http://work-desktop.invalid/attention');
-    expect(go.mock.calls.at(-1)?.[0]).toBe('http://work-desktop.invalid/badge/2');
+    expect(asked()).not.toContain('http://work-desktop.invalid/attention');
+    expect(asked().at(-1)).toBe('http://work-desktop.invalid/badge/2');
     expect(readFlashOn()).toBe(false);
   });
 
@@ -93,6 +99,26 @@ describe('useTaskbar', () => {
     render(2, ['a']);
     render(3, ['a', 'b']);
     expect(go).not.toHaveBeenCalled();
+  });
+});
+
+describe('the ask queue', () => {
+  it('the first ask goes at once, the rest one at a time after it, in order (two at once can replace each other)', () => {
+    const steps: Array<() => void> = [];
+    const send = createAskQueue((fn) => void steps.push(fn));
+    const went: string[] = [];
+    const go = (url: string) => void went.push(url);
+    send('hello', go);
+    send('badge/2', go);
+    send('attention', go);
+    expect(went).toEqual(['hello']);
+    steps.shift()!();
+    expect(went).toEqual(['hello', 'badge/2']);
+    steps.shift()!();
+    steps.shift()!();
+    expect(went).toEqual(['hello', 'badge/2', 'attention']);
+    send('badge/3', go); // idle again: at once
+    expect(went.at(-1)).toBe('badge/3');
   });
 });
 

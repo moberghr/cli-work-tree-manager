@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { UpdateWire } from '../../src/core/api-types.js';
 import { ASK_URL, desktopWire, useDesktop } from '../../src/web/src/hooks/use-desktop.js';
+import { ASK_GAP_MS } from '../../src/web/src/state/desktop-asks.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -11,6 +12,7 @@ let container: HTMLDivElement;
 let root: Root;
 const w = window as unknown as { __workDesktop?: unknown };
 beforeEach(() => {
+  vi.useFakeTimers(); // asks go out one at a time (desktop-asks.ts): `drain` lets the gaps pass
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -19,7 +21,10 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   delete w.__workDesktop;
+  act(() => void vi.runAllTimers());
+  vi.useRealTimers();
 });
+const drain = () => act(() => void vi.advanceTimersByTime(ASK_GAP_MS * 5));
 
 let seen: ReturnType<typeof useDesktop> = null;
 function Probe({ go }: { go: (url: string) => void }) {
@@ -45,6 +50,7 @@ describe('useDesktop (the app tells its window, the window asks the app)', () =>
     send({ appVersion: '2.0.2', state: 'downloading', target: '2.0.3', progress: 45 });
     expect(seen!.update).toMatchObject({ state: 'downloading', progress: 45 });
     act(() => seen!.ask('restart'));
+    drain();
     expect(go).toHaveBeenLastCalledWith('http://work-desktop.invalid/restart');
   });
 
@@ -54,6 +60,7 @@ describe('useDesktop (the app tells its window, the window asks the app)', () =>
     act(() => root.render(createElement(Probe, { go })));
     expect(seen!.update?.state).toBe('current'); // what the app said before the page was up
     act(() => seen!.ask('check'));
+    drain();
     expect(go).toHaveBeenLastCalledWith(`${ASK_URL}check`);
     send({ appVersion: '2.0.2', state: 'checking' });
     expect(seen!.note).toBeNull();

@@ -142,9 +142,9 @@ export function HelpMenu({
             </button>
           )}
           {taskbarFlash && (
-            <label className="wd-row-menu-item wd-help-toggle">
-              <input type="checkbox" checked={taskbarFlash.on} onChange={(e) => taskbarFlash.set(e.target.checked)} /> Flash the taskbar
-              when a session needs you
+            <label className="wd-help-toggle">
+              <input type="checkbox" checked={taskbarFlash.on} onChange={(e) => taskbarFlash.set(e.target.checked)} />
+              <span>Flash the taskbar when a session needs you</span>
             </label>
           )}
           {onShortcuts && (

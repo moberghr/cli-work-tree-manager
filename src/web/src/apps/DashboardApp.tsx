@@ -33,7 +33,7 @@ import {
 } from '../api/client.js';
 import { showNotify, usePresence } from '../hooks/use-presence.js';
 import { coalesce } from '../utils/coalesce.js';
-import { compareInbox, needsAttention, prWantsYou, wantsYou } from '../../../core/status/attention.js';
+import { compareInbox, needsAttention, prWantsYou, waitsOnYou, wantsYou } from '../../../core/status/attention.js';
 import { InboxTab } from '../components/Dashboard/tabs/InboxTab.js';
 import { TodayTab } from '../components/Dashboard/tabs/TodayTab.js';
 import { CleanupTab } from '../components/Dashboard/tabs/CleanupTab.js';
@@ -144,11 +144,14 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const withArchivedRef = useRef(withArchived);
   withArchivedRef.current = withArchived;
   const [archivedLoaded, setArchivedLoaded] = useState(false);
+  // The list has come once: before it, an empty list says nothing (the taskbar waits for it).
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const loadSessions = useCallback(() => {
     const asked = withArchivedRef.current;
     return fetchSessions(asked).then((data) => {
       setSessions(data);
       setArchivedLoaded(asked);
+      setSessionsLoaded(true);
     });
   }, []);
 
@@ -732,12 +735,14 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     document.title = inboxCount > 0 ? `(${inboxCount}) work` : 'work';
   }, [inboxCount]);
   // In the desktop app, the same count on its taskbar / Dock icon, and a flash when a session newly waits on you.
+  // Sorted: the set, not the rail's order, says whether it changed.
   const needingYouKey = sessions
-    .filter((s) => !isArchived(s) && !s.snoozed && s.attention?.state === 'needs_input')
+    .filter((s) => !isArchived(s) && waitsOnYou(s))
     .map((s) => s.id)
+    .sort()
     .join(',');
   const needingYou = useMemo(() => new Set(needingYouKey ? needingYouKey.split(',') : []), [needingYouKey]);
-  const taskbar = useTaskbar(inboxCount, needingYou);
+  const taskbar = useTaskbar(inboxCount, needingYou, { ready: sessionsLoaded });
 
   // -- Render --------------------------------------------------------------
   let body: React.ReactNode;

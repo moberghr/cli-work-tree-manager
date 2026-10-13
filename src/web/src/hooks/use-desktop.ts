@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UpdateWire } from '../../../core/api-types.js';
 import { inAppUpdates, parseDesktopUpdate, type DesktopUpdate } from '../../../core/updates/updates.js';
+import { sendDesktopAsk } from '../state/desktop-asks.js';
 
 /**
  * The desktop app's window, straight to and from the app — not through work
@@ -40,7 +41,7 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
     const on = (e: Event) => setUpdate(parse((e as CustomEvent).detail));
     window.addEventListener('work-desktop', on);
     // Up: ask for where the update stands (the app sent it before this page, or a reload, was there).
-    goRef.current(`${ASK_URL}hello`);
+    sendDesktopAsk(`${ASK_URL}hello`, goRef.current);
     return () => window.removeEventListener('work-desktop', on);
   }, [inApp]);
 
@@ -66,7 +67,7 @@ export function useDesktop(go: (url: string) => void = (url) => window.location.
       checkAsked.current = Math.floor(Date.now() / 1000);
       setNote(null);
     }
-    goRef.current(`${ASK_URL}${what}`);
+    sendDesktopAsk(`${ASK_URL}${what}`, goRef.current);
   }, []);
 
   // Until the app's updater has said where it stands (or when it runs none: a dev build,
