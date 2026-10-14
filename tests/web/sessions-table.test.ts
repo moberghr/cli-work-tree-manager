@@ -95,14 +95,10 @@ function render(onOpen = vi.fn(), onDelete = vi.fn()) {
 const rows = () => [...container.querySelectorAll<HTMLTableRowElement>('tbody tr')];
 /** View ▾ holds the table's filter, grouping, sort and checkboxes. */
 const openView = () => act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'View ▾')!.click());
-const viewCheck = (label: string) =>
-  [...container.querySelectorAll<HTMLLabelElement>('.wd-view-menu-panel .wd-tab-check')]
-    .find((l) => l.textContent?.includes(label))!
-    .querySelector('input')!;
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
 describe('Sessions table', () => {
-  it('five columns — status, session, summary, changes, active — and one status vocabulary', () => {
+  it('six columns — status, session, project, summary, changes, active — and one status vocabulary', () => {
     try {
       localStorage.setItem('work-web:sessions-grouping', 'none');
     } catch {
@@ -112,6 +108,7 @@ describe('Sessions table', () => {
     expect([...container.querySelectorAll('thead th')].map((th) => text(th))).toEqual([
       'Status',
       'Session',
+      'Project',
       'Summary',
       'Changes',
       'Active',
@@ -153,18 +150,75 @@ describe('Sessions table', () => {
     expect(warn.title).toContain('api/src/a.ts');
   });
 
-  it('hides archived sessions until "Show archived" is on', () => {
-    render();
-    expect(rows().some((r) => text(r).includes('archived'))).toBe(false);
-    openView();
-    const toggle = viewCheck('Show archived');
-    expect(text(toggle.parentElement)).toContain('Show archived (1)');
-    act(() => toggle.click());
-    const arch = rows().find((r) => r.className.includes('wd-session-row-archived'))!;
+  const scopeBtn = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Which sessions"] button')].find((b) =>
+      b.textContent?.startsWith(label),
+    )!;
+
+  it('Live / Archived / All in the header: Archived lists only the archived ones, each with Restore on its row', () => {
+    const onShowArchived = vi.fn();
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: SESSIONS,
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+          onShowArchived,
+        }),
+      ),
+    );
+    expect(rows().some((r) => r.className.includes('wd-session-row-archived'))).toBe(false);
+    expect(onShowArchived).toHaveBeenLastCalledWith(false); // not fetched until asked for
+
+    act(() => scopeBtn('Archived').click());
+    expect(onShowArchived).toHaveBeenLastCalledWith(true);
+    expect(rows().map((r) => text(r.querySelector('.wd-st-branch')))).toEqual(['archived']);
+    expect(text(container.querySelector('h1'))).toContain('1 archived');
+    const arch = rows()[0];
     expect(text(arch.querySelector('.wd-archived-pill'))).toBe('archived');
-    // Its ⋯ offers Restore.
+    act(() => arch.querySelector<HTMLButtonElement>('.wd-st-restore')!.click());
+    expect(h.setArchived).toHaveBeenCalledWith('archived', false);
+    // Its ⋯ offers Restore too.
     act(() => arch.querySelector<HTMLButtonElement>('.wd-st-more')!.click());
     expect([...document.querySelectorAll('[role=menuitem]')].map((b) => b.textContent)).toContain('Restore');
+
+    act(() => scopeBtn('All').click());
+    expect(rows()).toHaveLength(SESSIONS.length);
+    expect(localStorage.getItem('work-web:sessions-show-archived')).toBe('all'); // remembered
+  });
+
+  it('the Archived view lists old ones too (nothing folded under "Show N older")', () => {
+    localStorage.setItem('work-web:sessions-show-archived', 'archived');
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [s({ id: 'long-ago', archivedAt: minsAgo(60 * 24 * 40), lastAccessedAt: minsAgo(60 * 24 * 40) })],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    expect(rows().map((r) => text(r.querySelector('.wd-st-branch')))).toEqual(['long-ago']);
+  });
+
+  it('a "Show archived" tick from before reads as All; the project and a group are their own column', () => {
+    localStorage.setItem('work-web:sessions-show-archived', '1');
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [...SESSIONS, s({ id: 'grp-work', target: 'shop', isGroup: true, paths: ['/wt/shop/a/api', '/wt/shop/a/web'] })],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    expect(scopeBtn('All').getAttribute('aria-pressed')).toBe('true');
+    const grp = rows().find((r) => text(r.querySelector('.wd-st-branch')) === 'grp-work')!;
+    expect(text(grp.querySelector('.wd-st-col-project'))).toBe('shop group');
+    expect(text(grp.querySelector('.wd-st-session'))).toBe('grp-work');
   });
 
   it('a row click opens the session on its terminal, finished work too', () => {
