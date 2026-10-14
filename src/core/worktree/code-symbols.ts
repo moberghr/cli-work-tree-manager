@@ -54,12 +54,19 @@ const RULES: Array<{ ext: RegExp; re: RegExp; kind: (m: RegExpExecArray) => Code
     kind: () => 'const',
     name: (m) => m[1],
   },
-  // Python.
+  // Python (and its stub files): classes, functions and methods, and a module's constants — an UPPER_CASE name
+  // assigned at the start of a line (`MAX_RETRIES = 3`, `TIMEOUT: int = 30`), not a comparison.
   {
-    ext: /\.py$/i,
+    ext: /\.pyi?$/i,
     re: /^\s*(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)/,
     kind: (m) => (m[1] === 'class' ? 'class' : 'function'),
     name: (m) => m[2],
+  },
+  {
+    ext: /\.pyi?$/i,
+    re: /^([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=(?!=)/,
+    kind: () => 'const',
+    name: (m) => m[1],
   },
 ];
 /** Words that look like a member's name to the patterns but are statements. */

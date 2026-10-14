@@ -38,6 +38,23 @@ describe('declarationOf: a declaration on a line, by language', () => {
     expect(declarationOf('a.py', 'class Parser:')).toEqual({ name: 'Parser', kind: 'class' });
   });
 
+  it("Python: classes, functions and methods (indented, async, decorated below), stubs, and a module's constants", () => {
+    expect(declarationOf('svc.py', '    def get_pending_jobs(self, limit: int = 10) -> list[Job]:')).toEqual({
+      name: 'get_pending_jobs',
+      kind: 'function',
+    });
+    expect(declarationOf('svc.py', '    async def fetch(self):')).toEqual({ name: 'fetch', kind: 'function' });
+    expect(declarationOf('svc.py', 'class JobStore(Base, metaclass=ABCMeta):')).toEqual({ name: 'JobStore', kind: 'class' });
+    expect(declarationOf('svc.pyi', 'def parse(text: str) -> Doc: ...')).toEqual({ name: 'parse', kind: 'function' });
+    expect(declarationOf('settings.py', 'MAX_RETRIES = 3')).toEqual({ name: 'MAX_RETRIES', kind: 'const' });
+    expect(declarationOf('settings.py', 'TIMEOUT: int = 30')).toEqual({ name: 'TIMEOUT', kind: 'const' });
+    // Not constants: a comparison, a lower-case variable, one inside a function.
+    expect(declarationOf('settings.py', 'DEBUG == True')).toBeNull();
+    expect(declarationOf('settings.py', 'retries = 3')).toBeNull();
+    expect(declarationOf('settings.py', '    LIMIT = 5')).toBeNull();
+    expect(declarationOf('settings.py', '@dataclass')).toBeNull();
+  });
+
   it("only a language's own patterns: a C# line in a .md is nothing", () => {
     expect(declarationOf('README.md', 'public class Example')).toBeNull();
   });

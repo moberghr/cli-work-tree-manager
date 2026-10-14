@@ -24,6 +24,11 @@ beforeAll(() => {
     ['namespace Api;', 'public class AccountingKeys', '{', '    public string GetAccount(int id) => "";', '}', ''].join('\n'),
   );
   fs.writeFileSync(path.join(repo, 'src', 'use.ts'), "export function useKeys() { return 'accountingkeys'; }\n");
+  fs.writeFileSync(
+    path.join(repo, 'src', 'jobs.py'),
+    ['MAX_RETRIES = 3', '', 'class JobStore:', '    async def get_pending_jobs(self):', '        return []', ''].join('\n'),
+  );
+  fs.writeFileSync(path.join(repo, 'src', 'jobs.pyi'), 'def parse_job(text: str) -> dict: ...\n');
   fs.writeFileSync(path.join(repo, 'src', 'many.txt'), Array.from({ length: MAX_TEXT_HITS + 20 }, (_, i) => `needle ${i}`).join('\n'));
   fs.writeFileSync(path.join(repo, '.gitignore'), 'secret.txt\n');
   fs.writeFileSync(path.join(repo, 'secret.txt'), 'AccountingKeys in an ignored file\n');
@@ -60,6 +65,13 @@ describe('searchSymbols', () => {
     expect((await searchSymbols(session(), 'AccKeys')).map((s) => `${s.kind} ${s.name}`)).toEqual(['class AccountingKeys']);
     expect((await searchSymbols(session(), 'GetAccount')).map((s) => [s.kind, s.path, s.line])).toEqual([['method', 'src/Keys.cs', 4]]);
     expect((await searchSymbols(session(), 'useKeys'))[0]).toMatchObject({ kind: 'function', path: 'src/use.ts' });
+  });
+
+  it('Python through the real index: a class, a method by its word starts, a constant, a stub', async () => {
+    expect((await searchSymbols(session(), 'JobStore'))[0]).toMatchObject({ kind: 'class', path: 'src/jobs.py', line: 3 });
+    expect((await searchSymbols(session(), 'gpj'))[0]).toMatchObject({ name: 'get_pending_jobs', kind: 'function', line: 4 });
+    expect((await searchSymbols(session(), 'MAX_RETRIES'))[0]).toMatchObject({ kind: 'const', line: 1 });
+    expect((await searchSymbols(session(), 'parse_job'))[0]).toMatchObject({ kind: 'function', path: 'src/jobs.pyi' });
   });
 
   it('the index is built once, and again in the background once stale — the old one answers meanwhile', async () => {
