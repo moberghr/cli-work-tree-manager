@@ -97,19 +97,20 @@ export function workBinPaths(): string[] {
  */
 export function isWorkProcess(p: RunningProcess, bins: string[] = workBinPaths(), windows = win): boolean {
   if (bins.length === 0) return false;
-  const words = commandWords(p.command).map((w) => normDir(w, windows));
-  return words.some((w, i) => bins.includes(w) && /^(pty-host|web|hook)$/.test(commandWords(p.command)[i + 1] ?? ''));
+  const raw = commandWords(p.command);
+  return raw.some((w, i) => /^(pty-host|web|hook)$/.test(raw[i + 1] ?? '') && bins.includes(normDir(w, windows)));
 }
 
 /** It names one of `dirs` somewhere in its command line or executable path. */
 export function mentions(p: RunningProcess, dirs: string[], windows = win): boolean {
   const norm = (s: string) => (windows ? s.replace(/\//g, '\\').toLowerCase() : s);
   const text = `${norm(p.exe ?? '')} ${norm(p.command)}`;
-  // The folder itself, or inside it: what follows is a separator, a quote, a space or the end (not feat-x2).
+  // The folder itself, or inside it: anything but more of a name may follow (a separator, a quote, `&`, `;`, the
+  // end) — not feat-x2 or feat-x-old, which are other folders.
   return dirs.some((d) => {
     for (let at = text.indexOf(d); at >= 0; at = text.indexOf(d, at + 1)) {
       const next = text[at + d.length];
-      if (next === undefined || /[\\/"' ]/.test(next)) return true;
+      if (next === undefined || !/[\w.-]/.test(next)) return true;
     }
     return false;
   });

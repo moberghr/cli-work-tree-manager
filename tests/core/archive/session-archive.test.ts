@@ -10,7 +10,6 @@ import {
   readArchivedTranscript,
   restoreArchivedTranscripts,
   RESTORED_AGE_MS,
-  lastEntryTime,
   writeArchiveSummary,
   type ArchiveDeps,
 } from '../../../src/core/archive/session-archive.js';
@@ -286,7 +285,6 @@ describe('restoreArchivedTranscripts', () => {
     expect(mtime('old.jsonl')).toBeLessThan(mtime('mid.jsonl'));
     expect(mtime('mid.jsonl')).toBeLessThan(mtime('new.jsonl'));
     expect(Date.now() - mtime('new.jsonl')).toBeLessThan(RESTORED_AGE_MS + 60_000); // not 40 days back
-    expect(lastEntryTime(conv('2026-10-10T10:00:00Z'))).toBe(Date.parse('2026-10-10T10:00:00Z'));
   });
 
   it('one still there that is newer than a restored one stays the newest (Claude Code deleted only the old)', async () => {
@@ -309,8 +307,17 @@ describe('restoreArchivedTranscripts', () => {
     fs.writeFileSync(path.join(dest, 'new.jsonl'), conv('2026-10-10T10:00:00Z')); // kept by Claude Code
     const keptAt = new Date(Date.now() - 3 * 86_400_000);
     fs.utimesSync(path.join(dest, 'new.jsonl'), keptAt, keptAt);
+    fs.writeFileSync(path.join(dest, 'blank.jsonl'), ''); // no time in it at all: oldest
+    fs.utimesSync(path.join(dest, 'blank.jsonl'), new Date(), new Date());
     expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(1);
-    expect(fs.statSync(path.join(dest, 'old.jsonl')).mtimeMs).toBeLessThan(fs.statSync(path.join(dest, 'new.jsonl')).mtimeMs);
+    const m = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(m('blank.jsonl')).toBeLessThan(m('old.jsonl'));
+    expect(m('old.jsonl')).toBeLessThan(m('new.jsonl'));
+    // None anywhere near Claude Code's 30 days, none "written just now".
+    for (const f of ['blank.jsonl', 'old.jsonl', 'new.jsonl']) {
+      expect(Date.now() - m(f)).toBeLessThan(RESTORED_AGE_MS + 60_000);
+      expect(Date.now() - m(f)).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
+    }
   });
 
   it('does nothing for a session that was never archived with a copy', () => {

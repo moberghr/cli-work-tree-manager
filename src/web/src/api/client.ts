@@ -732,13 +732,17 @@ type CodeFileWire = import('../../../core/api-types.js').CodeFileWire;
 /** One listing per session for the page, shared by the Code tab and Ctrl+T for a while (a group's can be megabytes). */
 const codeFilesCache = new Map<string, { at: number; files: Promise<CodeFilesWire> }>();
 const CODE_FILES_TTL_MS = 30_000;
+/** Listings kept for the page: the sessions opened last (the dashboard stays open all day). */
+const CODE_FILES_KEPT = 6;
 
 /** The session's files; `fresh` when they changed (the worktree's update): asked again, and kept for the rest. */
 export function fetchCodeFiles(sessionId: string, opts: { fresh?: boolean } = {}): Promise<CodeFilesWire> {
   const hit = codeFilesCache.get(sessionId);
   if (hit && !opts.fresh && Date.now() - hit.at < CODE_FILES_TTL_MS) return hit.files;
   const files = getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
+  codeFilesCache.delete(sessionId);
   codeFilesCache.set(sessionId, { at: Date.now(), files });
+  while (codeFilesCache.size > CODE_FILES_KEPT) codeFilesCache.delete(codeFilesCache.keys().next().value as string);
   files.catch(() => codeFilesCache.get(sessionId)?.files === files && codeFilesCache.delete(sessionId));
   return files;
 }

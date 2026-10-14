@@ -145,6 +145,12 @@ describe("work's own processes are never stopped", () => {
     expect(holdersOf([sibling, inside], [WT], 99_999, true).others.map((x) => x.pid)).toEqual([41]);
   });
 
+  it('a folder followed by punctuation is still named (a shell: `cd /d <dir>&& npm run dev`); a longer name is another folder', () => {
+    const shell = p(50, 1, 'cmd.exe', 'C:\WINDOWS\system32\cmd.exe', `cmd /c "cd /d ${WT}&& npm run dev"`);
+    const old = p(51, 1, 'Code.exe', null, `"Code.exe" "${WT}-old"`);
+    expect(holdersOf([shell, old], [WT], 99_999, true).others.map((x) => x.pid)).toEqual([50]);
+  });
+
   it("a dev server a Claude started is stopped though it's still under the PTY host (its Claude not gone yet)", () => {
     const host = p(10, 1, 'node.exe', null, '"node" "C:\\npm\\work\\dist\\bin.js" pty-host');
     const claude = p(20, 10, 'claude.exe', 'C:\\Users\\me\\.local\\bin\\claude.exe', 'claude --continue');

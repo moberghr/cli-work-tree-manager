@@ -59,14 +59,19 @@ const MAX_LISTS = 12;
 export function listRepoFiles(root: string, io: CodeIo = realIo, now = Date.now()): Promise<string[]> {
   const hit = listCache.get(root);
   if (hit && now - hit.at < LIST_TTL_MS) return hit.files;
-  // Tracked files deleted from the folder (not committed yet) are still tracked: left out, there's nothing to read.
-  const files = Promise.all([io.git(root, ['ls-files', '-co', '--exclude-standard', '-z']), io.git(root, ['ls-files', '-d', '-z'])]).then(
-    ([r, deleted]) => {
-      if (r.status !== 0) return [];
-      const gone = new Set(deleted.status === 0 ? nul(deleted.stdout).map(fwd) : []);
-      return [...new Set(nul(r.stdout).map(fwd))].filter((f) => !gone.has(f)).sort();
-    },
-  );
+  // One run, each path tagged: tracked (H, S, M…), new (?), and deleted from the folder but still tracked (R) —
+  // those are left out, there's nothing to read.
+  const files = io.git(root, ['ls-files', '-t', '-c', '-o', '-d', '--exclude-standard', '-z']).then((r) => {
+    if (r.status !== 0) return [];
+    const listed = new Set<string>();
+    const gone = new Set<string>();
+    for (const e of nul(r.stdout)) {
+      const p = fwd(e.slice(2));
+      if (e[0] === 'R') gone.add(p);
+      else listed.add(p);
+    }
+    return [...listed].filter((f) => !gone.has(f)).sort();
+  });
   listCache.delete(root);
   listCache.set(root, { at: now, files });
   while (listCache.size > MAX_LISTS) listCache.delete(listCache.keys().next().value as string);
