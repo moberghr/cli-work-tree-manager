@@ -748,8 +748,20 @@
   font-size: 10px;
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 999px;
+}
+
+/* A comment's head: badges left, the fold button right. */
+.wd-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 4px;
+  min-height: 20px;
+}
+.wd-comment-resolved-tag {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .wd-comment-author {
@@ -758,7 +770,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--hunk-fg);
-  margin-bottom: 2px;
 }
 .wd-comment.wd-author-claude {
   border-left: 3px solid var(--claude-fg);
@@ -788,31 +799,55 @@
   font-size: 10px;
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 3px;
-  margin-bottom: 4px;
+  border-radius: 999px;
 }
 
+/* Reply · Resolve … Delete: small outlined buttons; Delete keeps to the right, quiet until hovered. */
 .wd-comment-actions {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--muted);
+  margin-top: 6px;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
 }
-.wd-comment-action-link,
-.wd-comment-delete {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
+.wd-comment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
   font-size: 11px;
-  font-family: inherit;
+  line-height: 18px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
 }
-.wd-comment-action-link {
-  color: var(--hunk-fg);
+.wd-comment-btn:hover {
+  background: var(--hover);
 }
-.wd-comment-delete {
+.wd-comment-btn:focus-visible,
+.wd-comment-fold:focus-visible {
+  outline: 2px solid var(--hunk-fg);
+  outline-offset: 1px;
+}
+.wd-comment-btn-resolve:hover {
+  border-color: var(--add-fg);
+  color: var(--add-fg);
+}
+.wd-comment-btn-delete {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--muted);
+}
+.wd-comment-btn-delete:hover {
+  border-color: var(--del-fg);
   color: var(--del-fg);
+  background: transparent;
 }
 
 /* Resolved (done) threads. In the diff a resolved thread collapses to a
@@ -852,16 +887,44 @@
   color: var(--muted);
   flex-shrink: 0;
 }
-.wd-resolved-show {
+/* Show (on the folded bar) and Hide (on the opened thread): the same place, top right. */
+.wd-comment-fold {
+  margin-left: auto;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
   color: var(--hunk-fg);
+  font: inherit;
   font-size: 11px;
+  cursor: pointer;
+}
+button.wd-comment-fold:hover,
+.wd-comment-resolved-bar:hover .wd-comment-fold {
+  border-color: var(--border);
+  background: var(--bg);
 }
 .wd-comment-resolved {
   opacity: 0.7;
 }
 .wd-comments-panel-row-resolved {
   opacity: 0.55;
+}
+.wd-comments-panel-divider {
+  list-style: none;
+  margin: 8px 0 2px;
+  padding: 4px 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: default;
 }
 .wd-comments-panel-row-resolved .wd-comments-panel-loc {
   text-decoration: line-through;

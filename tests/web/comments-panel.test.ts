@@ -62,6 +62,21 @@ describe('CommentsPanel: every comment of the review, in one list', () => {
     expect(onOpenRepo).toHaveBeenCalledTimes(1); // its own repo: no switch
   });
 
+  it('resolved ones go to the bottom, under their own heading', () => {
+    h.comments = [
+      c({ id: 'x', body: 'Done already', resolved: true }),
+      c({ id: 'g', body: 'Overall: looks good' }),
+      c({ id: 'a', repo: 'backend', file: 'src/a.ts', line: 3, side: 'right', body: 'Rename this' }),
+    ];
+    act(() => root.render(createElement(CommentsPanel, { repoName: 'backend' })));
+    expect(rows().map((r) => r.querySelector('.wd-comments-panel-body')!.textContent)).toEqual([
+      'Overall: looks good',
+      'Rename this',
+      'Done already',
+    ]);
+    expect(container.querySelector('.wd-comments-panel-divider')!.textContent).toBe('Resolved · 1');
+  });
+
   it('with no diff on screen (all committed), every comment is still listed', () => {
     act(() => root.render(createElement(CommentsPanel, {})));
     expect(rows()).toHaveLength(3);

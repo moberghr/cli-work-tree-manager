@@ -17,6 +17,9 @@ interface Props {
 export function CommentsPanel({ repoName, onOpenRepo }: Props) {
   const review = useReview();
   const entries = review.comments.filter((c) => !c.parentId);
+  // Open ones first; the resolved ones under them, each in their own order.
+  const open = entries.filter((c) => !c.resolved);
+  const resolved = entries.filter((c) => c.resolved);
 
   return (
     <div className="wd-comments-panel">
@@ -27,7 +30,15 @@ export function CommentsPanel({ repoName, onOpenRepo }: Props) {
         <p className="wd-comments-panel-empty">No comments yet.</p>
       ) : (
         <ul className="wd-comments-panel-list">
-          {entries.map((c) => (
+          {open.map((c) => (
+            <CommentsPanelRow key={c.id} comment={c} repoName={repoName} onOpenRepo={onOpenRepo} />
+          ))}
+          {resolved.length > 0 && (
+            <li className="wd-comments-panel-divider" aria-hidden="true">
+              Resolved · {resolved.length}
+            </li>
+          )}
+          {resolved.map((c) => (
             <CommentsPanelRow key={c.id} comment={c} repoName={repoName} onOpenRepo={onOpenRepo} />
           ))}
         </ul>
