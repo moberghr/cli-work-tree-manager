@@ -246,6 +246,14 @@ describe('restoreArchivedTranscripts', () => {
     expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(0); // already there
   });
 
+  it('dated when it was archived, not now (a fresh write reads as a Claude at work there)', async () => {
+    await archiveSession(session, deps());
+    fs.rmSync(path.join(projects, encodeProjectDir(wt)), { recursive: true, force: true });
+    restoreArchivedTranscripts(session, root, claudeDirIn(projects));
+    const archivedAt = Date.parse(readArchive(sessionIdFor(session), root)!.archivedAt);
+    expect(Math.abs(fs.statSync(transcript).mtimeMs - archivedAt)).toBeLessThan(2000);
+  });
+
   it('does nothing for a session that was never archived with a copy', () => {
     expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, claudeDirIn(projects))).toBe(0);
     expect(vi.isMockFunction(restoreArchivedTranscripts)).toBe(false);

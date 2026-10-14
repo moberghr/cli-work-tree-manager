@@ -513,6 +513,16 @@ export function restoreArchivedTranscripts(
     if (text === null) continue;
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
+    // Dated when it was archived, not now: a transcript written just now reads as a Claude at work there
+    // (the Terminal tab's "running in another terminal", Active in the list).
+    const at = new Date(rec.archivedAt);
+    if (Number.isFinite(at.getTime())) {
+      try {
+        fs.utimesSync(to, at, at);
+      } catch {
+        /* dated now, then */
+      }
+    }
     n++;
   }
   return n;

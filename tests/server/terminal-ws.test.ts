@@ -131,6 +131,20 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     });
     expect(claudeElsewhere({ ...quiet, runningOutside: [{ busy: true }] }, now)?.state).toBe('working');
   });
+
+  it('archived since: the Claude that turn was archiving stopped, so a recent Stop or write means nothing (it once said "running in another terminal")', () => {
+    // The turn ended 16 min ago, its last write 15 min ago, then it was archived (14 min ago) and restored.
+    const seen = {
+      hasPty: false,
+      lastActivityMs: now - 15 * 60_000,
+      status: { ...idle(16 * 60_000), endedAt: idle(16 * 60_000).updatedAt },
+    };
+    expect(claudeElsewhere(seen, now)).not.toBeNull(); // nothing known: could be open somewhere
+    expect(claudeElsewhere({ ...seen, stoppedAtMs: now - 14 * 60_000 }, now)).toBeNull();
+    // A Claude started outside after the archive still shows: by its writes, or for sure by its process.
+    expect(claudeElsewhere({ ...seen, lastActivityMs: now - 60_000, stoppedAtMs: now - 14 * 60_000 }, now)).not.toBeNull();
+    expect(claudeElsewhere({ ...seen, stoppedAtMs: now - 14 * 60_000, runningOutside: [{ busy: false }] }, now)?.confirmed).toBe(true);
+  });
 });
 
 describe('terminal relay', () => {
