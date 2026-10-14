@@ -92,6 +92,32 @@ describe('setupWorktree — group with per-repo bases', () => {
     expect(session?.baseBranches?.[backendWt]).toBe('dev');
   });
 
+  it("with no --base: records the branch each repo's own checkout was on, which the new branch came from", async () => {
+    git(['checkout', 'dev'], backendDir); // backend's checkout on dev, frontend's on main
+    const result = await setupWorktree('grp', 'feature/n', config, parseBaseSpec(undefined));
+
+    expect(result).not.toBeNull();
+    const backendWt = path.join(config.worktreesRoot, 'grp', 'feature-n', 'backend');
+    const frontendWt = path.join(config.worktreesRoot, 'grp', 'feature-n', 'frontend');
+    expect(fs.existsSync(path.join(backendWt, 'dev-marker.txt'))).toBe(true);
+    const session = loadHistory().find((s) => s.target === 'grp');
+    expect(session?.baseBranches).toEqual({ [backendWt]: 'dev', [frontendWt]: 'main' });
+    expect(session?.baseBranch).toBeUndefined(); // two bases: no single one
+  });
+
+  it("a single repo with no --base records its checkout's branch; an existing branch records none", async () => {
+    git(['checkout', 'dev'], backendDir);
+    expect(await setupWorktree('backend', 'feature/s', config, parseBaseSpec(undefined))).not.toBeNull();
+    const wt = path.join(config.worktreesRoot, 'backend', 'feature-s');
+    const made = loadHistory().find((s) => s.target === 'backend' && s.branch === 'feature/s');
+    expect(made?.baseBranch).toBe('dev');
+    expect(made?.baseBranches).toEqual({ [wt]: 'dev' });
+
+    git(['branch', 'feature/old', 'main'], frontendDir); // already there: checked out, not made from anything
+    expect(await setupWorktree('frontend', 'feature/old', config, parseBaseSpec(undefined))).not.toBeNull();
+    expect(loadHistory().find((s) => s.target === 'frontend')?.baseBranch).toBeUndefined();
+  });
+
   it('rejects a base branch missing from one repo', async () => {
     const reports = collectingReporter();
     // `dev` exists in backend but not in frontend.

@@ -148,6 +148,8 @@ export function createSingleWorktree(
   pull = true,
   /** Its repo was fetched just now (a group fetches every repo at once first). */
   fetched = false,
+  /** Told which branch a new branch was made from when no base was given (the main checkout's), so the session can record it. */
+  created?: { from?: string },
 ): boolean {
   debug('createSingleWorktree', { repoPath, worktreePath, branchName, baseBranch });
 
@@ -164,7 +166,7 @@ export function createSingleWorktree(
       return false;
     }
   }
-  const made = makeSingleWorktree(repoPath, worktreePath, branchName, config, baseBranch, pull, fetched);
+  const made = makeSingleWorktree(repoPath, worktreePath, branchName, config, baseBranch, pull, fetched, created);
   // It couldn't be made: the leftover goes back where it was, not stranded beside it.
   if (!made && aside && !fs.existsSync(worktreePath)) {
     try {
@@ -185,6 +187,7 @@ function makeSingleWorktree(
   baseBranch: string | undefined,
   pull: boolean,
   fetched: boolean,
+  created: { from?: string } | undefined,
 ): boolean {
   // Check if the worktree already exists at the target path (idempotent re-run)
   if (fs.existsSync(worktreePath)) {
@@ -318,7 +321,8 @@ function makeSingleWorktree(
   } else if (baseBranch) {
     report('step', `  Created new branch ${branchName} from ${baseBranch}`);
   } else {
-    report('step', `  Created new branch ${branchName}`);
+    report('step', `  Created new branch ${branchName}${baseRepoBranch ? ` from ${baseRepoBranch}` : ''}`);
+    if (created && baseRepoBranch) created.from = baseRepoBranch;
   }
 
   report('success', `  Created worktree: ${worktreePath}`);
@@ -684,6 +688,7 @@ async function setupGroupWorktree(
     const repoName = path.basename(repoPath);
     const subWorktreePath = path.join(groupWorktreePath, repoName);
     const repoBase = baseForAlias(spec, alias);
+    const created: { from?: string } = {};
 
     report('step', `[${alias}] (${repoName}):`);
     const success = createSingleWorktree(
@@ -694,11 +699,14 @@ async function setupGroupWorktree(
       repoBase,
       opts.pull !== false,
       fetched.has(alias),
+      created,
     );
 
     if (success) {
       createdWorktrees.push({ repoPath, worktreePath: subWorktreePath });
-      if (repoBase) baseBranches[subWorktreePath] = repoBase;
+      // No --base: where its new branch came from (the main checkout's branch), so "Since branch" needn't guess.
+      const from = repoBase ?? created.from;
+      if (from) baseBranches[subWorktreePath] = from;
     } else {
       // Rollback
       report('info', '');
@@ -768,6 +776,8 @@ async function setupSingleWorktree(
     return null;
   }
   const baseBranch = baseForAlias(spec, targetName);
+  // No --base: where a new branch came from (the main checkout's branch), recorded so "Since branch" needn't guess.
+  const created: { from?: string } = {};
 
   if (!fs.existsSync(repoPath)) {
     report('error', `Repository path does not exist: ${repoPath}`);
@@ -794,10 +804,13 @@ async function setupSingleWorktree(
       config,
       baseBranch,
       opts.pull !== false,
+      false,
+      created,
     );
     if (!success) return null;
   }
 
+  const base = baseBranch ?? created.from;
   const { port } = await upsertSessionWithPort(
     targetName,
     false,
@@ -805,8 +818,8 @@ async function setupSingleWorktree(
     [workTreePath],
     config,
     jiraKey,
-    baseBranch,
-    baseBranch ? { [workTreePath]: baseBranch } : undefined,
+    base,
+    base ? { [workTreePath]: base } : undefined,
   );
 
   report('info', `Branch: ${branchName}`);

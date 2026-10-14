@@ -175,6 +175,22 @@ describe('resolveRepoDiff (branch parent selection)', () => {
     expect(r.diffArg).not.toBe('HEAD');
   });
 
+  it('a branch just made from dev, with no commits of its own, is on dev — not on main with all of dev since', () => {
+    execSync('git checkout -q -b dev', { cwd: repoDir });
+    for (const n of ['1', '2', '3']) {
+      fs.writeFileSync(path.join(repoDir, `dev${n}.txt`), n);
+      execSync(`git add . && git commit -q -m dev${n}`, { cwd: repoDir });
+    }
+    execSync('git checkout -q -b fix/fresh', { cwd: repoDir });
+
+    const head = execSync('git rev-parse HEAD', { cwd: repoDir }).toString().trim();
+    expect(resolveRepoDiff(repoDir, 'branch')).toEqual({ resolvedBase: 'dev', diffArg: head }); // nothing yet
+
+    fs.writeFileSync(path.join(repoDir, 'fix.txt'), 'f');
+    execSync('git add . && git commit -q -m fix', { cwd: repoDir });
+    expect(resolveRepoDiff(repoDir, 'branch')).toEqual({ resolvedBase: 'dev', diffArg: head }); // its one commit
+  });
+
   it('honours an explicit session base branch over detection', () => {
     // `main` already exists from init.
     expect(resolveRepoDiff(repoDir, 'branch', 'main').resolvedBase).toBe('main');

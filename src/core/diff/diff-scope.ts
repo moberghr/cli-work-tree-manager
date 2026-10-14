@@ -143,6 +143,7 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
   const candidates = ['main', 'master', 'dev', 'develop'].flatMap((name) => [name, `origin/${name}`]);
 
   let best: { ref: string; sha: string; time: number } | null = null;
+  let fresh: boolean | undefined;
 
   for (const ref of candidates) {
     if (ref === currentBranch) continue;
@@ -153,12 +154,16 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
     if (mb.exitCode !== 0 || !mb.stdout) continue;
 
     // Skip parents where the merge-base IS HEAD only when the caller
-    // asked us to (CLI "show me what I added" semantics). When called
-    // for the toggle UI, we want to surface the parent even though the
-    // diff will be empty.
+    // asked us to (CLI "show me what I added" semantics): a `dev` that
+    // already contains this branch's commits isn't where it came from. When
+    // called for the toggle UI, we want to surface the parent even though
+    // the diff will be empty. A branch with no commits of its own yet is
+    // the exception: there every parent it was made from contains HEAD, and
+    // skipping them picked an older mainline — a branch just made from dev
+    // showed all of dev's commits since main.
     if (requireAheadOfParent) {
       const headSha = git(['rev-parse', 'HEAD'], cwd).stdout;
-      if (mb.stdout === headSha) continue;
+      if (mb.stdout === headSha && !(fresh ??= stillAtCreation(cwd, currentBranch, headSha))) continue;
     }
 
     const timeResult = git(['show', '-s', '--format=%ct', mb.stdout], cwd);
@@ -166,12 +171,31 @@ function findParent(cwd: string, requireAheadOfParent: boolean): string | null {
     const time = Number(timeResult.stdout);
     if (!Number.isFinite(time)) continue;
 
-    if (!best || time > best.time) {
+    // A tie in time (commits made in the same second): the later of the two, the one the other is an ancestor of.
+    const later =
+      !!best &&
+      time === best.time &&
+      mb.stdout !== best.sha &&
+      git(['merge-base', '--is-ancestor', best.sha, mb.stdout], cwd).exitCode === 0;
+    if (!best || time > best.time || later) {
       best = { ref, sha: mb.stdout, time };
     }
   }
 
   return best?.ref ?? null;
+}
+
+/**
+ * The branch has no commits of its own: HEAD is still the commit it was
+ * created at (the oldest entry of its reflog). No reflog (expired, a detached
+ * HEAD) can't tell, and says no.
+ */
+function stillAtCreation(cwd: string, branch: string, headSha: string): boolean {
+  if (!branch || branch === 'HEAD') return false;
+  const log = git(['reflog', 'show', '--format=%H', `refs/heads/${branch}`, '--'], cwd);
+  if (log.exitCode !== 0 || !log.stdout) return false;
+  const lines = log.stdout.split('\n').filter(Boolean);
+  return lines[lines.length - 1] === headSha;
 }
 
 export function resolveBase(scope: DiffScope, argv: { base?: string; branch?: boolean }): ResolvedBase {
@@ -239,7 +263,8 @@ export function resolveRepoDiff(root: string, base: 'uncommitted' | 'branch', se
   }
   // Prefer a parent we're actually *ahead of* (`detectParentBranch` skips
   // candidates whose merge-base is HEAD, e.g. a `dev` that already contains
-  // this branch). `findAnyParentBranch` would pick the most-recent merge-base
+  // this branch — unless the branch has no commits yet, when the one it was
+  // made from is right). `findAnyParentBranch` would pick the most-recent merge-base
   // even when it's HEAD — yielding a useless 0-commit "since branch" diff.
   // Fall back to it only so the toggle still resolves to *something*.
   const parent = sessionBaseBranch ?? detectParentBranch(root) ?? findAnyParentBranch(root);
