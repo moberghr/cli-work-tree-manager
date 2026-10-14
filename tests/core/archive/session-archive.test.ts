@@ -284,6 +284,20 @@ describe('archiveSession: what it does around the copy', () => {
     expect(readArchive(sessionIdFor(session), root)).toMatchObject({ tips: { api: 'abc123' }, branchesDeleted: ['api'] });
   });
 
+  it('stops what still runs from its folders (a dev server its Claude left) before the worktree goes, and says so', async () => {
+    const stopRunningFrom = vi.fn(async () => ['node …/vite/bin/vite.js --mode demo (PID 35464)']);
+    const removeWorktree = vi.fn(async () => true);
+    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree }));
+    expect(stopRunningFrom).toHaveBeenCalledWith(session);
+    expect(stopRunningFrom.mock.invocationCallOrder[0]).toBeLessThan(removeWorktree.mock.invocationCallOrder[0]);
+    expect(out.message).toContain('stopped what still ran from it: node …/vite/bin/vite.js --mode demo (PID 35464)');
+    // One that fails to look stops nothing else from happening.
+    const failing = vi.fn(async () => {
+      throw new Error('no process list');
+    });
+    expect((await archiveSession(session, deps({ stopRunningFrom: failing }))).ok).toBe(true);
+  });
+
   it('a kept worktree gets its build output cleared, not a repo’s own checkout', async () => {
     const clear = vi.fn(async () => ({ folders: 2, bytes: 3_000_000 }));
     const tidy = vi.fn(async () => []);

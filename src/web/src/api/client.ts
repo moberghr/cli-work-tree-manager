@@ -195,14 +195,22 @@ export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?:
 
 async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
-  const send = (force: boolean) =>
+  const send = (force: boolean, stopHolders = false) =>
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived, ...(force ? { force: true } : {}) }),
+      body: JSON.stringify({ archived, ...(force ? { force: true } : {}), ...(stopHolders ? { stopHolders: true } : {}) }),
     });
   let res = await send(false);
-  if (res.status === 409) {
+  if (res.status === 409 && !archived) {
+    // Restore: something still runs from its old folder (a dev server its Claude left running).
+    const body = (await res.json().catch(() => ({}))) as { holders?: string[]; error?: string };
+    const holders = body.holders ?? [];
+    if (!confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`)) {
+      throw Object.assign(new Error(body.error ?? 'Not restored'), { cancelled: true });
+    }
+    res = await send(false, true);
+  } else if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
     const waiting = body.blocked ?? [];
     if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {

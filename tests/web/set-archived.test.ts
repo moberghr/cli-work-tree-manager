@@ -39,4 +39,27 @@ describe('setArchived', () => {
     );
     expect(bodies).toHaveLength(1);
   });
+
+  it('a Restore held up by what runs from its old folder: asks to stop it, and restores when you say so', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as { stopHolders?: boolean };
+        bodies.push(body);
+        return body.stopHolders
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response(JSON.stringify({ error: 'still running', holders: ['node …vite.js --mode demo (PID 35464)'] }), { status: 409 });
+      }),
+    );
+    const asked: string[] = [];
+    await expect(setArchived('s1', false, (q) => (asked.push(q), true))).resolves.toEqual({ ok: true });
+    expect(asked[0]).toContain('• node …vite.js --mode demo (PID 35464)');
+    expect(asked[0]).toContain('Stop it and restore?');
+    expect(bodies).toEqual([{ archived: false }, { archived: false, stopHolders: true }]);
+
+    bodies.length = 0;
+    await expect(setArchived('s1', false, () => false)).rejects.toThrow('still running'); // declined: nothing stopped
+    expect(bodies).toHaveLength(1);
+  });
 });

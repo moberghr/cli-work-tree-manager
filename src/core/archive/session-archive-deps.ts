@@ -16,6 +16,7 @@ import { archiveRefFor, dropSaved, saveUncommitted, type SavedUncommitted } from
 import { readPendingForSession } from '../comments/pending-delivery.js';
 import { listReplies } from '../pr/pr-replies.js';
 import { stopDev } from '../worktree/dev-server.js';
+import { stopRunningFrom } from '../platform/running-from.js';
 import { buildFoldersOf, clearBuildFolders } from '../cleanup/build-folders.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { summarizeArchive } from './archive-summary.js';
@@ -162,6 +163,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       };
     },
     stopDev: (id) => void stopDev(id),
+    stopRunningFrom: (s) => stopRunningFrom(s.paths),
     heads: (s) => {
       const out: Record<string, string> = {};
       for (const [alias, repo] of repoPaths(s, loadConfig())) {

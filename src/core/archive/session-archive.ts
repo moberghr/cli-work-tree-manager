@@ -149,6 +149,9 @@ export interface ArchiveDeps {
   /** What waits in it, to list in the record (drafts, notes, a question). */
   kept?: (id: string) => ArchiveKept;
   stopDev?: (id: string) => void;
+  /** Stop what still runs from its folders (a dev server or watcher its Claude started in the background,
+   *  running-from.ts) and say what: otherwise it holds files, and the worktree is removed only in part. */
+  stopRunningFrom?: (s: WorktreeSession) => Promise<string[]>;
   /** Repos checked out on another branch than the session's (alias → branch). */
   heads?: (s: WorktreeSession) => Record<string, string>;
   /** Each repo's branch tip (alias → commit): of `heads[alias]`, else the session's branch. */
@@ -245,6 +248,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   } catch {
     /* not running */
   }
+  const stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
   // Which branch each repo is on: Claude may have switched from the session's.
   let heads: Record<string, string> = {};
   try {
@@ -381,7 +385,9 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     message:
       (worktreeRemoved
         ? `Archived; worktree removed, conversation kept${savedFiles(saved) ? `, ${savedFiles(saved)} uncommitted file${savedFiles(saved) === 1 ? '' : 's'} saved for Restore` : ''}${leftovers.length ? `; git stopped at a file in use, so part of the folder is left (${leftovers.join(', ')}): close what holds it and delete it, or Restore puts it back` : ''}`
-        : `Archived; worktree kept (${keptBecause})`) + (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : ''),
+        : `Archived; worktree kept (${keptBecause})`) +
+      (keptList(kept) ? `; kept for Restore: ${keptList(kept)}` : '') +
+      (stopped.length ? `; stopped what still ran from it: ${stopped.join(', ')}` : ''),
     ...(keptList(kept) ? { kept: keptList(kept) } : {}),
   };
 }
