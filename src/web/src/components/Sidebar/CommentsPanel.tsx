@@ -18,8 +18,9 @@ export function CommentsPanel({ repoName, onOpenRepo }: Props) {
   const review = useReview();
   const entries = review.comments.filter((c) => !c.parentId);
   // Open ones first; the resolved ones under them, each in their own order.
-  const open = entries.filter((c) => !c.resolved);
-  const resolved = entries.filter((c) => c.resolved);
+  const open: Comment[] = [];
+  const resolved: Comment[] = [];
+  for (const c of entries) (c.resolved ? resolved : open).push(c);
 
   return (
     <div className="wd-comments-panel">
@@ -34,7 +35,7 @@ export function CommentsPanel({ repoName, onOpenRepo }: Props) {
             <CommentsPanelRow key={c.id} comment={c} repoName={repoName} onOpenRepo={onOpenRepo} />
           ))}
           {resolved.length > 0 && (
-            <li className="wd-comments-panel-divider" aria-hidden="true">
+            <li className="wd-comments-panel-divider" role="presentation">
               Resolved · {resolved.length}
             </li>
           )}
@@ -66,9 +67,12 @@ function CommentsPanelRow({ comment, repoName, onOpenRepo }: { comment: Comment;
     <li className={'wd-comments-panel-row' + (comment.resolved ? ' wd-comments-panel-row-resolved' : '')} onClick={onClick}>
       <div className="wd-comments-panel-loc">
         {comment.resolved && (
-          <span className="wd-resolved-check" aria-hidden="true">
-            ✓{' '}
-          </span>
+          <>
+            <span className="wd-resolved-check" aria-hidden="true">
+              ✓{' '}
+            </span>
+            <span className="wd-visually-hidden">Resolved: </span>
+          </>
         )}
         {elsewhere && <span className="wd-comments-panel-repo">{comment.repo} · </span>}
         {loc}

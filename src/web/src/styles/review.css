@@ -849,6 +849,11 @@
   color: var(--del-fg);
   background: transparent;
 }
+.wd-comment-btn-delete.wd-comment-btn-delete-confirm {
+  border-color: var(--del-fg);
+  background: var(--del-fg);
+  color: #fff;
+}
 
 /* Resolved (done) threads. In the diff a resolved thread collapses to a
    one-line bar; expanded it's dimmed. */

@@ -75,6 +75,7 @@ describe('CommentsPanel: every comment of the review, in one list', () => {
       'Done already',
     ]);
     expect(container.querySelector('.wd-comments-panel-divider')!.textContent).toBe('Resolved · 1');
+    expect(rows()[2].textContent).toContain('Resolved:'); // said to a screen reader, not only struck through
   });
 
   it('with no diff on screen (all committed), every comment is still listed', () => {

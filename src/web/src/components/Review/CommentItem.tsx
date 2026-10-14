@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useReview, selectReplies } from '../../state/ReviewProvider.js';
 import type { Comment } from '../../api/client.js';
 import { Markdown } from '../Markdown.js';
@@ -10,6 +10,9 @@ interface Props {
    *  When the comment's stored `lineContent` differs, we mark it outdated. */
   currentLineContent?: string | null;
 }
+
+/** How long Delete waits for its second click. */
+const CONFIRM_MS = 4000;
 
 export function CommentItem({ comment, currentLineContent }: Props) {
   const review = useReview();
@@ -32,7 +35,15 @@ export function CommentItem({ comment, currentLineContent }: Props) {
   // (without un-resolving). Replies inherit the parent's collapse.
   const isResolved = !isReply && !!comment.resolved;
   const [expandedResolved, setExpandedResolved] = useState(false);
-  if (isResolved && !expandedResolved) {
+  // Delete asks once more (a second click within a few seconds): a thread and its replies go for good.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const t = setTimeout(() => setConfirmDelete(false), CONFIRM_MS);
+    return () => clearTimeout(t);
+  }, [confirmDelete]);
+  // A reply being written keeps its thread open: folding would unmount the composer, and its text with it.
+  if (isResolved && !expandedResolved && !replyOpen) {
     const firstLine = comment.body.split('\n')[0];
     return (
       <button type="button" className="wd-comment-resolved-bar" onClick={() => setExpandedResolved(true)} title="Resolved — click to show">
@@ -64,26 +75,37 @@ export function CommentItem({ comment, currentLineContent }: Props) {
     .join(' ');
 
   // Its head: who and what state (badges) on the left; folding a resolved thread back on the right, where its
-  // folded bar's Show was.
+  // folded bar's Show was. Shown when it has something.
+  const badges = [
+    comment.author === 'claude' && (
+      <span key="author" className="wd-comment-author">
+        Claude
+      </span>
+    ),
+    comment.status === 'draft' && (
+      <span key="draft" className="wd-draft-badge">
+        Pending
+      </span>
+    ),
+    isResolved && (
+      <span key="resolved" className="wd-comment-resolved-tag">
+        <span className="wd-resolved-check" aria-hidden="true">
+          ✓
+        </span>{' '}
+        Resolved
+      </span>
+    ),
+    outdated && (
+      <span key="outdated" className="wd-comment-outdated-badge">
+        Outdated: the line has changed since
+      </span>
+    ),
+  ].filter(Boolean);
   const head =
-    comment.status === 'draft' || outdated || comment.author === 'claude' || isResolved ? (
+    badges.length > 0 ? (
       <div className="wd-comment-head">
-        {comment.author === 'claude' && <span className="wd-comment-author">Claude</span>}
-        {comment.status === 'draft' && <span className="wd-draft-badge">Pending</span>}
-        {isResolved && (
-          <span className="wd-comment-resolved-tag">
-            <span className="wd-resolved-check" aria-hidden="true">
-              ✓
-            </span>{' '}
-            Resolved
-          </span>
-        )}
-        {outdated && (
-          <span className="wd-comment-outdated-badge" title="The line has changed since this comment was written">
-            Outdated
-          </span>
-        )}
-        {isResolved && (
+        {badges}
+        {isResolved && !replyOpen && (
           <button type="button" className="wd-comment-fold" onClick={() => setExpandedResolved(false)} title="Fold it back to one line">
             Hide <span aria-hidden="true">▴</span>
           </button>
@@ -105,19 +127,33 @@ export function CommentItem({ comment, currentLineContent }: Props) {
           {!isReply && (
             <button
               type="button"
-              className={'wd-comment-btn' + (comment.resolved ? '' : ' wd-comment-btn-resolve')}
+              className={'wd-comment-btn' + (isResolved ? '' : ' wd-comment-btn-resolve')}
               onClick={() => {
-                // Re-resolving collapses again next render; clear the local
-                // expand so an already-resolved-then-expanded thread folds.
+                // Resolving folds it (a reply being written keeps it open, see above); clear the local
+                // expand so an already-resolved-then-expanded thread folds too.
                 setExpandedResolved(false);
-                void review.resolveComment(comment.id, !comment.resolved);
+                void review.resolveComment(comment.id, !isResolved);
               }}
             >
-              {comment.resolved ? 'Reopen' : '✓ Resolve'}
+              {isResolved ? 'Reopen' : '✓ Resolve'}
             </button>
           )}
-          <button type="button" className="wd-comment-btn wd-comment-btn-delete" onClick={() => review.deleteComment(comment.id)}>
-            Delete
+          <button
+            type="button"
+            className={'wd-comment-btn wd-comment-btn-delete' + (confirmDelete ? ' wd-comment-btn-delete-confirm' : '')}
+            onClick={() => {
+              if (!confirmDelete) return setConfirmDelete(true);
+              setConfirmDelete(false);
+              void review.deleteComment(comment.id);
+            }}
+            onBlur={() => setConfirmDelete(false)}
+            title={confirmDelete ? 'Click again to delete it' : undefined}
+          >
+            {confirmDelete
+              ? !isReply && replies.length > 0
+                ? `Delete with ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}?`
+                : 'Delete?'
+              : 'Delete'}
           </button>
         </div>
       </div>
