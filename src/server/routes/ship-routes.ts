@@ -5,8 +5,9 @@ import { loadConfig } from '../../core/platform/config.js';
 import { archiveSession, restoreArchivedTranscripts } from '../../core/archive/session-archive.js';
 import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
-import { isLeftover, isWorktreeFolder } from '../../core/worktree/leftover.js';
-import { describeProcess, findHolders, normDir, stopRunningFrom, type Holders } from '../../core/platform/running-from.js';
+import { isWorktreeFolder } from '../../core/worktree/leftover.js';
+import type { Holders } from '../../core/platform/running-from.js';
+import { freeLeftovers, leftoversOf, openInLeftovers, runningFromLeftovers } from '../../core/archive/restore-leftovers.js';
 import {
   mergeSelected,
   runShipAction,
@@ -73,41 +74,21 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       if (!config) return { ok: false, error: 'no config' };
       // What's left of a folder git removed only in part has to be moved out of the way, and can't be while
       // something runs from it (a dev server its Claude left): say what, and stop it when asked to.
-      const leftovers = session.paths.filter((p) => isLeftover(p));
+      const io = { holders: opts.holders, stop: opts.stopHolders };
+      const leftovers = leftoversOf(session.paths);
       let stopped: string[] = [];
-      const look = opts.holders ?? ((d: string[]) => findHolders(d));
-      const named = (h: Holders) =>
-        h.stoppable.map((p) =>
-          describeProcess(
-            p,
-            leftovers.map((d) => normDir(d)),
-          ),
-        );
-      if (leftovers.length) {
-        if (stopHolders) stopped = await (opts.stopHolders ?? ((d: string[]) => stopRunningFrom(d)))(leftovers).catch(() => []);
-        else {
-          const running = named(await look(leftovers).catch(() => ({ stoppable: [], others: [] })));
-          if (running.length) {
-            return { ok: false, holders: running, error: `Couldn't restore it: still running from its old folder: ${running.join(', ')}` };
-          }
+      if (stopHolders) stopped = await freeLeftovers(leftovers, io);
+      else {
+        const running = await runningFromLeftovers(leftovers, io);
+        if (running.length) {
+          return { ok: false, holders: running, error: `Couldn't restore it: still running from its old folder: ${running.join(', ')}` };
         }
       }
       const made = await (opts.create ?? createInProcess)({ target: session.target, branch: session.branch }, config);
       // A Restore that couldn't make the worktree says why (a folder in use, a branch gone…), not "unknown session",
       // and names what has the folder open when it can (an editor: yours to close).
       if (!made.ok) {
-        const h = leftovers.length ? await look(leftovers).catch(() => null) : null;
-        const open = h
-          ? [
-              ...named(h),
-              ...h.others.map((p) =>
-                describeProcess(
-                  p,
-                  leftovers.map((d) => normDir(d)),
-                ),
-              ),
-            ]
-          : [];
+        const open = await openInLeftovers(leftovers, io);
         return {
           ok: false,
           error: `Couldn't restore it: ${made.error}${open.length ? ` (open there: ${open.join(', ')})` : ''}${stopped.length ? ` (stopped first: ${stopped.join(', ')})` : ''}`,

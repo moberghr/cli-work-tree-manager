@@ -109,6 +109,9 @@ describe('matching names as Visual Studio does', () => {
     ]);
     expect(matchSymbols(prepareSymbols(all), 'AccountingKeys')).toEqual(matchSymbols(all, 'AccountingKeys'));
     expect(matchSymbols(all, '   ')).toEqual([]);
+    // Names that differ only in case have their own words: each scored for itself.
+    const cased = [sym('Getstatus', 'method'), sym('GetStatus', 'method')];
+    expect(matchSymbols(cased, 'gs').map((s) => s.name)).toEqual(['GetStatus']);
   });
 });
 

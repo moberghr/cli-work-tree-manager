@@ -191,8 +191,9 @@ export function matchSymbols(symbols: CodeSymbol[] | PreparedSymbol[], query: st
   const byName = new Map<string, number | null>();
   const scored: Array<{ s: CodeSymbol; score: number }> = [];
   for (const p of prepared) {
-    let score = byName.get(p.lower);
-    if (score === undefined) byName.set(p.lower, (score = scoreOf(p.lower, p.parts, q)));
+    // By the name as written: its words depend on its case (GetStatus, Getstatus).
+    let score = byName.get(p.s.name);
+    if (score === undefined) byName.set(p.s.name, (score = scoreOf(p.lower, p.parts, q)));
     if (score !== null) scored.push({ s: p.s, score });
   }
   scored.sort(

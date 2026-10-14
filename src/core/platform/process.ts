@@ -217,6 +217,14 @@ export function killTree(pid: number): boolean {
   }
 }
 
+/** killTree, not blocking the event loop (taskkill takes a few hundred ms): for a server killing several at once. */
+export function killTreeAsync(pid: number): Promise<boolean> {
+  if (process.platform !== 'win32') return Promise.resolve(killTree(pid));
+  return new Promise((resolve) =>
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) => resolve(!err)),
+  );
+}
+
 /**
  * Start `node <workBin> ...args` detached, appending its output to
  * `logFile`. Returns immediately; the caller polls for readiness (a

@@ -37,6 +37,7 @@ beforeAll(() => {
   );
   fs.writeFileSync(path.join(repo, 'src', 'jobs.pyi'), 'def parse_job(text: str) -> dict: ...\n');
   fs.writeFileSync(path.join(repo, 'src', 'Računi.cs'), 'public class RacuniService\n{\n}\n');
+  fs.writeFileSync(path.join(repo, 'src', 'rows.ts'), 'type SessionRow = { id: string };\n');
   fs.writeFileSync(path.join(repo, 'src', 'many.txt'), Array.from({ length: MAX_TEXT_HITS + 20 }, (_, i) => `needle ${i}`).join('\n'));
   fs.writeFileSync(path.join(repo, '.gitignore'), 'secret.txt\n');
   fs.writeFileSync(path.join(repo, 'secret.txt'), 'AccountingKeys in an ignored file\n');
@@ -73,6 +74,10 @@ describe('searchSymbols', () => {
     expect((await searchSymbols(session(), 'AccKeys')).map((s) => `${s.kind} ${s.name}`)).toEqual(['class AccountingKeys']);
     expect((await searchSymbols(session(), 'GetAccount')).map((s) => [s.kind, s.path, s.line])).toEqual([['method', 'src/Keys.cs', 4]]);
     expect((await searchSymbols(session(), 'useKeys'))[0]).toMatchObject({ kind: 'function', path: 'src/use.ts' });
+  });
+
+  it('a TypeScript type that is not exported is found by name too', async () => {
+    expect((await searchSymbols(session(), 'SessionRow'))[0]).toMatchObject({ kind: 'type', path: 'src/rows.ts', line: 1 });
   });
 
   it('a non-ASCII path comes back as the Code tab lists it, so a hit opens', async () => {

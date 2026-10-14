@@ -6,6 +6,7 @@ import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
 import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
+import { leftoversOf, openInLeftovers } from '../core/archive/restore-leftovers.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../core/platform/launch.js';
 import { parseBaseSpec, isEmptyBaseSpec, BaseSpecError } from '../core/git/base-spec.js';
@@ -259,6 +260,10 @@ export const treeCommand: CommandModule = {
     // Create/switch worktree via shared core logic
     const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull, name: argv.name as string | undefined });
     if (!result) {
+      // Run by you (not work web's child, whose route says it): what keeps the old folder in use, by name.
+      const left = setupOnly ? [] : leftoversOf(findSession(loadHistory(), targetName, branchName)?.paths ?? []);
+      const open = await openInLeftovers(left);
+      if (open.length) console.error(chalk.yellow(`Still open in its old folder: ${open.join(', ')}. Stop it and try again.`));
       process.exitCode = 1;
       return;
     }

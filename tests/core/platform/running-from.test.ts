@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { spawn as spawnChild } from 'node:child_process';
+import { killTreeAsync } from '../../../src/core/platform/process.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +8,7 @@ import {
   commandWords,
   describeProcess,
   holdersOf,
+  isWorkProcess,
   normDir,
   parseCimProcesses,
   parsePsProcesses,
@@ -123,8 +126,23 @@ describe("work's own processes are never stopped", () => {
     const web = p(12, 1, 'node.exe', null, `node ${repo}\\dist\\bin.js web --dev`);
     const recorded = p(13, 1, 'node.exe', null, `node ${repo}\\server.js`);
     const vite = p(14, 1, 'node.exe', null, `node ${repo}\\node_modules\\vite\\bin\\vite.js`);
-    const h = holdersOf([host, conpty, web, recorded, vite], [repo], 99_999, true, new Set([13]));
+    const bins = [normDir(`${repo}\\dist\\bin.js`, true)]; // this work's own install
+    const h = holdersOf([host, conpty, web, recorded, vite], [repo], 99_999, true, new Set([13]), bins);
     expect(h.stoppable.map((x) => x.pid)).toEqual([14]);
+  });
+
+  it("a project's own bin.js isn't work's: it runs from the worktree, and is stopped", () => {
+    const theirs = p(30, 1, 'node.exe', null, `node ${WT}\\bin.js web --port 3000`);
+    const bins = [normDir('C:\\npm\\work\\dist\\bin.js', true)];
+    expect(isWorkProcess(theirs, bins, true)).toBe(false);
+    expect(holdersOf([theirs], [WT], 99_999, true, new Set(), bins).stoppable.map((x) => x.pid)).toEqual([30]);
+    expect(isWorkProcess(p(31, 1, 'node.exe', null, '"node" "C:\\npm\\work\\dist\\bin.js" hook turn-end'), bins, true)).toBe(true);
+  });
+
+  it('an editor on a sibling folder whose name starts the same is not on this one', () => {
+    const sibling = p(40, 1, 'Code.exe', 'C:\\VS Code\\Code.exe', `"Code.exe" "${WT}2"`);
+    const inside = p(41, 1, 'Code.exe', 'C:\\VS Code\\Code.exe', `"Code.exe" "${WT}\\src\\a.ts"`);
+    expect(holdersOf([sibling, inside], [WT], 99_999, true).others.map((x) => x.pid)).toEqual([41]);
   });
 
   it("a dev server a Claude started is stopped though it's still under the PTY host (its Claude not gone yet)", () => {
@@ -151,6 +169,16 @@ describe("work's own processes are never stopped", () => {
     const h = holdersOf([app, appChild], [WT], 99_999, true);
     expect(h.running!.map((x) => x.pid)).toEqual([600, 601]);
     expect(h.stoppable.map((x) => x.pid)).toEqual([600]);
+  });
+});
+
+describe('killTreeAsync', () => {
+  it('stops a real process without blocking', async () => {
+    const child = spawnChild(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const gone = new Promise((r) => child.once('exit', r));
+    expect(await killTreeAsync(child.pid!)).toBe(true);
+    await gone;
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 });
 

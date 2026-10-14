@@ -503,6 +503,24 @@ function isArchiveRecord(x: unknown): x is ArchiveRecord {
  * folder of the session's worktree), so `--continue` picks it up. Files that
  * are already there are left alone. Returns how many were restored.
  */
+/** A file's last 64 KB as text ('' when it can't be read). */
+function readTail(file: string): string {
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(size, 64 * 1024);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      return buf.toString('utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
 /** When a transcript's last entry was written (its newest `"timestamp"`), or 0. */
 export function lastEntryTime(text: string): number {
   const matches = text.slice(-64 * 1024).match(/"timestamp"\s*:\s*"([^"]+)"/g);
@@ -536,8 +554,22 @@ export function restoreArchivedTranscripts(
     toWrite.push({ to, text, last: lastEntryTime(text) });
   }
   toWrite.sort((a, b) => a.last - b.last);
+  // The conversations still there (Claude Code keeps the newer ones longer): one restored that is older than the
+  // newest of them is dated before it, or --continue would resume the older conversation.
+  let kept: { last: number; mtime: number } | null = null;
+  try {
+    for (const f of fs.readdirSync(dest)) {
+      if (!f.endsWith('.jsonl') || toWrite.some((w) => path.basename(w.to) === f)) continue;
+      const file = path.join(dest, f);
+      const last = lastEntryTime(readTail(file));
+      if (!kept || last > kept.last) kept = { last, mtime: fs.statSync(file).mtimeMs };
+    }
+  } catch {
+    /* none there */
+  }
+  const base = Math.max(Date.parse(rec.archivedAt) || 0, Date.now() - RESTORED_AGE_MS);
   let n = 0;
-  for (const [i, { to, text }] of toWrite.entries()) {
+  for (const [i, { to, text, last }] of toWrite.entries()) {
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
     // Not dated now: a transcript written just now reads as a Claude at work there (the Terminal tab's
@@ -545,7 +577,8 @@ export function restoreArchivedTranscripts(
     // transcripts older than its cleanupPeriodDays (30) by their date, and --continue would find nothing.
     // A few minutes back — past "written just now", well inside Claude Code's keeping.
     // A second apart, in their order, the newest at the latest.
-    const at = new Date(Math.max(Date.parse(rec.archivedAt) || 0, Date.now() - RESTORED_AGE_MS) - (toWrite.length - 1 - i) * 1000);
+    const newest = kept && last <= kept.last ? kept.mtime - 1000 : base;
+    const at = new Date(Math.min(newest, base) - (toWrite.length - 1 - i) * 1000);
     try {
       fs.utimesSync(to, at, at);
     } catch {

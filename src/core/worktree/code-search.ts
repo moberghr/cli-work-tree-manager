@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import spawn from '../platform/spawn.js';
 import type { WorktreeSession } from '../sessions/history.js';
 import type { CodeSymbol, CodeTextHit } from '../api-types.js';
 import type { PreparedSymbol } from './code-symbols.js';
@@ -116,7 +116,7 @@ export async function searchText(
 
 /** Lines that may declare something: a keyword before a space, or an UPPER_CASE name assigned at a line's start (a Python constant). */
 const SCAN =
-  '(class|record|struct|interface|enum|function|def|public|private|protected|internal|export)[[:space:]]|^[A-Z][A-Z0-9_]*[[:space:]]*[:=]';
+  '(class|record|struct|interface|enum|type|function|def|public|private|protected|internal|export)[[:space:]]|^[A-Z][A-Z0-9_]*[[:space:]]*[:=]';
 const SCAN_FILES = ['*.cs', '*.cshtml', '*.razor', '*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.mts', '*.cts', '*.py', '*.pyi'];
 
 /** Every declaration in a repo: one git grep for lines that may hold one, read with declarationOf. */

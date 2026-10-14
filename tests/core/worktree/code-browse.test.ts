@@ -62,6 +62,27 @@ describe('listCodeFiles', () => {
   });
 });
 
+describe('a file deleted from the folder (not committed yet)', () => {
+  it("isn't listed, and one gone since it was listed reads as not listed, not as an error", async () => {
+    const r = path.join(tmp, 'del');
+    fs.mkdirSync(r);
+    git(['init', '-b', 'main'], r);
+    git(['config', 'user.email', 't@t.t'], r);
+    git(['config', 'user.name', 't'], r);
+    fs.writeFileSync(path.join(r, 'keep.ts'), 'k\n');
+    fs.writeFileSync(path.join(r, 'old.ts'), 'o\n');
+    git(['add', '.'], r);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], r);
+    fs.rmSync(path.join(r, 'old.ts'));
+    const s = { paths: [r], isGroup: false };
+    expect((await listCodeFiles(s)).repos[0].files).toEqual(['keep.ts']);
+    const listed = await listCodeFiles(s); // listed, then gone before it's read
+    expect(listed.repos[0].files).toContain('keep.ts');
+    fs.rmSync(path.join(r, 'keep.ts'));
+    expect(await readCodeFile(s, 'del', 'keep.ts')).toEqual({ error: 'not listed' });
+  });
+});
+
 describe('readCodeFile', () => {
   it('reads a listed file as it is now', async () => {
     expect(await readCodeFile(single(), 'api', 'src/a.ts')).toMatchObject({ text: 'export const a = 3;\n', repo: 'api', path: 'src/a.ts' });

@@ -59,18 +59,17 @@ export function CodeView({
   const matches = useMemo(() => filterEntries(entries, query), [entries, query]);
   const openEntry = open ? (byKey.get(open) ?? null) : null;
 
-  const loadList = () => {
-    const id = session.id;
-    fetchCodeFiles(id).then(
+  // Shared with Ctrl+T's box for a while (client.ts); `fresh` when the worktree changed.
+  const loadList = (fresh = false) => {
+    fetchCodeFiles(session.id, { fresh }).then(
       (w) => {
-        if (memoryOf(id) !== memory) return;
         setListing(w);
         setListError(null);
       },
       (err: Error) => setListError(err.message),
     );
   };
-  useEffect(loadList, [session.id]); // eslint-disable-line react-hooks/exhaustive-deps -- once per session; the stream reloads it
+  useEffect(() => loadList(), [session.id]); // eslint-disable-line react-hooks/exhaustive-deps -- once per session; the stream reloads it
 
   // A search's pick: its file opens at its line, once (a later visit to the tab keeps what you opened since);
   // its folders open once the listing has it.
@@ -141,7 +140,7 @@ export function CodeView({
         // A burst of writes (a turn) reads once, a moment after.
         if (recheck.current) clearTimeout(recheck.current);
         recheck.current = setTimeout(() => {
-          loadList();
+          loadList(true);
           const e = openEntry;
           if (!e || !file) return;
           const key = e.key;

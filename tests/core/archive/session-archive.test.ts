@@ -289,6 +289,30 @@ describe('restoreArchivedTranscripts', () => {
     expect(lastEntryTime(conv('2026-10-10T10:00:00Z'))).toBe(Date.parse('2026-10-10T10:00:00Z'));
   });
 
+  it('one still there that is newer than a restored one stays the newest (Claude Code deleted only the old)', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    const conv = (ts: string) => JSON.stringify({ type: 'user', timestamp: ts }) + '\n';
+    fs.writeFileSync(path.join(dir, 'transcripts', 'old.jsonl'), conv('2026-09-01T10:00:00Z'));
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        transcripts: [
+          { file: 'old.jsonl', projectDir: 'p' },
+          { file: 'new.jsonl', projectDir: 'p' },
+        ],
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-kept-'));
+    fs.writeFileSync(path.join(dest, 'new.jsonl'), conv('2026-10-10T10:00:00Z')); // kept by Claude Code
+    const keptAt = new Date(Date.now() - 3 * 86_400_000);
+    fs.utimesSync(path.join(dest, 'new.jsonl'), keptAt, keptAt);
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(1);
+    expect(fs.statSync(path.join(dest, 'old.jsonl')).mtimeMs).toBeLessThan(fs.statSync(path.join(dest, 'new.jsonl')).mtimeMs);
+  });
+
   it('does nothing for a session that was never archived with a copy', () => {
     expect(restoreArchivedTranscripts({ ...session, branch: 'other' }, root, claudeDirIn(projects))).toBe(0);
     expect(vi.isMockFunction(restoreArchivedTranscripts)).toBe(false);

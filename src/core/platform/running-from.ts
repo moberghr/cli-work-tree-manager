@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { isPidAlive } from './process.js';
+import { isPidAlive, killTreeAsync } from './process.js';
+import { packageRoot } from './package-root.js';
 import { getConfigDir } from './config.js';
 
 /**
@@ -83,17 +84,35 @@ export function isPtyHelper(p: RunningProcess): boolean {
   return /[\\/]node-pty[\\/]/i.test(`${p.exe ?? ''} ${p.command}`) || /^(conpty|openconsole|winpty-agent)(\.exe)?$/i.test(p.name);
 }
 
-/** One of work's own (the PTY host, a work web, a hook): never stopped, wherever it's installed from (npm link,
- *  a checkout's dist). Stopping the PTY host stops every session's Claude. */
-export function isWorkProcess(p: RunningProcess): boolean {
-  return /\bbin\.js"?\s+(pty-host|web|hook)\b/.test(p.command);
+/** Where this work runs from: its `dist/bin.js` (an npm install, a linked checkout, the desktop app's copy). */
+export function workBinPaths(): string[] {
+  const root = packageRoot();
+  return root ? [normDir(path.join(root, 'dist', 'bin.js'))] : [];
+}
+
+/**
+ * One of work's own (the PTY host, a work web, a hook): this work's own `bin.js` running one of those — never
+ * stopped, wherever it's installed (stopping the PTY host stops every session's Claude). Not any `bin.js web`:
+ * a project's own would be spared, and keep its worktree in use.
+ */
+export function isWorkProcess(p: RunningProcess, bins: string[] = workBinPaths(), windows = win): boolean {
+  if (bins.length === 0) return false;
+  const words = commandWords(p.command).map((w) => normDir(w, windows));
+  return words.some((w, i) => bins.includes(w) && /^(pty-host|web|hook)$/.test(commandWords(p.command)[i + 1] ?? ''));
 }
 
 /** It names one of `dirs` somewhere in its command line or executable path. */
 export function mentions(p: RunningProcess, dirs: string[], windows = win): boolean {
   const norm = (s: string) => (windows ? s.replace(/\//g, '\\').toLowerCase() : s);
   const text = `${norm(p.exe ?? '')} ${norm(p.command)}`;
-  return dirs.some((d) => text.includes(d));
+  // The folder itself, or inside it: what follows is a separator, a quote, a space or the end (not feat-x2).
+  return dirs.some((d) => {
+    for (let at = text.indexOf(d); at >= 0; at = text.indexOf(d, at + 1)) {
+      const next = text[at + d.length];
+      if (next === undefined || /[\\/"' ]/.test(next)) return true;
+    }
+    return false;
+  });
 }
 
 export interface Holders {
@@ -116,6 +135,7 @@ export function holdersOf(
   self = process.pid,
   windows = win,
   spare: ReadonlySet<number> = new Set(),
+  bins: string[] = workBinPaths(),
 ): Holders {
   const norm = dirs.map((d) => normDir(d, windows));
   const byPid = new Map(procs.map((p) => [p.pid, p]));
@@ -124,7 +144,7 @@ export function holdersOf(
   // work's own (by pid or command line), and the terminal helpers they run (node-pty's, from where work is
   // installed — a checkout's node_modules). Not everything under them: a dev server a Claude started is a
   // descendant of the PTY host until that Claude is gone, and stopping it is the point.
-  const ownWork = (q: RunningProcess) => spare.has(q.pid) || isWorkProcess(q);
+  const ownWork = (q: RunningProcess) => spare.has(q.pid) || isWorkProcess(q, bins, windows);
   const spared = (p: RunningProcess): boolean => {
     if (ownWork(p)) return true;
     if (!isPtyHelper(p)) return false;
@@ -272,21 +292,6 @@ export async function listProcesses(): Promise<RunningProcess[]> {
     );
   }
   return parsePsProcesses(await run('ps', ['-A', '-o', 'pid=,ppid=,args=']));
-}
-
-/** A process and its children, not blocking: Windows' taskkill /T asynchronously, elsewhere a signal. */
-export function killTreeAsync(pid: number): Promise<boolean> {
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(pid);
-      return Promise.resolve(true);
-    } catch {
-      return Promise.resolve(false);
-    }
-  }
-  return new Promise((resolve) =>
-    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) => resolve(!err)),
-  );
 }
 
 /** Look up what runs from or names `dirs` now. */

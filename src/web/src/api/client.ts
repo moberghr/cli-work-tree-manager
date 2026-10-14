@@ -729,8 +729,18 @@ export async function fetchTimeline(sessionId: string): Promise<import('../../..
 type CodeFilesWire = import('../../../core/api-types.js').CodeFilesWire;
 type CodeFileWire = import('../../../core/api-types.js').CodeFileWire;
 
-export function fetchCodeFiles(sessionId: string): Promise<CodeFilesWire> {
-  return getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
+/** One listing per session for the page, shared by the Code tab and Ctrl+T for a while (a group's can be megabytes). */
+const codeFilesCache = new Map<string, { at: number; files: Promise<CodeFilesWire> }>();
+const CODE_FILES_TTL_MS = 30_000;
+
+/** The session's files; `fresh` when they changed (the worktree's update): asked again, and kept for the rest. */
+export function fetchCodeFiles(sessionId: string, opts: { fresh?: boolean } = {}): Promise<CodeFilesWire> {
+  const hit = codeFilesCache.get(sessionId);
+  if (hit && !opts.fresh && Date.now() - hit.at < CODE_FILES_TTL_MS) return hit.files;
+  const files = getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
+  codeFilesCache.set(sessionId, { at: Date.now(), files });
+  files.catch(() => codeFilesCache.get(sessionId)?.files === files && codeFilesCache.delete(sessionId));
+  return files;
 }
 
 /** Types and members by name, and lines with it in them (Ctrl+T). A newer search aborts this one (`signal`). */
