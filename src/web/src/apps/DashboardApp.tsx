@@ -806,6 +806,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           <SessionsTab
             sessions={sessions}
             onShowArchived={(on) => wantArchived('sessions-table', on)}
+            archivedLoaded={archivedLoaded}
             onOpenSession={openSession}
             onNewWorktree={() => openNew(null)}
             onDeleteSession={setDeleting}

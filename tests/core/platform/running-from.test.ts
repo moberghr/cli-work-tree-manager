@@ -109,16 +109,54 @@ describe('reading the process list', () => {
   });
 });
 
+describe("work's own processes are never stopped", () => {
+  it('the PTY host and a work web run from a checkout (npm link, a dev build): spared by command line, and by recorded pid, with their children', () => {
+    const repo = 'C:\\Users\\me\\source\\repos\\work-tree';
+    const host = p(10, 1, 'node.exe', null, `"node" "${repo}\\dist\\bin.js" pty-host`);
+    const claude = p(11, 10, 'node.exe', null, `node ${repo}\\node_modules\\x\\cli.js`); // a child of the host
+    const web = p(12, 1, 'node.exe', null, `node ${repo}\\dist\\bin.js web --dev`);
+    const recorded = p(13, 1, 'node.exe', null, `node ${repo}\\server.js`);
+    const vite = p(14, 1, 'node.exe', null, `node ${repo}\\node_modules\\vite\\bin\\vite.js`);
+    const h = holdersOf([host, claude, web, recorded, vite], [repo], 99_999, true, new Set([13]));
+    expect(h.stoppable.map((x) => x.pid)).toEqual([14]);
+  });
+
+  it('an option before the script (`node -r ts-node/register <dir>/src/index.ts`) still finds the script', () => {
+    const ts = p(20, 1, 'node.exe', null, `node -r ts-node/register ${WT}\\src\\index.ts`);
+    expect(runsFrom(ts, dirs, true)).toBe(true);
+  });
+
+  it('every process running from it is listed, children too (POSIX stops one at a time); the tops are what is named', () => {
+    const h = holdersOf([app, appChild], [WT], 99_999, true);
+    expect(h.running!.map((x) => x.pid)).toEqual([600, 601]);
+    expect(h.stoppable.map((x) => x.pid)).toEqual([600]);
+  });
+});
+
 describe('stopRunningFrom', () => {
+  it('waits for what it stopped to be gone before saying so (the folder is free when it returns)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'running-from-'));
+    try {
+      const mine = p(78, 1, 'node', '/usr/bin/node', `node ${path.join(dir, 'server.js')}`);
+      let checks = 0;
+      const alive = vi.fn(() => ++checks < 3); // exits on the third look
+      const said = await stopRunningFrom([dir], { list: async () => [mine], kill: () => true, alive, spare: new Set(), waitMs: 5000 });
+      expect(said).toHaveLength(1);
+      expect(checks).toBe(3);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('stops what runs from the folders and says what; nothing for a folder that is gone', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'running-from-'));
     try {
       const mine = p(77, 1, 'node', '/usr/bin/node', `node ${path.join(dir, 'server.js')}`);
       const kill = vi.fn(() => true);
-      const said = await stopRunningFrom([dir], { list: async () => [mine], kill });
+      const said = await stopRunningFrom([dir], { list: async () => [mine], kill, alive: () => false, spare: new Set() });
       expect(kill).toHaveBeenCalledWith(77);
       expect(said).toEqual([`node … (PID 77)`.replace('…', `…${path.sep}server.js`)]);
-      expect(await stopRunningFrom([path.join(dir, 'gone')], { list: async () => [mine], kill })).toEqual([]);
+      expect(await stopRunningFrom([path.join(dir, 'gone')], { list: async () => [mine], kill, spare: new Set() })).toEqual([]);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

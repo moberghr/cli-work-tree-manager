@@ -9,6 +9,7 @@ import {
   readArchive,
   readArchivedTranscript,
   restoreArchivedTranscripts,
+  RESTORED_AGE_MS,
   writeArchiveSummary,
   type ArchiveDeps,
 } from '../../../src/core/archive/session-archive.js';
@@ -246,12 +247,18 @@ describe('restoreArchivedTranscripts', () => {
     expect(restoreArchivedTranscripts(session, root, claudeDirIn(projects))).toBe(0); // already there
   });
 
-  it('dated when it was archived, not now (a fresh write reads as a Claude at work there)', async () => {
+  it('dated a few minutes back: not now (it would read as a Claude at work there), not months back with an old archive (Claude Code would delete it)', async () => {
     await archiveSession(session, deps());
+    // Archived 45 days ago: dated then, Claude Code's 30-day cleanup would remove the restored conversation.
+    const id = sessionIdFor(session);
+    const recFile = path.join(root, id, 'archive.json');
+    const rec = JSON.parse(fs.readFileSync(recFile, 'utf-8')) as { archivedAt: string };
+    fs.writeFileSync(recFile, JSON.stringify({ ...rec, archivedAt: new Date(Date.now() - 45 * 86_400_000).toISOString() }));
     fs.rmSync(path.join(projects, encodeProjectDir(wt)), { recursive: true, force: true });
     restoreArchivedTranscripts(session, root, claudeDirIn(projects));
-    const archivedAt = Date.parse(readArchive(sessionIdFor(session), root)!.archivedAt);
-    expect(Math.abs(fs.statSync(transcript).mtimeMs - archivedAt)).toBeLessThan(2000);
+    const age = Date.now() - fs.statSync(transcript).mtimeMs;
+    expect(age).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
+    expect(age).toBeLessThan(RESTORED_AGE_MS + 60_000);
   });
 
   it('does nothing for a session that was never archived with a copy', () => {
@@ -291,6 +298,13 @@ describe('archiveSession: what it does around the copy', () => {
     expect(stopRunningFrom).toHaveBeenCalledWith(session);
     expect(stopRunningFrom.mock.invocationCallOrder[0]).toBeLessThan(removeWorktree.mock.invocationCallOrder[0]);
     expect(out.message).toContain('stopped what still ran from it: node …/vite/bin/vite.js --mode demo (PID 35464)');
+    // A worktree that stays (its folder isn't removed): what runs there is left alone.
+    const keptStop = vi.fn(async () => []);
+    await archiveSession(
+      session,
+      deps({ stopRunningFrom: keptStop, removable: async () => ({ ok: false, reason: '2 unpushed commits' }) }),
+    );
+    expect(keptStop).not.toHaveBeenCalled();
     // One that fails to look stops nothing else from happening.
     const failing = vi.fn(async () => {
       throw new Error('no process list');

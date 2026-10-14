@@ -40,6 +40,8 @@ interface Props {
   viewToggle?: React.ReactNode;
   /** Archived sessions are fetched only while shown: told when "Show archived" is on (and off when the table goes). */
   onShowArchived?: (on: boolean) => void;
+  /** The archived rows have come (false while they're asked for): "Loading…", never "none" first. Absent: they're in `sessions`. */
+  archivedLoaded?: boolean;
 }
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
@@ -108,6 +110,7 @@ export function SessionsTab({
   bulk = defaultBulk,
   viewToggle,
   onShowArchived,
+  archivedLoaded = true,
 }: Props) {
   // Ticked rows, for the bulk bar (kept across filters; acted on as they are now).
   // The checkboxes show only while selecting (View ▾ → Select several).
@@ -457,11 +460,13 @@ export function SessionsTab({
       )}
       {filtered.length === 0 ? (
         <div className="wd-tab-empty">
-          {scope === 'archived' && archivedCount === 0
-            ? 'No archived sessions.'
-            : sessions.length === 0
-              ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
-              : 'No sessions match the current filter.'}
+          {scope !== 'live' && !archivedLoaded && archivedCount === 0
+            ? 'Loading archived sessions…'
+            : scope === 'archived' && archivedCount === 0
+              ? 'No archived sessions.'
+              : sessions.length === 0
+                ? 'No worktrees yet. Run `work tree <target> <branch>` in any terminal, or click "New worktree" above.'
+                : 'No sessions match the current filter.'}
         </div>
       ) : railGroups ? (
         <div className="wd-session-groups">

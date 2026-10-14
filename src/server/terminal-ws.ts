@@ -34,7 +34,7 @@ export interface ElsewhereInput {
    *  turn ended (the Stop) — not `updatedAt`, which also moves when you open
    *  the session (seen) or on Claude Code's idle nudge, neither a sign that a
    *  Claude is still open somewhere. */
-  status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string; endedAt?: string } | null;
+  status: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string; endedAt?: string; since?: string } | null;
   /** Claudes running for this session outside the PTY host, known for sure
    *  from Claude Code's own process files (live-claudes.ts). */
   runningOutside?: Array<{ busy: boolean }>;
@@ -68,7 +68,8 @@ export function claudeElsewhere(i: ElsewhereInput, now = Date.now()): TerminalEl
   const after = (ms: number) => !i.stoppedAtMs || ms > i.stoppedAtMs;
   const active = i.lastActivityMs !== null && now - i.lastActivityMs < ELSEWHERE_ACTIVE_MS && after(i.lastActivityMs);
   const s = i.status;
-  const blockedOrWorking = !!s && (s.state === 'needs_input' || s.state === 'working') && after(Date.parse(s.updatedAt) || 0);
+  // When it went into that state (`since`), not `updatedAt`: opening the session (seen) moves that.
+  const blockedOrWorking = !!s && (s.state === 'needs_input' || s.state === 'working') && after(Date.parse(s.since ?? s.updatedAt) || 0);
   const endedAt = s ? Date.parse(s.endedAt ?? s.updatedAt) || 0 : 0;
   const justFinished = !!s && s.state === 'idle' && now - endedAt < ELSEWHERE_IDLE_MS && after(endedAt);
   if (!active && !blockedOrWorking && !justFinished) return null;
@@ -85,7 +86,7 @@ export function elsewhereStatus(
   raw: { turnEndedAt?: string } | null,
   shown: { state: 'working' | 'needs_input' | 'idle'; updatedAt: string; since: string } | null,
 ): ElsewhereInput['status'] {
-  return shown ? { state: shown.state, updatedAt: shown.updatedAt, endedAt: raw?.turnEndedAt ?? shown.since } : null;
+  return shown ? { state: shown.state, updatedAt: shown.updatedAt, endedAt: raw?.turnEndedAt ?? shown.since, since: shown.since } : null;
 }
 
 async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | null> {

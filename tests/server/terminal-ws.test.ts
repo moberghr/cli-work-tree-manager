@@ -108,6 +108,7 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
       state: 'idle',
       updatedAt: shown.updatedAt,
       endedAt: '2026-10-01T08:00:00Z',
+      since: shown.since, // when it went into its state: what a working / blocked one is judged by
     });
     expect(elsewhereStatus({}, shown)?.endedAt).toBe(shown.since); // a record from before turnEndedAt
     expect(elsewhereStatus(null, null)).toBeNull();
@@ -144,6 +145,23 @@ describe('claudeElsewhere — is its Claude running outside the host?', () => {
     // A Claude started outside after the archive still shows: by its writes, or for sure by its process.
     expect(claudeElsewhere({ ...seen, lastActivityMs: now - 60_000, stoppedAtMs: now - 14 * 60_000 }, now)).not.toBeNull();
     expect(claudeElsewhere({ ...seen, stoppedAtMs: now - 14 * 60_000, runningOutside: [{ busy: false }] }, now)?.confirmed).toBe(true);
+  });
+
+  it('a working record from before the archive stays stale when opening the session moves its updatedAt (seen)', () => {
+    const stoppedAtMs = now - 14 * 60_000;
+    const working = {
+      state: 'working' as const,
+      since: new Date(now - 20 * 60_000).toISOString(),
+      updatedAt: new Date(now - 60_000).toISOString(),
+    };
+    expect(claudeElsewhere({ hasPty: false, lastActivityMs: null, status: working, stoppedAtMs }, now)).toBeNull();
+    // One that started working after the archive: a Claude somewhere.
+    expect(
+      claudeElsewhere(
+        { hasPty: false, lastActivityMs: null, status: { ...working, since: new Date(now - 60_000).toISOString() }, stoppedAtMs },
+        now,
+      ),
+    ).not.toBeNull();
   });
 });
 

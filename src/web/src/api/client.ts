@@ -206,6 +206,7 @@ async function sendArchived(sessionId: string, archived: boolean, confirm: (ques
     // Restore: something still runs from its old folder (a dev server its Claude left running).
     const body = (await res.json().catch(() => ({}))) as { holders?: string[]; error?: string };
     const holders = body.holders ?? [];
+    if (holders.length === 0) throw new Error(body.error ?? `409 for ${url}`);
     if (!confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`)) {
       throw Object.assign(new Error(body.error ?? 'Not restored'), { cancelled: true });
     }

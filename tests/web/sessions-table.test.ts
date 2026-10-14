@@ -188,6 +188,20 @@ describe('Sessions table', () => {
     expect(localStorage.getItem('work-web:sessions-show-archived')).toBe('all'); // remembered
   });
 
+  it('Archived says Loading until the archived rows have come, never "none" first', () => {
+    localStorage.setItem('work-web:sessions-show-archived', 'archived');
+    const props = {
+      sessions: SESSIONS.filter((x) => !x.archivedAt),
+      onOpenSession: vi.fn(),
+      onNewWorktree: () => {},
+      onDeleteSession: vi.fn(),
+    };
+    act(() => root.render(createElement(SessionsTab, { ...props, archivedLoaded: false })));
+    expect(text(container.querySelector('.wd-tab-empty'))).toBe('Loading archived sessions…');
+    act(() => root.render(createElement(SessionsTab, { ...props, archivedLoaded: true })));
+    expect(text(container.querySelector('.wd-tab-empty'))).toBe('No archived sessions.');
+  });
+
   it('the Archived view lists old ones too (nothing folded under "Show N older")', () => {
     localStorage.setItem('work-web:sessions-show-archived', 'archived');
     act(() =>

@@ -62,4 +62,14 @@ describe('setArchived', () => {
     await expect(setArchived('s1', false, () => false)).rejects.toThrow('still running'); // declined: nothing stopped
     expect(bodies).toHaveLength(1);
   });
+
+  it('a 409 on Restore that names nothing is an error, not an empty "Stop it?"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'Not restored: busy' }), { status: 409 })),
+    );
+    const confirm = vi.fn(() => true);
+    await expect(setArchived('s1', false, confirm)).rejects.toThrow('Not restored: busy');
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });

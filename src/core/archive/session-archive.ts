@@ -248,7 +248,6 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   } catch {
     /* not running */
   }
-  const stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
   // Which branch each repo is on: Claude may have switched from the session's.
   let heads: Record<string, string> = {};
   try {
@@ -298,7 +297,11 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let leftovers: string[] = [];
   let ignored: Record<string, SavedIgnored> = {};
   const ignoredDir = path.join(dir, 'ignored');
+  let stopped: string[] = [];
   if (verdict.ok) {
+    // Only for a folder that goes (never a repo's own checkout, never a kept worktree: what runs there is
+    // yours): what still runs from it holds its files, and git would remove it only in part.
+    stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
     // Local settings and the editor's state go with the folder: kept, so Restore brings them back.
     fs.rmSync(ignoredDir, { recursive: true, force: true });
     ignored = deps.saveIgnored ? await deps.saveIgnored(s, dir).catch(() => ({})) : {};
@@ -500,6 +503,9 @@ function isArchiveRecord(x: unknown): x is ArchiveRecord {
  * folder of the session's worktree), so `--continue` picks it up. Files that
  * are already there are left alone. Returns how many were restored.
  */
+/** How far back a restored transcript is dated: past the Terminal tab's 5 minutes of "written just now". */
+export const RESTORED_AGE_MS = 10 * 60_000;
+
 export function restoreArchivedTranscripts(
   s: WorktreeSession,
   root = archiveRoot(),
@@ -519,15 +525,15 @@ export function restoreArchivedTranscripts(
     if (text === null) continue;
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
-    // Dated when it was archived, not now: a transcript written just now reads as a Claude at work there
-    // (the Terminal tab's "running in another terminal", Active in the list).
-    const at = new Date(rec.archivedAt);
-    if (Number.isFinite(at.getTime())) {
-      try {
-        fs.utimesSync(to, at, at);
-      } catch {
-        /* dated now, then */
-      }
+    // Not dated now: a transcript written just now reads as a Claude at work there (the Terminal tab's
+    // "running in another terminal"). Nor at the archive, which can be months back: Claude Code deletes
+    // transcripts older than its cleanupPeriodDays (30) by their date, and --continue would find nothing.
+    // A few minutes back — past "written just now", well inside Claude Code's keeping.
+    const at = new Date(Math.max(Date.parse(rec.archivedAt) || 0, Date.now() - RESTORED_AGE_MS));
+    try {
+      fs.utimesSync(to, at, at);
+    } catch {
+      /* dated now, then */
     }
     n++;
   }

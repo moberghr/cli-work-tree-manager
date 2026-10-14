@@ -74,6 +74,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       // What's left of a folder git removed only in part has to be moved out of the way, and can't be while
       // something runs from it (a dev server its Claude left): say what, and stop it when asked to.
       const leftovers = session.paths.filter((p) => isLeftover(p));
+      let stopped: string[] = [];
       const look = opts.holders ?? ((d: string[]) => findHolders(d));
       const named = (h: Holders) =>
         h.stoppable.map((p) =>
@@ -83,7 +84,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
           ),
         );
       if (leftovers.length) {
-        if (stopHolders) await (opts.stopHolders ?? ((d: string[]) => stopRunningFrom(d)))(leftovers);
+        if (stopHolders) stopped = await (opts.stopHolders ?? ((d: string[]) => stopRunningFrom(d)))(leftovers).catch(() => []);
         else {
           const running = named(await look(leftovers).catch(() => ({ stoppable: [], others: [] })));
           if (running.length) {
@@ -107,7 +108,10 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
               ),
             ]
           : [];
-        return { ok: false, error: `Couldn't restore it: ${made.error}${open.length ? ` (open there: ${open.join(', ')})` : ''}` };
+        return {
+          ok: false,
+          error: `Couldn't restore it: ${made.error}${open.length ? ` (open there: ${open.join(', ')})` : ''}${stopped.length ? ` (stopped first: ${stopped.join(', ')})` : ''}`,
+        };
       }
       ok = true;
     } else {

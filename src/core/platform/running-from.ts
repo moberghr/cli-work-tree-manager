@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { killTree } from './process.js';
+import { isPidAlive, killTree } from './process.js';
+import { getConfigDir } from './config.js';
 
 /**
  * Processes running from a folder — a dev server, a watcher, a built app
@@ -66,8 +67,20 @@ export function runsFrom(p: RunningProcess, dirs: string[], windows = win): bool
   const exe = p.exe ?? words[0] ?? '';
   if (exe && dirs.some((d) => under(exe, d, windows))) return true;
   if (!INTERPRETERS.has(bare(exe || p.name))) return false;
-  const script = words.slice(1).find((w) => !w.startsWith('-'));
-  return !!script && /[\\/]/.test(script) && dirs.some((d) => under(script, d, windows));
+  // Its script: the first argument that isn't an option, or any that names a program file (an option's value comes
+  // first in `node -r ts-node/register <dir>/src/index.ts`).
+  const args = words.slice(1);
+  const first = args.find((w) => !w.startsWith('-'));
+  const scripts = [first, ...args.filter((w) => SCRIPT_FILE.test(w))].filter((w): w is string => !!w && /[\\/]/.test(w));
+  return scripts.some((w) => dirs.some((d) => under(w, d, windows)));
+}
+
+const SCRIPT_FILE = /\.(c|m)?(js|ts)$|\.(py|dll|jar|rb|php)$/i;
+
+/** One of work's own (the PTY host, a work web, a hook): never stopped, wherever it's installed from (npm link,
+ *  a checkout's dist). Stopping the PTY host stops every session's Claude. */
+export function isWorkProcess(p: RunningProcess): boolean {
+  return /\bbin\.js"?\s+(pty-host|web|hook)\b/.test(p.command);
 }
 
 /** It names one of `dirs` somewhere in its command line or executable path. */
@@ -78,28 +91,62 @@ export function mentions(p: RunningProcess, dirs: string[], windows = win): bool
 }
 
 export interface Holders {
-  /** Run from the folders: stop these (each the top of its tree — its children go with it). */
+  /** Run from the folders: stop these (each the top of its tree — its children go with it on Windows). */
   stoppable: RunningProcess[];
+  /** Every one that runs from them, children too: POSIX kills one process at a time. */
+  running?: RunningProcess[];
   /** Name the folders but run from elsewhere (an editor, a shell): the user's to close. */
   others: RunningProcess[];
 }
 
 /**
- * What runs from or names `dirs`, in `procs`. Never this process or one it
- * runs under (work web, the PTY host's chain), whatever their command lines say.
+ * What runs from or names `dirs`, in `procs`. Never this process or one it runs under, never one in `spare` (the
+ * PTY host and work web by their recorded pids) or under it, and never one of work's own by its command line
+ * (isWorkProcess) — whatever folder they run from.
  */
-export function holdersOf(procs: RunningProcess[], dirs: string[], self = process.pid, windows = win): Holders {
+export function holdersOf(
+  procs: RunningProcess[],
+  dirs: string[],
+  self = process.pid,
+  windows = win,
+  spare: ReadonlySet<number> = new Set(),
+): Holders {
   const norm = dirs.map((d) => normDir(d, windows));
   const byPid = new Map(procs.map((p) => [p.pid, p]));
   const mine = new Set<number>();
   for (let pid: number | undefined = self; pid && !mine.has(pid); pid = byPid.get(pid)?.ppid) mine.add(pid);
-  const candidates = procs.filter((p) => !mine.has(p.pid));
+  // A spared process's children are its own business too (the PTY host's Claudes).
+  const spared = (p: RunningProcess): boolean => {
+    const seen = new Set<number>();
+    for (let q: RunningProcess | undefined = p; q && !seen.has(q.pid); q = byPid.get(q.ppid)) {
+      if (spare.has(q.pid) || isWorkProcess(q)) return true;
+      seen.add(q.pid);
+    }
+    return false;
+  };
+  const candidates = procs.filter((p) => !mine.has(p.pid) && !spared(p));
   const running = candidates.filter((p) => runsFrom(p, norm, windows));
   const runningPids = new Set(running.map((p) => p.pid));
   return {
     stoppable: running.filter((p) => !runningPids.has(p.ppid)),
+    running,
     others: candidates.filter((p) => !runningPids.has(p.pid) && mentions(p, norm, windows)),
   };
+}
+
+/** The pids work recorded for its PTY host and work web (and the dev server's): spared by every stop. */
+export function workPids(dir = getConfigDir()): Set<number> {
+  const out = new Set<number>();
+  for (const file of ['pty-host.json', 'web.pid', 'web-dev.pid']) {
+    try {
+      const raw = fs.readFileSync(path.join(dir, file), 'utf-8').trim();
+      const pid = raw.startsWith('{') ? (JSON.parse(raw) as { pid?: unknown }).pid : Number(raw.split(/\s/)[0]);
+      if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) out.add(pid);
+    } catch {
+      /* not running, or not recorded */
+    }
+  }
+  return out;
 }
 
 /** "node …\vite\bin\vite.js --mode demo (PID 35464)": its name and command, the folder shortened to "…". */
@@ -160,27 +207,27 @@ export function parsePsProcesses(stdout: string): RunningProcess[] {
   return out;
 }
 
-function linuxProcesses(): RunningProcess[] {
+/** Read asynchronously: work web's requests wait behind a synchronous walk of /proc. */
+async function linuxProcesses(): Promise<RunningProcess[]> {
   const out: RunningProcess[] = [];
   let pids: string[];
   try {
-    pids = fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d));
+    pids = (await fs.promises.readdir('/proc')).filter((d) => /^\d+$/.test(d));
   } catch {
     return out;
   }
   for (const d of pids) {
     try {
-      const stat = fs.readFileSync(`/proc/${d}/stat`, 'utf-8');
+      const stat = await fs.promises.readFile(`/proc/${d}/stat`, 'utf-8');
       const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
-      const command = fs
-        .readFileSync(`/proc/${d}/cmdline`, 'utf-8')
+      const command = (await fs.promises.readFile(`/proc/${d}/cmdline`, 'utf-8'))
         .split('\0')
         .filter(Boolean)
         .map((w) => (/\s/.test(w) ? `"${w}"` : w))
         .join(' ');
       let exe: string | null = null;
       try {
-        exe = fs.readlinkSync(`/proc/${d}/exe`);
+        exe = await fs.promises.readlink(`/proc/${d}/exe`);
       } catch {
         /* another user's */
       }
@@ -216,22 +263,44 @@ export async function listProcesses(): Promise<RunningProcess[]> {
 }
 
 /** Look up what runs from or names `dirs` now. */
-export async function findHolders(dirs: string[], list: () => Promise<RunningProcess[]> = listProcesses): Promise<Holders> {
+export async function findHolders(
+  dirs: string[],
+  list: () => Promise<RunningProcess[]> = listProcesses,
+  spare: ReadonlySet<number> = workPids(),
+): Promise<Holders> {
   const existing = dirs.filter((d) => fs.existsSync(d));
-  if (existing.length === 0) return { stoppable: [], others: [] };
-  return holdersOf(await list(), existing);
+  if (existing.length === 0) return { stoppable: [], running: [], others: [] };
+  return holdersOf(await list(), existing, process.pid, win, spare);
 }
 
+/** How long a stop waits for what it stopped to be gone (its files let go) before going on. */
+const EXIT_WAIT_MS = 3000;
+
 /**
- * Stop what runs from `dirs` (each tree), and say what: ["node …\vite\bin\vite.js --mode demo (PID 35464)"].
- * Only processes whose program is in the folders — never an editor open on them.
+ * Stop what runs from `dirs`, and say what: ["node …\vite\bin\vite.js --mode demo (PID 35464)"]. Only processes
+ * whose program is in the folders — never an editor open on them, never one of work's own. Windows stops each
+ * tree; POSIX each process (a kill there is one process). Waits a moment for them to be gone, so the folder is
+ * free when it returns.
  */
 export async function stopRunningFrom(
   dirs: string[],
-  io: { list?: () => Promise<RunningProcess[]>; kill?: (pid: number) => boolean } = {},
+  io: {
+    list?: () => Promise<RunningProcess[]>;
+    kill?: (pid: number) => boolean;
+    alive?: (pid: number) => boolean;
+    spare?: ReadonlySet<number>;
+    waitMs?: number;
+  } = {},
 ): Promise<string[]> {
-  const { stoppable } = await findHolders(dirs, io.list);
+  const h = await findHolders(dirs, io.list, io.spare);
   const kill = io.kill ?? killTree;
+  const alive = io.alive ?? isPidAlive;
+  const targets = win ? h.stoppable : (h.running ?? h.stoppable);
+  const stopped = targets.filter((p) => kill(p.pid));
+  for (const until = Date.now() + (io.waitMs ?? EXIT_WAIT_MS); stopped.some((p) => alive(p.pid)) && Date.now() < until;) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
   const norm = dirs.map((d) => normDir(d));
-  return stoppable.filter((p) => kill(p.pid)).map((p) => describeProcess(p, norm));
+  const named = new Set(h.stoppable.map((p) => p.pid));
+  return stopped.filter((p) => named.has(p.pid)).map((p) => describeProcess(p, norm));
 }
