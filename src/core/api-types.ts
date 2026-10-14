@@ -941,6 +941,38 @@ export interface NoteWire {
   note: { text: string; updatedAt: string } | null;
 }
 
+// ---- the Code tab: a session's files, read only (code-browse.ts) ------------------
+
+/** One repo of a session: its files as git lists them (tracked, and new ones not ignored). */
+export interface CodeRepoWire {
+  /** Its folder's name (a group's repos are folders of the group's). */
+  name: string;
+  /** Paths relative to the repo, `/`-separated, sorted. */
+  files: string[];
+  /** Changed on this branch: committed since it left its base, or not committed. */
+  changed: string[];
+  /** More files than are listed (MAX_CODE_FILES). */
+  truncated: boolean;
+}
+
+/** GET /api/sessions/:id/files */
+export interface CodeFilesWire {
+  /** A group: its repos are folders, beside the group folder's own files (`rootFiles`, its CLAUDE.md…). */
+  group: boolean;
+  rootFiles: string[];
+  repos: CodeRepoWire[];
+}
+
+/** GET /api/sessions/:id/file?repo=&path= — one file as it is in the worktree now. */
+export interface CodeFileWire {
+  repo: string;
+  path: string;
+  size: number;
+  /** null with `reason`: not shown as text. */
+  text: string | null;
+  reason?: 'binary' | 'too-large';
+}
+
 // ---- time per session (work-time.ts) ---------------------------------------------
 
 /** GET /api/sessions/:id/time: how long its Claude worked (approximate: see work-time.ts). */

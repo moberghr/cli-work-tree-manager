@@ -9,6 +9,7 @@ const actions = (): HeaderMenuActions => ({
   reconnectTerminal: vi.fn(),
   ship: vi.fn(),
   catchUp: vi.fn(),
+  timeline: vi.fn(),
   sendPrompt: vi.fn(),
   notes: vi.fn(),
   devStart: vi.fn(),

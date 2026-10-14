@@ -35,6 +35,7 @@ import type {
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
+import { demoCodeFile, demoCodeFiles } from './demo-code.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
 import { cleanOrder } from '../../core/rail/session-order.js';
@@ -315,6 +316,23 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
     const base = c.req.query('base') === 'branch' ? 'branch' : 'uncommitted';
     const d = scenario.diff(c.req.param('id'), base);
     return d ? c.json(d) : notFound(c);
+  });
+
+  // The Code tab: the changed files' new side, and a few every project has (demo-code.ts).
+  const demoRepos = (id: string) => {
+    const d = scenario.diff(id, 'branch');
+    const w = scenario.list().find((x) => x.id === id);
+    return d && w ? { repos: d.repos.map((r) => ({ name: r.name, changed: r.files })), group: w.isGroup } : null;
+  };
+  app.get('/api/sessions/:id/files', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    return r ? c.json(demoCodeFiles(r.repos, r.group)) : notFound(c);
+  });
+  app.get('/api/sessions/:id/file', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    if (!r) return notFound(c);
+    const f = demoCodeFile(r.repos, r.group, c.req.query('repo') ?? '', c.req.query('path') ?? '');
+    return f ? c.json(f) : c.json({ error: 'not listed' }, 404);
   });
 
   app.get('/api/sessions/:id/ci', (c) => {

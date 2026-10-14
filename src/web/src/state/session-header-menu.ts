@@ -14,6 +14,8 @@ export interface HeaderMenuActions {
   reconnectTerminal: () => void;
   ship: () => void;
   catchUp: () => void;
+  /** How it got here (its prompts, turns, commits, PRs) and how long its Claude worked. */
+  timeline: () => void;
   sendPrompt: () => void;
   notes: () => void;
   devStart: () => void;
@@ -44,6 +46,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
   return [
     ...live,
     { label: 'Catch me up', hint: sessionKey('catchup'), run: a.catchUp },
+    { label: 'Timeline', run: a.timeline },
     ...(archived ? [] : [{ label: 'Send a prompt…', hint: sessionKey('prompt'), run: a.sendPrompt }]),
     { label: session.hasNote ? 'Notes •' : 'Notes', hint: sessionKey('notes'), run: a.notes },
     ...devItem,

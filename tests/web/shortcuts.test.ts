@@ -73,7 +73,7 @@ describe('runSessionKey', () => {
       'tab term',
       'tab diff',
       'tab pr',
-      'tab timeline',
+      'tab code',
       'archived true',
       'snooze',
       'block',

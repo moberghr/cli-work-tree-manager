@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } from '../../state/shortcuts.js';
 import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { TimelineView } from './TimelineView.js';
+import { CodeView } from '../Code/CodeView.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
@@ -97,6 +98,7 @@ export function SessionDetail({
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
         onShowTerminal={() => onSelectSubTab('term')}
+        onShowTimeline={() => onSelectSubTab('timeline')}
       />
       <nav className="wd-session-subtabs" role="tablist">
         <SubTabButton label="Terminal" active={subTab === 'term'} onClick={() => onSelectSubTab('term')} />
@@ -117,7 +119,7 @@ export function SessionDetail({
             onClick={() => onSelectSubTab('pr')}
           />
         )}
-        <SubTabButton label="Timeline" active={subTab === 'timeline'} onClick={() => onSelectSubTab('timeline')} />
+        <SubTabButton label="Code" active={subTab === 'code'} onClick={() => onSelectSubTab('code')} />
       </nav>
       <div className={'wd-session-subtab-body' + (subTab === 'diff' && diffFull ? ' wd-diff-full' : '')}>
         {subTab === 'diff' && (
@@ -136,9 +138,12 @@ export function SessionDetail({
             <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
           </div>
         )}
+        {subTab === 'code' && <CodeView key={session.id} session={session} onShowDiff={() => onSelectSubTab('diff')} />}
+        {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">
             <div className="wd-timeline-head">
+              <h2 className="wd-timeline-title">Timeline</h2>
               <WorkTimeChip session={session} />
             </div>
             <TimelineView session={session} />
@@ -159,10 +164,12 @@ interface HeaderProps {
   onOpenPr?: () => void;
   /** Show the Terminal tab (Reconnect terminal). */
   onShowTerminal?: () => void;
+  /** Show its timeline (⋯ → Timeline). */
+  onShowTimeline?: () => void;
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
-function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr, onShowTerminal }: HeaderProps) {
+function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr, onShowTerminal, onShowTimeline }: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
@@ -223,6 +230,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
     reconnectTerminal,
     ship: () => setShipOpen(true),
     catchUp: catchUp.run,
+    timeline: () => onShowTimeline?.(),
     sendPrompt: () => setPromptsOpen(true),
     notes: () => setNotesOpen((o) => !o),
     devStart: () => dev.act('start'),

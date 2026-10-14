@@ -18,6 +18,7 @@ import { createInChild, oneAtATime, type CreateWorktree } from '../core/worktree
 import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
+import { mountCodeRoutes } from './routes/code-routes.js';
 import { mountDiffSeenRoutes } from './routes/diff-seen-routes.js';
 import { mountDiffPageRoutes } from './routes/diff-page-routes.js';
 import { mountSetupRoutes } from './routes/setup-routes.js';
@@ -945,6 +946,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountRailRoutes(app, { broadcast });
   // Your notes on a session.
   mountNoteRoutes(app, { broadcast });
+  mountCodeRoutes(app);
   // How far you have looked at a session's diff (its Diff tab's "Since you looked").
   mountDiffSeenRoutes(app);
   // A session's diff on a page of its own (the one wd opens), for a browser window beside the app.

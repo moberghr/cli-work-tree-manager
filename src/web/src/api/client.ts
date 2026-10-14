@@ -724,6 +724,26 @@ export async function fetchTimeline(sessionId: string): Promise<import('../../..
   ).events;
 }
 
+// ---- the Code tab: a session's files, read only -------------------------------
+
+type CodeFilesWire = import('../../../core/api-types.js').CodeFilesWire;
+type CodeFileWire = import('../../../core/api-types.js').CodeFileWire;
+
+export function fetchCodeFiles(sessionId: string): Promise<CodeFilesWire> {
+  return getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
+}
+
+/** One file as it is now; a refusal says why (gone, not listed). */
+export async function fetchCodeFile(sessionId: string, repo: string, path: string): Promise<CodeFileWire> {
+  const q = new URLSearchParams({ repo, path });
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/file?${q.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  const json = (await res.json().catch(() => ({}))) as CodeFileWire & { error?: string };
+  if (!res.ok) throw new Error(json.error === 'not listed' ? 'Not there any more (moved or deleted).' : (json.error ?? `${res.status}`));
+  return json;
+}
+
 // ---- blocked by ----------------------------------------------------------
 
 /** Wait on another session (its id) or a pull request (its URL). */

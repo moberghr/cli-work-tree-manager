@@ -14,7 +14,7 @@ export type SessionAction =
   | 'tab-term'
   | 'tab-diff'
   | 'tab-pr'
-  | 'tab-timeline'
+  | 'tab-code'
   | 'archive'
   | 'snooze'
   | 'block'
@@ -42,7 +42,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'tab-term': { key: '1', label: 'Terminal tab' },
   'tab-diff': { key: '2', label: 'Diff tab' },
   'tab-pr': { key: '3', label: 'PR tab' },
-  'tab-timeline': { key: '4', label: 'Timeline tab' },
+  'tab-code': { key: '4', label: 'Code tab' },
   archive: { key: 'e', label: 'Archive (Restore when archived)' },
   snooze: { key: 'z', label: 'Snooze…' },
   block: { key: 'b', label: 'Blocked by…' },
@@ -147,7 +147,7 @@ export interface SessionActionDetail {
 
 /** What the dashboard does for each of the open session's keys (DashboardApp passes its functions). */
 export interface SessionKeyHandlers {
-  tab: (sub: 'term' | 'diff' | 'pr' | 'timeline') => void;
+  tab: (sub: 'term' | 'diff' | 'pr' | 'code') => void;
   setArchived: (archived: boolean) => void;
   snoozeMenu: () => void;
   blockBy: () => void;
@@ -169,8 +169,8 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.tab('diff');
     case 'tab-pr':
       return h.tab('pr');
-    case 'tab-timeline':
-      return h.tab('timeline');
+    case 'tab-code':
+      return h.tab('code');
     case 'archive':
       return h.setArchived(live);
     case 'snooze':

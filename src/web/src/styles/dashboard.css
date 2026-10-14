@@ -4706,3 +4706,155 @@ a.wd-pr-chip:hover {
     padding: 12px;
   }
 }
+
+/* The Code tab: the session's files (a tree, a filter) beside the open file, read only. */
+.wd-code {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+}
+.wd-code-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+.wd-code-filter {
+  margin: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.wd-code-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+.wd-code-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: left;
+  padding-right: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-code-row:hover {
+  background: var(--hover);
+}
+.wd-code-row-open {
+  background: var(--current);
+  font-weight: 600;
+}
+.wd-code-caret {
+  width: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.wd-code-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wd-code-dir .wd-code-name {
+  color: var(--fg);
+}
+/* Changed on the branch: a dot on a file, a count on a folder. */
+.wd-code-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-modified-fg);
+  margin-left: auto;
+}
+.wd-code-changed-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--status-modified-fg);
+}
+.wd-code-note {
+  margin: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wd-code-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.wd-code-empty {
+  margin: 32px auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+.wd-code-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+  min-height: 34px;
+}
+.wd-code-path {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wd-code-meta {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.wd-code-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--status-modified-fg);
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wd-code-btn:hover {
+  border-color: var(--status-modified-fg);
+}
+.wd-code-head .wd-diff-update {
+  margin-left: auto;
+}
+.wd-code-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.wd-code-table {
+  border: none;
+}
+/* Code doesn't wrap: it scrolls sideways, as in an editor. */
+.wd-code-table .wd-fileview-content {
+  white-space: pre;
+  word-break: normal;
+}
+.wd-timeline-title {
+  display: inline-block;
+  margin: 0 12px 0 0;
+  font-size: 15px;
+}

@@ -13,7 +13,8 @@
  *   `#/s/<sessionId>/term`           → Session detail · terminal
  *   `#/s/<sessionId>/diff`           → Session detail · diff (comments included)
  *   `#/s/<sessionId>/pr`             → Session detail · its pull requests (stage, checks, review threads)
- *   `#/s/<sessionId>/timeline`       → Session detail · timeline
+ *   `#/s/<sessionId>/code`           → Session detail · code (its files, read only)
+ *   `#/s/<sessionId>/timeline`       → Session detail · timeline (from its ⋯ menu; no tab of its own)
  *
  * Old links still open: `…/comments` on the Diff (where comments are now),
  * `…/chat` on the Terminal (the headless chat is gone).
@@ -28,7 +29,7 @@ export type DashboardTab = 'inbox' | 'today' | 'sessions' | 'cleanup' | 'start' 
 
 /** Pages that no longer exist, and where their links land now. */
 const OLD_TAB: Record<string, DashboardTab> = { tasks: 'sessions', prs: 'start' };
-export type SessionSubTab = 'diff' | 'term' | 'pr' | 'timeline';
+export type SessionSubTab = 'diff' | 'term' | 'pr' | 'code' | 'timeline';
 
 /** Sub-tabs that no longer exist, and where their links land now. */
 const OLD_SUB_TAB: Record<string, SessionSubTab> = { comments: 'diff', chat: 'term' };
@@ -49,7 +50,7 @@ export const DEFAULT_ROUTE: DashboardRoute = {
 };
 
 const TAB_RE = /^#\/(inbox|today|sessions|cleanup|start|repos|welcome|prs|jira|time|tasks)\/?$/;
-const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|timeline))?\/?$/;
+const SESSION_RE = /^#\/s\/([^/]+)(?:\/(chat|diff|term|comments|pr|code|timeline))?\/?$/;
 
 export function parseHash(hash: string): DashboardRoute {
   if (!hash || hash === '#' || hash === '#/') return DEFAULT_ROUTE;

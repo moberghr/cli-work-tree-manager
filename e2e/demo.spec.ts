@@ -582,3 +582,20 @@ test('the terminal follows the window both ways: it grows, and shrinks back', as
   const after = await widths();
   expect(after.screen).toBeLessThanOrEqual(after.host); // nothing drawn past the edge
 });
+
+test("Code tab: the session's files, a changed one read with its highlighting; Timeline moved to the ⋯ menu", async ({ page }) => {
+  await page.goto(`${url}#/s/demo-web-fix-login-redirect`);
+  await page.getByRole('tab', { name: 'Code' }).click();
+  await expect(page).toHaveURL(/\/code$/);
+  await page.locator('button.wd-code-dir', { hasText: 'src' }).click();
+  await page.locator('button.wd-code-file', { hasText: 'auth.ts' }).first().click();
+  await expect(page.locator('.wd-code-path')).toHaveText(/auth/);
+  await expect(page.locator('.wd-code-table .wd-fileview-row').first()).toBeVisible();
+  await page.locator('.wd-code-filter').fill('readme');
+  await expect(page.locator('button.wd-code-file')).toHaveText(['README.md']);
+
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: /^Timeline/ }).click();
+  await expect(page).toHaveURL(/\/timeline$/);
+  await expect(page.locator('.wd-timeline-title')).toHaveText('Timeline');
+});
