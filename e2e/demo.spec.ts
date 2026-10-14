@@ -594,6 +594,16 @@ test("Code tab: the session's files, a changed one read with its highlighting; T
   await page.locator('.wd-code-filter').fill('readme');
   await expect(page.locator('button.wd-code-file')).toHaveText(['README.md']);
 
+  // Search the code (Ctrl+T in the app; the button here): a type by name, then a line of text, opened at its line.
+  await page.locator('.wd-code-search-btn').click();
+  const box = page.getByRole('dialog', { name: 'Search the code' });
+  await box.getByRole('combobox').fill('login');
+  await expect(box.locator('.wd-code-search-heading').first()).toHaveText('Types & members');
+  await expect(box.getByRole('option').first()).toContainText('afterLogin');
+  await box.getByRole('option', { name: /never redirects back/ }).click();
+  await expect(page.locator('.wd-code-path')).toHaveText('src/auth.test.ts');
+  await expect(page.locator('.wd-code-line-mark')).toHaveAttribute('data-line', '3');
+
   await page.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('menuitem', { name: /^Timeline/ }).click();
   await expect(page).toHaveURL(/\/timeline$/);

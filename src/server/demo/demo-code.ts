@@ -1,5 +1,6 @@
 import type { ParsedFile } from '../../core/diff/diff-parse.js';
-import type { CodeFileWire, CodeFilesWire } from '../../core/api-types.js';
+import type { CodeFileWire, CodeFilesWire, CodeSearchWire, CodeSymbol, CodeTextHit } from '../../core/api-types.js';
+import { declarationOf, ignoresCase, matchSymbols } from '../../core/worktree/code-symbols.js';
 
 /**
  * The Code tab in the demo: each repo's files are its changed ones (their
@@ -53,4 +54,24 @@ export function demoCodeFile(repos: DemoRepoFiles[], group: boolean, repo: strin
   const changed = r.changed.find((f) => f.path === path && f.status !== 'deleted');
   const text = changed ? newSide(changed) : COMMON[path]?.replace(/\{repo\}/g, repo);
   return text === undefined ? null : { repo, path, size: text.length, text };
+}
+
+/** The Code tab's search over the demo's files: by name (their declarations) and inside them. */
+export function demoCodeSearch(repos: DemoRepoFiles[], group: boolean, query: string): CodeSearchWire {
+  const q = query.trim();
+  if (q.length < 2) return { query: q, symbols: [], text: [], truncated: false };
+  const symbols: CodeSymbol[] = [];
+  const text: CodeTextHit[] = [];
+  const fold = (x: string) => (ignoresCase(q) ? x.toLowerCase() : x);
+  for (const r of demoCodeFiles(repos, group).repos) {
+    for (const path of r.files) {
+      const lines = (demoCodeFile(repos, group, r.name, path)?.text ?? '').split('\n');
+      lines.forEach((line, i) => {
+        const d = declarationOf(path, line);
+        if (d) symbols.push({ ...d, repo: r.name, path, line: i + 1, text: line.trim() });
+        if (fold(line).includes(fold(q))) text.push({ repo: r.name, path, line: i + 1, text: line });
+      });
+    }
+  }
+  return { query: q, symbols: matchSymbols(symbols, q), text, truncated: false };
 }

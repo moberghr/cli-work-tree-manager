@@ -35,7 +35,7 @@ import type {
 } from '../../core/api-types.js';
 import { dayKey } from '../../core/conversations/work-time-view.js';
 import { parsePoint } from '../../core/diff/diff-points.js';
-import { demoCodeFile, demoCodeFiles } from './demo-code.js';
+import { demoCodeFile, demoCodeFiles, demoCodeSearch } from './demo-code.js';
 import { DEFAULT_PROMPTS } from '../../core/sessions/saved-prompts.js';
 import { buildStamp } from '../../core/platform/build-stamp.js';
 import { cleanOrder } from '../../core/rail/session-order.js';
@@ -327,6 +327,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
   app.get('/api/sessions/:id/files', (c) => {
     const r = demoRepos(c.req.param('id'));
     return r ? c.json(demoCodeFiles(r.repos, r.group)) : notFound(c);
+  });
+  app.get('/api/sessions/:id/code-search', (c) => {
+    const r = demoRepos(c.req.param('id'));
+    return r ? c.json(demoCodeSearch(r.repos, r.group, c.req.query('q') ?? '')) : notFound(c);
   });
   app.get('/api/sessions/:id/file', (c) => {
     const r = demoRepos(c.req.param('id'));

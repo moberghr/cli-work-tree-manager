@@ -3,6 +3,9 @@ import { SESSION_ACTION_EVENT, type SessionAction, type SessionActionDetail } fr
 import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { TimelineView } from './TimelineView.js';
 import { CodeView } from '../Code/CodeView.js';
+import { CodeSearch } from '../Code/CodeSearch.js';
+import type { CodePlace } from '../../state/code-search-view.js';
+import { modalOpen } from '../../state/modal-open.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
 import { WorkTimeChip } from './WorkTimeChip.js';
@@ -81,6 +84,27 @@ export function SessionDetail({
   const [diffFull, setDiffFull] = useState(false);
   // Left (another session, or another of its tabs): full screen is over, and doesn't come back by itself.
   useEffect(() => setDiffFull(false), [session.id, subTab]);
+  // Ctrl+T, as Visual Studio's: search the session's code from any of its tabs (a terminal too: the capture
+  // phase). A pick opens the Code tab at its line. Not over another dialog; not in a browser tab, which keeps
+  // Ctrl+T for itself (the Code tab's button opens it there).
+  const [searching, setSearching] = useState(false);
+  const [goto, setGoto] = useState<(CodePlace & { seq: number }) | null>(null);
+  useEffect(() => setGoto(null), [session.id]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 't') return;
+      if (isArchived(session) || (modalOpen() && !searching)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSearching((o) => !o);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [session, searching]);
+  const openPlace = (p: CodePlace) => {
+    setGoto((g) => ({ ...p, seq: (g?.seq ?? 0) + 1 }));
+    onSelectSubTab('code');
+  };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
   // The PR tab's Ship… opens the header's Ship panel (the same as Shift+S).
   const openShip = () =>
@@ -138,7 +162,16 @@ export function SessionDetail({
             <PrTab key={session.id} session={session} prs={prs} onShip={openShip} />
           </div>
         )}
-        {subTab === 'code' && <CodeView key={session.id} session={session} onShowDiff={() => onSelectSubTab('diff')} />}
+        {subTab === 'code' && (
+          <CodeView
+            key={session.id}
+            session={session}
+            onShowDiff={() => onSelectSubTab('diff')}
+            goto={goto}
+            onSearch={isArchived(session) ? undefined : () => setSearching(true)}
+          />
+        )}
+        {searching && <CodeSearch sessionId={session.id} onPick={openPlace} onClose={() => setSearching(false)} />}
         {/* From the ⋯ menu (and old links): no tab of its own, so it says what it is. */}
         {subTab === 'timeline' && (
           <div className="wd-timeline-tab">

@@ -128,6 +128,7 @@ export function shortcutGroups(): Array<{ title: string; rows: ShortcutRow[] }> 
       rows: [
         ...Object.values(SESSION_KEYS).map((d) => ({ keys: keyText(d), label: d.label })),
         { keys: 'F2', label: 'Rename' },
+        { keys: 'Ctrl+T', label: "Search its code: types and members, files, text (in the app; in a browser, the Code tab's button)" },
         { keys: 'Alt+↑ / ↓', label: 'Move it up / down the list (on its row)' },
       ],
     },

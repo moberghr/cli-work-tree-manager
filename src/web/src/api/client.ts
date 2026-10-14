@@ -733,6 +733,21 @@ export function fetchCodeFiles(sessionId: string): Promise<CodeFilesWire> {
   return getJson<CodeFilesWire>(`/api/sessions/${encodeURIComponent(sessionId)}/files`);
 }
 
+/** Types and members by name, and lines with it in them (Ctrl+T). A newer search aborts this one (`signal`). */
+export function fetchCodeSearch(
+  sessionId: string,
+  q: string,
+  signal?: AbortSignal,
+): Promise<import('../../../core/api-types.js').CodeSearchWire> {
+  return fetch(`/api/sessions/${encodeURIComponent(sessionId)}/code-search?${new URLSearchParams({ q }).toString()}`, {
+    headers: { Accept: 'application/json' },
+    signal,
+  }).then((res) => {
+    if (!res.ok) throw new Error(`${res.status} searching`);
+    return res.json() as Promise<import('../../../core/api-types.js').CodeSearchWire>;
+  });
+}
+
 /** One file as it is now; a refusal says why (gone, not listed). */
 export async function fetchCodeFile(sessionId: string, repo: string, path: string): Promise<CodeFileWire> {
   const q = new URLSearchParams({ repo, path });

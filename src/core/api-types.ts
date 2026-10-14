@@ -963,6 +963,36 @@ export interface CodeFilesWire {
   repos: CodeRepoWire[];
 }
 
+/** A line with what was searched for in it (code-search.ts). */
+export interface CodeTextHit {
+  repo: string;
+  path: string;
+  line: number;
+  text: string;
+}
+
+export type CodeSymbolKind = 'class' | 'interface' | 'record' | 'struct' | 'enum' | 'type' | 'function' | 'method' | 'property' | 'const';
+
+/** A declaration: a type or member, where it is. */
+export interface CodeSymbol {
+  name: string;
+  kind: CodeSymbolKind;
+  repo: string;
+  path: string;
+  line: number;
+  /** Its line, trimmed. */
+  text: string;
+}
+
+/** GET /api/sessions/:id/code-search?q= — by name and inside the files. */
+export interface CodeSearchWire {
+  query: string;
+  symbols: CodeSymbol[];
+  text: CodeTextHit[];
+  /** More lines matched than came back. */
+  truncated: boolean;
+}
+
 /** GET /api/sessions/:id/file?repo=&path= — one file as it is in the worktree now. */
 export interface CodeFileWire {
   repo: string;

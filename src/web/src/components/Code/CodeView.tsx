@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeFileWire, CodeFilesWire } from '../../../../core/api-types.js';
 import { fetchCodeFile, fetchCodeFiles, type SessionSummary } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
-import { codeEntries, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
+import { codeEntries, codeKey, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
+import type { CodePlace } from '../../state/code-search-view.js';
 import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
 
 /** Highlighted up to this many lines; plain past it (a generated file shouldn't stall the page). */
@@ -24,7 +25,19 @@ const memoryOf = (id: string) => {
  * isn't swapped under you: "Changed · Reload" (as the Diff tab stages its
  * updates).
  */
-export function CodeView({ session, onShowDiff }: { session: SessionSummary; onShowDiff: () => void }) {
+export function CodeView({
+  session,
+  onShowDiff,
+  goto,
+  onSearch,
+}: {
+  session: SessionSummary;
+  onShowDiff: () => void;
+  /** Open this place (a search's pick): its file, scrolled to its line and marked. `seq` tells a second pick of the same place apart. */
+  goto?: (CodePlace & { seq: number }) | null;
+  /** Ctrl+T's box: types, members, files and text. */
+  onSearch?: () => void;
+}) {
   const memory = memoryOf(session.id);
   const [listing, setListing] = useState<CodeFilesWire | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -35,6 +48,8 @@ export function CodeView({ session, onShowDiff }: { session: SessionSummary; onS
   const [fileError, setFileError] = useState<string | null>(null);
   // A newer version of the open file, held back until you reload it.
   const [newer, setNewer] = useState<CodeFileWire | null>(null);
+  // The line a search picked: marked, and scrolled to once the file is drawn.
+  const [mark, setMark] = useState<{ key: string; line: number; seq: number } | null>(null);
 
   const entries = useMemo(() => (listing ? codeEntries(listing) : []), [listing]);
   const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
@@ -54,6 +69,27 @@ export function CodeView({ session, onShowDiff }: { session: SessionSummary; onS
     );
   };
   useEffect(loadList, [session.id]); // eslint-disable-line react-hooks/exhaustive-deps -- once per session; the stream reloads it
+
+  // A search's pick: its file opens with its folders, at its line.
+  useEffect(() => {
+    if (!goto) return;
+    const key = codeKey(goto.repo, goto.path);
+    setOpen(key);
+    const entry = byKey.get(key);
+    if (entry) {
+      const next = new Set(folders);
+      for (const d of foldersOf(entry.display)) next.add(d);
+      memory.folders = next;
+      setFolders(next);
+    }
+    setMark(goto.line ? { key, line: goto.line, seq: goto.seq } : null);
+  }, [goto?.seq, byKey.size > 0]); // eslint-disable-line react-hooks/exhaustive-deps -- a new pick, or the listing it needed arriving
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!mark || mark.key !== open || !file) return;
+    scrollRef.current?.querySelector(`[data-line="${mark.line}"]`)?.scrollIntoView({ block: 'center' });
+  }, [mark, open, file]);
 
   const setOpen = (key: string | null) => {
     memory.open = key;
@@ -121,6 +157,17 @@ export function CodeView({ session, onShowDiff }: { session: SessionSummary; onS
   return (
     <div className="wd-code">
       <aside className="wd-code-side" aria-label="Files">
+        {onSearch && (
+          <button
+            type="button"
+            className="wd-code-search-btn"
+            onClick={onSearch}
+            title="Types and members by name, files, and text in them"
+          >
+            <span>Search the code…</span>
+            <kbd>Ctrl+T</kbd>
+          </button>
+        )}
         <input
           className="wd-code-filter"
           type="search"
@@ -197,13 +244,17 @@ export function CodeView({ session, onShowDiff }: { session: SessionSummary; onS
                   : `Too big to show here (${(file.size / 1024 / 1024).toFixed(1)} MB). Open it in your editor (o).`}
               </p>
             ) : (
-              <div className="wd-code-scroll">
+              <div className="wd-code-scroll" ref={scrollRef}>
                 <table className="wd-fileview-table wd-code-table">
                   <tbody>
                     {lines!.map((content, i) => {
                       const h = html?.[i] ?? null;
                       return (
-                        <tr key={i} className="wd-fileview-row">
+                        <tr
+                          key={i}
+                          data-line={i + 1}
+                          className={'wd-fileview-row' + (mark && mark.key === open && mark.line === i + 1 ? ' wd-code-line-mark' : '')}
+                        >
                           <td className="wd-fileview-ln">{i + 1}</td>
                           {h !== null ? (
                             <td className="wd-fileview-content" dangerouslySetInnerHTML={{ __html: h }} />

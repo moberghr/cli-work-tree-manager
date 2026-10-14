@@ -59,6 +59,7 @@ describe('demo mode is separated from the real machinery', () => {
       'src/core/pty/host-health.ts', // pure: how the PTY host is doing
       'src/core/worktree/branch-name.ts', // pure: the next free branch name
       'src/core/worktree/repo-rules.ts', // pure: aliases and groups, what's allowed
+      'src/core/worktree/code-symbols.ts', // pure: declarations by pattern, matching names (the Code tab's search)
       'src/core/pr/pr-stage.ts', // pure: where a PR stands
       'src/core/pr/pr-ref.ts', // pure: a PR's link or number, and its session's first prompt
       'src/core/updates/updates.ts', // pure: versions, release notes, what to offer
