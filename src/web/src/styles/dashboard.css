@@ -3367,9 +3367,12 @@ a.wd-pr-chip:hover {
 }
 
 /* What's new: the release notes, newest first. */
-.wd-whats-new {
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100vh - 80px);
+/* Wide enough to read release notes at a glance: past the dialogs' usual cap (.wd-modal: 560px, and review.css's
+   460px, which loads later — hence the two classes). */
+.wd-modal.wd-whats-new {
+  width: min(900px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
 }
