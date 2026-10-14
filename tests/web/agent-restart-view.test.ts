@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AgentsWire } from '../../src/core/api-types.js';
-import { outdatedText, queuedText, restartLabel, restartSummary } from '../../src/web/src/state/agent-restart-view.js';
+import { outdatedNames, outdatedText, queuedText, restartLabel, restartSummary } from '../../src/web/src/state/agent-restart-view.js';
 import { AgentsRestartCard } from '../../src/web/src/components/Dashboard/AgentsRestartCard.js';
 import { HelpMenu } from '../../src/web/src/components/Dashboard/HelpMenu.js';
 
@@ -75,5 +75,55 @@ describe('HelpMenu: outdated agents', () => {
     expect(container.textContent).toContain('Claude Code was updated: 2 sessions still run the old version.');
     act(() => button('Restart (1 now, 1 after its turn)')!.click());
     expect(onRestartAgents).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('which sessions still run the old version', () => {
+  const sessions = [
+    { id: 's0', target: 'api', branch: 'feat/x', title: 'Invoices', titleIsYours: true },
+    { id: 's1', target: 'web', branch: 'fix/login', title: 'auto title', titleIsYours: false },
+  ];
+  it('named as the rail names them, the assistant as such, an unknown one by its id; the waiting ones last', () => {
+    const w: AgentsWire = {
+      installedAt: '2026-10-11T11:12:00.000Z',
+      outdated: [
+        { id: 's0', tool: 'claude', startedAt: '2026-10-08T09:00:00Z', busy: true },
+        { id: 's1', tool: 'claude', startedAt: '2026-10-08T09:00:00Z', busy: false },
+        { id: 'assistant', tool: 'claude', startedAt: '2026-10-08T09:00:00Z', busy: false },
+        { id: 'gone', tool: 'claude', startedAt: '2026-10-08T09:00:00Z', busy: false },
+      ],
+      queued: ['gone'],
+    };
+    expect(outdatedNames(w, sessions as never)).toEqual([
+      { id: 's1', name: 'fix/login · web', waits: false },
+      { id: 'assistant', name: 'the Ctrl+K assistant', waits: false },
+      { id: 's0', name: 'Invoices · api', waits: true },
+      { id: 'gone', name: 'gone', waits: true },
+    ]);
+    expect(outdatedNames(null, sessions as never)).toEqual([]);
+  });
+
+  it('the card lists them; a name opens its session, the waiting one says so', () => {
+    const onOpen = vi.fn();
+    const names = [
+      { id: 's1', name: 'fix/login · web', waits: false },
+      { id: 's0', name: 'Invoices · api', waits: true },
+    ];
+    act(() =>
+      root.render(
+        createElement(AgentsRestartCard, {
+          agents: agents([false, true]),
+          onRestart: () => {},
+          restarting: false,
+          note: null,
+          names,
+          onOpen,
+        }),
+      ),
+    );
+    const items = [...container.querySelectorAll('.wd-outdated-list li')].map((li) => li.textContent);
+    expect(items).toEqual(['fix/login · web', 'Invoices · api · after its turn']);
+    act(() => button('fix/login')!.click());
+    expect(onOpen).toHaveBeenCalledWith('s1');
   });
 });

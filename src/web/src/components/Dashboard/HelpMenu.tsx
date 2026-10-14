@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentsWire, UpdateWire } from '../../../../core/api-types.js';
-import { outdatedText, queuedText, restartLabel } from '../../state/agent-restart-view.js';
+import { outdatedText, queuedText, restartLabel, type OutdatedName } from '../../state/agent-restart-view.js';
+import { OutdatedList } from './AgentsRestartCard.js';
 import { VERSION } from '../../version.js';
 import { ProgressBar } from './UpdateStrip.js';
 import { mismatchText, type VersionMismatch } from '../../../../core/updates/updates.js';
@@ -22,6 +23,9 @@ export interface HelpMenuProps {
   onRestartAgents?: () => void;
   restartingAgents?: boolean;
   agentsNote?: string | null;
+  /** Which sessions are outdated (outdatedNames), and opening one. */
+  agentNames?: OutdatedName[];
+  onOpenSession?: (id: string) => void;
   /** In the desktop app: flash its taskbar button when a session newly needs you (use-taskbar.ts). */
   taskbarFlash?: { on: boolean; set: (on: boolean) => void };
 }
@@ -58,6 +62,8 @@ export function HelpMenu({
   onRestartAgents,
   restartingAgents,
   agentsNote,
+  agentNames = [],
+  onOpenSession,
   taskbarFlash,
 }: HelpMenuProps) {
   const [open, setOpen] = useState(false);
@@ -123,6 +129,18 @@ export function HelpMenu({
             </button>
           )}
           {agentsText && <p className="wd-help-note">{agentsText}</p>}
+          {agentsText && (
+            <OutdatedList
+              names={agentNames}
+              onOpen={
+                onOpenSession &&
+                ((id) => {
+                  setOpen(false);
+                  onOpenSession(id);
+                })
+              }
+            />
+          )}
           {agentsLabel && (
             <button type="button" className="wd-row-menu-item" disabled={restartingAgents} onClick={onRestartAgents}>
               {restartingAgents ? 'Restarting…' : `${agentsLabel} — each picks up its conversation`}

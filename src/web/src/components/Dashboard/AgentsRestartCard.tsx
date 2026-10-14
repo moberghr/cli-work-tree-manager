@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AgentsWire } from '../../../../core/api-types.js';
-import { outdatedText, queuedText, restartLabel } from '../../state/agent-restart-view.js';
+import { outdatedText, queuedText, restartLabel, type OutdatedName } from '../../state/agent-restart-view.js';
 
 const LATER_KEY = 'work:agents-restart-later';
 
@@ -23,11 +23,16 @@ export function AgentsRestartCard({
   onRestart,
   restarting,
   note,
+  names = [],
+  onOpen,
 }: {
   agents: AgentsWire | null;
   onRestart: () => void;
   restarting: boolean;
   note: string | null;
+  /** Which sessions (outdatedNames): listed, each opens its session. */
+  names?: OutdatedName[];
+  onOpen?: (id: string) => void;
 }) {
   const [later, setLater] = useState<string | null>(laterFor);
   const text = outdatedText(agents);
@@ -47,6 +52,7 @@ export function AgentsRestartCard({
   return (
     <div className="wd-update-strip" role="status" aria-label="Restart agents">
       <span className="wd-update-text">{text}</span>
+      <OutdatedList names={names} onOpen={onOpen} />
       <span className="wd-update-actions">
         <button type="button" className="wd-link-button" onClick={dismiss}>
           Later
@@ -61,6 +67,39 @@ export function AgentsRestartCard({
         {note ?? waiting ?? 'Each picks up its conversation where it was; one at work restarts when its turn ends.'}
       </span>
     </div>
+  );
+}
+
+/** Shown before the rest are folded. */
+const NAMES_SHOWN = 4;
+
+/** The outdated sessions by name, each a link to it; one that waits for its turn says so. */
+export function OutdatedList({ names, onOpen }: { names: OutdatedName[]; onOpen?: (id: string) => void }) {
+  const [all, setAll] = useState(false);
+  if (names.length === 0) return null;
+  const shown = all ? names : names.slice(0, NAMES_SHOWN);
+  return (
+    <ul className="wd-outdated-list" aria-label="Sessions on the old version">
+      {shown.map((n) => (
+        <li key={n.id}>
+          {onOpen && n.id !== 'assistant' ? (
+            <button type="button" className="wd-link-button" onClick={() => onOpen(n.id)}>
+              {n.name}
+            </button>
+          ) : (
+            <span>{n.name}</span>
+          )}
+          {n.waits && <span className="wd-outdated-waits"> · after its turn</span>}
+        </li>
+      ))}
+      {!all && names.length > NAMES_SHOWN && (
+        <li>
+          <button type="button" className="wd-link-button" onClick={() => setAll(true)}>
+            and {names.length - NAMES_SHOWN} more
+          </button>
+        </li>
+      )}
+    </ul>
   );
 }
 

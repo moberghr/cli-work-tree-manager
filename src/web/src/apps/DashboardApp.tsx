@@ -7,6 +7,7 @@ import { useUpdates } from '../hooks/use-updates.js';
 import { useOutdatedAgents } from '../hooks/use-outdated-agents.js';
 import { useTaskbar } from '../hooks/use-taskbar.js';
 import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js';
+import { outdatedNames } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
@@ -742,6 +743,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     .sort()
     .join(',');
   const needingYou = useMemo(() => new Set(needingYouKey ? needingYouKey.split(',') : []), [needingYouKey]);
+  // Which sessions still run the old Claude Code, by name (the card and the version menu list them).
+  const agentNames = useMemo(() => outdatedNames(outdatedAgents.agents, sessions), [outdatedAgents.agents, sessions]);
   const taskbar = useTaskbar(inboxCount, needingYou, { ready: sessionsLoaded });
 
   // -- Render --------------------------------------------------------------
@@ -888,6 +891,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
             onRestartAgents={outdatedAgents.restart}
             restartingAgents={outdatedAgents.restarting}
             agentsNote={outdatedAgents.note}
+            agentNames={agentNames}
+            onOpenSession={(id) => openSession(id)}
             taskbarFlash={taskbar.inApp ? { on: taskbar.flashOn, set: taskbar.setFlashOn } : undefined}
             // In the app: its own version against the work web this window shows (the server's own `running`).
             mismatch={desk ? versionMismatch(desk.update.appVersion, upd.updates?.running) : null}
@@ -937,6 +942,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       {/* One card at a time in that corner: work's own update first. */}
       {!updates?.available && (
         <AgentsRestartCard
+          names={agentNames}
+          onOpen={(id) => openSession(id)}
           agents={outdatedAgents.agents}
           onRestart={outdatedAgents.restart}
           restarting={outdatedAgents.restarting}

@@ -3213,6 +3213,25 @@ a.wd-pr-chip:hover {
 .wd-help-status {
   color: var(--accent);
 }
+/* The sessions still on the old version, in the restart card and the version menu. */
+.wd-outdated-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 4px;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+.wd-update-strip .wd-outdated-list {
+  padding: 0;
+}
+.wd-outdated-list .wd-link-button {
+  text-align: left;
+  padding: 0;
+}
+.wd-outdated-waits {
+  color: var(--muted);
+}
 /* The version menu's switch: a row like its items, the box beside its text. */
 .wd-help-toggle {
   display: flex;
