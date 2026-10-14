@@ -144,17 +144,38 @@ export function sinceLooked(
   if (seenId === null || seenId === undefined) return null;
   const seen = entries.find((e) => e.id === seenId);
   if (!seen || (seenTs && seen.ts !== seenTs) || !entries.some((e) => e.id > seenId)) return null;
-  const seenAt = Date.parse(seen.ts);
+  return fromTurn(items, seen, 'Since you looked');
+}
+
+/** From a turn to the working tree, every turn and commit after it marked. */
+function fromTurn(items: HistoryItem[], turn: CheckpointEntry, label: string): DiffSelection {
+  const at = Date.parse(turn.ts);
   const first = items.find(
-    (x) => x.kind !== 'uncommitted' && (x.after.kind === 'checkpoint' ? x.after.id > seenId : (Date.parse(x.at ?? '') || 0) > seenAt),
+    (x) => x.kind !== 'uncommitted' && (x.after.kind === 'checkpoint' ? x.after.id > turn.id : (Date.parse(x.at ?? '') || 0) > at),
   );
   return {
     kind: 'range',
     fromKey: first?.key ?? UNCOMMITTED_KEY,
     toKey: UNCOMMITTED_KEY,
-    from: { kind: 'checkpoint', id: seenId },
-    label: 'Since you looked',
+    from: { kind: 'checkpoint', id: turn.id },
+    label,
   };
+}
+
+/**
+ * The update chip's "Only new": what changed since the diff on screen was read — from the newest turn taken
+ * before its request started (that diff has it) to the working tree. Turn granularity: changes on screen that
+ * no turn captured yet (read mid-turn) come round again. Null with no turn before it, or when it isn't known
+ * when the diff on screen was read. Pure.
+ */
+export function onlyNew(items: HistoryItem[], entries: CheckpointEntry[], readAtMs: number | undefined): DiffSelection | null {
+  if (readAtMs === undefined) return null;
+  let turn: CheckpointEntry | undefined;
+  for (const e of entries) {
+    const t = Date.parse(e.ts);
+    if (Number.isFinite(t) && t <= readAtMs && (!turn || e.id > turn.id)) turn = e;
+  }
+  return turn ? fromTurn(items, turn, 'Only new') : null;
 }
 
 /** When a look was, the way people say it: "Today 14:05", "Yesterday 17:40", "Mon 6 Oct 09:12" (local time). Pure. */

@@ -41,6 +41,7 @@ import {
   selectionKey,
   selectionRange,
   sinceLooked,
+  onlyNew,
   yourLooks,
   SINCE_BRANCH,
   UNCOMMITTED,
@@ -187,6 +188,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     [],
   );
 
+  const readAt = useRef(new WeakMap<object, number>());
   const isGroup = session.paths.length > 1;
   // Every repo's commits, for what a pick means (a commit of another repo
   // stays picked when you switch tabs); the tab's own, for the list.
@@ -250,10 +252,14 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     applyPending,
     reload,
     checkForUpdates,
-  } = useDeferredDiffLoad(
-    () => (range ? fetchSessionDiff(session.id, 'uncommitted', range) : fetchSessionDiff(session.id, base)),
-    [session.id, selectionKey(shown), range && pointParam(range.from), range && pointParam(range.to)],
-  );
+  } = useDeferredDiffLoad(() => {
+    // When each diff's request started (keyed by the payload): "Only new" diffs from the newest turn before it.
+    const started = Date.now();
+    return (range ? fetchSessionDiff(session.id, 'uncommitted', range) : fetchSessionDiff(session.id, base)).then((d) => {
+      readAt.current.set(d, started);
+      return d;
+    });
+  }, [session.id, selectionKey(shown), range && pointParam(range.from), range && pointParam(range.to)]);
   // Lines are read at the version of the diff ON SCREEN: a new pick's still loading while the last one shows (stale),
   // so the point is taken when the diff arrives (stale answers are dropped, so it's the pick it was fetched for).
   // eslint-disable-next-line react-hooks/exhaustive-deps -- on purpose: follows the diff shown, not the pick
@@ -379,6 +385,8 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const reposWithChanges = diff ? diff.repos.filter((r) => r.files.length > 0).length : 0;
   // File count of the staged (not-yet-shown) diff, for the chip's summary.
   const pendingFileCount = pending ? pending.repos.reduce((s, r) => s + r.files.length, 0) : null;
+  // Only what came since the diff on screen was read (a pick refetches, which drops the staged one).
+  const newOnly = pending && diff ? onlyNew(allItems, entries, readAt.current.get(diff)) : null;
 
   const toolbar = (
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
@@ -448,7 +456,14 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
             {commitRepo} only
           </span>
         )}
-        {pending && <DiffUpdateChip filesChanged={pendingFileCount} onShow={applyPending} onReload={reloadFromTop} />}
+        {pending && (
+          <DiffUpdateChip
+            filesChanged={pendingFileCount}
+            onShow={applyPending}
+            onReload={reloadFromTop}
+            onShowNewOnly={newOnly ? () => setSelection(newOnly) : undefined}
+          />
+        )}
       </div>
       <div className="wd-web-difftoolbar-controls">
         <DiffModeToggle />
