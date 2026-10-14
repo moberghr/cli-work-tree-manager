@@ -102,7 +102,7 @@ describe('session header', () => {
     expect(buttonsIn(header())).toEqual(['Restore', '⋯']);
     act(() => more().click());
     // Each with its key (state/shortcuts.ts).
-    expect(menuItems()).toEqual(['Catch me upr', 'Timeline', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
+    expect(menuItems()).toEqual(['Catch me upr', 'Timelinel', 'Notes⇧N', 'RenameF2', 'Delete…⇧Del']);
   });
 
   it('⋯ lists the rest, with how full the context is at the bottom; a second click closes it', async () => {
@@ -114,7 +114,7 @@ describe('session header', () => {
       'Open in terminal⇧T',
       'Ship (push, PR, merge)…⇧S',
       'Catch me upr',
-      'Timeline',
+      'Timelinel',
       'Send a prompt…p',
       'Notes⇧N',
       'Start dev server:3017 · ⇧D',

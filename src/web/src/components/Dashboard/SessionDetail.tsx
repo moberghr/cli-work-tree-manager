@@ -64,6 +64,9 @@ interface Props {
  * (the bare `ReviewApp`) — this is the dashboard's per-session view,
  * not the bare reviewer. Same data underneath; different chrome.
  */
+/** Ctrl+T picks, counted for the page: a pick after switching sessions is never taken for an old one. */
+let pickSeq = 0;
+
 export function SessionDetail({
   session,
   subTab,
@@ -102,7 +105,8 @@ export function SessionDetail({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [session, searching]);
   const openPlace = (p: CodePlace) => {
-    setGoto((g) => ({ ...p, seq: (g?.seq ?? 0) + 1 }));
+    // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
+    setGoto({ ...p, seq: ++pickSeq });
     onSelectSubTab('code');
   };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
@@ -243,6 +247,7 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
       if (r) setMenu({ x: r.right, y: r.bottom + 4 });
     } else if (a === 'prompt' && live) setPromptsOpen(true);
     else if (a === 'catchup') catchUp.run();
+    else if (a === 'timeline') onShowTimeline?.();
     else if (a === 'notes') setNotesOpen((o) => !o);
     else if (a === 'ship' && live) setShipOpen(true);
     else if (a === 'terminal' && live) openTerminal();

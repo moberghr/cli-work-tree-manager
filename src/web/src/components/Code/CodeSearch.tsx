@@ -98,7 +98,7 @@ export function CodeSearch({ sessionId, onPick, onClose }: { sessionId: string; 
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
-              setActive((x) => Math.min(x + 1, rows.length - 1));
+              setActive((x) => Math.max(0, Math.min(x + 1, rows.length - 1)));
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               setActive((x) => Math.max(x - 1, 0));

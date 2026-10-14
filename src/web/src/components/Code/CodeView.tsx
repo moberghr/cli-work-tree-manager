@@ -10,10 +10,12 @@ import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
 const HIGHLIGHT_MAX_LINES = 8000;
 
 /** Per session, for this page: the open file and folders, so a look at another tab comes back to them. */
-const remembered = new Map<string, { open: string | null; folders: Set<string> }>();
+const remembered = new Map<string, { open: string | null; folders: Set<string>; picked: number; unfolded: number }>();
 const memoryOf = (id: string) => {
   let m = remembered.get(id);
-  if (!m) remembered.set(id, (m = { open: null, folders: new Set() }));
+  // picked / unfolded: the last search pick applied, and the last whose folders were opened (a pick is applied
+  // once: coming back to the tab keeps the file you opened since).
+  if (!m) remembered.set(id, (m = { open: null, folders: new Set(), picked: 0, unfolded: 0 }));
   return m;
 };
 
@@ -70,19 +72,24 @@ export function CodeView({
   };
   useEffect(loadList, [session.id]); // eslint-disable-line react-hooks/exhaustive-deps -- once per session; the stream reloads it
 
-  // A search's pick: its file opens with its folders, at its line.
+  // A search's pick: its file opens at its line, once (a later visit to the tab keeps what you opened since);
+  // its folders open once the listing has it.
   useEffect(() => {
     if (!goto) return;
     const key = codeKey(goto.repo, goto.path);
-    setOpen(key);
+    if (memory.picked !== goto.seq) {
+      memory.picked = goto.seq;
+      setOpen(key);
+      setMark(goto.line ? { key, line: goto.line, seq: goto.seq } : null);
+    }
     const entry = byKey.get(key);
-    if (entry) {
+    if (entry && memory.unfolded !== goto.seq) {
+      memory.unfolded = goto.seq;
       const next = new Set(folders);
       for (const d of foldersOf(entry.display)) next.add(d);
       memory.folders = next;
       setFolders(next);
     }
-    setMark(goto.line ? { key, line: goto.line, seq: goto.seq } : null);
   }, [goto?.seq, byKey.size > 0]); // eslint-disable-line react-hooks/exhaustive-deps -- a new pick, or the listing it needed arriving
 
   const scrollRef = useRef<HTMLDivElement>(null);

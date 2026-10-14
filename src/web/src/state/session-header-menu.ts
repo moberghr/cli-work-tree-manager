@@ -46,7 +46,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
   return [
     ...live,
     { label: 'Catch me up', hint: sessionKey('catchup'), run: a.catchUp },
-    { label: 'Timeline', run: a.timeline },
+    { label: 'Timeline', hint: sessionKey('timeline'), run: a.timeline },
     ...(archived ? [] : [{ label: 'Send a prompt…', hint: sessionKey('prompt'), run: a.sendPrompt }]),
     { label: session.hasNote ? 'Notes •' : 'Notes', hint: sessionKey('notes'), run: a.notes },
     ...devItem,

@@ -15,6 +15,7 @@ export type SessionAction =
   | 'tab-diff'
   | 'tab-pr'
   | 'tab-code'
+  | 'timeline'
   | 'archive'
   | 'snooze'
   | 'block'
@@ -43,6 +44,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   'tab-diff': { key: '2', label: 'Diff tab' },
   'tab-pr': { key: '3', label: 'PR tab' },
   'tab-code': { key: '4', label: 'Code tab' },
+  timeline: { key: 'l', label: 'Timeline (how it got here)' },
   archive: { key: 'e', label: 'Archive (Restore when archived)' },
   snooze: { key: 'z', label: 'Snooze…' },
   block: { key: 'b', label: 'Blocked by…' },

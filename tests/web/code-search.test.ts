@@ -145,6 +145,18 @@ describe('the Ctrl+T box', () => {
     expect(onPick).toHaveBeenCalledWith({ repo: 'api', path: 'src/Keys.cs', line: 2 });
   });
 
+  it('↓ before any results is no harm: once they come, Enter opens the first', async () => {
+    vi.useFakeTimers();
+    const onPick = vi.fn();
+    act(() => root.render(createElement(CodeSearch, { sessionId: 's1', onPick, onClose: vi.fn() })));
+    const input = container.querySelector<HTMLInputElement>('.wd-switcher-input')!;
+    type(input, 'keys');
+    act(() => void input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))); // nothing listed yet
+    await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
+    act(() => void input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(onPick).toHaveBeenCalledWith({ repo: 'api', path: 'src/Keys.cs', line: 2 });
+  });
+
   it('↓ moves to the next place; Esc closes without opening anything', async () => {
     vi.useFakeTimers();
     const onPick = vi.fn();
@@ -175,5 +187,20 @@ describe('the Code tab opens a picked place', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     // Its folder opened in the tree.
     expect(container.querySelector('.wd-code-row-open')!.textContent).toBe('Keys.cs');
+  });
+
+  it('a pick is applied once: the file you open since stays open when you come back to the tab', async () => {
+    const session = { id: 'goto-2', target: 'api', branch: 'x', isGroup: false, paths: ['/wt/api'] } as unknown as SessionSummary;
+    const goto = { repo: 'api', path: 'src/Keys.cs', line: 7, seq: 101 };
+    act(() => root.render(createElement(CodeView, { key: 'a', session, onShowDiff: vi.fn(), goto })));
+    await flush();
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('.wd-code-row')].find((r) => r.textContent === 'README.md')!.click());
+    await flush();
+    expect(container.querySelector('.wd-code-path')!.textContent).toBe('README.md');
+    // Another tab and back: a new CodeView, the same pick.
+    act(() => root.render(createElement('div')));
+    act(() => root.render(createElement(CodeView, { key: 'b', session, onShowDiff: vi.fn(), goto })));
+    await flush();
+    expect(container.querySelector('.wd-code-path')!.textContent).toBe('README.md');
   });
 });

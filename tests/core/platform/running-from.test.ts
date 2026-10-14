@@ -110,15 +110,36 @@ describe('reading the process list', () => {
 });
 
 describe("work's own processes are never stopped", () => {
-  it('the PTY host and a work web run from a checkout (npm link, a dev build): spared by command line, and by recorded pid, with their children', () => {
+  it('the PTY host and a work web run from a checkout (npm link, a dev build): spared by command line, by recorded pid, and its terminal helpers', () => {
     const repo = 'C:\\Users\\me\\source\\repos\\work-tree';
     const host = p(10, 1, 'node.exe', null, `"node" "${repo}\\dist\\bin.js" pty-host`);
-    const claude = p(11, 10, 'node.exe', null, `node ${repo}\\node_modules\\x\\cli.js`); // a child of the host
+    const conpty = p(
+      11,
+      10,
+      'OpenConsole.exe',
+      `${repo}\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe`,
+      'OpenConsole.exe',
+    );
     const web = p(12, 1, 'node.exe', null, `node ${repo}\\dist\\bin.js web --dev`);
     const recorded = p(13, 1, 'node.exe', null, `node ${repo}\\server.js`);
     const vite = p(14, 1, 'node.exe', null, `node ${repo}\\node_modules\\vite\\bin\\vite.js`);
-    const h = holdersOf([host, claude, web, recorded, vite], [repo], 99_999, true, new Set([13]));
+    const h = holdersOf([host, conpty, web, recorded, vite], [repo], 99_999, true, new Set([13]));
     expect(h.stoppable.map((x) => x.pid)).toEqual([14]);
+  });
+
+  it("a dev server a Claude started is stopped though it's still under the PTY host (its Claude not gone yet)", () => {
+    const host = p(10, 1, 'node.exe', null, '"node" "C:\\npm\\work\\dist\\bin.js" pty-host');
+    const claude = p(20, 10, 'claude.exe', 'C:\\Users\\me\\.local\\bin\\claude.exe', 'claude --continue');
+    const shell = p(21, 20, 'bash.exe', 'C:\\Program Files\\Git\\bin\\bash.exe', 'bash -c "npm run dev"');
+    const dev = p(22, 21, 'node.exe', null, `node ${WT}\\node_modules\\vite\\bin\\vite.js`);
+    const h = holdersOf([host, claude, shell, dev], [WT], 99_999, true, new Set([10]));
+    expect(h.stoppable.map((x) => x.pid)).toEqual([22]);
+  });
+
+  it('a versioned interpreter is one (Linux names the binary: python3.12, node22)', () => {
+    const wt = '/home/me/worktrees/api/feat-x';
+    expect(runsFrom(p(1, 0, 'python3.12', '/usr/bin/python3.12', `/usr/bin/python3.12 ${wt}/manage.py runserver`), [wt], false)).toBe(true);
+    expect(runsFrom(p(2, 0, 'node22', '/usr/bin/node22', `node22 ${wt}/server.js`), [wt], false)).toBe(true);
   });
 
   it('an option before the script (`node -r ts-node/register <dir>/src/index.ts`) still finds the script', () => {
@@ -154,6 +175,14 @@ describe('stopRunningFrom', () => {
       const mine = p(77, 1, 'node', '/usr/bin/node', `node ${path.join(dir, 'server.js')}`);
       const kill = vi.fn(() => true);
       const said = await stopRunningFrom([dir], { list: async () => [mine], kill, alive: () => false, spare: new Set() });
+      // Kills may be asynchronous (taskkill off the event loop); one that fails isn't said to be stopped.
+      const failing = await stopRunningFrom([dir], {
+        list: async () => [mine],
+        kill: async () => false,
+        alive: () => false,
+        spare: new Set(),
+      });
+      expect(failing).toEqual([]);
       expect(kill).toHaveBeenCalledWith(77);
       expect(said).toEqual([`node … (PID 77)`.replace('…', `…${path.sep}server.js`)]);
       expect(await stopRunningFrom([path.join(dir, 'gone')], { list: async () => [mine], kill, spare: new Set() })).toEqual([]);

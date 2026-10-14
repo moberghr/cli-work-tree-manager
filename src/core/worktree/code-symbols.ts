@@ -11,6 +11,9 @@ export const MAX_LINE_CHARS = 240;
 
 /** `path:line:text` as git grep -n prints it (a Windows path has no `:` once git made it relative). */
 export function parseGrepLine(line: string): { path: string; line: number; text: string } | null {
+  // With -z: `path\0line\0text`, the path verbatim (a colon or a non-ASCII letter in it is fine).
+  const z = /^([^\0]+)\0(\d+)\0(.*)$/.exec(line);
+  if (z) return { path: z[1], line: Number(z[2]), text: z[3] };
   const m = /^(.+?):(\d+):(.*)$/.exec(line);
   return m ? { path: m[1], line: Number(m[2]), text: m[3] } : null;
 }

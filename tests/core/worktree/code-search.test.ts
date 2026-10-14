@@ -4,7 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { git } from '../../../src/core/git/git.js';
-import { clearSymbolIndexes, MAX_TEXT_HITS, searchSymbols, searchText, symbolIndex } from '../../../src/core/worktree/code-search.js';
+import {
+  clearSymbolIndexes,
+  MAX_INDEXES,
+  MAX_TEXT_HITS,
+  searchSymbols,
+  searchText,
+  symbolIndex,
+} from '../../../src/core/worktree/code-search.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import { mountCodeRoutes } from '../../../src/server/routes/code-routes.js';
@@ -29,6 +36,7 @@ beforeAll(() => {
     ['MAX_RETRIES = 3', '', 'class JobStore:', '    async def get_pending_jobs(self):', '        return []', ''].join('\n'),
   );
   fs.writeFileSync(path.join(repo, 'src', 'jobs.pyi'), 'def parse_job(text: str) -> dict: ...\n');
+  fs.writeFileSync(path.join(repo, 'src', 'Računi.cs'), 'public class RacuniService\n{\n}\n');
   fs.writeFileSync(path.join(repo, 'src', 'many.txt'), Array.from({ length: MAX_TEXT_HITS + 20 }, (_, i) => `needle ${i}`).join('\n'));
   fs.writeFileSync(path.join(repo, '.gitignore'), 'secret.txt\n');
   fs.writeFileSync(path.join(repo, 'secret.txt'), 'AccountingKeys in an ignored file\n');
@@ -65,6 +73,20 @@ describe('searchSymbols', () => {
     expect((await searchSymbols(session(), 'AccKeys')).map((s) => `${s.kind} ${s.name}`)).toEqual(['class AccountingKeys']);
     expect((await searchSymbols(session(), 'GetAccount')).map((s) => [s.kind, s.path, s.line])).toEqual([['method', 'src/Keys.cs', 4]]);
     expect((await searchSymbols(session(), 'useKeys'))[0]).toMatchObject({ kind: 'function', path: 'src/use.ts' });
+  });
+
+  it('a non-ASCII path comes back as the Code tab lists it, so a hit opens', async () => {
+    expect((await searchText(session(), 'RacuniService')).hits.map((h) => h.path)).toEqual(['src/Računi.cs']);
+    expect((await searchSymbols(session(), 'RacuniService'))[0]).toMatchObject({ path: 'src/Računi.cs', line: 1 });
+  });
+
+  it('keeps the indexes of the repos searched last, not every one ever', async () => {
+    const build = vi.fn(async () => [] as CodeSymbol[]);
+    for (let i = 0; i <= MAX_INDEXES; i++) await symbolIndex('api', `/r${i}`, Date.now(), build);
+    await symbolIndex('api', '/r0', Date.now(), build); // the oldest was let go: built again
+    expect(build).toHaveBeenCalledTimes(MAX_INDEXES + 2);
+    await symbolIndex('api', `/r${MAX_INDEXES}`, Date.now(), build); // a recent one is still there
+    expect(build).toHaveBeenCalledTimes(MAX_INDEXES + 2);
   });
 
   it('Python through the real index: a class, a method by its word starts, a constant, a stub', async () => {

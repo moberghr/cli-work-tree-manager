@@ -77,7 +77,20 @@ export async function searchText(
   let truncated = false;
   for (const { name, root } of codeRoots(s)) {
     if (hits.length >= MAX_TEXT_HITS) break;
-    const args = ['grep', '-n', '-I', '--untracked', '--no-color', '--full-name', ...(ignoresCase(query) ? ['-i'] : []), '-F', '-e', query];
+    // -z: the path verbatim (by default git quotes a non-ASCII one, "src/Ra\304\215uni.cs", which the listing doesn't have).
+    const args = [
+      'grep',
+      '-z',
+      '-n',
+      '-I',
+      '--untracked',
+      '--no-color',
+      '--full-name',
+      ...(ignoresCase(query) ? ['-i'] : []),
+      '-F',
+      '-e',
+      query,
+    ];
     await gitLines(
       root,
       args,
@@ -109,23 +122,36 @@ const SCAN_FILES = ['*.cs', '*.cshtml', '*.razor', '*.ts', '*.tsx', '*.js', '*.j
 /** Every declaration in a repo: one git grep for lines that may hold one, read with declarationOf. */
 export async function buildSymbolIndex(repo: string, root: string): Promise<CodeSymbol[]> {
   const out: CodeSymbol[] = [];
-  await gitLines(root, ['grep', '-n', '-I', '--untracked', '--no-color', '--full-name', '-E', '-e', SCAN, '--', ...SCAN_FILES], (line) => {
-    const p = parseGrepLine(line);
-    if (!p) return;
-    const d = declarationOf(p.path, p.text);
-    if (d) out.push({ name: d.name, kind: d.kind, repo, path: p.path, line: p.line, text: p.text.trim().slice(0, MAX_LINE_CHARS) });
-  });
+  await gitLines(
+    root,
+    ['grep', '-z', '-n', '-I', '--untracked', '--no-color', '--full-name', '-E', '-e', SCAN, '--', ...SCAN_FILES],
+    (line) => {
+      const p = parseGrepLine(line);
+      if (!p) return;
+      const d = declarationOf(p.path, p.text);
+      if (d) out.push({ name: d.name, kind: d.kind, repo, path: p.path, line: p.line, text: p.text.trim().slice(0, MAX_LINE_CHARS) });
+    },
+  );
   return out;
 }
 
 const indexes = new Map<string, { at: number; symbols: Promise<PreparedSymbol[]>; building: boolean }>();
+/** Indexes kept: the repos searched last (one can hold tens of thousands of declarations; work web runs for days). */
+export const MAX_INDEXES = 6;
+
+/** Keep `root` as the newest, and forget the oldest beyond `max`. */
+function touch<V>(cache: Map<string, V>, root: string, value: V, max: number): void {
+  cache.delete(root);
+  cache.set(root, value);
+  while (cache.size > max) cache.delete(cache.keys().next().value as string);
+}
 
 /** A repo's declarations, ready to match: the cached index, rebuilt in the background once stale (the old one answers meanwhile). */
 export function symbolIndex(repo: string, root: string, now = Date.now(), build = buildSymbolIndex): Promise<PreparedSymbol[]> {
   const hit = indexes.get(root);
   if (!hit) {
     const symbols = build(repo, root).then(prepareSymbols);
-    indexes.set(root, { at: now, symbols, building: false });
+    touch(indexes, root, { at: now, symbols, building: false }, MAX_INDEXES);
     // A failed build isn't kept: the next search tries again.
     symbols.catch(() => indexes.delete(root));
     return symbols;
@@ -133,7 +159,9 @@ export function symbolIndex(repo: string, root: string, now = Date.now(), build 
   if (now - hit.at > INDEX_STALE_MS && !hit.building) {
     hit.building = true;
     void build(repo, root).then(
-      (fresh) => indexes.set(root, { at: Date.now(), symbols: Promise.resolve(prepareSymbols(fresh)), building: false }),
+      (fresh) =>
+        indexes.has(root) &&
+        touch(indexes, root, { at: Date.now(), symbols: Promise.resolve(prepareSymbols(fresh)), building: false }, MAX_INDEXES),
       () => void (hit.building = false),
     );
   }

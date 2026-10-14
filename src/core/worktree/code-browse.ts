@@ -52,6 +52,8 @@ const nul = (out: string) => out.split('\0').filter(Boolean);
 const fwd = (p: string) => p.replace(/\\/g, '/');
 
 const listCache = new Map<string, { at: number; files: Promise<string[]> }>();
+/** Lists kept: the repos opened last (each up to MAX_CODE_FILES paths; work web runs for days). */
+const MAX_LISTS = 12;
 
 /** `git ls-files -co --exclude-standard`: tracked, and new but not ignored. Shared for LIST_TTL_MS. */
 export function listRepoFiles(root: string, io: CodeIo = realIo, now = Date.now()): Promise<string[]> {
@@ -61,7 +63,9 @@ export function listRepoFiles(root: string, io: CodeIo = realIo, now = Date.now(
     if (r.status !== 0) return [];
     return [...new Set(nul(r.stdout).map(fwd))].sort();
   });
+  listCache.delete(root);
   listCache.set(root, { at: now, files });
+  while (listCache.size > MAX_LISTS) listCache.delete(listCache.keys().next().value as string);
   return files;
 }
 

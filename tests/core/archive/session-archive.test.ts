@@ -10,6 +10,7 @@ import {
   readArchivedTranscript,
   restoreArchivedTranscripts,
   RESTORED_AGE_MS,
+  lastEntryTime,
   writeArchiveSummary,
   type ArchiveDeps,
 } from '../../../src/core/archive/session-archive.js';
@@ -259,6 +260,33 @@ describe('restoreArchivedTranscripts', () => {
     const age = Date.now() - fs.statSync(transcript).mtimeMs;
     expect(age).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
     expect(age).toBeLessThan(RESTORED_AGE_MS + 60_000);
+  });
+
+  it('several conversations keep their order: the newest dated latest (what --continue resumes)', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    fs.mkdirSync(path.join(dir, 'transcripts'), { recursive: true });
+    const conv = (ts: string) => JSON.stringify({ type: 'user', timestamp: ts }) + '\n';
+    // Listed newest first, as nothing promises they are listed in order.
+    const files = { 'new.jsonl': '2026-10-10T10:00:00Z', 'mid.jsonl': '2026-10-05T10:00:00Z', 'old.jsonl': '2026-09-01T10:00:00Z' };
+    for (const [f, ts] of Object.entries(files)) fs.writeFileSync(path.join(dir, 'transcripts', f), conv(ts));
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        sessionId: id,
+        archivedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        transcripts: Object.keys(files).map((file) => ({ file, projectDir: 'p' })),
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-'));
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(3);
+    const mtime = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(mtime('old.jsonl')).toBeLessThan(mtime('mid.jsonl'));
+    expect(mtime('mid.jsonl')).toBeLessThan(mtime('new.jsonl'));
+    expect(Date.now() - mtime('new.jsonl')).toBeLessThan(RESTORED_AGE_MS + 60_000); // not 40 days back
+    expect(lastEntryTime(conv('2026-10-10T10:00:00Z'))).toBe(Date.parse('2026-10-10T10:00:00Z'));
   });
 
   it('does nothing for a session that was never archived with a copy', () => {

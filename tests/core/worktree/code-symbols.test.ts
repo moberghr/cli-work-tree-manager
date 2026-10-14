@@ -113,6 +113,15 @@ describe('matching names as Visual Studio does', () => {
 });
 
 describe('parseGrepLine', () => {
+  it('with -z: the path verbatim, a non-ASCII or colon one too (git quotes it otherwise)', () => {
+    expect(parseGrepLine('src/Računi.cs\u000012\u0000public class Računi')).toEqual({
+      path: 'src/Računi.cs',
+      line: 12,
+      text: 'public class Računi',
+    });
+    expect(parseGrepLine('a:b.txt\u00003\u0000x: y')).toEqual({ path: 'a:b.txt', line: 3, text: 'x: y' });
+  });
+
   it('path, line and text — a colon in the text stays in the text', () => {
     expect(parseGrepLine('src/a.ts:12:const x = { a: 1 };')).toEqual({ path: 'src/a.ts', line: 12, text: 'const x = { a: 1 };' });
     expect(parseGrepLine('no colons here')).toBeNull();

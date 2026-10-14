@@ -503,6 +503,14 @@ function isArchiveRecord(x: unknown): x is ArchiveRecord {
  * folder of the session's worktree), so `--continue` picks it up. Files that
  * are already there are left alone. Returns how many were restored.
  */
+/** When a transcript's last entry was written (its newest `"timestamp"`), or 0. */
+export function lastEntryTime(text: string): number {
+  const matches = text.slice(-64 * 1024).match(/"timestamp"\s*:\s*"([^"]+)"/g);
+  if (!matches) return 0;
+  const t = Date.parse(/"([^"]+)"$/.exec(matches[matches.length - 1])![1]);
+  return Number.isFinite(t) ? t : 0;
+}
+
 /** How far back a restored transcript is dated: past the Terminal tab's 5 minutes of "written just now". */
 export const RESTORED_AGE_MS = 10 * 60_000;
 
@@ -517,19 +525,27 @@ export function restoreArchivedTranscripts(
   if (!rec) return 0;
   const dest = restoreDir(s);
   if (!dest) return 0;
-  let n = 0;
+  // Read first, to date them in their own order: newest last written (what --continue resumes, and what the
+  // readers of "its newest conversation" take).
+  const toWrite: Array<{ to: string; text: string; last: number }> = [];
   for (const t of rec.transcripts) {
     const to = path.join(dest, t.file);
     if (fs.existsSync(to)) continue;
     const text = readArchivedTranscript(id, t.file, root);
     if (text === null) continue;
+    toWrite.push({ to, text, last: lastEntryTime(text) });
+  }
+  toWrite.sort((a, b) => a.last - b.last);
+  let n = 0;
+  for (const [i, { to, text }] of toWrite.entries()) {
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
     // Not dated now: a transcript written just now reads as a Claude at work there (the Terminal tab's
     // "running in another terminal"). Nor at the archive, which can be months back: Claude Code deletes
     // transcripts older than its cleanupPeriodDays (30) by their date, and --continue would find nothing.
     // A few minutes back — past "written just now", well inside Claude Code's keeping.
-    const at = new Date(Math.max(Date.parse(rec.archivedAt) || 0, Date.now() - RESTORED_AGE_MS));
+    // A second apart, in their order, the newest at the latest.
+    const at = new Date(Math.max(Date.parse(rec.archivedAt) || 0, Date.now() - RESTORED_AGE_MS) - (toWrite.length - 1 - i) * 1000);
     try {
       fs.utimesSync(to, at, at);
     } catch {

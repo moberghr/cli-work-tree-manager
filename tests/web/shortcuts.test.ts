@@ -74,6 +74,7 @@ describe('runSessionKey', () => {
       'tab diff',
       'tab pr',
       'tab code',
+      'header timeline',
       'archived true',
       'snooze',
       'block',
@@ -102,6 +103,16 @@ describe('runSessionKey', () => {
     const header = vi.fn();
     const { h } = handlers();
     for (const a of all) runSessionKey(a, { archived: false }, { ...h, header });
-    expect(header.mock.calls.map((c) => c[0])).toEqual(['menu', 'prompt', 'catchup', 'notes', 'ship', 'terminal', 'reconnect', 'dev']);
+    expect(header.mock.calls.map((c) => c[0])).toEqual([
+      'timeline',
+      'menu',
+      'prompt',
+      'catchup',
+      'notes',
+      'ship',
+      'terminal',
+      'reconnect',
+      'dev',
+    ]);
   });
 });

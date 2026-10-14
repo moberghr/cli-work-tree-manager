@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { isPidAlive, killTree } from './process.js';
+import { isPidAlive } from './process.js';
 import { getConfigDir } from './config.js';
 
 /**
@@ -66,7 +66,8 @@ export function runsFrom(p: RunningProcess, dirs: string[], windows = win): bool
   const words = commandWords(p.command);
   const exe = p.exe ?? words[0] ?? '';
   if (exe && dirs.some((d) => under(exe, d, windows))) return true;
-  if (!INTERPRETERS.has(bare(exe || p.name))) return false;
+  // Its version gone: python3.12, node22 (Linux names the binary itself).
+  if (!INTERPRETERS.has(bare(exe || p.name).replace(/[\d.]+$/, ''))) return false;
   // Its script: the first argument that isn't an option, or any that names a program file (an option's value comes
   // first in `node -r ts-node/register <dir>/src/index.ts`).
   const args = words.slice(1);
@@ -76,6 +77,11 @@ export function runsFrom(p: RunningProcess, dirs: string[], windows = win): bool
 }
 
 const SCRIPT_FILE = /\.(c|m)?(js|ts)$|\.(py|dll|jar|rb|php)$/i;
+
+/** node-pty's own processes (the console it gives a terminal): work's, when it runs from a checkout. */
+export function isPtyHelper(p: RunningProcess): boolean {
+  return /[\\/]node-pty[\\/]/i.test(`${p.exe ?? ''} ${p.command}`) || /^(conpty|openconsole|winpty-agent)(\.exe)?$/i.test(p.name);
+}
 
 /** One of work's own (the PTY host, a work web, a hook): never stopped, wherever it's installed from (npm link,
  *  a checkout's dist). Stopping the PTY host stops every session's Claude. */
@@ -115,11 +121,16 @@ export function holdersOf(
   const byPid = new Map(procs.map((p) => [p.pid, p]));
   const mine = new Set<number>();
   for (let pid: number | undefined = self; pid && !mine.has(pid); pid = byPid.get(pid)?.ppid) mine.add(pid);
-  // A spared process's children are its own business too (the PTY host's Claudes).
+  // work's own (by pid or command line), and the terminal helpers they run (node-pty's, from where work is
+  // installed — a checkout's node_modules). Not everything under them: a dev server a Claude started is a
+  // descendant of the PTY host until that Claude is gone, and stopping it is the point.
+  const ownWork = (q: RunningProcess) => spare.has(q.pid) || isWorkProcess(q);
   const spared = (p: RunningProcess): boolean => {
+    if (ownWork(p)) return true;
+    if (!isPtyHelper(p)) return false;
     const seen = new Set<number>();
-    for (let q: RunningProcess | undefined = p; q && !seen.has(q.pid); q = byPid.get(q.ppid)) {
-      if (spare.has(q.pid) || isWorkProcess(q)) return true;
+    for (let q = byPid.get(p.ppid); q && !seen.has(q.pid); q = byPid.get(q.ppid)) {
+      if (ownWork(q)) return true;
       seen.add(q.pid);
     }
     return false;
@@ -255,11 +266,27 @@ export async function listProcesses(): Promise<RunningProcess[]> {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress',
+        // UTF-8 out: the console's code page would turn a path with Š or č into ?.
+        '[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress',
       ]),
     );
   }
   return parsePsProcesses(await run('ps', ['-A', '-o', 'pid=,ppid=,args=']));
+}
+
+/** A process and its children, not blocking: Windows' taskkill /T asynchronously, elsewhere a signal. */
+export function killTreeAsync(pid: number): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(pid);
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+  return new Promise((resolve) =>
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) => resolve(!err)),
+  );
 }
 
 /** Look up what runs from or names `dirs` now. */
@@ -286,17 +313,19 @@ export async function stopRunningFrom(
   dirs: string[],
   io: {
     list?: () => Promise<RunningProcess[]>;
-    kill?: (pid: number) => boolean;
+    kill?: (pid: number) => Promise<boolean> | boolean;
     alive?: (pid: number) => boolean;
     spare?: ReadonlySet<number>;
     waitMs?: number;
   } = {},
 ): Promise<string[]> {
   const h = await findHolders(dirs, io.list, io.spare);
-  const kill = io.kill ?? killTree;
+  const kill = io.kill ?? killTreeAsync;
   const alive = io.alive ?? isPidAlive;
   const targets = win ? h.stoppable : (h.running ?? h.stoppable);
-  const stopped = targets.filter((p) => kill(p.pid));
+  // All at once, and off the event loop (taskkill takes a few hundred ms each; work web answers meanwhile).
+  const killed = await Promise.all(targets.map((p) => Promise.resolve(kill(p.pid)).catch(() => false)));
+  const stopped = targets.filter((_, i) => killed[i]);
   for (const until = Date.now() + (io.waitMs ?? EXIT_WAIT_MS); stopped.some((p) => alive(p.pid)) && Date.now() < until;) {
     await new Promise((r) => setTimeout(r, 100));
   }
