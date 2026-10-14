@@ -1,6 +1,7 @@
 import type { AgentsWire, RestartWire } from '../../../core/api-types.js';
 import type { SessionSummary } from '../api/client.js';
 import { LATER_TEXT, restartCountsText } from '../../../core/pty/restart-view.js';
+import { switcherLabel } from './quick-switch.js';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -25,12 +26,9 @@ export function outdatedNames(
   const queued = new Set(w.queued);
   const named = w.outdated.map((o): OutdatedName => {
     const s = byId.get(o.id);
-    const name =
-      o.id === 'assistant'
-        ? 'the Ctrl+K assistant'
-        : s
-          ? `${s.titleIsYours && s.title ? s.title : s.branch || '(base)'} · ${s.target}`
-          : o.id;
+    // As the rail and Ctrl+P name it, then its project.
+    const label = s && switcherLabel(s);
+    const name = o.id === 'assistant' ? 'the Ctrl+K assistant' : !s ? o.id : label === s.target ? label : `${label} · ${s.target}`;
     return { id: o.id, name, waits: queued.has(o.id) || o.busy };
   });
   return [...named.filter((n) => !n.waits), ...named.filter((n) => n.waits)];

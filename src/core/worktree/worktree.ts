@@ -746,7 +746,9 @@ async function setupGroupWorktree(
   // Representative base for the single-line "vs X" badge: the explicit
   // default, else a per-repo value only when every repo shares it.
   const distinctBases = [...new Set(Object.values(baseBranches))];
-  const representativeBase = spec.default ?? (distinctBases.length === 1 ? distinctBases[0] : undefined);
+  // One for the whole group only when every repo has it: it is the fallback for a repo with none of its own.
+  const everyRepo = Object.keys(baseBranches).length === allPaths.length;
+  const representativeBase = spec.default ?? (distinctBases.length === 1 && everyRepo ? distinctBases[0] : undefined);
   const { port } = await upsertSessionWithPort(groupName, true, branchName, allPaths, config, jiraKey, representativeBase, baseBranches);
 
   report('info', '');

@@ -105,6 +105,16 @@ describe('setupWorktree — group with per-repo bases', () => {
     expect(session?.baseBranch).toBeUndefined(); // two bases: no single one
   });
 
+  it('a repo whose branch existed records no base, and then the group has no one base to fall back on', async () => {
+    git(['checkout', 'dev'], backendDir);
+    git(['branch', 'feature/m', 'main'], frontendDir); // made earlier: not made from anything now
+    expect(await setupWorktree('grp', 'feature/m', config, parseBaseSpec(undefined))).not.toBeNull();
+    const backendWt = path.join(config.worktreesRoot, 'grp', 'feature-m', 'backend');
+    const session = loadHistory().find((s) => s.target === 'grp');
+    expect(session?.baseBranches).toEqual({ [backendWt]: 'dev' });
+    expect(session?.baseBranch).toBeUndefined(); // dev would be frontend's too, which never came from it
+  });
+
   it("a single repo with no --base records its checkout's branch; an existing branch records none", async () => {
     git(['checkout', 'dev'], backendDir);
     expect(await setupWorktree('backend', 'feature/s', config, parseBaseSpec(undefined))).not.toBeNull();

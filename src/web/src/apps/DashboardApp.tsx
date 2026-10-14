@@ -737,11 +737,15 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   }, [inboxCount]);
   // In the desktop app, the same count on its taskbar / Dock icon, and a flash when a session newly waits on you.
   // Sorted: the set, not the rail's order, says whether it changed.
-  const needingYouKey = sessions
-    .filter((s) => !isArchived(s) && waitsOnYou(s))
-    .map((s) => s.id)
-    .sort()
-    .join(',');
+  const needingYouKey = useMemo(
+    () =>
+      sessions
+        .filter((s) => !isArchived(s) && waitsOnYou(s))
+        .map((s) => s.id)
+        .sort()
+        .join(','),
+    [sessions],
+  );
   const needingYou = useMemo(() => new Set(needingYouKey ? needingYouKey.split(',') : []), [needingYouKey]);
   // Which sessions still run the old Claude Code, by name (the card and the version menu list them).
   const agentNames = useMemo(() => outdatedNames(outdatedAgents.agents, sessions), [outdatedAgents.agents, sessions]);

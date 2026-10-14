@@ -191,6 +191,38 @@ describe('resolveRepoDiff (branch parent selection)', () => {
     expect(resolveRepoDiff(repoDir, 'branch')).toEqual({ resolvedBase: 'dev', diffArg: head }); // its one commit
   });
 
+  it("a branch tracking its own origin copy (a PR) isn't fresh: merged into dev, it is still on main", () => {
+    execSync('git checkout -q -b theirs', { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, 'pr.txt'), 'p');
+    execSync('git add . && git commit -q -m pr-work', { cwd: repoDir });
+    execSync('git remote add origin https://example.invalid/r.git', { cwd: repoDir });
+    execSync('git update-ref refs/remotes/origin/feat/pr HEAD', { cwd: repoDir });
+    execSync('git branch dev', { cwd: repoDir }); // merged into dev
+    execSync('git checkout -q -b feat/pr --track origin/feat/pr', { cwd: repoDir }); // "Created from origin/feat/pr"
+    expect(resolveRepoDiff(repoDir, 'branch').resolvedBase).toBe('main');
+  });
+
+  it("a recorded base that fell behind its origin copy: origin's, so what the branch merged from it isn't its own", () => {
+    const init = execSync('git rev-parse HEAD', { cwd: repoDir }).toString().trim();
+    execSync('git checkout -q -b upstream', { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, 'up.txt'), 'u');
+    execSync('git add . && git commit -q -m upstream-work', { cwd: repoDir });
+    const up = execSync('git rev-parse HEAD', { cwd: repoDir }).toString().trim();
+    execSync('git update-ref refs/remotes/origin/main HEAD', { cwd: repoDir }); // local main stays at init
+    execSync(`git checkout -q -b feat ${init}`, { cwd: repoDir });
+    execSync('git merge -q --ff-only origin/main', { cwd: repoDir }); // the branch took main's news from origin
+    fs.writeFileSync(path.join(repoDir, 'f.txt'), 'f');
+    execSync('git add . && git commit -q -m feat-work', { cwd: repoDir });
+    expect(resolveRepoDiff(repoDir, 'branch', 'main')).toEqual({ resolvedBase: 'origin/main', diffArg: up });
+  });
+
+  it('a recorded base that is gone (merged and deleted) leaves it to detection', () => {
+    execSync('git checkout -q -b feat', { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, 'f.txt'), 'f');
+    execSync('git add . && git commit -q -m feat-work', { cwd: repoDir });
+    expect(resolveRepoDiff(repoDir, 'branch', 'feat/old-and-gone').resolvedBase).toBe('main');
+  });
+
   it('honours an explicit session base branch over detection', () => {
     // `main` already exists from init.
     expect(resolveRepoDiff(repoDir, 'branch', 'main').resolvedBase).toBe('main');

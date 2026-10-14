@@ -54,8 +54,8 @@ describe('sessionCommits', () => {
     expect(Number.isFinite(Date.parse(sessionCommits(session())[0].at))).toBe(true);
   });
 
-  it('a repo with no base to measure from lists none', () => {
-    expect(sessionCommits({ paths: [repo], baseBranch: 'no-such-branch' })).toEqual([]);
+  it('a recorded base that is gone (merged and deleted): measured from the parent found by itself', () => {
+    expect(sessionCommits({ paths: [repo], baseBranch: 'no-such-branch' })).toEqual(sessionCommits(session()));
   });
 });
 
