@@ -3,6 +3,35 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.1.0 — 2026-10-14
+
+- **The Inbox count on the taskbar.** In the desktop app, the taskbar icon
+  (the Dock icon on macOS) shows how many sessions want you, and the taskbar
+  button flashes when a session starts waiting on your answer, unless the
+  window is already in front. The flash can be turned off in the version
+  menu.
+- **Since branch is right for a new branch.** A branch just made from `dev`,
+  with nothing committed yet, showed every commit `dev` has that `main`
+  doesn't. It now shows nothing until you commit, then only your commits. New
+  worktrees remember the branch they were made from, and the diff measures
+  from the freshest copy of it (yours or `origin`'s), so changes you merged
+  in from it aren't counted as the branch's own.
+- **Only new.** When Claude changes files while you read a diff, the "New
+  changes" chip in the Diff tab now has **Only new** beside Show and Reload:
+  just what changed since the diff on screen, from Claude's last turn before
+  it.
+- **Review comments in the diff.** A resolved comment you opened folds back
+  with **Hide**, top right, where its Show was. Reply, Resolve and Delete
+  are proper buttons; Delete asks once more (and says how many replies go
+  with it). A reply you're writing on a resolved thread stays open. The
+  comment list on the left puts resolved comments last, under their own
+  heading.
+- The restart card and the version menu name the sessions still running an
+  old Claude Code; click one to open it.
+
+Update the desktop app for the taskbar count (its Restart, or the next
+start).
+
 ## 2.0.13 — 2026-10-13
 
 - **Restart Claude sessions after Claude Code updates.** A running Claude
