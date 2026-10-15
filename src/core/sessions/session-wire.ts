@@ -19,7 +19,7 @@ import type {
   BlockerWire,
   PrStageWire,
 } from '../api-types.js';
-import { archiveDirFor, keptList, readArchive } from '../archive/session-archive.js';
+import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
@@ -203,6 +203,7 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
   if (!rec) return {};
   return {
     archive: {
+      ...(archivedByOf(rec) ? { by: archivedByOf(rec) } : {}),
       worktreeRemoved: rec.worktreeRemoved,
       keptBecause: rec.keptBecause,
       promptCount: rec.summary.promptCount,

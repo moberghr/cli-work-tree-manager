@@ -13,6 +13,7 @@ import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import type { CommandRunner } from '../../../src/core/pr/ship.js';
 import { rememberSent, saveDraft } from '../../../src/core/pr/pr-replies.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
+import { readArchive } from '../../../src/core/archive/session-archive.js';
 
 const SHA = 'abcdef123456';
 let home: string;
@@ -127,6 +128,7 @@ describe('ship routes', () => {
     expect(disposePty).toHaveBeenCalledWith(id);
     expect(archivedAt()).toBeTruthy();
     expect(changed).toEqual([id]);
+    expect(readArchive(id)?.archivedBy).toBe('shipped');
   });
 
   it('a partial group merge does NOT archive — the rest of the group is still open', async () => {
@@ -196,6 +198,7 @@ describe('ship routes', () => {
     const id = sessionIdFor(session);
     expect((await post(app(), `/api/sessions/${id}/archive`, { archived: true })).status).toBe(200);
     expect(archivedAt()).toBeTruthy();
+    expect(readArchive(id)?.archivedBy).toBe('you');
     expect(disposePty).toHaveBeenCalledWith(id);
     await post(app(), `/api/sessions/${id}/archive`, { archived: false });
     expect(archivedAt()).toBeUndefined();

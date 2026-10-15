@@ -21,6 +21,7 @@ import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
 import { DiffStatChip, overlapTitle } from '../SessionBits.js';
+import { ARCHIVED_BY_SHORT, archivedLine } from '../../../state/archive-view.js';
 import { RowMenu, type MenuItem } from '../RowMenu.js';
 
 interface Props {
@@ -300,7 +301,7 @@ export function SessionsTab({
           <th className="wd-st-col-project">Project</th>
           <th className="wd-st-col-summary">Summary</th>
           <th className="wd-st-col-changes">Changes</th>
-          <th className="wd-st-col-when">Active</th>
+          <th className="wd-st-col-when">{scope === 'archived' ? 'Archived' : 'Active'}</th>
           <th className="wd-st-col-more">
             <span className="wd-visually-hidden">Actions</span>
           </th>
@@ -757,16 +758,19 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <span
             className="wd-archived-pill"
             title={
-              s.archive
+              `${archivedLine(s)} ` +
+              (s.archive
                 ? s.archive.worktreeRemoved
                   ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
                   : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
-                : 'Archived'
+                : '')
             }
           >
+            archived
+            {s.archive?.by ? ` · ${ARCHIVED_BY_SHORT[s.archive.by]}` : ''}
             {s.archive?.worktreeRemoved
-              ? `archived · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
-              : 'archived'}
+              ? ` · folder removed${s.archive.savedUncommitted ? ` · ${s.archive.savedUncommitted} changes saved` : ''}`
+              : ''}
           </span>
         )}
       </td>
@@ -801,8 +805,18 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           </span>
         ) : null}
       </td>
-      <td className="wd-st-col-when">
-        {archiving !== undefined ? (archiving ? 'archiving…' : 'restoring…') : relativeTime(lastActiveAt(s))}
+      <td
+        className="wd-st-col-when"
+        // An archived one: when it was archived (it's the last thing that happened to it); its last activity on hover.
+        title={archived && s.archivedAt ? `${archivedLine(s)} Last active ${relativeTime(lastActiveAt(s))} ago.` : undefined}
+      >
+        {archiving !== undefined
+          ? archiving
+            ? 'archiving…'
+            : 'restoring…'
+          : archived && s.archivedAt
+            ? relativeTime(s.archivedAt)
+            : relativeTime(lastActiveAt(s))}
       </td>
       <td className="wd-st-col-more" onClick={(e) => e.stopPropagation()}>
         {archived && onRestore && archiving === undefined && (

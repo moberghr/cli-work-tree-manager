@@ -70,7 +70,13 @@ export interface SessionAttention extends AttentionLike {
 }
 
 /** An archived session: whether its folder went, and what it was about. */
+/** Who archived a session: you (Archive, its key, the bulk bar), Ship's merge, the PR watch once its PR merged, or Clean up. */
+export type ArchivedBy = 'you' | 'shipped' | 'pr-merged' | 'cleanup';
+export const ARCHIVED_BY: readonly ArchivedBy[] = ['you', 'shipped', 'pr-merged', 'cleanup'];
+
 export interface SessionArchiveInfo {
+  /** Who archived it (none: archived before work recorded it). */
+  by?: ArchivedBy;
   worktreeRemoved: boolean;
   keptBecause: string | null;
   promptCount: number;

@@ -6,6 +6,7 @@ import type { WorktreeSession } from '../../../src/core/sessions/history.js';
 import { encodeProjectDir } from '../../../src/core/agents/claude/activity.js';
 import {
   archiveSession,
+  archivedByOf,
   readArchive,
   readArchivedTranscript,
   restoreArchivedTranscripts,
@@ -141,6 +142,16 @@ describe('archiveSession', () => {
     expect(fs.readFileSync(path.join(root, sessionIdFor(session), 'transcripts', 'conv-1.jsonl'), 'utf8')).toBe(
       fs.readFileSync(transcript, 'utf8'),
     );
+  });
+
+  it('records who archived it; an archive from before (or a value work never writes) says nobody', async () => {
+    await archiveSession(session, deps(), { by: 'you' });
+    const rec = readArchive(sessionIdFor(session), root)!;
+    expect(rec.archivedBy).toBe('you');
+    expect(archivedByOf(rec)).toBe('you');
+    expect(archivedByOf({})).toBeUndefined();
+    expect(archivedByOf({ archivedBy: 'someone' })).toBeUndefined();
+    expect(archivedByOf({ archivedBy: 'pr-merged' })).toBe('pr-merged');
   });
 
   it('keeps a worktree that has work in it, and says why', async () => {

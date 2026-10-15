@@ -161,7 +161,7 @@ export function defaultCleanupDeps(opts: CleanupDepsOptions = {}): CleanupDeps {
         // Keeps the conversation; the worktree stays when it has work in it.
         const session = loadHistory().find((h) => sessionIdFor(h) === s.id);
         if (!session) throw new Error('Not archived: work does not track it.');
-        const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, run }));
+        const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release, run }), { by: 'cleanup' });
         if (!out.ok) throw new Error(out.message);
         return;
       }

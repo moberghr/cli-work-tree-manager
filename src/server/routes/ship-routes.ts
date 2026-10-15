@@ -63,7 +63,12 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     if (!session) return { ok: false };
     let ok: boolean;
     if (archived) {
-      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), { force, merged });
+      // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
+      const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
+        force,
+        merged,
+        by: merged ? 'shipped' : 'you',
+      });
       if (out.blocked) return { ok: false, blocked: out.blocked, message: out.message };
       ok = out.ok;
     } else if (session.paths.some((p) => !isWorktreeFolder(p))) {

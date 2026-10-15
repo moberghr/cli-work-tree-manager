@@ -86,6 +86,7 @@ describe("the PR watch's archive and busy (web-server wires these as they are)",
     const changed = vi.fn();
     expect(await archiveMergedSession(sessionIdFor(s), fake(), changed)).toBe('1 reply draft');
     expect(changed).toHaveBeenCalled();
+    expect(readArchive(sessionIdFor(s))?.archivedBy).toBe('pr-merged'); // not you: the PR watch did it
   });
 
   it('a turn in progress: throws (the watch notes it and tries again); an unknown or archived session: nothing', async () => {

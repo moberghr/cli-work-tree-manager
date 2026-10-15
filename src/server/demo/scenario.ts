@@ -30,6 +30,7 @@ import type {
   CleanupCandidate,
   CleanupState,
   SessionCommit,
+  ArchivedBy,
 } from '../../core/api-types.js';
 import type { DiffPoint } from '../../core/diff/diff-points.js';
 import type { AgentState } from '../../core/status/attention.js';
@@ -82,6 +83,8 @@ interface DemoSession {
   baseBranch?: string;
   /** Archived with its worktree removed (merged and clean, as a real archive does): nothing left to clean up. */
   worktreeRemoved?: boolean;
+  /** Who archived it, as a real archive records it. */
+  archivedBy?: ArchivedBy;
 }
 
 /** The demo's sessions run Claude Code, with everything work can do with it. */
@@ -510,6 +513,7 @@ export class DemoScenario {
     );
     taxes.archivedAt = this.iso(60 * 20);
     taxes.worktreeRemoved = true;
+    taxes.archivedBy = 'pr-merged';
     // Approved with green checks: back in the Inbox as ready to merge (pr-stage.ts).
     this.add(
       'web',
@@ -796,6 +800,18 @@ export class DemoScenario {
       attention: s.attention,
       diffStat: stat.files ? stat : null,
       archivedAt: s.archivedAt,
+      ...(s.archivedAt && s.archivedBy
+        ? {
+            archive: {
+              by: s.archivedBy,
+              worktreeRemoved: !!s.worktreeRemoved,
+              keptBecause: null,
+              promptCount: 0,
+              prompts: [],
+              lastSummary: null,
+            },
+          }
+        : {}),
       port: s.port,
       ...(s.baseBranch ? { baseBranch: s.baseBranch } : {}),
       context: DEMO_CONTEXT[s.branch]
@@ -1173,6 +1189,7 @@ export class DemoScenario {
     const s = this.sessions.get(id);
     if (!s) return false;
     s.archivedAt = archived ? new Date(this.now()).toISOString() : null;
+    s.archivedBy = archived ? 'you' : undefined;
     this.changed();
     return true;
   }
@@ -1388,7 +1405,10 @@ export class DemoScenario {
       return { repo: sel.name, ok: true, merged: true, message: `PR #${r.pr.number} merged (${method})`, url: r.pr.url };
     });
     const allDone = s.repos.every((r) => this.repoState(s, r).done);
-    if (allDone) s.archivedAt = new Date(this.now()).toISOString();
+    if (allDone) {
+      s.archivedAt = new Date(this.now()).toISOString();
+      s.archivedBy = 'shipped';
+    }
     this.changed();
     return { results, archived: allDone, allDone };
   }

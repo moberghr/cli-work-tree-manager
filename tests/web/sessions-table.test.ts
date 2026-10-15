@@ -177,6 +177,10 @@ describe('Sessions table', () => {
     expect(text(container.querySelector('h1'))).toContain('1 archived');
     const arch = rows()[0];
     expect(text(arch.querySelector('.wd-archived-pill'))).toBe('archived');
+    // In the Archived view the time column is when it was archived (an hour ago), not when it was last active.
+    expect(text([...container.querySelectorAll('thead th')].find((th) => th.className === 'wd-st-col-when'))).toBe('Archived');
+    expect(text(arch.querySelector('.wd-st-col-when'))).toBe('1h');
+    expect(arch.querySelector('.wd-st-col-when')!.getAttribute('title')).toMatch(/^Archived .+\. Last active 10m ago\.$/);
     act(() => arch.querySelector<HTMLButtonElement>('.wd-st-restore')!.click());
     expect(h.setArchived).toHaveBeenCalledWith('archived', false);
     // Its ⋯ offers Restore too.
@@ -215,6 +219,43 @@ describe('Sessions table', () => {
       ),
     );
     expect(rows().map((r) => text(r.querySelector('.wd-st-branch')))).toEqual(['long-ago']);
+  });
+
+  it('an archived row says who archived it: you, Ship, its merged PR, or Clean up', () => {
+    const by = (id: string, who: 'you' | 'shipped' | 'pr-merged' | 'cleanup' | undefined) =>
+      s({
+        id,
+        archivedAt: minsAgo(60),
+        archive: {
+          ...(who ? { by: who } : {}),
+          worktreeRemoved: who === 'pr-merged',
+          keptBecause: null,
+          promptCount: 0,
+          prompts: [],
+          lastSummary: null,
+        },
+      });
+    localStorage.setItem('work-web:sessions-show-archived', 'archived');
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [by('a1', 'you'), by('a2', 'pr-merged'), by('a3', 'shipped'), by('a4', 'cleanup'), by('a5', undefined)],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    const pill = (id: string) =>
+      rows()
+        .find((r) => text(r.querySelector('.wd-st-branch')) === id)!
+        .querySelector('.wd-archived-pill')!;
+    expect(text(pill('a1'))).toBe('archived · by you');
+    expect(text(pill('a2'))).toBe('archived · PR merged · folder removed');
+    expect(pill('a2').getAttribute('title')).toContain('its pull request merged, so work archived it');
+    expect(text(pill('a3'))).toBe('archived · merged with Ship');
+    expect(text(pill('a4'))).toBe('archived · Clean up');
+    expect(text(pill('a5'))).toBe('archived'); // archived before work recorded who
   });
 
   it('a "Show archived" tick from before reads as All; the project and a group are their own column', () => {

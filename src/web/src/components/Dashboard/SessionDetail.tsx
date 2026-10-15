@@ -29,6 +29,7 @@ import { PtyView } from '../Terminal/LazyPtyView.js';
 import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';
+import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
 
 interface Props {
   session: SessionSummary;
@@ -288,7 +289,11 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
           <OtherBranchChip session={session} />
           <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
         </h1>
-        {archived && <span className="wd-archived-pill">archived</span>}
+        {archived && (
+          <span className="wd-archived-pill" title={archivedLine(session)}>
+            archived{session.archive?.by ? ` · ${ARCHIVED_BY_SHORT[session.archive.by]}` : ''}
+          </span>
+        )}
         <div className="wd-session-actions">
           {note && (
             <span

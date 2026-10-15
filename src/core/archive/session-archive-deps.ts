@@ -55,7 +55,7 @@ export async function archiveMergedSession(id: string, deps: ArchiveDeps, onChan
   const s = loadHistory().find((x) => sessionIdFor(x) === id);
   if (!s || s.archivedAt) return undefined;
   // The PR watch, unasked: what you run from it is yours, so it keeps the worktree rather than stop it.
-  const out = await archiveSession(s, deps, { merged: true, unattended: true });
+  const out = await archiveSession(s, deps, { merged: true, unattended: true, by: 'pr-merged' });
   onChanged();
   if (!out.ok) throw new Error(out.message);
   return out.kept;

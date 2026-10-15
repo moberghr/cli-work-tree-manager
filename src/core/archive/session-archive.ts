@@ -1,3 +1,4 @@
+import { ARCHIVED_BY, type ArchivedBy } from '../api-types.js';
 import fs from 'node:fs';
 import { isSavedUncommitted, type SavedUncommitted } from './archive-uncommitted.js';
 import { logSwallowed } from '../platform/best-effort.js';
@@ -68,6 +69,8 @@ export interface ArchiveRecord {
   isGroup: boolean;
   paths: string[];
   archivedAt: string;
+  /** Who archived it (ArchiveOptions.by); none in an archive from before it was recorded. */
+  archivedBy?: ArchivedBy;
   /** The worktree folder(s) were removed (false: kept, see keptBecause). */
   worktreeRemoved: boolean;
   keptBecause: string | null;
@@ -110,6 +113,11 @@ export interface ArchiveRecord {
   /** When the transcripts were compressed / deleted for retention (ISO). */
   compressedAt?: string;
   transcriptsDroppedAt?: string;
+}
+
+/** Who archived it, as stored (archive.json is read back as JSON): only a value work writes. */
+export function archivedByOf(rec: { archivedBy?: unknown }): ArchivedBy | undefined {
+  return ARCHIVED_BY.find((b) => b === rec.archivedBy);
 }
 
 export interface ArchiveKept {
@@ -203,6 +211,8 @@ export function onArchived(listener: (s: WorktreeSession) => void | Promise<unkn
  * Claude in the middle of a turn does (the caller tries again later).
  */
 export interface ArchiveOptions {
+  /** Who asked: kept in the record, and shown with the archived session. */
+  by?: ArchivedBy;
   force?: boolean;
   merged?: boolean;
   /** No one asked (the PR watch, a merged PR): nothing running from the worktree is stopped — it keeps it. */
@@ -366,6 +376,7 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
     isGroup: s.isGroup,
     paths: s.paths,
     archivedAt: new Date(now()).toISOString(),
+    ...(opts.by ? { archivedBy: opts.by } : {}),
     worktreeRemoved,
     keptBecause,
     ...(leftovers.length ? { leftovers } : {}),
