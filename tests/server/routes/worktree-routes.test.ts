@@ -298,6 +298,47 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     await recorded(record).toBe(fs.realpathSync.native(path.join(wtPath, 'README.md')));
   });
 
+  it("a group: the group's folder (every repo) as the window, a file of any repo in it at its line", async () => {
+    const groupDir = path.join(tmpHome, 'worktrees', 'grp', 'feat-x');
+    const repos = ['backend', 'frontend'].map((name) => {
+      const dir = path.join(groupDir, name);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      git(['init', '-b', 'main'], dir);
+      fs.writeFileSync(path.join(dir, 'src', `${name}.ts`), `export const ${name} = 1;\n`);
+      git(['add', '.'], dir);
+      return dir;
+    });
+    fs.writeFileSync(path.join(groupDir, 'CLAUDE.md'), '# grp\n');
+    await upsertSession('grp', true, BRANCH, repos);
+    const id = sessionIdFor({ target: 'grp', branch: BRANCH });
+    const open = (body: unknown) =>
+      app.request(`/api/sessions/${id}/open-editor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const real = (...p: string[]) => fs.realpathSync.native(path.join(groupDir, ...p));
+
+    for (const [repo, rel, line] of [
+      ['backend', 'src/backend.ts', 7],
+      ['frontend', 'src/frontend.ts', 2],
+      ['', 'CLAUDE.md', 1], // the group folder's own note
+    ] as const) {
+      const record = fakeEditor('code');
+      expect((await open({ repo, path: rel, line })).status).toBe(200);
+      await recorded(record).toBe([groupDir, '--goto', `${real(repo, rel)}:${line}`].join('|'));
+      fs.rmSync(path.dirname(record), { recursive: true, force: true });
+    }
+
+    // A file asked for under the wrong repo, or a repo's file as the group folder's: refused.
+    const record = fakeEditor('code');
+    expect((await open({ repo: 'frontend', path: 'src/backend.ts' })).status).toBe(404);
+    expect((await open({ repo: '', path: 'backend/src/backend.ts' })).status).toBe(404);
+    // No file (the session's `o`): the group's folder, as before.
+    expect((await open({})).status).toBe(200);
+    await recorded(record).toBe(groupDir);
+  });
+
   it("refuses a file the Code tab wouldn't show, and starts nothing", async () => {
     const record = fakeEditor('code');
     fs.writeFileSync(path.join(wtPath, '.gitignore'), '.env\n');
