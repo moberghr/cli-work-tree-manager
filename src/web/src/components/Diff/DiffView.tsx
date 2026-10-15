@@ -47,7 +47,7 @@ import {
   UNCOMMITTED,
   type DiffSelection,
 } from '../../state/diff-history.js';
-import { emptyDiffMessage, orderRepoTabs, preferredRepo } from '../../state/diff-view.js';
+import { emptyDiffMessage, preferredRepo, repoSwitch, sessionRepoNames } from '../../state/diff-view.js';
 import type { DiffSeen } from '../../../../core/api-types.js';
 import { pointParam } from '../../../../core/diff/diff-points.js';
 
@@ -296,6 +296,11 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     pickedRepo.current = name;
     setActiveRepoName(name);
   };
+  // The toolbar's switch: a commit belongs to one repo, so leaving a commit's repo shows the other one's branch.
+  const switchRepo = (name: string) => {
+    if (commitRepo && commitRepo !== name) setSelection(SINCE_BRANCH);
+    openRepo(name);
+  };
 
   const repoStartIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -390,6 +395,35 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   const toolbar = (
     <div className="wd-web-difftoolbar wd-dash-difftoolbar" role="toolbar" aria-label="Diff">
       <div className="wd-dash-difftoolbar-pick">
+        {isGroup && (
+          <div className="wd-web-diff-scope wd-diff-repo-switch" role="tablist" aria-label="Repo">
+            {repoSwitch(sessionRepoNames(session.paths), diff?.repos).map((r) => {
+              const on = r.name === (activeRepo?.name ?? activeRepoName);
+              return (
+                <button
+                  key={r.name}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  className={
+                    'wd-web-diff-scope-btn' + (on ? ' wd-web-diff-scope-btn-active' : '') + (r.files === 0 ? ' wd-diff-repo-empty' : '')
+                  }
+                  onClick={() => switchRepo(r.name)}
+                  title={
+                    r.files === null
+                      ? `${r.name}: not in this pick (a commit is one repo's) — shows its branch`
+                      : r.files === 0
+                        ? `${r.name}: no changes here`
+                        : `${r.name}: ${r.files} file${r.files === 1 ? '' : 's'} +${r.added} −${r.deleted}`
+                  }
+                >
+                  {r.name}
+                  {r.files !== null && <span className="wd-web-tab-count"> {r.files}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="wd-web-diff-scope" role="tablist" aria-label="Diff scope">
           <button
             type="button"
@@ -516,7 +550,6 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
     );
 
   const isEmpty = totalFiles === 0 || !activeRepo;
-  const hasTabs = diff.repos.length > 1;
   const emptyMessage = emptyDiffMessage(shown, diff.resolvedBase, liveLabel(allItems, shown));
 
   return (
@@ -565,12 +598,10 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
               className={'wd-web-review-main' + (stale ? ' wd-diff-stale-soft' : '')}
               aria-busy={busy}
               inert={stale}
-              // Always set --tabs-offset (0px when no tabs) so the value is
-              // present in every render. With keep-mounted-hidden dashboard
-              // nav, an incoming pane that flips from hidden to visible would
-              // otherwise paint one frame without the variable — single-frame
-              // layout jump when scrolling sticky-positioned file headers.
-              style={{ ['--tabs-offset' as string]: hasTabs ? '36px' : '0px' }}
+              // The repos are switched in the toolbar, so nothing sticks above
+              // the file headers: --tabs-offset stays set (0px) so a pane that
+              // flips from hidden to visible paints its sticky headers in place.
+              style={{ ['--tabs-offset' as string]: '0px' }}
             >
               {isEmpty || !activeRepo ? (
                 <>
@@ -593,32 +624,6 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
               ) : (
                 <>
                   <GeneralPane />
-                  {hasTabs && (
-                    <nav className="wd-web-repo-tabs">
-                      {orderRepoTabs(diff.repos).map((r) => {
-                        const add = r.files.reduce((s, f) => s + f.added, 0);
-                        const del = r.files.reduce((s, f) => s + f.deleted, 0);
-                        return (
-                          <button
-                            key={r.name}
-                            type="button"
-                            className={
-                              'wd-web-repo-tab' +
-                              (r.name === activeRepo.name ? ' wd-web-repo-tab-active' : '') +
-                              (r.files.length === 0 ? ' wd-web-repo-tab-empty' : '')
-                            }
-                            onClick={() => openRepo(r.name)}
-                            title={r.files.length === 0 ? 'No changes in this repo here' : undefined}
-                          >
-                            {r.name} <span className="wd-web-tab-count">({r.files.length})</span>{' '}
-                            <span className="wd-tab-stats">
-                              <span className="wd-add">+{add}</span> <span className="wd-del">-{del}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </nav>
-                  )}
                   <DiffRepo repo={activeRepo} startIndex={activeStart} review viewedPaths={viewedPaths} onToggleViewed={toggleViewed} />
                 </>
               )}

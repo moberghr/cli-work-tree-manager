@@ -24,6 +24,44 @@ export function preferredRepo(repos: readonly RepoLike[], current: string | null
   return (repos.find((r) => r.files.length > 0) ?? cur ?? repos[0]).name;
 }
 
+/** One of a group's repos in the Diff toolbar's switch: what the diff on screen has of it (null: not in it, as a commit of another repo). */
+export interface RepoSwitchItem {
+  name: string;
+  files: number | null;
+  added: number;
+  deleted: number;
+}
+
+/** A session's repos by their folder's name (what the diff calls them), in the session's own order. */
+export function sessionRepoNames(paths: readonly string[]): string[] {
+  return paths.map(
+    (p) =>
+      p
+        .replace(/[\\/]+$/, '')
+        .split(/[\\/]/)
+        .pop() ?? p,
+  );
+}
+
+/**
+ * The Diff toolbar's repo switch for a group: every repo of the session, always, in the session's order (tabs that
+ * come and go or move about with the diff can't be relied on), with what the diff on screen has in each.
+ */
+export function repoSwitch(
+  names: readonly string[],
+  repos: readonly { name: string; files: readonly { added: number; deleted: number }[] }[] | undefined,
+): RepoSwitchItem[] {
+  return names.map((name) => {
+    const r = repos?.find((x) => x.name === name);
+    return {
+      name,
+      files: r ? r.files.length : null,
+      added: r ? r.files.reduce((s, f) => s + f.added, 0) : 0,
+      deleted: r ? r.files.reduce((s, f) => s + f.deleted, 0) : 0,
+    };
+  });
+}
+
 /** Repos with changes first, in their own order; the rest after (shown dimmed). */
 export function orderRepoTabs<T extends RepoLike>(repos: readonly T[]): T[] {
   return [...repos.filter((r) => r.files.length > 0), ...repos.filter((r) => r.files.length === 0)];

@@ -45,9 +45,28 @@ const h = vi.hoisted(() => {
       },
     ],
   });
+  /** A group's repos: a scope or a turn has each (an empty one listed too); a commit's span its repo alone. */
+  let groupRepos: Array<{ name: string; files: number }> | null = null;
+  const groupDiff = (sessionId: string, file: string, range?: { from: string; to: string }) => {
+    const one = diffFor(sessionId, file).repos[0];
+    const commitRepo = range && [range.from, range.to].map((p) => /^[cp]:([^:]+):/.exec(p)?.[1]).find(Boolean);
+    return {
+      ...diffFor(sessionId, file),
+      repos: groupRepos!
+        .filter((r) => !commitRepo || r.name === commitRepo)
+        .map((r) => ({ ...one, name: r.name, root: `/tmp/${r.name}`, files: one.files.slice(0, r.files) })),
+    };
+  };
   return {
     calls,
     diffFor,
+    groupDiff,
+    get groupRepos() {
+      return groupRepos;
+    },
+    set groupRepos(v) {
+      groupRepos = v;
+    },
     get checkpoints() {
       return checkpoints;
     },
@@ -88,7 +107,7 @@ vi.mock('../../src/web/src/api/client.js', async (importActual) => {
       const r = range && { from: pointParam(range.from), to: pointParam(range.to) };
       h.calls.push({ sessionId, base, range: r });
       const file = r ? `${r.from}..${r.to}.txt` : `${base}.txt`;
-      return Promise.resolve(h.diffFor(sessionId, file));
+      return Promise.resolve(h.groupRepos ? h.groupDiff(sessionId, file, r) : h.diffFor(sessionId, file));
     },
     fetchSessionHistory: () => {
       sse.historyCalls++;
@@ -108,6 +127,7 @@ beforeEach(() => {
   h.calls.length = 0;
   h.checkpoints = [];
   h.commits = [];
+  h.groupRepos = null;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -304,5 +324,62 @@ describe('DiffView: a group', () => {
     await clickRow('Uncommitted', true);
     expect(h.calls.at(-1)?.range).toEqual({ from: `p:repo:${sha}`, to: 'working' });
     expect(container.querySelector('.wd-dash-difftoolbar')!.textContent).toContain('repo only');
+  });
+
+  const repoTabs = () =>
+    [...container.querySelectorAll<HTMLButtonElement>('.wd-diff-repo-switch [role="tab"]')].map(
+      (b) => `${b.textContent}${b.getAttribute('aria-selected') === 'true' ? ' *' : ''}`,
+    );
+  const repoTab = (name: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>('.wd-diff-repo-switch [role="tab"]')].find((b) => b.textContent?.startsWith(name))!;
+  const renderGroup = async () => {
+    await act(async () => {
+      root.render(
+        createElement(DiffView, {
+          session: { ...session('g2'), isGroup: true, paths: ['/wt/grp/backend', '/wt/grp/frontend'] },
+        }),
+      );
+    });
+    await flush();
+  };
+
+  it("the repos are in the toolbar, always, in the session's order — none above the diff", async () => {
+    h.groupRepos = [
+      { name: 'backend', files: 0 },
+      { name: 'frontend', files: 1 },
+    ];
+    await renderGroup();
+    // The one with changes is open; the empty one is still there, in its place.
+    expect(repoTabs()).toEqual(['backend 0', 'frontend 1 *']);
+    expect(repoTab('backend').classList.contains('wd-diff-repo-empty')).toBe(true);
+    expect(container.querySelector('.wd-web-repo-tabs')).toBeNull();
+    await act(async () => repoTab('backend').click());
+    expect(repoTabs()).toEqual(['backend 0 *', 'frontend 1']);
+  });
+
+  it('a commit of one repo picked: the other repo is one click away (its branch), not a dead end', async () => {
+    h.groupRepos = [
+      { name: 'backend', files: 1 },
+      { name: 'frontend', files: 1 },
+    ];
+    h.checkpoints = [entry(0)];
+    const sha = 'd04aeeb56a1b2c3d4e5f60718293a4b5c6d7e8f9';
+    h.commits = [{ repo: 'frontend', sha, subject: 'Terminal type column', at: '2026-09-01T00:00:30Z' }];
+    await renderGroup();
+    await act(async () => repoTab('frontend').click());
+    await clickRow('d04aeeb');
+    expect(h.calls.at(-1)?.range).toEqual({ from: `p:frontend:${sha}`, to: `c:frontend:${sha}` });
+    // The diff has the commit's repo alone; the switch still has both.
+    expect(repoTabs()).toEqual(['backend', 'frontend 1 *']);
+    await act(async () => repoTab('backend').click());
+    await flush();
+    expect(h.calls.at(-1)).toMatchObject({ base: 'branch', range: undefined });
+    expect(tab('Since branch').getAttribute('aria-selected')).toBe('true');
+    expect(repoTabs()).toEqual(['backend 1 *', 'frontend 1']);
+  });
+
+  it('a single repo has no repo switch', async () => {
+    await render('s-one');
+    expect(container.querySelector('.wd-diff-repo-switch')).toBeNull();
   });
 });

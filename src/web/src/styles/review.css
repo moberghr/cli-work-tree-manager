@@ -1232,6 +1232,13 @@ button.wd-comment-fold:hover,
 .wd-dash-difftoolbar-pick .wd-web-diff-scope {
   margin-top: 0;
 }
+/* A group's repos: always there, in the session's order; one with nothing in this pick is dimmed. */
+.wd-diff-repo-switch .wd-diff-repo-empty:not(.wd-web-diff-scope-btn-active) {
+  opacity: 0.55;
+}
+.wd-diff-repo-switch .wd-web-tab-count {
+  font-variant-numeric: tabular-nums;
+}
 .wd-dash-difftoolbar .wd-web-difftoolbar-info {
   flex: 1;
   align-items: center;
