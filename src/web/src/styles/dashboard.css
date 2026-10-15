@@ -4840,6 +4840,16 @@ a.wd-pr-chip:hover {
 .wd-code-head .wd-diff-update {
   margin-left: auto;
 }
+.wd-code-head .wd-code-open {
+  margin-left: auto;
+  color: var(--fg);
+}
+.wd-code-head .wd-diff-update + .wd-code-open {
+  margin-left: 0;
+}
+.wd-code-head .wd-code-open:hover {
+  border-color: var(--fg);
+}
 .wd-code-scroll {
   flex: 1;
   min-height: 0;

@@ -301,8 +301,12 @@ export function openInTerminal(sessionId: string): Promise<{ ok: true }> {
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-terminal`, {});
 }
 
-export function openInEditor(sessionId: string): Promise<{ ok: true; opened: string }> {
-  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, {});
+/** The session's worktree in the editor; with `file`, that one of the Code tab's files, at `line` where the editor takes one. */
+export function openInEditor(
+  sessionId: string,
+  file?: { repo: string; path: string; line?: number },
+): Promise<{ ok: true; opened: string }> {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, file ?? {});
 }
 
 // ---- Repos and groups (the Repos page; repo-admin.ts) ----------------------

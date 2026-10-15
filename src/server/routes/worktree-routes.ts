@@ -19,6 +19,8 @@ import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-
 import { startSessionWithPrompt, type StartOutcome } from '../../core/sessions/session-start.js';
 import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js';
 import type { PrStartWire } from '../../core/api-types.js';
+import { codeFilePath } from '../../core/worktree/code-browse.js';
+import { editorArgs } from '../../core/platform/launch.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -40,7 +42,7 @@ export interface WorktreeMutOptions {
  *   DELETE /api/sessions/:id/worktree — remove (force / sessionOnly flags)
  *   POST   /api/sessions/:id/sync     — git fetch (+ pull where safe)
  *   POST   /api/sessions/:id/rebase   — rebase on detected/recorded parent
- *   POST   /api/sessions/:id/open-editor — spawn `code <path>`
+ *   POST   /api/sessions/:id/open-editor — spawn `code <path>` ({repo, path, line}: that file, at that line)
  *   POST   /api/sessions/:id/open-terminal — Windows Terminal tab running
  *                                           `work attach` for the session
  *
@@ -243,14 +245,33 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
   });
 
   // -- Open in editor ----------------------------------------------------
+  // No body: the worktree. {repo, path, line} (the Code tab): that file, in
+  // the worktree's window, at the line where the editor takes one — only a
+  // file the Code tab may show (codeFilePath), never a path from the browser.
+  const openFileSchema = z.object({
+    repo: z.string().max(200),
+    path: z.string().min(1).max(4096),
+    line: z.number().int().positive().max(10_000_000).optional(),
+  });
   app.post('/api/sessions/:id/open-editor', async (c) => {
     const id = c.req.param('id');
     const session = findSession(id);
     if (!session) return c.json({ error: 'unknown session' }, 404);
+    const body: unknown = await c.req.json().catch(() => ({}));
+    const wantsFile = !!body && typeof body === 'object' && 'path' in body;
+    const asked = wantsFile ? openFileSchema.safeParse(body) : null;
+    if (asked && !asked.success) return c.json({ error: 'repo and path required' }, 400);
     // Open the worktree (or group root) in VS Code. Detached + ignored
     // stdio so the spawn returns immediately and the parent doesn't
     // hold on to a zombie.
-    const target = session.isGroup ? path.dirname(session.paths[0]) : session.paths[0];
+    const folder = session.isGroup ? path.dirname(session.paths[0]) : session.paths[0];
+    let file: { path: string; line?: number } | undefined;
+    if (asked?.success) {
+      const at = await codeFilePath(session, asked.data.repo, asked.data.path);
+      if ('error' in at) return c.json({ error: at.error }, at.error === 'unreadable' ? 500 : 404);
+      file = { path: at.real, line: asked.data.line };
+    }
+    const target = file?.path ?? folder;
     // cross-spawn, not node's spawn: the editor is usually a `.cmd` shim on
     // Windows (code.cmd), which node refuses to run without a shell since
     // the BatBadBut fix (EINVAL) — and a shell would interpret `&` etc. in
@@ -258,7 +279,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const editor = loadConfig()?.editor?.trim() || 'code';
     const failed = await new Promise<string | null>((resolve) => {
       try {
-        const child = crossSpawn(editor, [target], { detached: true, stdio: 'ignore', windowsHide: true });
+        const child = crossSpawn(editor, editorArgs(editor, folder, file), { detached: true, stdio: 'ignore', windowsHide: true });
         // A missing editor surfaces as 'error' — on Windows only when the
         // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
         // so wait for an error, an exit, or a moment of it running.

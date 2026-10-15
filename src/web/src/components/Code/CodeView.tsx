@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeFileWire, CodeFilesWire } from '../../../../core/api-types.js';
 import { fetchCodeFile, fetchCodeFiles, type SessionSummary } from '../../api/client.js';
+import { openInEditor } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
 import { codeEntries, codeKey, entryOf, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
 import type { CodePlace } from '../../state/code-search-view.js';
@@ -52,6 +53,8 @@ export function CodeView({
   const [newer, setNewer] = useState<CodeFileWire | null>(null);
   // The line a search picked: marked, and scrolled to once the file is drawn.
   const [mark, setMark] = useState<{ key: string; line: number; seq: number } | null>(null);
+  // Why the editor didn't open (not installed, the demo), for the file it was asked for.
+  const [editorError, setEditorError] = useState<{ key: string; text: string } | null>(null);
 
   const entries = useMemo(() => (listing ? codeEntries(listing) : []), [listing]);
   const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
@@ -154,6 +157,17 @@ export function CodeView({
     },
   });
 
+  // The open file in the editor, where you are in it: the line a search marked, else the top one on screen.
+  const openFileInEditor = () => {
+    if (!openEntry) return;
+    const key = openEntry.key;
+    const line = mark && mark.key === key ? mark.line : lineAtTop(scrollRef.current);
+    setEditorError(null);
+    openInEditor(session.id, { repo: openEntry.repo, path: openEntry.path, line }).catch((err: Error) =>
+      setEditorError({ key, text: `Couldn't open the editor: ${err.message}` }),
+    );
+  };
+
   const lines = useMemo(() => (file?.text != null ? file.text.replace(/\r?\n$/, '').split(/\r?\n/) : null), [file]);
   const html = useMemo(() => {
     if (!lines || !openEntry || lines.length > HIGHLIGHT_MAX_LINES) return null;
@@ -239,7 +253,20 @@ export function CodeView({
                   </button>
                 </span>
               )}
+              <button
+                type="button"
+                className="wd-code-btn wd-code-open"
+                onClick={openFileInEditor}
+                title="Open this file in your editor (VS Code: at the line you're reading)"
+              >
+                Open in editor
+              </button>
             </header>
+            {editorError?.key === open && (
+              <p className="wd-code-note wd-code-open-error" role="alert">
+                {editorError.text}
+              </p>
+            )}
             {fileError ? (
               <p className="wd-code-note">{fileError}</p>
             ) : !file ? (
@@ -248,7 +275,7 @@ export function CodeView({
               <p className="wd-code-note">
                 {file.reason === 'binary'
                   ? 'A binary file: nothing to read here.'
-                  : `Too big to show here (${(file.size / 1024 / 1024).toFixed(1)} MB). Open it in your editor (o).`}
+                  : `Too big to show here (${(file.size / 1024 / 1024).toFixed(1)} MB). Open it in your editor.`}
               </p>
             ) : (
               <div className="wd-code-scroll" ref={scrollRef}>
@@ -371,4 +398,14 @@ function FileRow({
       {entry.changed && <span className="wd-code-dot" aria-label="changed on this branch" />}
     </button>
   );
+}
+
+/** The first line on screen in the open file (none at the top: it opens there anyway). */
+function lineAtTop(scroll: HTMLElement | null): number | undefined {
+  if (!scroll || scroll.scrollTop <= 0) return undefined;
+  const top = scroll.getBoundingClientRect().top;
+  for (const tr of scroll.querySelectorAll<HTMLElement>('tr[data-line]')) {
+    if (tr.getBoundingClientRect().bottom > top) return Number(tr.dataset.line);
+  }
+  return undefined;
 }

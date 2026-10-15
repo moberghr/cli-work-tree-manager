@@ -5,6 +5,7 @@ import path from 'node:path';
 import { git } from '../../../src/core/git/git.js';
 import {
   clearCodeListCache,
+  codeFilePath,
   groupRoot,
   isListed,
   listCodeFiles,
@@ -142,6 +143,17 @@ describe('readCodeFile', () => {
   it('a binary file and a big one are named, not shown', async () => {
     expect(await readCodeFile(single(), 'api', 'logo.png')).toMatchObject({ text: null, reason: 'binary' });
     expect(await readCodeFile(single(), 'api', 'big.txt')).toMatchObject({ text: null, reason: 'too-large' });
+  });
+
+  it('where a file is on disk (for the editor): only one the Code tab may show', async () => {
+    const s = single();
+    const name = 'api';
+    const at = await codeFilePath(s, name, 'src/a.ts');
+    expect('real' in at && fs.realpathSync.native(path.join(repo, 'src', 'a.ts')) === at.real).toBe(true);
+    expect(await codeFilePath(s, name, '.env')).toEqual({ error: 'not listed' }); // ignored
+    expect(await codeFilePath(s, name, '../../outside.txt')).toEqual({ error: 'not listed' });
+    expect(await codeFilePath(s, name, 'src')).toEqual({ error: 'not listed' }); // a folder
+    expect(await codeFilePath(s, 'other', 'src/a.ts')).toEqual({ error: 'unknown repo' });
   });
 
   it('one file is asked about alone once the listing is stale: exactly that path, never a folder', async () => {

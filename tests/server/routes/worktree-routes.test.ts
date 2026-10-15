@@ -257,6 +257,59 @@ describe('DELETE /api/sessions/:id/worktree', () => {
     await expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 }).toBe(wtPath);
   });
 
+  /** A fake editor named `name` that records its arguments ('|'-joined); a .cmd shim on Windows, like code.cmd. */
+  function fakeEditor(name: string): string {
+    const bin = path.join(tmpHome, 'bin-' + name);
+    fs.mkdirSync(bin);
+    const record = path.join(bin, 'args.txt');
+    const script = path.join(bin, 'record.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(record)}, process.argv.slice(2).join('|'))`);
+    const editor = process.platform === 'win32' ? path.join(bin, name + '.cmd') : path.join(bin, name);
+    fs.writeFileSync(
+      editor,
+      process.platform === 'win32'
+        ? `@"${process.execPath}" "${script}" %*\r\n`
+        : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    saveConfig({ ...loadConfig()!, editor });
+    return record;
+  }
+  const openFile = (body: unknown) =>
+    app.request(`/api/sessions/${sessionId()}/open-editor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const recorded = (record: string) =>
+    expect.poll(() => (fs.existsSync(record) ? fs.readFileSync(record, 'utf-8') : null), { timeout: 10_000 });
+
+  it("opens one of the Code tab's files in VS Code, in the worktree's window, at the line", async () => {
+    const record = fakeEditor('code');
+    const res = await openFile({ repo: 'feat-x', path: 'README.md', line: 3 });
+    expect(res.status).toBe(200);
+    const file = fs.realpathSync.native(path.join(wtPath, 'README.md'));
+    await recorded(record).toBe([wtPath, '--goto', `${file}:3`].join('|'));
+  });
+
+  it('another editor gets the file alone', async () => {
+    const record = fakeEditor('my-editor');
+    expect((await openFile({ repo: 'feat-x', path: 'README.md', line: 3 })).status).toBe(200);
+    await recorded(record).toBe(fs.realpathSync.native(path.join(wtPath, 'README.md')));
+  });
+
+  it("refuses a file the Code tab wouldn't show, and starts nothing", async () => {
+    const record = fakeEditor('code');
+    fs.writeFileSync(path.join(wtPath, '.gitignore'), '.env\n');
+    fs.writeFileSync(path.join(wtPath, '.env'), 'SECRET=1\n');
+    expect((await openFile({ repo: 'feat-x', path: '.env' })).status).toBe(404);
+    expect((await openFile({ repo: 'feat-x', path: '../../../repo/README.md' })).status).toBe(404);
+    expect((await openFile({ repo: 'nope', path: 'README.md' })).status).toBe(404);
+    expect((await openFile({ repo: 'feat-x', path: '' })).status).toBe(400);
+    expect((await openFile({ repo: 'feat-x', path: 'README.md', line: -1 })).status).toBe(400);
+    expect(fs.existsSync(record)).toBe(false);
+  });
+
   it('reports an editor that is not installed instead of pretending it opened', async () => {
     saveConfig({ ...loadConfig()!, editor: 'definitely-not-an-editor-xyz' });
     const res = await app.request(`/api/sessions/${sessionId()}/open-editor`, { method: 'POST' });

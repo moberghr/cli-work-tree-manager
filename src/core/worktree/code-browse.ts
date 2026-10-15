@@ -177,16 +177,16 @@ export const isGroupNote = (name: string) => !name.startsWith('.') && /\.md$/i.t
 export type CodeReadError = 'unknown repo' | 'not listed' | 'unreadable';
 
 /**
- * One file as it is now. `repo` '' is a group folder's own file. Only a file the listing has (so nothing outside
- * the worktree and nothing git ignores), and only a regular file whose real path is still inside it (a link out
- * is refused).
+ * Where one of the Code tab's files is on disk. `repo` '' is a group folder's own file. Only a file the listing has
+ * (so nothing outside the worktree and nothing git ignores), and only a regular file whose real path is still
+ * inside it (a link out is refused). Reading it and opening it in an editor both go through here.
  */
-export async function readCodeFile(
+export async function codeFilePath(
   s: Pick<WorktreeSession, 'paths' | 'isGroup'>,
   repo: string,
   rel: string,
   io: CodeIo = realIo,
-): Promise<CodeFileWire | { error: CodeReadError }> {
+): Promise<{ real: string; size: number } | { error: CodeReadError }> {
   let root: string | null;
   let allowed: boolean;
   if (repo === '') {
@@ -206,12 +206,28 @@ export async function readCodeFile(
     if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { error: 'not listed' };
     const st = fs.statSync(real);
     if (!st.isFile()) return { error: 'unreadable' };
-    if (st.size > MAX_CODE_FILE_BYTES) return { repo, path: rel, size: st.size, text: null, reason: 'too-large' };
-    const buf = await fs.promises.readFile(real);
-    if (buf.subarray(0, 8000).includes(0)) return { repo, path: rel, size: st.size, text: null, reason: 'binary' };
-    return { repo, path: rel, size: st.size, text: buf.toString('utf-8') };
+    return { real, size: st.size };
   } catch (err) {
     // Gone since it was listed (deleted, moved): as good as not listed.
+    return { error: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'not listed' : 'unreadable' };
+  }
+}
+
+/** One file as it is now (`codeFilePath`'s checks), at most MAX_CODE_FILE_BYTES; a binary one named, not shown. */
+export async function readCodeFile(
+  s: Pick<WorktreeSession, 'paths' | 'isGroup'>,
+  repo: string,
+  rel: string,
+  io: CodeIo = realIo,
+): Promise<CodeFileWire | { error: CodeReadError }> {
+  const at = await codeFilePath(s, repo, rel, io);
+  if ('error' in at) return at;
+  if (at.size > MAX_CODE_FILE_BYTES) return { repo, path: rel, size: at.size, text: null, reason: 'too-large' };
+  try {
+    const buf = await fs.promises.readFile(at.real);
+    if (buf.subarray(0, 8000).includes(0)) return { repo, path: rel, size: at.size, text: null, reason: 'binary' };
+    return { repo, path: rel, size: at.size, text: buf.toString('utf-8') };
+  } catch (err) {
     return { error: (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'not listed' : 'unreadable' };
   }
 }

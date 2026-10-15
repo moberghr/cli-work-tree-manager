@@ -11,7 +11,9 @@ const h = vi.hoisted(() => ({
   files: null as unknown as CodeFilesWire,
   texts: {} as Record<string, string | null>,
   sse: {} as Record<string, () => void>,
+  openInEditor: vi.fn(async (..._args: unknown[]) => ({ ok: true as const, opened: '' })),
 }));
+vi.mock('../../src/web/src/api/panes.js', () => ({ openInEditor: h.openInEditor }));
 vi.mock('../../src/web/src/api/client.js', async (orig) => ({
   ...(await orig<typeof import('../../src/web/src/api/client.js')>()),
   fetchCodeFiles: vi.fn(async () => h.files),
@@ -104,6 +106,19 @@ describe('the Code tab', () => {
     expect(container.textContent).toContain('File changed');
     act(() => reload.click());
     expect(lines()).toEqual(['# api', ' ', 'More.']); // a blank line keeps its height
+  });
+
+  it('Open in editor sends the open file (by repo and path, never a disk path); a failure says why', async () => {
+    await mount('code-s5');
+    act(() => row('README.md').click());
+    await flush();
+    const button = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Open in editor')!;
+    act(() => button().click());
+    expect(h.openInEditor).toHaveBeenLastCalledWith('code-s5', { repo: 'api', path: 'README.md', line: undefined });
+    h.openInEditor.mockRejectedValueOnce(new Error('could not start code'));
+    act(() => button().click());
+    await flush();
+    expect(container.querySelector('.wd-code-open-error')!.textContent).toContain('could not start code');
   });
 
   it('a binary file says so instead of showing bytes', async () => {
