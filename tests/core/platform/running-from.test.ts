@@ -8,6 +8,7 @@ import {
   commandWords,
   describeProcess,
   holdersOf,
+  isEditorHelper,
   isWorkProcess,
   normDir,
   parseCimProcesses,
@@ -66,6 +67,35 @@ describe('what runs from a folder', () => {
     const h = holdersOf([vite, cmd, code, app, appChild, elsewhere], [WT], 99_999, true);
     expect(h.stoppable.map((x) => x.pid)).toEqual([35464, 600]); // the app's child goes with it (a tree kill)
     expect(h.others.map((x) => x.pid)).toEqual([500]);
+  });
+
+  it("an editor's language server running the worktree's own TypeScript is the editor's: named, never stopped", () => {
+    const tsserver = p(
+      700,
+      500,
+      'node.exe',
+      'C:\\Program Files\\nodejs\\node.exe',
+      `node "${WT}\\node_modules\\typescript\\lib\\tsserver.js" --useInferredProjectPerProjectRoot --cancellationPipeName x --useNodeIpc`,
+    );
+    const lsp = p(
+      701,
+      500,
+      'node.exe',
+      'C:\\Program Files\\nodejs\\node.exe',
+      `node ${WT}\\node_modules\\x\\server.js --clientProcessId=500 --stdio`,
+    );
+    const vls = p(
+      702,
+      500,
+      'node.exe',
+      'C:\\Program Files\\nodejs\\node.exe',
+      `node ${WT}\\node_modules\\@vue\\language-server\\bin\\vue.js --stdio`,
+    );
+    expect([tsserver, lsp, vls].map(isEditorHelper)).toEqual([true, true, true]);
+    expect(isEditorHelper(vite)).toBe(false);
+    const h = holdersOf([vite, tsserver, lsp, vls], [WT], 99_999, true);
+    expect(h.stoppable.map((x) => x.pid)).toEqual([35464]);
+    expect(h.others.map((x) => x.pid)).toEqual([700, 701, 702]);
   });
 
   it('never this process or one it runs under', () => {
@@ -146,7 +176,7 @@ describe("work's own processes are never stopped", () => {
   });
 
   it('a folder followed by punctuation is still named (a shell: `cd /d <dir>&& npm run dev`); a longer name is another folder', () => {
-    const shell = p(50, 1, 'cmd.exe', 'C:\WINDOWS\system32\cmd.exe', `cmd /c "cd /d ${WT}&& npm run dev"`);
+    const shell = p(50, 1, 'cmd.exe', 'C:\\WINDOWS\\system32\\cmd.exe', `cmd /c "cd /d ${WT}&& npm run dev"`);
     const old = p(51, 1, 'Code.exe', null, `"Code.exe" "${WT}-old"`);
     expect(holdersOf([shell, old], [WT], 99_999, true).others.map((x) => x.pid)).toEqual([50]);
   });

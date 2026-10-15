@@ -41,6 +41,26 @@ describe('suggestBranch', () => {
     expect(suggestBranch('Look at SD-3937 and the note it mentions')).toBe('feat/SD-3937');
   });
 
+  it('what only looks like an issue key is none: UTF-8, SHA-256, ISO-8601', () => {
+    expect(suggestBranch('Fix the UTF-8 encoding of the CSV export')).toBe('fix/encoding-csv-export');
+    expect(suggestBranch('Sign the payload with SHA-256 for PAY-12')).toBe('feat/PAY-12');
+    expect(suggestBranch('Dates in ISO-8601 in the export')).toBe('feat/dates-export');
+  });
+
+  it('an exception only named in a sentence is no pasted error', () => {
+    expect(suggestBranch('Add a ValidationError type to the form API')).toBe('feat/validationerror-type-form');
+    expect(suggestBranch('Implement retry; currently it logs TimeoutException')).toBe('feat/retry-logs-timeoutexception');
+    expect(suggestBranch('TypeError: cannot read properties of undefined')).toBe('fix/type-error');
+    expect(suggestBranch('Unhandled exception.\nSystem.NullReferenceException at Foo.Bar()')).toBe('fix/null-reference-exception');
+  });
+
+  it('show / list / give ask only with what follows ("give me…"); alone they say what to build', () => {
+    expect(suggestBranch('Show the VAT total on the invoice page')).toBe('feat/vat-total-invoice');
+    expect(suggestBranch('List archived orders in the admin')).toBe('feat/archived-orders-admin');
+    expect(suggestBranch('show me why the import skips rows')).toBe('tmp/import-skips-rows');
+    expect(suggestBranch('look into slow settlement queries')).toBe('tmp/slow-settlement-queries');
+  });
+
   it('a pasted exception names what broke; a URL by its last named part; code and ids left out', () => {
     expect(suggestBranch('System.InvalidOperationException: An exception has been raised that is likely due to a transient failure.')).toBe(
       'fix/invalid-operation-exception',

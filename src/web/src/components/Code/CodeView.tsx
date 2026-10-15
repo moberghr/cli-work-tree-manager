@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CodeFileWire, CodeFilesWire } from '../../../../core/api-types.js';
 import { fetchCodeFile, fetchCodeFiles, type SessionSummary } from '../../api/client.js';
 import { useSse } from '../../api/events.js';
-import { codeEntries, codeKey, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
+import { codeEntries, codeKey, entryOf, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
 import type { CodePlace } from '../../state/code-search-view.js';
 import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
 
@@ -57,7 +57,8 @@ export function CodeView({
   const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
   const index = useMemo(() => indexFolders(entries), [entries]);
   const matches = useMemo(() => filterEntries(entries, query), [entries, query]);
-  const openEntry = open ? (byKey.get(open) ?? null) : null;
+  // Not in the listing (new since it was read, or past a big repo's cut): a search's pick still opens.
+  const openEntry = open && listing ? entryOf(listing, open, byKey) : null;
 
   // Shared with Ctrl+T's box for a while (client.ts); `fresh` when the worktree changed.
   const loadList = (fresh = false) => {

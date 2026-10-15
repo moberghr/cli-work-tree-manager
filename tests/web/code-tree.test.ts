@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeEntries, codeKey, filterEntries, foldersOf, indexFolders } from '../../src/web/src/state/code-tree.js';
+import { codeEntries, codeKey, entryOf, filterEntries, foldersOf, indexFolders } from '../../src/web/src/state/code-tree.js';
 import { demoCodeFile, demoCodeFiles } from '../../src/server/demo/demo-code.js';
 import { parseGitDiff } from '../../src/core/diff/diff-parse.js';
 import type { CodeFilesWire } from '../../src/core/api-types.js';
@@ -26,6 +26,24 @@ const group: CodeFilesWire = {
 };
 
 describe('the Code tab tree', () => {
+  it("a search's pick opens a file the listing doesn't have yet, in a repo it knows", () => {
+    const listed = new Map(codeEntries(single).map((e) => [e.key, e]));
+    expect(entryOf(single, codeKey('api', 'src/index.ts'), listed)).toBe(listed.get(codeKey('api', 'src/index.ts')));
+    expect(entryOf(single, codeKey('api', 'src/NewService.ts'))).toEqual({
+      key: codeKey('api', 'src/NewService.ts'),
+      repo: 'api',
+      path: 'src/NewService.ts',
+      display: 'src/NewService.ts',
+      changed: false,
+    });
+    expect(entryOf(group, codeKey('frontend', 'src/App.tsx'))?.display).toBe('frontend/src/App.tsx');
+    expect(entryOf(group, codeKey('frontend', 'src/App.tsx'))?.changed).toBe(true);
+    expect(entryOf(group, codeKey('', 'NOTES.md'))?.display).toBe('NOTES.md');
+    expect(entryOf(single, codeKey('', 'NOTES.md'))).toBeNull();
+    expect(entryOf(single, codeKey('web', 'a.ts'))).toBeNull();
+    expect(entryOf(single, 'no separator')).toBeNull();
+  });
+
   it("a single repo's files are the tree; a group's repos are folders beside its own files", () => {
     expect(codeEntries(single).map((e) => e.display)).toEqual(['README.md', 'src/app/main.ts', 'src/app/util.ts', 'src/index.ts']);
     expect(codeEntries(group).map((e) => e.display)).toEqual(['CLAUDE.md', 'backend/Program.cs', 'frontend/src/App.tsx']);

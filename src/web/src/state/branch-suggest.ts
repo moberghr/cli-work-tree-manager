@@ -33,7 +33,16 @@ const FAILURE =
   /^(bug|bugs|broken|break|breaks|fail|fails|failed|failing|failure|failures|error|errors|crash|crashes|crashing|wrong|exception|regression|greska|greske|puca|ne-radi)$/;
 /** A first word that asks or looks into something: a question, an investigation. */
 const ASKING =
-  /^(why|what|whats|how|when|where|which|who|does|do|did|is|are|was|were|can|could|should|would|will|has|have|check|investigate|inspect|analyze|analyse|explore|look|find|figure|see|tell|show|give|list|compare|verify|review|explain|zasto|sto|kako|koji|koja|koje|gdje|kada|provjeri|provjeriti|pogledaj|mozes|mozete|daj)$/;
+  /^(why|what|whats|how|when|where|which|who|does|do|did|is|are|was|were|can|could|should|would|will|has|have|check|investigate|inspect|analyze|analyse|explore|figure|compare|verify|review|explain|zasto|sto|kako|koji|koja|koje|gdje|kada|provjeri|provjeriti|pogledaj|mozes|mozete)$/;
+/**
+ * A first word that asks only with what follows ("give me…", "show me why…", "look into…"): on its own it's an
+ * instruction to build something ("Show the VAT total on the invoice", "List archived orders").
+ */
+const ASKING_WITH = /^(show|give|list|find|see|look|tell|daj|pokazi)$/;
+const ASKING_NEXT = /^(me|us|mi|nam|what|why|how|where|which|who|when|if|whether|into|at|zasto|sto|kako|gdje)$/;
+/** Look like an issue key, aren't one: UTF-8, SHA-256, ISO-8601, HTTP-2… */
+const NOT_ISSUES =
+  /^(UTF|UCS|SHA|MD|ISO|IEC|IEEE|RFC|HTTP|HTTPS|TLS|SSL|AES|RSA|DES|IPV|ES|ECMA|PEP|CVE|CWE|GPT|UTC|GMT|COVID|WIN|ARM|X|H|MP|PCI|EMV|TCP|UDP|BASE)-/;
 /** Leading words that say nothing a branch name needs ("Add …", "Please make …", "we should …"). */
 // prettier-ignore
 const FILLER = new Set([
@@ -60,7 +69,7 @@ const STOP = new Set([
   'would', 'will', 'may', 'might', 'must', 'need', 'needs', 'want', 'wants', 'make', 'makes', 'put', 'take', 'takes', 'took',
   'use', 'used', 'using', 'try', 'see', 'look', 'check', 'find', 'give', 'show', 'tell', 'know', 'think', 'seems', 'seem',
   'run', 'runs', 'running', 'work', 'works', 'working', 'happen', 'happens', 'happened', 'go', 'goes', 'going', 'come',
-  'please', 'investigate', 'inspect', 'figure', 'explain', 'verify', 'review', 'compare', 'list',
+  'please', 'investigate', 'inspect', 'figure', 'explain', 'verify', 'review', 'compare', 'list', 'pokazi', 'daj',
   // Croatian
   'je', 'su', 'da', 'li', 'se', 'sa', 's', 'za', 'na', 'u', 'i', 'od', 'do', 'iz', 'po', 'kod', 'o', 'a', 'ali', 'pa', 'jer',
   'ako', 'bi', 'smo', 'ste', 'sam', 'si', 'nije', 'nisu', 'ne', 'to', 'ovo', 'ono', 'taj', 'ta', 'te', 'ti', 'mi', 'vi',
@@ -117,10 +126,12 @@ export function suggestBranch(prompt: string, now: Date = new Date()): string {
   const head = prompt.slice(0, 600);
 
   // A Jira issue: its own branch, as Jira's Start makes it.
-  const jira = /\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/.exec(head);
+  const jira = [...head.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].find((m) => !NOT_ISSUES.test(m[1] + '-'));
   if (jira) return `feat/${jira[1]}`;
-  // A pasted exception: what broke.
-  const exception = /\b([A-Z][A-Za-z0-9]*(?:Exception|Error))\b/.exec(head);
+  // A pasted exception, as a stack trace has it (`System.InvalidOperationException: …`, a line starting with it): what
+  // broke. Not one only named in a sentence ("Add a ValidationError type").
+  const exception =
+    /\b([A-Z][A-Za-z0-9]*(?:Exception|Error)):/.exec(head) ?? /^\s*(?:\w+\.)*([A-Z][A-Za-z0-9]*(?:Exception|Error))\b/m.exec(head);
   if (exception) return `fix/${kebab(exception[1])}`.slice(0, MAX_LEN + 4).replace(/-+$/, '');
 
   const words = wordsOf(line);
@@ -132,7 +143,7 @@ export function suggestBranch(prompt: string, now: Date = new Date()): string {
   if (leading) {
     kind = leading[1];
     i++;
-  } else if (first && ASKING.test(first)) kind = 'tmp';
+  } else if (first && (ASKING.test(first) || (ASKING_WITH.test(first) && ASKING_NEXT.test(words[i + 1] ?? '')))) kind = 'tmp';
   else if (words.some((w) => FAILURE.test(w))) kind = 'fix';
   else if (/\?\s*$/.test(line.trim())) kind = 'tmp';
 

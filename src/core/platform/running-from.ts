@@ -90,6 +90,17 @@ export function isPtyHelper(p: RunningProcess): boolean {
   return /[\\/]node-pty[\\/]/i.test(`${p.exe ?? ''} ${p.command}`) || /^(conpty|openconsole|winpty-agent)(\.exe)?$/i.test(p.name);
 }
 
+/**
+ * An editor's helper — a language server, the TypeScript server — even one running the worktree's own copy
+ * (`node <wt>/node_modules/typescript/lib/tsserver.js`, VS Code's "use the workspace version"): the editor's, which
+ * the user closes; stopping it only makes the editor report a crash. Known by what editors start them with.
+ */
+export function isEditorHelper(p: RunningProcess): boolean {
+  const words = commandWords(p.command);
+  if (words.some((w) => /^--(useNodeIpc|node-ipc|clientProcessId(=.*)?|cancellationPipeName)$/i.test(w))) return true;
+  return words.slice(1).some((w) => /[\\/](tsserver|typingsInstaller)\.js$|language-?server|langserver/i.test(w));
+}
+
 /** Where this work runs from: its `dist/bin.js` (an npm install, a linked checkout, the desktop app's copy). */
 export function workBinPaths(): string[] {
   const root = packageRoot();
@@ -163,7 +174,8 @@ export function holdersOf(
     return false;
   };
   const candidates = procs.filter((p) => !mine.has(p.pid) && !spared(p));
-  const running = candidates.filter((p) => runsFrom(p, norm, windows));
+  // An editor's helper is the user's, like the editor: named, never stopped.
+  const running = candidates.filter((p) => runsFrom(p, norm, windows) && !isEditorHelper(p));
   const runningPids = new Set(running.map((p) => p.pid));
   return {
     stoppable: running.filter((p) => !runningPids.has(p.ppid)),

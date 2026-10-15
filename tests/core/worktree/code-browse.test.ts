@@ -33,6 +33,9 @@ beforeAll(() => {
   fs.writeFileSync(path.join(repo, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 1]));
   fs.writeFileSync(path.join(repo, 'big.txt'), 'x'.repeat(MAX_CODE_FILE_BYTES + 1));
   fs.writeFileSync(path.join(tmp, 'grp', 'CLAUDE.md'), '# group\n');
+  // Not a repo, so nothing says what's ignored: local settings copied there aren't shown.
+  fs.writeFileSync(path.join(tmp, 'grp', '.env'), 'SECRET=1\n');
+  fs.writeFileSync(path.join(tmp, 'grp', 'appsettings.Development.json'), '{"Password":"x"}\n');
   fs.writeFileSync(path.join(tmp, 'outside.txt'), 'not yours\n');
 });
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -127,5 +130,7 @@ describe('readCodeFile', () => {
   it("a group folder's own file", async () => {
     expect(await readCodeFile({ paths: [repo], isGroup: true }, '', 'CLAUDE.md')).toMatchObject({ text: '# group\n' });
     expect(await readCodeFile({ paths: [repo], isGroup: true }, '', '../outside.txt')).toEqual({ error: 'not listed' });
+    expect(await readCodeFile({ paths: [repo], isGroup: true }, '', '.env')).toEqual({ error: 'not listed' });
+    expect(await readCodeFile({ paths: [repo], isGroup: true }, '', 'appsettings.Development.json')).toEqual({ error: 'not listed' });
   });
 });

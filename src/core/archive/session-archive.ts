@@ -347,7 +347,8 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let branchesDeleted: string[] = [];
   let buildFolders: ArchiveRecord['buildFolders'];
   if (worktreeRemoved) branchesDeleted = (await deps.tidy?.(s, heads).catch(() => [])) ?? [];
-  else if (keptBecause !== "it is the repo's own checkout" && deps.clearBuildFolders) {
+  // Not under what still runs from it (a dev server's node_modules): kept so as to leave it alone.
+  else if (keptBecause !== "it is the repo's own checkout" && runningThere.length === 0 && deps.clearBuildFolders) {
     buildFolders = await deps.clearBuildFolders(s).catch(() => undefined);
   }
 
@@ -516,13 +517,24 @@ export const RESTORED_AGE_MS = 10 * 60_000;
  * tail), or 0 — no time in it (an empty file, a summary only).
  */
 export function lastEntryTime(file: string, entries: (lines: readonly unknown[]) => ConversationEntry[]): number {
-  let t = 0;
-  // Up to 4 MB back: a last line can be a big tool result.
-  for (const e of entries(readJsonlTail(file, 4 * 1024 * 1024))) {
-    const at = Date.parse(e.at);
-    if (Number.isFinite(at) && at > t) t = at;
+  // 64 KB back almost always has a time; up to 4 MB when it doesn't (a last line can be a big tool result).
+  for (const bytes of [64 * 1024, 4 * 1024 * 1024]) {
+    let t = 0;
+    for (const e of entries(readJsonlTail(file, bytes))) {
+      const at = Date.parse(e.at);
+      if (Number.isFinite(at) && at > t) t = at;
+    }
+    if (t || fileSize(file) <= bytes) return t;
   }
-  return t;
+  return 0;
+}
+
+function fileSize(file: string): number {
+  try {
+    return fs.statSync(file).size;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -547,7 +559,7 @@ export function restoreArchivedTranscripts(
   if (!rec) return 0;
   const dest = restoreDir(s);
   if (!dest) return 0;
-  let n = 0;
+  const written = new Set<string>();
   for (const t of rec.transcripts) {
     const to = path.join(dest, t.file);
     if (fs.existsSync(to)) continue;
@@ -555,9 +567,9 @@ export function restoreArchivedTranscripts(
     if (text === null) continue;
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(to, text);
-    n++;
+    written.add(to);
   }
-  if (n === 0) return 0;
+  if (written.size === 0) return 0;
   // Only this session's own conversations (the archive's list): another conversation in the same folder — you
   // ran Claude there yourself — keeps its date.
   const entries = agentOf(s).conversation?.entries ?? (() => []);
@@ -565,8 +577,9 @@ export function restoreArchivedTranscripts(
   for (const t of rec.transcripts) {
     const file = path.join(dest, t.file);
     try {
-      // Its last entry's time; with none readable (none at all, or a last line past the tail read), its own date.
-      files.push({ file, last: lastEntryTime(file, entries) || fs.statSync(file).mtimeMs });
+      // Its last entry's time; with none readable (none at all, or a last line past the tail read), its own
+      // date — but not for one just written, whose date is now: that one goes first, never the one resumed.
+      files.push({ file, last: lastEntryTime(file, entries) || (written.has(file) ? 0 : fs.statSync(file).mtimeMs) });
     } catch {
       /* gone: nothing to date */
     }
@@ -581,5 +594,5 @@ export function restoreArchivedTranscripts(
       /* dated as it is */
     }
   }
-  return n;
+  return written.size;
 }

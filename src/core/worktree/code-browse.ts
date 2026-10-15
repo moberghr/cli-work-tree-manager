@@ -136,20 +136,26 @@ export async function listCodeFiles(
   return { group: !!s.isGroup, rootFiles: groupRootFiles(s), repos };
 }
 
-/** A group folder's own files (its CLAUDE.md…), not its repos' folders. */
+/**
+ * A group folder's own files that are notes — Markdown (its CLAUDE.md, a README) — not its repos' folders. Nothing
+ * else: the group folder isn't a repo, so nothing says what's ignored, and copyFiles may put local settings there.
+ */
 function groupRootFiles(s: Pick<WorktreeSession, 'paths' | 'isGroup'>): string[] {
   const dir = groupRoot(s);
   if (!dir) return [];
   try {
     return fs
       .readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isFile())
+      .filter((e) => e.isFile() && isGroupNote(e.name))
       .map((e) => e.name)
       .sort();
   } catch {
     return [];
   }
 }
+
+/** Markdown, not a dotfile (`.env.md` is no note). */
+export const isGroupNote = (name: string) => !name.startsWith('.') && /\.md$/i.test(name);
 
 export type CodeReadError = 'unknown repo' | 'not listed' | 'unreadable';
 

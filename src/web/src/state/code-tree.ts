@@ -32,6 +32,25 @@ export function codeEntries(w: CodeFilesWire): CodeEntry[] {
   return out;
 }
 
+/**
+ * The entry a key names: the listing's, or — a file the listing doesn't have (created since it was read, or past a
+ * big repo's cut) — one made up for a repo the listing knows, so a search's pick still opens (the server decides
+ * whether it may be read). Null for an unknown repo.
+ */
+export function entryOf(w: CodeFilesWire, key: string, listed?: ReadonlyMap<string, CodeEntry>): CodeEntry | null {
+  const known = listed?.get(key);
+  if (known) return known;
+  const at = key.indexOf('\u0000');
+  if (at < 0) return null;
+  const repo = key.slice(0, at);
+  const path = key.slice(at + 1);
+  if (!path) return null;
+  if (repo === '') return w.group ? { key, repo, path, display: path, changed: false } : null;
+  const r = w.repos.find((x) => x.name === repo);
+  if (!r) return null;
+  return { key, repo, path, display: w.group ? `${repo}/${path}` : path, changed: r.changed.includes(path) };
+}
+
 export interface Folder {
   /** Sub-folders by name, sorted. */
   dirs: string[];

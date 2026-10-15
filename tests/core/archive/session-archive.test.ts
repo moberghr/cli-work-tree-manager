@@ -9,6 +9,7 @@ import {
   readArchive,
   readArchivedTranscript,
   restoreArchivedTranscripts,
+  lastEntryTime,
   RESTORED_AGE_MS,
   writeArchiveSummary,
   type ArchiveDeps,
@@ -287,6 +288,45 @@ describe('restoreArchivedTranscripts', () => {
     expect(Date.now() - mtime('new.jsonl')).toBeLessThan(RESTORED_AGE_MS + 60_000); // not 40 days back
   });
 
+  it('a restored one with no time in it goes first: never the one --continue resumes', async () => {
+    await archiveSession(session, deps());
+    const id = sessionIdFor(session);
+    const dir = path.join(root, id);
+    fs.writeFileSync(
+      path.join(dir, 'transcripts', 'real.jsonl'),
+      JSON.stringify({ type: 'user', timestamp: '2026-10-10T10:00:00Z' }) + '\n',
+    );
+    fs.writeFileSync(path.join(dir, 'transcripts', 'summary.jsonl'), JSON.stringify({ type: 'summary', summary: 'x' }) + '\n');
+    fs.writeFileSync(
+      path.join(dir, 'archive.json'),
+      JSON.stringify({
+        ...readArchive(id, root),
+        transcripts: [
+          { file: 'real.jsonl', projectDir: 'p' },
+          { file: 'summary.jsonl', projectDir: 'p' },
+        ],
+      }),
+    );
+    const dest = fs.mkdtempSync(path.join(tmp, 'restore-notime-'));
+    expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(2);
+    const m = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
+    expect(m('summary.jsonl')).toBeLessThan(m('real.jsonl'));
+  });
+
+  it("a conversation's last time: a small tail first, further back when its last line is big", () => {
+    const entries = (lines: readonly unknown[]) =>
+      lines.map((l) => ({ at: String((l as { timestamp?: string }).timestamp ?? ''), role: 'other' as const, text: '' }));
+    const file = path.join(tmp, 'big-tail.jsonl');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ timestamp: '2026-10-10T10:00:00Z' }) + '\n' + JSON.stringify({ result: 'x'.repeat(200_000) }) + '\n',
+    );
+    expect(lastEntryTime(file, entries)).toBe(Date.parse('2026-10-10T10:00:00Z'));
+    const none = path.join(tmp, 'no-time.jsonl');
+    fs.writeFileSync(none, JSON.stringify({ type: 'summary' }) + '\n');
+    expect(lastEntryTime(none, entries)).toBe(0);
+  });
+
   it('one still there that is newer than a restored one stays the newest (Claude Code deleted only the old)', async () => {
     await archiveSession(session, deps());
     const id = sessionIdFor(session);
@@ -356,12 +396,17 @@ describe('archiveSession: what it does around the copy', () => {
     const stopRunningFrom = vi.fn(async () => ['x']);
     const removeWorktree = vi.fn(async () => true);
     const runningFrom = vi.fn(async () => ['node …\\server.js (PID 9)']);
-    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom }), { merged: true, unattended: true });
+    const clearBuildFolders = vi.fn(async () => ({ folders: 1, bytes: 10 }));
+    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom, clearBuildFolders }), {
+      merged: true,
+      unattended: true,
+    });
     expect(out.ok).toBe(true);
     expect(out.worktreeRemoved).toBe(false);
     expect(out.keptBecause).toBe('still running from it: node …\\server.js (PID 9)');
     expect(stopRunningFrom).not.toHaveBeenCalled();
     expect(removeWorktree).not.toHaveBeenCalled();
+    expect(clearBuildFolders).not.toHaveBeenCalled(); // its node_modules is what the dev server runs from
     // Nothing running: it goes as usual.
     const out2 = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom: async () => [] }), {
       merged: true,
