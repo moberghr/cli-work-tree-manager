@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { forkSession, type SessionSummary } from '../../api/client.js';
+import { onBranchChange } from '../../utils/branch-input.js';
 
 interface Props {
   session: SessionSummary;
@@ -82,7 +83,7 @@ export function ForkSessionModal({ session, sessions, onForked, onClose }: Props
           </p>
           <label className="wd-modal-row">
             <span>New branch</span>
-            <input ref={branchRef} type="text" value={branch} onChange={(e) => setBranch(e.target.value)} disabled={busy} required />
+            <input ref={branchRef} type="text" value={branch} onChange={onBranchChange(setBranch)} disabled={busy} required />
           </label>
           <label className="wd-modal-row">
             <span>Name (optional)</span>

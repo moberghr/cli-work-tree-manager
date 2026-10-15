@@ -107,6 +107,19 @@ describe('the project field', () => {
   });
 });
 
+describe('typing a branch (#60)', () => {
+  it('a space becomes a dash as you type or paste, and that is what is created', async () => {
+    await open({ initial: { target: 'jobly' } });
+    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Edit')!.click());
+    const input = container.querySelector<HTMLInputElement>('input[placeholder^="feat/whatever"]')!;
+    act(() => type(input, 'fix login  bug'));
+    expect(input.value).toBe('fix-login-bug');
+    await flush();
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ target: 'jobly', branch: 'fix-login-bug' }));
+  });
+});
+
 describe('the branch is optional for a repo', () => {
   it('left empty: opens the project as it is (no branch sent)', async () => {
     await open({ initial: { target: 'jobly' } });

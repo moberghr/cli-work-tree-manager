@@ -3,6 +3,7 @@ import { ProjectPicker } from './ProjectPicker.js';
 import { createWorktree, fetchBranchCheck, fetchProjects, lookupPr, type ProjectSummary } from '../../api/panes.js';
 import type { BranchCheck } from '../../../../core/api-types.js';
 import { suggestBranch } from '../../state/branch-suggest.js';
+import { onBranchChange } from '../../utils/branch-input.js';
 import { parsePrRef, workOnPrPrompt, type PrToStart } from '../../../../core/pr/pr-ref.js';
 
 interface Props {
@@ -336,7 +337,7 @@ export function NewWorktreeModal({
                 autoFocus
                 type="text"
                 value={branch}
-                onChange={(e) => setBranch(e.target.value)}
+                onChange={onBranchChange(setBranch)}
                 placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
                 disabled={submitting}
                 required={isGroup}

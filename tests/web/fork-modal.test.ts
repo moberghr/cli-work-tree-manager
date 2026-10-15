@@ -81,6 +81,19 @@ describe('ForkSessionModal', () => {
     expect(onForked).toHaveBeenCalledWith('new', { summarized: true });
   });
 
+  it('a space in the new branch becomes a dash (#60)', async () => {
+    api.forkSession.mockResolvedValue({ sessionId: 'new', paths: [], summarized: true });
+    const s = session('feat/x');
+    act(() => root.render(createElement(ForkSessionModal, { session: s, sessions: [s], onForked: vi.fn(), onClose: () => {} })));
+    const branch = container.querySelector<HTMLInputElement>('input')!;
+    act(() => type(branch, 'feat/try redis queue'));
+    expect(branch.value).toBe('feat/try-redis-queue');
+    await act(async () => {
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(api.forkSession).toHaveBeenCalledWith('id-feat/x', expect.objectContaining({ branch: 'feat/try-redis-queue' }));
+  });
+
   it("shows the server's refusal and lets you change the name", async () => {
     api.forkSession.mockRejectedValue(new Error('feat/x-2 already exists (api): pick another name'));
     const s = session('feat/x');
