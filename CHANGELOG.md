@@ -3,6 +3,15 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.2.1 — 2026-10-15
+
+- **A space in a branch name becomes a dash.** In New worktree's and
+  Fork's branch field, `fix login bug` becomes `fix-login-bug` as you type
+  or paste; several spaces (and dashes around them) become one dash, and the
+  cursor stays where you were typing.
+- A new README and [website](https://moberghr.github.io/cli-work-tree-manager/):
+  the app first, with every feature and what it does for you.
+
 ## 2.2.0 — 2026-10-15
 
 - **Code tab.** A session has a fourth tab, **Code** (key `4`): its files,
