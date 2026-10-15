@@ -61,6 +61,8 @@ export interface AgentConversation {
   restoreDir?(session: WorktreeSession): string | null;
   /** The newest write to its conversations for work in `cwd` (ms; 0: none): "is it busy in this folder right now?" without a session (a `wd` scope). */
   lastWriteMs?(cwd: string): number;
+  /** A background agent its conversation started (one that runs on after the turn that started it ended) wrote after `ms`: the session is still at work though its turn ended. */
+  backgroundWorkSince?(session: WorktreeSession, ms: number): boolean;
 }
 
 /** Starting it: every agent has this. */

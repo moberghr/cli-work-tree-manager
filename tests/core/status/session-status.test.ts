@@ -423,6 +423,24 @@ describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", 
     expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(9).getTime() }, known).state).toBe('idle');
   });
 
+  it('its turn ended but Claude Code is still busy, and a background agent it started wrote since: working (reported: read Idle)', () => {
+    // The turn ended at 10 s ("handing it to a background agent"); Claude Code went busy at 9 s and wrote nothing since.
+    const ended = { ...rec('idle', 10), turnEndedAt: at(10).toISOString() };
+    const busy = { state: 'busy' as const, stateAt: at(9).getTime() };
+    const asked: string[] = [];
+    const background = (v: boolean) => () => (asked.push('asked'), v);
+    expect(withLiveClaude(ended, busy, { ...known, background: background(true) })).toMatchObject({ state: 'working', stale: false });
+    // No background agent at work: the hook's idle stands, as before.
+    expect(withLiveClaude(ended, busy, { ...known, background: background(false) }).state).toBe('idle');
+    expect(withLiveClaude(ended, busy, known).state).toBe('idle');
+    // Claude Code said idle after the turn: nothing to ask, the turn is over.
+    asked.length = 0;
+    expect(withLiveClaude(ended, { state: 'idle', stateAt: at(13).getTime() }, { ...known, background: background(true) }).state).toBe(
+      'idle',
+    );
+    expect(asked).toEqual([]);
+  });
+
   it('nothing running anywhere: working / waiting is over at once — unless a PTY of ours runs it, or the process list was not read', () => {
     expect(withLiveClaude(rec('working'), null, known)).toMatchObject({ state: 'idle', stale: true });
     expect(withLiveClaude(rec('needs_input'), null, known).state).toBe('idle');

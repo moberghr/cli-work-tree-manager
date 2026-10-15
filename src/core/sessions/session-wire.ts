@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { agentOf, agentWire } from '../agents/index.js';
 import { readStatus } from '../status/session-status.js';
 import { snoozeActive, type Snooze } from '../rail/snooze.js';
-import { withLiveClaude } from '../status/session-status.js';
+import { idleFrom, withLiveClaude } from '../status/session-status.js';
 import path from 'node:path';
 import { readSessionMeta } from './session-meta.js';
 import { checkedOutBranch } from '../git/git-head.js';
@@ -114,7 +114,11 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     // Claude Code's own state file over what the hooks recorded, when newer.
     attention:
       meta.attention && !shadowed && opts.claudesFor
-        ? withLiveClaude(meta.attention, claudes, { known: opts.liveKnown === true, hosted: opts.hostedLive?.(id) ?? true })
+        ? withLiveClaude(meta.attention, claudes, {
+            known: opts.liveKnown === true,
+            hosted: opts.hostedLive?.(id) ?? true,
+            background: () => agentOf(s).conversation?.backgroundWorkSince?.(s, idleFrom(meta.attention!)) ?? false,
+          })
         : (meta.attention ?? (shadowed || s.archivedAt ? null : (opts.outputStatusFor?.(id) ?? null))),
     diffStat: opts.diffStatFor ? opts.diffStatFor(id, s, meta.attention !== null) : null,
     archivedAt: s.archivedAt ?? null,

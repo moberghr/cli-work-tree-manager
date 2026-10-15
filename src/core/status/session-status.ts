@@ -187,7 +187,12 @@ export function effectiveStatus(
 export function withLiveClaude(
   status: EffectiveStatus,
   live: { state?: 'busy' | 'idle' | 'waiting'; stateAt?: number; waitingFor?: string } | null,
-  opts: { known: boolean; hosted: boolean },
+  opts: {
+    known: boolean;
+    hosted: boolean;
+    /** A background agent its conversation started wrote since its turn ended (asked only when it matters). */
+    background?: () => boolean;
+  },
 ): EffectiveStatus {
   const recorded = Date.parse(status.updatedAt) || 0;
   if (live?.state && (live.stateAt ?? 0) > recorded) {
@@ -203,6 +208,12 @@ export function withLiveClaude(
     }
     if (live.state === 'idle' && (status.state === 'working' || status.state === 'needs_input'))
       return { ...status, state: 'idle', seen: true, stale: true };
+  }
+  // Its turn ended, but Claude Code is still busy (said before that end, so older than the hook) and a background
+  // agent it started has written since: the turn handed its work to that agent, which is still at it (reported:
+  // "handing it to a background agent" read Idle). Its end comes back as a new turn, and Claude Code says idle then.
+  if (live?.state === 'busy' && status.state === 'idle' && opts.background?.()) {
+    return { ...status, state: 'working', seen: true, stale: false };
   }
   if (!live && opts.known && !opts.hosted && (status.state === 'working' || status.state === 'needs_input')) {
     return { ...status, state: 'idle', seen: true, stale: true };
