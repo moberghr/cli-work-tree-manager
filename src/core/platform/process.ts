@@ -219,7 +219,8 @@ export function killTree(pid: number): boolean {
 
 /** killTree, not blocking the event loop (taskkill takes a few hundred ms): for a server killing several at once. */
 export function killTreeAsync(pid: number): Promise<boolean> {
-  if (process.platform !== 'win32') return Promise.resolve(killTree(pid));
+  // Already gone counts as stopped, as with taskkill below: it's what the caller wanted.
+  if (process.platform !== 'win32') return Promise.resolve(killTree(pid) || !isPidAlive(pid));
   return new Promise((resolve) =>
     // taskkill fails the whole call when one child had already exited or won't go; the top gone is what counts.
     execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) =>

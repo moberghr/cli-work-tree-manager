@@ -1,4 +1,3 @@
-import path from 'node:path';
 import spawn from './spawn.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
 
@@ -33,7 +32,8 @@ const SUBLIME = /^(subl|sublime_text)$/i;
  */
 export function editorArgs(editor: string, folder: string, file?: { path: string; line?: number }): string[] {
   if (!file) return [folder];
-  const name = path.basename(editor.trim()).replace(/\.(cmd|bat|exe|sh)$/i, '');
+  // Either separator, whatever this platform's: a config written on Windows names `C:\…\code.cmd`.
+  const name = (editor.trim().split(/[\\/]/).pop() ?? '').replace(/\.(cmd|bat|exe|sh)$/i, '');
   const line = file.line && file.line > 0 ? Math.floor(file.line) : undefined;
   if (VSCODE_LIKE.test(name)) return [folder, '--goto', line ? `${file.path}:${line}` : file.path];
   if (JETBRAINS.test(name)) return line ? [folder, '--line', String(line), file.path] : [folder, file.path];
