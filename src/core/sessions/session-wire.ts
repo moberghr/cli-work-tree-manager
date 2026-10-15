@@ -201,9 +201,11 @@ function savedFiles(saved: Record<string, { files: number; restoredAt?: string; 
 function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
   const rec = readArchive(id);
   if (!rec) return {};
+  const by = archivedByOf(rec);
+  const kept = keptList(rec.kept);
   return {
     archive: {
-      ...(archivedByOf(rec) ? { by: archivedByOf(rec) } : {}),
+      ...(by ? { by } : {}),
       worktreeRemoved: rec.worktreeRemoved,
       keptBecause: rec.keptBecause,
       promptCount: rec.summary.promptCount,
@@ -212,7 +214,7 @@ function archiveInfo(id: string): { archive?: SessionArchiveInfo } {
       ...(rec.summary.written ? { written: rec.summary.written } : {}),
       ...(rec.buildFolders ? { buildFolders: rec.buildFolders } : {}),
       ...savedFiles(rec.uncommitted),
-      ...(keptList(rec.kept) ? { kept: keptList(rec.kept) } : {}),
+      ...(kept ? { kept } : {}),
     },
   };
 }

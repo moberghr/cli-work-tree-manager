@@ -21,7 +21,7 @@ import { relativeTime } from '../../../utils/time.js';
 import { AGE_LABEL, ageBucket, lastActiveAt, sessionMatches, statusHint, type AgeBucket } from '../../../state/session-display.js';
 import { groupRepoNames, groupSessionsByTarget } from '../../../utils/session-groups.js';
 import { DiffStatChip, overlapTitle } from '../SessionBits.js';
-import { ARCHIVED_BY_SHORT, archivedLine } from '../../../state/archive-view.js';
+import { ARCHIVED_BY_SHORT, archivedAge, archivedLine, lastActiveLine, listTime } from '../../../state/archive-view.js';
 import { RowMenu, type MenuItem } from '../RowMenu.js';
 
 interface Props {
@@ -234,7 +234,9 @@ export function SessionsTab({
         const bn = (b.branch || b.target).toLowerCase();
         return an.localeCompare(bn);
       }
-      return lastActiveAt(b).localeCompare(lastActiveAt(a));
+      // The column's own time, so it reads in order (the Archived view shows when each was archived).
+      const archivedView = scope === 'archived';
+      return listTime(b, lastActiveAt(b), archivedView).localeCompare(listTime(a, lastActiveAt(a), archivedView));
     });
   }, [sessions, live, archivedOnly, scope, sort, filter, query, inRail]);
 
@@ -263,9 +265,10 @@ export function SessionsTab({
   const ages = useMemo(() => {
     if (grouping !== 'age') return null;
     const by: Record<AgeBucket, SessionSummary[]> = { now: [], week: [], older: [] };
-    for (const s of filtered) by[ageBucket(s)].push(s);
+    // The Archived view by when each was archived, as its time column shows.
+    for (const s of filtered) by[scope === 'archived' && s.archivedAt ? archivedAge(s.archivedAt) : ageBucket(s)].push(s);
     return (Object.keys(by) as AgeBucket[]).map((k) => ({ key: k, sessions: by[k] })).filter((g) => g.sessions.length > 0);
-  }, [filtered, grouping]);
+  }, [filtered, grouping, scope]);
 
   const railTagFor = (s: SessionSummary): string | null => {
     const g = railGroupOf.get(s.id);
@@ -312,6 +315,7 @@ export function SessionsTab({
           <SessionRow
             key={s.id}
             session={s}
+            archivedView={scope === 'archived'}
             onOpen={() => onOpenSession(s.id, 'term')}
             onMenu={(x, y) => setRowMenu({ s, x, y })}
             selecting={selecting}
@@ -685,10 +689,12 @@ interface RowProps {
   onPick: (on: boolean) => void;
   /** An archived one's Restore, on the row: bringing one back is what the archived list is mostly for. */
   onRestore?: () => void;
+  /** The Archived view: its time column is when each was archived. */
+  archivedView?: boolean;
 }
 
 /** One session: status, name, project, summary, changes, when. Click opens it; ⋯ (or right-click) for the rest. */
-function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore }: RowProps) {
+function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, railTag, onRestore, archivedView = false }: RowProps) {
   const kind = displayStatus(s);
   const archived = isArchived(s);
   const repos = groupRepoNames(s);
@@ -758,12 +764,16 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
           <span
             className="wd-archived-pill"
             title={
-              `${archivedLine(s)} ` +
-              (s.archive
-                ? s.archive.worktreeRemoved
-                  ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
-                  : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
-                : '')
+              [
+                archivedLine(s),
+                s.archive
+                  ? s.archive.worktreeRemoved
+                    ? `Worktree removed; its branch and the conversation are kept${s.archive.savedUncommitted ? `, and ${s.archive.savedUncommitted} uncommitted file${s.archive.savedUncommitted === 1 ? '' : 's'}` : ''}. Restore recreates it${s.archive.savedUncommitted ? ' and puts them back' : ''}.${s.archive.kept ? ` Also kept: ${s.archive.kept}.` : ''}`
+                    : `Worktree kept: ${s.archive.keptBecause ?? 'it has work in it'}${s.archive.kept ? `. Also kept: ${s.archive.kept}.` : ''}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || 'Archived'
             }
           >
             archived
@@ -807,16 +817,10 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       </td>
       <td
         className="wd-st-col-when"
-        // An archived one: when it was archived (it's the last thing that happened to it); its last activity on hover.
-        title={archived && s.archivedAt ? `${archivedLine(s)} Last active ${relativeTime(lastActiveAt(s))} ago.` : undefined}
+        // An archived one: when it was archived and when it was last active, whichever the column shows.
+        title={archived ? [archivedLine(s), lastActiveLine(lastActiveAt(s))].filter(Boolean).join(' ') || undefined : undefined}
       >
-        {archiving !== undefined
-          ? archiving
-            ? 'archiving…'
-            : 'restoring…'
-          : archived && s.archivedAt
-            ? relativeTime(s.archivedAt)
-            : relativeTime(lastActiveAt(s))}
+        {archiving !== undefined ? (archiving ? 'archiving…' : 'restoring…') : relativeTime(listTime(s, lastActiveAt(s), archivedView))}
       </td>
       <td className="wd-st-col-more" onClick={(e) => e.stopPropagation()}>
         {archived && onRestore && archiving === undefined && (

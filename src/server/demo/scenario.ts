@@ -805,7 +805,8 @@ export class DemoScenario {
             archive: {
               by: s.archivedBy,
               worktreeRemoved: !!s.worktreeRemoved,
-              keptBecause: null,
+              // As a real archive says it: a demo session's changes aren't in its main branch.
+              keptBecause: s.worktreeRemoved ? null : 'commits not in the main branch',
               promptCount: 0,
               prompts: [],
               lastSummary: null,
@@ -1263,8 +1264,10 @@ export class DemoScenario {
         results.push({ ...it, ok: false, message: c ? `Not removed: ${c.reason}.` : 'The session is gone already.' });
         continue;
       }
-      if (it.action === 'archive') s.archivedAt = new Date(this.now()).toISOString();
-      else this.sessions.delete(it.sessionId);
+      if (it.action === 'archive') {
+        s.archivedAt = new Date(this.now()).toISOString();
+        s.archivedBy = 'cleanup';
+      } else this.sessions.delete(it.sessionId);
       results.push({
         ...it,
         ok: true,

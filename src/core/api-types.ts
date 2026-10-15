@@ -69,11 +69,11 @@ export interface SessionAttention extends AttentionLike {
   request?: PermissionRequest;
 }
 
-/** An archived session: whether its folder went, and what it was about. */
 /** Who archived a session: you (Archive, its key, the bulk bar), Ship's merge, the PR watch once its PR merged, or Clean up. */
-export type ArchivedBy = 'you' | 'shipped' | 'pr-merged' | 'cleanup';
-export const ARCHIVED_BY: readonly ArchivedBy[] = ['you', 'shipped', 'pr-merged', 'cleanup'];
+export const ARCHIVED_BY = ['you', 'shipped', 'pr-merged', 'cleanup'] as const;
+export type ArchivedBy = (typeof ARCHIVED_BY)[number];
 
+/** An archived session: whether its folder went, and what it was about. */
 export interface SessionArchiveInfo {
   /** Who archived it (none: archived before work recorded it). */
   by?: ArchivedBy;

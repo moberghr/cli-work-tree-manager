@@ -181,6 +181,12 @@ describe('Sessions table', () => {
     expect(text([...container.querySelectorAll('thead th')].find((th) => th.className === 'wd-st-col-when'))).toBe('Archived');
     expect(text(arch.querySelector('.wd-st-col-when'))).toBe('1h');
     expect(arch.querySelector('.wd-st-col-when')!.getAttribute('title')).toMatch(/^Archived .+\. Last active 10m ago\.$/);
+    // All: the column is "Active", and an archived row shows its last activity there, as the header says.
+    act(() => scopeBtn('All').click());
+    expect(text([...container.querySelectorAll('thead th')].find((th) => th.className === 'wd-st-col-when'))).toBe('Active');
+    const inAll = rows().find((r) => text(r.querySelector('.wd-st-branch')) === 'archived')!;
+    expect(text(inAll.querySelector('.wd-st-col-when'))).toBe('10m');
+    act(() => scopeBtn('Archived').click());
     act(() => arch.querySelector<HTMLButtonElement>('.wd-st-restore')!.click());
     expect(h.setArchived).toHaveBeenCalledWith('archived', false);
     // Its ⋯ offers Restore too.
@@ -256,6 +262,32 @@ describe('Sessions table', () => {
     expect(text(pill('a3'))).toBe('archived · merged with Ship');
     expect(text(pill('a4'))).toBe('archived · Clean up');
     expect(text(pill('a5'))).toBe('archived'); // archived before work recorded who
+  });
+
+  it('the Archived view is in the order its time column shows: archived most recently first', () => {
+    localStorage.setItem('work-web:sessions-show-archived', 'archived');
+    act(() =>
+      root.render(
+        createElement(SessionsTab, {
+          sessions: [
+            // Active more recently, archived long ago — and the other way round.
+            s({ id: 'archived-long-ago', lastAccessedAt: minsAgo(60), archivedAt: minsAgo(5 * 24 * 60) }),
+            s({ id: 'archived-just-now', lastAccessedAt: minsAgo(2 * 24 * 60), archivedAt: minsAgo(30) }),
+          ],
+          onOpenSession: vi.fn(),
+          onNewWorktree: () => {},
+          onDeleteSession: vi.fn(),
+        }),
+      ),
+    );
+    expect(rows().map((r) => text(r.querySelector('.wd-st-branch')))).toEqual(['archived-just-now', 'archived-long-ago']);
+    expect(rows().map((r) => text(r.querySelector('.wd-st-col-when')))).toEqual(['30m', '5d']);
+    // Its sections are by archive time too: the one archived just now is under Now, though quiet for two days.
+    expect([...container.querySelectorAll('.wd-session-age')].map((g) => text(g.querySelector('.wd-session-group-name')))).toEqual([
+      'Now',
+      'This week',
+    ]);
+    expect(text(container.querySelector('.wd-session-age-now .wd-st-branch'))).toBe('archived-just-now');
   });
 
   it('a "Show archived" tick from before reads as All; the project and a group are their own column', () => {
