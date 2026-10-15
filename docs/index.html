@@ -246,7 +246,7 @@
     <div class="row">
       <div class="text">
         <h3>Watch them work</h3>
-        <p>Each session has its terminal, its diff, its pull request and its code. Claude runs in a background host, so closing the window or rebooting doesn't stop it, and <code>work attach</code> puts the same session in your own terminal.</p>
+        <p>Each session has its terminal, its diff, its pull request and its code. Claude runs in a background host, so closing the window doesn't stop it and a reboot doesn't lose it, and <code>work attach</code> puts the same session in your own terminal.</p>
       </div>
       <div class="shot"><img src="assets/screens/terminal.png" alt="The Terminal tab" loading="lazy" width="1440" height="900"></div>
     </div>
@@ -306,7 +306,7 @@
         <h3><span>🔔</span> Knowing who needs you</h3>
         <dl>
           <dt>Inbox</dt><dd>Sessions that need your input, finished work you haven't seen, PRs ready to merge or failing, unanswered review comments.</dd>
-          <dt>Allow / Deny</dt><dd>Answer a permission prompt without opening the terminal; checked against the screen first.</dd>
+          <dt>Allow / Deny</dt><dd>Answer a permission prompt without opening the terminal, for the sessions the app runs; checked against the screen first.</dd>
           <dt>Notifications and taskbar badge</dt><dd>A ping when a session needs you, never for the one you're looking at; the count on the app's icon.</dd>
           <dt>Next that wants you (<kbd>n</kbd>)</dt><dd>One key to the next session that needs attention. <b>Review all</b> walks the finished ones.</dd>
           <dt>Snooze and Blocked by</dt><dd>"Not now" until a time or a change; "waiting on that PR" until it merges.</dd>
@@ -330,7 +330,7 @@
         <h3><span>⌨️</span> A real terminal for every agent</h3>
         <dl>
           <dt>Terminal tab</dt><dd>Claude Code itself, live, in the app.</dd>
-          <dt>Survives everything</dt><dd>Close the app, update it, reboot: the session comes back with its conversation.</dd>
+          <dt>Survives restarts</dt><dd>Closing or updating the app doesn't end it; after a reboot it comes back with its conversation.</dd>
           <dt><code>work attach</code></dt><dd>The same session in your own terminal, at the same time.</dd>
           <dt>Idle sleep and restarts</dt><dd>Unused Claudes are stopped to free memory and resume when opened; outdated ones restart after their turn.</dd>
           <dt>Send a prompt and Ask (<kbd>Ctrl</kbd>+<kbd>K</kbd>)</dt><dd>Saved instructions to one session or many; an assistant that knows what's on your screen.</dd>
@@ -490,11 +490,11 @@ work web --demo</pre>
       </details>
       <details>
         <summary>Does closing the app stop my agents?</summary>
-        <p>No. Claude sessions run in a background host. Closing the app, updating it, or restarting the computer doesn't end them; they come back with their conversation.</p>
+        <p>No. Claude sessions run in a background host: closing or updating the app doesn't end them. After a reboot they come back with their conversation.</p>
       </details>
       <details>
         <summary>Can it post on GitHub without me?</summary>
-        <p>No. Claude drafts replies to review comments; they're posted only when you click Post or tell Claude yes in its conversation. Merging happens only from Ship.</p>
+        <p>No. Claude drafts replies to review comments; they're posted only when you click Post or tell Claude yes in its conversation. work merges a pull request only when you click Merge in Ship.</p>
       </details>
       <details>
         <summary>What does Archive delete?</summary>
@@ -502,7 +502,7 @@ work web --demo</pre>
       </details>
       <details>
         <summary>Do I need Claude Code?</summary>
-        <p>It's the default and gets every feature. Another CLI agent runs in the terminal tab and is managed the same way, without the features that read Claude's conversation and hooks.</p>
+        <p>It's the default and gets every feature. Another CLI agent runs in the terminal tab and is managed the same way, with a simpler working / idle status and without the features that read Claude's conversation and hooks.</p>
       </details>
       <details>
         <summary>Is it open source?</summary>

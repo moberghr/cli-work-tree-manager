@@ -97,7 +97,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | Feature | What it does for you |
 |:---|:---|
 | **Inbox** | One list of the sessions that want you, most urgent first: *needs your input* (a permission prompt or a question), *done* (finished, not looked at), *pull requests* (ready to merge, conflict, failing checks), *review comments* (unanswered threads on its PR). Everything else is summed up in one line. |
-| **Allow / Deny from the Inbox** | Answer a permission prompt (`Bash npm test`) without opening the terminal. work types the answer only after checking the screen still shows that exact request. |
+| **Allow / Deny from the Inbox** | Answer a permission prompt (`Bash npm test`) without opening the terminal, for the sessions the app runs. work types the answer only after checking the screen still shows that exact request. |
 | **Notifications** | A browser or desktop notification when a session needs you or finishes, but not for the session you're looking at. Optional `statusHooks` run your own command (a sound, a Slack ping). |
 | **Taskbar badge** | The desktop app shows the Inbox count on its taskbar / Dock icon and flashes when a session starts waiting on you. |
 | **`n`: next that wants you** | One key takes you to the next session that needs attention. |
@@ -131,9 +131,9 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | Feature | What it does for you |
 |:---|:---|
 | **Terminal tab** | Claude Code itself, live, in the app. Type to it as in any terminal. |
-| **Sessions survive everything** | Claude runs in a background host, not in the app: closing the window, restarting the app or rebooting the computer doesn't end it. It comes back with its conversation. |
+| **Sessions survive restarts** | Claude runs in a background host, not in the app: closing the window or restarting or updating the app doesn't end it. After a reboot it comes back with its conversation. |
 | **`work attach`** | The same session in your own terminal (Windows Terminal, iTerm…), at the same time as the app. Ctrl+] detaches. |
-| **Open in terminal / editor** | One key opens the session's folder in a new terminal tab (`⇧T`) or in VS Code (`o`). |
+| **Open in editor / terminal** | One key opens the session's folder in VS Code (`o`), or the session in a new Windows Terminal tab (`⇧T`, Windows). |
 | **Idle sleep** | A Claude nobody has used for hours is stopped to free memory. Opening the session resumes it where it was. |
 | **Restart outdated agents** | After Claude Code updates itself, the app tells you which sessions still run the old version and restarts them in place, each when its turn ends. |
 | **Send a prompt** | Saved instructions ("Review your changes", "Add tests", "Open a pull request") sent to a session's Claude from its ⋯ menu, or to many at once. |
@@ -240,7 +240,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | `j` / `k` | Next / previous session | `z` | Snooze |
 | `Alt+1…9` | Session 1–9 | `p` | Send a prompt |
 | `Ctrl+P` | Quick switcher | `r` | Catch me up |
-| `Ctrl+K` | Ask | `o` / `⇧T` | Open in editor / terminal |
+| `Ctrl+K` | Ask | `o` / `⇧T` | Open in editor / terminal (Windows) |
 | `Ctrl+T` | Search the code (desktop app) | `f` | Fork |
 | `/` | Search sessions | `⇧S` | Ship |
 | `g i`, `g s`, `g d` | Inbox, Sessions, Today | `F2` | Rename |
@@ -320,13 +320,13 @@ Each branch gets its own folder: its own `node_modules`, build output, dev serve
 <details>
 <summary><b>Does closing the app stop my agents?</b></summary>
 
-No. Claude sessions run in a background host. Closing the app, updating it, or restarting the computer doesn't end them; they come back with their conversation.
+No. Claude sessions run in a background host: closing or updating the app doesn't end them. After a reboot they come back with their conversation.
 </details>
 
 <details>
 <summary><b>Can it post on GitHub without me?</b></summary>
 
-No. Claude drafts replies to review comments; they're posted only when you click **Post** or tell Claude yes in its conversation, and Claude Code asks you before running that command. Merging happens only from **Ship…**.
+No. Claude drafts replies to review comments; they're posted only when you click **Post** or tell Claude yes in its conversation, and Claude Code asks you before running that command. work merges a pull request only when you click Merge in **Ship…**.
 </details>
 
 <details>
@@ -338,7 +338,7 @@ Only what can be recreated. The worktree folder is removed when everything in it
 <details>
 <summary><b>Do I need Claude Code?</b></summary>
 
-It's the default and gets every feature. Another CLI agent (`aiCommand`, e.g. `opencode`) runs in the terminal tab and is managed the same way, without the features that read Claude's conversation or hooks (turns, Inbox status, catch-up).
+It's the default and gets every feature. Another CLI agent (`aiCommand`, e.g. `opencode`) runs in the terminal tab and is managed the same way, with a simpler status (working or idle, from its output) and without the features that read Claude's conversation or hooks (its questions in the Inbox, turns, catch-up, context fill).
 </details>
 
 <details>

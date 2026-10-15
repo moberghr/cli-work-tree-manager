@@ -3,6 +3,52 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.2.0 — 2026-10-15
+
+- **Code tab.** A session has a fourth tab, **Code** (key `4`): its files,
+  read only. The tree lists what git does (tracked files and new ones that
+  aren't ignored), a group's repos as folders. Files changed on the branch
+  have a dot, with **See the change** to the Diff. A file Claude changes
+  while you read it isn't swapped under you: "File changed · Reload".
+  **Open in editor** opens the file in your editor at the line you're
+  reading (VS Code in the worktree's window; JetBrains and Sublime at the
+  line too).
+- **Search the code (Ctrl+T).** As in Visual Studio: one box for types and
+  members by name (C#, TypeScript/JavaScript, Python; `GPJ` finds
+  `GetPendingJobs`), files by path, and lines with the text in them, across
+  a group's repos. Enter opens the place in the Code tab at its line. Ctrl+T
+  works from any tab in the desktop app; in a browser tab, which keeps
+  Ctrl+T for itself, use the Code tab's search button.
+- **Archived sessions in the Sessions list.** **Live · Archived · All** in
+  its header, **Restore** on each archived row, and a Project column. An
+  archived session says who archived it: you, Ship's merge, its pull
+  request merging (the PR watch), or Clean up. The Archived list's time
+  column shows when it was archived.
+- **A group's repos in the Diff toolbar.** The repo switch moved from above
+  the diff to the start of the toolbar. It's always there, listing every
+  repo with its file count. Before, picking one repo's commit hid the other
+  repos, and the only way back was through Uncommitted.
+- **Archive stops what still runs from the worktree.** A dev server or
+  `vite` that Claude left running held files open, so the worktree was only
+  partly removed. Archive now stops processes whose program is in the
+  worktree, and says what it stopped. Never your editor, its language
+  servers, or a tool of yours that was only handed a file there. The PR
+  watch's automatic archive stops nothing: a worktree with something still
+  running is kept. Restore names what still holds a half-removed folder and
+  offers to stop it.
+- **New worktree names the branch from what you ask.** A Jira key gives
+  `feat/<KEY>`, a pasted exception `fix/<its name>`, a question `tmp/…`,
+  then a few words from your prompt. Instant, no Claude call.
+- **The Inbox uses the whole width** of the window, so names and summaries
+  aren't cut short on a wide screen.
+- The Diff tab no longer has a reviewed checkbox or Revert on each hunk;
+  **Revert file** stays.
+- Timeline moved to the session's ⋯ menu.
+- A restored session's Claude is no longer reported as "running in another
+  terminal".
+- Restore brings conversations back in the order they happened.
+- What's new opens wider.
+
 ## 2.1.0 — 2026-10-14
 
 - **The Inbox count on the taskbar.** In the desktop app, the taskbar icon
