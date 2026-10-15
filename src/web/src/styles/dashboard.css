@@ -1417,9 +1417,9 @@ a.wd-pr-chip:hover {
   line-height: 18px;
   text-align: center;
 }
+/* The page's width, as the Sessions table: on a wide screen the name and what it wants get the room (#59). */
 .wd-inbox-section {
   padding: 4px 32px 12px;
-  max-width: 1100px;
 }
 .wd-inbox-section-title {
   display: flex;
@@ -1456,7 +1456,7 @@ a.wd-pr-chip:hover {
 .wd-inbox-row {
   appearance: none;
   display: grid;
-  grid-template-columns: 16px minmax(140px, 240px) minmax(0, 1fr) 56px;
+  grid-template-columns: 16px minmax(160px, 360px) minmax(0, 1fr) 56px;
   align-items: center;
   gap: 12px;
   width: 100%;
