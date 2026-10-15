@@ -188,10 +188,12 @@ describe('SessionRail rows', () => {
     act(() =>
       root.render(
         createElement(SessionRail, {
-          // Created at different times, so the rail's order (newest first) doesn't hang on the clock ticking between them.
+          // Created and entered at different times, so the rail's order doesn't hang on the clock ticking between them:
+          // with no order of yours it's by when each was entered (stableSessionOrder), and two `minsAgo(100)` taken a
+          // millisecond apart swapped them on a slow CI machine.
           sessions: [
-            s({ id: 'q', createdAt: minsAgo(900), attention: att('idle', true) }),
-            s({ id: 'n', createdAt: minsAgo(1000), attention: att('needs_input', false, 'Allow Bash?') }),
+            s({ id: 'q', createdAt: minsAgo(900), lastAccessedAt: minsAgo(90), attention: att('idle', true) }),
+            s({ id: 'n', createdAt: minsAgo(1000), lastAccessedAt: minsAgo(100), attention: att('needs_input', false, 'Allow Bash?') }),
           ],
           activeSessionId: 'q',
           onSelect: () => {},
