@@ -13,6 +13,7 @@ import {
   normDir,
   parseCimProcesses,
   parsePsProcesses,
+  runningFromNames,
   runsFrom,
   stopRunningFrom,
   type RunningProcess,
@@ -200,6 +201,27 @@ describe("work's own processes are never stopped", () => {
     expect(runsFrom(elsewhere, [wt], false)).toBe(false);
   });
 
+  it('a tool of yours run on a file there is not running from it: only its script counts', () => {
+    const fmt = p(80, 1, 'node.exe', 'C:\\Program Files\\nodejs\\node.exe', `node C:\\tools\\fmt-daemon.js ${WT}\\src\\a.ts`);
+    const lint = p(81, 1, 'python.exe', 'C:\\Python\\python.exe', `python C:\\scripts\\lint.py ${WT}\\app.py`);
+    expect(runsFrom(fmt, dirs, true)).toBe(false);
+    expect(runsFrom(lint, dirs, true)).toBe(false);
+    expect(holdersOf([fmt, lint], [WT], 99_999, true).others.map((x) => x.pid)).toEqual([80, 81]); // named, not stopped
+  });
+
+  it("what runs there, by name: a process list that can't be read is no answer, never 'nothing'", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf-names-'));
+    try {
+      await expect(runningFromNames([dir], async () => [])).rejects.toThrow(/couldn't read/);
+      const there = p(90, 1, 'node', '/usr/bin/node', `node ${path.join(dir, 'server.js')}`);
+      const other = p(91, 1, 'node', '/usr/bin/node', 'node /elsewhere/x.js');
+      expect(await runningFromNames([dir], async () => [there, other])).toHaveLength(1);
+      expect(await runningFromNames([dir], async () => [other])).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('shortening the folder in a name keeps the rest whole, a letter whose lower case is longer before it too', () => {
     const odd = p(60, 1, 'node.exe', null, `node --title=İstanbul ${WT}\\server.js`);
     expect(describeProcess(odd, dirs, true)).toBe('node --title=İstanbul …\\server.js (PID 60)');
@@ -230,6 +252,12 @@ describe('killTreeAsync', () => {
     expect(await killTreeAsync(child.pid!)).toBe(true);
     await gone;
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  });
+
+  it('one already gone counts as stopped (taskkill fails a tree with a child that went first)', async () => {
+    const child = spawnChild(process.execPath, ['-e', '0'], { stdio: 'ignore' });
+    await new Promise((r) => child.once('exit', r));
+    expect(await killTreeAsync(child.pid!)).toBe(true);
   });
 });
 

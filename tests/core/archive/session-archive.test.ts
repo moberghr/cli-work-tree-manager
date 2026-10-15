@@ -413,6 +413,22 @@ describe('archiveSession: what it does around the copy', () => {
       unattended: true,
     });
     expect(out2.worktreeRemoved).toBe(true);
+    // Unasked, nothing is ever stopped — not even what started after the look.
+    expect(stopRunningFrom).not.toHaveBeenCalled();
+    // A process list that didn't answer: kept, as for something running.
+    const out3 = await archiveSession(
+      session,
+      deps({
+        stopRunningFrom,
+        removeWorktree: vi.fn(async () => true),
+        runningFrom: async () => {
+          throw new Error("couldn't read the running processes");
+        },
+      }),
+      { merged: true, unattended: true },
+    );
+    expect(out3.worktreeRemoved).toBe(false);
+    expect(out3.keptBecause).toMatch(/couldn't tell/);
   });
 
   it('stops what still runs from its folders (a dev server its Claude left) before the worktree goes, and says so', async () => {

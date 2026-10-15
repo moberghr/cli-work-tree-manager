@@ -41,6 +41,8 @@ export function CodeSearch({ sessionId, onPick, onClose }: { sessionId: string; 
     }
     const ac = new AbortController();
     setBusy(true);
+    // An older search's failure isn't this one's: it would hide the files that match meanwhile.
+    setError(null);
     const t = setTimeout(() => {
       fetchCodeSearch(sessionId, q, ac.signal).then(
         (w) => {

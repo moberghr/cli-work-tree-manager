@@ -14,6 +14,19 @@ export interface CodePlace {
   line?: number;
 }
 
+/**
+ * Whether a key opens (or closes) the search: Ctrl+T (⌘T) alone, only in the desktop app — a browser tab keeps
+ * Ctrl+T for a new tab, which preventDefault can't stop, and the box would be waiting when you came back —, not
+ * for an archived session, and not over another dialog (its own excepted, which Ctrl+T closes).
+ */
+export function isSearchKey(
+  e: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key'>,
+  at: { inApp: boolean; archived: boolean; modal: boolean; searching: boolean },
+): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 't') return false;
+  return at.inApp && !at.archived && (!at.modal || at.searching);
+}
+
 export interface SearchRow extends CodePlace {
   key: string;
   kind: 'symbol' | 'file' | 'text';

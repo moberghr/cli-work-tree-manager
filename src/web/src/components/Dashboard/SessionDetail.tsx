@@ -4,7 +4,8 @@ import { requestTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { TimelineView } from './TimelineView.js';
 import { CodeView } from '../Code/CodeView.js';
 import { CodeSearch } from '../Code/CodeSearch.js';
-import type { CodePlace } from '../../state/code-search-view.js';
+import { isSearchKey, type CodePlace } from '../../state/code-search-view.js';
+import { inDesktopApp } from '../../hooks/use-desktop.js';
 import { modalOpen } from '../../state/modal-open.js';
 import { BlockedByChip } from './BlockedBy.js';
 import { NotesChip, SessionNotes } from './SessionNotes.js';
@@ -91,12 +92,12 @@ export function SessionDetail({
   // phase). A pick opens the Code tab at its line. Not over another dialog; not in a browser tab, which keeps
   // Ctrl+T for itself (the Code tab's button opens it there).
   const [searching, setSearching] = useState(false);
-  const [goto, setGoto] = useState<(CodePlace & { seq: number }) | null>(null);
+  // Whose pick it is: another session's Code tab (j/k keep the tab) mounts before a reset here would run.
+  const [goto, setGoto] = useState<(CodePlace & { seq: number; sessionId: string }) | null>(null);
   useEffect(() => setGoto(null), [session.id]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 't') return;
-      if (isArchived(session) || (modalOpen() && !searching)) return;
+      if (!isSearchKey(e, { inApp: inDesktopApp(), archived: isArchived(session), modal: modalOpen(), searching })) return;
       e.preventDefault();
       e.stopPropagation();
       setSearching((o) => !o);
@@ -106,7 +107,7 @@ export function SessionDetail({
   }, [session, searching]);
   const openPlace = (p: CodePlace) => {
     // Never the same number twice for the page (CodeView applies each pick once, remembered per session).
-    setGoto({ ...p, seq: ++pickSeq });
+    setGoto({ ...p, seq: ++pickSeq, sessionId: session.id });
     onSelectSubTab('code');
   };
   if (subTab === 'pr' && prFor !== session.id) setPrFor(session.id);
@@ -171,7 +172,7 @@ export function SessionDetail({
             key={session.id}
             session={session}
             onShowDiff={() => onSelectSubTab('diff')}
-            goto={goto}
+            goto={goto?.sessionId === session.id ? goto : null}
             onSearch={isArchived(session) ? undefined : () => setSearching(true)}
           />
         )}

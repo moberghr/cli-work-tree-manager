@@ -45,6 +45,9 @@ describe('suggestBranch', () => {
     expect(suggestBranch('Fix the UTF-8 encoding of the CSV export')).toBe('fix/encoding-csv-export');
     expect(suggestBranch('Sign the payload with SHA-256 for PAY-12')).toBe('feat/PAY-12');
     expect(suggestBranch('Dates in ISO-8601 in the export')).toBe('feat/dates-export');
+    expect(suggestBranch('Why does the Q3-2024 report fail?')).toBe('tmp/report');
+    expect(suggestBranch('ORA-00942: table or view does not exist')).not.toMatch(/ORA/);
+    expect(suggestBranch('Address review on PR-42')).not.toMatch(/PR-42/);
   });
 
   it('an exception only named in a sentence is no pasted error', () => {

@@ -3,7 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { git } from '../../../src/core/git/git.js';
-import { clearCodeListCache, groupRoot, listCodeFiles, MAX_CODE_FILE_BYTES, readCodeFile } from '../../../src/core/worktree/code-browse.js';
+import {
+  clearCodeListCache,
+  groupRoot,
+  isListed,
+  listCodeFiles,
+  MAX_CODE_FILE_BYTES,
+  readCodeFile,
+} from '../../../src/core/worktree/code-browse.js';
 
 let tmp: string;
 let repo: string;
@@ -65,6 +72,16 @@ describe('changed on the branch: from the freshest copy of its base', () => {
     const w = await listCodeFiles({ paths: [r], isGroup: false, baseBranch: 'main' }); // local main: still at init
     expect(w.repos[0].changed).toEqual(['mine.ts']);
   });
+
+  it('a recorded base that is gone (merged and deleted) counts from the main branch, not from nowhere', async () => {
+    const r = path.join(tmp, 'gone-base');
+    fs.cpSync(repo, r, { recursive: true });
+    git(['update-ref', 'refs/remotes/origin/main', 'main'], r);
+    git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], r);
+    const w = await listCodeFiles({ paths: [r], isGroup: false, baseBranch: 'feat/parent' }); // no such branch any more
+    expect(w.repos[0].changed).toContain('src/b.ts'); // committed on the branch
+    expect(w.repos[0].changed).not.toContain('README.md');
+  });
 });
 
 describe('listCodeFiles', () => {
@@ -125,6 +142,15 @@ describe('readCodeFile', () => {
   it('a binary file and a big one are named, not shown', async () => {
     expect(await readCodeFile(single(), 'api', 'logo.png')).toMatchObject({ text: null, reason: 'binary' });
     expect(await readCodeFile(single(), 'api', 'big.txt')).toMatchObject({ text: null, reason: 'too-large' });
+  });
+
+  it('one file is asked about alone once the listing is stale: exactly that path, never a folder', async () => {
+    expect(await isListed(repo, 'src/a.ts')).toBe(true);
+    expect(await isListed(repo, 'src/new.ts')).toBe(true); // new, not ignored
+    expect(await isListed(repo, '.env')).toBe(false); // ignored
+    expect(await isListed(repo, 'src')).toBe(false); // a folder
+    expect(await isListed(repo, 'src/*.ts')).toBe(false); // no pattern
+    expect(await isListed(repo, 'nope.ts')).toBe(false);
   });
 
   it("a group folder's own file", async () => {

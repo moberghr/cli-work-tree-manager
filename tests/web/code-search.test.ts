@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { CodeFileWire, CodeFilesWire, CodeSearchWire } from '../../src/core/api-types.js';
-import { matchRange, searchGroups, SHOWN } from '../../src/web/src/state/code-search-view.js';
+import { isSearchKey, matchRange, searchGroups, SHOWN } from '../../src/web/src/state/code-search-view.js';
 import { codeEntries, filterEntries } from '../../src/web/src/state/code-tree.js';
 import { demoCodeSearch } from '../../src/server/demo/demo-code.js';
 import { parseGitDiff } from '../../src/core/diff/diff-parse.js';
@@ -120,6 +120,33 @@ const type = (input: HTMLInputElement, value: string) =>
   });
 
 describe('the Ctrl+T box', () => {
+  it('Ctrl+T opens it only in the desktop app (a browser tab keeps it), not for an archived session, not over a dialog', () => {
+    const ctrlT = { ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, key: 't' };
+    const app = { inApp: true, archived: false, modal: false, searching: false };
+    expect(isSearchKey(ctrlT, app)).toBe(true);
+    expect(isSearchKey({ ...ctrlT, ctrlKey: false, metaKey: true }, app)).toBe(true); // ⌘T
+    expect(isSearchKey(ctrlT, { ...app, inApp: false })).toBe(false);
+    expect(isSearchKey(ctrlT, { ...app, archived: true })).toBe(false);
+    expect(isSearchKey(ctrlT, { ...app, modal: true })).toBe(false);
+    expect(isSearchKey(ctrlT, { ...app, modal: true, searching: true })).toBe(true); // its own: closes it
+    expect(isSearchKey({ ...ctrlT, shiftKey: true }, app)).toBe(false); // reopen a tab
+    expect(isSearchKey({ ...ctrlT, key: 'p' }, app)).toBe(false);
+  });
+
+  it("an earlier search's failure goes once you type on: the files that match show", async () => {
+    vi.useFakeTimers();
+    h.search.mockRejectedValueOnce(new Error('index still building'));
+    act(() => root.render(createElement(CodeSearch, { sessionId: 's1', onPick: vi.fn(), onClose: vi.fn() })));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    const input = container.querySelector<HTMLInputElement>('.wd-switcher-input')!;
+    type(input, 'keys');
+    await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
+    expect(container.textContent).toContain('index still building');
+    type(input, 'keys.');
+    expect(container.textContent).not.toContain('index still building');
+    expect(container.textContent).toContain('Keys.cs');
+  });
+
   it('asks once typing pauses, lists the groups, and Enter opens the first at its line', async () => {
     vi.useFakeTimers();
     const onPick = vi.fn();

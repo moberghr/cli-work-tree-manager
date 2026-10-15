@@ -152,7 +152,8 @@ export interface ArchiveDeps {
   /** Stop what still runs from its folders (a dev server or watcher its Claude started in the background,
    *  running-from.ts) and say what: otherwise it holds files, and the worktree is removed only in part. */
   stopRunningFrom?: (s: WorktreeSession) => Promise<string[]>;
-  /** What runs from its folders, by name, stopping nothing (an unattended archive keeps the worktree then). */
+  /** What runs from its folders, by name, stopping nothing (an unattended archive keeps the worktree then).
+   *  Rejects when it can't tell, which keeps it too. */
   runningFrom?: (s: WorktreeSession) => Promise<string[]>;
   /** Repos checked out on another branch than the session's (alias → branch). */
   heads?: (s: WorktreeSession) => Record<string, string>;
@@ -302,12 +303,16 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let ignored: Record<string, SavedIgnored> = {};
   const ignoredDir = path.join(dir, 'ignored');
   let stopped: string[] = [];
-  // Unasked (the PR watch): what runs from the folder is yours — it keeps the worktree rather than stop it.
-  const runningThere = verdict.ok && opts.unattended ? ((await deps.runningFrom?.(s).catch(() => [])) ?? []) : [];
+  // Unasked (the PR watch): what runs from the folder is yours — it keeps the worktree rather than stop it, and
+  // stops nothing (not even what started after this look). Processes it can't read keep it too: no guess.
+  const runningThere =
+    verdict.ok && opts.unattended
+      ? ((await deps.runningFrom?.(s).catch(() => ["(couldn't tell: the process list didn't answer)"])) ?? [])
+      : [];
   if (verdict.ok && runningThere.length === 0) {
     // Only for a folder that goes (never a repo's own checkout, never a kept worktree: what runs there is
-    // yours): what still runs from it holds its files, and git would remove it only in part.
-    stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
+    // yours), and only when you asked: what still runs from it holds its files, and git would remove it only in part.
+    if (!opts.unattended) stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
     // Local settings and the editor's state go with the folder: kept, so Restore brings them back.
     fs.rmSync(ignoredDir, { recursive: true, force: true });
     ignored = deps.saveIgnored ? await deps.saveIgnored(s, dir).catch(() => ({})) : {};

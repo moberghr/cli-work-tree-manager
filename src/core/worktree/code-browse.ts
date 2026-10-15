@@ -63,6 +63,18 @@ function setOf(files: string[]): Set<string> {
   return set;
 }
 
+/**
+ * Whether git lists this one file (tracked, or new and not ignored): the shared listing while it's fresh, else git
+ * asked about that path alone — a click in the tree of a 50,000-file repo isn't a whole `ls-files`.
+ */
+export async function isListed(root: string, rel: string, io: CodeIo = realIo, now = Date.now()): Promise<boolean> {
+  const hit = listCache.get(root);
+  if (hit && now - hit.at < LIST_TTL_MS) return setOf(await hit.files).has(rel);
+  const r = await io.git(root, ['ls-files', '-c', '-o', '--exclude-standard', '-z', '--', `:(literal)${rel}`]);
+  // Exactly that path: a folder's name would list what's in it.
+  return r.status === 0 && nul(r.stdout).some((f) => fwd(f) === rel);
+}
+
 /** `git ls-files -co --exclude-standard`: tracked, and new but not ignored. Shared for LIST_TTL_MS. */
 export function listRepoFiles(root: string, io: CodeIo = realIo, now = Date.now()): Promise<string[]> {
   const hit = listCache.get(root);
@@ -107,6 +119,11 @@ export async function changedFiles(root: string, base: string | undefined, io: C
     const sha = mb.stdout.trim();
     if (mb.status !== 0 || !sha || sha === from) continue;
     if (!from || (await io.git(root, ['merge-base', '--is-ancestor', from, sha])).status === 0) from = sha;
+  }
+  // A recorded base that's gone (merged and deleted): from the main branch, as the Diff tab does.
+  if (!from && base) {
+    const mb = await io.git(root, ['merge-base', 'origin/HEAD', 'HEAD']);
+    if (mb.status === 0 && mb.stdout.trim()) from = mb.stdout.trim();
   }
   if (from) {
     const diff = await io.git(root, ['diff', '--name-only', '-z', `${from}...HEAD`]);
@@ -177,7 +194,7 @@ export async function readCodeFile(
     allowed = !!root && groupRootFiles(s).includes(rel);
   } else {
     root = codeRoots(s).find((r) => r.name === repo)?.root ?? null;
-    allowed = !!root && setOf(await listRepoFiles(root, io)).has(rel);
+    allowed = !!root && (await isListed(root, rel, io));
   }
   if (!root) return { error: 'unknown repo' };
   if (!allowed) return { error: 'not listed' };

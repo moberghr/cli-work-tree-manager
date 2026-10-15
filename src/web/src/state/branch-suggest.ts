@@ -42,7 +42,9 @@ const ASKING_WITH = /^(show|give|list|find|see|look|tell|daj|pokazi)$/;
 const ASKING_NEXT = /^(me|us|mi|nam|what|why|how|where|which|who|when|if|whether|into|at|zasto|sto|kako|gdje)$/;
 /** Look like an issue key, aren't one: UTF-8, SHA-256, ISO-8601, HTTP-2… */
 const NOT_ISSUES =
-  /^(UTF|UCS|SHA|MD|ISO|IEC|IEEE|RFC|HTTP|HTTPS|TLS|SSL|AES|RSA|DES|IPV|ES|ECMA|PEP|CVE|CWE|GPT|UTC|GMT|COVID|WIN|ARM|X|H|MP|PCI|EMV|TCP|UDP|BASE)-/;
+  /^(UTF|UCS|SHA|MD|ISO|IEC|IEEE|RFC|HTTP|HTTPS|TLS|SSL|AES|RSA|DES|IPV|ES|ECMA|PEP|CVE|CWE|GPT|UTC|GMT|COVID|WIN|ARM|X|H|MP|PCI|EMV|TCP|UDP|BASE|PR|MR|ORA|ERR|FY|H[12]|Q[1-4])-/;
+/** An issue key as Jira writes it: letters first, then a number with no leading zero (ORA-00942 is Oracle's). */
+const ISSUE = /\b([A-Z][A-Z0-9]{1,9}-[1-9]\d{0,5})\b/g;
 /** Leading words that say nothing a branch name needs ("Add …", "Please make …", "we should …"). */
 // prettier-ignore
 const FILLER = new Set([
@@ -126,7 +128,7 @@ export function suggestBranch(prompt: string, now: Date = new Date()): string {
   const head = prompt.slice(0, 600);
 
   // A Jira issue: its own branch, as Jira's Start makes it.
-  const jira = [...head.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].find((m) => !NOT_ISSUES.test(m[1] + '-'));
+  const jira = [...head.matchAll(ISSUE)].find((m) => !NOT_ISSUES.test(m[1] + '-'));
   if (jira) return `feat/${jira[1]}`;
   // A pasted exception, as a stack trace has it (`System.InvalidOperationException: …`, a line starting with it): what
   // broke. Not one only named in a sentence ("Add a ValidationError type").

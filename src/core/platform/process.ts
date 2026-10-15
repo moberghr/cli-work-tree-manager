@@ -221,7 +221,10 @@ export function killTree(pid: number): boolean {
 export function killTreeAsync(pid: number): Promise<boolean> {
   if (process.platform !== 'win32') return Promise.resolve(killTree(pid));
   return new Promise((resolve) =>
-    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) => resolve(!err)),
+    // taskkill fails the whole call when one child had already exited or won't go; the top gone is what counts.
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 }, (err) =>
+      resolve(!err || !isPidAlive(pid)),
+    ),
   );
 }
 

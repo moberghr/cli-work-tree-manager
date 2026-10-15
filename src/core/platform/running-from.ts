@@ -71,12 +71,13 @@ export function runsFrom(p: RunningProcess, dirs: string[], windows = win): bool
   if (exe && dirs.some((d) => under(exe, d, windows))) return true;
   // Its version gone: python3.12, node22 (Linux names the binary itself).
   if (!INTERPRETERS.has(bare(exe || p.name).replace(/[\d.]+$/, ''))) return false;
-  // Its script: the first argument that isn't an option, or any that names a program file (an option's value comes
-  // first in `node -r ts-node/register <dir>/src/index.ts`).
+  // Its script: the first argument that isn't an option, or the first that names a program file (an option's value
+  // comes first in `node -r ts-node/register <dir>/src/index.ts`). Not any later one: `node C:\tools\fmt.js <dir>\a.ts`
+  // runs a tool of yours on a file there, its program elsewhere.
   const args = words.slice(1);
   const first = args.find((w) => !w.startsWith('-'));
   const relative = (w: string) => !(windows ? path.win32.isAbsolute(w) : w.startsWith('/'));
-  const scripts = [first, ...args.filter((w) => SCRIPT_FILE.test(w))]
+  const scripts = [first, args.find((w) => SCRIPT_FILE.test(w))]
     .filter((w): w is string => !!w && (/[\\/]/.test(w) || (!!p.cwd && SCRIPT_FILE.test(w))))
     // A relative one is where the process works (`node dist/server.js`, `python manage.py`), when that's known.
     .map((w) => (relative(w) && p.cwd ? (windows ? path.win32.resolve(p.cwd, w) : path.posix.resolve(p.cwd, w)) : w));
@@ -335,9 +336,14 @@ export async function findHolders(
   return holdersOf(await list(), existing, process.pid, win, spare);
 }
 
-/** What runs from `dirs`, by name, stopping nothing. */
-export async function runningFromNames(dirs: string[], list?: () => Promise<RunningProcess[]>): Promise<string[]> {
-  const h = await findHolders(dirs, list);
+/**
+ * What runs from `dirs`, by name, stopping nothing. Throws when the processes can't be read (none listed: there are
+ * always some), so "nothing runs there" is never a guess.
+ */
+export async function runningFromNames(dirs: string[], list: () => Promise<RunningProcess[]> = listProcesses): Promise<string[]> {
+  const procs = await list();
+  if (procs.length === 0) throw new Error("couldn't read the running processes");
+  const h = await findHolders(dirs, async () => procs);
   const norm = dirs.map((d) => normDir(d));
   return h.stoppable.map((p) => describeProcess(p, norm));
 }
