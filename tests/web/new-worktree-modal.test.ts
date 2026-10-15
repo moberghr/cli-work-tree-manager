@@ -75,6 +75,18 @@ describe('the project field', () => {
     expect(matchProjects(all, '  ').length).toBe(3);
   });
 
+  it('opens with a project picked and the cursor in "What should Claude do?" — no list dropped open to click away', async () => {
+    await open();
+    expect(picker().value).toBe('jobly'); // the first, by default
+    expect(container.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    // Focusing the field with a project in it doesn't open the list either; a click does.
+    await act(async () => picker().focus());
+    expect(container.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => void picker().dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    expect(options().length).toBeGreaterThan(0);
+  });
+
   it('type to narrow, ↓ and Enter to pick (not submitting), Escape closes the list but not the dialog', async () => {
     const { onClose } = await open();
     await act(async () => picker().focus());

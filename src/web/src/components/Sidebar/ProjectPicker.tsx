@@ -59,10 +59,14 @@ export function ProjectPicker({
         value={query ?? (current ? label(current) : value)}
         placeholder={projects.length ? 'Type to find a project…' : '(loading…)'}
         disabled={disabled}
+        // Focus selects the name (type to replace it), and opens the list only when there's none yet: the dialog
+        // focuses this field when it opens, and a list dropped open over a project already picked had to be
+        // clicked away. A click, typing or ↓ opens it.
         onFocus={(e) => {
           e.target.select();
-          setOpen(true);
+          if (!value) setOpen(true);
         }}
+        onMouseDown={() => setOpen(true)}
         onChange={(e) => {
           setQuery(e.target.value);
           setActive(0);

@@ -146,6 +146,7 @@ export function NewWorktreeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstFocusRef = useRef<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     fetchProjects().then(
@@ -165,7 +166,9 @@ export function NewWorktreeModal({
   // and would focus a stale ref or nothing when fetchProjects was slow.)
   useEffect(() => {
     if (!projects) return;
-    firstFocusRef.current?.focus();
+    // A project already there (prefilled, or the first by default): what to do is what's left to say.
+    (target && promptRef.current ? promptRef.current : firstFocusRef.current)?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the projects have come
   }, [projects]);
 
   const targetOptions = useMemo(() => {
@@ -308,6 +311,7 @@ export function NewWorktreeModal({
             <span>What should Claude do?</span>
             <textarea
               ref={(el) => {
+                promptRef.current = el;
                 if (initial?.target) firstFocusRef.current = el;
               }}
               value={prompt}
