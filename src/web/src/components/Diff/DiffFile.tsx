@@ -6,7 +6,6 @@ import { Markdown } from '../Markdown.js';
 import { DiffHunk } from './DiffHunk.js';
 import { GapRegion } from './GapRegion.js';
 import { NewFileView } from './NewFileView.js';
-import { useReviewedHunks } from '../../hooks/use-reviewed-hunks.js';
 import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
@@ -28,8 +27,6 @@ interface Props {
   viewed?: boolean;
   /** Toggle the viewed flag. Wired by the parent so it can persist. */
   onToggleViewed?: (next: boolean) => void;
-  /** Scope key for per-hunk reviewed state. Empty disables persistence. */
-  hunkScopeKey?: string;
 }
 
 /** Lines (added + deleted) past which we don't auto-render the diff
@@ -40,8 +37,7 @@ interface Props {
  *  the genuine pathology. */
 const AUTO_COLLAPSE_LINES = 500;
 
-export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, hunkScopeKey }: Props) {
-  const { reviewedHunkKeys, toggle: toggleHunk } = useReviewedHunks(hunkScopeKey ?? '');
+export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }: Props) {
   // Split (side-by-side) vs unified (inline) layout — a global, persisted
   // preference. Drives the table's column layout here; DiffHunk and GapRegion
   // read the same mode to emit matching rows.
@@ -343,16 +339,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed, h
                   // the same file (same content hash) still get distinct
                   // React keys.
                   <Fragment key={`${hunkKey}#${i}`}>
-                    <DiffHunk
-                      hunk={h}
-                      review={review}
-                      repo={repo}
-                      file={file.path}
-                      lang={lang}
-                      reviewed={reviewedHunkKeys.has(hunkKey)}
-                      onToggleReviewed={hunkScopeKey ? (next: boolean) => toggleHunk(hunkKey, next) : undefined}
-                      showHeading={showOwnHeading}
-                    />
+                    <DiffHunk hunk={h} review={review} repo={repo} file={file.path} lang={lang} showHeading={showOwnHeading} />
                     {repo && midGap && (
                       <GapRegion
                         repo={repo}

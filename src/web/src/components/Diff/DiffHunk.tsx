@@ -6,8 +6,6 @@ import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentLineRow, InlineCommentRow } from '../Review/CommentLineRow.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { highlightBlock } from '../../utils/highlight.js';
-import { useRevertOptional } from '../../state/RevertProvider.js';
-import { RevertButton } from './RevertButton.js';
 
 /** Per-side maps from a line number to its pre-highlighted HTML for one hunk. */
 interface HunkLineHtml {
@@ -66,19 +64,15 @@ interface Props {
   file?: string;
   /** Resolved hljs language for this file, or null to render plain text. */
   lang?: string | null;
-  /** Whether this hunk is checked off as reviewed (review progress state). */
-  reviewed?: boolean;
-  /** Toggle the reviewed flag. Wired by the parent so it can persist. */
-  onToggleReviewed?: (next: boolean) => void;
   /** Whether this hunk renders its own `@@ … @@` heading row. The parent
    *  sets this false when the heading is already shown on the expander bar
    *  of the gap directly above (GitHub-style single bar), or when the lines
    *  above are contiguous (gap fully expanded / adjacent hunk). Defaults to
-   *  true. The review checkbox, when present, is shown regardless. */
+   *  true. */
   showHeading?: boolean;
 }
 
-export function DiffHunk({ hunk, review = false, repo, file, lang, reviewed, onToggleReviewed, showHeading = true }: Props) {
+export function DiffHunk({ hunk, review = false, repo, file, lang, showHeading = true }: Props) {
   const mode = useDiffMode();
   // Intra-line diff computation walks every row pair. Memoize so resizing
   // the sidebar or scrolling doesn't re-run it on each render.
@@ -91,42 +85,17 @@ export function DiffHunk({ hunk, review = false, repo, file, lang, reviewed, onT
   // table has 4 (old-ln, old-content, new-ln, new-content). The hunk
   // heading row spans them all.
   const headerColSpan = mode === 'unified' ? 3 : 4;
-  const showCheckbox = review && !!file && !!onToggleReviewed;
-  // Only show the "reviewed" accent in review mode. In read-only views
-  // (static `wd` / `wd --server`) there's no checkbox to toggle it off, so a
-  // stale localStorage flag must not paint a green row the user can't clear.
-  const showReviewedAccent = showCheckbox && !!reviewed;
   // The full `@@ -a,b +c,d @@ <context>` heading, like GitHub. The parent
   // suppresses it (`showHeading=false`) when the gap's expander bar above
-  // already shows it, or when the lines above are contiguous.
-  const showHeadingText = showHeading;
-  // Render the row when it carries something: the heading, or the review
-  // checkbox (which has nowhere else to live).
-  const canRevert = !!useRevertOptional() && !!repo && !!file;
-  const showHeaderRow = showHeadingText || showCheckbox || canRevert;
+  // already shows it, or when the lines above are contiguous. Nothing else
+  // goes on it: a hunk is reviewed and reverted with its file (Viewed, Revert
+  // file), as on GitHub.
   return (
     <>
-      {showHeaderRow && (
-        <tr className={'wd-hunk-row' + (showReviewedAccent ? ' wd-hunk-reviewed' : '')}>
+      {showHeading && (
+        <tr className="wd-hunk-row">
           <td colSpan={headerColSpan} className="wd-hunk-context">
-            {showCheckbox && (
-              <label className="wd-hunk-checkbox" title="Mark this hunk as reviewed">
-                <input
-                  type="checkbox"
-                  checked={!!reviewed}
-                  aria-label={`Mark hunk reviewed: ${file} lines ${hunk.newStart}–${hunk.newStart + hunk.newLines - 1}`}
-                  onChange={(e) => onToggleReviewed!(e.target.checked)}
-                />
-              </label>
-            )}
-            {showHeadingText && hunkHeading(hunk)}
-            {canRevert && (
-              <RevertButton
-                repo={repo!}
-                path={file!}
-                lines={{ start: hunk.newStart, end: hunk.newStart + Math.max(hunk.newLines, 1) - 1 }}
-              />
-            )}
+            {hunkHeading(hunk)}
           </td>
         </tr>
       )}

@@ -325,7 +325,6 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
   }, [activeRepo, activeStart]);
 
   const scopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}` : `session:${session.id}:_pending`;
-  const hunkScopeKey = activeRepo ? `session:${session.id}:${activeRepo.name}:hunks` : '';
   // A Viewed tick holds while the file's change is the one you ticked (fileSignature).
   const signatures = useMemo(() => new Map((activeRepo?.files ?? []).map((f) => [f.path, fileSignature(f)])), [activeRepo]);
   const { viewedPaths, viewedAnchors, toggle: toggleViewed, setMany: markViewed } = useViewedFiles(scopeKey, pathToAnchor, signatures);
@@ -620,14 +619,7 @@ export function DiffView({ session, startOnLastTurn = false, fullScreen = false,
                       })}
                     </nav>
                   )}
-                  <DiffRepo
-                    repo={activeRepo}
-                    startIndex={activeStart}
-                    review
-                    viewedPaths={viewedPaths}
-                    onToggleViewed={toggleViewed}
-                    hunkScopeKey={hunkScopeKey}
-                  />
+                  <DiffRepo repo={activeRepo} startIndex={activeStart} review viewedPaths={viewedPaths} onToggleViewed={toggleViewed} />
                 </>
               )}
             </main>
