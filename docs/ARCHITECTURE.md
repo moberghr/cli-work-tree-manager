@@ -8,12 +8,14 @@ also what an AI agent working on this repository reads.
 
 ## What it is
 
-A CLI (`work`, plus `wd` for diffs) that manages git worktrees across many
-repositories — one worktree per branch, optionally one per *group* of repos —
-and the coding agent session working in each (Claude Code today; others
-through the agent interface). Around that: a browser dashboard (`work web`)
-that shows every session, its terminal, its diff and what it needs from you,
-and a desktop app that wraps the dashboard.
+An app for working with coding agents on many branches at once: every task
+gets its own git worktree (one per branch, or one per *group* of repos) and
+its own agent session (Claude Code today; others through the agent
+interface). The dashboard (`work web`, shown in the desktop app's window or a
+browser tab) shows every session, its terminal, its diff, its pull request
+and what it needs from you. Every action is also a command of the `work` CLI
+(plus `wd` for diffs), which scripts, your terminal and the agents themselves
+use; both front-ends call the same core.
 
 ## The processes
 

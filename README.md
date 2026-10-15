@@ -1,504 +1,358 @@
 <div align="center">
 
-# Work — Git Worktree Manager for AI-Assisted Development
+# work
 
-### One terminal. Every branch. Every repo. Every Claude session.
+### Run ten Claude Code sessions at once, and always know which one needs you.
 
-**A cross-platform TypeScript CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code (or any AI CLI), and orchestrate everything — PRs, Jira issues, local tasks, diffs, and reviews — from a single browser tab, with a real terminal attached whenever you want one.**
+**work is a desktop app (and a browser dashboard) for working with AI coding agents on many branches at the same time. Every task gets its own git worktree and its own Claude Code session. One window shows all of them: who is waiting for your answer, what each one changed, where its pull request stands, and the terminal it runs in.**
 
 [![npm](https://img.shields.io/npm/v/@moberg_hr/work-tree?color=cb3837&logo=npm&label=npm)](https://www.npmjs.com/package/@moberg_hr/work-tree)
+[![Release](https://img.shields.io/github/v/release/moberghr/cli-work-tree-manager?label=desktop%20app)](https://github.com/moberghr/cli-work-tree-manager/releases/latest)
 [![Website](https://img.shields.io/badge/website-moberghr.github.io-6d28d9.svg)](https://moberghr.github.io/cli-work-tree-manager/)
-[![Node](https://img.shields.io/badge/node-%E2%89%A518-339933.svg)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522.13-339933.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**[moberghr.github.io/cli-work-tree-manager](https://moberghr.github.io/cli-work-tree-manager/)** — the Work website.
+[Install](#install) · [A day with work](#a-day-with-work) · [Every feature](#every-feature-and-what-it-does-for-you) · [Keyboard](#keyboard) · [The CLI](#the-cli) · [Configuration](#configuration) · [FAQ](#faq)
 
-[Quick Start](#quick-start) · [Why Work](#why-work) · [Commands](#commands) · [Dashboard (`work web`)](#browser-dashboard-work-web) · [Fleet](#fleet-commands-run--broadcast) · [Groups](#groups-multi-repo-worktrees) · [Diff review (`wd`)](#diff-review-wd) · [Architecture](#architecture) · [FAQ](#faq)
+<img src="docs/assets/screens/hero-dark.png" alt="The work app: the sessions on the left, one session's diff on the right" width="900">
 
 </div>
 
 ---
 
-## Why Work
+## Why work
 
-Working on three branches in three repos with three Claude Code instances is a productivity superpower — *if* you can keep the cognitive overhead under control. Without tooling, you end up juggling terminals, losing track of which session is in which directory, and rebuilding mental context every time you switch.
+An AI agent makes one branch go fast. Several agents on several branches should make you several times faster, but in practice you end up with a terminal per agent, no idea which one finished or is stuck on a permission prompt, diffs you never looked at, and worktrees nobody cleans up.
 
-Work is the missing layer between `git worktree` and your AI assistant. Every branch gets a real, isolated checkout. Every checkout gets its own Claude Code session, persisted across resumes. Every session is visible — alongside its PR status, assigned Jira issues, and pending tasks — in a single dashboard.
+work takes care of all of that:
 
-| Without Work | With Work |
-|:---|:---|
-| `cd ../some/path && git checkout -b feature/x && cp .env.local .` every time | `work tree api feature/x` — worktree created, dev settings copied, Claude launched |
-| Three terminals, three editors, three lost contexts | One browser tab: sessions, PRs, Jira, tasks, an attention inbox — and `work attach` for a real terminal on any session |
-| "Which directory was that branch in again?" | `work resume` — recent sessions sorted by last access, one keystroke to re-enter |
-| Multi-repo features = multiple `git worktree add` invocations and a hand-merged CLAUDE.md | `work tree mygroup feature/x` — every repo cloned in lockstep, combined CLAUDE.md generated automatically |
-| Stale worktrees pile up after PRs merge | `work prune` (interactive) / `work sync` (one-shot) — remove worktrees whose branches landed on main |
-| Jira ticket → branch name → worktree → Claude prompt = manual every time | Pick a Jira issue in `work web` → worktree created with a branch for it |
-| Same chore (`npm test`, rebase) in five worktrees, one terminal at a time | `work run --all npm test` / `work broadcast --all "rebase onto main"` — fan out across the fleet |
-| Diffs and reviews scattered across terminals and editor tabs | `wd` / `work web` — every diff and review in one browser, comments routed back to the live AI session |
+- **One task, one worktree, one agent.** "New worktree" makes the branch, the checkout and the Claude session in one step, and starts Claude on what you asked.
+- **One window for all of them.** The Inbox shows the sessions that want you: waiting on a permission prompt, finished and not looked at, a pull request ready to merge or failing.
+- **Review what the agent did, turn by turn.** Every Claude turn is recorded, so you see exactly what the last instruction changed, or everything since you last looked.
+- **Pull requests handled where you work.** Failing checks and review comments are handed to the session's Claude; replies go to GitHub only when you say so.
+- **Nothing lost, nothing left behind.** Sessions survive restarts and reboots. Merged work archives itself and can be restored exactly as it was, and Clean up removes what's no longer needed.
+
+Claude Code is the default agent. work also starts any other CLI agent, with fewer features (see [FAQ](#faq)).
 
 ---
 
-## Quick Start
+## Install
+
+**The desktop app** (recommended): the dashboard in its own window, with the `work` and `wd` commands included. It updates itself.
+
+| Platform | Download |
+|:---|:---|
+| Windows | [WorkDesktop-win-Setup.exe](https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop-win-Setup.exe) |
+| macOS (Apple silicon) | [WorkDesktop-osx-Setup.pkg](https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop-osx-Setup.pkg), or `brew install --cask moberghr/work-tree/work-desktop` |
+| Linux | [WorkDesktop.AppImage](https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop.AppImage) |
+
+**Or just the command line**, with the same dashboard in your browser (`work web`):
 
 ```bash
-# 1. Install (Node 22.13+, Git required)
-
-# Option A — Homebrew (macOS / Linux)
-brew install moberghr/work-tree/work    # provides `work` and `wd`
-
-# Or the desktop app (macOS, Apple silicon): the dashboard in its own window,
-# with `work` and `wd` inside it; it updates itself
-brew install --cask moberghr/work-tree/work-desktop
-
-# Option B — from source
-git clone https://github.com/moberghr/cli-work-tree-manager work
-cd work
-npm install
-npm run build
-npm link
-
-# 2. First-time setup — interactive
-work init
-
-# 3. Create a worktree and launch your AI tool
-work tree api feature/login
-
-# 4. Open the dashboard in your browser
-work web
+npm install -g @moberg_hr/work-tree        # or: brew install moberghr/work-tree/work
+work web                                    # opens the dashboard
 ```
 
-`work init` walks you through the worktrees root, your repo aliases, your AI command, and tab-completion installation. Everything else is one keystroke away from the dashboard.
+On first start, the app's **Welcome** page asks where your repos are and where worktrees should go, lists the repos it finds so you can tick them, and checks your tools:
 
-### Prerequisites
-
-| Tool | Required | Used for |
+| Tool | | What for |
 |:---|:---|:---|
-| **Node.js 22.13+** | yes | Runtime |
-| **Git** | yes | Worktree operations |
-| **[Claude Code CLI](https://claude.ai/code)** | recommended | Default AI tool auto-launched on `work tree`; group CLAUDE.md generation. Any other CLI works too — set `aiCommand` in config. |
-| **[GitHub CLI (`gh`)](https://cli.github.com/)** | optional | PR pane in the dashboard / `work web` |
-| **[Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/)** | optional | Jira pane in the dashboard / `work web` |
+| Git | needed | Worktrees |
+| [Claude Code](https://claude.ai/code) | needed | The agent in each session |
+| [GitHub CLI](https://cli.github.com/) (`gh`) | optional | Pull requests: their status, checks, review comments, Ship |
+| [Atlassian CLI](https://developer.atlassian.com/cloud/acli/) (`acli`) | optional | Jira: your issues, starting work on one, the Time tab |
+
+Want to look around first? `work web --demo` opens the real app on a made-up world (repos, agents, PRs, Jira) and touches nothing of yours.
 
 ---
 
-## Commands
+## A day with work
 
-```
-work init                                              # Interactive first-time setup
-work tree|t <target> <branch> [flags]                  # Create or switch to a worktree
-work tree|t <target>                                   # Work on the base repo (no worktree) — pulls + continues the last conversation
-work tree --here                                       # Infer target+branch from the current worktree
-work remove <target> <branch> [--force]                # Remove a worktree
-work list [target]                                     # List worktrees
-work status [target] [branch] [--prune]                # Show worktree merge/dirty status
-work recent [count]                                    # List recent sessions
-work resume [--unsafe]                                 # Resume a recent session
-work attach [target] [branch]                          # Attach this terminal to a session's Claude (Ctrl+] detaches)
-work web [--stop] [--no-open]                          # Browser dashboard (singleton; all sessions in one tab)
-work prune [--force]                                   # Remove merged worktrees (interactive)
-work sync [--dry-run] [--force] [--include-squash]     # Fetch all repos + prune merged worktrees (non-interactive)
-work completion [--install]                            # Shell completions
+<img src="docs/assets/screens/inbox.png" alt="The Inbox: sessions that need your input, finished work, pull requests that want you" width="900">
 
-work run <cmd...> [--target <a>] [--all] [--parallel]  # Run a shell command across worktrees
-work broadcast <prompt> [--target <a>] [--all]         # Queue a prompt to every live AI session
+**Morning.** The Inbox lists what needs you: a session blocked on `npm test` (Allow / Deny right there), one that finished overnight, a PR that's approved and green. **Sessions → Today** gives you a standup note of what every session did yesterday.
 
-work todo                                              # List open tasks
-work todo add|done|undo|edit|rm <args>                 # Manage tasks
-work todo --all                                        # Include completed tasks
+**Starting something.** Press `c`, pick the project and write what Claude should do: `PAY-31 Export invoices as PDF`. work names the branch (`feat/PAY-31`), creates the worktree, copies your local settings into it and starts Claude with your prompt. Or start from a Jira issue, from one of your pull requests, or from a PR someone asked you to review.
 
-work config add|remove|list|show|edit                  # Manage repos
-work config group add|remove|regen <args>              # Manage multi-repo groups
+<img src="docs/assets/screens/new-worktree.png" alt="New worktree: a project, what Claude should do, and the branch named from it" width="900">
 
-wd                                                     # PR-style diff in your browser (live server)
-wd --branch                                            # Open the "Since branch" tab by default
-wd --static                                            # Self-contained HTML file (no server)
-wd --stop                                              # Stop the background server for this scope
-wd -c                                                  # Interactive review with streaming comments
-```
+**While they work.** Each session has a **Terminal** (Claude itself, live), a **Diff**, a **PR** tab and a **Code** tab. When a session wants you, the Inbox count and the taskbar badge go up, and you get a notification unless you're already looking at it. `n` jumps to the next session that wants you.
 
-`work tree` flags: `--here` (infer target+branch from cwd), `--base <branch>` (branch from a specific base), `--open` (open the configured editor), `--unsafe` (skip AI-tool permission checks), `--no-pull` (skip the pull when switching into an existing checkout), `--fresh` (start a new AI conversation instead of continuing the last one), `--prompt "..."` / `--prompt-file <path>` (send an initial prompt), `--jira-key <KEY>` (link a Jira issue to the session), `--setup-only` (create the worktree without launching the AI tool).
+**Reviewing.** The Diff opens on what changed since you last looked. Leave comments on lines, and Claude gets them on its next turn. Look at one turn, one commit, or any span of them.
 
-### Switching back into a worktree
+<img src="docs/assets/screens/diff.png" alt="The Diff tab: the changes, with a list of commits and Claude's turns to pick from" width="900">
 
-Creating a worktree and *returning* to one are the same command, and the second case is the common one. When the checkout already exists — an existing worktree, or the base repo when you run `work tree <target>` with no branch — `work tree`:
+**Pull requests.** **Ship…** pushes, opens the PR and merges it when it's ready. When checks fail or a reviewer comments, the session's Claude is told, plans a fix and drafts replies for you to post.
 
-1. **Pulls latest** for the checked-out branch, when it tracks a remote. Best-effort: a purely local branch is skipped silently, and a pull blocked by uncommitted changes or conflicts warns and carries on rather than stopping you from getting in. `--no-pull` skips it.
-2. **Continues the previous AI conversation** for that directory, by passing the tool's resume flag (`--continue` for Claude Code). This is gated on a transcript actually existing for that exact path, so a first visit starts fresh instead of erroring out. `--fresh` forces a new conversation.
+<img src="docs/assets/screens/pr.png" alt="The PR tab: failing checks with Ask Claude to fix, and a drafted reply to a review comment" width="900">
 
-A freshly created worktree does neither: it is already at its branch tip and has no conversation to resume.
-
-### Branch resolution order
-
-When you run `work tree api feature/login`:
-
-1. **Local branch exists** → checked out into the worktree
-2. **Remote branch exists** → fetched and checked out as a tracking branch
-3. **Neither** → a new branch is created from the configured base (or `--base`)
-
-Branch directories normalize `/` → `-`, so `feature/login` lives at `<worktreesRoot>/<repo>/feature-login/`.
+**Done.** When the PR merges, the session archives itself: Claude stopped, worktree removed, the conversation and any uncommitted files kept. Restore brings it back exactly as it was.
 
 ---
 
-> **`work dash` was removed in 2.0** — use `work web` (the browser dashboard) and `work attach` (a real terminal on any session; the same Claude the browser shows).
+## Every feature, and what it does for you
 
-## Browser Dashboard (`work web`)
+### Knowing who needs you
 
-Prefer a browser to the terminal? `work web` brings the dashboard — every session, its diff, its review comments, and a live terminal — into a single tab.
-
-```bash
-work web                # start (or re-attach to) the dashboard, opens the browser
-work web --no-open      # start without opening a browser
-work web --stop         # shut the dashboard down
-```
-
-- **Singleton** — one process per user, tracked by `~/.work/web.pid` + `~/.work/web.url`. A second `work web` re-uses the running one instead of spawning a duplicate; the port is chosen deterministically from the configured `portRange` (default `3000–3099`) with a liveness probe so it survives restarts and avoids collisions.
-- **Every session in one place** — the sidebar lists all worktree sessions with activity badges (active / idle / stale) and per-session comment/draft counts, reactive to `work tree` / `work remove` anywhere on the machine.
-- **Per-session tabs** — a **Diff** tab (Uncommitted vs HEAD, "Since branch", and **Last turn** — only what Claude's most recent instruction changed, with a picker for earlier turns). On the Uncommitted diff, **↶ Revert** on a file or hunk undoes it back to HEAD and leaves Claude a note not to reintroduce it; **Start review** batches comments as drafts and **Submit review** sends them to Claude as one message (pushed straight into an idle Claude in the Terminal tab); **]** / **[** jump between comment threads, a **Comments** review tab, and a live **Terminal** tab (the session's Claude in the PTY host — `work attach` opens the same one in a real terminal).
-- **Top panes** — PRs (via `gh`), Jira (via `acli`), and Tasks — with create / sync / rebase / open-in-editor actions wired to `POST /api/worktrees` and friends.
-- **One server, every `wd` scope** — every `wd` and `wd -c` invocation registers as a *scope* on this server (addressable at `/diff/<hash>` and `/review/<hash>`) instead of spawning its own port. A dozen reviews share one process and one set of tabs.
-- **Hook bridge to live Claude** — on startup `work web` installs `UserPromptSubmit` and `Stop` command hooks in `~/.claude/settings.json` (removed on shutdown). Drop a comment on a line and any Claude running in that worktree picks it up on its next turn — no copy-paste.
-
----
-
-### Demo mode
-
-```bash
-work web --demo      # or: npm run demo
-```
-
-Opens the real dashboard against a simulated world — example repos, agents that finish and ask for permission while you watch, PRs, Jira and tasks — with nothing real behind it: no repos, agents or `~/.work` are touched, and it runs beside your real `work web`. Use it for screenshots, UI work and showing the tool to someone. Everything you do has a simulated effect: answer a blocked agent in its terminal, leave a review comment (Claude replies), ship a group in parts.
-
-### Attention inbox
-
-With ten agents running, the question is which one needs you next. The **Inbox** tab (`g i`) answers it, using Claude Code's own hooks — `work web` installs them, so it covers every Claude in any terminal:
-
-- **Needs your input** — blocked on a permission prompt, longest-waiting first. Opens on the terminal so you can answer.
-- **Done — not looked at yet** — finished a turn since you last opened it. Opens on the diff to review.
-- **Working** — mid-turn, with the prompt it's working on.
-
-Each row carries one line of context (the permission request, Claude's last message, or your prompt). The sidebar sorts the same way, the Inbox tab shows a count, and so does the browser tab title (`(3) work`). Press **`n`** anywhere to jump to the next session that wants you. With `notifications: true`, you also get a desktop notification when a session blocks or finishes — and your `statusHooks` run.
-
-## Fleet Commands (`run` / `broadcast`)
-
-Once you have several worktrees open, you often want to do *one thing* to *all of them*. Two commands fan out across the fleet.
-
-### `work run` — a command in every worktree
-
-```bash
-work run npm test                       # run in EVERY worktree (requires --all)
-work run --all npm test                 # explicit confirmation for the whole fleet
-work run --target api npm run build     # only worktrees for the `api` alias
-work run --target api --branch feat/x … # narrow to a single branch
-work run --all --parallel --jobs 6 …    # run concurrently, up to 6 at a time
-work run --all --halt-on-error npm test # sequential: stop after the first failure
-```
-
-- **Blast-radius guardrail** — a bare `work run <cmd>` with no `--target` refuses to run until you pass `--all`. Narrow with `--target <alias>` (and optionally `--branch`).
-- **Sequential by default** — output streams through transparently. With `--parallel`, output is captured and re-emitted line-by-line with a `[target/branch]` prefix so concurrent logs stay attributable; `--jobs` (default 4) caps concurrency with a worker pool.
-- **Ctrl-C tears the whole fleet down** — in-flight children are killed and the pool stops dequeuing rather than orphaning subprocesses. Exit code is non-zero if any worktree failed.
-- The command runs through `sh -c` (POSIX) / `cmd.exe /c` (Windows); your command string is the intentional payload — Work never interpolates paths or branch names into a shell string itself.
-
-### `work broadcast` — a prompt to every live AI session
-
-```bash
-work broadcast --all "rebase onto main and resolve conflicts"
-work broadcast --target api "run the test suite and fix failures"
-echo "long prompt…" | work broadcast --all -      # read the prompt from stdin
-```
-
-`broadcast` queues your prompt to each matching session and the session picks it up on its **next turn** via the same `UserPromptSubmit` hook `work web` uses — so it works even when you're not looking at that terminal. The same `--all` guardrail applies: broadcasting to every session requires an explicit `--all` or a narrowing `--target`. Delivery is lazy and crash-safe — the prompt is written to each session's comment store under a file lock, so a concurrent `work web` write can't clobber it.
-
----
-
-## Groups (Multi-Repo Worktrees)
-
-When a feature spans several repositories — say a backend API change that ships with a frontend update — Work treats them as a single unit.
-
-```bash
-# Define a group
-work config group add fullstack api web shared-lib
-
-# Create one worktree workspace covering all three repos
-work tree fullstack feature/new-checkout
-
-# Combined directory layout
-<worktreesRoot>/
-  fullstack/
-    feature-new-checkout/
-      api/             # worktree for api repo
-      web/             # worktree for web repo
-      shared-lib/      # worktree for shared-lib repo
-      CLAUDE.md        # auto-generated combined instructions
-
-# Tear it all down at once
-work remove fullstack feature/new-checkout
-```
-
-The combined `CLAUDE.md` is produced by invoking the Claude CLI to merge each repo's individual `CLAUDE.md` into a coherent multi-repo brief — so the Claude session that gets launched understands every codebase it can see. Regenerate any time with `work config group regen <name>`.
-
----
-
-## Diff Review (`wd`)
-
-A second binary, **`wd`**, ships alongside `work` and gives you a GitHub-PR-style diff view in your browser — for the current worktree, or for every repo in a group.
-
-```bash
-wd                  # live diff server: renders the current diff, refresh to see edits
-wd --branch         # open the "Since branch" tab by default (PR-style vs the parent branch)
-wd main             # diff vs an explicit ref
-wd --static         # write a self-contained HTML file (no server, survives the CLI)
-wd --stop           # stop the background server for this scope
-wd -c               # interactive review: leave comments inline, stream to stdout
-```
-
-`wd` resolves the scope from your `cwd`: inside a single-repo worktree it diffs that repo; inside a group worktree (root or any sub-repo) it diffs every repo in the group and renders one tab per repo. Untracked files are included as synthesized "new file" diffs without touching your git index.
-
-**One server, every scope.** `wd` and `wd -c` register as a *scope* on the singleton `work web` and open `/diff/<hash>` or `/review/<hash>` — no new process, no extra port. When no `work web` is running, `wd` auto-starts a lean one in the background (`work web --lean --no-open`) and registers on that. Either way the live page reloads itself over SSE when files change.
-
-### Modes
-
-| Mode | What it does |
+| Feature | What it does for you |
 |:---|:---|
-| `wd` (default) | **Live server.** Registers on a running `work web`, or auto-starts a lean one in the background. Refresh the browser to pick up saved-file changes (chokidar + SSE, per-repo dirty tracking). De-register this scope with `wd --stop`. `--server` / `--watch` are kept as back-compat aliases. |
-| `wd --static` | Renders a fully self-contained HTML file to `~/.work/diffs/<scope-hash>.html` (bundle + diff JSON inlined), opens via `file://`, and exits. No server, no live reload — survives the CLI. |
-| `wd -c` | **Interactive review.** Click any line number to drop an inline comment; each comment streams to stdout as a markdown marker as it's saved. Blocks until you click "Done & Send" (or Ctrl+C). |
+| **Inbox** | One list of the sessions that want you, most urgent first: *needs your input* (a permission prompt or a question), *done* (finished, not looked at), *pull requests* (ready to merge, conflict, failing checks), *review comments* (unanswered threads on its PR). Everything else is summed up in one line. |
+| **Allow / Deny from the Inbox** | Answer a permission prompt (`Bash npm test`) without opening the terminal. work types the answer only after checking the screen still shows that exact request. |
+| **Notifications** | A browser or desktop notification when a session needs you or finishes, but not for the session you're looking at. Optional `statusHooks` run your own command (a sound, a Slack ping). |
+| **Taskbar badge** | The desktop app shows the Inbox count on its taskbar / Dock icon and flashes when a session starts waiting on you. |
+| **`n`: next that wants you** | One key takes you to the next session that needs attention. |
+| **Review all** | Walks the finished sessions one by one, each opened on its last turn's diff. |
+| **Snooze** | "Not now": 2 hours, until tomorrow, until a time you pick, or until something changes. The session leaves the Inbox until then. |
+| **Blocked by** | Mark a session as waiting on another session or a PR. It stays out of the Inbox until that's done, then you're told. |
+| **Status icons** | Every session shows one icon for where it stands: working, needs you, done, in review, PR wants you, idle, stale. |
 
-### Reading the diff
+### All sessions in one place
 
-- **Uncommitted vs Since branch** — toggle between the working-tree diff and the full PR-style diff against the branch this worktree was forked from.
-- **Checkpoints + range diff** — `wd` snapshots each repo's working tree (including untracked files) and holds the snapshots alive behind `refs/wd/<scope>/<n>` refs. Snapshots are taken **per Claude turn** (via the Stop hook) and when edits settle, so each one is a meaningful unit of work rather than one-per-save. A **Range** picker — a single `From → To` dropdown with a pinned *All changes* reset — lets you diff any two points: the full diff, a single checkpoint's own changes (click it), or any span (shift-click to widen the start). Each checkpoint is labelled with a one-line **Claude-generated summary** of what it changed (generated lazily, cached in the manifest), so you pick by meaning, not by number.
-- **Coverage badges** — if a `coverage/lcov.info` (or `lcov.info`) is present, each file shows its line-coverage percentage. The badge is de-emphasized and flagged when the source has been edited since the coverage report was written, so you don't trust stale numbers.
-- **Reviewed-hunk checkboxes** — tick individual hunks as you review them. The state is keyed on a content hash of the hunk (not line numbers), so it survives live reloads and unrelated edits elsewhere in the file, and persists per-scope in `localStorage`.
-- **Expand context** — each hunk separator is a GitHub-style bar showing the `@@ … @@` heading; where lines are collapsed, converging `↓` / `↑` controls on it reveal the hidden lines a chunk at a time (or all the way to the top/bottom of the file). When a gap is fully expanded — or two hunks are already adjacent — the lines become contiguous and the separator drops away.
-- **Open whole file** — each file header has an *"Open file ↗"* link that opens the full working-tree file, syntax-highlighted and read-only, in a new tab. (Hidden for deleted/binary files and in `--static` mode, which has no server to read from.)
-- **Word-level intra-line diff**, npm-bundled syntax highlighting, auto-collapsed large/migration files, and a file-tree sidebar with per-file viewed checkboxes.
+<img src="docs/assets/screens/sessions.png" alt="The Sessions table: status, session, project, summary, changes, last active" width="900">
 
-### Interactive review (`wd -c`)
+| Feature | What it does for you |
+|:---|:---|
+| **Session list (the rail)** | Every session on the left, on every page, with its status, project and PR pills. Pin sessions to the top, put them under your own headings, drag them into your order. |
+| **Sessions table** | Status, summary, changes and last activity for every session, with filters and grouping. Switch between **Live · Archived · All**, with **Restore** on archived rows. |
+| **Select several** | Archive, restore, snooze, prompt or delete many sessions at once. |
+| **Today** | What each session did today, yesterday or this week: your prompts, its finished turns, its PRs. **Copy as Markdown** gives you a standup note. |
+| **Quick switcher (Ctrl+P)** | Type a few letters of any session, archived ones included. Works from inside a terminal too. |
+| **Alt+1…9, j / k** | Jump to the first nine sessions, or walk the list. |
+| **Search past conversations** | "What did we do about X?": every word in any session's conversation, live or archived, kept beyond Claude Code's own 30 days. |
+| **Overlap warning** | "⚠ Same files as chore/deps-update": two live sessions changing the same files will conflict when the second one merges. |
+| **Context fill** | "84% full" when a conversation is getting long, so you start fresh before Claude loses the thread. |
+| **Notes** | Your own scratchpad per session (what you decided, what to tell the reviewer), with **Send to Claude** when you want it to know. |
+| **Catch me up** | A few sentences on where a session stands, for one you haven't touched in days. |
 
-Designed to be driven by an AI assistant (or any process that wants to react to comments as they happen). When you save a comment in the browser it lands on stdout as a markdown chunk like:
+### A real terminal for every agent
 
-```
---- comment ---
-**api/src/users.ts** : line 42 (right)
-id: 1df977d4...
-> use the new helper here
-```
+<img src="docs/assets/screens/terminal.png" alt="The Terminal tab: Claude Code running in the session, asking for permission" width="900">
 
-Other features in review mode:
+| Feature | What it does for you |
+|:---|:---|
+| **Terminal tab** | Claude Code itself, live, in the app. Type to it as in any terminal. |
+| **Sessions survive everything** | Claude runs in a background host, not in the app: closing the window, restarting the app or rebooting the computer doesn't end it. It comes back with its conversation. |
+| **`work attach`** | The same session in your own terminal (Windows Terminal, iTerm…), at the same time as the app. Ctrl+] detaches. |
+| **Open in terminal / editor** | One key opens the session's folder in a new terminal tab (`⇧T`) or in VS Code (`o`). |
+| **Idle sleep** | A Claude nobody has used for hours is stopped to free memory. Opening the session resumes it where it was. |
+| **Restart outdated agents** | After Claude Code updates itself, the app tells you which sessions still run the old version and restarts them in place, each when its turn ends. |
+| **Send a prompt** | Saved instructions ("Review your changes", "Add tests", "Open a pull request") sent to a session's Claude from its ⋯ menu, or to many at once. |
+| **Ask (Ctrl+K)** | An assistant that knows what's on your screen: "which of these is safe to archive?", "what's blocking this one?". It asks before it changes anything. |
 
-- **Markdown comments** — both your comments and Claude's replies render as formatted markdown (code blocks, lists, links), not raw text.
-- **Live reload** via SSE — the page refreshes itself when files change; reloads are deferred while you're composing so your draft isn't lost.
-- **Threaded replies** — a wrapping process posts replies with `parentId` and `author: 'claude'`. In the normal (work-web) flow that's `POST <web>/api/scopes/<hash>/comments`, where `<hash>` is the segment from the `/review/<hash>` URL; the standalone fallback is `POST <url>/api/comments`. Replies render inline under the original with distinct styling.
-- **Resolve / mark done** — mark a comment thread resolved: it collapses to a one-line bar in the diff (click to reopen), and stays listed but dimmed + struck-through in the comments panel, so you can fold away what's handled without losing the record.
-- **Whole-file comments** — a *Comment on file* button in each file header attaches a comment to the file as a whole (GitHub-style), not a specific line.
-- **Drafts & submit** — stage multiple comments as drafts, then submit them in one batch (GitHub-style).
-- **Outdated detection** — the line's raw content is captured at compose time; if the file changes underneath, the comment is dimmed with an "outdated" badge.
-- **General comments** — a top-of-page composer for review notes that aren't tied to any line.
-- **Stable scope hash** — keep one tab open across repeated `wd` / `wd -c` invocations for the same worktree.
+### Reviewing what the agent did
 
-When running standalone (no `work web`), the live URL is published to `~/.work/diffs/latest-review.url` so any local tool can find it without scraping stdout. A ready-made Claude Code skill ships as the `work-tree` plugin (`plugins/work-tree/skills/wd-review/SKILL.md`) — installing the npm package auto-registers the plugin marketplace and installs the plugin when the `claude` CLI is present. To add it manually from the Moberg plugin marketplace:
+| Feature | What it does for you |
+|:---|:---|
+| **Diff tab** | Uncommitted changes, or everything on the branch since it left its base, side by side or unified, with syntax highlighting. |
+| **Turns and commits** | Every Claude turn is recorded. **Changes ▾** lists them with the branch's commits: show one, or Shift+click for a span. **Last turn** is one click. |
+| **Since you looked** | The diff opens on what changed since you last reviewed this session, not everything again. **Your looks** keeps the diffs you reviewed before. |
+| **Comments to Claude** | Comment on a line, a file or the whole change; Claude gets the comments on its next turn, and they're marked resolved once it's addressed them. |
+| **Revert file** | Undo an uncommitted file back to its last commit, and tell Claude not to bring it back. |
+| **Viewed** | Tick files as you review them. A file Claude changes again is unticked. |
+| **Groups by repo** | In a multi-repo session, a switch at the top picks the repo, with each one's file count. |
+| **Full screen, Open in browser** | The diff over the whole window, or on its own page in your browser. |
+| **`wd`** | The same diff page for any folder, from the command line, with or without a session. |
+
+### Reading the code
+
+<img src="docs/assets/screens/code-search.png" alt="Code search: types and members by name, and lines with the text" width="900">
+
+| Feature | What it does for you |
+|:---|:---|
+| **Code tab** | The session's files as they are now, read only: a tree, a filter, highlighting. Files changed on the branch carry a dot and link to their diff. |
+| **Search the code (Ctrl+T)** | As in Visual Studio: types and members by name (`GPJ` finds `GetPendingJobs`), files by path, and lines containing the text, across all of a group's repos. Enter opens the place at its line. |
+| **Open in editor** | The open file in VS Code at the line you're reading, in the worktree's window (JetBrains IDEs and Sublime too). |
+
+### Pull requests
+
+| Feature | What it does for you |
+|:---|:---|
+| **PR tab** | Every pull request of the session with its stage (waiting for review, approved, ready to merge, conflict, checks failing), its checks and its review threads. |
+| **Ask Claude to fix** | Failing checks are sent to the session's Claude, once per pushed commit, with which checks and why. |
+| **Review comments to Claude** | New review comments from people with write access (and Copilot) go to the session's Claude. It plans what to change and drafts a reply to each thread. |
+| **Replies only on your yes** | Drafts show under each comment, editable. **Post & resolve** sends them, or tell Claude "yes" in the conversation. Nothing is posted on GitHub without you. |
+| **Ship…** | Push, open the PR (ready or draft), and merge, checking first that the PR still has the commits you reviewed. A group ships repo by repo. |
+| **Merged → archived** | When every PR of a session has merged, it archives itself. |
+| **PR pills** | Each session's PRs on its row, coloured by stage; a click opens it on GitHub. |
+
+### Starting work
+
+<img src="docs/assets/screens/start.png" alt="Start: your pull requests and the ones waiting for your review" width="900">
+
+| Feature | What it does for you |
+|:---|:---|
+| **New worktree (`c`)** | A project and what Claude should do. The branch is named from your words (`PAY-31 …` → `feat/PAY-31`, a stack trace → `fix/…`, a question → `tmp/…`), checked against branches that already exist. |
+| **Start from a PR** | Paste a PR link or number to work on that branch, someone else's included. |
+| **Review someone's PR** | From **Start**: a worktree on their branch and a Claude asked to read it, try it and tell you what it would comment, without posting anything. |
+| **Jira** | Your assigned issues, each with **Start**. Optionally, newly assigned issues start themselves: Claude picks the right project, or asks you when it isn't sure. |
+| **Fork** | A new branch and worktree from where a session is, with a new Claude that gets a summary of the conversation so far. |
+| **Stacked sessions** | A session made from another session's branch follows it: it takes in the parent's new commits when clean, and moves onto main when the parent merges. |
+| **Groups (multi-repo)** | One worktree folder spanning several repos (backend + frontend), one Claude seeing all of them, with a combined `CLAUDE.md` written for the group. |
+| **Local settings copied** | Git-ignored files you need to run the app (`appsettings.Development.json`, `.env.local`) are copied into every new worktree. |
+| **Dev server and preview** | Each worktree gets its own port; start its dev server from the session and open the preview. |
+| **Repos & groups page** | Every git repo in your folders, to add with one click, and groups to make from them. |
+
+### Keeping branches healthy
+
+| Feature | What it does for you |
+|:---|:---|
+| **Behind main** | "↓ 34 behind origin/main" and whether merging would conflict, with **Update from main** (a rebase or a merge, aborted cleanly on a conflict, and then **Ask Claude to resolve**). |
+| **Pull on return** | Going back into a worktree pulls its branch and continues the last conversation. |
+
+### Finishing and cleaning up
+
+| Feature | What it does for you |
+|:---|:---|
+| **Archive** | Stops the session's Claude and whatever still runs from its folder, keeps the conversation, a written summary, uncommitted files and local settings, and removes the worktree when nothing would be lost. Each archived session shows who archived it and when. |
+| **Restore** | Brings an archived session back as if it had never left: branch, worktree, uncommitted files, local settings, its turns and its conversation. |
+| **Clean up** | What can go and why: merged worktrees, build output in worktrees idle for a week (`node_modules`, `bin/obj`, `.next`…), and local branches already in main. Nothing with unpushed work. |
+| **Move to another computer** | `work move export` / `import` takes your sessions, conversations and settings to a new machine; worktrees come back from origin. |
+
+### Time
+
+<img src="docs/assets/screens/time.png" alt="The Time tab: hours per Jira ticket for a day, suggested from the day's work" width="900">
+
+| Feature | What it does for you |
+|:---|:---|
+| **Time tab** | Each workday's hours per Jira ticket, suggested from what you did: Claude's working time per session, your commits, the issues you moved, and (if you connect Outlook and Teams) your meetings and chats. Change what you like. |
+| **Post to Tempo** | One click writes the day to Tempo, and never touches worklogs you made by hand. |
+| **Work time** | How long each session's Claude worked, per day, on its Timeline. |
+
+### The app itself
+
+| Feature | What it does for you |
+|:---|:---|
+| **Desktop app** | Windows, macOS and Linux. Updates itself (Restart when it's downloaded); your Claudes keep running through the update. |
+| **Activity** | What work does in the background (checking PRs, cleaning up, archiving) and why, in one panel. A dot turns amber when something needs you. |
+| **Light and dark** | Follows your system, or pick one. |
+| **Demo** | `work web --demo`: the real app on a simulated world, for trying it out or showing it to someone. |
+
+---
+
+## Keyboard
+
+`?` shows them all in the app.
+
+| Anywhere | | On a session | |
+|:---|:---|:---|:---|
+| `c` | New worktree | `1` `2` `3` `4` | Terminal, Diff, PR, Code |
+| `n` | Next that wants you | `e` | Archive / Restore |
+| `j` / `k` | Next / previous session | `z` | Snooze |
+| `Alt+1…9` | Session 1–9 | `p` | Send a prompt |
+| `Ctrl+P` | Quick switcher | `r` | Catch me up |
+| `Ctrl+K` | Ask | `o` / `⇧T` | Open in editor / terminal |
+| `Ctrl+T` | Search the code (desktop app) | `f` | Fork |
+| `/` | Search sessions | `⇧S` | Ship |
+| `g i`, `g s`, `g d` | Inbox, Sessions, Today | `F2` | Rename |
+
+---
+
+## The CLI
+
+Everything the app does is also a command, for scripts, for your terminal, and for Claude itself (a skill tells every session how to read other sessions with `work … --json`).
 
 ```bash
-/plugin marketplace add moberghr/moberg-plugins
-/plugin install work-tree@moberg-plugins
+work tree api feat/login --prompt "Add rate limiting to login"   # new worktree + Claude, your terminal attached
+work tree api                                  # the repo's own checkout: pull, continue the last conversation
+work attach                                    # this terminal on the session for this folder (Ctrl+] detaches)
+work sessions [--json] [--changes]             # every session and its status, as the app shows it
+work digest --since yesterday                  # what each session did, as Markdown
+work search "rate limit"                       # every conversation, live and archived
+work read / screen / send -m "…" / wait        # another session's messages, screen; message it; wait for its turn
+work fork feat/login-v2                        # fork the session for this folder
+work update                                    # bring the branch up to date from main (or its parent)
+work snooze --for 2h | pin | note | block      # the same as the app's menu
+work pr reply / post                           # drafts and posting review replies (Claude uses these)
+work cleanup [--apply] [--build-folders] [--branches]
+work run --all npm test                        # a command in every worktree
+work broadcast --all "rebase onto main"        # a prompt to every live session
+work time | timesheet show | todo              # time, the Time tab's day, your task list
+work move export <dir> / import <dir>          # to another computer
+work config add|remove|list|group …            # repos and groups
+wd [-c] [--static]                             # the diff page for this folder (-c: review with comments)
 ```
 
-Then say *"review my changes with wd"* in any Claude session to drive the loop.
+`work --help` and `work <command> --help` list every flag. [CLAUDE.md](CLAUDE.md) has the full reference.
 
 ---
 
 ## Configuration
 
-Stored at `~/.work/config.json`:
+Most of it is set in the app (Welcome, Repos & groups). Everything lives in `~/.work/config.json`:
 
 ```json
 {
-  "worktreesRoot": "/Users/you/worktrees",
-  "repos": {
-    "api":  "/Users/you/repos/api",
-    "web":  "/Users/you/repos/web"
-  },
-  "groups": {
-    "fullstack": ["api", "web"]
-  },
-  "copyFiles": [
-    "*.Development.json",
-    "*.Local.json",
-    ".claude/settings.local.json"
-  ],
-  "aiCommand": "claude",
+  "worktreesRoot": "C:/Users/you/source/worktrees",
+  "repos": { "api": "C:/Users/you/source/repos/api", "web": "C:/Users/you/source/repos/web" },
+  "groups": { "shop": ["api", "web"] },
+  "copyFiles": ["*.Development.json", ".env.local", ".claude/settings.local.json"],
   "editor": "code",
-  "portRange": { "start": 3000, "end": 3099 },
   "devCommands": { "web": "npm run dev -- --port $PORT" },
-  "notifications": false,
-  "statusHooks": [
-    { "on": "needs_input", "command": "afplay /System/Library/Sounds/Glass.aiff" }
-  ]
+  "statusHooks": [{ "on": "needs_input", "command": "afplay /System/Library/Sounds/Glass.aiff" }]
 }
 ```
 
 | Key | Purpose |
 |:---|:---|
-| `worktreesRoot` | Parent directory for every worktree. |
-| `repos` | Alias → repo path. |
-| `groups` | Group name → list of repo aliases. |
-| `copyFiles` | Glob patterns copied into every new worktree — the canonical use is local dev settings (`appsettings.Development.json`, `.env.local`, `.claude/settings.local.json`) that are gitignored but needed to run the app. |
-| `aiCommand` | The AI CLI to auto-launch (default `claude`). Set it to any other tool; per-tool flag names live under `aiCommandFlags`. |
-| `editor` | Editor command for `--open` / "open in editor" (default `code`). |
-| `portRange` | Port window `work web` allocates from (default `3000`–`3099`). |
-| `prWatch` | `{ "autoArchive": true, "fixCi": true, "reviewComments": true }` (all default on). **Review comments:** new feedback on an open PR (unresolved review threads, reviews and comments by others — never your own) is handed to that session's Claude to address; threads still open when watching starts count too, old conversation doesn't. Claude doesn't post on GitHub; if a comment needs your call it starts its reply with `DECISION NEEDED:` and the session lands in the Inbox as *needs input* with a notification. The header shows the number of open review threads. `work web` checks recent sessions' PRs every 3 minutes: a session whose PRs have all merged (with nothing since) archives itself — in a group only once every repo is done — and when a PR's checks fail, that session's Claude is told which ones (once per pushed commit) and asked to fix them, or to ask you if it needs a decision. The session header shows failing checks with **Ask Claude to fix**. |
-| `devCommands` | Dev-server command per repo alias, e.g. `{ "web": "npm run dev -- --port $PORT" }`. The session header shows the worktree's `$PORT`, whether anything serves on it (with a **Preview ↗** link), and **▶ Start dev** / **■ Stop** / **Log** for this command. In a group, the first repo with a command gets the port. |
-| `notifications` | Opt-in desktop notification when a session goes idle or needs input. |
-| `statusHooks` | Run your own shell command on a session status change — see below. |
-| `launchViaHost` | Default `true`: `work tree` runs the AI session in the background PTY host and attaches your terminal to it, so it survives closing the tab, `work web` shows the very same screen, and it comes back after a reboot. Detach with Ctrl+]; `work attach` reconnects. Set `false` to launch directly in the terminal (invisible to the dashboard); per call: `--host` / `--no-host`. |
-
-Edit via `work config edit`, or manage repos/groups via the `work config …` subcommands.
-
-### Notifications & status hooks
-
-When a background AI session finishes its turn (`idle`) or blocks waiting on you (`needs_input`), Work can let you know — `work web` does it via its Claude hooks, for any Claude on the machine:
-
-- **Only when you're not looking.** Nothing fires for a session a focused dashboard tab is showing. Click **Enable notifications** on the Inbox tab and the dashboard raises browser notifications instead — clicking one jumps to that session (the terminal if it's asking you something, the diff if it finished). The desktop toast below is the fallback for when no dashboard tab can notify.
-- **`notifications: true`** — fires a native desktop notification (macOS `osascript`, Linux `notify-send`, Windows BurntToast/balloon best-effort). Repeated alerts within one idle period are de-duplicated; submitting a new prompt re-arms it.
-- **`statusHooks`** — the general form. Each entry is `{ "on": "idle" | "needs_input", "command": "..." }`. The command runs (with the session directory as cwd) on that transition, with `WORK_SESSION` and `WORK_STATUS` in its environment — use it for sounds, Slack pings, or anything scriptable.
-
-### Session tracking
-
-Every `work tree` invocation upserts a row into `~/.work/state.db` (SQLite) keyed by `target + branch`. This powers:
-
-- **`work status`** — joins history with live `git status` to show merge state, dirty trees, unpushed commits, and last-access timestamps.
-- **`work recent`** — sessions sorted by last touched.
-- **`work resume`** — interactive picker; one keystroke to re-enter the worktree and continue the prior AI conversation.
-- **`work prune` / `work sync`** — `prune` interactively removes worktrees whose branches landed on `main`/`master`; `work sync` does the same non-interactively after fetching every repo in parallel (`--dry-run` to preview, `--force` to include dirty/unpushed trees, `--include-squash` to also catch squash-merged branches).
-- **Dashboard reactivity** — every write bumps a change counter the running `work web` polls, so a `work tree` in another terminal shows up in the dashboard within a second.
-
-All session state (history, status, review comments, restore list, tasks) lives in that one database, so the CLI, Claude's hooks, `work web` and the PTY host can all write at once without losing updates. Upgrading from a version with JSON files imports them on first run and keeps the originals as `*.migrated`. `work state` shows what's stored; `work state --export <dir>` writes it back out as the old JSON files.
-
----
-
-## Architecture
-
-Three kinds of process: the `work` CLI, the `work web` dashboard server (one
-per user), and the PTY host that owns every agent's terminal, so agents
-survive dashboard restarts and reboots. All logic lives in `src/core/`,
-grouped by feature; the CLI (`src/commands/`) and the HTTP server
-(`src/server/`) are thin front-ends over it. Session state is one SQLite
-database, `~/.work/state.db`.
-
-**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** has the overview: processes,
-source layout, state, the agent interface, one turn end to end, the security
-model. The decisions behind it are in [docs/adr/](docs/adr/README.md).
-
-### Design principles
-
-| Principle | What it means |
-|:---|:---|
-| **Atomic worktree operations** | `setupWorktree()` and `teardownWorktree()` are the high-level entry points used by both the CLI and `work web`. Low-level `createSingleWorktree()` rolls back on partial failure. |
-| **Resolver pattern** | One name (`api`, `fullstack`) is dispatched through `resolveProjectTarget()` to either a group or a single repo. Commands branch on `isGroup` once and delegate. |
-| **Branch resolution priority** | Local exists → remote exists (tracking branch) → neither (new branch from base). |
-| **Path normalisation** | `feature/login` → `feature-login` directory. Always. |
-| **External binaries are external** | tsup bundles `src/bin.ts` as ESM with all dependencies marked `external` — they're resolved from `node_modules` at runtime. Adding a dep means `npm install` *and* rebuild. |
-| **Color forcing for Windows** | `bin.ts` raises `chalk.level` to 1 when chalk detects 0 — Windows `.cmd` shims don't preserve TTY detection. `NO_COLOR` is respected. |
-
----
-
-## Tab Completion
-
-Auto-installed during `work init`. Available standalone:
-
-```bash
-work completion --install
-```
-
-Detects PowerShell 7 / 5.1 on Windows (via `[Environment]::GetFolderPath('MyDocuments')`) and bash / zsh on Unix (via `$SHELL`). Idempotent — uses a `# work tab completions` marker to skip if already present. Manual fallback:
-
-| Shell | Add to profile |
-|:---|:---|
-| **PowerShell** (`$PROFILE`) | `work completion --shell powershell \| Out-String \| Invoke-Expression` |
-| **Bash** (`~/.bashrc`) | `eval "$(work completion)"` |
-| **Zsh** (`~/.zshrc`) | `eval "$(work completion)"` |
-
-Completions are dynamic — branch names come from the worktree directory listing for groups, and from each repo's worktree list for single repos.
-
----
-
-## Development
-
-```bash
-npm ci && npm run build && npm link   # `work` and `wd` from this checkout
-npm run typecheck && npm run lint && npm test
-```
-
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the checks, where code goes, and
-how releases work; [CHANGELOG.md](CHANGELOG.md) for what changed;
-[SECURITY.md](SECURITY.md) to report a vulnerability.
-
----
-
-## Unsafe Mode & Debug Logging
-
-`--unsafe` on `work tree` or `work resume` passes the AI tool's skip-permissions flag (`--dangerously-skip-permissions` for Claude Code; configurable per tool via `aiCommandFlags`) — useful in trusted, sandboxed worktrees, dangerous everywhere else. Use deliberately.
-
-All CLI output and internal debug messages stream to `~/.work/debug.log` with timestamps. Auto-rotates at 5 MB. The first place to look when worktree creation, group CLAUDE.md generation, or hook delivery misbehaves.
+| `worktreesRoot` | Where worktrees go. |
+| `repos`, `groups` | Your repos by alias, and groups of them. |
+| `copyFiles` | Git-ignored files copied into each new worktree. |
+| `editor` | What **Open in editor** runs (default `code`). |
+| `devCommands` | Each repo's dev-server command; `$PORT` is the worktree's own port. |
+| `statusHooks` | Your command on `needs_input` / `idle`, with `WORK_SESSION` and `WORK_STATUS` set. |
+| `notifications` | `true` for a desktop toast when no dashboard can notify you. |
+| `prompts` | Your own saved prompts for **Send a prompt** (replacing the defaults; each can be limited to some repos). |
+| `prWatch` | `trustedBots` (whose review comments reach Claude), `wakeClaude` (start a stopped Claude for a PR note). |
+| `sleepIdleAfterMinutes` | When an unused Claude is stopped to free memory (default 120; 0 = never). |
+| `time` | The Time tab: hours a day, tickets for gaps and days off, Tempo and Outlook settings. |
+| `aiCommand`, `aiCommandFlags` | The agent new sessions run (default Claude Code). |
 
 ---
 
 ## FAQ
 
 <details>
-<summary><b>Why git worktrees instead of branches in one checkout?</b></summary>
+<summary><b>Why worktrees?</b></summary>
 
-Branches share a working directory. Worktrees give every branch its own isolated checkout — separate `node_modules`, separate `bin/obj`, separate dev-server processes, separate Claude Code sessions. You can run all of them concurrently without `git stash` gymnastics or losing your build cache.
+Each branch gets its own folder: its own `node_modules`, build output, dev server and Claude session. Several agents can work at once without stepping on each other, and you never stash to switch.
 </details>
 
 <details>
-<summary><b>Do I have to use Claude Code?</b></summary>
+<summary><b>Does closing the app stop my agents?</b></summary>
 
-No — `work tree`, `work list`, `work status`, `work prune`, and the dashboard's session pane all work without Claude Code installed. You just lose auto-launch, group CLAUDE.md generation, and the embedded terminal in the dashboard. The CLI degrades gracefully when `claude` isn't on PATH.
+No. Claude sessions run in a background host. Closing the app, updating it, or restarting the computer doesn't end them; they come back with their conversation.
 </details>
 
 <details>
-<summary><b>Does the dashboard work on Windows?</b></summary>
+<summary><b>Can it post on GitHub without me?</b></summary>
 
-Yes. Ink and node-pty support Windows; PowerShell completions are installed automatically. Mouse and keyboard handling work in Windows Terminal, ConEmu, and the new VS Code integrated terminal.
+No. Claude drafts replies to review comments; they're posted only when you click **Post** or tell Claude yes in its conversation, and Claude Code asks you before running that command. Merging happens only from **Ship…**.
 </details>
 
 <details>
-<summary><b>What happens when a worktree's branch is merged?</b></summary>
+<summary><b>What does Archive delete?</b></summary>
 
-`work prune` lists every worktree whose branch is merged into `main` / `master` and offers to remove them interactively. `--force` skips the prompt. For groups, every sub-repo's branch must be merged before the group is offered.
+Only what can be recreated. The worktree folder is removed when everything in it is pushed or saved; uncommitted files and local settings are saved first, and **Restore** puts everything back. A worktree with commits not yet in main is kept.
 </details>
 
 <details>
-<summary><b>Can I customize which files get copied into new worktrees?</b></summary>
+<summary><b>Do I need Claude Code?</b></summary>
 
-Yes — edit `copyFiles` in `~/.work/config.json` (or run `work config edit`). Any glob pattern works. The default set covers `*.Development.json`, `*.Local.json`, and `.claude/settings.local.json` — the typical "gitignored but required to run" trio.
+It's the default and gets every feature. Another CLI agent (`aiCommand`, e.g. `opencode`) runs in the terminal tab and is managed the same way, without the features that read Claude's conversation or hooks (turns, Inbox status, catch-up).
 </details>
 
 <details>
-<summary><b>How does the Jira → branch flow work?</b></summary>
+<summary><b>Windows, macOS, Linux?</b></summary>
 
-Pick a Jira issue in the dash, choose the target project, and Work invokes Claude Haiku with the issue title to generate a branch slug. It then runs `work tree <project> <slug>` in a PTY and pipes a structured planning prompt to Claude via `--prompt-file`. End result: a fresh worktree with Claude already thinking about your ticket.
-</details>
-
-<details>
-<summary><b>Can I use my own AI assistant instead of Claude Code?</b></summary>
-
-Yes. Set `aiCommand` in `~/.work/config.json` to any CLI (and adjust `aiCommandFlags` for that tool's unsafe / resume / prompt-file flag names). Work will launch it on `work tree` and embed it in the dashboard terminal the same way. Claude Code remains the default and the only tool with first-class group `CLAUDE.md` generation and the review hook bridge.
+All three, for both the app and the CLI. It's built and used daily on Windows.
 </details>
 
 ---
 
-## License
+## More
 
-MIT — see [LICENSE](LICENSE).
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it's put together (processes, state, the agent interface, security), and [docs/adr/](docs/adr/README.md) for the decisions behind it.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing, releasing. [CHANGELOG.md](CHANGELOG.md), [SECURITY.md](SECURITY.md).
+- `~/.work/debug.log`: the first place to look when something misbehaves.
 
----
-
-<div align="center">
-
-**Work — Git Worktree Manager** · [Moberg d.o.o.](https://www.moberg.hr)
-
-Built for engineers who run more than one branch at a time.
-
-</div>
+MIT licensed · [Moberg d.o.o.](https://www.moberg.hr)

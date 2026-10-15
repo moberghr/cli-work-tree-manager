@@ -3,957 +3,177 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Work — Git Worktree Manager for AI-Assisted Development · Moberg</title>
-<meta name="description" content="Work is a cross-platform CLI that turns git worktrees into a parallel-development cockpit. Spin up isolated workspaces per branch across one or many repos, auto-launch Claude Code, and orchestrate PRs, Jira, and tasks from a single dashboard." />
-<meta property="og:title" content="Work · Moberg — Git Worktree Manager for AI-Assisted Development" />
-<meta property="og:description" content="One terminal. Every branch. Every repo. Every Claude session." />
+<title>work · Moberg — run many Claude Code sessions, know which one needs you</title>
+<meta name="description" content="work is a desktop app for working with AI coding agents on many branches at once. Every task gets its own git worktree and Claude Code session; one window shows who needs you, what each changed, and where its pull request stands." />
+<meta property="og:title" content="work · Moberg" />
+<meta property="og:description" content="Run ten Claude Code sessions at once, and always know which one needs you." />
 <meta property="og:type" content="website" />
+<meta property="og:image" content="assets/screens/hero-dark.png" />
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  .logo-dark { display: none; }
   :root {
     --font-body: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
     --font-mono: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
-
-    --bg: #FFFFFF;
-    --surface: #FFFFFF;
-    --surface2: #F4F6FA;
-    --surface-elevated: #FFFFFF;
-
-    --border: #E1E7EB;
-    --border-bright: rgba(0, 0, 0, 0.13);
-
+    --bg: #ffffff;
+    --surface: #f4f6fa;
+    --card: #ffffff;
+    --border: #e1e7eb;
     --text: #121212;
-    --text-dim: #717A80;
-    --text-muted: #545454;
-
-    --accent: #4E0EFF;
-    --accent-light: #5634FF;
+    --muted: #5d666c;
+    --accent: #4e0eff;
     --accent-dark: #230083;
-    --accent-dim: rgba(78, 14, 255, 0.06);
-    --accent-gradient: linear-gradient(135deg, #4E0EFF 0%, #230083 100%);
-
-    --success: #16a34a;
-    --success-dim: rgba(22, 163, 74, 0.08);
-    --warning: #d97706;
-    --warning-dim: rgba(217, 119, 6, 0.08);
-    --danger: #dc2626;
-    --danger-dim: rgba(220, 38, 38, 0.08);
-
-    --radius-card: 12px;
-    --radius-pill: 20px;
-    --radius-btn: 8px;
-
+    --accent-dim: rgba(78, 14, 255, 0.07);
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 12px 32px rgba(16, 24, 40, 0.10);
+    --radius: 12px;
     --container: 1120px;
+    color-scheme: light;
   }
-
-  :root { color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --card: #11161d;
+      --border: #2a313a;
+      --text: #e6edf3;
+      --muted: #9aa5b1;
+      --accent: #8b6bff;
+      --accent-dark: #b9a6ff;
+      --accent-dim: rgba(139, 107, 255, 0.12);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+      color-scheme: dark;
+    }
+    .logo-light { display: none; }
+    .logo-dark { display: inline; }
+  }
 
   *, *::before, *::after { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    font-family: var(--font-body);
-    font-size: 16px;
-    line-height: 1.6;
-    color: var(--text);
-    background: var(--bg);
-    background-image: radial-gradient(ellipse at 10% 0%, var(--accent-dim) 0%, transparent 55%);
-    background-attachment: fixed;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--font-body); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd { font-family: var(--font-mono); font-size: 0.88em; }
+  code { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+  kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; background: var(--card); white-space: nowrap; }
+  img { max-width: 100%; height: auto; display: block; }
   .container { max-width: var(--container); margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 640px) { .container { padding: 0 16px; } }
 
-  /* === NAV === */
-  .nav {
-    position: sticky; top: 0; z-index: 40;
-    backdrop-filter: saturate(180%) blur(12px);
-    -webkit-backdrop-filter: saturate(180%) blur(12px);
-    background: color-mix(in srgb, var(--bg) 80%, transparent);
-    border-bottom: 1px solid var(--border);
-  }
-  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
-  .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
-  .brand-wordmark { display: block; height: 22px; width: auto; }
-  .brand-sep { color: var(--text-dim); font-weight: 300; }
-  .brand-product {
-    font-family: var(--font-body);
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--accent);
-    padding: 3px 8px;
-    background: var(--accent-dim);
-    border-radius: var(--radius-pill);
-  }
-  .nav-links { display: flex; align-items: center; gap: 28px; }
-  .nav-links a {
-    color: var(--text-muted);
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    transition: color .15s;
-  }
-  .nav-links a:hover { color: var(--text); }
-  .nav-links .cta {
-    color: var(--accent);
-    display: inline-flex; align-items: center; gap: 6px;
-  }
-  @media (max-width: 760px) {
-    .nav-links a:not(.cta) { display: none; }
-  }
+  /* Nav */
+  .nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; }
+  .brand:hover { text-decoration: none; }
+  .brand img { height: 22px; width: auto; }
+  .brand-sep { color: var(--muted); }
+  .nav-links { display: flex; gap: 22px; align-items: center; font-size: 14px; }
+  .nav-links a { color: var(--muted); }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+  .nav-links .cta { color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; display: inline-flex; gap: 6px; align-items: center; }
+  @media (max-width: 760px) { .nav-links a:not(.cta) { display: none; } }
 
-  /* === HERO === */
-  .hero { padding: 96px 0 64px; }
-  .hero-eyebrow {
-    display: inline-flex; align-items: center; gap: 10px;
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 28px;
-  }
-  .hero-eyebrow .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent);
-  }
-  .hero h1 {
-    font-family: var(--font-body);
-    font-size: clamp(42px, 6vw, 72px);
-    font-weight: 300;
-    letter-spacing: -0.02em;
-    line-height: 1.05;
-    color: var(--text);
-    margin: 0 0 24px;
-    max-width: 900px;
-  }
-  .hero h1 em {
-    font-style: normal;
-    color: var(--accent);
-    font-weight: 400;
-  }
-  .hero-sub {
-    font-size: 19px;
-    color: var(--text-muted);
-    max-width: 660px;
-    margin: 0 0 36px;
-    line-height: 1.55;
-  }
-  .hero-actions { display: inline-flex; gap: 12px; flex-wrap: wrap; }
-  .btn {
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 500;
-    padding: 11px 22px;
-    border-radius: var(--radius-btn);
-    border: 1px solid transparent;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    transition: all .15s ease-out;
-  }
-  .btn--primary {
-    background: var(--accent);
-    color: #fff;
-  }
-  .btn--primary:hover {
-    background: var(--accent-dark);
-    box-shadow: 0 4px 16px rgba(78, 14, 255, 0.22);
-    transform: translateY(-1px);
-  }
-  .btn--secondary {
-    background: var(--surface2);
-    color: var(--text);
-    border-color: var(--border);
-  }
-  .btn--secondary:hover { border-color: var(--accent); color: var(--accent); }
-  .hero-stats {
-    margin-top: 40px;
-    display: flex; gap: 32px; flex-wrap: wrap;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-  .hero-stats span { display: inline-flex; align-items: center; gap: 8px; }
-  .hero-stats span::before {
-    content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--accent);
+  /* Hero */
+  .hero { padding: 72px 0 32px; text-align: center; }
+  .eyebrow { display: inline-block; font-size: 13px; color: var(--accent); background: var(--accent-dim); border-radius: 20px; padding: 4px 12px; margin-bottom: 20px; }
+  h1 { font-size: clamp(34px, 5.4vw, 58px); line-height: 1.08; letter-spacing: -0.02em; margin: 0 auto 20px; max-width: 900px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .hero-sub { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 760px; margin: 0 auto 32px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-bottom: 14px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; padding: 11px 18px; font-weight: 600; font-size: 15px; border: 1px solid var(--border); color: var(--text); background: var(--card); }
+  .btn:hover { text-decoration: none; border-color: var(--accent); }
+  .btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn--primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+  .small-print { font-size: 13px; color: var(--muted); }
+  .hero-shot { margin: 44px auto 0; max-width: 1080px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
+
+  /* Sections */
+  section.block { padding: 72px 0; scroll-margin-top: 60px; }
+  section.alt { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .kicker { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; margin: 0 0 8px; }
+  h2 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; letter-spacing: -0.01em; margin: 0 0 14px; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 760px; margin: 0 0 36px; }
+  h3 { font-size: 19px; margin: 0 0 8px; }
+
+  /* Why */
+  .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .why div { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .why b { display: block; margin-bottom: 6px; }
+  .why p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* Story rows: text beside a screenshot */
+  .row { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 44px; align-items: center; padding: 36px 0; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+  .row.flip .text { order: 2; }
+  .row .shot { border-radius: 10px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .row ul { padding-left: 18px; margin: 12px 0 0; color: var(--muted); }
+  .row li { margin: 4px 0; }
+  .row p { color: var(--muted); margin: 0; }
+  @media (max-width: 860px) {
+    .row, .row.flip { grid-template-columns: 1fr; gap: 20px; }
+    .row.flip .text { order: 0; }
   }
 
-  /* === TERMINAL === */
-  .terminal {
-    margin-top: 64px;
-    background: #0E1218;
-    border: 1px solid #1f2532;
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    box-shadow: 0 20px 50px -10px rgba(17, 10, 60, 0.18);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    line-height: 1.75;
-  }
-  .terminal-bar {
-    display: flex; align-items: center; gap: 6px;
-    padding: 11px 16px;
-    border-bottom: 1px solid #1f2532;
-    background: #0a0d12;
-  }
-  .terminal-bar i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #2a303e; }
-  .terminal-bar .label {
-    margin-left: 14px;
-    font-size: 11px;
-    color: #6b7280;
-  }
-  .terminal pre {
-    margin: 0;
-    padding: 20px 22px;
-    color: #CFD4E2;
-    overflow-x: auto;
-  }
-  .k-green { color: #4ade80; }
-  .k-red { color: #fb7185; }
-  .k-yellow { color: #fbbf24; }
-  .k-blue { color: #9b7aff; }
-  .k-mute { color: #8b95a2; }
-  .k-dim { color: #6b7280; }
-  .k-purple { color: #b197fc; }
-  .k-cyan { color: #67e8f9; }
+  /* Feature catalogue */
+  .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+  .group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 22px 14px; }
+  .group h3 { display: flex; align-items: center; gap: 10px; }
+  .group h3 span { font-size: 18px; }
+  .group dl { margin: 10px 0 0; }
+  .group dt { font-weight: 600; font-size: 15px; margin-top: 10px; }
+  .group dd { margin: 2px 0 0; color: var(--muted); font-size: 14.5px; }
 
-  /* === SECTIONS === */
-  .section { padding: 96px 0; }
-  .section--alt { background: var(--surface2); }
+  /* Keyboard */
+  .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 24px; font-size: 15px; }
+  .keys div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .keys .combo { white-space: nowrap; }
+  .keys .what { color: var(--muted); text-align: right; }
 
-  .sec-head {
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: var(--text-dim);
-    margin: 0 0 18px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .sec-num {
-    font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-    min-width: 24px;
-  }
+  /* Install */
+  .install { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 960px) { .install { grid-template-columns: 1fr; } }
+  .install .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .install .card p { color: var(--muted); margin: 0 0 14px; font-size: 15px; }
+  .downloads { display: flex; flex-direction: column; gap: 8px; }
+  pre { background: #0d1117; color: #e6edf3; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 13.5px/1.65 var(--font-mono); margin: 0; }
+  pre .c { color: #8b949e; }
+  table.tools { width: 100%; border-collapse: collapse; font-size: 14.5px; margin-top: 14px; }
+  table.tools td { border-top: 1px solid var(--border); padding: 8px 6px; vertical-align: top; }
+  table.tools td:nth-child(2) { color: var(--muted); white-space: nowrap; }
 
-  h2 {
-    font-family: var(--font-body);
-    font-size: clamp(28px, 4vw, 44px);
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    line-height: 1.15;
-    color: var(--text);
-    margin: 0 0 20px;
-    max-width: 780px;
-  }
-  .lede {
-    font-size: 18px;
-    color: var(--text-muted);
-    max-width: 660px;
-    margin: 0 0 48px;
-    line-height: 1.55;
-  }
-
-  h3 {
-    font-family: var(--font-body);
-    font-size: 19px;
-    font-weight: 600;
-    color: var(--text);
-    margin: 0 0 8px;
-  }
-
-  /* === CARDS === */
-  .grid { display: grid; gap: 16px; }
-  .grid--2 { grid-template-columns: repeat(2, 1fr); }
-  .grid--3 { grid-template-columns: repeat(3, 1fr); }
-  @media (max-width: 880px) {
-    .grid--2, .grid--3 { grid-template-columns: 1fr; }
-  }
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    padding: 24px 26px;
-    transition: border-color .15s, transform .15s;
-  }
-  .card:hover { border-color: var(--border-bright); }
-  .card--hero {
-    background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
-    border-color: color-mix(in srgb, var(--border) 50%, var(--accent) 25%);
-  }
-  .card p { color: var(--text-muted); margin: 0; font-size: 14.5px; line-height: 1.6; }
-  .card-icon {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: var(--accent-dim);
-    color: var(--accent);
-    display: inline-flex; align-items: center; justify-content: center;
-    margin-bottom: 16px;
-  }
-
-  /* === BADGES === */
-  .badge {
-    display: inline-block;
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-  }
-  .badge--purple { background: var(--accent-dim); color: var(--accent); }
-  .badge--success { background: var(--success-dim); color: var(--success); }
-  .badge--warning { background: var(--warning-dim); color: var(--warning); }
-  .badge--danger { background: var(--danger-dim); color: var(--danger); }
-  .badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-  .badge-mono {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-    background: var(--surface2);
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-  }
-
-  /* === COMPARISON TABLE === */
-  .table-wrap {
-    overflow-x: auto;
-    border-radius: var(--radius-card);
-    border: 1px solid var(--border);
-    background: var(--surface);
-  }
-  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
-  thead th {
-    background: #121212;
-    color: #FFFFFF;
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 14px 18px;
-    text-align: left;
-  }
-  thead th.th--danger { color: #ffaab4; }
-  thead th.th--purple { color: #c4b3ff; }
-  td {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text-muted);
-    vertical-align: top;
-  }
-  td.td-key {
-    font-weight: 600;
-    color: var(--text);
-    width: 24%;
-  }
-  td.td-good { color: var(--text); }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--surface2); }
-
-  /* === STEP CARDS === */
-  .step {
-    display: flex; gap: 20px; align-items: flex-start;
-    padding: 24px 26px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-  }
-  .step-num {
-    flex-shrink: 0;
-    width: 42px; height: 42px;
-    border-radius: 10px;
-    background: var(--accent-gradient);
-    color: #fff;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-weight: 700;
-    font-size: 14px;
-    font-family: var(--font-body);
-  }
-  .step-body { flex: 1; }
-
-  /* === COMPONENTS LIST === */
-  .compo-row {
-    display: flex; align-items: center; gap: 18px;
-    padding: 14px 18px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    margin-bottom: 8px;
-  }
-  .compo-code {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--accent);
-    min-width: 240px;
-    padding: 4px 10px;
-    background: var(--accent-dim);
-    border-radius: 6px;
-  }
-  .compo-text { color: var(--text-muted); font-size: 14.5px; }
-
-  /* === INSTALL STEPS === */
-  .install-step { margin-bottom: 20px; }
-  .install-head {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 8px; padding: 0 4px;
-  }
-  .install-head .lbl {
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-dim);
-  }
-  .install-head .meta {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  /* === FAQ === */
-  .faq details {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    padding: 18px 22px;
-    margin-bottom: 8px;
-  }
-  .faq summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex; align-items: center; justify-content: space-between;
-    font-weight: 600;
-    color: var(--text);
-  }
+  /* FAQ */
+  .faq { max-width: 820px; }
+  .faq details { border-bottom: 1px solid var(--border); padding: 14px 0; }
+  .faq summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
   .faq summary::-webkit-details-marker { display: none; }
-  .faq summary .chev {
-    display: inline-block;
-    transition: transform .2s;
-    color: var(--text-dim);
-  }
-  .faq details[open] summary .chev { transform: rotate(90deg); }
-  .faq p {
-    margin: 14px 0 0;
-    color: var(--text-muted);
-    font-size: 14.5px;
-    line-height: 1.65;
-  }
-  .faq code {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--accent);
-    background: var(--accent-dim);
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
+  .faq summary::after { content: "+"; color: var(--muted); }
+  .faq details[open] summary::after { content: "−"; }
+  .faq p { color: var(--muted); margin: 10px 0 0; }
 
-  /* === MARQUEE === */
-  .marquee-wrap {
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    background: var(--surface2);
-    overflow: hidden;
-  }
-  .marquee-inner {
-    display: flex;
-    align-items: center;
-    gap: 40px;
-    padding: 20px 24px;
-    max-width: var(--container);
-    margin: 0 auto;
-  }
-  .marquee-label {
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: var(--text-dim);
-    white-space: nowrap;
-  }
-  .marquee-viewport { flex: 1; overflow: hidden; position: relative; }
-  .marquee-track {
-    display: inline-flex; gap: 3rem;
-    animation: scroll 45s linear infinite;
-    font-family: var(--font-body);
-    color: var(--text-muted);
-    font-weight: 500;
-    font-size: 15px;
-    white-space: nowrap;
-  }
-  @keyframes scroll { to { transform: translateX(-50%); } }
-
-  /* === CALLOUT === */
-  .callout {
-    background: var(--accent-gradient);
-    color: #fff;
-    padding: 56px 48px;
-    border-radius: var(--radius-card);
-    margin: 0 auto;
-  }
-  .callout h2 {
-    color: #fff;
-    font-weight: 300;
-    margin-bottom: 16px;
-  }
-  .callout p {
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 18px;
-    margin: 0 0 28px;
-    max-width: 580px;
-  }
-  .callout .btn--primary {
-    background: #fff;
-    color: var(--accent-dark);
-  }
-  .callout .btn--primary:hover { background: #f4f0ff; color: var(--accent); }
-  .callout .btn--secondary {
-    background: transparent;
-    color: #fff;
-    border-color: rgba(255,255,255,0.35);
-  }
-  .callout .btn--secondary:hover { border-color: #fff; color: #fff; }
-
-  /* === FOOTER === */
-  .footer {
-    padding: 32px 0;
-    border-top: 1px solid var(--border);
-    font-size: 13px;
-    color: var(--text-dim);
-  }
-  .footer-inner {
-    display: flex; align-items: center; justify-content: space-between;
-    flex-wrap: wrap; gap: 16px;
-  }
-  .footer a { color: var(--text-muted); text-decoration: none; }
-  .footer a:hover { color: var(--text); }
-  .footer-links { display: inline-flex; gap: 24px; flex-wrap: wrap; }
-  .footer-legal { font-family: var(--font-mono); font-size: 11px; }
-
-  /* === ANIMATIONS === */
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .animate { animation: fadeUp 0.5s ease-out both; }
-  @media (prefers-reduced-motion: reduce) {
-    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-  }
-
-  /* === UTILS === */
-  .stack-sm > * + * { margin-top: 12px; }
-  a { color: var(--accent-light); text-decoration: underline; text-underline-offset: 2px; }
-  a:hover { color: var(--accent); }
-
-  /* === FOUNDATIONS === */
-  .foundations {
-    padding: 64px 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-  }
-  .foundations-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 32px;
-    margin-bottom: 32px;
-    flex-wrap: wrap;
-  }
-  .foundations-head .lbl {
-    font-family: var(--font-body);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: var(--text-dim);
-  }
-  .foundations-head h3 {
-    margin: 10px 0 0;
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--text);
-    max-width: 560px;
-  }
-  .foundations-head p {
-    margin: 0;
-    font-size: 14.5px;
-    color: var(--text-muted);
-    max-width: 440px;
-    line-height: 1.55;
-  }
-  .foundations-grid {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 1px;
-    background: var(--border);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    overflow: hidden;
-  }
-  @media (max-width: 960px) { .foundations-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 540px) { .foundations-grid { grid-template-columns: 1fr; } }
-  .foundation { background: var(--surface); padding: 22px 22px 20px; }
-  .foundation-num {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    display: block;
-    margin-bottom: 14px;
-  }
-  .foundation-name {
-    font-family: var(--font-body);
-    font-size: 14.5px;
-    font-weight: 600;
-    color: var(--text);
-    margin: 0 0 6px;
-  }
-  .foundation-desc {
-    font-size: 12.5px;
-    line-height: 1.55;
-    color: var(--text-muted);
-    margin: 0;
-  }
-
-  /* === DASH MOCKUP === */
-  .dash-mock {
-    display: grid;
-    grid-template-columns: 320px 1fr;
-    gap: 0;
-    background: #0E1218;
-    border: 1px solid #1f2532;
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    box-shadow: 0 20px 50px -10px rgba(17, 10, 60, 0.18);
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    line-height: 1.65;
-    color: #CFD4E2;
-    margin-top: 32px;
-  }
-  @media (max-width: 760px) { .dash-mock { grid-template-columns: 1fr; } }
-  .dash-side { border-right: 1px solid #1f2532; }
-  @media (max-width: 760px) { .dash-side { border-right: 0; border-bottom: 1px solid #1f2532; } }
-  .dash-pane { padding: 14px 16px; border-bottom: 1px dashed #1f2532; }
-  .dash-pane:last-child { border-bottom: 0; }
-  .dash-pane-title {
-    font-family: var(--font-body);
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    color: #6b7280;
-    margin-bottom: 8px;
-  }
-  .dash-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
-  .dash-row.active { color: #fff; }
-  .dash-term { padding: 14px 18px; min-height: 320px; background: #0a0d12; }
-  .dash-term .prompt { color: #b197fc; }
-  .dash-keybar {
-    grid-column: 1 / -1;
-    border-top: 1px solid #1f2532;
-    padding: 10px 16px;
-    background: #0a0d12;
-    color: #6b7280;
-    font-size: 11px;
-  }
-  .dash-keybar kbd {
-    font-family: var(--font-mono);
-    background: #1f2532;
-    color: #CFD4E2;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 10.5px;
-    margin-right: 4px;
-  }
-
-  /* === REVIEW MOCKUP (browser diff UI) === */
-  .wd-mock {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    box-shadow: 0 20px 50px -10px rgba(17, 10, 60, 0.12);
-    background: #fff;
-    margin-top: 32px;
-    font-family: var(--font-body);
-    font-size: 13px;
-  }
-  .wd-mock-chrome {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #F4F6FA;
-    border-bottom: 1px solid var(--border);
-  }
-  .wd-mock-dots { display: flex; gap: 6px; margin-right: 6px; }
-  .wd-mock-dots span {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #d0d4dc;
-  }
-  .wd-mock-url {
-    flex: 1;
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--text-dim);
-  }
-  .wd-mock-url strong { color: var(--text); font-weight: 500; }
-
-  .wd-mock-tabs {
-    display: flex;
-    gap: 0;
-    background: #fff;
-    border-bottom: 1px solid var(--border);
-    padding: 0 16px;
-  }
-  .wd-mock-tab {
-    padding: 10px 14px;
-    border-bottom: 2px solid transparent;
-    color: var(--text-dim);
-    font-size: 12.5px;
-    cursor: default;
-  }
-  .wd-mock-tab.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-    font-weight: 500;
-  }
-  .wd-mock-tab .wd-mock-count { color: var(--text-dim); font-weight: 400; }
-  .wd-mock-tab .wd-mock-add { color: var(--success); font-family: var(--font-mono); }
-  .wd-mock-tab .wd-mock-del { color: var(--danger); font-family: var(--font-mono); }
-
-  .wd-mock-layout { display: grid; grid-template-columns: 240px 1fr; min-height: 480px; }
-  @media (max-width: 760px) { .wd-mock-layout { grid-template-columns: 1fr; } }
-
-  .wd-mock-sidebar {
-    background: #FAFBFC;
-    border-right: 1px solid var(--border);
-    padding: 14px 0;
-  }
-  .wd-mock-sidebar-header { padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
-  .wd-mock-sidebar-header h3 { margin: 0; font-size: 13px; font-weight: 600; }
-  .wd-mock-sidebar-header .wd-mock-meta { color: var(--text-dim); font-size: 11.5px; margin-top: 2px; }
-  .wd-mock-scope-toggle {
-    display: flex;
-    gap: 0;
-    margin-top: 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-    background: #fff;
-  }
-  .wd-mock-scope-btn {
-    flex: 1;
-    text-align: center;
-    padding: 5px 8px;
-    font-size: 11px;
-    color: var(--text-dim);
-    background: #fff;
-  }
-  .wd-mock-scope-btn.active { background: var(--accent); color: #fff; }
-
-  .wd-mock-tree { padding: 10px 0; font-family: var(--font-mono); font-size: 12px; }
-  .wd-mock-tree-folder {
-    padding: 2px 16px;
-    color: var(--text-dim);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-top: 6px;
-  }
-  .wd-mock-tree-file {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 16px 3px 28px;
-    color: var(--text);
-  }
-  .wd-mock-tree-file.active { background: var(--accent-dim); border-left: 2px solid var(--accent); padding-left: 26px; }
-  .wd-mock-tree-file.viewed { color: var(--text-dim); }
-  .wd-mock-tree-file .wd-mock-check {
-    width: 12px; height: 12px; border-radius: 3px;
-    border: 1px solid var(--border);
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .wd-mock-tree-file.viewed .wd-mock-check {
-    background: var(--success);
-    border-color: var(--success);
-    color: #fff;
-    font-size: 9px;
-    line-height: 1;
-  }
-  .wd-mock-tree-file .wd-mock-status-add { color: var(--success); font-weight: 600; }
-  .wd-mock-tree-file .wd-mock-status-mod { color: var(--warning); font-weight: 600; }
-  .wd-mock-tree-file .wd-mock-status-del { color: var(--danger); font-weight: 600; }
-
-  .wd-mock-main { background: #fff; overflow: hidden; }
-  .wd-mock-file {
-    border-bottom: 1px solid var(--border);
-  }
-  .wd-mock-file-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    background: #FAFBFC;
-    border-bottom: 1px solid var(--border);
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-  }
-  .wd-mock-file-header .wd-mock-add { color: var(--success); }
-  .wd-mock-file-header .wd-mock-del { color: var(--danger); }
-  .wd-mock-file-header label {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-dim);
-    font-family: var(--font-body);
-    font-size: 11.5px;
-  }
-
-  .wd-mock-diff-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.55;
-  }
-  .wd-mock-diff-table td { padding: 0; vertical-align: top; }
-  .wd-mock-ln {
-    width: 44px;
-    text-align: right;
-    padding: 0 8px;
-    color: #8b95a2;
-    user-select: none;
-    background: #FAFBFC;
-    border-right: 1px solid var(--border);
-  }
-  .wd-mock-code { padding: 0 10px; white-space: pre; }
-  .wd-mock-row-del .wd-mock-ln { background: #ffebe9; }
-  .wd-mock-row-del .wd-mock-code { background: #ffebe9; color: #82071e; }
-  .wd-mock-row-add .wd-mock-ln { background: #e6ffec; }
-  .wd-mock-row-add .wd-mock-code { background: #e6ffec; color: #116329; }
-  .wd-mock-intra-del { background: #ffaba8; border-radius: 2px; padding: 0 1px; }
-  .wd-mock-intra-add { background: #abf2bc; border-radius: 2px; padding: 0 1px; }
-  .wd-mock-hunk {
-    background: #F4F6FA;
-    color: var(--text-dim);
-    padding: 2px 12px;
-    font-size: 11.5px;
-  }
-
-  .wd-mock-comment-row {
-    background: #F4F6FA;
-    padding: 12px 16px;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-  }
-  .wd-mock-comment {
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    font-family: var(--font-body);
-    font-size: 12.5px;
-  }
-  .wd-mock-comment.is-claude {
-    background: var(--accent-dim);
-    border-color: rgba(78, 14, 255, 0.18);
-    margin-left: 28px;
-  }
-  .wd-mock-comment-author {
-    font-weight: 600;
-    font-size: 11.5px;
-    margin-bottom: 4px;
-  }
-  .wd-mock-comment.is-claude .wd-mock-comment-author { color: var(--accent); }
-  .wd-mock-comment-body { color: var(--text); line-height: 1.55; }
-  .wd-mock-comment-body code {
-    background: var(--surface2);
-    padding: 1px 5px;
-    border-radius: 4px;
-    font-size: 11.5px;
-  }
-
-  .wd-mock-large {
-    padding: 24px;
-    text-align: center;
-    background: #FAFBFC;
-    color: var(--text-dim);
-    font-size: 12.5px;
-  }
-  .wd-mock-large strong { color: var(--text); display: block; margin-bottom: 4px; }
-  .wd-mock-large button {
-    margin-top: 8px;
-    background: #fff;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 12px;
-    font-size: 11.5px;
-    color: var(--accent);
-    font-weight: 500;
-    cursor: default;
-  }
-
-  .wd-mock-pill {
-    position: absolute;
-    bottom: 16px;
-    right: 16px;
-    background: var(--accent);
-    color: #fff;
-    padding: 6px 14px;
-    border-radius: var(--radius-pill);
-    font-size: 12px;
-    font-weight: 500;
-    box-shadow: 0 6px 18px rgba(78, 14, 255, 0.35);
-  }
+  .footer { border-top: 1px solid var(--border); padding: 28px 0; color: var(--muted); font-size: 14px; }
+  .footer-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+  .footer a { color: var(--muted); margin-left: 18px; }
 </style>
 </head>
 <body>
 
-<!-- === NAV === -->
 <header class="nav">
   <div class="container nav-inner">
-    <a href="#" class="brand" aria-label="Moberg · Work home">
-      <img src="assets/logo-wordmark-dark.svg" alt="Moberg" class="brand-wordmark" height="22">
+    <a href="#" class="brand" aria-label="Moberg · work">
+      <img src="assets/logo-wordmark-dark.svg" alt="Moberg" height="22" class="logo-light">
+      <img src="assets/logo-wordmark.svg" alt="Moberg" height="22" class="logo-dark">
       <span class="brand-sep">·</span>
-      <span class="brand-product">Work</span>
+      <span>work</span>
     </a>
     <nav class="nav-links">
-      <a href="#problem">Problem</a>
-      <a href="#how">How it works</a>
+      <a href="#day">A day with work</a>
       <a href="#features">Features</a>
-      <a href="#dashboard">Dashboard</a>
-      <a href="#review">Review</a>
+      <a href="#keys">Keyboard</a>
       <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
       <a href="https://github.com/moberghr/cli-work-tree-manager" class="cta">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.75 5.48.75 11.75c0 5 3.24 9.24 7.73 10.74.57.1.78-.25.78-.55v-1.93c-3.14.68-3.81-1.51-3.81-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.51-.29-5.15-1.25-5.15-5.57 0-1.23.44-2.23 1.16-3.02-.12-.29-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.69.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.16 5.56.4.35.76 1.04.76 2.1v3.11c0 .3.2.66.79.55 4.49-1.5 7.73-5.74 7.73-10.74C23.25 5.48 18.27.5 12 .5Z"/></svg>
         GitHub
@@ -962,887 +182,347 @@
   </div>
 </header>
 
-<!-- === HERO === -->
 <section class="hero">
-  <div class="container animate">
-    <div class="hero-eyebrow">
-      <span class="dot"></span>
-      One terminal · every branch · every Claude session
+  <div class="container">
+    <div class="eyebrow">For developers working with Claude Code</div>
+    <h1>Run ten Claude sessions at once.<br><em>Always know which one needs you.</em></h1>
+    <p class="hero-sub">work gives every task its own git worktree and its own Claude Code session, and puts all of them in one window: who is waiting for your answer, what each one changed, where its pull request stands, and the terminal it runs in.</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="#install">Download the app</a>
+      <a class="btn" href="#day">See a day with work</a>
     </div>
-    <h1>
-      Parallel development,<br>
-      <em>actually</em> manageable.
-    </h1>
-    <p class="hero-sub">
-      Work is a cross-platform CLI that turns git worktrees into a development cockpit. Spin up isolated workspaces per branch across one repo or many, auto-launch Claude Code, and orchestrate PRs, Jira issues, and tasks from a single keyboard-driven dashboard.
-    </p>
-    <div class="hero-actions">
-      <a href="#install" class="btn btn--primary">
-        Install Work
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-      </a>
-      <a href="#how" class="btn btn--secondary">See how it works</a>
-    </div>
-    <div class="hero-stats">
-      <span>MIT licensed</span>
-      <span>Node 22+ · macOS · Linux · Windows</span>
-      <span>Single-repo & multi-repo groups</span>
-    </div>
+    <div class="small-print">Windows · macOS · Linux · free and MIT licensed</div>
+    <div class="hero-shot"><img src="assets/screens/hero-dark.png" alt="The work app: every session on the left; one session's changes on the right" width="1440" height="900"></div>
+  </div>
+</section>
 
-    <div class="terminal">
-      <div class="terminal-bar">
-        <i></i><i></i><i></i>
-        <span class="label">work tree api feature/login</span>
-      </div>
-<pre><span class="k-dim">$</span> work tree api feature/login --prompt <span class="k-yellow">"Implement the login page"</span>
-<span class="k-green">✓</span> resolved target          <span class="k-dim">→ repo "api" at ~/repos/api</span>
-<span class="k-green">✓</span> branch resolved          <span class="k-dim">→ creating from main (no local, no remote)</span>
-<span class="k-green">✓</span> worktree created         <span class="k-dim">→ ~/worktrees/api/feature-login</span>
-<span class="k-green">✓</span> copied dev settings      <span class="k-dim">→ 3 files matched copyFiles globs</span>
-<span class="k-green">✓</span> session recorded         <span class="k-dim">→ ~/.work/history.json</span>
-<span class="k-green">✓</span> launching Claude Code    <span class="k-dim">→ --prompt "Implement the login page"</span>
-
-<span class="k-dim">claude-code (api · feature/login)</span>
-<span class="k-purple">⏵</span> <span class="k-cyan">Reading</span> src/auth/AuthContext.tsx
-<span class="k-purple">⏵</span> <span class="k-cyan">Writing</span> src/pages/login.tsx
-<span class="k-green">✓</span> build passed             <span class="k-dim">0 warnings · 0 errors</span></pre>
+<section class="block">
+  <div class="container">
+    <p class="kicker">Why work</p>
+    <h2>Several agents should make you several times faster.</h2>
+    <p class="lead">Without help you get a terminal per agent, no idea which one finished or is stuck on a prompt, diffs nobody read and worktrees nobody removes. work takes that off your hands.</p>
+    <div class="why">
+      <div><b>One task, one worktree, one agent</b><p>One step makes the branch, the checkout and the Claude session, and starts Claude on what you asked.</p></div>
+      <div><b>One window for all of them</b><p>The Inbox lists the sessions that want you: a permission prompt, finished work, a PR to merge or fix.</p></div>
+      <div><b>Review turn by turn</b><p>Every Claude turn is recorded: see what the last instruction changed, or everything since you looked.</p></div>
+      <div><b>Pull requests where you work</b><p>Failing checks and review comments go to the session's Claude; replies are posted only on your yes.</p></div>
+      <div><b>Nothing lost, nothing left</b><p>Sessions survive restarts. Merged work archives itself and restores exactly as it was.</p></div>
     </div>
   </div>
 </section>
 
-<!-- === MARQUEE === -->
-<div class="marquee-wrap">
-  <div class="marquee-inner">
-    <span class="marquee-label">Plays well with</span>
-    <div class="marquee-viewport">
-      <div class="marquee-track">
-        <span style="display:flex;gap:3rem">
-          <span>Claude&nbsp;Code</span><span>GitHub&nbsp;CLI</span><span>Atlassian&nbsp;CLI</span>
-          <span>VS&nbsp;Code</span><span>PowerShell</span><span>bash</span><span>zsh</span>
-          <span>Windows&nbsp;Terminal</span><span>iTerm2</span>
-        </span>
-        <span style="display:flex;gap:3rem" aria-hidden="true">
-          <span>Claude&nbsp;Code</span><span>GitHub&nbsp;CLI</span><span>Atlassian&nbsp;CLI</span>
-          <span>VS&nbsp;Code</span><span>PowerShell</span><span>bash</span><span>zsh</span>
-          <span>Windows&nbsp;Terminal</span><span>iTerm2</span>
-        </span>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- === PROBLEM === -->
-<section class="section" id="problem">
+<section class="block alt" id="day">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">01</span> The problem</div>
-    <h2>Three branches, three terminals, three lost contexts.</h2>
-    <p class="lede">
-      Working on multiple branches in parallel is a productivity superpower — until the cognitive overhead eats the gain. Hand-rolled `git worktree add` invocations, dev settings copied by hand, Claude Code sessions that don't survive a terminal restart, and "which directory was that branch in again?" looped through every context switch.
-    </p>
+    <p class="kicker">A day with work</p>
+    <h2>From the first coffee to the last merge.</h2>
 
-    <div class="grid grid--3">
-      <div class="card">
-        <span class="badge badge--danger">Without Work</span>
-        <h3 style="margin-top:14px">Manual worktree juggling</h3>
-        <p><code>cd ../path && git worktree add && cp .env.local .</code> every time. Three terminals open. Three Claude sessions you can't tell apart.</p>
+    <div class="row">
+      <div class="text">
+        <h3>Morning: see what needs you</h3>
+        <p>The Inbox lists the sessions waiting for you, most urgent first.</p>
+        <ul>
+          <li>A session blocked on <code>npm test</code>: Allow or Deny right there.</li>
+          <li>One that finished overnight: open it on its diff.</li>
+          <li>A pull request approved and green: merge it.</li>
+          <li><b>Today</b> turns yesterday's work into a standup note.</li>
+        </ul>
       </div>
-      <div class="card">
-        <span class="badge badge--warning">The drift tax</span>
-        <h3 style="margin-top:14px">Stale context, stale worktrees</h3>
-        <p>Merged branches pile up on disk. Jira tickets get re-typed into branch names. PRs get checked from a separate browser tab.</p>
-      </div>
-      <div class="card card--hero">
-        <span class="badge badge--purple">With Work</span>
-        <h3 style="margin-top:14px">One command, one cockpit</h3>
-        <p><code>work tree</code> creates the worktree, copies dev settings, launches Claude. <code>work dash</code> shows every session with its PR, Jira, and tasks attached.</p>
-      </div>
+      <div class="shot"><img src="assets/screens/inbox.png" alt="The Inbox" loading="lazy" width="1440" height="900"></div>
     </div>
-  </div>
-</section>
 
-<!-- === FOUNDATIONS === -->
-<section class="foundations">
-  <div class="container">
-    <div class="foundations-head">
-      <div>
-        <div class="lbl">Foundations</div>
-        <h3>Built on git's best primitive — with everything around it that git doesn't ship.</h3>
+    <div class="row flip">
+      <div class="text">
+        <h3>Start something in one step</h3>
+        <p>Press <kbd>c</kbd>, pick the project and say what Claude should do.</p>
+        <ul>
+          <li>The branch is named from your words: <code>PAY-31 …</code> becomes <code>feat/PAY-31</code>.</li>
+          <li>The worktree is made, your local settings copied in, and Claude starts on your prompt.</li>
+          <li>Or start from a Jira issue, a pull request, or a PR you were asked to review.</li>
+        </ul>
       </div>
-      <p>Work doesn't replace git. It layers session tracking, multi-repo orchestration, and AI-assistant integration on top of git worktrees so the workflow scales past two parallel branches.</p>
+      <div class="shot"><img src="assets/screens/new-worktree.png" alt="The New worktree dialog" loading="lazy" width="1440" height="900"></div>
     </div>
-    <div class="foundations-grid">
-      <div class="foundation">
-        <span class="foundation-num">F.01</span>
-        <h4 class="foundation-name">Isolated checkouts</h4>
-        <p class="foundation-desc">Every branch gets its own working directory. No stash gymnastics. No rebuilt build cache.</p>
+
+    <div class="row">
+      <div class="text">
+        <h3>Watch them work</h3>
+        <p>Each session has its terminal, its diff, its pull request and its code. Claude runs in a background host, so closing the window or rebooting doesn't stop it, and <code>work attach</code> puts the same session in your own terminal.</p>
       </div>
-      <div class="foundation">
-        <span class="foundation-num">F.02</span>
-        <h4 class="foundation-name">Atomic operations</h4>
-        <p class="foundation-desc">Worktree creation, file copying, session recording, AI launch — all-or-nothing with rollback.</p>
+      <div class="shot"><img src="assets/screens/terminal.png" alt="The Terminal tab" loading="lazy" width="1440" height="900"></div>
+    </div>
+
+    <div class="row flip">
+      <div class="text">
+        <h3>Review what changed, not everything again</h3>
+        <ul>
+          <li>The diff opens on what changed since you last looked.</li>
+          <li>Pick one turn, one commit, or Shift+click any span of them.</li>
+          <li>Comment on a line: Claude gets it on its next turn.</li>
+          <li>Revert a file, tick files viewed, go full screen.</li>
+        </ul>
       </div>
-      <div class="foundation">
-        <span class="foundation-num">F.03</span>
-        <h4 class="foundation-name">Multi-repo aware</h4>
-        <p class="foundation-desc">Group repos that ship together. Combined CLAUDE.md generated by Claude itself.</p>
+      <div class="shot"><img src="assets/screens/diff.png" alt="The Diff tab with its list of turns and commits" loading="lazy" width="1440" height="900"></div>
+    </div>
+
+    <div class="row">
+      <div class="text">
+        <h3>Find your way in the code</h3>
+        <p>The Code tab shows the session's files with the changed ones marked. <kbd>Ctrl</kbd>+<kbd>T</kbd> searches types and members by name, files and text across all the repos, as in Visual Studio. <b>Open in editor</b> takes you to the same line in VS Code.</p>
       </div>
-      <div class="foundation">
-        <span class="foundation-num">F.04</span>
-        <h4 class="foundation-name">Session-tracked</h4>
-        <p class="foundation-desc">History keyed by target+branch. Recent sessions, resume, status, prune — all derived from one source.</p>
+      <div class="shot"><img src="assets/screens/code-search.png" alt="Code search" loading="lazy" width="1440" height="900"></div>
+    </div>
+
+    <div class="row flip">
+      <div class="text">
+        <h3>Pull requests, handled</h3>
+        <ul>
+          <li><b>Ship…</b> pushes, opens the PR and merges it, checking it still has the commits you reviewed.</li>
+          <li>Failing checks and review comments go to the session's Claude, which drafts a reply to each thread.</li>
+          <li>You edit and post the replies. Nothing reaches GitHub without you.</li>
+          <li>When it merges, the session archives itself.</li>
+        </ul>
       </div>
-      <div class="foundation">
-        <span class="foundation-num">F.05</span>
-        <h4 class="foundation-name">Cross-platform</h4>
-        <p class="foundation-desc">macOS, Linux, and Windows. PowerShell shims and tab completion auto-installed.</p>
+      <div class="shot"><img src="assets/screens/pr.png" alt="The PR tab" loading="lazy" width="1440" height="900"></div>
+    </div>
+
+    <div class="row">
+      <div class="text">
+        <h3>And the timesheet writes itself</h3>
+        <p>The Time tab suggests each day's hours per Jira ticket from what you did: Claude's working time, your commits, the issues you moved, your meetings. Change what you like, then <b>Post to Tempo</b>.</p>
       </div>
+      <div class="shot"><img src="assets/screens/time.png" alt="The Time tab" loading="lazy" width="1440" height="900"></div>
     </div>
   </div>
 </section>
 
-<!-- === HOW IT WORKS === -->
-<section class="section" id="how">
+<section class="block" id="features">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">02</span> How it works</div>
-    <h2>Four moves. Every branch, every day.</h2>
-    <p class="lede">
-      The whole tool collapses to four verbs — create, switch, observe, retire — applied to the entire lifecycle of a branch from "I have an idea" to "this is merged."
-    </p>
+    <p class="kicker">Every feature</p>
+    <h2>What it does, and what it does for you.</h2>
+    <p class="lead">Everything below is in the app, and every action is also a <code>work</code> command.</p>
+    <div class="groups">
 
-    <div class="grid grid--2">
-      <div class="step">
-        <div class="step-num">01</div>
-        <div class="step-body">
-          <h3>Create</h3>
-          <p><code>work tree api feature/login</code> resolves the target, picks branch from local → remote → new, creates the worktree, copies dev-settings globs, and launches Claude Code with an optional prompt.</p>
-          <div class="badge-row">
-            <span class="badge-mono">work tree</span>
-            <span class="badge-mono">--base</span>
-            <span class="badge-mono">--prompt</span>
-            <span class="badge-mono">--open</span>
-          </div>
-        </div>
+      <div class="group">
+        <h3><span>🔔</span> Knowing who needs you</h3>
+        <dl>
+          <dt>Inbox</dt><dd>Sessions that need your input, finished work you haven't seen, PRs ready to merge or failing, unanswered review comments.</dd>
+          <dt>Allow / Deny</dt><dd>Answer a permission prompt without opening the terminal; checked against the screen first.</dd>
+          <dt>Notifications and taskbar badge</dt><dd>A ping when a session needs you, never for the one you're looking at; the count on the app's icon.</dd>
+          <dt>Next that wants you (<kbd>n</kbd>)</dt><dd>One key to the next session that needs attention. <b>Review all</b> walks the finished ones.</dd>
+          <dt>Snooze and Blocked by</dt><dd>"Not now" until a time or a change; "waiting on that PR" until it merges.</dd>
+        </dl>
       </div>
 
-      <div class="step">
-        <div class="step-num">02</div>
-        <div class="step-body">
-          <h3>Switch</h3>
-          <p><code>work resume</code> picks a recent session and re-enters it — the embedded Claude session continues with <code>--continue</code>, so the conversation history isn't lost. Or jump straight from the dashboard.</p>
-          <div class="badge-row">
-            <span class="badge-mono">work recent</span>
-            <span class="badge-mono">work resume</span>
-            <span class="badge-mono">work dash</span>
-          </div>
-        </div>
+      <div class="group">
+        <h3><span>🗂️</span> All sessions in one place</h3>
+        <dl>
+          <dt>Session list</dt><dd>Every session with its status and PRs, on every page. Pin, group under your headings, drag into order.</dd>
+          <dt>Sessions table</dt><dd>Summary, changes, activity; Live, Archived or All; act on several at once.</dd>
+          <dt>Today</dt><dd>What each session did today or this week, as a standup note.</dd>
+          <dt>Quick switcher (<kbd>Ctrl</kbd>+<kbd>P</kbd>)</dt><dd>Any session by a few letters, from anywhere.</dd>
+          <dt>Conversation search</dt><dd>Every word of every conversation, kept past Claude Code's 30 days.</dd>
+          <dt>Overlap and context warnings</dt><dd>Two sessions touching the same files; a conversation getting too long.</dd>
+          <dt>Notes and Catch me up</dt><dd>Your scratchpad per session; a summary of one you left days ago.</dd>
+        </dl>
       </div>
 
-      <div class="step">
-        <div class="step-num">03</div>
-        <div class="step-body">
-          <h3>Observe</h3>
-          <p><code>work status</code> joins history with live <code>git status</code> — merge state, dirty trees, unpushed commits, last-access timestamps. The dashboard adds open PRs, assigned Jira issues, and pending tasks.</p>
-          <div class="badge-row">
-            <span class="badge-mono">work status</span>
-            <span class="badge-mono">work list</span>
-            <span class="badge-mono">work dash</span>
-          </div>
-        </div>
+      <div class="group">
+        <h3><span>⌨️</span> A real terminal for every agent</h3>
+        <dl>
+          <dt>Terminal tab</dt><dd>Claude Code itself, live, in the app.</dd>
+          <dt>Survives everything</dt><dd>Close the app, update it, reboot: the session comes back with its conversation.</dd>
+          <dt><code>work attach</code></dt><dd>The same session in your own terminal, at the same time.</dd>
+          <dt>Idle sleep and restarts</dt><dd>Unused Claudes are stopped to free memory and resume when opened; outdated ones restart after their turn.</dd>
+          <dt>Send a prompt and Ask (<kbd>Ctrl</kbd>+<kbd>K</kbd>)</dt><dd>Saved instructions to one session or many; an assistant that knows what's on your screen.</dd>
+        </dl>
       </div>
 
-      <div class="step">
-        <div class="step-num">04</div>
-        <div class="step-body">
-          <h3>Retire</h3>
-          <p><code>work prune</code> removes worktrees whose branches landed on main — interactive picker, or <code>--force</code> for sweep mode. <code>work remove</code> blocks on uncommitted or unpushed work unless you really mean it.</p>
-          <div class="badge-row">
-            <span class="badge-mono">work prune</span>
-            <span class="badge-mono">work remove</span>
-            <span class="badge-mono">--force</span>
-          </div>
-        </div>
+      <div class="group">
+        <h3><span>🔍</span> Reviewing what the agent did</h3>
+        <dl>
+          <dt>Diff</dt><dd>Uncommitted or the whole branch, split or unified, with a switch per repo in a group.</dd>
+          <dt>Turns and commits</dt><dd>One turn, one commit, or any span; <b>Last turn</b> and <b>Since you looked</b> one click away.</dd>
+          <dt>Comments to Claude</dt><dd>On a line, a file or the whole change, delivered on its next turn.</dd>
+          <dt>Revert file, Viewed, Full screen</dt><dd>Undo a file and tell Claude; tick what you've read; the diff over the whole window.</dd>
+          <dt><code>wd</code></dt><dd>The same diff page for any folder, from the command line.</dd>
+        </dl>
       </div>
+
+      <div class="group">
+        <h3><span>📄</span> Reading the code</h3>
+        <dl>
+          <dt>Code tab</dt><dd>The session's files as they are now, changed ones marked.</dd>
+          <dt>Search the code (<kbd>Ctrl</kbd>+<kbd>T</kbd>)</dt><dd>Types and members by name, files and text, across a group's repos.</dd>
+          <dt>Open in editor</dt><dd>The file in VS Code at the line you're reading.</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <h3><span>🔀</span> Pull requests</h3>
+        <dl>
+          <dt>PR tab</dt><dd>Each PR's stage, checks and review threads.</dd>
+          <dt>Ask Claude to fix</dt><dd>Failing checks sent to the session's Claude, once per push.</dd>
+          <dt>Review replies on your yes</dt><dd>Claude plans the changes and drafts replies; you post them.</dd>
+          <dt>Ship…</dt><dd>Push, open, merge, with the reviewed commits checked first; a group repo by repo.</dd>
+          <dt>Merged → archived</dt><dd>A session whose PRs merged archives itself.</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <h3><span>🚀</span> Starting work</h3>
+        <dl>
+          <dt>New worktree (<kbd>c</kbd>)</dt><dd>A project and a prompt; the branch is named from it.</dd>
+          <dt>From a PR, from Jira</dt><dd>Work on a PR's branch, review someone's PR, or start an issue; new Jira issues can start themselves.</dd>
+          <dt>Fork and stacked sessions</dt><dd>Branch off a session with a summary for the new Claude; children follow their parent and move onto main when it merges.</dd>
+          <dt>Groups</dt><dd>One worktree across several repos, one Claude seeing all of them.</dd>
+          <dt>Local settings, dev server</dt><dd>Ignored settings copied in; each worktree its own port and preview.</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <h3><span>🧹</span> Finishing and cleaning up</h3>
+        <dl>
+          <dt>Behind main</dt><dd>How far behind, whether it conflicts, and <b>Update from main</b>.</dd>
+          <dt>Archive and Restore</dt><dd>Keeps the conversation, uncommitted files and local settings; Restore brings it all back. Shows who archived it and when.</dd>
+          <dt>Clean up</dt><dd>Merged worktrees, old build output, branches already in main. Never unpushed work.</dd>
+          <dt>Move to another computer</dt><dd>Sessions, conversations and settings in one bundle.</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <h3><span>⏱️</span> Time</h3>
+        <dl>
+          <dt>Time tab</dt><dd>Each day's hours per ticket, suggested from Claude's work, commits, Jira and meetings.</dd>
+          <dt>Post to Tempo</dt><dd>One click, never touching worklogs you made by hand.</dd>
+          <dt>Work time</dt><dd>How long each session's Claude worked, per day.</dd>
+        </dl>
+      </div>
+
+      <div class="group">
+        <h3><span>🖥️</span> The app</h3>
+        <dl>
+          <dt>Desktop app</dt><dd>Windows, macOS, Linux; updates itself while your Claudes keep running.</dd>
+          <dt>Activity</dt><dd>What runs in the background, and why it decided what it did.</dd>
+          <dt>Demo</dt><dd><code>work web --demo</code>: the real app on a made-up world.</dd>
+          <dt>Command line</dt><dd>Every action as a <code>work</code> command, for scripts and for Claude itself.</dd>
+        </dl>
+      </div>
+
     </div>
   </div>
 </section>
 
-<!-- === FEATURES === -->
-<section class="section section--alt" id="features">
+<section class="block alt" id="keys">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">03</span> Why teams use Work</div>
-    <h2>Built for engineers running more than one branch at a time.</h2>
-    <p class="lede">Twelve capabilities that separate Work from a shell alias around <code>git worktree add</code>.</p>
+    <p class="kicker">Keyboard</p>
+    <h2>Your hands stay on the keys.</h2>
+    <p class="lead"><kbd>?</kbd> in the app shows them all.</p>
+    <div class="keys">
+      <div><span class="combo"><kbd>c</kbd></span><span class="what">New worktree</span></div>
+      <div><span class="combo"><kbd>n</kbd></span><span class="what">Next that wants you</span></div>
+      <div><span class="combo"><kbd>j</kbd> / <kbd>k</kbd></span><span class="what">Next / previous session</span></div>
+      <div><span class="combo"><kbd>Alt</kbd>+<kbd>1…9</kbd></span><span class="what">Session 1–9</span></div>
+      <div><span class="combo"><kbd>Ctrl</kbd>+<kbd>P</kbd></span><span class="what">Quick switcher</span></div>
+      <div><span class="combo"><kbd>Ctrl</kbd>+<kbd>K</kbd></span><span class="what">Ask</span></div>
+      <div><span class="combo"><kbd>Ctrl</kbd>+<kbd>T</kbd></span><span class="what">Search the code</span></div>
+      <div><span class="combo"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></span><span class="what">Terminal, Diff, PR, Code</span></div>
+      <div><span class="combo"><kbd>e</kbd></span><span class="what">Archive / Restore</span></div>
+      <div><span class="combo"><kbd>z</kbd></span><span class="what">Snooze</span></div>
+      <div><span class="combo"><kbd>p</kbd></span><span class="what">Send a prompt</span></div>
+      <div><span class="combo"><kbd>o</kbd></span><span class="what">Open in editor</span></div>
+      <div><span class="combo"><kbd>f</kbd></span><span class="what">Fork</span></div>
+      <div><span class="combo"><kbd>⇧</kbd>+<kbd>S</kbd></span><span class="what">Ship</span></div>
+    </div>
+  </div>
+</section>
 
-    <div class="grid grid--3">
+<section class="block" id="install">
+  <div class="container">
+    <p class="kicker">Install</p>
+    <h2>Up and running in a minute.</h2>
+    <div class="install">
       <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+        <h3>The desktop app</h3>
+        <p>The dashboard in its own window, with the <code>work</code> and <code>wd</code> commands included. It updates itself.</p>
+        <div class="downloads">
+          <a class="btn btn--primary" href="https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop-win-Setup.exe">Windows installer</a>
+          <a class="btn" href="https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop-osx-Setup.pkg">macOS (Apple silicon)</a>
+          <a class="btn" href="https://github.com/moberghr/cli-work-tree-manager/releases/latest/download/WorkDesktop.AppImage">Linux AppImage</a>
         </div>
-        <h3>Auto-launch Claude Code</h3>
-        <p>Every <code>work tree</code> creates the worktree and starts a Claude Code session in it. Optional <code>--prompt</code> seeds the conversation. <code>work resume</code> keeps the thread alive across restarts.</p>
       </div>
-
       <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
-        </div>
-        <h3>Multi-repo groups</h3>
-        <p>One name, many repos. <code>work tree fullstack feature/x</code> creates synchronized worktrees across every repo in the group, plus a Claude-merged combined CLAUDE.md.</p>
+        <h3>Or the command line</h3>
+        <p>The same dashboard in your browser.</p>
+<pre><span class="c"># npm (Node 22.13+)</span>
+npm install -g @moberg_hr/work-tree
+
+<span class="c"># or Homebrew</span>
+brew install moberghr/work-tree/work
+
+<span class="c"># open the dashboard</span>
+work web
+
+<span class="c"># or try it on a made-up world first</span>
+work web --demo</pre>
       </div>
-
       <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
-        </div>
-        <h3>Atomic worktree ops</h3>
-        <p><code>setupWorktree()</code> and <code>teardownWorktree()</code> are all-or-nothing with rollback on partial failure. No half-created worktrees, no orphan history rows.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-        </div>
-        <h3>GitHub PR integration</h3>
-        <p>Open PRs across every configured repo via <code>gh</code>. Status decorated with check state, conflicts, your review state, draft dimming, and ownership marks. Selecting a PR creates or resumes its worktree.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-        </div>
-        <h3>Jira → branch → Claude</h3>
-        <p>Pick an assigned Jira issue, choose target project, Work generates a branch slug via Claude Haiku, creates the worktree, and pipes a structured planning prompt into Claude.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-        </div>
-        <h3>Local task tracking</h3>
-        <p>A native <code>work todo</code> command and a Tasks pane in the dashboard. Press <code>w</code> on a task to spin up a <code>todo/&lt;slug&gt;</code> worktree and start working on it.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
-        </div>
-        <h3>Session-aware everything</h3>
-        <p>Every <code>work tree</code> upserts to <code>history.json</code>. <code>recent</code>, <code>resume</code>, <code>status</code>, and the dashboard's session pane all derive from one source — <code>fs.watch</code> means external changes appear immediately.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
-        </div>
-        <h3>Dev-settings autopilot</h3>
-        <p>Glob patterns in <code>copyFiles</code> get copied into every new worktree. <code>*.Local.json</code>, <code>.env.local</code>, <code>.claude/settings.local.json</code> — the gitignored-but-required trio, handled.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3h4v4M21 3l-7 7M7 21H3v-4M3 21l7-7M21 21l-7-7M17 21h4v-4M3 3h4M3 3v4"/></svg>
-        </div>
-        <h3>Cross-platform completion</h3>
-        <p>Tab completion auto-installed for PowerShell 7/5.1, bash, and zsh during <code>work init</code>. Idempotent, marker-guarded, manual fallback documented.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="20" cy="6" r="1.5" fill="currentColor"/><circle cx="20" cy="12" r="1.5" fill="currentColor"/><circle cx="20" cy="18" r="1.5" fill="currentColor"/></svg>
-        </div>
-        <h3>Fleet commands</h3>
-        <p>One action, every worktree. <code>work run --all npm test</code> fans a shell command across the fleet (parallel, prefixed output, Ctrl-C kills all). <code>work broadcast --all "rebase onto main"</code> queues a prompt to every live AI session for its next turn.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>
-        </div>
-        <h3>Browser dashboard</h3>
-        <p><code>work web</code> brings every session — diff, review comments, and a live terminal — into one browser tab. A singleton process; every <code>wd</code> review registers as a scope on it instead of spawning its own port.</p>
-      </div>
-
-      <div class="card">
-        <div class="card-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
-        </div>
-        <h3>Idle notifications &amp; hooks</h3>
-        <p>Opt in to a desktop ping when a session finishes its turn or needs input, or wire a <code>statusHooks</code> shell command for sounds, Slack, anything. Plus <code>work sync</code> — fetch every repo and prune merged worktrees in one non-interactive sweep.</p>
+        <h3>What it uses</h3>
+        <p>On first start, the Welcome page finds your repos and checks these for you.</p>
+        <table class="tools">
+          <tr><td>Git</td><td>needed</td><td>worktrees</td></tr>
+          <tr><td>Claude Code</td><td>needed</td><td>the agent in each session</td></tr>
+          <tr><td>GitHub CLI</td><td>optional</td><td>pull requests</td></tr>
+          <tr><td>Atlassian CLI</td><td>optional</td><td>Jira and the Time tab</td></tr>
+        </table>
       </div>
     </div>
   </div>
 </section>
 
-<!-- === COMPARISON === -->
-<section class="section">
+<section class="block alt" id="faq">
   <div class="container">
-    <div class="sec-head"><span class="sec-num">04</span> The difference</div>
-    <h2>The same workflow, before and after.</h2>
-    <p class="lede">Same engineering tasks. Different ergonomics.</p>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Step</th>
-            <th class="th--danger">Plain git worktrees</th>
-            <th class="th--purple">With Work</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="td-key">Start a feature</td>
-            <td><code>git worktree add ../api-feat-x feature/x && cp .env.local ../api-feat-x/ && cd ../api-feat-x && claude</code></td>
-            <td class="td-good"><code>work tree api feature/x</code></td>
-          </tr>
-          <tr>
-            <td class="td-key">Multi-repo feature</td>
-            <td>Repeat the above for every repo. Hand-merge each CLAUDE.md.</td>
-            <td class="td-good"><code>work tree fullstack feature/x</code> — combined CLAUDE.md auto-generated.</td>
-          </tr>
-          <tr>
-            <td class="td-key">Resume a session</td>
-            <td>Remember which directory it was in. <code>cd</code>. <code>claude --continue</code>.</td>
-            <td class="td-good"><code>work resume</code> — picker sorted by last access.</td>
-          </tr>
-          <tr>
-            <td class="td-key">See open PRs</td>
-            <td>Open <code>gh pr list</code> per repo, then a browser tab to check status.</td>
-            <td class="td-good">PR pane shows checks, conflicts, draft, your review state, ownership.</td>
-          </tr>
-          <tr>
-            <td class="td-key">Take a Jira ticket</td>
-            <td>Read the ticket, type a branch name, paste the description into Claude.</td>
-            <td class="td-good">Select issue → branch slug generated → worktree created → planning prompt sent.</td>
-          </tr>
-          <tr>
-            <td class="td-key">Clean up merged branches</td>
-            <td><code>git worktree list</code>, check each, <code>git worktree remove</code> one by one.</td>
-            <td class="td-good"><code>work prune</code> — interactive multi-select, or <code>--force</code> sweep.</td>
-          </tr>
-          <tr>
-            <td class="td-key">See everything at once</td>
-            <td>N terminals, N editors, N tabs.</td>
-            <td class="td-good"><code>work dash</code> — sessions, PRs, Jira, tasks, embedded terminal.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</section>
-
-<!-- === DASHBOARD === -->
-<section class="section section--alt" id="dashboard">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">05</span> The dashboard</div>
-    <h2>Five panes. One focus model. Zero context switching.</h2>
-    <p class="lede">
-      <code>work dash</code> is an Ink-based terminal UI with an embedded <code>node-pty</code> Claude Code session per worktree. Sessions, pull requests, Jira, and tasks on the left — your live AI conversation on the right.
-    </p>
-
-    <div class="dash-mock" role="img" aria-label="Work dashboard mockup">
-      <div class="dash-side">
-        <div class="dash-pane">
-          <div class="dash-pane-title">Sessions</div>
-          <div class="dash-row active"><span><span class="k-green">▸</span> api · feature/login</span><span class="k-green">●</span></div>
-          <div class="dash-row"><span>&nbsp;&nbsp; api · main</span><span class="k-dim">○</span></div>
-          <div class="dash-row"><span>&nbsp;&nbsp; web · feat/dark-mode</span><span class="k-green">●</span></div>
-          <div class="dash-row"><span>&nbsp;&nbsp; fullstack · feat/checkout</span><span class="k-yellow">◐</span></div>
-        </div>
-        <div class="dash-pane">
-          <div class="dash-pane-title">Pull Requests</div>
-          <div class="dash-row"><span><span class="k-yellow">★</span> #142 · feature/login</span><span class="k-green">✓</span></div>
-          <div class="dash-row"><span><span class="k-blue">✎</span> #138 · feat/dark-mode</span><span class="k-red">✗</span></div>
-          <div class="dash-row"><span><span class="k-dim">○</span> #131 · refactor/auth</span><span class="k-yellow">●</span></div>
-        </div>
-        <div class="dash-pane">
-          <div class="dash-pane-title">Jira</div>
-          <div class="dash-row"><span class="k-mute">In Progress</span><span></span></div>
-          <div class="dash-row"><span>&nbsp;&nbsp; PROJ-204 · Add 2FA</span><span class="k-dim">↗</span></div>
-          <div class="dash-row"><span class="k-mute">To Do</span><span></span></div>
-          <div class="dash-row"><span>&nbsp;&nbsp; PROJ-211 · Audit log UI</span><span class="k-dim">↗</span></div>
-        </div>
-        <div class="dash-pane">
-          <div class="dash-pane-title">Tasks</div>
-          <div class="dash-row"><span><span class="k-dim">[ ]</span> Refactor auth module</span><span></span></div>
-          <div class="dash-row"><span><span class="k-green">[x]</span> Document new endpoints</span><span></span></div>
-        </div>
-      </div>
-      <div>
-        <div class="dash-term">
-          <div><span class="k-dim">api · feature/login</span></div>
-          <div>&nbsp;</div>
-          <div><span class="prompt">&gt;</span> <span>Implement the login page using the existing auth helpers...</span></div>
-          <div>&nbsp;</div>
-          <div><span class="k-green">✓</span> <span class="k-cyan">Reading</span> src/auth/AuthContext.tsx</div>
-          <div><span class="k-green">✓</span> <span class="k-cyan">Writing</span> src/pages/login.tsx</div>
-          <div><span class="k-green">✓</span> npm run build &nbsp;<span class="k-dim">0 warnings · 0 errors</span></div>
-          <div><span class="k-green">✓</span> npm test &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="k-dim">47 passed · 0 failed</span></div>
-          <div>&nbsp;</div>
-          <div><span class="k-purple">⏵</span></div>
-        </div>
-        <div class="dash-keybar">
-          <kbd>tab</kbd>cycle <kbd>n</kbd>new <kbd>d</kbd>remove <kbd>g</kbd>sync <kbd>G</kbd>sync&nbsp;all <kbd>enter</kbd>open <kbd>w</kbd>worktree <kbd>o</kbd>open&nbsp;in&nbsp;browser
-        </div>
-      </div>
-    </div>
-
-    <div class="grid grid--3" style="margin-top:48px">
-      <div class="card">
-        <h3>Reactive sessions</h3>
-        <p><code>fs.watch</code> on <code>history.json</code> — running a <code>work tree</code> in another terminal pops up in the dashboard immediately. No refresh needed.</p>
-      </div>
-      <div class="card">
-        <h3>Auto-sync on startup</h3>
-        <p>All repo remotes fetched in parallel. PRs and Jira issues loaded immediately. <code>g</code> syncs the focused pane. <code>G</code> syncs everything.</p>
-      </div>
-      <div class="card">
-        <h3>Hook-aware activity</h3>
-        <p>A local HTTP server receives Claude Code lifecycle events (Stop, Notification, UserPromptSubmit) so session indicators reflect real-time activity.</p>
-      </div>
-      <div class="card">
-        <h3>PR decorations</h3>
-        <p><span class="badge badge--purple" style="padding:1px 8px">★ yours</span> <span class="badge badge--success" style="padding:1px 8px">✔ approved</span> <span class="badge badge--warning" style="padding:1px 8px">✎ reviewed</span> <span class="badge badge--success" style="padding:1px 8px">✓ checks</span> <span class="badge badge--danger" style="padding:1px 8px">✗ failing</span> — at a glance.</p>
-      </div>
-      <div class="card">
-        <h3>Mouse + keyboard</h3>
-        <p>Scroll wheel navigates panes. Left-click switches focus. Shift+drag selects text. <code>j/k</code> for keyboard purists.</p>
-      </div>
-      <div class="card">
-        <h3>Context-sensitive status bar</h3>
-        <p>Keybinding hints change based on the focused pane. No memorising — the cheat sheet is always on screen.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- === GROUPS === -->
-<section class="section">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">06</span> Multi-repo groups</div>
-    <div class="grid grid--2" style="align-items:center;gap:48px">
-      <div>
-        <h2>One feature.<br>Many repositories.</h2>
-        <p class="lede" style="margin-bottom:24px">
-          When a feature spans an API repo, a frontend, and a shared library, Work treats them as a single unit. One command creates synchronized worktrees across all of them, plus a Claude-merged combined CLAUDE.md so the AI session understands every codebase it can see.
-        </p>
-        <div class="stack-sm">
-          <div><strong>Define</strong> — <span style="color:var(--text-muted)"><code>work config group add fullstack api web shared-lib</code></span></div>
-          <div><strong>Create</strong> — <span style="color:var(--text-muted)"><code>work tree fullstack feature/checkout</code></span></div>
-          <div><strong>Tear down</strong> — <span style="color:var(--text-muted)"><code>work remove fullstack feature/checkout</code></span></div>
-          <div><strong>Regenerate CLAUDE.md</strong> — <span style="color:var(--text-muted)"><code>work config group regen fullstack</code></span></div>
-        </div>
-      </div>
-
-      <div class="terminal" style="margin-top:0">
-        <div class="terminal-bar">
-          <i></i><i></i><i></i>
-          <span class="label">~/worktrees/fullstack/feature-checkout</span>
-        </div>
-<pre><span class="k-blue">fullstack</span>/
-└── <span class="k-blue">feature-checkout</span>/
-    ├── <span class="k-cyan">api</span>/             <span class="k-dim"># worktree for api repo</span>
-    ├── <span class="k-cyan">web</span>/             <span class="k-dim"># worktree for web repo</span>
-    ├── <span class="k-cyan">shared-lib</span>/      <span class="k-dim"># worktree for shared-lib repo</span>
-    └── <span class="k-yellow">CLAUDE.md</span>       <span class="k-dim"># auto-merged from each repo's CLAUDE.md</span>
-
-<span class="k-dim">$</span> work tree fullstack feature/checkout
-<span class="k-green">✓</span> resolved group           <span class="k-dim">→ 3 repos: api, web, shared-lib</span>
-<span class="k-green">✓</span> created 3 worktrees      <span class="k-dim">→ in lockstep, with rollback on failure</span>
-<span class="k-green">✓</span> merged CLAUDE.md         <span class="k-dim">→ via Claude CLI</span>
-<span class="k-green">✓</span> launching Claude         <span class="k-dim">→ workspace-aware session</span></pre>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- === REVIEW (wd + work web) === -->
-<section class="section section--alt" id="review">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">07</span> Diff &amp; review</div>
-    <h2>Every branch, reviewed before you push.</h2>
-    <p class="lede">
-      <code>wd</code> opens a GitHub-style diff for the current worktree in your browser. <code>wd -c</code> turns it into a live review session — click any line to leave a comment, Claude reads them inline and replies in-thread. Every <code>wd</code> invocation registers as a scope on a single <code>work web</code> server, so a dozen reviews share one port and one set of browser tabs.
-    </p>
-
-    <div class="wd-mock" style="position:relative" role="img" aria-label="Work diff review mockup">
-      <!-- Fake browser chrome with /review URL -->
-      <div class="wd-mock-chrome">
-        <div class="wd-mock-dots"><span></span><span></span><span></span></div>
-        <div class="wd-mock-url">
-          <strong>127.0.0.1:54321</strong>/review/8f3a1e6b9c2d
-        </div>
-      </div>
-
-      <!-- Repo tabs (group worktree) -->
-      <div class="wd-mock-tabs">
-        <div class="wd-mock-tab active">
-          api <span class="wd-mock-count">(4)</span>
-          &nbsp;<span class="wd-mock-add">+82</span>
-          <span class="wd-mock-del">-31</span>
-        </div>
-        <div class="wd-mock-tab">
-          web <span class="wd-mock-count">(2)</span>
-          &nbsp;<span class="wd-mock-add">+24</span>
-          <span class="wd-mock-del">-6</span>
-        </div>
-        <div class="wd-mock-tab">
-          shared <span class="wd-mock-count">(1)</span>
-          &nbsp;<span class="wd-mock-add">+5</span>
-          <span class="wd-mock-del">-2</span>
-        </div>
-      </div>
-
-      <div class="wd-mock-layout">
-        <!-- Sidebar: file tree + scope toggle -->
-        <aside class="wd-mock-sidebar">
-          <div class="wd-mock-sidebar-header">
-            <h3>fullstack · feat/login</h3>
-            <div class="wd-mock-meta">7 files changed across 3 repos <span style="color:var(--text-dim)">· vs origin/main</span></div>
-            <div class="wd-mock-scope-toggle" role="tablist" aria-label="Diff scope">
-              <div class="wd-mock-scope-btn">Uncommitted</div>
-              <div class="wd-mock-scope-btn active">Since branch</div>
-            </div>
-          </div>
-          <div class="wd-mock-tree">
-            <div class="wd-mock-tree-folder">src/auth</div>
-            <div class="wd-mock-tree-file viewed">
-              <span class="wd-mock-check">✓</span>
-              <span class="wd-mock-status-mod">M</span>
-              AuthContext.tsx
-            </div>
-            <div class="wd-mock-tree-file active">
-              <span class="wd-mock-check"></span>
-              <span class="wd-mock-status-mod">M</span>
-              loginHandler.ts
-            </div>
-            <div class="wd-mock-tree-file">
-              <span class="wd-mock-check"></span>
-              <span class="wd-mock-status-add">A</span>
-              twoFactor.ts
-            </div>
-            <div class="wd-mock-tree-folder">src/pages</div>
-            <div class="wd-mock-tree-file">
-              <span class="wd-mock-check"></span>
-              <span class="wd-mock-status-mod">M</span>
-              login.tsx
-            </div>
-            <div class="wd-mock-tree-folder">migrations</div>
-            <div class="wd-mock-tree-file">
-              <span class="wd-mock-check"></span>
-              <span class="wd-mock-status-add">A</span>
-              20260602_2fa_columns.sql
-            </div>
-          </div>
-        </aside>
-
-        <!-- Main: one file with a comment thread, plus a collapsed migration -->
-        <div class="wd-mock-main">
-          <article class="wd-mock-file">
-            <header class="wd-mock-file-header">
-              <span>src/auth/loginHandler.ts</span>
-              <span class="wd-mock-add">+12</span>
-              <span class="wd-mock-del">-4</span>
-              <label><input type="checkbox" disabled> Viewed</label>
-            </header>
-            <table class="wd-mock-diff-table">
-              <tbody>
-                <tr><td colspan="4" class="wd-mock-hunk">@@ -42,11 +42,15 @@ async function handleLogin(req, res)</td></tr>
-                <tr>
-                  <td class="wd-mock-ln">42</td>
-                  <td class="wd-mock-code">  const user = await db.users.findByEmail(email);</td>
-                  <td class="wd-mock-ln">42</td>
-                  <td class="wd-mock-code">  const user = await db.users.findByEmail(email);</td>
-                </tr>
-                <tr class="wd-mock-row-del">
-                  <td class="wd-mock-ln">43</td>
-                  <td class="wd-mock-code">- if (!user || !<span class="wd-mock-intra-del">verifyPassword</span>(password, user.hash)) {</td>
-                  <td class="wd-mock-ln"></td>
-                  <td class="wd-mock-code"></td>
-                </tr>
-                <tr class="wd-mock-row-add">
-                  <td class="wd-mock-ln"></td>
-                  <td class="wd-mock-code"></td>
-                  <td class="wd-mock-ln">43</td>
-                  <td class="wd-mock-code">+ if (!user || !<span class="wd-mock-intra-add">await argon2.verify</span>(user.hash, password)) {</td>
-                </tr>
-                <tr>
-                  <td class="wd-mock-ln">44</td>
-                  <td class="wd-mock-code">    return res.status(401).json({ error: 'invalid' });</td>
-                  <td class="wd-mock-ln">44</td>
-                  <td class="wd-mock-code">    return res.status(401).json({ error: 'invalid' });</td>
-                </tr>
-                <tr>
-                  <td class="wd-mock-ln">45</td>
-                  <td class="wd-mock-code">  }</td>
-                  <td class="wd-mock-ln">45</td>
-                  <td class="wd-mock-code">  }</td>
-                </tr>
-                <tr class="wd-mock-row-add">
-                  <td class="wd-mock-ln"></td>
-                  <td class="wd-mock-code"></td>
-                  <td class="wd-mock-ln">46</td>
-                  <td class="wd-mock-code">+ if (user.twoFactorEnabled) {</td>
-                </tr>
-                <tr class="wd-mock-row-add">
-                  <td class="wd-mock-ln"></td>
-                  <td class="wd-mock-code"></td>
-                  <td class="wd-mock-ln">47</td>
-                  <td class="wd-mock-code">+   return res.status(202).json({ require2FA: true });</td>
-                </tr>
-                <tr class="wd-mock-row-add">
-                  <td class="wd-mock-ln"></td>
-                  <td class="wd-mock-code"></td>
-                  <td class="wd-mock-ln">48</td>
-                  <td class="wd-mock-code">+ }</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- Inline comment thread -->
-            <div class="wd-mock-comment-row">
-              <div class="wd-mock-comment">
-                <div class="wd-mock-comment-author">Mirko · line 43</div>
-                <div class="wd-mock-comment-body">
-                  Argon2 is the right call here, but should we strip the old <code>verifyPassword</code> import too? It's unused after this change.
-                </div>
-              </div>
-              <div class="wd-mock-comment is-claude">
-                <div class="wd-mock-comment-author">Claude</div>
-                <div class="wd-mock-comment-body">
-                  Good catch — I'll remove the import and the helper itself (only one caller). Pushing in a sec.
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <!-- Auto-collapsed large file -->
-          <article class="wd-mock-file">
-            <header class="wd-mock-file-header">
-              <span>migrations/20260602_2fa_columns.sql</span>
-              <span class="wd-mock-add">+1,247</span>
-              <span class="wd-mock-del">-0</span>
-            </header>
-            <div class="wd-mock-large">
-              <strong>Large file — 1,247 lines.</strong>
-              Auto-generated migration. Diff hidden by default.
-              <div><button type="button">Load diff</button></div>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <div class="wd-mock-pill">2 drafts · Submit review</div>
-    </div>
-
-    <div class="grid grid--3" style="margin-top:48px">
-      <div class="card">
-        <h3>Live reload</h3>
-        <p>The server watches the working tree. Save a file, refresh the browser — the diff updates. No re-running anything.</p>
-      </div>
-      <div class="card">
-        <h3>Two-way conversation with Claude</h3>
-        <p>Comments stream to <code>wd -c</code>'s stdout as markers. The <code>wd-review</code> skill picks them up, replies inline via the API, and the thread renders right under the original — Claude's voice shaded in accent.</p>
-      </div>
-      <div class="card">
-        <h3>One server, every scope</h3>
-        <p>Run <code>work web</code> once. Every <code>wd</code> and <code>wd -c</code> invocation registers as a scope on that same server — addressable at <code>/diff/&lt;hash&gt;</code> or <code>/review/&lt;hash&gt;</code>. No port-per-tab sprawl.</p>
-      </div>
-      <div class="card">
-        <h3>Multi-repo tabs</h3>
-        <p>In a group worktree, every sub-repo's diff renders as a tab. Sticky at the top while you scroll — switch repos without losing your place.</p>
-      </div>
-      <div class="card">
-        <h3>Uncommitted vs Since branch</h3>
-        <p>Toggle between just-the-working-tree-delta and a full PR-style diff against the branch's parent. The parent is detected automatically (main, master, dev, develop) or honoured from <code>work tree --base</code>.</p>
-      </div>
-      <div class="card">
-        <h3>Auto-collapsed migrations</h3>
-        <p>Files over 500 changed lines render a placeholder with a <em>Load diff</em> button. EF Core migrations and lockfile churn no longer freeze the browser.</p>
-      </div>
-    </div>
-
-    <div class="grid grid--2" style="margin-top:32px;gap:24px">
-      <div class="card">
-        <h3>Hooks bridge to live Claude</h3>
-        <p><code>work web</code> installs <code>UserPromptSubmit</code> and <code>Stop</code> hooks in <code>~/.claude/settings.json</code>. Drop a comment on a line and any Claude running in that worktree picks it up on the next turn — no copy-paste, no "hey can you look at line 42".</p>
-      </div>
-      <div class="card">
-        <h3>Singleton</h3>
-        <p><code>work web</code> is one process per user — <code>~/.work/web.pid</code> + <code>~/.work/web.url</code>. Second invocation reuses the running one. <code>work web --stop</code> for a clean shutdown.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- === ARCHITECTURE === -->
-<section class="section section--alt">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">08</span> Architecture</div>
-    <h2>Small core. Strict boundaries.</h2>
-    <p class="lede">A yargs router on top of a shared core layer, with two consumers: the CLI commands and the Ink-based TUI. Same atomic operations, two interfaces.</p>
-
-    <div class="grid grid--2">
-      <div>
-        <div class="sec-head" style="border:0;padding:0;margin-bottom:12px"><span style="color:var(--text-dim)">Core operations</span></div>
-        <div class="compo-row"><code class="compo-code">core/worktree.ts</code><span class="compo-text">Atomic <code>setupWorktree()</code> / <code>teardownWorktree()</code> — used by both CLI and TUI.</span></div>
-        <div class="compo-row"><code class="compo-code">core/git.ts</code><span class="compo-text">Git wrapper — branch resolution, remote fetch, worktree add/remove.</span></div>
-        <div class="compo-row"><code class="compo-code">core/resolve.ts</code><span class="compo-text">Group vs single-repo dispatch — one name, two behaviours.</span></div>
-        <div class="compo-row"><code class="compo-code">core/copy-files.ts</code><span class="compo-text">Glob-driven dev-settings copy — including dot-prefixed dirs.</span></div>
-        <div class="compo-row"><code class="compo-code">core/history.ts</code><span class="compo-text">Session tracking keyed by <code>target+branch</code> — backs <code>recent</code>, <code>status</code>, <code>resume</code>.</span></div>
-        <div class="compo-row"><code class="compo-code">core/tasks.ts</code><span class="compo-text">Local task persistence (<code>~/.work/tasks.json</code>) — file-watched.</span></div>
-        <div class="compo-row"><code class="compo-code">core/pr.ts</code><span class="compo-text">GitHub PR fetching via <code>gh pr list</code> — checks, conflicts, review state.</span></div>
-        <div class="compo-row"><code class="compo-code">core/jira.ts</code><span class="compo-text">Jira issue fetching via <code>acli</code> — assigned-to-me, grouped by status.</span></div>
-      </div>
-
-      <div>
-        <div class="sec-head" style="border:0;padding:0;margin-bottom:12px"><span style="color:var(--text-dim)">TUI &amp; PTY layer</span></div>
-        <div class="compo-row"><code class="compo-code">tui-ink/App.tsx</code><span class="compo-text">Ink layout, keyboard handling, session lifecycle, focus model.</span></div>
-        <div class="compo-row"><code class="compo-code">tui-ink/Sidebar.tsx</code><span class="compo-text">Five-pane sidebar — sessions, PRs, Jira, tasks; bordered components.</span></div>
-        <div class="compo-row"><code class="compo-code">tui-ink/TerminalPane.tsx</code><span class="compo-text">Renders the xterm headless buffer to the Ink terminal pane.</span></div>
-        <div class="compo-row"><code class="compo-code">tui/session.ts</code><span class="compo-text"><code>node-pty</code> + <code>@xterm/headless</code> — embedded Claude per worktree.</span></div>
-        <div class="compo-row"><code class="compo-code">tui/hooks.ts</code><span class="compo-text">Local HTTP server receiving Claude Code lifecycle events for activity tracking.</span></div>
-
-        <div class="sec-head" style="border:0;padding:0;margin: 24px 0 12px"><span style="color:var(--text-dim)">Build &amp; runtime</span></div>
-        <div class="badge-row">
-          <span class="badge-mono">tsup → ESM</span>
-          <span class="badge-mono">Node ≥18</span>
-          <span class="badge-mono">deps external</span>
-          <span class="badge-mono">vitest</span>
-          <span class="badge-mono">npm link</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- === INSTALL === -->
-<section class="section" id="install">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">09</span> Get started</div>
-    <h2>Install in three commands.</h2>
-    <p class="lede">Node 22+ and Git are the only requirements. Claude Code, GitHub CLI, and Atlassian CLI are optional — Work degrades gracefully when they're not present.</p>
-
-    <div class="install-step">
-      <div class="install-head">
-        <span class="lbl">1 · Clone &amp; build</span>
-        <span class="meta">node ≥ 18</span>
-      </div>
-      <div class="terminal" style="margin:0">
-        <div class="terminal-bar"><i></i><i></i><i></i></div>
-<pre><span class="k-dim">$</span> git clone https://github.com/moberghr/cli-work-tree-manager work
-<span class="k-dim">$</span> cd work && npm install && npm run build && npm link</pre>
-      </div>
-    </div>
-
-    <div class="install-step">
-      <div class="install-head">
-        <span class="lbl">2 · Initial setup</span>
-        <span class="meta">interactive · one-time</span>
-      </div>
-      <div class="terminal" style="margin:0">
-        <div class="terminal-bar"><i></i><i></i><i></i></div>
-<pre><span class="k-dim">$</span> work init
-<span class="k-dim">  → worktrees root · repo aliases · tab completion</span></pre>
-      </div>
-    </div>
-
-    <div class="install-step">
-      <div class="install-head">
-        <span class="lbl">3 · Daily driving</span>
-        <span class="meta">every branch</span>
-      </div>
-      <div class="terminal" style="margin:0">
-        <div class="terminal-bar"><i></i><i></i><i></i></div>
-<pre><span class="k-dim">$</span> work tree api feature/login         <span class="k-dim"># create worktree, launch Claude</span>
-<span class="k-dim">$</span> work dash                            <span class="k-dim"># open the cockpit (or `work web` in the browser)</span>
-<span class="k-dim">$</span> wd -c                                <span class="k-dim"># review the diff, comments flow to Claude</span>
-<span class="k-dim">$</span> work run --all npm test              <span class="k-dim"># fan a command across every worktree</span>
-<span class="k-dim">$</span> work resume                          <span class="k-dim"># jump back into a recent session</span>
-<span class="k-dim">$</span> work sync                            <span class="k-dim"># fetch all repos + prune merged worktrees</span></pre>
-      </div>
-    </div>
-
-    <div style="margin-top:36px;display:flex;gap:12px;flex-wrap:wrap">
-      <a href="https://github.com/moberghr/cli-work-tree-manager" class="btn btn--primary">View on GitHub</a>
-      <a href="https://github.com/moberghr/cli-work-tree-manager#readme" class="btn btn--secondary">Read the README</a>
-    </div>
-  </div>
-</section>
-
-<!-- === CALLOUT === -->
-<section class="section">
-  <div class="container">
-    <div class="callout">
-      <h2>Stop juggling terminals.<br>Start running every branch in parallel.</h2>
-      <p>Work is the missing layer between <code>git worktree</code> and your AI assistant. One command creates the workspace. One dashboard runs them all.</p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <a href="https://github.com/moberghr/cli-work-tree-manager" class="btn btn--primary">Get Work</a>
-        <a href="https://www.moberg.hr" class="btn btn--secondary">About Moberg</a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- === FAQ === -->
-<section class="section section--alt">
-  <div class="container">
-    <div class="sec-head"><span class="sec-num">10</span> FAQ</div>
+    <p class="kicker">FAQ</p>
     <h2>Common questions.</h2>
-
-    <div class="faq" style="margin-top:36px">
+    <div class="faq">
       <details>
-        <summary>Why git worktrees instead of branches in one checkout?<span class="chev">›</span></summary>
-        <p>Branches share a working directory. Worktrees give every branch its own isolated checkout — separate <code>node_modules</code>, separate <code>bin</code>/<code>obj</code>, separate dev-server processes, separate Claude Code sessions. You can run all of them concurrently without stash gymnastics or losing your build cache.</p>
+        <summary>Why worktrees?</summary>
+        <p>Each branch gets its own folder, with its own <code>node_modules</code>, build output, dev server and Claude session. Several agents work at once without stepping on each other, and you never stash to switch.</p>
       </details>
-
       <details>
-        <summary>Do I need Claude Code to use Work?<span class="chev">›</span></summary>
-        <p>No. <code>work tree</code>, <code>work list</code>, <code>work status</code>, <code>work prune</code>, and the dashboard's session pane all work without Claude Code installed. You just lose auto-launch, group CLAUDE.md generation, and the embedded terminal in the dashboard. The CLI degrades gracefully when <code>claude</code> isn't on PATH.</p>
+        <summary>Does closing the app stop my agents?</summary>
+        <p>No. Claude sessions run in a background host. Closing the app, updating it, or restarting the computer doesn't end them; they come back with their conversation.</p>
       </details>
-
       <details>
-        <summary>Does the dashboard work on Windows?<span class="chev">›</span></summary>
-        <p>Yes. Ink and node-pty support Windows; PowerShell completions are installed automatically during <code>work init</code>. Mouse and keyboard handling work in Windows Terminal, ConEmu, and the VS Code integrated terminal.</p>
+        <summary>Can it post on GitHub without me?</summary>
+        <p>No. Claude drafts replies to review comments; they're posted only when you click Post or tell Claude yes in its conversation. Merging happens only from Ship.</p>
       </details>
-
       <details>
-        <summary>What happens when a worktree's branch is merged?<span class="chev">›</span></summary>
-        <p><code>work prune</code> lists every worktree whose branch is merged into <code>main</code> / <code>master</code> and offers to remove them interactively. <code>--force</code> skips the prompt. For groups, every sub-repo's branch must be merged before the group is offered.</p>
+        <summary>What does Archive delete?</summary>
+        <p>Only what can be recreated. The worktree folder is removed when everything in it is pushed or saved; uncommitted files and local settings are saved first, and Restore puts everything back. A worktree with commits not yet in main is kept.</p>
       </details>
-
       <details>
-        <summary>Can I customise which files get copied into new worktrees?<span class="chev">›</span></summary>
-        <p>Yes — edit <code>copyFiles</code> in <code>~/.work/config.json</code> (or run <code>work config edit</code>). Any glob pattern works. The default set covers <code>*.Development.json</code>, <code>*.Local.json</code>, and <code>.claude/settings.local.json</code> — the typical "gitignored but required to run" trio.</p>
+        <summary>Do I need Claude Code?</summary>
+        <p>It's the default and gets every feature. Another CLI agent runs in the terminal tab and is managed the same way, without the features that read Claude's conversation and hooks.</p>
       </details>
-
       <details>
-        <summary>How does the Jira → branch flow work?<span class="chev">›</span></summary>
-        <p>Pick a Jira issue in the dashboard, choose the target project, and Work invokes Claude Haiku with the issue title to generate a branch slug. It then runs <code>work tree &lt;project&gt; &lt;slug&gt;</code> in a PTY and pipes a structured planning prompt to Claude via <code>--prompt-file</code>. End result: a fresh worktree with Claude already thinking about your ticket.</p>
-      </details>
-
-      <details>
-        <summary>Is it open source?<span class="chev">›</span></summary>
-        <p>Yes — MIT licensed. Fork it, extend it, send a PR on <a href="https://github.com/moberghr/cli-work-tree-manager">GitHub</a>.</p>
+        <summary>Is it open source?</summary>
+        <p>Yes, MIT licensed. Issues and pull requests are welcome on <a href="https://github.com/moberghr/cli-work-tree-manager">GitHub</a>.</p>
       </details>
     </div>
   </div>
 </section>
 
-<!-- === FOOTER === -->
 <footer class="footer">
   <div class="container footer-inner">
-    <div style="display:inline-flex;align-items:center;gap:12px">
-      <img src="assets/favicon.svg" alt="" width="22" height="22" aria-hidden="true" style="border-radius:5px">
-      <span>Work — built by <a href="https://www.moberg.hr">Moberg</a>. One terminal, every branch.</span>
-    </div>
-    <div class="footer-links">
+    <span>work, built by <a href="https://www.moberg.hr" style="margin:0">Moberg</a>.</span>
+    <span>
       <a href="https://github.com/moberghr/cli-work-tree-manager">GitHub</a>
+      <a href="https://github.com/moberghr/cli-work-tree-manager/releases/latest">Releases</a>
       <a href="https://github.com/moberghr/cli-work-tree-manager#readme">README</a>
-      <a href="https://github.com/moberghr/cli-work-tree-manager/blob/main/LICENSE">License</a>
-      <span class="footer-legal">MIT</span>
-    </div>
+      <a href="https://github.com/moberghr/cli-work-tree-manager/blob/main/LICENSE">MIT license</a>
+    </span>
   </div>
 </footer>
 
-</body></html>
+</body>
+</html>
