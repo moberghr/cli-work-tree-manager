@@ -30,11 +30,18 @@ const names = (procs: Holders['stoppable'], dirs: string[]) =>
     ),
   );
 
+/** What runs from the leftovers, and what has them open: one look at the processes (null: no answer). */
+export async function lookAtLeftovers(leftovers: string[], io: LeftoverIo = {}): Promise<{ running: string[]; open: string[] } | null> {
+  if (leftovers.length === 0) return { running: [], open: [] };
+  const h = await (io.holders ?? ((d: string[]) => findHolders(d)))(leftovers).catch(() => null);
+  if (!h) return null;
+  const running = names(h.stoppable, leftovers);
+  return { running, open: [...running, ...names(h.others, leftovers)] };
+}
+
 /** What runs from the leftovers now ("node …\vite\bin\vite.js --mode demo (PID 35464)"): none to wait for, []. */
 export async function runningFromLeftovers(leftovers: string[], io: LeftoverIo = {}): Promise<string[]> {
-  if (leftovers.length === 0) return [];
-  const h = await (io.holders ?? ((d: string[]) => findHolders(d)))(leftovers).catch(() => null);
-  return h ? names(h.stoppable, leftovers) : [];
+  return (await lookAtLeftovers(leftovers, io))?.running ?? [];
 }
 
 /** Stop what runs from the leftovers (asked for), saying what. */
@@ -45,7 +52,5 @@ export async function freeLeftovers(leftovers: string[], io: LeftoverIo = {}): P
 
 /** Everything that has the leftovers open — what runs from them and what only names them (an editor) — for a failure's message. */
 export async function openInLeftovers(leftovers: string[], io: LeftoverIo = {}): Promise<string[]> {
-  if (leftovers.length === 0) return [];
-  const h = await (io.holders ?? ((d: string[]) => findHolders(d)))(leftovers).catch(() => null);
-  return h ? [...names(h.stoppable, leftovers), ...names(h.others, leftovers)] : [];
+  return (await lookAtLeftovers(leftovers, io))?.open ?? [];
 }

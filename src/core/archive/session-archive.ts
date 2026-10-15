@@ -152,6 +152,8 @@ export interface ArchiveDeps {
   /** Stop what still runs from its folders (a dev server or watcher its Claude started in the background,
    *  running-from.ts) and say what: otherwise it holds files, and the worktree is removed only in part. */
   stopRunningFrom?: (s: WorktreeSession) => Promise<string[]>;
+  /** What runs from its folders, by name, stopping nothing (an unattended archive keeps the worktree then). */
+  runningFrom?: (s: WorktreeSession) => Promise<string[]>;
   /** Repos checked out on another branch than the session's (alias → branch). */
   heads?: (s: WorktreeSession) => Record<string, string>;
   /** Each repo's branch tip (alias → commit): of `heads[alias]`, else the session's branch. */
@@ -202,6 +204,8 @@ export function onArchived(listener: (s: WorktreeSession) => void | Promise<unkn
 export interface ArchiveOptions {
   force?: boolean;
   merged?: boolean;
+  /** No one asked (the PR watch, a merged PR): nothing running from the worktree is stopped — it keeps it. */
+  unattended?: boolean;
 }
 
 export async function archiveSession(s: WorktreeSession, deps: ArchiveDeps, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
@@ -298,7 +302,9 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
   let ignored: Record<string, SavedIgnored> = {};
   const ignoredDir = path.join(dir, 'ignored');
   let stopped: string[] = [];
-  if (verdict.ok) {
+  // Unasked (the PR watch): what runs from the folder is yours — it keeps the worktree rather than stop it.
+  const runningThere = verdict.ok && opts.unattended ? ((await deps.runningFrom?.(s).catch(() => [])) ?? []) : [];
+  if (verdict.ok && runningThere.length === 0) {
     // Only for a folder that goes (never a repo's own checkout, never a kept worktree: what runs there is
     // yours): what still runs from it holds its files, and git would remove it only in part.
     stopped = (await deps.stopRunningFrom?.(s).catch(() => [])) ?? [];
@@ -317,7 +323,11 @@ async function archiveSteps(s: WorktreeSession, deps: ArchiveDeps, opts: Archive
         ? `git removed ${leftovers.join(', ')} only in part (a file in use) and kept the rest`
         : 'git refused to remove the worktree';
   } else {
-    keptBecause = saving.error && !verdict.reason.includes(saving.error) ? `${verdict.reason} (${saving.error})` : verdict.reason;
+    keptBecause = runningThere.length
+      ? `still running from it: ${runningThere.join(', ')}`
+      : saving.error && !verdict.reason.includes(saving.error)
+        ? `${verdict.reason} (${saving.error})`
+        : verdict.reason;
   }
   // Kept: the changes are still in it, so the saves aren't needed.
   // (Not when part of it is gone: the saves are the only copy of that.)
@@ -507,7 +517,8 @@ export const RESTORED_AGE_MS = 10 * 60_000;
  */
 export function lastEntryTime(file: string, entries: (lines: readonly unknown[]) => ConversationEntry[]): number {
   let t = 0;
-  for (const e of entries(readJsonlTail(file, 64 * 1024))) {
+  // Up to 4 MB back: a last line can be a big tool result.
+  for (const e of entries(readJsonlTail(file, 4 * 1024 * 1024))) {
     const at = Date.parse(e.at);
     if (Number.isFinite(at) && at > t) t = at;
   }
@@ -547,20 +558,20 @@ export function restoreArchivedTranscripts(
     n++;
   }
   if (n === 0) return 0;
+  // Only this session's own conversations (the archive's list): another conversation in the same folder — you
+  // ran Claude there yourself — keeps its date.
   const entries = agentOf(s).conversation?.entries ?? (() => []);
-  let files: Array<{ file: string; last: number; mtime: number }> = [];
-  try {
-    files = fs
-      .readdirSync(dest)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => {
-        const file = path.join(dest, f);
-        return { file, last: lastEntryTime(file, entries), mtime: fs.statSync(file).mtimeMs };
-      });
-  } catch {
-    return n; // dated now, then
+  const files: Array<{ file: string; last: number }> = [];
+  for (const t of rec.transcripts) {
+    const file = path.join(dest, t.file);
+    try {
+      // Its last entry's time; with none readable (none at all, or a last line past the tail read), its own date.
+      files.push({ file, last: lastEntryTime(file, entries) || fs.statSync(file).mtimeMs });
+    } catch {
+      /* gone: nothing to date */
+    }
   }
-  files.sort((a, b) => a.last - b.last || a.mtime - b.mtime);
+  files.sort((a, b) => a.last - b.last);
   const newest = Date.now() - RESTORED_AGE_MS;
   for (const [i, { file }] of files.entries()) {
     const at = new Date(newest - (files.length - 1 - i) * 1000);

@@ -7,7 +7,7 @@ import { defaultArchiveDeps } from '../../core/archive/session-archive-deps.js';
 import { createInProcess, type CreateWorktree } from '../../core/worktree/setup-child.js';
 import { isWorktreeFolder } from '../../core/worktree/leftover.js';
 import type { Holders } from '../../core/platform/running-from.js';
-import { freeLeftovers, leftoversOf, openInLeftovers, runningFromLeftovers } from '../../core/archive/restore-leftovers.js';
+import { freeLeftovers, leftoversOf, lookAtLeftovers, openInLeftovers } from '../../core/archive/restore-leftovers.js';
 import {
   mergeSelected,
   runShipAction,
@@ -77,9 +77,12 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       const io = { holders: opts.holders, stop: opts.stopHolders };
       const leftovers = leftoversOf(session.paths);
       let stopped: string[] = [];
+      // One look at the processes serves both questions (on Windows a look takes a second or more).
+      let looked: Awaited<ReturnType<typeof lookAtLeftovers>> = null;
       if (stopHolders) stopped = await freeLeftovers(leftovers, io);
       else {
-        const running = await runningFromLeftovers(leftovers, io);
+        looked = await lookAtLeftovers(leftovers, io);
+        const running = looked?.running ?? [];
         if (running.length) {
           return { ok: false, holders: running, error: `Couldn't restore it: still running from its old folder: ${running.join(', ')}` };
         }
@@ -88,7 +91,8 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
       // A Restore that couldn't make the worktree says why (a folder in use, a branch gone…), not "unknown session",
       // and names what has the folder open when it can (an editor: yours to close).
       if (!made.ok) {
-        const open = await openInLeftovers(leftovers, io);
+        // Asked again only when something was stopped since the look.
+        const open = looked && !stopped.length ? looked.open : await openInLeftovers(leftovers, io);
         return {
           ok: false,
           error: `Couldn't restore it: ${made.error}${open.length ? ` (open there: ${open.join(', ')})` : ''}${stopped.length ? ` (stopped first: ${stopped.join(', ')})` : ''}`,

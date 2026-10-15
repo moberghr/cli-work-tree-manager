@@ -94,6 +94,16 @@ describe('searchSymbols', () => {
     expect(build).toHaveBeenCalledTimes(MAX_INDEXES + 2);
   });
 
+  it('a repo searched often stays kept, however long ago its index was built', async () => {
+    const build = vi.fn(async (_repo: string, _root: string) => [] as CodeSymbol[]);
+    await symbolIndex('api', '/hot', Date.now(), build);
+    for (let i = 0; i < MAX_INDEXES + 2; i++) {
+      await symbolIndex('api', `/cold${i}`, Date.now(), build);
+      await symbolIndex('api', '/hot', Date.now(), build); // searched again each time
+    }
+    expect(build.mock.calls.filter((c) => c[1] === '/hot')).toHaveLength(1);
+  });
+
   it('Python through the real index: a class, a method by its word starts, a constant, a stub', async () => {
     expect((await searchSymbols(session(), 'JobStore'))[0]).toMatchObject({ kind: 'class', path: 'src/jobs.py', line: 3 });
     expect((await searchSymbols(session(), 'gpj'))[0]).toMatchObject({ name: 'get_pending_jobs', kind: 'function', line: 4 });

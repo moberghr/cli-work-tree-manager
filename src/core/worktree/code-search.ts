@@ -73,44 +73,50 @@ export async function searchText(
   query: string,
   signal?: AbortSignal,
 ): Promise<{ hits: CodeTextHit[]; truncated: boolean }> {
-  const hits: CodeTextHit[] = [];
-  let truncated = false;
-  for (const { name, root } of codeRoots(s)) {
-    if (hits.length >= MAX_TEXT_HITS) break;
-    // -z: the path verbatim (by default git quotes a non-ASCII one, "src/Ra\304\215uni.cs", which the listing doesn't have).
-    const args = [
-      'grep',
-      '-z',
-      '-n',
-      '-I',
-      '--untracked',
-      '--no-color',
-      '--full-name',
-      ...(ignoresCase(query) ? ['-i'] : []),
-      '-F',
-      '-e',
-      query,
-    ];
-    await gitLines(
-      root,
-      args,
-      (line) => {
-        const p = parseGrepLine(line);
-        if (!p) return;
-        if (hits.length >= MAX_TEXT_HITS) {
-          truncated = true;
-          return false;
-        }
-        hits.push({
-          repo: name,
-          path: p.path,
-          line: p.line,
-          text: p.text.length > MAX_LINE_CHARS ? p.text.slice(0, MAX_LINE_CHARS) + '…' : p.text,
-        });
-      },
-      signal,
-    );
-  }
+  // Every repo at once (a group's), each up to the cap; then in the repos' order, the cap over all.
+  const perRepo = await Promise.all(
+    codeRoots(s).map(async ({ name, root }) => {
+      const found: CodeTextHit[] = [];
+      let more = false;
+      // -z: the path verbatim (by default git quotes a non-ASCII one, "src/Ra\304\215uni.cs", which the listing doesn't have).
+      const args = [
+        'grep',
+        '-z',
+        '-n',
+        '-I',
+        '--untracked',
+        '--no-color',
+        '--full-name',
+        ...(ignoresCase(query) ? ['-i'] : []),
+        '-F',
+        '-e',
+        query,
+      ];
+      await gitLines(
+        root,
+        args,
+        (line) => {
+          const p = parseGrepLine(line);
+          if (!p) return;
+          if (found.length >= MAX_TEXT_HITS) {
+            more = true;
+            return false;
+          }
+          found.push({
+            repo: name,
+            path: p.path,
+            line: p.line,
+            text: p.text.length > MAX_LINE_CHARS ? p.text.slice(0, MAX_LINE_CHARS) + '…' : p.text,
+          });
+        },
+        signal,
+      );
+      return { found, more };
+    }),
+  );
+  const all = perRepo.flatMap((r) => r.found);
+  const hits = all.slice(0, MAX_TEXT_HITS);
+  const truncated = perRepo.some((r) => r.more) || all.length > MAX_TEXT_HITS;
   return { hits, truncated };
 }
 
@@ -156,6 +162,7 @@ export function symbolIndex(repo: string, root: string, now = Date.now(), build 
     symbols.catch(() => indexes.delete(root));
     return symbols;
   }
+  touch(indexes, root, hit, MAX_INDEXES); // the repos searched last are the ones kept
   if (now - hit.at > INDEX_STALE_MS && !hit.building) {
     hit.building = true;
     void build(repo, root).then(

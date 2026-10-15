@@ -307,14 +307,16 @@ describe('restoreArchivedTranscripts', () => {
     fs.writeFileSync(path.join(dest, 'new.jsonl'), conv('2026-10-10T10:00:00Z')); // kept by Claude Code
     const keptAt = new Date(Date.now() - 3 * 86_400_000);
     fs.utimesSync(path.join(dest, 'new.jsonl'), keptAt, keptAt);
-    fs.writeFileSync(path.join(dest, 'blank.jsonl'), ''); // no time in it at all: oldest
-    fs.utimesSync(path.join(dest, 'blank.jsonl'), new Date(), new Date());
+    // Another conversation in the same folder (you ran Claude there yourself): not this session's, keeps its date.
+    const mineAt = new Date(Date.now() - 2 * 86_400_000);
+    fs.writeFileSync(path.join(dest, 'yours.jsonl'), conv('2026-10-12T10:00:00Z'));
+    fs.utimesSync(path.join(dest, 'yours.jsonl'), mineAt, mineAt);
     expect(restoreArchivedTranscripts(session, root, () => dest)).toBe(1);
     const m = (f: string) => fs.statSync(path.join(dest, f)).mtimeMs;
-    expect(m('blank.jsonl')).toBeLessThan(m('old.jsonl'));
     expect(m('old.jsonl')).toBeLessThan(m('new.jsonl'));
-    // None anywhere near Claude Code's 30 days, none "written just now".
-    for (const f of ['blank.jsonl', 'old.jsonl', 'new.jsonl']) {
+    expect(Math.abs(m('yours.jsonl') - mineAt.getTime())).toBeLessThan(1000);
+    // None of the session's anywhere near Claude Code's 30 days, none "written just now".
+    for (const f of ['old.jsonl', 'new.jsonl']) {
       expect(Date.now() - m(f)).toBeLessThan(RESTORED_AGE_MS + 60_000);
       expect(Date.now() - m(f)).toBeGreaterThan(RESTORED_AGE_MS - 5_000);
     }
@@ -348,6 +350,24 @@ describe('archiveSession: what it does around the copy', () => {
     expect(tidy).toHaveBeenCalled();
     expect(clearBuildFolders).not.toHaveBeenCalled(); // the folder is gone anyway
     expect(readArchive(sessionIdFor(session), root)).toMatchObject({ tips: { api: 'abc123' }, branchesDeleted: ['api'] });
+  });
+
+  it('unasked (the PR watch): something you run from the worktree keeps it — nothing is stopped', async () => {
+    const stopRunningFrom = vi.fn(async () => ['x']);
+    const removeWorktree = vi.fn(async () => true);
+    const runningFrom = vi.fn(async () => ['node …\\server.js (PID 9)']);
+    const out = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom }), { merged: true, unattended: true });
+    expect(out.ok).toBe(true);
+    expect(out.worktreeRemoved).toBe(false);
+    expect(out.keptBecause).toBe('still running from it: node …\\server.js (PID 9)');
+    expect(stopRunningFrom).not.toHaveBeenCalled();
+    expect(removeWorktree).not.toHaveBeenCalled();
+    // Nothing running: it goes as usual.
+    const out2 = await archiveSession(session, deps({ stopRunningFrom, removeWorktree, runningFrom: async () => [] }), {
+      merged: true,
+      unattended: true,
+    });
+    expect(out2.worktreeRemoved).toBe(true);
   });
 
   it('stops what still runs from its folders (a dev server its Claude left) before the worktree goes, and says so', async () => {

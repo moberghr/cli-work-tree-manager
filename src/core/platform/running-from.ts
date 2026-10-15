@@ -29,6 +29,8 @@ export interface RunningProcess {
   exe: string | null;
   /** Its command line ('' when it can't be read). */
   command: string;
+  /** Its working folder, where the system says (Linux): a relative script (`node dist/server.js`) is under it. */
+  cwd?: string | null;
 }
 
 /** Interpreters whose script is the program: the first argument that isn't an option. */
@@ -73,7 +75,11 @@ export function runsFrom(p: RunningProcess, dirs: string[], windows = win): bool
   // first in `node -r ts-node/register <dir>/src/index.ts`).
   const args = words.slice(1);
   const first = args.find((w) => !w.startsWith('-'));
-  const scripts = [first, ...args.filter((w) => SCRIPT_FILE.test(w))].filter((w): w is string => !!w && /[\\/]/.test(w));
+  const relative = (w: string) => !(windows ? path.win32.isAbsolute(w) : w.startsWith('/'));
+  const scripts = [first, ...args.filter((w) => SCRIPT_FILE.test(w))]
+    .filter((w): w is string => !!w && (/[\\/]/.test(w) || (!!p.cwd && SCRIPT_FILE.test(w))))
+    // A relative one is where the process works (`node dist/server.js`, `python manage.py`), when that's known.
+    .map((w) => (relative(w) && p.cwd ? (windows ? path.win32.resolve(p.cwd, w) : path.posix.resolve(p.cwd, w)) : w));
   return scripts.some((w) => dirs.some((d) => under(w, d, windows)));
 }
 
@@ -187,7 +193,16 @@ export function describeProcess(p: RunningProcess, dirs: string[], windows = win
   let args = words.join(' ');
   // The folder (normalised as normDir: `\`, lower case on Windows) wherever it appears, as typed.
   for (const d of dirs) {
-    const fold = (s: string) => (windows ? s.replace(/\//g, '\\').toLowerCase() : s);
+    // Char by char, and only where lower case keeps the length (an İ doesn't): the positions stay those of `args`.
+    const fold = (s: string) =>
+      windows
+        ? [...s]
+            .map((c) => {
+              const l = (c === '/' ? '\\' : c).toLowerCase();
+              return l.length === c.length ? l : c;
+            })
+            .join('')
+        : s;
     for (let at = fold(args).indexOf(d); at >= 0; at = fold(args).indexOf(d)) args = args.slice(0, at) + '…' + args.slice(at + d.length);
   }
   if (args.length > 90) args = `${args.slice(0, 89)}…`;
@@ -258,12 +273,14 @@ async function linuxProcesses(): Promise<RunningProcess[]> {
         .map((w) => (/\s/.test(w) ? `"${w}"` : w))
         .join(' ');
       let exe: string | null = null;
+      let cwd: string | null = null;
       try {
         exe = await fs.promises.readlink(`/proc/${d}/exe`);
+        cwd = await fs.promises.readlink(`/proc/${d}/cwd`);
       } catch {
         /* another user's */
       }
-      out.push({ pid: Number(d), ppid, name: exe ? path.posix.basename(exe) : '', exe, command });
+      out.push({ pid: Number(d), ppid, name: exe ? path.posix.basename(exe) : '', exe, command, cwd });
     } catch {
       /* gone meanwhile */
     }
@@ -304,6 +321,13 @@ export async function findHolders(
   const existing = dirs.filter((d) => fs.existsSync(d));
   if (existing.length === 0) return { stoppable: [], running: [], others: [] };
   return holdersOf(await list(), existing, process.pid, win, spare);
+}
+
+/** What runs from `dirs`, by name, stopping nothing. */
+export async function runningFromNames(dirs: string[], list?: () => Promise<RunningProcess[]>): Promise<string[]> {
+  const h = await findHolders(dirs, list);
+  const norm = dirs.map((d) => normDir(d));
+  return h.stoppable.map((p) => describeProcess(p, norm));
 }
 
 /** How long a stop waits for what it stopped to be gone (its files let go) before going on. */

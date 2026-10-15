@@ -160,6 +160,21 @@ describe("work's own processes are never stopped", () => {
     expect(h.stoppable.map((x) => x.pid)).toEqual([22]);
   });
 
+  it('a relative script, where the process works (Linux knows it): `node dist/server.js`, `python manage.py`', () => {
+    const wt = '/home/me/worktrees/api/feat-x';
+    const node = { ...p(1, 0, 'node', '/usr/bin/node', 'node dist/server.js'), cwd: wt };
+    const py = { ...p(2, 0, 'python3.12', '/usr/bin/python3.12', 'python manage.py runserver'), cwd: wt };
+    const elsewhere = { ...p(3, 0, 'node', '/usr/bin/node', 'node dist/server.js'), cwd: '/home/me/other' };
+    expect(runsFrom(node, [wt], false)).toBe(true);
+    expect(runsFrom(py, [wt], false)).toBe(true);
+    expect(runsFrom(elsewhere, [wt], false)).toBe(false);
+  });
+
+  it('shortening the folder in a name keeps the rest whole, a letter whose lower case is longer before it too', () => {
+    const odd = p(60, 1, 'node.exe', null, `node --title=İstanbul ${WT}\\server.js`);
+    expect(describeProcess(odd, dirs, true)).toBe('node --title=İstanbul …\\server.js (PID 60)');
+  });
+
   it('a versioned interpreter is one (Linux names the binary: python3.12, node22)', () => {
     const wt = '/home/me/worktrees/api/feat-x';
     expect(runsFrom(p(1, 0, 'python3.12', '/usr/bin/python3.12', `/usr/bin/python3.12 ${wt}/manage.py runserver`), [wt], false)).toBe(true);

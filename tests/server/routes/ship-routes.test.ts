@@ -271,6 +271,19 @@ describe('ship routes', () => {
     expect(create).toHaveBeenCalled();
   });
 
+  it('a failed Restore looks at the processes once (a look takes seconds on Windows)', async () => {
+    const id = sessionIdFor(session);
+    const create = vi.fn(async () => ({ ok: false as const, error: 'in use' }));
+    const holders = vi.fn(async () => ({ stoppable: [], others: [] }));
+    const a = new Hono();
+    mountShipRoutes(a, { broadcast: (e) => events.push(e), onRepoChanged: () => {}, run, create, holders });
+    saveHistory([{ ...session, archivedAt: '2026-10-07T14:51:42.489Z' }]);
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: { api: path.join(home, 'api') }, groups: {}, copyFiles: [] });
+    fs.rmSync(path.join(session.paths[0], '.git'));
+    expect((await post(a, `/api/sessions/${id}/archive`, { archived: false })).status).toBe(500);
+    expect(holders).toHaveBeenCalledTimes(1);
+  });
+
   it("a Restore that fails with the folder in use names what has it open (an editor: the user's to close)", async () => {
     const id = sessionIdFor(session);
     const create = vi.fn(async () => ({ ok: false as const, error: 'a file in it is in use: close it and try again' }));

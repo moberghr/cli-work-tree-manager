@@ -16,7 +16,7 @@ import { archiveRefFor, dropSaved, saveUncommitted, type SavedUncommitted } from
 import { readPendingForSession } from '../comments/pending-delivery.js';
 import { listReplies } from '../pr/pr-replies.js';
 import { stopDev } from '../worktree/dev-server.js';
-import { stopRunningFrom } from '../platform/running-from.js';
+import { runningFromNames, stopRunningFrom } from '../platform/running-from.js';
 import { buildFoldersOf, clearBuildFolders } from '../cleanup/build-folders.js';
 import { runInternal } from '../diff/checkpoint-summary.js';
 import { summarizeArchive } from './archive-summary.js';
@@ -54,7 +54,8 @@ export function archiveWaiting(id: string): string[] {
 export async function archiveMergedSession(id: string, deps: ArchiveDeps, onChanged: () => void = () => {}): Promise<string | undefined> {
   const s = loadHistory().find((x) => sessionIdFor(x) === id);
   if (!s || s.archivedAt) return undefined;
-  const out = await archiveSession(s, deps, { merged: true });
+  // The PR watch, unasked: what you run from it is yours, so it keeps the worktree rather than stop it.
+  const out = await archiveSession(s, deps, { merged: true, unattended: true });
   onChanged();
   if (!out.ok) throw new Error(out.message);
   return out.kept;
@@ -164,6 +165,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     },
     stopDev: (id) => void stopDev(id),
     stopRunningFrom: (s) => stopRunningFrom(s.paths),
+    runningFrom: (s) => runningFromNames(s.paths),
     heads: (s) => {
       const out: Record<string, string> = {};
       for (const [alias, repo] of repoPaths(s, loadConfig())) {

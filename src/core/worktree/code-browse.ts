@@ -55,6 +55,14 @@ const listCache = new Map<string, { at: number; files: Promise<string[]> }>();
 /** Lists kept: the repos opened last (each up to MAX_CODE_FILES paths; work web runs for days). */
 const MAX_LISTS = 12;
 
+/** A listing as a set, made once per listing (a read checks it: tens of thousands of paths). */
+const sets = new WeakMap<string[], Set<string>>();
+function setOf(files: string[]): Set<string> {
+  let set = sets.get(files);
+  if (!set) sets.set(files, (set = new Set(files)));
+  return set;
+}
+
 /** `git ls-files -co --exclude-standard`: tracked, and new but not ignored. Shared for LIST_TTL_MS. */
 export function listRepoFiles(root: string, io: CodeIo = realIo, now = Date.now()): Promise<string[]> {
   const hit = listCache.get(root);
@@ -91,13 +99,18 @@ export async function changedFiles(root: string, base: string | undefined, io: C
       if (code.includes('R') || code.includes('C')) i++; // a rename's old path follows it
     }
   }
-  for (const ref of base ? [base, `origin/${base}`] : ['origin/HEAD']) {
+  // From where the branch left its base, at its freshest — the branch or its origin copy, whichever shares the later
+  // commit with HEAD (as the Diff tab measures: a local main weeks behind would mark main's own changes).
+  let from: string | null = null;
+  for (const ref of base ? (base.startsWith('origin/') ? [base] : [base, `origin/${base}`]) : ['origin/HEAD']) {
     const mb = await io.git(root, ['merge-base', ref, 'HEAD']);
     const sha = mb.stdout.trim();
-    if (mb.status !== 0 || !sha) continue;
-    const diff = await io.git(root, ['diff', '--name-only', '-z', `${sha}...HEAD`]);
+    if (mb.status !== 0 || !sha || sha === from) continue;
+    if (!from || (await io.git(root, ['merge-base', '--is-ancestor', from, sha])).status === 0) from = sha;
+  }
+  if (from) {
+    const diff = await io.git(root, ['diff', '--name-only', '-z', `${from}...HEAD`]);
     if (diff.status === 0) for (const f of nul(diff.stdout)) out.add(fwd(f));
-    break;
   }
   return [...out].sort();
 }
@@ -158,7 +171,7 @@ export async function readCodeFile(
     allowed = !!root && groupRootFiles(s).includes(rel);
   } else {
     root = codeRoots(s).find((r) => r.name === repo)?.root ?? null;
-    allowed = !!root && (await listRepoFiles(root, io)).includes(rel);
+    allowed = !!root && setOf(await listRepoFiles(root, io)).has(rel);
   }
   if (!root) return { error: 'unknown repo' };
   if (!allowed) return { error: 'not listed' };

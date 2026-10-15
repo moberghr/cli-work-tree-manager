@@ -40,6 +40,30 @@ beforeEach(() => clearCodeListCache());
 
 const single = () => ({ paths: [repo], isGroup: false, baseBranch: 'main' });
 
+describe('changed on the branch: from the freshest copy of its base', () => {
+  it("a local main weeks behind origin's doesn't mark main's own changes", async () => {
+    const r = path.join(tmp, 'fresh');
+    fs.mkdirSync(r);
+    git(['init', '-b', 'main'], r);
+    git(['config', 'user.email', 't@t.t'], r);
+    git(['config', 'user.name', 't'], r);
+    fs.writeFileSync(path.join(r, 'a.ts'), 'a\n');
+    git(['add', '.'], r);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], r);
+    git(['checkout', '-q', '-b', 'upstream'], r);
+    fs.writeFileSync(path.join(r, 'mains-own.ts'), 'm\n'); // landed on main since, through origin
+    git(['add', '.'], r);
+    git(['commit', '-m', 'main moved', '--no-gpg-sign'], r);
+    git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], r);
+    git(['checkout', '-q', '-b', 'feat/x', 'origin/main'], r); // the branch has origin's news
+    fs.writeFileSync(path.join(r, 'mine.ts'), 'x\n');
+    git(['add', '.'], r);
+    git(['commit', '-m', 'mine', '--no-gpg-sign'], r);
+    const w = await listCodeFiles({ paths: [r], isGroup: false, baseBranch: 'main' }); // local main: still at init
+    expect(w.repos[0].changed).toEqual(['mine.ts']);
+  });
+});
+
 describe('listCodeFiles', () => {
   it("lists what git does — tracked, and new files that aren't ignored — and marks what changed on the branch", async () => {
     const w = await listCodeFiles(single());
