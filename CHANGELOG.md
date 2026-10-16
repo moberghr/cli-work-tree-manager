@@ -3,6 +3,25 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.3.0 — 2026-10-16
+
+- **A session that handed its work to a background agent reads Working.**
+  When Claude ends its turn by starting a background agent, the session no
+  longer shows Idle while that agent works: it reads Working until the
+  agent's result comes back as a new turn. One whose agent has been quiet
+  for 15 minutes is taken as finished.
+- **Pull requests show right after a restart.** work keeps each session's
+  last pull-request check, so after work web or the app restarts the rail
+  and the session header show its PRs at once, instead of after the first
+  check reaches it a minute or two later.
+- **A worktree on another branch finds its PR.** When Claude (or you)
+  switched a session's worktree to another branch, its pull request on that
+  branch now shows in the rail and the header, and Start links that PR to
+  the session.
+- **No more console windows flashing on Windows.** Open in editor, desktop
+  notifications, status hooks and opening a link each flashed a console
+  window for a moment; they no longer do.
+
 ## 2.2.1 — 2026-10-15
 
 - **A space in a branch name becomes a dash.** In New worktree's and
