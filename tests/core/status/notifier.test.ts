@@ -144,7 +144,8 @@ describe('notifyDesktop', () => {
     expect(args[1]).toBe('-Command');
     expect(args[2]).toContain('Needs your input');
     expect(args[2]).toContain('work: feature-login');
-    expect(opts).toEqual({ detached: true, stdio: 'ignore', windowsHide: true }); // no PowerShell window flashing with each toast
+    // No PowerShell window flashing with each toast: hidden, and not detached (a detached one has no console to hide in).
+    expect(opts).toEqual({ detached: false, stdio: 'ignore', windowsHide: true });
     expect(child.unref).toHaveBeenCalled();
   });
 

@@ -16,7 +16,19 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
  *   - Detached `work` children: `detached` + `windowsHide` so no console
  *     window flashes and the child outlives the parent's terminal; output
  *     goes to a log file, never the parent's stdio.
+ *   - Anything else started in the background (an editor, a URL, a toast, a
+ *     status hook): `detached` on POSIX only (`detachHere`). On Windows a
+ *     detached process has no console at all, so every console program it
+ *     starts — cmd.exe running code.cmd, PowerShell — opens a window of its
+ *     own, and `windowsHide` can't stop that (measured: detached flashed a
+ *     Windows Terminal window every time, hidden alone never). A child there
+ *     outlives its parent anyway.
  */
+
+/** Start a background program detached? POSIX yes (its own process group); Windows no — see above. */
+export function detachHere(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32';
+}
 
 export function isPidAlive(pid: number): boolean {
   try {
@@ -122,7 +134,7 @@ export function processName(pid: number): string | null {
       return m && Number(m[2]) === pid ? m[1] : null;
     }
     if (process.platform === 'linux') return isPidAlive(pid) ? linuxProcessName(pid) : null;
-    const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000 });
+    const r = spawnSync('ps', ['-o', 'comm=', '-p', String(pid)], { encoding: 'utf-8', timeout: 5000, windowsHide: true });
     const name = (r.stdout ?? '').trim();
     return r.status === 0 && name ? name.split('/').pop()! : null;
   } catch {
@@ -192,7 +204,7 @@ export function processTable(): Map<number, string> {
     const win = process.platform === 'win32';
     const r = win
       ? spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf-8', windowsHide: true, timeout: 8000, maxBuffer: 16 * 1024 * 1024 })
-      : spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, maxBuffer: 16 * 1024 * 1024 });
+      : spawnSync('ps', ['-A', '-o', 'pid=,comm='], { encoding: 'utf-8', timeout: 8000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
     return parseProcessTable(r.stdout ?? '', win);
   } catch {
     return new Map(); // unreadable: nothing is known to be alive

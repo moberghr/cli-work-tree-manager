@@ -11,6 +11,7 @@
  */
 
 import spawn from '../platform/spawn.js';
+import { detachHere } from '../platform/process.js';
 
 export type NotifyKind = 'idle' | 'needs_input' | 'unblocked' | 'pr';
 
@@ -126,9 +127,9 @@ export function notifyDesktop(sessionName: string, kind: NotifyKind, opts: Notif
   const spawnFn = opts.spawnFn ?? spawn;
   try {
     const child = spawnFn(command.cmd, command.args, {
-      detached: true,
+      // Windows' toast is a PowerShell run: hidden, and not detached, or its window flashes up with every notification.
+      detached: detachHere(platform),
       stdio: 'ignore',
-      // Windows' toast is a PowerShell run: without this its console window flashes up with every notification.
       windowsHide: true,
     });
     // Swallow async spawn errors (e.g. ENOENT when the binary is absent);

@@ -13,7 +13,7 @@ import { editorArgs, openUrl } from '../../../src/core/platform/launch.js';
 describe('openUrl', () => {
   it('starts the browser hidden: no console window flashes up first (cmd /c start on Windows)', () => {
     openUrl('http://127.0.0.1:5000/');
-    expect(spawned.at(-1)?.opts).toEqual({ stdio: 'ignore', detached: true, windowsHide: true });
+    expect(spawned.at(-1)?.opts).toEqual({ stdio: 'ignore', detached: process.platform !== 'win32', windowsHide: true });
     expect(spawned.at(-1)?.args.at(-1)).toBe('http://127.0.0.1:5000/');
   });
 });

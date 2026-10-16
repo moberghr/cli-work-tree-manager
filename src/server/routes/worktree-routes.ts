@@ -21,6 +21,7 @@ import { resolvePrToStart, type PrStartResult } from '../../core/pr/pr-start.js'
 import type { PrStartWire } from '../../core/api-types.js';
 import { codeFilePath } from '../../core/worktree/code-browse.js';
 import { editorArgs } from '../../core/platform/launch.js';
+import { detachHere } from '../../core/platform/process.js';
 
 export interface WorktreeMutOptions {
   broadcast: (event: string, data: unknown) => void;
@@ -279,7 +280,8 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const editor = loadConfig()?.editor?.trim() || 'code';
     const failed = await new Promise<string | null>((resolve) => {
       try {
-        const child = crossSpawn(editor, editorArgs(editor, folder, file), { detached: true, stdio: 'ignore', windowsHide: true });
+        // Not detached on Windows: cmd.exe running code.cmd would then flash a console window (process.ts).
+        const child = crossSpawn(editor, editorArgs(editor, folder, file), { detached: detachHere(), stdio: 'ignore', windowsHide: true });
         // A missing editor surfaces as 'error' — on Windows only when the
         // cmd.exe wrapper exits (cross-spawn turns that exit into ENOENT) —
         // so wait for an error, an exit, or a moment of it running.
@@ -322,9 +324,9 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
     const title = `${session.target} · ${session.branch || '(base)'}`.replace(/;/g, ' ');
     try {
       const child = spawn('wt.exe', ['-w', '0', 'nt', '--title', title, '-d', spec.cwd, process.execPath, getWorkBin(), 'attach'], {
-        detached: true,
         stdio: 'ignore',
         shell: false,
+        windowsHide: false, // a Windows Terminal tab: the window is what was asked for
       });
       // A missing wt.exe fails asynchronously, after we've answered —
       // swallow it so it can't crash the server.

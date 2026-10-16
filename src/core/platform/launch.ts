@@ -1,4 +1,5 @@
 import spawn from './spawn.js';
+import { detachHere } from './process.js';
 import { buildAiLaunchArgs, type AiLaunchOpts, type AiToolSpec } from './ai-launcher.js';
 
 /** Get the platform-appropriate default editor. */
@@ -9,7 +10,8 @@ export function getEditor(): string {
 /** Open a file in the user's editor. */
 export function openInEditor(filePath: string): void {
   const editor = getEditor();
-  spawn.sync(editor, [filePath], { stdio: 'inherit' });
+  // This terminal's (vi) or a window of its own (notepad): to be seen.
+  spawn.sync(editor, [filePath], { stdio: 'inherit', windowsHide: false });
 }
 
 /** Open a URL in the default browser. */
@@ -17,7 +19,7 @@ export function openUrl(url: string): void {
   const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
   // `cmd /c start` is a console program: hidden, or a window flashes before the browser opens.
-  spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+  spawn(cmd, args, { stdio: 'ignore', detached: detachHere(), windowsHide: true }).unref();
 }
 
 /** VS Code and the editors built on it: the folder, then `--goto file:line`, opens the file at its line in that folder's window. */
@@ -44,7 +46,7 @@ export function editorArgs(editor: string, folder: string, file?: { path: string
 
 /** Open VS Code in the given directory. */
 export function openVSCode(dir: string): void {
-  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit' });
+  spawn.sync('code', ['.'], { cwd: dir, stdio: 'inherit', windowsHide: false }); // the editor's window is the point
 }
 
 /**
@@ -56,6 +58,9 @@ export function openVSCode(dir: string): void {
 export function launchAi(cwd: string, tool: AiToolSpec, opts: AiLaunchOpts = {}, port?: number): void {
   const { cmd, args } = buildAiLaunchArgs(tool, opts);
   const spawnOpts: Parameters<typeof spawn.sync>[2] =
-    port !== undefined ? { cwd, stdio: 'inherit', env: { ...process.env, PORT: String(port) } } : { cwd, stdio: 'inherit' };
+    // The AI tool runs in this terminal: nothing to hide.
+    port !== undefined
+      ? { cwd, stdio: 'inherit', windowsHide: false, env: { ...process.env, PORT: String(port) } }
+      : { cwd, stdio: 'inherit', windowsHide: false };
   spawn.sync(cmd, args, spawnOpts);
 }

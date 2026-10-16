@@ -42,6 +42,8 @@ function runInPath(unit: RunUnit, cmd: string, prefix?: string): Promise<RunResu
       cwd: unit.path,
       stdio: prefix ? ['ignore', 'pipe', 'pipe'] : 'inherit',
       shell: false,
+      // Piped (prefixed) output is ours to show: no window of its own. Inherited, it is this terminal's.
+      windowsHide: Boolean(prefix),
     });
     liveChildren.add(child);
 

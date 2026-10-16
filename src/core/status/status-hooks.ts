@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process';
 import type { StatusHook } from '../platform/config.js';
+import { detachHere } from '../platform/process.js';
 
 /**
  * Run every configured status hook whose `on` matches `kind`, fire-and-forget.
@@ -39,9 +40,9 @@ export function runStatusHooks(kind: 'idle' | 'needs_input', cwd: string, sessio
       const child = spawn(command, {
         cwd,
         shell: true,
-        detached: true,
-        stdio: 'ignore',
         // Its output goes nowhere anyway: a console window would only flash up on Windows.
+        detached: detachHere(),
+        stdio: 'ignore',
         windowsHide: true,
         env: {
           ...process.env,
