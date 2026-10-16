@@ -126,6 +126,15 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(prsForSession(s({ id: 'x', branch: 'feat/x', target: 'api' }), prs).map((p) => p.number)).toEqual([1]);
     expect(prsForSession(s({ id: 'x', branch: 'feat/x', target: 'shop', isGroup: true }), prs).map((p) => p.number)).toEqual([1, 2]);
     expect(prsForSession(s({ id: 'x', branch: 'other' }), prs)).toEqual([]);
+    // The worktree switched branch (Claude or you): its PR is on the branch checked out now.
+    expect(
+      prsForSession(s({ id: 'x', branch: 'tmp/check', target: 'api', onOtherBranch: [{ repo: 'api', branch: 'feat/x' }] }), prs).map(
+        (p) => p.number,
+      ),
+    ).toEqual([1]);
+    expect(prsForSession(s({ id: 'x', branch: 'tmp/check', target: 'api', onOtherBranch: [{ repo: 'api', branch: null }] }), prs)).toEqual(
+      [],
+    );
   });
 
   it('formats diff stats, hiding empty ones', () => {

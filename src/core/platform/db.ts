@@ -28,7 +28,7 @@ import { importLegacyState } from './db-import.js';
 export type Db = Database.Database;
 
 /** 1: the first schema (and the JSON import). 2: pr_replies. */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS diff_seen (session_id TEXT PRIMARY KEY, data TEXT NOT
 
 -- The Time tab: each workday's evidence, suggested hours and your edits (core/time/time-store.ts). (v9)
 CREATE TABLE IF NOT EXISTS time_days (day TEXT PRIMARY KEY, data TEXT NOT NULL);
+
+-- The PR watch's last check of each session, so a restart shows its PRs at once (pr-watch-store.ts). (v10)
+CREATE TABLE IF NOT EXISTS pr_watch_state (session_id TEXT PRIMARY KEY, data TEXT NOT NULL);
 
 -- Change counters, so a long-lived reader (work web's sidebar) can notice
 -- another process's writes by polling one row instead of watching files.
@@ -303,6 +306,7 @@ export function purgeSessionRows(d: Db, sessionId: string): void {
     'session_blocks',
     'worklogs',
     'diff_seen',
+    'pr_watch_state',
   ]) {
     d.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
   }

@@ -105,12 +105,15 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
  * Open PRs for a session: on its branch, in its repo — or, for a group, in
  * one of the group's repos (`membersOf`: the configured groups, /api/projects).
  * A group whose members aren't known yet takes any same-branch PR, as
- * before the list arrives.
+ * before the list arrives. The branch is the session's or one a repo of it
+ * has checked out now (`onOtherBranch`: Claude or you switched), as the PR
+ * watch follows the real branch.
  */
 export function prsForSession(s: SessionSummary, prs: PrInfo[], membersOf?: (group: string) => string[] | undefined): PrInfo[] {
   const members = s.isGroup ? membersOf?.(s.target) : undefined;
+  const branches = new Set([s.branch, ...(s.onOtherBranch ?? []).flatMap((o) => (o.branch ? [o.branch] : []))]);
   return prs.filter(
-    (p) => p.branch === s.branch && (p.repoAlias === s.target || (s.isGroup && (!members || members.includes(p.repoAlias)))),
+    (p) => branches.has(p.branch) && (p.repoAlias === s.target || (s.isGroup && (!members || members.includes(p.repoAlias)))),
   );
 }
 

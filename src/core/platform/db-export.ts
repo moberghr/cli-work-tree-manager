@@ -43,6 +43,7 @@ const TABLES = [
   'worklogs',
   'diff_seen',
   'time_days',
+  'pr_watch_state',
 ];
 
 /** Per-session tables of the newer features (session_id + data). */

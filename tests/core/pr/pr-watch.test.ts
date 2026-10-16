@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { autoArchiveVerdict, createPrWatch, ciFixMessage, withoutThread, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
 import { createActivityLog } from '../../../src/core/platform/activity.js';
-import type { RepoShipState, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
+import type { RepoShipState, SessionCi, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
 import type { ReviewFeedback } from '../../../src/core/pr/pr-review.js';
 
@@ -691,5 +691,55 @@ describe('PR watch', () => {
       await h.watch.tick();
       expect(told(h).map(heading)).toEqual(['New review feedback on GitHub', 'CI is failing']);
     });
+  });
+});
+
+describe('PR watch: its last check across a restart', () => {
+  const kept = (number = 7): SessionCi => ({
+    checkedAt: '2026-09-30T10:00:00.000Z',
+    repos: [{ name: 'api', pr: pr({ number }), done: false }],
+  });
+  const saved = (rows: Array<[string, SessionCi]> = []) => ({ load: vi.fn(() => rows), save: vi.fn() });
+
+  it('knows the saved PRs before its first sweep, and asks gh about nothing for it', () => {
+    const store = saved([['s1', kept()]]);
+    const h = harness([repo('api', pr())], ON, false, null, { saved: store });
+    expect(h.watch.state('s1')?.repos[0].pr?.number).toBe(7);
+    expect(store.load).toHaveBeenCalledTimes(1);
+    expect(h.deps.preflight).not.toHaveBeenCalled();
+  });
+
+  it('saves a check that changed what it knew, and not one that changed nothing', async () => {
+    const store = saved();
+    const h = harness([repo('api', pr())], ON, false, null, { saved: store });
+    await h.watch.tick();
+    expect(store.save).toHaveBeenCalledTimes(1);
+    expect(store.save.mock.calls[0][0]).toBe('s1');
+    expect(store.save.mock.calls[0][1].repos[0].pr?.number).toBe(7);
+
+    await h.watch.tick(); // the same again
+    expect(store.save).toHaveBeenCalledTimes(1);
+
+    h.set([repo('api', pr({ checks: 'fail', headSha: 'bbb' }))]);
+    await h.watch.tick();
+    expect(store.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('the first sweep after a restart replaces the saved check, and says so when it differs', async () => {
+    const store = saved([['s1', kept(6)]]);
+    const h = harness([repo('api', pr({ number: 7 }))], ON, false, null, { saved: store });
+    await h.watch.tick();
+    expect(h.watch.state('s1')?.repos[0].pr?.number).toBe(7);
+    expect(h.deps.broadcast).toHaveBeenCalledWith('ci-changed', { sessionId: 's1' });
+    expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('a thread you answered is saved without it', () => {
+    const thread = { threadId: 'T1', repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'r', excerpt: 'e' };
+    const store = saved([['s1', { ...kept(), repos: [{ ...kept().repos[0], openThreads: 1, threads: [thread] }] }]]);
+    const h = harness([repo('api', pr())], ON, false, null, { saved: store });
+    h.watch.answered('s1', 'T1');
+    expect(store.save).toHaveBeenCalledTimes(1);
+    expect(store.save.mock.calls[0][1].repos[0].openThreads).toBe(0);
   });
 });

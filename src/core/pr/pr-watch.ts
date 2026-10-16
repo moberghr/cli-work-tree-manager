@@ -87,6 +87,10 @@ export interface PrWatchDeps {
   /** Per session: what was already acted on — CI head commits reported,
    *  review comments handed over (persisted, see pr-watch-store.ts). */
   told: (sessionId: string) => SeenStore;
+  /** Its last check of each session, kept across restarts (pr-watch-store.ts): read once at
+   *  creation, so the dashboard has the PRs before the first sweep reaches them; written when a
+   *  check changes what it knew. */
+  saved?: { load(): Array<[string, SessionCi]>; save(sessionId: string, ci: SessionCi): void };
   now?: () => number;
   /** Where its runs and decisions show (the Activity panel). */
   activity?: ActivityLog;
@@ -242,7 +246,7 @@ export function withoutThread(ci: SessionCi, threadId: string): SessionCi {
 
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
-  const states = new Map<string, SessionCi>();
+  const states = new Map<string, SessionCi>(deps.saved?.load() ?? []);
   /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
   const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
@@ -374,7 +378,10 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     };
     const before = JSON.stringify(states.get(id)?.repos);
     states.set(id, ci);
-    if (before !== JSON.stringify(ci.repos)) deps.broadcast('ci-changed', { sessionId: id });
+    if (before !== JSON.stringify(ci.repos)) {
+      deps.saved?.save(id, ci);
+      deps.broadcast('ci-changed', { sessionId: id });
+    }
 
     if (!act) return ci;
     if (feedback.length) {
@@ -512,6 +519,7 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       const ci = withoutThread(was, threadId);
       if (ci === was) return;
       states.set(id, ci);
+      deps.saved?.save(id, ci);
       deps.broadcast('ci-changed', { sessionId: id });
     },
     // Your click, not a sweep: a look-only watch does it too (the told-keys are shared, so no one repeats it).

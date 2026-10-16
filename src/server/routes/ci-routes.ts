@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import type { Hono } from 'hono';
 import { loadConfig } from '../../core/platform/config.js';
 import { isOwnCheckout } from '../../core/worktree/own-checkout.js';
-import { createSeenStores } from '../../core/pr/pr-watch-store.js';
+import { createCiStore, createSeenStores } from '../../core/pr/pr-watch-store.js';
 import { loadHistory } from '../../core/sessions/history.js';
 import { sessionIdFor } from '../../core/sessions/session-id.js';
 import { findSession } from '../../core/sessions/web-state.js';
@@ -125,6 +125,7 @@ export function mountCiRoutes(
       return u && u.window > 0 ? u.used / u.window : null;
     },
     told: createSeenStores(),
+    saved: createCiStore(),
   });
 
   app.get('/api/sessions/:id/ci', async (c) => {
