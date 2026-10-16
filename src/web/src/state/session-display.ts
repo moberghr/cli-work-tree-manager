@@ -111,10 +111,10 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
  */
 export function prsForSession(s: SessionSummary, prs: PrInfo[], membersOf?: (group: string) => string[] | undefined): PrInfo[] {
   const members = s.isGroup ? membersOf?.(s.target) : undefined;
-  const branches = new Set([s.branch, ...(s.onOtherBranch ?? []).flatMap((o) => (o.branch ? [o.branch] : []))]);
-  return prs.filter(
-    (p) => branches.has(p.branch) && (p.repoAlias === s.target || (s.isGroup && (!members || members.includes(p.repoAlias)))),
-  );
+  // A repo's own checked-out branch counts for that repo only (a group's repo folder is named as its alias).
+  const onBranch = (p: PrInfo) =>
+    p.branch === s.branch || (s.onOtherBranch ?? []).some((o) => o.repo === p.repoAlias && o.branch === p.branch);
+  return prs.filter((p) => onBranch(p) && (p.repoAlias === s.target || (s.isGroup && (!members || members.includes(p.repoAlias)))));
 }
 
 export type PrLookup = (s: SessionSummary) => PrInfo[];

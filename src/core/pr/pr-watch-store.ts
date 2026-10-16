@@ -65,9 +65,12 @@ export function isSessionCi(v: unknown): v is SessionCi {
 export function createCiStore(): CiStore {
   return {
     load() {
-      const rows = withDb(
-        (d) => d.prepare('SELECT session_id, data FROM pr_watch_state').all() as Array<{ session_id: string; data: string }>,
-      );
+      let rows: Array<{ session_id: string; data: string }>;
+      try {
+        rows = withDb((d) => d.prepare('SELECT session_id, data FROM pr_watch_state').all() as Array<{ session_id: string; data: string }>);
+      } catch {
+        return []; // best-effort, as saving is: the sweep fills it in
+      }
       const out: Array<[string, SessionCi]> = [];
       for (const r of rows) {
         const ci = json.parse(r.data);

@@ -135,6 +135,9 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(prsForSession(s({ id: 'x', branch: 'tmp/check', target: 'api', onOtherBranch: [{ repo: 'api', branch: null }] }), prs)).toEqual(
       [],
     );
+    // In a group, a repo's checked-out branch counts for that repo only: web on feat/x doesn't claim api's PR from feat/x.
+    const group = s({ id: 'g', branch: 'feat/g', target: 'shop', isGroup: true, onOtherBranch: [{ repo: 'web', branch: 'feat/x' }] });
+    expect(prsForSession(group, prs).map((p) => p.number)).toEqual([2]);
   });
 
   it('formats diff stats, hiding empty ones', () => {

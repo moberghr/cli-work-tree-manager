@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { autoArchiveVerdict, createPrWatch, ciFixMessage, withoutThread, type PrWatchDeps } from '../../../src/core/pr/pr-watch.js';
+import {
+  autoArchiveVerdict,
+  createPrWatch,
+  ciFixMessage,
+  savedChecks,
+  withoutThread,
+  type PrWatchDeps,
+} from '../../../src/core/pr/pr-watch.js';
 import { createActivityLog } from '../../../src/core/platform/activity.js';
 import type { RepoShipState, SessionCi, ShipPr, ShipPreflight } from '../../../src/core/api-types.js';
 import type { WorktreeSession } from '../../../src/core/sessions/session-types.js';
@@ -732,6 +739,39 @@ describe('PR watch: its last check across a restart', () => {
     expect(h.watch.state('s1')?.repos[0].pr?.number).toBe(7);
     expect(h.deps.broadcast).toHaveBeenCalledWith('ci-changed', { sessionId: 's1' });
     expect(store.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces each session's first check even when it matches the saved one (the stage tracker learns it, so a later change notifies)", async () => {
+    const store = saved([['s1', kept()]]);
+    const h = harness([repo('api', pr())], ON, false, null, { saved: store });
+    await h.watch.tick();
+    expect(h.deps.broadcast).toHaveBeenCalledWith('ci-changed', { sessionId: 's1' });
+    expect(store.save).not.toHaveBeenCalled(); // nothing changed: nothing written
+    h.deps.broadcast.mockClear();
+    await h.watch.tick();
+    expect(h.deps.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('shows only saved checks of sessions it sweeps, made after the session was', () => {
+    const s = (createdAt: string) => ({ ...session(), createdAt });
+    const rows: Array<[string, SessionCi]> = [
+      ['live', kept()],
+      ['gone', kept()], // archived, untouched for a month, or deleted: never checked again
+      ['remade', kept()], // its id was removed and made again after this check
+    ];
+    const sessions = [
+      { id: 'live', session: s(ENTERED) },
+      { id: 'remade', session: s('2026-10-01T09:00:00Z') },
+    ];
+    expect(savedChecks(rows, sessions).map(([id]) => id)).toEqual(['live']);
+    const h = harness([repo('api', pr())], ON, false, null, {
+      saved: saved([
+        ['s1', kept()],
+        ['other', kept()],
+      ]),
+    });
+    expect(h.watch.state('other')).toBeNull();
+    expect(h.watch.state('s1')).not.toBeNull();
   });
 
   it('a thread you answered is saved without it', () => {

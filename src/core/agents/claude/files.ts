@@ -27,6 +27,11 @@ export function latestTranscript(session: WorktreeSession): ConversationFile | n
 
 /** Only the conversations written around the turn that ended are looked in (the rest are other days' work). */
 const AROUND_TURN_MS = 60_000;
+/** A background agent quiet this long is taken as done (hung, killed): like a quiet "working" decays (session-status.ts). */
+const AGENT_QUIET_MS = 15 * 60_000;
+/** It is asked on every sessions list while it applies: an answer is reused this long. */
+const ANSWER_FOR_MS = 2_000;
+const answers = new Map<string, { at: number; yes: boolean }>();
 
 /**
  * A background agent of this session's conversation wrote after `sinceMs` (a turn's end): that turn handed its work to
@@ -34,7 +39,18 @@ const AROUND_TURN_MS = 60_000;
  * with a `.meta.json` beside it saying how it was asked for — `requestShape: "background"` runs on after the turn
  * that started it ends, and its end comes back as a new turn (a `<task-notification>`).
  */
-export function backgroundWorkSince(session: WorktreeSession, sinceMs: number): boolean {
+export function backgroundWorkSince(session: WorktreeSession, sinceMs: number, now = Date.now()): boolean {
+  const key = `${session.paths.join('|')}|${sinceMs}`;
+  const kept = answers.get(key);
+  if (kept && now - kept.at >= 0 && now - kept.at < ANSWER_FOR_MS) return kept.yes;
+  const yes = lookForBackgroundWork(session, sinceMs, Math.max(sinceMs, now - AGENT_QUIET_MS));
+  if (answers.size > 200) answers.clear();
+  answers.set(key, { at: now, yes });
+  return yes;
+}
+
+/** A background subagent of a conversation written around `sinceMs` (the turn's end) wrote after `afterMs`. */
+function lookForBackgroundWork(session: WorktreeSession, sinceMs: number, afterMs: number): boolean {
   for (const t of listTranscripts(session)) {
     if (t.mtimeMs < sinceMs - AROUND_TURN_MS) continue;
     const dir = path.join(t.file.replace(/\.jsonl$/, ''), 'subagents');
@@ -48,7 +64,7 @@ export function backgroundWorkSince(session: WorktreeSession, sinceMs: number): 
       if (!name.endsWith('.jsonl')) continue;
       const file = path.join(dir, name);
       try {
-        if (fs.statSync(file).mtimeMs <= sinceMs) continue;
+        if (fs.statSync(file).mtimeMs <= afterMs) continue;
         const meta: unknown = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8'));
         if (meta && typeof meta === 'object' && (meta as { requestShape?: unknown }).requestShape === 'background') return true;
       } catch {

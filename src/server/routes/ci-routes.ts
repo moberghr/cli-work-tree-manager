@@ -125,7 +125,8 @@ export function mountCiRoutes(
       return u && u.window > 0 ? u.used / u.window : null;
     },
     told: createSeenStores(),
-    saved: createCiStore(),
+    // The dev server reads what the real one saved, and writes none of it (its build's shape may differ).
+    saved: opts.lookOnly ? { load: createCiStore().load, save: () => {} } : createCiStore(),
   });
 
   app.get('/api/sessions/:id/ci', async (c) => {

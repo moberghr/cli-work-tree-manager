@@ -244,9 +244,25 @@ export function withoutThread(ci: SessionCi, threadId: string): SessionCi {
   };
 }
 
+/**
+ * The saved checks worth showing: only of sessions the sweep checks (the rest would never be
+ * replaced, and a stage from weeks ago would stay in the Inbox), and made after the session was
+ * (one of the same id — target:branch — removed by a build that kept no checks leaves its row).
+ */
+export function savedChecks(
+  rows: Array<[string, SessionCi]>,
+  sessions: Array<{ id: string; session: WorktreeSession }>,
+): Array<[string, SessionCi]> {
+  const created = new Map(sessions.map((s) => [s.id, Date.parse(s.session.createdAt) || 0]));
+  return rows.filter(([id, ci]) => created.has(id) && (Date.parse(ci.checkedAt) || 0) >= created.get(id)!);
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
-  const states = new Map<string, SessionCi>(deps.saved?.load() ?? []);
+  const states = new Map<string, SessionCi>(deps.saved ? savedChecks(deps.saved.load(), deps.sessions()) : []);
+  /** Sessions checked since this watch was made: each one's first check is announced even when it
+   *  matches the saved one, so what listens (the stage tracker, the thread counts) sees it as before. */
+  const checked = new Set<string>();
   /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
   const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
@@ -378,10 +394,10 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     };
     const before = JSON.stringify(states.get(id)?.repos);
     states.set(id, ci);
-    if (before !== JSON.stringify(ci.repos)) {
-      deps.saved?.save(id, ci);
-      deps.broadcast('ci-changed', { sessionId: id });
-    }
+    const changed = before !== JSON.stringify(ci.repos);
+    if (changed) deps.saved?.save(id, ci);
+    if (changed || !checked.has(id)) deps.broadcast('ci-changed', { sessionId: id });
+    checked.add(id);
 
     if (!act) return ci;
     if (feedback.length) {

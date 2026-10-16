@@ -42,12 +42,14 @@ function setup() {
 
 describe("backgroundWorkSince (Claude's: a background agent still at work after the turn ended)", () => {
   const ended = Date.parse('2026-10-15T14:21:07Z');
+  /** When it is asked: a minute after the agent's last write in these tests. */
+  const now = ended + 660_000;
 
   it('a background agent that wrote after the turn ended: yes (reported: feat/api-key-origin read Idle)', () => {
     const { session, conversation, agent } = setup();
     at(ended, conversation);
     agent('a345', 'background', ended + 600_000);
-    expect(backgroundWorkSince(session, ended)).toBe(true);
+    expect(backgroundWorkSince(session, ended, now)).toBe(true);
   });
 
   it('one that finished before the turn ended, an ordinary subagent, or one with no meta: no', () => {
@@ -56,18 +58,39 @@ describe("backgroundWorkSince (Claude's: a background agent still at work after 
     agent('done', 'background', ended - 5_000); // its result came back in that turn
     agent('fg', 'sync', ended + 600_000); // not a background one (it ends inside its turn)
     agent('nometa', null, ended + 600_000);
-    expect(backgroundWorkSince(session, ended)).toBe(false);
+    expect(backgroundWorkSince(session, ended, now)).toBe(false);
   });
 
   it("only the conversation of that turn is looked in, not other days' ones", () => {
     const { session, conversation, agent } = setup();
     at(ended - 3 * 3_600_000, conversation); // this conversation was last written hours before the turn ended
     agent('old', 'background', ended + 600_000);
-    expect(backgroundWorkSince(session, ended)).toBe(false);
+    expect(backgroundWorkSince(session, ended, now)).toBe(false);
+  });
+
+  it('one quiet for 15 minutes is taken as done (hung or killed), so the session can read idle again', () => {
+    const { session, conversation, agent } = setup();
+    at(ended, conversation);
+    agent('hung', 'background', ended + 60_000);
+    expect(backgroundWorkSince(session, ended, ended + 60_000 + 14 * 60_000)).toBe(true);
+    const later = setup(); // a fresh folder: an answer is reused for two seconds
+    at(ended, later.conversation);
+    later.agent('hung', 'background', ended + 60_000);
+    expect(backgroundWorkSince(later.session, ended, ended + 60_000 + 16 * 60_000)).toBe(false);
+  });
+
+  it('asked again within two seconds, it answers without reading the folder again', () => {
+    const { session, conversation, agent } = setup();
+    at(ended, conversation);
+    agent('a1', 'background', ended + 600_000);
+    expect(backgroundWorkSince(session, ended, now)).toBe(true);
+    fs.rmSync(path.dirname(conversation), { recursive: true, force: true });
+    expect(backgroundWorkSince(session, ended, now + 1_000)).toBe(true);
+    expect(backgroundWorkSince(session, ended, now + 3_000)).toBe(false);
   });
 
   it('no conversation at all: no', () => {
     const session = { target: 'api', branch: 'x', isGroup: false, paths: [path.join(home, 'nowhere')] } as WorktreeSession;
-    expect(backgroundWorkSince(session, ended)).toBe(false);
+    expect(backgroundWorkSince(session, ended, now)).toBe(false);
   });
 });

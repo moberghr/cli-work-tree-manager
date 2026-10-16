@@ -105,6 +105,12 @@ describe("PR watch's last check", () => {
     expect(isSessionCi([])).toBe(false);
   });
 
+  it("a database it can't read gives none, rather than stopping work web from starting", () => {
+    createCiStore().save('aaa', check());
+    withDb((d) => d.exec('DROP TABLE pr_watch_state'));
+    expect(createCiStore().load()).toEqual([]);
+  });
+
   it('removing a session removes its last check', async () => {
     const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
     createCiStore().save(id, check());
