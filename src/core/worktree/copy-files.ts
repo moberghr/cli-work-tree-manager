@@ -4,7 +4,7 @@ import { globSync } from 'glob';
 import { report } from '../platform/report.js';
 
 /** Directories to exclude when copying files. */
-const EXCLUDED_DIRS = ['bin', 'obj', 'node_modules', '.git'];
+const EXCLUDED_DIRS = ['bin', 'obj', 'node_modules', '.git', 'cdk.out'];
 
 /**
  * Copy files matching configured patterns from a source repo into a worktree.
