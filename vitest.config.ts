@@ -21,7 +21,9 @@ export default defineConfig({
     // Tests run git against an empty config, never the developer's (commit
     // signing, hooks…), and under a throwaway HOME, never the developer's
     // ~/.work or ~/.claude — see tests/setup/.
-    setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts'],
+    // And on Windows every process they start is hidden (tests/setup/hide-windows.ts):
+    // a test run blinked console windows all over the screen.
+    setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts', 'tests/setup/hide-windows.ts'],
     // `npm run test:coverage` (CI keeps the lcov): what the tests run of src/,
     // reported, with no threshold yet — the number to watch, not to game.
     coverage: {

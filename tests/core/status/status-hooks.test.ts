@@ -43,6 +43,7 @@ describe('runStatusHooks', () => {
     expect(opts.cwd).toBe('/work/dir');
     expect(opts.shell).toBe(true);
     expect(opts.detached).toBe(true);
+    expect(opts.windowsHide).toBe(true);
     const env = opts.env as Record<string, string>;
     expect(env.WORK_SESSION).toBe('dir');
     expect(env.WORK_STATUS).toBe('needs_input');

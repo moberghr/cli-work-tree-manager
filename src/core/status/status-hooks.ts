@@ -41,6 +41,8 @@ export function runStatusHooks(kind: 'idle' | 'needs_input', cwd: string, sessio
         shell: true,
         detached: true,
         stdio: 'ignore',
+        // Its output goes nowhere anyway: a console window would only flash up on Windows.
+        windowsHide: true,
         env: {
           ...process.env,
           WORK_SESSION: sessionName,

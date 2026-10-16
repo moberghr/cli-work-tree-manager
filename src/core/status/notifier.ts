@@ -128,6 +128,8 @@ export function notifyDesktop(sessionName: string, kind: NotifyKind, opts: Notif
     const child = spawnFn(command.cmd, command.args, {
       detached: true,
       stdio: 'ignore',
+      // Windows' toast is a PowerShell run: without this its console window flashes up with every notification.
+      windowsHide: true,
     });
     // Swallow async spawn errors (e.g. ENOENT when the binary is absent);
     // without a handler these would surface as an uncaught exception.

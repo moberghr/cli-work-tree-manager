@@ -16,7 +16,8 @@ export function openInEditor(filePath: string): void {
 export function openUrl(url: string): void {
   const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
-  spawn(cmd, args, { stdio: 'ignore', detached: true }).unref();
+  // `cmd /c start` is a console program: hidden, or a window flashes before the browser opens.
+  spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true }).unref();
 }
 
 /** VS Code and the editors built on it: the folder, then `--goto file:line`, opens the file at its line in that folder's window. */

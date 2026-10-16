@@ -1,5 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { editorArgs } from '../../../src/core/platform/launch.js';
+import { describe, expect, it, vi } from 'vitest';
+
+const spawned = vi.hoisted(() => [] as Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>);
+vi.mock('../../../src/core/platform/spawn.js', () => ({
+  default: (cmd: string, args: string[], opts: Record<string, unknown>) => {
+    spawned.push({ cmd, args, opts });
+    return { unref: () => {} };
+  },
+}));
+
+import { editorArgs, openUrl } from '../../../src/core/platform/launch.js';
+
+describe('openUrl', () => {
+  it('starts the browser hidden: no console window flashes up first (cmd /c start on Windows)', () => {
+    openUrl('http://127.0.0.1:5000/');
+    expect(spawned.at(-1)?.opts).toEqual({ stdio: 'ignore', detached: true, windowsHide: true });
+    expect(spawned.at(-1)?.args.at(-1)).toBe('http://127.0.0.1:5000/');
+  });
+});
 
 describe('editorArgs', () => {
   const folder = '/wt/api';

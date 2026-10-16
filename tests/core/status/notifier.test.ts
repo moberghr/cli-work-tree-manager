@@ -104,6 +104,7 @@ describe('notifyDesktop', () => {
     expect(spawnFn).toHaveBeenCalledWith('notify-send', ['work: feature-login', 'Idle — finished its turn'], {
       detached: true,
       stdio: 'ignore',
+      windowsHide: true,
     });
     expect(child.on).toHaveBeenCalledWith('error', expect.any(Function));
     expect(child.unref).toHaveBeenCalled();
@@ -123,7 +124,7 @@ describe('notifyDesktop', () => {
     expect(spawnFn).toHaveBeenCalledWith(
       'osascript',
       ['-e', 'display notification "Idle — finished its turn" with title "work: feature-login"'],
-      { detached: true, stdio: 'ignore' },
+      { detached: true, stdio: 'ignore', windowsHide: true },
     );
     expect(child.unref).toHaveBeenCalled();
   });
@@ -143,7 +144,7 @@ describe('notifyDesktop', () => {
     expect(args[1]).toBe('-Command');
     expect(args[2]).toContain('Needs your input');
     expect(args[2]).toContain('work: feature-login');
-    expect(opts).toEqual({ detached: true, stdio: 'ignore' });
+    expect(opts).toEqual({ detached: true, stdio: 'ignore', windowsHide: true }); // no PowerShell window flashing with each toast
     expect(child.unref).toHaveBeenCalled();
   });
 
