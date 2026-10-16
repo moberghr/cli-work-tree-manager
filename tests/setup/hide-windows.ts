@@ -14,6 +14,9 @@ import { promisify } from 'node:util';
  * (`execSync('git …')`) didn't. Patched here once, in every worker, rather
  * than in each of the ~140 calls; cross-spawn reads `child_process.spawn` at
  * call time, so it is covered too.
+ *
+ * Only where the run has no console to share: vitest.config.ts decides (tests/setup/hide-decision.ts),
+ * since hiding costs a console per process where one could be shared (a terminal, CI).
  */
 
 type Args = unknown[];
@@ -37,7 +40,7 @@ export function withHide(args: Args): Args {
 
 const NAMES = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'] as const;
 
-if (process.platform === 'win32') {
+if (process.env.WORK_TESTS_HIDE_WINDOWS === '1') {
   const cp = childProcess as unknown as Record<string, ((...a: Args) => unknown) & { [promisify.custom]?: (...a: Args) => unknown }>;
   for (const name of NAMES) {
     const original = cp[name];

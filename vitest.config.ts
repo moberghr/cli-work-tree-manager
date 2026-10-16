@@ -1,4 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import { shouldHideWindows } from './tests/setup/hide-decision.js';
+
+// Decided here, in vitest's own process, for every worker to read (tests/setup/hide-decision.ts).
+process.env.WORK_TESTS_HIDE_WINDOWS = shouldHideWindows({
+  platform: process.platform,
+  env: process.env,
+  stdoutIsTTY: process.stdout.isTTY === true,
+})
+  ? '1'
+  : '0';
 
 // The repo-level Vite config (vite.config.ts) is scoped to src/web for the
 // SPA build. We don't want vitest using its `root` — tests live under
@@ -21,8 +31,8 @@ export default defineConfig({
     // Tests run git against an empty config, never the developer's (commit
     // signing, hooks…), and under a throwaway HOME, never the developer's
     // ~/.work or ~/.claude — see tests/setup/.
-    // And on Windows every process they start is hidden (tests/setup/hide-windows.ts):
-    // a test run blinked console windows all over the screen.
+    // And on Windows, where nothing shares a console, every process they start is hidden
+    // (tests/setup/hide-windows.ts): a test run blinked console windows all over the screen.
     setupFiles: ['tests/setup/isolate-home.ts', 'tests/setup/isolate-git.ts', 'tests/setup/hide-windows.ts'],
     // `npm run test:coverage` (CI keeps the lcov): what the tests run of src/,
     // reported, with no threshold yet — the number to watch, not to game.
