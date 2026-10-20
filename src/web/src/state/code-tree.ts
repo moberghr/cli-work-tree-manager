@@ -114,3 +114,26 @@ export function filterEntries(entries: CodeEntry[], query: string, limit = 200):
   scored.sort((a, b) => a.score - b.score || a.e.display.length - b.e.display.length || a.e.display.localeCompare(b.e.display));
   return scored.slice(0, limit).map((x) => x.e);
 }
+
+/** How the sidebar lists files: the whole tree, a tree of only some (folders open), or a flat list of matches. */
+export type CodeSidebar =
+  { mode: 'full' } | { mode: 'tree'; entries: CodeEntry[]; index: Map<string, Folder> } | { mode: 'list'; entries: CodeEntry[] };
+
+/**
+ * What the sidebar shows: with "changed only", just the files changed on the branch; with a filter typed, the
+ * matches — as a list, or in their folders (`resultsAs: 'tree'`). A tree of some files shows its folders open
+ * (there are few of them, and finding where they are is the point).
+ */
+export function codeSidebar(entries: CodeEntry[], o: { query: string; changedOnly: boolean; resultsAs: 'list' | 'tree' }): CodeSidebar {
+  const base = o.changedOnly ? entries.filter((e) => e.changed) : entries;
+  if (o.query.trim()) {
+    const matches = filterEntries(base, o.query);
+    return o.resultsAs === 'tree' ? { mode: 'tree', entries: matches, index: indexFolders(matches) } : { mode: 'list', entries: matches };
+  }
+  return o.changedOnly ? { mode: 'tree', entries: base, index: indexFolders(base) } : { mode: 'full' };
+}
+
+/** Every folder of an index (open in a tree of some files), less the ones folded by hand. */
+export function openFolders(index: Map<string, Folder>, folded: ReadonlySet<string> = new Set()): Set<string> {
+  return new Set([...index.keys()].filter((d) => d !== '' && !folded.has(d)));
+}

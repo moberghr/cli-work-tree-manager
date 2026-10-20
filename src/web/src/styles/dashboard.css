@@ -4781,6 +4781,47 @@ a.wd-pr-chip:hover {
   background: var(--status-modified-fg);
   margin-left: auto;
 }
+/* Under the file filter: Changed · N, and List | Tree while filtering. */
+.wd-code-view-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 8px 6px;
+}
+.wd-code-seg {
+  display: inline-flex;
+  margin-left: auto;
+}
+.wd-code-seg .wd-code-chip + .wd-code-chip {
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+}
+.wd-code-seg .wd-code-chip:first-child {
+  border-radius: 10px 0 0 10px;
+}
+.wd-code-chip {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wd-code-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.wd-code-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.wd-code-chip-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg);
+}
 .wd-code-changed-count {
   margin-left: auto;
   font-size: 10px;

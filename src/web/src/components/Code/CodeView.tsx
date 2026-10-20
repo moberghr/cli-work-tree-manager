@@ -3,7 +3,7 @@ import type { CodeFileWire, CodeFilesWire } from '../../../../core/api-types.js'
 import { fetchCodeFile, fetchCodeFiles, type SessionSummary } from '../../api/client.js';
 import { openInEditor } from '../../api/panes.js';
 import { useSse } from '../../api/events.js';
-import { codeEntries, codeKey, entryOf, filterEntries, foldersOf, indexFolders, type CodeEntry } from '../../state/code-tree.js';
+import { codeEntries, codeKey, codeSidebar, entryOf, foldersOf, indexFolders, openFolders, type CodeEntry } from '../../state/code-tree.js';
 import type { CodePlace } from '../../state/code-search-view.js';
 import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
 
@@ -11,13 +11,23 @@ import { highlightBlock, resolveHighlightLang } from '../../utils/highlight.js';
 const HIGHLIGHT_MAX_LINES = 8000;
 
 /** Per session, for this page: the open file and folders, so a look at another tab comes back to them. */
-const remembered = new Map<string, { open: string | null; folders: Set<string>; picked: number; unfolded: number }>();
+const remembered = new Map<string, { open: string | null; folders: Set<string>; picked: number; unfolded: number; changedOnly: boolean }>();
 const memoryOf = (id: string) => {
   let m = remembered.get(id);
   // picked / unfolded: the last search pick applied, and the last whose folders were opened (a pick is applied
   // once: coming back to the tab keeps the file you opened since).
-  if (!m) remembered.set(id, (m = { open: null, folders: new Set(), picked: 0, unfolded: 0 }));
+  if (!m) remembered.set(id, (m = { open: null, folders: new Set(), picked: 0, unfolded: 0, changedOnly: false }));
   return m;
+};
+
+/** How filter matches are shown — a list, or in their folders — per browser (a preference, not a session's). */
+const RESULTS_AS_KEY = 'wd-code-results-as';
+const savedResultsAs = (): 'list' | 'tree' => {
+  try {
+    return localStorage.getItem(RESULTS_AS_KEY) === 'tree' ? 'tree' : 'list';
+  } catch {
+    return 'list';
+  }
 };
 
 /**
@@ -45,6 +55,10 @@ export function CodeView({
   const [listing, setListing] = useState<CodeFilesWire | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [changedOnly, setChangedOnlyState] = useState(memory.changedOnly);
+  const [resultsAs, setResultsAsState] = useState<'list' | 'tree'>(savedResultsAs);
+  // Folders folded by hand in a tree of some files (changed only, or matches): the rest are open.
+  const [folded, setFolded] = useState<Set<string>>(new Set());
   const [open, setOpenState] = useState<string | null>(memory.open);
   const [folders, setFolders] = useState<Set<string>>(memory.folders);
   const [file, setFile] = useState<CodeFileWire | null>(null);
@@ -59,7 +73,29 @@ export function CodeView({
   const entries = useMemo(() => (listing ? codeEntries(listing) : []), [listing]);
   const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
   const index = useMemo(() => indexFolders(entries), [entries]);
-  const matches = useMemo(() => filterEntries(entries, query), [entries, query]);
+  const sidebar = useMemo(() => codeSidebar(entries, { query, changedOnly, resultsAs }), [entries, query, changedOnly, resultsAs]);
+  const matches = sidebar.mode === 'full' ? [] : sidebar.entries;
+  const changedCount = useMemo(() => entries.filter((e) => e.changed).length, [entries]);
+  // A new view of some files starts with every folder open.
+  useEffect(() => setFolded(new Set()), [query, changedOnly, resultsAs]);
+  const setChangedOnly = (v: boolean) => {
+    memory.changedOnly = v;
+    setChangedOnlyState(v);
+  };
+  const setResultsAs = (v: 'list' | 'tree') => {
+    try {
+      localStorage.setItem(RESULTS_AS_KEY, v);
+    } catch {
+      /* not kept: the default next time */
+    }
+    setResultsAsState(v);
+  };
+  const toggleFolded = (dir: string) => {
+    const next = new Set(folded);
+    if (next.has(dir)) next.delete(dir);
+    else next.add(dir);
+    setFolded(next);
+  };
   // Not in the listing (new since it was read, or past a big repo's cut): a search's pick still opens.
   const openEntry = open && listing ? entryOf(listing, open, byKey) : null;
 
@@ -201,18 +237,56 @@ export function CodeView({
             if (e.key === 'Enter' && matches[0]) pick(matches[0]);
           }}
         />
+        <div className="wd-code-view-row">
+          <button
+            type="button"
+            className={'wd-code-chip' + (changedOnly ? ' wd-code-chip-on' : '')}
+            aria-pressed={changedOnly}
+            disabled={!changedOnly && changedCount === 0}
+            onClick={() => setChangedOnly(!changedOnly)}
+            title={changedCount ? 'Only the files changed on this branch' : 'Nothing changed on this branch'}
+          >
+            Changed · {changedCount.toLocaleString()}
+          </button>
+          {query.trim() && (
+            <span className="wd-code-seg" role="group" aria-label="Show matches as">
+              {(['list', 'tree'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={'wd-code-chip' + (resultsAs === v ? ' wd-code-chip-on' : '')}
+                  aria-pressed={resultsAs === v}
+                  onClick={() => setResultsAs(v)}
+                >
+                  {v === 'list' ? 'List' : 'Tree'}
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
         <div className="wd-code-tree" role="tree">
           {listError && <p className="wd-code-note">{listError}</p>}
           {!listing && !listError && <p className="wd-code-note">Loading files…</p>}
-          {listing && query.trim() ? (
-            matches.length === 0 ? (
-              <p className="wd-code-note">No file matches.</p>
+          {listing &&
+            (sidebar.mode === 'full' ? (
+              <FolderRows dir="" depth={0} index={index} open={open} folders={folders} onToggle={toggleFolder} onPick={pick} />
+            ) : sidebar.entries.length === 0 ? (
+              <p className="wd-code-note">{query.trim() ? 'No file matches.' : 'Nothing changed on this branch.'}</p>
+            ) : sidebar.mode === 'list' ? (
+              sidebar.entries.map((e) => (
+                <FileRow key={e.key} entry={e} label={e.display} depth={0} open={e.key === open} onPick={() => pick(e)} />
+              ))
             ) : (
-              matches.map((e) => <FileRow key={e.key} entry={e} label={e.display} depth={0} open={e.key === open} onPick={() => pick(e)} />)
-            )
-          ) : (
-            listing && <FolderRows dir="" depth={0} index={index} open={open} folders={folders} onToggle={toggleFolder} onPick={pick} />
-          )}
+              <FolderRows
+                dir=""
+                depth={0}
+                index={sidebar.index}
+                open={open}
+                folders={openFolders(sidebar.index, folded)}
+                onToggle={toggleFolded}
+                onPick={pick}
+              />
+            ))}
           {listing?.repos.some((r) => r.truncated) && <p className="wd-code-note">Only the first 50,000 files of a repo are listed.</p>}
         </div>
       </aside>

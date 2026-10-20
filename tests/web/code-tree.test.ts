@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { codeEntries, codeKey, entryOf, filterEntries, foldersOf, indexFolders } from '../../src/web/src/state/code-tree.js';
+import {
+  codeEntries,
+  codeKey,
+  codeSidebar,
+  entryOf,
+  filterEntries,
+  foldersOf,
+  indexFolders,
+  openFolders,
+} from '../../src/web/src/state/code-tree.js';
 import { demoCodeFile, demoCodeFiles } from '../../src/server/demo/demo-code.js';
 import { parseGitDiff } from '../../src/core/diff/diff-parse.js';
 import type { CodeFilesWire } from '../../src/core/api-types.js';
@@ -99,5 +108,41 @@ describe('the demo', () => {
     expect(demoCodeFile([{ name: 'web', changed: diff }], false, 'web', 'src/cart.ts')?.text).toBe('const a = 1;\nconst b = 3;\n');
     expect(demoCodeFile([{ name: 'web', changed: diff }], false, 'web', 'README.md')?.text).toContain('# web');
     expect(demoCodeFile([{ name: 'web', changed: diff }], false, 'web', 'nope.ts')).toBeNull();
+  });
+});
+
+describe('the Code tab sidebar: changed only, and matches as a list or a tree', () => {
+  const entries = codeEntries(single);
+  const shown = (v: ReturnType<typeof codeSidebar>) => (v.mode === 'full' ? 'full' : v.entries.map((e) => e.display));
+
+  it('nothing set: the whole tree, as before', () => {
+    expect(codeSidebar(entries, { query: '', changedOnly: false, resultsAs: 'list' })).toEqual({ mode: 'full' });
+    expect(codeSidebar(entries, { query: '   ', changedOnly: false, resultsAs: 'tree' })).toEqual({ mode: 'full' });
+  });
+
+  it('changed only: a tree of just the changed files, their folders open', () => {
+    const v = codeSidebar(entries, { query: '', changedOnly: true, resultsAs: 'list' });
+    expect(v.mode).toBe('tree');
+    expect(shown(v)).toEqual(['src/app/util.ts']);
+    if (v.mode !== 'tree') throw new Error('a tree');
+    expect([...openFolders(v.index)].sort()).toEqual(['src', 'src/app']);
+    expect([...openFolders(v.index, new Set(['src/app']))]).toEqual(['src']); // folded by hand
+  });
+
+  it('a filter: the matches as a list, or in their folders; with changed only, among the changed', () => {
+    expect(codeSidebar(entries, { query: 'ts', changedOnly: false, resultsAs: 'list' }).mode).toBe('list');
+    const tree = codeSidebar(entries, { query: 'app', changedOnly: false, resultsAs: 'tree' });
+    expect(tree.mode).toBe('tree');
+    expect(shown(tree)).toEqual(expect.arrayContaining(['src/app/main.ts', 'src/app/util.ts']));
+    if (tree.mode !== 'tree') throw new Error('a tree');
+    expect(tree.index.get('src/app')?.files.map((f) => f.path)).toEqual(['src/app/main.ts', 'src/app/util.ts']);
+    expect(shown(codeSidebar(entries, { query: 'app', changedOnly: true, resultsAs: 'list' }))).toEqual(['src/app/util.ts']);
+    expect(shown(codeSidebar(entries, { query: 'nothing-like-it', changedOnly: false, resultsAs: 'tree' }))).toEqual([]);
+  });
+
+  it("a group's matches are under their repo's folder", () => {
+    const v = codeSidebar(codeEntries(group), { query: 'app', changedOnly: false, resultsAs: 'tree' });
+    if (v.mode !== 'tree') throw new Error('a tree');
+    expect([...openFolders(v.index)].sort()).toEqual(['frontend', 'frontend/src']);
   });
 });
