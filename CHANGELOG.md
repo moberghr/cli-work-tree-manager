@@ -3,6 +3,15 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.3.2 — 2026-10-20
+
+- **Only the changed files, in the Code tab.** **Changed · N** under the
+  file filter shows just the files changed on the branch, as a tree with
+  their folders open. With a filter typed, it searches among them.
+- **Filter matches as a tree.** While you filter, **List | Tree** shows the
+  matching files flat, as before, or in their folders. The choice is
+  remembered.
+
 ## 2.3.1 — 2026-10-20
 
 - **Merge conflicts go to the session's Claude.** When one of a session's
