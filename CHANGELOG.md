@@ -3,6 +3,25 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.3.1 — 2026-10-20
+
+- **Merge conflicts go to the session's Claude.** When one of a session's
+  pull requests gets a merge conflict, its Claude is asked to merge the base
+  branch in (never a rebase or force push), resolve it, check the build and
+  tests, and push. A conflict that takes a decision comes to you as a
+  question instead of a guess. On by default; `prWatch.fixConflicts: false`
+  turns it off.
+- **Sessions start on a Mac app opened from the Dock.** The app got the
+  system's minimal PATH, so `claude` wasn't found and every session ended at
+  once with "session exited with code 1". work now takes the PATH your login
+  shell sets up when it can't find the agent. If you hit this before, run
+  `work pty-host --restart` once in Terminal after updating.
+- **A worktrees folder you can't create is refused in words.** `work init`
+  now creates the folder as you enter it (and expands `~`), and asks again
+  when it can't. Creating a worktree under one says what's wrong and where
+  to change it (`worktreesRoot`, `work config edit`), instead of a
+  permission error's stack trace.
+
 ## 2.3.0 — 2026-10-16
 
 - **A session that handed its work to a background agent reads Working.**
