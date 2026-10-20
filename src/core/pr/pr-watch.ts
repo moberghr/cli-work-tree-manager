@@ -47,7 +47,7 @@ export interface PrWatchDeps {
   /** Leave the session's Claude a (published) review note. */
   tell: (id: string, body: string) => Promise<void>;
   broadcast: (event: string, data: unknown) => void;
-  options: () => { autoArchive: boolean; fixCi: boolean; reviewComments: boolean; trustedBots?: string[] };
+  options: () => { autoArchive: boolean; fixCi: boolean; fixConflicts?: boolean; reviewComments: boolean; trustedBots?: string[] };
   /** Threads just handed to a session's Claude, for the reply drafts (pr-replies.ts). */
   rememberThreads?: (
     sessionId: string,
@@ -130,6 +130,31 @@ export function ciFixMessage(
     '',
     'Look at the failures (`gh pr checks <n>`, `gh run view <run-id> --log-failed`), fix them, and push.',
     `If fixing one needs a decision from me — the check is right but the fix changes behaviour, or the check itself looks wrong — don't guess: start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
+    ...(hint ? [hint] : []),
+  ].join('\n');
+}
+
+/**
+ * The note for a PR that can't merge into its base any more. Merge, never rebase: the branch is
+ * pushed (a rebase needs a force push, which nothing here does), and a merge keeps what reviewers saw.
+ * A conflict that takes a choice — both sides changed the same behaviour — is the user's, not a guess.
+ */
+export function conflictMessage(
+  conflicts: Array<{ repo: string; number: number; base: string | null }>,
+  isGroup: boolean,
+  contextShare?: number | null,
+): string {
+  const lines = conflicts.map(
+    (c) =>
+      `- PR #${c.number}${isGroup ? ` (${c.repo})` : ''} can't merge into ${c.base ?? 'its base branch'}: ${c.base ? `\`git merge origin/${c.base}\`` : 'merge its base branch from origin'}`,
+  );
+  const hint = subAgentHint(contextShare);
+  return [
+    'Merge conflict on a pull request:',
+    ...lines,
+    '',
+    `Bring ${conflicts.length === 1 ? 'the branch' : 'each branch'} up to date: \`git fetch origin\`${isGroup ? ' in that repo' : ''}, then the merge above — a merge, not a rebase, and never a force push (the branch is pushed). Resolve the conflicts keeping what both sides meant, check that it builds and its tests pass, commit the merge and push.`,
+    `If a conflict needs a decision from me — both sides changed the same behaviour and it isn't clear which should win — don't guess: \`git merge --abort\`, and start your reply with a line \`${DECISION_MARKER} <the question>\`.`,
     ...(hint ? [hint] : []),
   ].join('\n');
 }
@@ -300,6 +325,13 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     return true;
   }
 
+  /** Its open PRs that can't merge into their base (GitHub's DIRTY, as the PR stage reads it). */
+  function conflictingOf(ci: SessionCi) {
+    return ci.repos
+      .filter((r) => r.pr?.state === 'OPEN' && r.pr.mergeStateStatus === 'DIRTY')
+      .map((r) => ({ repo: r.name, number: r.pr!.number, headSha: r.pr!.headSha, base: r.pr!.baseBranch ?? null }));
+  }
+
   function failingOf(ci: SessionCi) {
     return ci.repos
       .filter((r) => r.pr?.state === 'OPEN' && r.pr.checks === 'fail')
@@ -433,6 +465,19 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
         if (await tellThenRecord(id, ciFixMessage(fresh, session.isGroup, deps.contextShare?.(session)), ciSeen))
           note(`checks fail on ${what}: asked its Claude to fix them${await wakeNote(id)}`, 'action');
         else note(`checks fail on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
+      }
+    }
+    // A conflict: once per PR head (a push that conflicts again — the base moved on — is told again).
+    // Someone else's PR is theirs to bring up to date, as its CI is.
+    if (opts.fixConflicts !== false) {
+      const fresh = conflictingOf(ci).filter((c) => !theirs.has(c.repo) && !deps.told(id).has(`${id}:${c.repo}:conflict:${c.headSha}`));
+      if (fresh.length) {
+        const seen = staged(id);
+        for (const c of fresh) seen.add(`${id}:${c.repo}:conflict:${c.headSha}`);
+        const what = fresh.map((c) => `#${c.number}${c.base ? ` (into ${c.base})` : ''}`).join(', ');
+        if (await tellThenRecord(id, conflictMessage(fresh, session.isGroup, deps.contextShare?.(session)), seen))
+          note(`merge conflict on ${what}: asked its Claude to merge the base in and resolve it${await wakeNote(id)}`, 'action');
+        else note(`merge conflict on ${what}; couldn't reach its Claude, trying again next time`, 'warn');
       }
     }
     if (opts.autoArchive) {

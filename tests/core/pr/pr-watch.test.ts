@@ -3,6 +3,7 @@ import {
   autoArchiveVerdict,
   createPrWatch,
   ciFixMessage,
+  conflictMessage,
   savedChecks,
   withoutThread,
   type PrWatchDeps,
@@ -781,5 +782,65 @@ describe('PR watch: its last check across a restart', () => {
     h.watch.answered('s1', 'T1');
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.save.mock.calls[0][1].repos[0].openThreads).toBe(0);
+  });
+});
+
+describe('PR watch: a merge conflict goes to its Claude (on by default, prWatch.fixConflicts: false opts out)', () => {
+  const conflicting = (sha = 'aaa', over: Partial<ShipPr> = {}) =>
+    pr({ mergeStateStatus: 'DIRTY', headSha: sha, baseBranch: 'dev', ...over });
+
+  it('asks it once per PR head to merge the base in and resolve; a push that conflicts again is told again', async () => {
+    const h = harness([repo('api', conflicting())], { autoArchive: true, fixCi: true, reviewComments: true });
+    await h.watch.tick();
+    await h.watch.tick();
+    expect(h.deps.tell).toHaveBeenCalledTimes(1);
+    const note = h.deps.tell.mock.calls[0][1];
+    expect(note).toContain("PR #7 can't merge into dev: `git merge origin/dev`");
+    expect(note).toContain('not a rebase, and never a force push');
+    expect(note).toContain('DECISION NEEDED: <the question>');
+    expect(note).toContain('git merge --abort');
+
+    h.set([repo('api', conflicting('bbb'))]);
+    await h.watch.tick();
+    expect(h.deps.tell).toHaveBeenCalledTimes(2);
+  });
+
+  it('a group says which repo; a clean or merged PR, or fixConflicts off, says nothing', async () => {
+    const g = harness([repo('web', conflicting()), repo('api', pr())], ON, true);
+    await g.watch.tick();
+    expect(g.deps.tell.mock.calls[0][1]).toContain("PR #7 (web) can't merge into dev");
+
+    const clean = harness([repo('api', pr()), repo('web', pr({ state: 'MERGED', mergeStateStatus: 'DIRTY' }), true)]);
+    await clean.watch.tick();
+    expect(clean.deps.tell).not.toHaveBeenCalled();
+
+    const off = harness([repo('api', conflicting())], { ...ON, fixConflicts: false });
+    await off.watch.tick();
+    expect(off.deps.tell).not.toHaveBeenCalled();
+    expect(off.watch.state('s1')?.repos[0].pr?.mergeStateStatus).toBe('DIRTY'); // still shown
+  });
+
+  it("someone else's PR is theirs to bring up to date, as its CI is", async () => {
+    const h = harness([repo('api', conflicting('aaa', { author: 'dana' }))], ON, false, null, { viewer: vi.fn(async () => 'me') });
+    await h.watch.tick();
+    expect(h.deps.tell).not.toHaveBeenCalled();
+  });
+
+  it("a note that couldn't be delivered is tried again next time; a look-only watch (the dev server) tells nobody", async () => {
+    const h = harness([repo('api', conflicting())]);
+    h.deps.tell.mockRejectedValueOnce(new Error('down'));
+    await h.watch.tick();
+    await h.watch.tick();
+    expect(h.deps.tell).toHaveBeenCalledTimes(2);
+
+    const look = harness([repo('api', conflicting())], ON, false, null, { lookOnly: true });
+    await look.watch.tick();
+    expect(look.deps.tell).not.toHaveBeenCalled();
+  });
+
+  it('without a known base it still says what to do', () => {
+    expect(conflictMessage([{ repo: 'api', number: 3, base: null }], false)).toContain(
+      "PR #3 can't merge into its base branch: merge its base branch from origin",
+    );
   });
 });

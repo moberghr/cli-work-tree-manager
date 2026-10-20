@@ -110,6 +110,7 @@ export function mountCiRoutes(
       return {
         autoArchive: w?.autoArchive !== false,
         fixCi: w?.fixCi !== false,
+        fixConflicts: w?.fixConflicts !== false,
         reviewComments: w?.reviewComments !== false,
         ...(w?.trustedBots ? { trustedBots: w.trustedBots } : {}),
       };

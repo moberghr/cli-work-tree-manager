@@ -110,6 +110,9 @@ export interface WorkConfig {
   prWatch?: {
     autoArchive?: boolean;
     fixCi?: boolean;
+    /** A PR of the session's that turns conflicting: its Claude is asked to merge the base in and
+     *  resolve it (DECISION NEEDED when it isn't clear-cut). Default on. */
+    fixConflicts?: boolean;
     reviewComments?: boolean;
     /** Review bots whose comments go to Claude like a colleague's (logins,
      *  e.g. "copilot-pull-request-reviewer"). Default: Copilot and
@@ -310,6 +313,7 @@ export function loadConfig(): WorkConfig | null {
           ? {
               autoArchive: parsed.prWatch.autoArchive !== false,
               fixCi: parsed.prWatch.fixCi !== false,
+              fixConflicts: parsed.prWatch.fixConflicts !== false,
               reviewComments: parsed.prWatch.reviewComments !== false,
               ...(Array.isArray(parsed.prWatch.trustedBots)
                 ? {

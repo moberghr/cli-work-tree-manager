@@ -256,7 +256,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
           'view',
           branch,
           '--json',
-          'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision,author',
+          'number,url,state,isDraft,mergeStateStatus,headRefOid,mergedAt,updatedAt,statusCheckRollup,reviewDecision,author,baseRefName',
         ],
         repo.path,
       );
@@ -274,6 +274,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         statusCheckRollup?: CheckRollupItem[];
         reviewDecision?: string | null;
         author?: { login?: string } | null;
+        baseRefName?: string;
       };
       pr = {
         number: j.number,
@@ -288,6 +289,7 @@ async function inspectRepo(repo: { name: string; path: string }, run: CommandRun
         ...(typeof j.reviewDecision === 'string' ? { reviewDecision: j.reviewDecision } : {}),
         // gh pr view names an app `app/dependabot`; the search API, `dependabot`.
         ...(j.author?.login ? { author: j.author.login.replace(/^app\//, '') } : {}),
+        ...(j.baseRefName ? { baseBranch: j.baseRefName } : {}),
         ...(checksFromRollup(j.statusCheckRollup) === 'fail' ? { failing: failingFromRollup(j.statusCheckRollup) } : {}),
       };
     } catch {

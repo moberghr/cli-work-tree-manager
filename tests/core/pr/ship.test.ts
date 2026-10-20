@@ -141,6 +141,14 @@ describe('preflight', () => {
     expect((await shipPreflight(single(), none.run)).repos[0].pr?.reviewDecision).toBeUndefined();
   });
 
+  it('reads its base branch with the PR (what a conflict is resolved against), in the same gh call', async () => {
+    const { run, calls } = fakeRunner({ [P('api')]: ready({ pr: pr({ baseRefName: 'dev' }) }) });
+    expect((await shipPreflight(single(), run)).repos[0].pr?.baseBranch).toBe('dev');
+    expect(calls.filter((c) => c.cmd === 'gh').length).toBe(1);
+    const none = fakeRunner({ [P('api')]: ready() });
+    expect((await shipPreflight(single(), none.run)).repos[0].pr?.baseBranch).toBeUndefined();
+  });
+
   it("reads its author with the PR (the PR watch leaves someone else's alone), in the same gh call", async () => {
     const { run, calls } = fakeRunner({ [P('api')]: ready({ pr: pr({ author: { login: 'dana' } }) }) });
     expect((await shipPreflight(single(), run)).repos[0].pr?.author).toBe('dana');

@@ -753,6 +753,8 @@ export interface ShipPr {
   reviewDecision?: string;
   /** Its author's login: a session on someone else's PR (work on it, review it) isn't handed its threads or CI notes. */
   author?: string;
+  /** The branch it merges into (gh's baseRefName): what a conflict is resolved against. */
+  baseBranch?: string;
 }
 
 export interface FailingCheck {

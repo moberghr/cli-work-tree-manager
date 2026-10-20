@@ -82,7 +82,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 
 <img src="docs/assets/screens/diff.png" alt="The Diff tab: the changes, with a list of commits and Claude's turns to pick from" width="900">
 
-**Pull requests.** **Ship…** pushes, opens the PR and merges it when it's ready. When checks fail or a reviewer comments, the session's Claude is told, plans a fix and drafts replies for you to post.
+**Pull requests.** **Ship…** pushes, opens the PR and merges it when it's ready. When checks fail or a reviewer comments, the session's Claude is told, plans a fix and drafts replies for you to post. When the PR gets a merge conflict, its Claude merges the base branch in and resolves it, and asks you when a conflict takes a decision.
 
 <img src="docs/assets/screens/pr.png" alt="The PR tab: failing checks with Ask Claude to fix, and a drafted reply to a review comment" width="900">
 
@@ -302,7 +302,7 @@ Most of it is set in the app (Welcome, Repos & groups). Everything lives in `~/.
 | `statusHooks` | Your command on `needs_input` / `idle`, with `WORK_SESSION` and `WORK_STATUS` set. |
 | `notifications` | `true` for a desktop toast when no dashboard can notify you. |
 | `prompts` | Your own saved prompts for **Send a prompt** (replacing the defaults; each can be limited to some repos). |
-| `prWatch` | `trustedBots` (whose review comments reach Claude), `wakeClaude` (start a stopped Claude for a PR note). |
+| `prWatch` | `trustedBots` (whose review comments reach Claude), `wakeClaude` (start a stopped Claude for a PR note), `fixConflicts: false` (don't ask Claude to resolve merge conflicts). |
 | `sleepIdleAfterMinutes` | When an unused Claude is stopped to free memory (default 120; 0 = never). |
 | `time` | The Time tab: hours a day, tickets for gaps and days off, Tempo and Outlook settings. |
 | `aiCommand`, `aiCommandFlags` | The agent new sessions run (default Claude Code). |

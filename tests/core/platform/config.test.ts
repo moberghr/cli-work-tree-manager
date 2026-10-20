@@ -54,6 +54,17 @@ describe('loadConfig', () => {
     expect(loaded).toEqual({ ...data, notifications: false });
   });
 
+  it('prWatch.fixConflicts is on unless set to false (asking Claude to resolve a merge conflict)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (prWatch: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', prWatch }));
+    write({});
+    expect(loadConfig()?.prWatch?.fixConflicts).toBe(true);
+    write({ fixConflicts: false });
+    expect(loadConfig()?.prWatch?.fixConflicts).toBe(false);
+  });
+
   it('loads launchViaHost only as a real boolean, so an absent key keeps the default (host)', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });
