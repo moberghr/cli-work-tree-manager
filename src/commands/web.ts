@@ -72,6 +72,7 @@ function info(message: string): void {
 }
 
 import { buildStamp } from '../core/platform/build-stamp.js';
+import { ensureAgentPath } from '../core/platform/shell-path.js';
 
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 
@@ -238,6 +239,11 @@ export const webCommand: CommandModule = {
     // Stale files from a crashed previous run — wipe before we write
     // our own.
     clearWebDiscovery();
+
+    // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
+    // every session would end at once ("exited with code 1"). Take the login shell's before the PTY
+    // host — which inherits it — is started (shell-path.ts).
+    ensureAgentPath();
 
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });

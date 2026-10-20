@@ -16,6 +16,7 @@ import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-h
 import { loadHistory } from '../core/sessions/history.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
+import { ensureAgentPath } from '../core/platform/shell-path.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -126,6 +127,10 @@ export const ptyHostCommand: CommandModule = {
       info(chalk.gray(`PTY host restarted (PID ${host.pid}); sessions are being restored.`));
       return;
     }
+
+    // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
+    // every session would end at once ("exited with code 1"). Take the login shell's (shell-path.ts).
+    ensureAgentPath();
 
     // Singleton: a second host would restore every saved session a second
     // time (two Claudes per conversation). Check-and-start under a lock; a
