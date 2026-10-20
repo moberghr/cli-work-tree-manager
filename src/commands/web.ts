@@ -72,7 +72,7 @@ function info(message: string): void {
 }
 
 import { buildStamp } from '../core/platform/build-stamp.js';
-import { ensureAgentPath } from '../core/platform/shell-path.js';
+import { ensureAgentPath } from '../core/agents/agent-path.js';
 
 export type WebStopOutcome = 'stopped' | 'not-running' | 'stale' | 'unresponsive' | 'failed';
 
@@ -242,8 +242,9 @@ export const webCommand: CommandModule = {
 
     // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
     // every session would end at once ("exited with code 1"). Take the login shell's before the PTY
-    // host — which inherits it — is started (shell-path.ts).
-    ensureAgentPath();
+    // host — which inherits it — is started (shell-path.ts). Not wd's lean server: it starts no agent,
+    // and wd waits only a few seconds for it.
+    if (!lean) ensureAgentPath();
 
     // The PTY host is spawned from the `work` binary, not the `wd` shim.
     configurePtyPool({ workBin: resolveWorkBinPath(process.argv[1]) });

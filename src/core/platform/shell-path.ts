@@ -1,9 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import path from 'node:path';
 import { findOnPath } from './find-on-path.js';
 import { report } from './report.js';
-import { getAiTool } from './ai-launcher.js';
-import { loadConfig, type WorkConfig } from './config.js';
+import { debugLog } from './logger.js';
+import { detachHere } from './process.js';
 
 /**
  * The PATH of the user's login shell, for a work started without one.
@@ -34,16 +34,49 @@ export function parseShellPath(stdout: string): string | null {
   return p ? p : null;
 }
 
-/** Ask the login shell for its PATH; null when it can't say within a few seconds. */
+/** How long the login shell may take to say its PATH. */
+export const SHELL_PATH_TIMEOUT_MS = 5_000;
+
+/** The shell's arguments: a login, interactive shell (what a terminal runs) printing its PATH between markers. */
+export const shellPathArgs = (): string[] => ['-ilc', `printf '%s%s%s' '${MARK}' "$PATH" '${MARK}'`];
+
+/**
+ * How it's started. `killSignal: SIGKILL`: an interactive bash or zsh ignores SIGTERM (spawnSync's
+ * default at the timeout), and Node then waits for it — a stuck profile held work web up for as long as
+ * it hung (reproduced: a 2 s timeout returned after 8 s). `detached` (POSIX): its own session, so it
+ * never takes this terminal's foreground group — killed while holding it, it left `work web` in the
+ * background, where Ctrl+C no longer reached it (reproduced).
+ */
+export const shellPathSpawnOptions = (timeoutMs = SHELL_PATH_TIMEOUT_MS): SpawnSyncOptionsWithStringEncoding =>
+  // `detached` isn't in @types/node's spawnSync options, but spawnSync honors it (spawn_sync reads it).
+  ({
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+    detached: detachHere(),
+    stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
+  }) as SpawnSyncOptionsWithStringEncoding;
+
+type ShellRun = (cmd: string, args: string[]) => { stdout?: string | null; status?: number | null; signal?: string | null; error?: Error };
+
+/** Ask the login shell for its PATH: its PATH, or why it couldn't say (a timeout, no such shell, no markers). */
 export function readShellPath(
   shell = process.env.SHELL || '/bin/zsh',
-  run: (cmd: string, args: string[]) => { stdout?: string | null } = (cmd, args) =>
-    spawnSync(cmd, args, { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }),
-): string | null {
+  run: ShellRun = (cmd, args) => spawnSync(cmd, args, shellPathSpawnOptions()),
+): { path: string } | { why: string } {
   try {
-    return parseShellPath(run(shell, ['-ilc', `printf '%s%s%s' '${MARK}' "$PATH" '${MARK}'`]).stdout ?? '');
-  } catch {
-    return null;
+    const r = run(shell, shellPathArgs());
+    const p = parseShellPath(r.stdout ?? '');
+    if (p) return { path: p };
+    const how = r.error
+      ? r.error.message
+      : r.signal
+        ? `stopped by ${r.signal} (over ${SHELL_PATH_TIMEOUT_MS / 1000} s?)`
+        : `exit ${r.status ?? '?'}, no PATH printed`;
+    return { why: `${shell} -ilc: ${how}` };
+  } catch (err) {
+    return { why: `${shell} -ilc: ${(err as Error).message}` };
   }
 }
 
@@ -57,7 +90,7 @@ export function ensureShellPath(
   opts: {
     platform?: NodeJS.Platform;
     env?: NodeJS.ProcessEnv;
-    readPath?: () => string | null;
+    readPath?: () => { path: string } | { why: string };
     find?: (cmd: string, env: NodeJS.ProcessEnv) => string | null;
   } = {},
 ): 'found' | 'added' | 'unavailable' {
@@ -67,32 +100,23 @@ export function ensureShellPath(
   const find = opts.find ?? ((c: string, e: NodeJS.ProcessEnv) => findOnPath(c, e, platform));
   const missing = need.filter((c) => !find(c, env));
   if (!missing.length) return 'found';
-  const shellPath = (opts.readPath ?? (() => readShellPath(env.SHELL)))();
-  if (!shellPath) {
-    report('warn', `${missing.join(', ')} isn't on PATH (${env.PATH ?? ''}), and the login shell's PATH couldn't be read`);
+  // Said in the debug log too: started by the desktop app, nothing shows what a reporter prints.
+  const say = (level: 'info' | 'warn', text: string) => {
+    report(level, text);
+    debugLog(level === 'warn' ? 'WARN' : 'INFO', text);
+  };
+  const read = (opts.readPath ?? (() => readShellPath(env.SHELL)))();
+  if ('why' in read) {
+    say('warn', `${missing.join(', ')} isn't on PATH (${env.PATH ?? ''}), and the login shell's PATH couldn't be read: ${read.why}`);
     return 'unavailable';
   }
-  env.PATH = mergePath(env.PATH, shellPath);
+  env.PATH = mergePath(env.PATH, read.path);
   const still = missing.filter((c) => !find(c, env));
-  report(
+  say(
     still.length ? 'warn' : 'info',
     still.length
       ? `${still.join(', ')} isn't on PATH, even with the login shell's (${env.PATH})`
       : `${missing.join(', ')} found with the login shell's PATH: using it (${env.PATH})`,
   );
   return 'added';
-}
-
-/** The commands work starts agents with: the configured one, and `claude` (the Ctrl+K assistant's, work's summaries). */
-export function agentCommands(config: Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null): string[] {
-  return [...new Set([getAiTool(config ?? {}).cmd, 'claude'])];
-}
-
-/** For `work web` and the PTY host as they start: find the agents' commands, with the login shell's PATH if need be. */
-export function ensureAgentPath(): void {
-  try {
-    ensureShellPath(agentCommands(loadConfig()));
-  } catch {
-    /* best effort: a session then says what it can't start */
-  }
 }

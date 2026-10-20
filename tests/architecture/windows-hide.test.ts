@@ -74,8 +74,8 @@ export function unhidden(rel: string, text: string): string[] {
     if (/^\s*(\/\/|\*)/.test(before) || /\bfunction\s+$/.test(before)) continue;
     const args = callArgs(text, m.index + m[0].length - 1);
     if (/\bwindowsHide\b/.test(args)) continue;
-    // Options handed by name (`spawn(cmd, args, opts)`): the object it names says it.
-    const named = /,\s*([\w$]+)\s*$/.exec(args.trim())?.[1];
+    // Options handed by name (`spawn(cmd, args, opts)`) or made by a call (`spawn(cmd, args, opts())`): what it names says it.
+    const named = /,\s*([\w$]+)\s*(?:\([^()]*\))?\s*$/.exec(args.trim())?.[1];
     if (named && new RegExp(`\\b${named}\\b[^=;]*=[^;]*\\bwindowsHide\\b`, 's').test(text)) continue;
     const line = text.slice(0, m.index).split('\n').length;
     out.push(`${rel}:${line}  ${m[0]}${args.split('\n')[0].slice(0, 80)}`);
@@ -124,6 +124,18 @@ describe('every process work starts says windowsHide (no console windows flashin
     ).toHaveLength(2);
     expect(unhidden('a.ts', "import { spawn as s } from 'child_process';\ns('cmd', ['/c', 'start'], { detached: true });")).toHaveLength(1);
     expect(unhidden('a.ts', "import spawn from 'cross-spawn';\nspawn('git', ['a(b)'], { cwd, windowsHide: true });")).toEqual([]);
+    expect(
+      unhidden(
+        'a.ts',
+        "import { spawnSync } from 'node:child_process';\nconst opts = (t = 5) => ({ timeout: t, windowsHide: true });\nspawnSync('sh', [], opts(500));",
+      ),
+    ).toEqual([]);
+    expect(
+      unhidden(
+        'a.ts',
+        "import { spawnSync } from 'node:child_process';\nconst opts = (t = 5) => ({ timeout: t });\nspawnSync('sh', [], opts());",
+      ),
+    ).toHaveLength(1);
     expect(unhidden('a.ts', "import spawn from 'cross-spawn';\nconst opts = { cwd, windowsHide: true };\nspawn('git', [], opts);")).toEqual(
       [],
     );

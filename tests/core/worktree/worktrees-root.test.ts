@@ -80,4 +80,19 @@ describe('creating a worktree under a folder that cannot be made', () => {
     expect(said).toContain(`worktreesRoot (now ${config.worktreesRoot})`);
     expect(loadHistory()).toEqual([]);
   });
+
+  it('a group too: refused with the sentence, no repo of it made, no session recorded', async () => {
+    const config: WorkConfig = {
+      worktreesRoot: path.join(tmp, 'worktrees'),
+      repos: { api: repoDir },
+      groups: { grp: ['api'] },
+      copyFiles: [],
+    };
+    const reports = collectingReporter();
+    const result = await withReporter(reports, () => setupWorktree('grp', 'feat/g', config));
+    expect(result).toBeNull();
+    expect(reports.errors().join(' ')).toContain("Can't create the worktree folder");
+    expect(loadHistory()).toEqual([]);
+    expect(git(['worktree', 'list', '--porcelain'], repoDir).stdout.match(/^worktree /gm)).toHaveLength(1);
+  });
 });

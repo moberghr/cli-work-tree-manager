@@ -12,7 +12,7 @@ import { typeThenEnter } from './typing.js';
 export type { AgentAdapter, AgentLaunch, ConversationEntry, LiveAgent, TurnEdge, WorkHook } from './types.js';
 
 type ToolConfig = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags'> | null;
-type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent' | 'assistantAgent'>;
+export type AgentSettings = Pick<WorkConfig, 'aiCommand' | 'aiCommandFlags' | 'internalAgent' | 'assistantAgent'>;
 
 /**
  * The config's agent settings (aiCommand, aiCommandFlags, internalAgent, assistantAgent),

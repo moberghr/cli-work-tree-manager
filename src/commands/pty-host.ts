@@ -16,7 +16,7 @@ import { hostInfoPath, hostStartLockPath, readHostInfo } from '../core/pty/pty-h
 import { loadHistory } from '../core/sessions/history.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import { resolveWorkBinPath } from '../core/platform/work-bin.js';
-import { ensureAgentPath } from '../core/platform/shell-path.js';
+import { ensureAgentPath } from '../core/agents/agent-path.js';
 
 function info(message: string): void {
   process.stderr.write(message + '\n');
@@ -128,10 +128,6 @@ export const ptyHostCommand: CommandModule = {
       return;
     }
 
-    // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
-    // every session would end at once ("exited with code 1"). Take the login shell's (shell-path.ts).
-    ensureAgentPath();
-
     // Singleton: a second host would restore every saved session a second
     // time (two Claudes per conversation). Check-and-start under a lock; a
     // version-mismatched or busy (not answering in time) host still counts
@@ -143,6 +139,10 @@ export const ptyHostCommand: CommandModule = {
         err instanceof PtyHostVersionError || err instanceof PtyHostBusyError ? true : null,
       );
       if (running) return null;
+      // Started by the Mac app from the Dock, the PATH is the system's: `claude` wouldn't be found and
+      // every session would end at once ("exited with code 1"). The login shell's, before the restore
+      // below starts any (shell-path.ts); only once we know we're the host.
+      ensureAgentPath();
       // Restore INSIDE the lock, as part of starting: startPtyHost writes
       // the discovery file and reads the saved list in the same tick,
       // before any request is served — so a client spawning a session

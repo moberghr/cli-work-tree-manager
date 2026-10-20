@@ -74,6 +74,14 @@ describe('saveFolders', () => {
     });
   });
 
+  it('refuses a worktrees folder it cannot make, saying why in words, and writes no config', async () => {
+    fs.writeFileSync(path.join(home, 'blocker'), 'a file');
+    await expect(saveFolders({ worktreesRoot: path.join(home, 'blocker', 'wt'), reposFolder: home })).rejects.toThrow(
+      /Worktrees folder: can't create .*: a file is in the way — pick a folder you own/,
+    );
+    expect(fs.existsSync(path.join(home, '.work', 'config.json'))).toBe(false);
+  });
+
   it('refuses a relative or missing folder, saying which', async () => {
     await expect(saveFolders({ worktreesRoot: 'wt', reposFolder: home })).rejects.toThrow(/Worktrees folder: wt isn't a full path/);
     await expect(saveFolders({ worktreesRoot: path.join(home, 'wt'), reposFolder: path.join(home, 'nope') })).rejects.toThrow(

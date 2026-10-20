@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { agentCommands, ensureShellPath, mergePath, parseShellPath, readShellPath } from '../../../src/core/platform/shell-path.js';
+import {
+  ensureShellPath,
+  mergePath,
+  parseShellPath,
+  readShellPath,
+  shellPathArgs,
+  shellPathSpawnOptions,
+} from '../../../src/core/platform/shell-path.js';
 
 const D = path.delimiter;
 const join = (...dirs: string[]) => dirs.join(D);
@@ -18,7 +28,7 @@ describe("the login shell's PATH, for a work the Mac app started from the Dock (
     const r = ensureShellPath(['claude'], {
       platform: 'darwin',
       env,
-      readPath: () => (asked.push('shell'), shell),
+      readPath: () => (asked.push('shell'), { path: shell }),
       find: finder({ claude: '/Users/m/.local/bin' }),
     });
     expect(r).toBe('added');
@@ -27,7 +37,7 @@ describe("the login shell's PATH, for a work the Mac app started from the Dock (
   });
 
   it('found already (started from a terminal), or on Windows: the shell is never asked', () => {
-    const readPath = () => {
+    const readPath = (): { path: string } => {
       throw new Error('should not ask');
     };
     const env = { PATH: shell };
@@ -40,37 +50,62 @@ describe("the login shell's PATH, for a work the Mac app started from the Dock (
 
   it("a shell that can't say leaves PATH as it was", () => {
     const env = { PATH: dock };
-    expect(ensureShellPath(['claude'], { platform: 'linux', env, readPath: () => null, find: () => null })).toBe('unavailable');
+    expect(ensureShellPath(['claude'], { platform: 'linux', env, readPath: () => ({ why: 'timed out' }), find: () => null })).toBe(
+      'unavailable',
+    );
     expect(env.PATH).toBe(dock);
   });
 
-  it('reads the PATH between the markers, whatever an interactive shell prints around it, from `$SHELL -ilc`', () => {
+  it('reads the PATH between the markers, whatever an interactive shell prints around it', () => {
     expect(parseShellPath('Welcome!\n__WORK_SHELL_PATH__/a:/b__WORK_SHELL_PATH__\nbye')).toBe('/a:/b');
     expect(parseShellPath('no markers')).toBeNull();
     expect(parseShellPath('__WORK_SHELL_PATH____WORK_SHELL_PATH__')).toBeNull();
-    const calls: Array<[string, string[]]> = [];
-    const got = readShellPath('/bin/zsh', (cmd, args) => {
-      calls.push([cmd, args]);
-      return { stdout: '__WORK_SHELL_PATH__/x__WORK_SHELL_PATH__' };
-    });
-    expect(got).toBe('/x');
-    expect(calls[0][0]).toBe('/bin/zsh');
-    expect(calls[0][1][0]).toBe('-ilc');
-    expect(readShellPath('/bin/zsh', () => ({ stdout: null }))).toBeNull();
-    expect(
-      readShellPath('/bin/zsh', () => {
-        throw new Error('no shell');
-      }),
-    ).toBeNull();
   });
+
+  it('asks a login, interactive shell to print $PATH between the markers, and says why when it can not', () => {
+    expect(shellPathArgs()).toEqual(['-ilc', `printf '%s%s%s' '__WORK_SHELL_PATH__' "$PATH" '__WORK_SHELL_PATH__'`]);
+    const calls: Array<[string, string[]]> = [];
+    expect(
+      readShellPath('/bin/zsh', (cmd, args) => {
+        calls.push([cmd, args]);
+        return { stdout: '__WORK_SHELL_PATH__/x__WORK_SHELL_PATH__' };
+      }),
+    ).toEqual({ path: '/x' });
+    expect(calls).toEqual([['/bin/zsh', shellPathArgs()]]);
+    expect(readShellPath('/bin/zsh', () => ({ stdout: '', signal: 'SIGKILL' }))).toEqual({
+      why: expect.stringContaining('stopped by SIGKILL'),
+    });
+    expect(readShellPath('/bin/zsh', () => ({ stdout: null, status: 1 }))).toEqual({ why: '/bin/zsh -ilc: exit 1, no PATH printed' });
+    expect(readShellPath('/nope', () => ({ error: new Error('spawnSync /nope ENOENT') }))).toEqual({
+      why: '/nope -ilc: spawnSync /nope ENOENT',
+    });
+  });
+
+  it('the shell is killed (SIGKILL: an interactive shell ignores SIGTERM) at the limit, in its own session on POSIX', () => {
+    const o = shellPathSpawnOptions() as unknown as Record<string, unknown>;
+    expect(o).toMatchObject({ timeout: 5_000, killSignal: 'SIGKILL', windowsHide: true, encoding: 'utf8' });
+    expect(o.detached).toBe(process.platform !== 'win32');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'a shell that ignores SIGTERM and hangs is stopped at the limit (reproduced: 8 s for 2 s before)',
+    () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'work-shell-'));
+      try {
+        const stuck = path.join(dir, 'stuck-shell');
+        fs.writeFileSync(stuck, "#!/bin/sh\ntrap '' TERM\nsleep 20\n", { mode: 0o755 });
+        const t = Date.now();
+        const r = readShellPath(stuck, (cmd, args) => spawnSync(cmd, args, shellPathSpawnOptions(500)));
+        expect(Date.now() - t).toBeLessThan(5_000);
+        expect('why' in r).toBe(true);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('merges without repeats, the shell first', () => {
     expect(mergePath(join('/b', '/c'), join('/a', '/b'))).toBe(join('/a', '/b', '/c'));
     expect(mergePath(undefined, '/a')).toBe('/a');
-  });
-
-  it("looks for the configured agent's command and claude (the assistant's and the summaries')", () => {
-    expect(agentCommands(null)).toEqual(['claude']);
-    expect(agentCommands({ aiCommand: 'opencode --x' })).toEqual(['opencode', 'claude']);
   });
 });
