@@ -6,6 +6,7 @@ import { atomicWriteFile, withFileLock } from '../platform/fs-safe.js';
 import { loadHistory } from '../sessions/history.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
 import type { SetupWire, ToolCheck } from '../api-types.js';
+import { makeFolder } from '../worktree/worktrees-root.js';
 
 /**
  * First run (the dashboard's Welcome page, `work init`): where your repos
@@ -55,7 +56,8 @@ export async function saveFolders(req: { worktreesRoot: string; reposFolder: str
   if (rf) throw new Error(`Repos folder: ${rf}`);
   const worktreesRoot = path.resolve(req.worktreesRoot.trim());
   const reposFolder = path.resolve(req.reposFolder.trim());
-  fs.mkdirSync(worktreesRoot, { recursive: true });
+  const cantMake = makeFolder(worktreesRoot);
+  if (cantMake) throw new Error(`Worktrees folder: ${cantMake} — pick a folder you own, e.g. under ${os.homedir()}`);
   getConfigDir();
   const file = getConfigPath();
   if (!fs.existsSync(file)) fs.writeFileSync(file, '{}', { flag: 'wx' });

@@ -33,6 +33,7 @@ import {
 import { copyConfigFiles } from './copy-files.js';
 import { type BaseSpec, baseForAlias, baseSpecOverrideAliases, isEmptyBaseSpec, toBaseSpec } from '../git/base-spec.js';
 import { report } from '../platform/report.js';
+import { makeFolder, worktreeFolderMessage } from './worktrees-root.js';
 
 /**
  * Pull latest changes for a checkout we're switching into (a worktree that
@@ -225,7 +226,11 @@ function makeSingleWorktree(
 
   // Create parent directory
   const parentDir = path.dirname(worktreePath);
-  fs.mkdirSync(parentDir, { recursive: true });
+  const cantMake = makeFolder(parentDir);
+  if (cantMake) {
+    report('error', worktreeFolderMessage(parentDir, config.worktreesRoot, cantMake));
+    return false;
+  }
 
   // Fetch remote refs first so origin/* is up to date even if pull fails below
   if (!fetched) git(['fetch', '--quiet'], repoPath);
@@ -658,7 +663,11 @@ async function setupGroupWorktree(
   report('detail', `Directory: ${groupWorktreePath}`);
   report('info', '');
 
-  fs.mkdirSync(groupWorktreePath, { recursive: true });
+  const cantMake = makeFolder(groupWorktreePath);
+  if (cantMake) {
+    report('error', worktreeFolderMessage(groupWorktreePath, config.worktreesRoot, cantMake));
+    return null;
+  }
 
   const createdWorktrees: Array<{ repoPath: string; worktreePath: string }> = [];
   // Per-repo fork point, keyed by worktree path (matches the session `paths`).

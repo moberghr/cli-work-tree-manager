@@ -9,6 +9,7 @@ import { KNOWN_TOOLS } from '../core/platform/ai-launcher.js';
 import { setupCompletions, printCompletionResults, printManualInstructions } from './shared/setup-completions.js';
 import { DEFAULT_COPY_FILES, suggestFolders } from '../core/setup/first-run.js';
 import { enrollProblem, scanForRepos, suggestAlias } from '../core/worktree/repo-scan.js';
+import { chooseWorktreesRoot } from '../core/worktree/worktrees-root.js';
 
 export const initCommand: CommandModule = {
   command: 'init',
@@ -49,12 +50,18 @@ export const initCommand: CommandModule = {
     const suggested = suggestFolders(os.homedir());
     const defaultRoot = config.worktreesRoot || suggested.worktreesRoot;
 
+    // Made as it's entered: a folder you may not create (`/Users/worktrees` on a Mac) is refused here,
+    // not at the first worktree.
     const worktreesInput = await input({
       message: 'Worktrees root directory',
       default: defaultRoot,
+      validate: (v) => {
+        const chosen = chooseWorktreesRoot(v || defaultRoot);
+        return 'problem' in chosen ? chosen.problem : true;
+      },
     });
-
-    config.worktreesRoot = worktreesInput || defaultRoot;
+    const chosen = chooseWorktreesRoot(worktreesInput || defaultRoot);
+    config.worktreesRoot = 'root' in chosen ? chosen.root : worktreesInput || defaultRoot;
 
     console.log('');
     console.log(chalk.green(`Great! Worktrees will be created in: ${config.worktreesRoot}`));
