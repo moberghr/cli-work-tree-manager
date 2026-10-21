@@ -17,6 +17,7 @@ import { removeSessionFiles, stopSessionDevServer, clearSessionCheckpoints } fro
 
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
+import { recordedRepos } from './session-repos.js';
 
 /**
  * Worktree sessions, in the `sessions` table of ~/.work/state.db (db.ts):
@@ -100,6 +101,8 @@ export async function upsertSession(
   jiraKey?: string,
   baseBranch?: string,
   port?: number,
+  /** The repo alias of each of `paths` (WorktreeSession.repos); omitted keeps what the row has. */
+  repos?: string[],
 ): Promise<void> {
   tx((d) => {
     const existing = getRow(d, target, branch);
@@ -112,6 +115,7 @@ export async function upsertSession(
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (port !== undefined) existing.port = port;
+      if (repos) existing.repos = [...repos];
       putRow(d, existing);
     } else {
       const session: WorktreeSession = {
@@ -126,6 +130,7 @@ export async function upsertSession(
       if (jiraKey) session.jiraKey = jiraKey;
       if (baseBranch) session.baseBranch = baseBranch;
       if (port !== undefined) session.port = port;
+      if (repos) session.repos = [...repos];
       putRow(d, session);
     }
   });
@@ -157,6 +162,8 @@ export async function upsertSessionWithPort(
   jiraKey?: string,
   baseBranch?: string,
   baseBranches?: Record<string, string>,
+  /** The repo alias of each of `paths` (WorktreeSession.repos); omitted keeps what the row has. */
+  repos?: string[],
 ): Promise<{ port?: number }> {
   const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
   const id = sessionIdFor({ target, branch });
@@ -172,6 +179,7 @@ export async function upsertSessionWithPort(
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
       if (existing.port === undefined && port !== undefined) existing.port = port;
+      if (repos) existing.repos = [...repos];
       putRow(d, existing);
       return existing.port;
     }
@@ -180,6 +188,7 @@ export async function upsertSessionWithPort(
     if (baseBranch) session.baseBranch = baseBranch;
     if (hasPerRepo) session.baseBranches = baseBranches;
     if (port !== undefined) session.port = port;
+    if (repos) session.repos = [...repos];
     putRow(d, session);
     return port;
   };
@@ -335,6 +344,9 @@ export async function prunePersistedStaleEntries(): Promise<{ pruned: number }> 
  * Merge hydrated sessions into history without clobbering existing entries.
  * For each incoming session: if a matching target+branch exists, refresh its
  * paths (if different) but keep original timestamps. Otherwise insert.
+ * A session that records its repos (`repos`) owns its list: its paths keep
+ * their order and none is dropped; a folder found on disk that it lacks is
+ * added at the end, with its repo.
  */
 export async function mergeHydratedSessions(incoming: WorktreeSession[]): Promise<{ added: number; updated: number }> {
   return tx((d) => {
@@ -343,7 +355,19 @@ export async function mergeHydratedSessions(incoming: WorktreeSession[]): Promis
 
     for (const inc of incoming) {
       const existing = getRow(d, inc.target, inc.branch);
-      if (existing) {
+      const own = existing ? recordedRepos(existing) : null;
+      if (existing && own) {
+        const extra = inc.paths
+          .map((p, i) => ({ path: p, alias: inc.repos?.[i] }))
+          .filter((x) => !own.some((r) => samePath(r.path, x.path)));
+        // Without its repo a new folder can't be recorded beside the others: the list stays as it is.
+        if (extra.length && extra.every((x) => typeof x.alias === 'string')) {
+          existing.paths = [...existing.paths, ...extra.map((x) => x.path)];
+          existing.repos = [...own.map((r) => r.alias), ...extra.map((x) => x.alias as string)];
+          putRow(d, existing);
+          updated++;
+        }
+      } else if (existing) {
         const sortedA = [...existing.paths].sort();
         const sortedB = [...inc.paths].sort();
         const same = sortedA.length === sortedB.length && sortedA.every((p, i) => p === sortedB[i]);

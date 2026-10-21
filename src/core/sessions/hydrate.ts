@@ -47,8 +47,12 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
         const existing = discovered.get(key);
         if (existing) {
           if (!existing.paths.includes(entry.path)) {
-            existing.paths.push(entry.path);
-            existing.paths.sort();
+            // Sorted by path (as before), each folder keeping its repo beside it.
+            const repos = existing.repos ?? [];
+            const pairs = [...existing.paths.map((p, i): [string, string] => [p, repos[i]]), [entry.path, alias] as [string, string]];
+            pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+            existing.paths = pairs.map(([p]) => p);
+            existing.repos = pairs.map(([, a]) => a);
           }
         } else {
           const { createdAt, lastAccessedAt } = inferTimestamps(entry.path);
@@ -57,6 +61,7 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
             isGroup: true,
             branch: entry.branch,
             paths: [entry.path],
+            repos: [alias],
             createdAt,
             lastAccessedAt,
           });
@@ -76,6 +81,7 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
           isGroup: false,
           branch: entry.branch,
           paths: [entry.path],
+          repos: [alias],
           createdAt,
           lastAccessedAt,
         });

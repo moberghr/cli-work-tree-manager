@@ -272,4 +272,26 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     expect(start).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('the last commit of backend: feat/y, web: feat/y-ui'));
     expect(loadHistory().find((s) => s.branch === 'feat/y-2')?.isGroup).toBe(true);
   });
+
+  it("the repos a fork checks are the parent session's own (recorded); a row from before, the group's config", async () => {
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const deps = defaultForkDeps({ summarize: async () => null, uncommitted: () => 0 });
+    const config = {
+      worktreesRoot: '/wt',
+      repos: { api: '/src/api', web: '/src/web', docs: '/src/docs' },
+      groups: { shop: ['api', 'web'] },
+      copyFiles: [],
+    };
+    const parent = {
+      target: 'shop',
+      isGroup: true,
+      branch: 'feat/x',
+      paths: ['/wt/shop/feat-x/api', '/wt/shop/feat-x/docs'],
+      createdAt: '',
+      lastAccessedAt: '',
+    };
+    expect(deps.repos('shop', config, { ...parent, repos: ['api', 'docs'] })?.map((r) => r.alias)).toEqual(['api', 'docs']);
+    expect(deps.repos('shop', config, parent)?.map((r) => r.alias)).toEqual(['api', 'web']);
+    expect(deps.repos('shop', config)?.map((r) => r.alias)).toEqual(['api', 'web']);
+  });
 });

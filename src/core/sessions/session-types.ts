@@ -8,6 +8,11 @@ export interface WorktreeSession {
   isGroup: boolean;
   branch: string;
   paths: string[];
+  /** The repo alias each of `paths` is a checkout of: same order and length.
+   *  The session owns this list (a group's may differ from the group's config
+   *  now). Absent on rows from before it was recorded: read it through
+   *  `sessionRepos` / `sessionAliases` (session-repos.ts), which derive those. */
+  repos?: string[];
   createdAt: string;
   lastAccessedAt: string;
   jiraKey?: string;

@@ -89,8 +89,8 @@ export function forkPrompt(
 
 export interface ForkDeps {
   config: () => WorkConfig | null;
-  /** Each repo of a target: alias and base checkout. */
-  repos: (target: string, config: WorkConfig) => Array<{ alias: string; repoPath: string }> | null;
+  /** Each repo of a target — of the parent session, when given (its own list) —: alias and base checkout. */
+  repos: (target: string, config: WorkConfig, parent?: WorktreeSession) => Array<{ alias: string; repoPath: string }> | null;
   branchOf: (checkout: string) => string | null;
   branchExists: (repoPath: string, branch: string) => boolean;
   /** git check-ref-format --branch. */
@@ -123,7 +123,7 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
   if (!deps.validBranch(branch)) return { ok: false, status: 400, error: `${branch} is not a valid branch name` };
   const config = deps.config();
   if (!config) return { ok: false, status: 400, error: 'no config' };
-  const repos = deps.repos(parent.target, config);
+  const repos = deps.repos(parent.target, config, parent);
   if (!repos) return { ok: false, status: 400, error: `${parent.target} is no longer in the config` };
   // An existing branch would be checked out as it is, not forked.
   const taken = repos.filter((r) => deps.branchExists(r.repoPath, branch)).map((r) => r.alias);

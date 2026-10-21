@@ -6,6 +6,7 @@ import { replaceDb, snapshotDb, withDb } from '../platform/db.js';
 import { atomicWriteFile } from '../platform/fs-safe.js';
 import { loadHistory, saveHistory, type WorktreeSession } from '../sessions/history.js';
 import { sessionIdFor } from '../sessions/session-id.js';
+import { sessionAliases } from '../sessions/session-repos.js';
 import { agentOf } from '../agents/index.js';
 import { originUrl, readGitConfig } from '../worktree/repo-scan.js';
 import { defaultRunner, type CommandRunner } from '../pr/ship.js';
@@ -322,7 +323,7 @@ export async function importBundle(dir: string, opts: ImportOptions = {}, deps: 
   for (const s of history) {
     if (s.archivedAt || !s.branch || s.paths.every(exists)) continue;
     const label = `${s.target} · ${s.branch}`;
-    const repos = s.isGroup ? (config.groups[s.target] ?? []) : [s.target];
+    const repos = sessionAliases(s, config);
     if (repos.some((r) => missing.has(r))) {
       report.worktrees.failed.push({ session: label, error: `its repo isn't here (${repos.filter((r) => missing.has(r)).join(', ')})` });
       continue;

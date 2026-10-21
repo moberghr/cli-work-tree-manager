@@ -190,4 +190,13 @@ describe('sessionBranchUse', () => {
         ?.get('feat/x')?.archived,
     ).toBe(true);
   });
+
+  it("a group session that records its repos uses exactly those, not the group's config; a row from before the config's", () => {
+    const groups = { shop: ['api', 'web'] };
+    const own: WorktreeSession = { ...sess('shop', true, false), paths: ['/w/a', '/w/d'], repos: ['api', 'docs'] };
+    const use = sessionBranchUse([own], groups);
+    expect([...use.keys()].sort()).toEqual(['api', 'docs']);
+    const legacy = { ...sess('shop', true, false), paths: ['/w/a', '/w/d'] };
+    expect([...sessionBranchUse([legacy], groups).keys()].sort()).toEqual(['api', 'web']);
+  });
 });

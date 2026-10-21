@@ -104,6 +104,17 @@ describe('changing repos (config.json under its lock, unknown settings kept)', (
     expect(loadConfig()!.groups.shop).toEqual(['api']);
   });
 
+  it('remove: a live group session that records the repo among its own counts as using it; a row from before does not', async () => {
+    await enrollRepo('web', path.join(src, 'web'));
+    const own = { ...session('shop', 'feat/z'), isGroup: true, paths: ['/w/api', '/w/web'], repos: ['api', 'web'] };
+    const legacy = { ...session('shop', 'feat/old'), isGroup: true, paths: ['/w/api', '/w/web'] };
+    expect(repoInventory(loadConfig()!, [own, legacy]).repos.find((r) => r.alias === 'web')?.sessions).toBe(1);
+    const err = await removeRepo('web', [own, legacy]).catch((e: unknown) => e);
+    expect((err as RepoAdminError).sessions).toEqual(['shop · feat/z']);
+    await removeRepo('web', [legacy]);
+    expect(loadConfig()!.repos.web).toBeUndefined();
+  });
+
   it('scanned folders: the first added replaces the default; a non-folder is refused', async () => {
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-admin-root-'));
     try {

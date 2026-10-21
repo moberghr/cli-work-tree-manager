@@ -10,6 +10,7 @@ import { readArchive } from '../../../src/core/archive/session-archive.js';
 import { loadHistory, saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/web-state.js';
 import type { CommandRunner } from '../../../src/core/pr/ship.js';
+import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 
 let home: string;
 beforeEach(() => {
@@ -36,5 +37,20 @@ describe("Clean up's archive", () => {
     );
     expect(loadHistory()[0].archivedAt).toBeTruthy();
     expect(readArchive(id)?.archivedBy).toBe('cleanup');
+  });
+});
+
+describe("Clean up's sessions", () => {
+  it("a group session's repos are its own when recorded; a row from before, the group's config", async () => {
+    saveConfig({ worktreesRoot: path.join(home, 'wt'), repos: {}, groups: { shop: ['api', 'web'] }, copyFiles: [] } as WorkConfig);
+    const base = { target: 'shop', isGroup: true, paths: ['/w/a', '/w/d'], createdAt: 'x', lastAccessedAt: 'x' };
+    saveHistory([
+      { ...base, branch: 'feat/own', repos: ['api', 'docs'] },
+      { ...base, branch: 'feat/old' },
+    ]);
+    const run: CommandRunner = async () => ({ code: 0, stdout: '', stderr: '' });
+    const sessions = await defaultCleanupDeps({ run }).sessions();
+    expect(sessions.find((s) => s.branch === 'feat/own')?.aliases).toEqual(['api', 'docs']);
+    expect(sessions.find((s) => s.branch === 'feat/old')?.aliases).toEqual(['api', 'web']);
   });
 });

@@ -7,6 +7,7 @@ import type { WorktreeSession } from './session-types.js';
 import { resolveProjectTarget } from '../worktree/resolve.js';
 import { createInProcess, type CreateWorktree } from '../worktree/setup-child.js';
 import { sessionIdFor } from './session-id.js';
+import { sessionAliases } from './session-repos.js';
 import { startSessionWithPrompt } from './session-start.js';
 
 /** `work fork`'s and the Fork… route's real inputs (fork.ts). */
@@ -28,9 +29,12 @@ export function defaultForkDeps(
 ): ForkDeps {
   return {
     config: loadConfig,
-    repos: (target, config) => {
+    repos: (target, config, parent) => {
       const t = resolveProjectTarget(target, config);
-      return t ? t.repoAliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : [])) : null;
+      if (!t) return null;
+      // A group session's own repos (recorded; a row from before: the group's config).
+      const aliases = parent && t.isGroup ? sessionAliases(parent, config) : t.repoAliases;
+      return aliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : []));
     },
     branchOf: checkedOutBranch,
     // Branches only (a tag or a short SHA of that name is no clash).

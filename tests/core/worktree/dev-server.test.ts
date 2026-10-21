@@ -54,6 +54,14 @@ describe('devCommandFor', () => {
   it('is null without config', () => {
     expect(devCommandFor(session(), null)).toBeNull();
   });
+  it("a group session's recorded repos win: a repo its group's config doesn't name has its command", () => {
+    const withDocs = { ...config, repos: { ...config.repos, docs: '/src/docs' }, devCommands: { docs: 'npm run docs' } };
+    const g = session({ target: 'shop', isGroup: true, paths: ['/wt/shop/x/api-svc', '/wt/shop/x/docs'], repos: ['api', 'docs'] });
+    expect(devCommandFor(g, withDocs)).toEqual({ command: 'npm run docs', cwd: '/wt/shop/x/docs', repo: 'docs' });
+    // A row from before: only the group's members count, as before.
+    const legacy = session({ target: 'shop', isGroup: true, paths: ['/wt/shop/x/api-svc', '/wt/shop/x/docs'] });
+    expect(devCommandFor(legacy, withDocs)).toBeNull();
+  });
 });
 
 describe('isListening', () => {

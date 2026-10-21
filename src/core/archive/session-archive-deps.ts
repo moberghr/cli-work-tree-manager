@@ -23,6 +23,7 @@ import { summarizeArchive } from './archive-summary.js';
 import { isLeftover } from '../worktree/leftover.js';
 import { saveIgnored, type SavedIgnored } from './archive-ignored.js';
 import { worktreeFor } from './archive-restore.js';
+import { recordedRepos, sessionAliases } from '../sessions/session-repos.js';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -99,7 +100,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
         paths: s.paths,
         archivedAt: null,
         lastActiveMs: 0,
-        aliases: s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target],
+        aliases: sessionAliases(s, cfg),
       };
       const c = await examineWorktree(cs, { baseCheckouts: () => Object.values(cfg.repos), run });
       // Uncommitted files that were saved don't keep it; commits not in the
@@ -111,7 +112,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
       const id = sessionIdFor(s);
       const saved: Record<string, SavedUncommitted> = {};
       for (const [alias, repo] of repoPaths(s, loadConfig())) {
-        const wt = worktreeOf(s, repo);
+        const wt = worktreeOf(s, repo, alias);
         // A repo's own checkout is never removed, so nothing of it needs saving.
         if (!wt || !fs.existsSync(wt) || normPath(wt) === normPath(repo)) continue;
         const r = await saveUncommitted(wt, alias, archiveRefFor(id, alias, stamp), dir, `${alias}-${stamp}`);
@@ -169,7 +170,7 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
     heads: (s) => {
       const out: Record<string, string> = {};
       for (const [alias, repo] of repoPaths(s, loadConfig())) {
-        const wt = worktreeOf(s, repo);
+        const wt = worktreeOf(s, repo, alias);
         const branch = wt ? checkedOutBranch(wt) : null;
         if (branch && branch !== s.branch) out[alias] = branch;
       }
@@ -227,16 +228,18 @@ export function defaultArchiveDeps(opts: ArchiveDepsOptions = {}): ArchiveDeps {
   };
 }
 
-/** The session's worktree of a repo: its only path, or (a group) the one named after the repo's folder. */
-function worktreeOf(s: WorktreeSession, repo: string): string | null {
+/** The session's worktree of a repo: its only path, or (a group) its recorded one, else the one named after the repo's folder. */
+function worktreeOf(s: WorktreeSession, repo: string, alias: string): string | null {
   if (!s.isGroup) return s.paths[0] ?? null;
+  const own = recordedRepos(s);
+  if (own) return own.find((r) => r.alias === alias)?.path ?? null;
   const name = path.basename(repo).toLowerCase();
   return s.paths.find((p) => path.basename(p).toLowerCase() === name) ?? null;
 }
 
-/** The session's repos as [alias, base checkout path] (a group: each member). */
+/** The session's repos as [alias, base checkout path] (its own, sessionAliases; a row from before: each group member). */
 function repoPaths(s: WorktreeSession, cfg: ReturnType<typeof loadConfig>): Array<[string, string]> {
   if (!cfg) return [];
-  const aliases = s.isGroup ? (cfg.groups[s.target] ?? []) : [s.target];
+  const aliases = sessionAliases(s, cfg);
   return aliases.filter((a) => cfg.repos[a] && fs.existsSync(cfg.repos[a])).map((a) => [a, cfg.repos[a]]);
 }

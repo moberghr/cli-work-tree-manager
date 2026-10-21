@@ -155,6 +155,7 @@ describe('moving to another computer (real git, two homes)', () => {
     expect(config.worktreesRoot).toBe(path.join(newHome, 'wt'));
     const s = loadHistory().find((x) => x.branch === 'feat/x')!;
     expect(s.paths[0].startsWith(newHome)).toBe(true);
+    expect(s.repos).toEqual(['api']); // its own repo list travels with it
     expect(fs.readFileSync(path.join(s.paths[0], 'feature.txt'), 'utf8')).toBe('the feature');
     expect(fs.existsSync(path.join(claudeProjectsRoot(), encodeProjectDir(s.paths[0]), 'conv.jsonl'))).toBe(true);
     expect(fs.existsSync(path.join(newHome, '.work', 'conversations', sessionIdFor(s), 'conv.jsonl'))).toBe(true);

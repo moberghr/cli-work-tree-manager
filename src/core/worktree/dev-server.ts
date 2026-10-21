@@ -6,6 +6,7 @@ import { getConfigDir, type WorkConfig } from '../platform/config.js';
 import { bootTime, isPidAlive, killTree, processName } from '../platform/process.js';
 import { json, withDb } from '../platform/db.js';
 import type { WorktreeSession } from '../sessions/session-types.js';
+import { sessionRepos } from '../sessions/session-repos.js';
 import type { DevServerState } from '../api-types.js';
 
 /**
@@ -87,17 +88,13 @@ export function devCommandFor(
   config: Pick<WorkConfig, 'repos' | 'groups' | 'devCommands'> | null,
 ): { command: string; cwd: string; repo: string } | null {
   const commands = config?.devCommands ?? {};
-  const aliases = session.isGroup ? (config?.groups?.[session.target] ?? []) : [session.target];
-  for (const p of session.paths) {
-    // A worktree folder is named after its repo's folder (resolve.ts), so
-    // match the alias by the repo path's basename.
-    const alias =
-      aliases.find((a) => {
-        const repo = config?.repos?.[a];
-        return repo !== undefined && path.basename(repo).toLowerCase() === path.basename(p).toLowerCase();
-      }) ?? (session.isGroup ? undefined : session.target);
-    const command = alias ? commands[alias] : undefined;
-    if (alias && typeof command === 'string' && command.trim()) return { command, cwd: p, repo: alias };
+  // Each folder's repo: recorded on the session, else (a row from before) the group
+  // member named like the folder (resolve.ts names a worktree folder after its repo's).
+  // A folder no member matches has no dev command, as before.
+  for (const { alias, path: p, guessed } of sessionRepos(session, config)) {
+    if (guessed) continue;
+    const command = commands[alias];
+    if (typeof command === 'string' && command.trim()) return { command, cwd: p, repo: alias };
   }
   return null;
 }
