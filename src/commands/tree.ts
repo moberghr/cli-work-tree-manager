@@ -84,6 +84,11 @@ export const treeCommand: CommandModule = {
         type: 'string',
         hidden: true,
       })
+      .option('repos', {
+        describe: "A new session's repos (comma-separated aliases) instead of its group's: made as a session folder (used by Fork…)",
+        type: 'string',
+        hidden: true,
+      })
       .option('setup-only', {
         describe: 'Create worktree without launching the AI tool (used by dashboard)',
         type: 'boolean',
@@ -258,7 +263,18 @@ export const treeCommand: CommandModule = {
     }
 
     // Create/switch worktree via shared core logic
-    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, { pull, name: argv.name as string | undefined });
+    const repos =
+      typeof argv.repos === 'string'
+        ? argv.repos
+            .split(',')
+            .map((a) => a.trim())
+            .filter(Boolean)
+        : [];
+    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, {
+      pull,
+      name: argv.name as string | undefined,
+      ...(repos.length ? { repos } : {}),
+    });
     if (!result) {
       // Run by you (not work web's child, whose route says it): what keeps the old folder in use, by name.
       const left = setupOnly ? [] : leftoversOf(findSession(loadHistory(), targetName, branchName)?.paths ?? []);

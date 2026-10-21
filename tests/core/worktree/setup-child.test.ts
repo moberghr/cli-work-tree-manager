@@ -30,6 +30,14 @@ describe('the child run, as argv (pure)', () => {
       '--name=Retry',
     ]);
     expect(childArgs({ target: 'api' })).toEqual(['tree', 'api', '--setup-only']); // the repo's own checkout
+    // A new session's own repos (a fork of a session folder).
+    expect(childArgs({ target: 'shop', branch: 'feat/a', repos: ['api', 'web'] })).toEqual([
+      'tree',
+      'shop',
+      'feat/a',
+      '--setup-only',
+      '--repos=api,web',
+    ]);
   });
 
   it("what the child's command line would misread as a flag is refused before anything runs", () => {
@@ -37,6 +45,9 @@ describe('the child run, as argv (pure)', () => {
     expect(invalidRequest({ target: '-x' })).toMatch(/not a project/);
     expect(invalidRequest({ target: 'api', branch: 'b', base: { default: '--x', perRepo: {} } })).toMatch(/not a valid base/);
     expect(invalidRequest({ target: 'api', branch: 'feat/a', name: '--unsafe' })).toBeNull(); // a name is a value (--name=…)
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', '--x'] })).toMatch(/not a repo/);
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['a,b'] })).toMatch(/not a repo/);
+    expect(invalidRequest({ target: 'api', branch: 'b', repos: ['api', 'web'] })).toBeNull();
   });
 });
 
@@ -83,7 +94,15 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     fs.writeFileSync(path.join(repo, 'a.txt'), 'a');
     git(['add', '.'], repo);
     git(['commit', '-m', 'init', '--no-gpg-sign'], repo);
-    config = { worktreesRoot: path.join(project, 'wt'), repos: { api: repo }, groups: {}, copyFiles: [] };
+    const web = path.join(project, 'web');
+    fs.mkdirSync(web);
+    git(['init', '-b', 'main'], web);
+    git(['config', 'user.email', 't@t.t'], web);
+    git(['config', 'user.name', 'T'], web);
+    fs.writeFileSync(path.join(web, 'w.txt'), 'w');
+    git(['add', '.'], web);
+    git(['commit', '-m', 'init', '--no-gpg-sign'], web);
+    config = { worktreesRoot: path.join(project, 'wt'), repos: { api: repo, web }, groups: {}, copyFiles: [] };
     saveConfig(config); // the child reads it from the same (test) HOME
   });
   afterAll(() => fs.rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -99,6 +118,15 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-a', 'a.txt'))).toBe(true);
     expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--unsafe');
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
+  }, 150_000);
+
+  it("a new session's own repos (--repos): made as a session folder holding them", async () => {
+    const r = await create({ target: 'api', branch: 'feat/r', repos: ['api', 'web'] }, config);
+    const folder = path.join(config.worktreesRoot, 'api', 'feat-r');
+    expect(r).toMatchObject({ ok: true, launchDir: folder, paths: [path.join(folder, 'api'), path.join(folder, 'web')] });
+    expect(findSession(loadHistory(), 'api', 'feat/r')).toMatchObject({ isGroup: true, repos: ['api', 'web'] });
+    const unknown = await createInProcess({ target: 'api', branch: 'feat/s', repos: ['api', 'nope'] }, config);
+    expect(unknown).toEqual({ ok: false, error: expect.stringContaining('not in your config: nope') });
   }, 150_000);
 
   it("the repo's own checkout with no branch; a failure says why (the child's own error)", async () => {

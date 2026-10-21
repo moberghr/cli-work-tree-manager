@@ -7,6 +7,7 @@ import { openBaseCheckout, setupWorktree } from './worktree.js';
 import { collectingReporter, withReporter } from '../platform/report.js';
 import { resolveProjectTarget } from './resolve.js';
 import { defaultRunner } from '../pr/ship.js';
+import { sessionAliases } from '../sessions/session-repos.js';
 
 /**
  * Creating a worktree runs git synchronously (fetch, pull, worktree add):
@@ -24,6 +25,8 @@ export interface CreateRequest {
   base?: BaseSpec;
   jiraKey?: string;
   name?: string;
+  /** A new session's repos instead of its group's config (a fork of a session folder: the parent's own). */
+  repos?: string[];
 }
 
 export type CreateResult = { ok: true; branch: string; launchDir: string; paths: string[] } | { ok: false; error: string };
@@ -40,6 +43,7 @@ export function invalidRequest(req: CreateRequest): string | null {
   for (const [alias, b] of Object.entries(req.base?.perRepo ?? {}))
     if (alias.startsWith('-') || b.startsWith('-')) return `not a valid base: ${alias}=${b}`;
   if (req.base?.default?.startsWith('-')) return `not a valid base: ${req.base.default}`;
+  for (const alias of req.repos ?? []) if (!alias || alias.startsWith('-') || alias.includes(',')) return `not a repo: ${alias}`;
   return null;
 }
 
@@ -66,6 +70,7 @@ export function childArgs(req: CreateRequest): string[] {
     ...baseArgs(req.base),
     ...(req.jiraKey ? [`--jira-key=${req.jiraKey}`] : []),
     ...(req.name?.trim() ? [`--name=${req.name.trim()}`] : []),
+    ...(req.repos?.length ? [`--repos=${req.repos.join(',')}`] : []),
   ];
 }
 
@@ -156,7 +161,7 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
         if (timedOut) {
           // Killed from outside, its own rollback never ran: drop what a
           // half-made `git worktree add` registered, so a retry can make it.
-          void pruneWorktrees(req.target, config).finally(() =>
+          void pruneWorktrees(req.target, req.branch, config).finally(() =>
             done({ ok: false, error: 'setting it up took too long (stopped; run it again, or `work tree` it from a terminal to see why)' }),
           );
           return;
@@ -174,10 +179,15 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
     });
 }
 
-/** `git worktree prune` in each repo of the project (best effort). */
-async function pruneWorktrees(target: string, config: WorkConfig): Promise<void> {
-  const t = resolveProjectTarget(target, config);
-  for (const alias of t?.repoAliases ?? []) {
+/**
+ * `git worktree prune` in each repo of the session (best effort): its own
+ * repos when it has a row (sessionAliases: one added to it, or a fork's list),
+ * else the project's.
+ */
+export async function pruneWorktrees(target: string, branch: string | undefined, config: WorkConfig): Promise<void> {
+  const known = branch ? findSession(loadHistory(), target, branch) : undefined;
+  const aliases = known ? sessionAliases(known, config) : (resolveProjectTarget(target, config)?.repoAliases ?? []);
+  for (const alias of aliases) {
     const repo = config.repos[alias];
     if (repo) await defaultRunner('git', ['-C', repo, 'worktree', 'prune'], repo).catch(() => undefined);
   }
@@ -196,7 +206,10 @@ export const createInProcess: CreateWorktree = async (req, config) => {
   // Keep what core reports, so a failure says why.
   const reports = collectingReporter();
   const created = await withReporter(reports, () =>
-    setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, { name: req.name }),
+    setupWorktree(req.target, req.branch!, config, req.base, req.jiraKey, {
+      name: req.name,
+      ...(req.repos?.length ? { repos: req.repos } : {}),
+    }),
   );
   if (!created)
     return {

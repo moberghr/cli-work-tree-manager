@@ -202,6 +202,23 @@ describe('demo server', () => {
     expect((await byBranch(`${login.branch}-2`)).stackedOn).toMatchObject({ id: login.id });
   });
 
+  it('adds a repo to a session folder, its Claude told; refuses as the real route does', async () => {
+    const list = await sessions();
+    const group = list.find((s) => s.isGroup && !s.archivedAt)!;
+    const single = list.find((s) => !s.isGroup && !s.archivedAt)!;
+    const res = await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api', base: 'dev' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, branch: group.branch, created: true, from: 'dev' });
+    expect((await byBranch(group.branch)).paths).toHaveLength(group.paths.length + 1);
+    const notes = (await get<Comments>(`/api/sessions/${group.id}/comments`)).comments;
+    expect(notes.some((c) => c.status === 'published' && c.body.startsWith('Added repo api to this session'))).toBe(true);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api' })).status).toBe(409);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'nope' })).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${group.id}/repos`, {})).status).toBe(400);
+    expect((await send('POST', `/api/sessions/${single.id}/repos`, { alias: 'web' })).status).toBe(409);
+    expect((await send('POST', '/api/sessions/nope/repos', { alias: 'web' })).status).toBe(404);
+  });
+
   it('shows a session whose parent merged, and Move onto main takes it off the stack', async () => {
     const list = async () => (await get<{ sessions: SessionWire[] }>('/api/sessions')).sessions;
     const report = (await list()).find((s) => s.branch === 'feat/tax-report')!;

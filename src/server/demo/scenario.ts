@@ -31,6 +31,7 @@ import type {
   CleanupState,
   SessionCommit,
   ArchivedBy,
+  AddRepoWire,
 } from '../../core/api-types.js';
 import type { DiffPoint } from '../../core/diff/diff-points.js';
 import type { AgentState } from '../../core/status/attention.js';
@@ -1030,6 +1031,43 @@ export class DemoScenario {
 
   comments(id: string): CommentStore | null {
     return this.sessions.get(id)?.comments ?? null;
+  }
+
+  /**
+   * Add a repo to a session folder (simulated, as add-repo.ts refuses and
+   * does it): checked out on the session's branch, made from the base (main),
+   * its Claude told by a published note.
+   */
+  addRepo(
+    id: string,
+    alias: string,
+    base?: string,
+  ): { ok: true; wire: AddRepoWire } | { ok: false; status: 400 | 404 | 409; error: string } {
+    const s = this.sessions.get(id);
+    if (!s) return { ok: false, status: 404, error: 'unknown session' };
+    if (!alias || alias.startsWith('-') || base?.startsWith('-'))
+      return { ok: false, status: 400, error: `not a valid repo or base: ${alias}` };
+    if (s.archivedAt) return { ok: false, status: 409, error: 'it is archived: restore it first' };
+    if (!s.isGroup)
+      return {
+        ok: false,
+        status: 409,
+        error: `${s.target} · ${s.branch} is a single repo's worktree, not a session folder: a repo can only be added to a session made as a folder (a group's, or a new session with config \`sessionFolders: true\`)`,
+      };
+    if (!this.projects().singles.some((p) => p.name === alias))
+      return { ok: false, status: 400, error: `no repo called ${alias} in your config` };
+    if (s.repos.some((r) => r.name === alias)) return { ok: false, status: 409, error: `${alias} is in this session already` };
+    s.repos.push({ name: alias, uncommitted: '', sinceBranch: '', published: false, pr: null });
+    const from = base || 'main';
+    const path = this.wire(s).paths[s.repos.length - 1];
+    s.comments.post({
+      side: 'general',
+      status: 'published',
+      body: `Added repo ${alias} to this session: ./${alias} on branch ${s.branch}, made from ${from}. Its CLAUDE.md is imported by the session's instructions file.`,
+    });
+    this.emit('comments-changed', { sessionId: id });
+    this.changed();
+    return { ok: true, wire: { ok: true, path, branch: s.branch, created: true, from } };
   }
 
   // -- CI (the PR watch, simulated) ------------------------------------------

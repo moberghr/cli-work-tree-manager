@@ -13,6 +13,7 @@ import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
 import { catchUp } from '../core/conversations/catch-up.js';
 import { mountForkRoutes } from './routes/fork-routes.js';
+import { addRepoInChild, mountSessionRepoRoutes } from './routes/session-repo-routes.js';
 import { defaultForkDeps } from '../core/sessions/fork-deps.js';
 import { createInChild, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
 import { allSnoozes } from '../core/rail/snooze-store.js';
@@ -936,6 +937,25 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     if (s) scopeApi?.releaseSessionScope(s.paths, false);
   };
   mountShipRoutes(app, { broadcast, onRepoChanged: (id) => diffStats.invalidate(id), release: releaseSession, create: makeWorktree });
+  // Add a repo to a session folder (add-repo.ts): in a child, its scope released first, its Claude told.
+  mountSessionRepoRoutes(app, {
+    broadcast,
+    run: addRepoInChild(getWorkBin),
+    // The scope only: the session stays, and its file watcher keeps serving whoever listens.
+    release: (_id, paths) => void scopeApi?.releaseSessionScope(paths, false),
+    invalidate: (id) => {
+      diffStats.invalidate(id);
+      behindCache.invalidate(id);
+    },
+    note: async (id, body) => {
+      const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ side: 'general', status: 'published', body }),
+      });
+      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
+    },
+  });
 
   // The Time tab (core/time): each day's hours per ticket, kept current as you go.
   mountTimeRoutes(app, { deps: timeDeps, broadcast, onGraphChanged: () => void timeKeeper?.run() });

@@ -18,6 +18,7 @@ export const COMMANDS: Array<{ names: string[]; load: () => Promise<CommandModul
   { names: ['tree', 't'], load: async () => (await import('./commands/tree.js')).treeCommand },
   { names: ['remove'], load: async () => (await import('./commands/remove.js')).removeCommand },
   { names: ['fork'], load: async () => (await import('./commands/fork.js')).forkCommand },
+  { names: ['add-repo'], load: async () => (await import('./commands/add-repo.js')).addRepoCommand },
   { names: ['update'], load: async () => (await import('./commands/update.js')).updateCommand },
   { names: ['catchup'], load: async () => (await import('./commands/catchup.js')).catchupCommand },
   { names: ['snooze'], load: async () => (await import('./commands/snooze.js')).snoozeCommand },

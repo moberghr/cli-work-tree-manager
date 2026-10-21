@@ -32,8 +32,9 @@ export function defaultForkDeps(
     repos: (target, config, parent) => {
       const t = resolveProjectTarget(target, config);
       if (!t) return null;
-      // A group session's own repos (recorded; a row from before: the group's config).
-      const aliases = parent && t.isGroup ? sessionAliases(parent, config) : t.repoAliases;
+      // A session folder's own repos (a group's, or a repo's folder session: recorded; a row
+      // from before: the group's config).
+      const aliases = parent?.isGroup ? sessionAliases(parent, config) : t.repoAliases;
       return aliases.flatMap((alias) => (config.repos[alias] ? [{ alias, repoPath: config.repos[alias] }] : []));
     },
     branchOf: checkedOutBranch,
@@ -43,8 +44,8 @@ export function defaultForkDeps(
         (prefix) => git(['show-ref', '--verify', '--quiet', `${prefix}${branch}`], repoPath).exitCode === 0,
       ),
     validBranch: (name) => !name.startsWith('-') && git(['check-ref-format', '--branch', name], os.tmpdir()).exitCode === 0,
-    setup: async (target, branch, config, base, name) => {
-      const made = await (opts.create ?? createInProcess)({ target, branch, base, name }, config);
+    setup: async (target, branch, config, base, name, repos) => {
+      const made = await (opts.create ?? createInProcess)({ target, branch, base, name, ...(repos?.length ? { repos } : {}) }, config);
       return made.ok ? { paths: made.paths } : { error: made.error };
     },
     start: startSessionWithPrompt,

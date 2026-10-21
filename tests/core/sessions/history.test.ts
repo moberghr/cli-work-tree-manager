@@ -13,8 +13,10 @@ import {
   pruneStaleEntries,
   upsertSessionWithPort,
   mergeHydratedSessions,
+  appendSessionRepo,
   type WorktreeSession,
 } from '../../../src/core/sessions/history.js';
+import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 
 let tmpDir: string;
 
@@ -489,5 +491,38 @@ describe("a session's own repos (repos)", () => {
     expect(await mergeHydratedSessions([found])).toEqual({ added: 0, updated: 1 });
     expect(findSession(loadHistory(), 'shop', 'feat')?.paths).toEqual(['/w/shop/feat/api']);
     expect(findSession(loadHistory(), 'shop', 'feat')).not.toHaveProperty('repos');
+  });
+});
+
+describe('appendSessionRepo (a repo added to a session)', () => {
+  const config = {
+    worktreesRoot: '/w',
+    repos: { api: '/r/api', web: '/r/web', docs: '/r/docs' },
+    groups: { shop: ['api', 'web'] },
+    copyFiles: [],
+  };
+  const id = sessionIdFor({ target: 'shop', branch: 'feat' });
+
+  it('appends the path, the alias and its base; a second add of the same alias changes nothing', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, undefined, undefined, ['api', 'web']);
+    const s = appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
+    expect(s?.paths).toEqual(['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs']);
+    expect(s?.repos).toEqual(['api', 'web', 'docs']);
+    expect(s?.baseBranches).toEqual({ '/w/shop/feat/docs': 'main' });
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs-again', 'dev', config);
+    expect(findSession(loadHistory(), 'shop', 'feat')?.paths).toHaveLength(3);
+  });
+
+  it('a row from before gets its list recorded (as derived) before the new repo', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web']);
+    expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toBeUndefined();
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.repos).toEqual(['api', 'web', 'docs']);
+    expect(s?.baseBranches).toBeUndefined();
+  });
+
+  it('a session that is gone: null', () => {
+    expect(appendSessionRepo(id, 'docs', '/w/x', undefined, config)).toBeNull();
   });
 });

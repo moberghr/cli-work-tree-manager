@@ -17,7 +17,7 @@ import { removeSessionFiles, stopSessionDevServer, clearSessionCheckpoints } fro
 
 export type { WorktreeSession } from './session-types.js';
 import type { WorktreeSession } from './session-types.js';
-import { recordedRepos } from './session-repos.js';
+import { recordedRepos, sessionRepos } from './session-repos.js';
 
 /**
  * Worktree sessions, in the `sessions` table of ~/.work/state.db (db.ts):
@@ -54,6 +54,34 @@ function putRow(d: Db, s: WorktreeSession): void {
   d.prepare(
     'INSERT INTO sessions (id, target, branch, data) VALUES (?, ?, ?, ?) ' + 'ON CONFLICT(id) DO UPDATE SET data = excluded.data',
   ).run(sessionIdFor(s), s.target, s.branch, JSON.stringify(s));
+}
+
+/**
+ * A repo added to a session (add-repo.ts): its worktree appended to the
+ * session's paths, its alias to its repos (a row from before gets its list
+ * recorded first, as derived), and the base it was made from — in one
+ * transaction over the row as it is now. Already there: unchanged. Null when
+ * the session is gone.
+ */
+export function appendSessionRepo(
+  id: string,
+  alias: string,
+  worktree: string,
+  from: string | undefined,
+  config: WorkConfig,
+): WorktreeSession | null {
+  return tx((d) => {
+    const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(id) as { data: string } | undefined;
+    const s = r ? json.parse(r.data) : null;
+    if (!valid(s)) return null;
+    const repos = sessionRepos(s, config).map((x) => x.alias);
+    if (repos.includes(alias)) return s;
+    s.paths = [...s.paths, worktree];
+    s.repos = [...repos, alias];
+    if (from) s.baseBranches = { ...(s.baseBranches ?? {}), [worktree]: from };
+    putRow(d, s);
+    return s;
+  });
 }
 
 /** One session by its id (the `sessions` primary key). */

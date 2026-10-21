@@ -273,6 +273,59 @@ describe('POST /api/sessions/:id/fork (real git)', () => {
     expect(loadHistory().find((s) => s.branch === 'feat/y-2')?.isGroup).toBe(true);
   });
 
+  it.each([
+    ['a group session', 'shop', false],
+    ["a repo's session folder", 'backend', true],
+  ])('%s with an added repo: the fork holds all its repos', async (_label, target, sessionFolders) => {
+    const { saveConfig } = await import('../../../src/core/platform/config.js');
+    const { findSession, loadHistory } = await import('../../../src/core/sessions/history.js');
+    const { setupWorktree } = await import('../../../src/core/worktree/worktree.js');
+    const { sessionIdFor } = await import('../../../src/core/sessions/session-id.js');
+    const { addRepoToSession } = await import('../../../src/core/worktree/add-repo.js');
+    const { mountForkRoutes } = await import('../../../src/server/routes/fork-routes.js');
+    const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
+    const root = path.join(tmp, `added-${target}`);
+    const repos: Record<string, string> = {};
+    for (const name of ['backend', 'web', 'docs']) {
+      const dir = path.join(root, 'src', name);
+      fs.mkdirSync(dir, { recursive: true });
+      git(dir, 'init', '-q', '-b', 'main');
+      fs.writeFileSync(path.join(dir, 'r.txt'), name);
+      git(dir, 'add', '.');
+      git(dir, 'commit', '-q', '-m', 'init');
+      repos[name] = dir;
+    }
+    const config = { worktreesRoot: path.join(root, 'wt'), repos, groups: { shop: ['backend', 'web'] }, copyFiles: [], sessionFolders };
+    saveConfig(config);
+    expect(await setupWorktree(target, 'feat/z', config, undefined, undefined, { pull: false })).toBeTruthy();
+    const parentId = sessionIdFor({ target, branch: 'feat/z' });
+    await addRepoToSession(parentId, 'docs');
+    const own = findSession(loadHistory(), target, 'feat/z')!.repos!;
+    expect(own).toContain('docs');
+    // The fork is made with the switch off: the parent's own list, not the switch, makes it a folder.
+    saveConfig({ ...config, sessionFolders: false });
+
+    const app = new Hono();
+    mountForkRoutes(app, {
+      broadcast: () => {},
+      deps: defaultForkDeps({ summarize: async () => null, uncommitted: () => 0, start: vi.fn(async () => 'started') }),
+    });
+    const r = await app.request(`/api/sessions/${parentId}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch: 'feat/z-2' }),
+    });
+    expect(r.status).toBe(200);
+    const { paths } = (await r.json()) as { paths: string[] };
+    expect(paths.map((p) => path.basename(p)).sort()).toEqual([...own].sort());
+    for (const p of paths) expect(git(p, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/z-2');
+    const forked = findSession(loadHistory(), target, 'feat/z-2')!;
+    expect(forked).toMatchObject({ isGroup: true });
+    expect([...forked.repos!].sort()).toEqual([...own].sort());
+    // A session folder of its own, beside the parent's.
+    expect(path.dirname(paths[0])).toBe(path.join(config.worktreesRoot, target, 'feat-z-2'));
+  });
+
   it("the repos a fork checks are the parent session's own (recorded); a row from before, the group's config", async () => {
     const { defaultForkDeps } = await import('../../../src/core/sessions/fork-deps.js');
     const deps = defaultForkDeps({ summarize: async () => null, uncommitted: () => 0 });

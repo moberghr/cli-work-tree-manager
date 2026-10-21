@@ -1043,6 +1043,20 @@ export interface ForkWire {
   startError?: string;
 }
 
+// ---- add a repo to a session folder (add-repo.ts) ----------------------------------
+
+/** POST /api/sessions/:id/repos: the repo was checked out into the session folder. */
+export interface AddRepoWire {
+  ok: true;
+  /** The new checkout: `<session folder>/<repo folder>`. */
+  path: string;
+  branch: string;
+  /** Its branch was made for it (false: the repo's existing branch of that name). */
+  created: boolean;
+  /** The branch a new one was made from. */
+  from?: string;
+}
+
 // ---- behind main (behind-main.ts) -------------------------------------------------
 
 /** POST /api/sessions/:id/update-from-main: per repo. */

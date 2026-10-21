@@ -469,6 +469,13 @@ export interface WorktreeSetupOptions {
   checkoutFor?: Record<string, string>;
   /** Name the session (its title, shown instead of the branch); empty keeps what it has. */
   name?: string;
+  /**
+   * A NEW session's repos (aliases), instead of its group's config: a fork of
+   * a session folder takes the parent's own list, which may hold a repo the
+   * group doesn't name. Given, the session is made as a folder. An existing
+   * session keeps the repos (and layout) it records.
+   */
+  repos?: string[];
 }
 
 /**
@@ -511,10 +518,18 @@ export async function setupWorktree(
   const sessionTarget = target.isGroup ? target.name : targetName;
   // A repo's session made as a folder (config `sessionFolders`, or one recorded so): set
   // up as a group of its own repos, in `<root>/<alias>/<branch>/<repo-folder>/`.
-  const asFolder = target.isGroup || folderSessionFor(targetName, branchName, config);
+  const explicit = explicitRepos(sessionTarget, branchName, opts.repos, config);
+  if (explicit && 'error' in explicit) {
+    report('error', explicit.error);
+    return null;
+  }
+  const asFolder = target.isGroup || !!explicit || folderSessionFor(targetName, branchName, config);
   // Its repos: coming back to a session that records its own (it may hold a repo its
-  // group's config doesn't name, or one the group lost), those; else the group's config.
-  const repoAliases = asFolder ? groupReposFor(sessionTarget, branchName, target.repoAliases, config) : target.repoAliases;
+  // group's config doesn't name, or one the group lost), those; else the ones asked
+  // for (a new session's), else the group's config.
+  const repoAliases = asFolder
+    ? groupReposFor(sessionTarget, branchName, explicit?.repos ?? target.repoAliases, config)
+    : target.repoAliases;
 
   // Coming back to an archived session whose merged branch archiving
   // deleted: put the branch back at the tip it had, so the worktree is that
@@ -573,6 +588,26 @@ function folderSessionFor(alias: string, branch: string, config: WorkConfig): bo
 }
 
 /**
+ * The repos asked for a new session (`opts.repos`), checked against the
+ * config; undefined when none were asked for, or the session exists already
+ * (it keeps what it records — and its layout).
+ */
+function explicitRepos(
+  sessionTarget: string,
+  branch: string,
+  repos: string[] | undefined,
+  config: WorkConfig,
+): { repos: string[] } | { error: string } | undefined {
+  if (!repos?.length || findSession(loadHistory(), sessionTarget, branch)) return undefined;
+  const unique = [...new Set(repos)];
+  const unknown = unique.filter((a) => !config.repos[a]);
+  if (unknown.length) return { error: `not in your config: ${unknown.join(', ')}` };
+  const folders = unique.map((a) => path.basename(config.repos[a]).toLowerCase());
+  if (new Set(folders).size !== folders.length) return { error: `two of these repos have the same folder name: ${unique.join(', ')}` };
+  return { repos: unique };
+}
+
+/**
  * A group session's repos to set up: the ones an existing session records
  * (sessionRepos), else — a new session, or a row from before — the group's
  * config. A recorded repo no longer in the config can't be checked out: said, and skipped.
@@ -586,6 +621,9 @@ function groupReposFor(sessionTarget: string, branch: string, configured: string
   const kept = own.map((r) => r.alias).filter((a) => !gone.includes(a));
   return kept.length ? kept : configured;
 }
+
+/** The same aliases, in any order (a new session made with the group's repos, or another list: a fork's). */
+const sameRepos = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 /** Copy a leftover set aside for this worktree (createSingleWorktree) back into it, and say how it went. */
 function putBackLeftover(worktree: string, tip: string | undefined): void {
@@ -787,7 +825,7 @@ async function setupGroupWorktree(
     !isConfiguredGroup ||
     (known
       ? hasInstructionsBlock(claudeMdDest) || (config.sessionFolders === true && !fs.existsSync(claudeMdDest))
-      : config.sessionFolders === true);
+      : config.sessionFolders === true || !sameRepos(config.groups[groupName], repoAliases));
 
   if (byImport) {
     const imports = writeSessionInstructions(

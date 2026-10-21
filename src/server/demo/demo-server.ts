@@ -21,6 +21,7 @@ import type {
   TimelineWire,
   WorklogWire,
   ForkWire,
+  AddRepoWire,
   JiraDecision,
   JiraWatchState,
   NoteWire,
@@ -637,6 +638,16 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DiffServ
         : `Forked from ${w.branch}: read the summary and wait for my instruction.`;
     const s = scenario.create(w.target, branch, prompt, w.branch);
     return c.json({ sessionId: s.id, paths: s.paths, summarized: true } satisfies ForkWire);
+  });
+
+  // Add a repo to a session folder: the same answers as the real route (session-repo-routes.ts).
+  app.post('/api/sessions/:id/repos', async (c) => {
+    const body = await json(c);
+    if (typeof body.alias !== 'string' || !body.alias) return c.json({ error: 'alias is required' }, 400);
+    const base = typeof body.base === 'string' && body.base.trim() ? body.base.trim() : undefined;
+    const r = scenario.addRepo(c.req.param('id'), body.alias, base);
+    if (!r.ok) return c.json({ error: r.error }, r.status);
+    return c.json(r.wire satisfies AddRepoWire);
   });
 
   app.post('/api/worktrees', async (c) => {

@@ -102,6 +102,8 @@ export interface ForkDeps {
     config: WorkConfig,
     base: BaseSpec,
     name?: string,
+    /** A session folder's repos (the parent's own list): the fork holds the same ones, not its group's config. */
+    repos?: string[],
   ) => Promise<{ paths: string[] } | { error: string }>;
   /** A few sentences on where the parent stands; null: nothing to go on. */
   summarize: (parent: WorktreeSession) => Promise<string | null>;
@@ -131,7 +133,14 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
   const bases = forkBases(parent, repos, deps.branchOf);
   if (!bases.ok) return { ok: false, status: 409, error: bases.error };
 
-  const created = await deps.setup(parent.target, branch, config, bases.spec, req.name);
+  const created = await deps.setup(
+    parent.target,
+    branch,
+    config,
+    bases.spec,
+    req.name,
+    parent.isGroup ? repos.map((r) => r.alias) : undefined,
+  );
   if ('error' in created) return { ok: false, status: 400, error: created.error };
   const sessionId = deps.sessionIdFor({ target: parent.target, branch });
   // The worktree exists from here on: a summary or a start that fails is reported, not fatal.
