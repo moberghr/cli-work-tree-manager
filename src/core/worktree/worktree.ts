@@ -17,6 +17,7 @@ import {
 } from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
 import { recordedRepos } from '../sessions/session-repos.js';
+import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import {
@@ -508,9 +509,12 @@ export async function setupWorktree(
 
   const workTreeDirName = branchName.replace(/\//g, '-');
   const sessionTarget = target.isGroup ? target.name : targetName;
+  // A repo's session made as a folder (config `sessionFolders`, or one recorded so): set
+  // up as a group of its own repos, in `<root>/<alias>/<branch>/<repo-folder>/`.
+  const asFolder = target.isGroup || folderSessionFor(targetName, branchName, config);
   // Its repos: coming back to a session that records its own (it may hold a repo its
   // group's config doesn't name, or one the group lost), those; else the group's config.
-  const repoAliases = target.isGroup ? groupReposFor(sessionTarget, branchName, target.repoAliases, config) : target.repoAliases;
+  const repoAliases = asFolder ? groupReposFor(sessionTarget, branchName, target.repoAliases, config) : target.repoAliases;
 
   // Coming back to an archived session whose merged branch archiving
   // deleted: put the branch back at the tip it had, so the worktree is that
@@ -521,8 +525,8 @@ export async function setupWorktree(
   const checkoutFor = opts.checkoutFor ?? archivedHeads(sessionTarget, branchName);
   if (checkoutFor) opts = { ...opts, checkoutFor };
 
-  const result = target.isGroup
-    ? await setupGroupWorktree(target.name, repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
+  const result = asFolder
+    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
     : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
   // Coming back to an archived session: put its conversation back where
   // Claude looks for it (only files that aren't there), so it continues.
@@ -541,7 +545,7 @@ export async function setupWorktree(
     const tips = session ? (readArchive(sessionIdFor(session))?.tips ?? {}) : {};
     for (const p of result.paths) {
       // Its repo: a group's worktrees are named after the repo's folder, a single repo's is the target.
-      const alias = target.isGroup
+      const alias = asFolder
         ? repoAliases.find((a) => path.basename(config.repos[a] ?? '').toLowerCase() === path.basename(p).toLowerCase())
         : targetName;
       putBackLeftover(p, alias ? tips[alias] : undefined);
@@ -549,6 +553,23 @@ export async function setupWorktree(
     if (opts.name?.trim()) await setSessionTitle(sessionTarget, branchName, opts.name);
   }
   return result;
+}
+
+/**
+ * Whether a repo's session (`work tree <alias> <branch>`) is a session folder:
+ * an existing session as it was made (a folder session records its repos and
+ * `isGroup`; a single one keeps its layout whatever the switch says); a new one
+ * when config `sessionFolders` is on — unless a worktree of the branch is there
+ * already (made outside a session), which is reused as it always was.
+ */
+function folderSessionFor(alias: string, branch: string, config: WorkConfig): boolean {
+  const known = findSession(loadHistory(), alias, branch);
+  if (known) return known.isGroup && recordedRepos(known) !== null;
+  if (config.sessionFolders !== true) return false;
+  const repoPath = config.repos[alias];
+  // Not there: the single-repo setup says so, as always.
+  if (!repoPath || !fs.existsSync(repoPath)) return false;
+  return !parseWorktreeList(repoPath).some((wt) => wt.branch === branch && path.resolve(wt.path) !== path.resolve(repoPath));
 }
 
 /**
@@ -676,7 +697,8 @@ async function setupGroupWorktree(
     }
   }
 
-  report('step', `Creating group worktree: ${groupName}/${branchName}`);
+  const isConfiguredGroup = Object.prototype.hasOwnProperty.call(config.groups, groupName);
+  report('step', `Creating ${isConfiguredGroup ? 'group worktree' : 'session folder'}: ${groupName}/${branchName}`);
   report('detail', `Directory: ${groupWorktreePath}`);
   report('info', '');
 
@@ -755,10 +777,27 @@ async function setupGroupWorktree(
   // Copy the group's instructions file, under the name its agent reads (CLAUDE.md, AGENTS.md…).
   const configDir = getConfigDir();
   const claudeMdSrc = path.join(configDir, `${groupName}.claude.md`);
-  const instructionsFile = agentFor(config, findSession(loadHistory(), groupName, branchName)).instructionsFile;
+  const known = findSession(loadHistory(), groupName, branchName);
+  const instructionsFile = agentFor(config, known).instructionsFile;
   const claudeMdDest = path.join(groupWorktreePath, instructionsFile);
+  // A session folder imports each repo's own file instead: a repo's folder session (no
+  // group to copy from), a new session with config `sessionFolders` on, or one made so before
+  // (its file has work's block; with the switch on, also one whose file is gone — a Restore).
+  const byImport =
+    !isConfiguredGroup ||
+    (known
+      ? hasInstructionsBlock(claudeMdDest) || (config.sessionFolders === true && !fs.existsSync(claudeMdDest))
+      : config.sessionFolders === true);
 
-  if (fs.existsSync(claudeMdSrc)) {
+  if (byImport) {
+    const imports = writeSessionInstructions(
+      groupWorktreePath,
+      createdWorktrees.map((wt) => path.basename(wt.worktreePath)),
+      instructionsFile,
+    );
+    report('info', '');
+    report('success', `${instructionsFile} in the session folder imports ${imports.length} repo file(s)`);
+  } else if (fs.existsSync(claudeMdSrc)) {
     fs.copyFileSync(claudeMdSrc, claudeMdDest);
     report('info', '');
     report('success', `Copied the group's ${instructionsFile} to the worktree root`);
@@ -897,9 +936,11 @@ export function teardownWorktree(
   const workTreeDirName = branch.replace(/\//g, '-');
   // A group session that records its repos is torn down over exactly those (its own
   // list, sessionRepos), at its recorded folders; a row from before over the group's config.
-  const own = isGroup ? ownGroupRepos(target, branch, paths) : null;
+  // A repo's session folder (config `sessionFolders`) is one too, though its target is a repo
+  // and a caller that resolved the target (`work remove <alias> <branch>`) says it isn't a group.
+  const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths) : null;
 
-  if (isGroup && (own || config.groups[target])) {
+  if ((isGroup || own) && (own || config.groups[target])) {
     const groupWorktreePath = path.join(config.worktreesRoot, target, workTreeDirName);
     const repos =
       own ??
@@ -950,6 +991,12 @@ export function teardownWorktree(
     report('warn', `No worktree found for branch '${branch}' in '${target}'.`);
     return false;
   }
+}
+
+/** The session for target + branch is recorded as a folder with its own repos (a group, or a repo's session folder). */
+function recordedFolderSession(target: string, branch: string): boolean {
+  const s = findSession(loadHistory(), target, branch);
+  return !!s?.isGroup && recordedRepos(s) !== null;
 }
 
 /**

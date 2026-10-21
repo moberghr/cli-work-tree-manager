@@ -63,6 +63,13 @@ export interface WorkConfig {
    */
   launchViaHost?: boolean;
   /**
+   * Experimental, off by default: NEW sessions are made as a folder with one
+   * subfolder per repo — a single repo too (`<root>/<alias>/<branch>/<repo>/`) —
+   * and the agent runs in the folder, whose instructions file imports each
+   * repo's own. Existing sessions keep the layout they were made with.
+   */
+  sessionFolders?: boolean;
+  /**
    * Per-tool flag overrides. Defaults come from the preset matching the
    * binary in `aiCommand` (see AI_TOOL_PRESETS in core/ai-launcher.ts).
    * Set any value to an empty string to disable that flag for the configured tool.
@@ -274,6 +281,7 @@ export function loadConfig(): WorkConfig | null {
       notifications: parsed.notifications === true,
       statusHooks: Array.isArray(parsed.statusHooks) ? parsed.statusHooks : [],
       launchViaHost: typeof parsed.launchViaHost === 'boolean' ? parsed.launchViaHost : undefined,
+      sessionFolders: typeof parsed.sessionFolders === 'boolean' ? parsed.sessionFolders : undefined,
       devCommands: validateDevCommands(parsed.devCommands),
       sleepIdleAfterMinutes:
         typeof parsed.sleepIdleAfterMinutes === 'number' && parsed.sleepIdleAfterMinutes >= 0 ? parsed.sleepIdleAfterMinutes : undefined,

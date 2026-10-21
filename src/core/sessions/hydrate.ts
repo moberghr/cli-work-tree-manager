@@ -40,9 +40,12 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
 
       const [first, second] = parts;
       const isGroup = Object.prototype.hasOwnProperty.call(config.groups, first);
+      // A session folder of a repo (config `sessionFolders`): `<root>/<alias>/<branch>/<repo-folder>`
+      // — exactly that deep, `<alias>` a repo's alias (or its folder's name), the last part this repo's folder.
+      const folderOwner = isGroup ? undefined : folderSessionOwner(parts, repoPath, config, folderNameToAlias);
 
-      if (isGroup) {
-        const groupName = first;
+      if (isGroup || folderOwner) {
+        const groupName = folderOwner ?? first;
         const key = `${groupName}:${entry.branch}`;
         const existing = discovered.get(key);
         if (existing) {
@@ -92,6 +95,20 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
   const sessions = [...discovered.values()];
   const { added, updated } = await mergeHydratedSessions(sessions);
   return { discovered: sessions.length, added, updated };
+}
+
+/** The repo alias a session folder's worktree belongs to (its target), or undefined when the path isn't one. */
+function folderSessionOwner(
+  parts: string[],
+  repoPath: string,
+  config: WorkConfig,
+  folderNameToAlias: Map<string, string>,
+): string | undefined {
+  if (parts.length !== 3) return undefined;
+  const [first, , repoFolder] = parts;
+  if (repoFolder.toLowerCase() !== path.basename(repoPath).toLowerCase()) return undefined;
+  if (Object.prototype.hasOwnProperty.call(config.repos, first)) return first;
+  return folderNameToAlias.get(first);
 }
 
 function inferTimestamps(p: string): {
