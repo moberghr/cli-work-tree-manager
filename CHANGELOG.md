@@ -3,6 +3,22 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **Add a repo to a session** (⋯ → Add a repo…, `⇧A`, or `work add-repo
+  <alias>`). A group session's folder gets another repo, checked out on the
+  session's branch. Its Claude is told, and the Diff tab keeps its turns.
+- **Session folders, opt in** (`"sessionFolders": true` in config.json,
+  experimental). Every new session is a folder of repos, a single repo's
+  too, so a repo can be added to any new session. Its instructions file
+  imports each repo's own instead of a generated summary. Sessions you
+  already have keep their layout and instructions, whatever the switch says.
+- **A session keeps its own repo list.** New sessions record which repos
+  they hold; sessions from before go on following their group's config as
+  they always did. One visible change with the switch off: removing a repo
+  that a live group session records now asks first (**Do it anyway**), and
+  the Repos page counts those sessions.
+
 ## 2.3.2 — 2026-10-20
 
 - **Only the changed files, in the Code tab.** **Changed · N** under the

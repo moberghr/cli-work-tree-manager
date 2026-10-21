@@ -446,7 +446,7 @@ describe("a session's own repos (repos)", () => {
   const paths = ['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs'];
 
   it('an upsert given repos records them; one without keeps what the row has', async () => {
-    await upsertSessionWithPort('shop', true, 'feat', paths, {}, undefined, undefined, undefined, ['api', 'web', 'docs']);
+    await upsertSessionWithPort('shop', true, 'feat', paths, {}, undefined, undefined, undefined, { repos: ['api', 'web', 'docs'] });
     expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toEqual(['api', 'web', 'docs']);
     await upsertSession('shop', true, 'feat', paths); // `work resume`, `work recent`: the same paths, no repos
     expect(findSession(loadHistory(), 'shop', 'feat')?.repos).toEqual(['api', 'web', 'docs']);
@@ -505,12 +505,45 @@ describe('appendSessionRepo (a repo added to a session)', () => {
 
   it('appends the path, the alias and its base; a second add of the same alias changes nothing', async () => {
     await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, undefined, undefined, ['api', 'web']);
-    const s = appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
-    expect(s?.paths).toEqual(['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs']);
-    expect(s?.repos).toEqual(['api', 'web', 'docs']);
-    expect(s?.baseBranches).toEqual({ '/w/shop/feat/docs': 'main' });
+    const r = appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
+    // `before`: the paths it had, read in the same transaction (the scope its turns move from).
+    expect(r?.before).toEqual(['/w/shop/feat/api', '/w/shop/feat/web']);
+    expect(r?.session.paths).toEqual(['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs']);
+    expect(r?.session.repos).toEqual(['api', 'web', 'docs']);
+    expect(r?.session.baseBranches).toEqual({ '/w/shop/feat/docs': 'main' });
     appendSessionRepo(id, 'docs', '/w/shop/feat/docs-again', 'dev', config);
     expect(findSession(loadHistory(), 'shop', 'feat')?.paths).toHaveLength(3);
+  });
+
+  it('one base for the group stands only while every repo has it: a repo on its own branch makes it per repo', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/web'], undefined, 'main', undefined, ['api', 'web']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.baseBranch).toBeUndefined();
+    // The ones that had it keep it, each; the added one has none (no base known: detected).
+    expect(s?.baseBranches).toEqual({ '/w/shop/feat/api': 'main', '/w/shop/feat/web': 'main' });
+  });
+
+  it('an added repo made from the same base keeps the one base', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api'], undefined, 'main', undefined, ['api']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'main', config);
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ baseBranch: 'main', baseBranches: { '/w/shop/feat/docs': 'main' } });
+  });
+
+  it('an added repo made from another base: each repo its own', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api'], undefined, 'main', undefined, ['api']);
+    appendSessionRepo(id, 'docs', '/w/shop/feat/docs', 'dev', config);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.baseBranch).toBeUndefined();
+    expect(s?.baseBranches).toEqual({ '/w/shop/feat/api': 'main', '/w/shop/feat/docs': 'dev' });
+  });
+
+  it('a row from before with a folder no repo of its group has: refused, nothing written (no made-up alias)', async () => {
+    await upsertSession('shop', true, 'feat', ['/w/shop/feat/api', '/w/shop/feat/mystery']);
+    expect(() => appendSessionRepo(id, 'docs', '/w/shop/feat/docs', undefined, config)).toThrow(/mystery/);
+    const s = findSession(loadHistory(), 'shop', 'feat');
+    expect(s?.repos).toBeUndefined();
+    expect(s?.paths).toHaveLength(2);
   });
 
   it('a row from before gets its list recorded (as derived) before the new repo', async () => {

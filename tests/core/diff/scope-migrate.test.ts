@@ -73,8 +73,8 @@ describe('migrateScope', () => {
     const before = loadManifest(oldHash).entries;
     expect(before.map((e) => e.id)).toEqual([0, 1, 2]);
 
-    const r = migrateScope([A, B], [A, B, C]);
-    expect(r).toMatchObject({ from: oldHash, to: newHash, manifest: true, refs: 6, comments: 1 });
+    const r = await migrateScope([A, B], [A, B, C]);
+    expect(r).toEqual({ from: oldHash, to: newHash, manifest: true, refs: 6, comments: 1, problems: [] });
 
     // The manifest: under the new hash, with the same turns; the old file gone.
     expect(fs.existsSync(manifestPath(oldHash))).toBe(false);
@@ -95,16 +95,16 @@ describe('migrateScope', () => {
   it('is idempotent: a second run moves nothing and loses nothing', async () => {
     await sessionWithTurns();
     const newHash = scopeHashForPaths([A, B, C]);
-    migrateScope([A, B], [A, B, C]);
-    const again = migrateScope([A, B], [A, B, C]);
+    await migrateScope([A, B], [A, B, C]);
+    const again = await migrateScope([A, B], [A, B, C]);
     expect(again).toMatchObject({ manifest: false, refs: 0, comments: 0 });
     expect(loadManifest(newHash).entries.map((e) => e.id)).toEqual([0, 1, 2]);
     expect(refs(A, newHash)).toHaveLength(3);
     expect(readStoreComments(commentStoreIdForScope(newHash))).toHaveLength(1);
   }, 60_000);
 
-  it('is a no-op when the old scope has nothing', () => {
-    const r = migrateScope([A, B], [A, B, C]);
+  it('is a no-op when the old scope has nothing', async () => {
+    const r = await migrateScope([A, B], [A, B, C]);
     expect(r).toMatchObject({ manifest: false, refs: 0, comments: 0 });
     expect(fs.existsSync(manifestPath(scopeHashForPaths([A, B, C])))).toBe(false);
     expect(refs(A, scopeHashForPaths([A, B, C]))).toEqual([]);
@@ -113,21 +113,101 @@ describe('migrateScope', () => {
   it('a path that is gone is skipped, the rest moved', async () => {
     const { oldHash } = await sessionWithTurns();
     fs.rmSync(B, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-    const r = migrateScope([A, B], [A, B, C]);
+    const r = await migrateScope([A, B], [A, B, C]);
     expect(r).toMatchObject({ manifest: true, refs: 3 });
     expect(refs(A, oldHash)).toEqual([]);
   }, 60_000);
 
   it('the same paths: nothing to do', async () => {
     await sessionWithTurns();
-    expect(migrateScope([A, B], [B, A])).toMatchObject({ manifest: false, refs: 0, comments: 0 });
+    expect(await migrateScope([A, B], [B, A])).toMatchObject({ manifest: false, refs: 0, comments: 0 });
+  }, 60_000);
+
+  it('turns the new paths took meanwhile give way to the old ones, and say so', async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    const before = loadManifest(oldHash).entries;
+    // A Stop hook while the repo was being added: a scope under the new paths, with its own turns.
+    await takeCheckpoint(newHash, repos(A, B, C));
+    fs.writeFileSync(path.join(C, 'c.txt'), 'meanwhile\n');
+    await takeCheckpoint(newHash, repos(A, B, C));
+    expect(refs(C, newHash)).toHaveLength(2);
+
+    const r = await migrateScope([A, B], [A, B, C]);
+    expect(r).toMatchObject({ manifest: true, refs: 6 });
+    expect(r.problems).toEqual(['2 turn(s) taken under the new paths meanwhile give way to the old turns']);
+    // The old turns, whole, under the new hash — refs at the old commits, the new scope's own gone.
+    expect(loadManifest(newHash).entries).toEqual(before);
+    for (const repo of [A, B])
+      for (const e of before) expect(git(['rev-parse', `refs/wd/${newHash}/${e.id}`], repo).stdout).toBe(e.repos[path.basename(repo)]);
+    expect(refs(C, newHash)).toEqual([]);
+    expect(refs(A, oldHash)).toEqual([]);
+    // And the next turn goes on from them.
+    expect((await takeCheckpoint(newHash, repos(A, B, C)))?.id).toBe(3);
+  }, 60_000);
+
+  it("a turn list it can't read is left as it is: nothing moved, and said", async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    fs.writeFileSync(manifestPath(oldHash), '{ not json');
+    const r = await migrateScope([A, B], [A, B, C]);
+    expect(r.manifest).toBe(false);
+    expect(r.refs).toBe(0);
+    expect(r.problems.join(' ')).toMatch(/can't be read/);
+    expect(fs.readFileSync(manifestPath(oldHash), 'utf8')).toBe('{ not json');
+    expect(refs(A, oldHash)).toHaveLength(3);
+    expect(refs(A, newHash)).toEqual([]);
+  }, 60_000);
+
+  it("refs git won't copy in one repo: none moved anywhere, the old scope as it was", async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    // B's ref store refuses new refs under the new hash (a file where its folder would go).
+    fs.mkdirSync(path.join(B, '.git', 'refs', 'wd'), { recursive: true });
+    fs.writeFileSync(path.join(B, '.git', 'refs', 'wd', newHash), 'blocked');
+    const r = await migrateScope([A, B], [A, B, C]);
+    expect(r.manifest).toBe(false);
+    expect(r.problems.join(' ')).toMatch(/couldn't copy the turns' snapshots/);
+    for (const repo of [A, B]) expect(refs(repo, oldHash)).toHaveLength(3);
+    expect(refs(A, newHash)).toEqual([]); // A's copies undone
+    expect(loadManifest(oldHash).entries).toHaveLength(3);
+    expect(loadManifest(newHash).entries).toEqual([]);
+  }, 60_000);
+
+  it('a comment whose id the new page has already stays on the old page, said — never dropped', async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    const old = readStoreComments(commentStoreIdForScope(oldHash))[0];
+    // The same id in the new store (as if moved by an earlier run that was cut short).
+    getCommentFileStore(commentStoreIdForScope(newHash)).post({ side: 'general', status: 'published', author: 'user', body: 'other' });
+    const clash = readStoreComments(commentStoreIdForScope(newHash))[0];
+    const { tx } = await import('../../../src/core/platform/db.js');
+    tx((d) => d.prepare('UPDATE comments SET id = ? WHERE store = ? AND id = ?').run(old.id, commentStoreIdForScope(newHash), clash.id));
+    clearCommentStoreCache();
+    const r = await migrateScope([A, B], [A, B, C]);
+    expect(r.comments).toBe(0);
+    expect(r.problems).toContain('1 comment(s) of the old page kept there: the new one has the same id');
+    expect(readStoreComments(commentStoreIdForScope(oldHash)).map((c) => c.body)).toEqual(['keep this']);
+  }, 60_000);
+
+  it('a moved comment is answered and resolved through the new page', async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    const id = readStoreComments(commentStoreIdForScope(oldHash))[0].id;
+    await migrateScope([A, B], [A, B, C]);
+    const store = getCommentFileStore(commentStoreIdForScope(newHash));
+    store.post({ side: 'general', status: 'published', author: 'claude', body: 'done', parentId: id });
+    expect(store.setResolved(id, true)?.resolved).toBe(true);
+    const all = readStoreComments(commentStoreIdForScope(newHash));
+    expect(all.find((x) => x.id === id)?.resolved).toBe(true);
+    expect(all.filter((x) => x.parentId === id).map((x) => x.body)).toEqual(['done']);
   }, 60_000);
 });
 
 describe('after migration', () => {
   it('the session lists its old turns, and the next checkpoint includes the new repo', async () => {
     await sessionWithTurns();
-    migrateScope([A, B], [A, B, C]);
+    await migrateScope([A, B], [A, B, C]);
     // As GET …/checkpoints reads it: by the hash of the session's paths now.
     const newHash = scopeHashForPaths([A, B, C]);
     expect(loadManifest(newHash).entries.map((e) => e.id)).toEqual([0, 1, 2]);
@@ -141,7 +221,7 @@ describe('after migration', () => {
     // An old turn has no snapshot of the new repo: a range reads its HEAD there.
     const all = loadManifest(newHash).entries;
     const range = rangeRefs([A, B, C], all, parsePoint('cp:1')!, parsePoint('cp:3')!);
-    expect(Array.isArray(range)).toBe(true);
+    if (!Array.isArray(range)) throw new Error(`no range: ${JSON.stringify(range)}`);
     const c = (range as Array<{ name: string; fromRef: string; toRef: string }>).find((x) => x.name === 'repoC')!;
     expect(c.fromRef).toBe('HEAD');
     expect(c.toRef).toBe(entry!.repos.repoC);

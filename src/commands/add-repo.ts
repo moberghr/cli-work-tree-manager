@@ -8,7 +8,7 @@ import { callWorkWeb } from '../core/platform/web-discovery.js';
 import { findSessionById } from '../core/sessions/history.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
 import type { WorktreeSession } from '../core/sessions/session-types.js';
-import { addedRepoNote, addRepoToSession, type AddRepoResult } from '../core/worktree/add-repo.js';
+import { addedRepoNote, addRepoToSession, AddRepoRefused, type AddRepoResult } from '../core/worktree/add-repo.js';
 import { sessionFromArgs } from './shared/session-arg.js';
 
 /**
@@ -20,9 +20,23 @@ import { sessionFromArgs } from './shared/session-arg.js';
 
 const SETTLE_MS = 10 * 60_000;
 
-function printDone(s: WorktreeSession, r: Pick<AddRepoResult, 'path' | 'branch' | 'created' | 'from'>, alias: string): void {
+function printDone(s: WorktreeSession, r: Pick<AddRepoWire, 'path' | 'branch' | 'created' | 'from' | 'warnings'>, alias: string): void {
   const how = r.created ? `a new branch ${r.branch}${r.from ? ` from ${r.from}` : ''}` : `its branch ${r.branch}`;
   console.log(chalk.green(`Added ${alias} to ${s.target} · ${s.branch}: ${r.path} (${how})`));
+  for (const w of r.warnings ?? []) console.log(chalk.yellow(`  ${w}`));
+}
+
+/** The result as the wire carries it (the route's answer, and `--json`). */
+export function addRepoWireOf(r: AddRepoResult): AddRepoWire {
+  return {
+    ok: true,
+    path: r.path,
+    branch: r.branch,
+    created: r.created,
+    ...(r.from ? { from: r.from } : {}),
+    imported: r.imported,
+    warnings: r.warnings,
+  };
 }
 
 export const addRepoCommand: CommandModule = {
@@ -45,27 +59,28 @@ export const addRepoCommand: CommandModule = {
     const alias = String(argv.alias);
     const base = typeof argv.base === 'string' && argv.base.trim() ? argv.base.trim() : undefined;
     const asJson = argv.json === true;
-    const fail = (error: string) => {
-      if (asJson) console.log(JSON.stringify({ error }));
+    const fail = (error: string, status?: number) => {
+      if (asJson) console.log(JSON.stringify({ error, ...(status ? { status } : {}) }));
       else console.error(chalk.red(error));
       process.exitCode = 1;
     };
+    const failWith = (err: unknown) => fail((err as Error).message, err instanceof AddRepoRefused ? err.status : 500);
 
     const byId = typeof argv['session-id'] === 'string' ? argv['session-id'] : undefined;
     const s = byId ? findSessionById(byId) : sessionFromArgs(argv);
-    if (!s) return byId ? fail('unknown session') : undefined;
+    if (!s) return byId ? fail('unknown session', 404) : undefined;
     const id = sessionIdFor(s);
 
     // work web's child: the add alone; the route tells Claude and the dashboard.
     if (argv['in-process'] === true) {
+      let r: AddRepoResult;
       try {
-        const r = await addRepoToSession(id, alias, { base });
-        const wire: AddRepoWire = { ok: true, path: r.path, branch: r.branch, created: r.created, ...(r.from ? { from: r.from } : {}) };
-        if (asJson) console.log(JSON.stringify(wire));
-        else printDone(s, r, alias);
+        r = await addRepoToSession(id, alias, { base });
       } catch (err) {
-        fail((err as Error).message);
+        return failWith(err);
       }
+      if (asJson) console.log(JSON.stringify(addRepoWireOf(r)));
+      else printDone(s, addRepoWireOf(r), alias);
       return;
     }
 
@@ -80,23 +95,29 @@ export const addRepoCommand: CommandModule = {
       else printDone(s, viaWeb.body, alias);
       return;
     }
-    if (viaWeb.status === -1) return fail(viaWeb.error);
-    if (viaWeb.status !== 0) return fail(viaWeb.error);
+    if (viaWeb.status !== 0) return fail(viaWeb.error, viaWeb.status > 0 ? viaWeb.status : undefined);
 
     // No work web: here, and the note waits in its comments for its next turn.
+    let r: AddRepoResult;
     try {
-      const r = await addRepoToSession(id, alias, { base });
+      r = await addRepoToSession(id, alias, { base });
+    } catch (err) {
+      return failWith(err);
+    }
+    // The repo is in: a note that can't be left is said, never reported as the add failing.
+    let told = true;
+    try {
       const after = findSessionById(id) ?? s;
       const file = agentFor(loadConfig() ?? {}, after).instructionsFile;
       getCommentFileStore(id).post({ side: 'general', status: 'published', author: 'user', body: addedRepoNote(r, file) });
-      if (asJson)
-        console.log(JSON.stringify({ ok: true, path: r.path, branch: r.branch, created: r.created, ...(r.from ? { from: r.from } : {}) }));
-      else {
-        printDone(s, r, alias);
-        console.log(chalk.gray("Its Claude is told on its next turn (work web isn't running)."));
-      }
     } catch (err) {
-      fail((err as Error).message);
+      told = false;
+      r.warnings.push(`couldn't leave the note for its Claude: ${(err as Error).message}`);
+    }
+    if (asJson) console.log(JSON.stringify(addRepoWireOf(r)));
+    else {
+      printDone(s, addRepoWireOf(r), alias);
+      if (told) console.log(chalk.gray("Its Claude is told on its next turn (work web isn't running)."));
     }
   },
 };

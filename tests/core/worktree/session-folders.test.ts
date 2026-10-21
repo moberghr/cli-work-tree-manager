@@ -196,6 +196,31 @@ describe('sessionFolders on', () => {
     await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
     expect(fs.readFileSync(path.join(made!.launchDir, 'CLAUDE.md'), 'utf8')).toBe('GROUP SUMMARY\n');
   }, 60_000);
+
+  it('a group session made with the switch off, removed, then restored with it on: still the copied summary', async () => {
+    config = configWith(false);
+    saveConfig(config);
+    const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    expect(findSession(loadHistory(), 'shop', 'feat/g')).not.toHaveProperty('instructions');
+    expect(teardownWorktree('shop', true, 'feat/g', config, true, made!.paths)).toBe(true);
+    expect(fs.existsSync(path.join(made!.launchDir, 'CLAUDE.md'))).toBe(false);
+    config = configWith(true);
+    saveConfig(config);
+    await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    expect(fs.readFileSync(path.join(made!.launchDir, 'CLAUDE.md'), 'utf8')).toBe('GROUP SUMMARY\n');
+  }, 60_000);
+
+  it('a session made with imports records it, so it gets them again whatever the switch says later', async () => {
+    const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    expect(findSession(loadHistory(), 'shop', 'feat/g')?.instructions).toBe('imports');
+    expect(teardownWorktree('shop', true, 'feat/g', config, true, made!.paths)).toBe(true);
+    config = configWith(false);
+    saveConfig(config);
+    await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    const text = fs.readFileSync(path.join(made!.launchDir, 'CLAUDE.md'), 'utf8');
+    expect(text).toContain('@api-repo/CLAUDE.md');
+    expect(text).not.toContain('GROUP SUMMARY');
+  }, 60_000);
 });
 
 describe('sessionFolders off (the default)', () => {

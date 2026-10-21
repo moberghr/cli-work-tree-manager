@@ -36,11 +36,15 @@ const sameName = (a: string, b: string) => path.basename(a).toLowerCase() === pa
  * the group's member (config) with that folder name, else the folder's own
  * name (`guessed`); a single repo's is its target.
  */
-export function sessionRepos(s: SessionShape, config: Pick<WorkConfig, 'repos' | 'groups'> | null | undefined): SessionRepo[] {
+export function sessionRepos(s: SessionShape, config: Partial<Pick<WorkConfig, 'repos' | 'groups'>> | null | undefined): SessionRepo[] {
   const recorded = recordedRepos(s);
   if (recorded) return recorded;
   if (!s.isGroup) return s.paths.length ? [{ alias: s.target, path: s.paths[0] }] : [];
-  const members = config?.groups?.[s.target] ?? [];
+  // A list that is there but doesn't match its paths (a damaged row): each folder is matched
+  // by name among the recorded aliases first — never read as a row from before, whose group
+  // config may name none of them (a repo's session folder has no group at all).
+  const listed = Array.isArray(s.repos) ? s.repos.filter((a): a is string => typeof a === 'string' && !!a) : [];
+  const members = [...new Set([...listed, ...(config?.groups?.[s.target] ?? [])])];
   return s.paths.map((p) => {
     const alias = members.find((a) => {
       const repo = config?.repos?.[a];
@@ -55,8 +59,24 @@ export function sessionRepos(s: SessionShape, config: Pick<WorkConfig, 'repos' |
  * Recorded: its own. Legacy, as before: a group's config members, a single
  * repo's target.
  */
-export function sessionAliases(s: SessionShape, config: Pick<WorkConfig, 'groups'> | null | undefined): string[] {
+export function sessionAliases(s: SessionShape, config: Partial<Pick<WorkConfig, 'repos' | 'groups'>> | null | undefined): string[] {
   const recorded = recordedRepos(s);
   if (recorded) return recorded.map((r) => r.alias);
+  // A damaged list: what its folders are matched to, never the group's config alone.
+  // (Without the repos' folders to match by, what it lists.)
+  if (Array.isArray(s.repos) && s.isGroup)
+    return config?.repos
+      ? sessionRepos(s, config)
+          .filter((r) => !r.guessed)
+          .map((r) => r.alias)
+      : s.repos.filter((a): a is string => typeof a === 'string' && !!a);
   return s.isGroup ? (config?.groups?.[s.target] ?? []) : [s.target];
+}
+
+/**
+ * A session that is a folder of repos (a group's, or a repo's made with
+ * `sessionFolders`): Claude runs in the folder, and a repo can be added to it.
+ */
+export function isFolderSession(s: Pick<WorktreeSession, 'isGroup'>): boolean {
+  return s.isGroup;
 }

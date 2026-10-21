@@ -35,6 +35,8 @@ describe('renderInstructions', () => {
 });
 
 describe('writeSessionInstructions', () => {
+  // Claude's import line (its adapter's instructionsImport).
+  const at = (rel: string) => `@${rel}`;
   let dir: string;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-instr-'));
@@ -45,7 +47,7 @@ describe('writeSessionInstructions', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it('imports only the repos whose folder has the file, and creates the file', () => {
-    expect(writeSessionInstructions(dir, ['api', 'web', 'docs'], 'CLAUDE.md')).toEqual(['@api/CLAUDE.md', '@docs/CLAUDE.md']);
+    expect(writeSessionInstructions(dir, ['api', 'web', 'docs'], 'CLAUDE.md', at)).toEqual(['api', 'docs']);
     const text = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8');
     expect(text).toBe(`${block('@api/CLAUDE.md', '@docs/CLAUDE.md')}\n`);
     expect(text).not.toContain('@web/');
@@ -55,14 +57,27 @@ describe('writeSessionInstructions', () => {
   it("keeps the user's own text when the block is rewritten", () => {
     const file = path.join(dir, 'CLAUDE.md');
     fs.writeFileSync(file, `My notes.\n\n${block('@gone/CLAUDE.md')}\n\nMore notes.\n`);
-    writeSessionInstructions(dir, ['api'], 'CLAUDE.md');
+    writeSessionInstructions(dir, ['api'], 'CLAUDE.md', at);
     expect(fs.readFileSync(file, 'utf8')).toBe(`My notes.\n\n${block('@api/CLAUDE.md')}\n\nMore notes.\n`);
   });
 
   it('uses the agent file name it is given', () => {
     fs.writeFileSync(path.join(dir, 'web', 'AGENTS.md'), '# web\n');
-    expect(writeSessionInstructions(dir, ['api', 'web'], 'AGENTS.md')).toEqual(['@web/AGENTS.md']);
+    expect(writeSessionInstructions(dir, ['api', 'web'], 'AGENTS.md', at)).toEqual(['web']);
     expect(fs.existsSync(path.join(dir, 'AGENTS.md'))).toBe(true);
+  });
+
+  it("writes each import in the agent's own syntax", () => {
+    writeSessionInstructions(dir, ['api', 'docs'], 'CLAUDE.md', (rel) => `include ${rel}`);
+    expect(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')).toBe(`${block('include api/CLAUDE.md', 'include docs/CLAUDE.md')}\n`);
+  });
+
+  it("never overwrites a file it can't read (only one not there yet counts as empty)", () => {
+    // A folder where the file should be: reading it fails with EISDIR, not ENOENT.
+    fs.mkdirSync(path.join(dir, 'CLAUDE.md'));
+    expect(() => writeSessionInstructions(dir, ['api'], 'CLAUDE.md', at)).toThrow();
+    expect(fs.statSync(path.join(dir, 'CLAUDE.md')).isDirectory()).toBe(true);
+    expect(() => hasInstructionsBlock(path.join(dir, 'CLAUDE.md'))).toThrow();
   });
 
   it('a file without the block is not a session import file', () => {

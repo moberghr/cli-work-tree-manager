@@ -98,7 +98,7 @@ describe('addRepoToSession', () => {
     const { s, id, folder } = await folderSession();
     const r = await addRepoToSession(id, 'web');
     const wt = path.join(folder, 'web-repo');
-    expect(r).toEqual({ alias: 'web', path: wt, branch: 'feat/x', created: true, from: 'main' });
+    expect(r).toEqual({ alias: 'web', path: wt, branch: 'feat/x', created: true, from: 'main', imported: true, warnings: [] });
     expect(git(['rev-parse', '--abbrev-ref', 'HEAD'], wt).stdout).toBe('feat/x');
     expect(head(wt)).toBe(head(config.repos.web, 'main'));
     expect(parseWorktreeList(config.repos.web).some((w) => norm(w.path) === norm(wt))).toBe(true);
@@ -115,7 +115,15 @@ describe('addRepoToSession', () => {
   it("the session's branch existing in the repo: checked out as it is", async () => {
     const { id, folder } = await folderSession('api', 'feat/existing');
     const r = await addRepoToSession(id, 'web', { base: 'dev' });
-    expect(r).toEqual({ alias: 'web', path: path.join(folder, 'web-repo'), branch: 'feat/existing', created: false });
+    expect(r).toEqual({
+      alias: 'web',
+      path: path.join(folder, 'web-repo'),
+      branch: 'feat/existing',
+      created: false,
+      imported: true,
+      // A base is for a new branch only: said.
+      warnings: ['feat/existing exists already in this repo: checked out as it is (not from dev)'],
+    });
     expect(head(r.path)).toBe(head(config.repos.web, 'feat/existing'));
     expect(row('api', 'feat/existing')!.baseBranches?.[r.path]).toBeUndefined();
   }, 90_000);
@@ -135,10 +143,25 @@ describe('addRepoToSession', () => {
     await takeCheckpoint(oldHash, scopeRepos);
     fs.writeFileSync(path.join(s.paths[0], 'x.txt'), 'turn\n');
     await takeCheckpoint(oldHash, scopeRepos);
-    await addRepoToSession(id, 'web');
+    const r = await addRepoToSession(id, 'web');
+    expect(r.warnings).toEqual([]);
     const now = row('api', 'feat/x')!;
-    expect(loadManifest(scopeHashForPaths(now.paths)).entries.map((e) => e.id)).toEqual([0, 1]);
+    const newHash = scopeHashForPaths(now.paths);
+    expect(loadManifest(newHash).entries.map((e) => e.id)).toEqual([0, 1]);
     expect(loadManifest(oldHash).entries).toEqual([]);
+    const refsIn = (repo: string, hash: string) =>
+      git(['for-each-ref', '--format=%(refname)', `refs/wd/${hash}/`], repo)
+        .stdout.split('\n')
+        .filter(Boolean);
+    expect(refsIn(s.paths[0], newHash)).toHaveLength(2);
+    expect(refsIn(s.paths[0], oldHash)).toEqual([]);
+    // The next turn: over both repos, numbered on from the old ones.
+    const next = await takeCheckpoint(
+      newHash,
+      now.paths.map((root) => ({ name: path.basename(root), root })),
+    );
+    expect(next?.id).toBe(2);
+    expect(Object.keys(next?.repos ?? {}).sort()).toEqual(['api-repo', 'web-repo']);
   }, 90_000);
 
   it('a group session with a copied summary keeps it, the imports after it', async () => {
@@ -162,13 +185,137 @@ describe('addRepoToSession', () => {
   }, 90_000);
 });
 
+describe('after the checkout', () => {
+  it("a checkout that can't be recorded is removed again, branch and all, and says so", async () => {
+    const { s, id, folder } = await folderSession();
+    const wt = path.join(folder, 'web-repo');
+    await expect(
+      addRepoToSession(
+        id,
+        'web',
+        {},
+        {
+          record: () => {
+            throw new Error('database is locked');
+          },
+        },
+      ),
+    ).rejects.toThrow(/couldn't record web on the session \(database is locked\); its checkout was removed again/);
+    expect(fs.existsSync(wt)).toBe(false);
+    expect(parseWorktreeList(config.repos.web).some((w) => norm(w.path) === norm(wt))).toBe(false);
+    expect(git(['branch', '--list', 'feat/x'], config.repos.web).stdout).toBe('');
+    expect(row('api', 'feat/x')).toEqual(s);
+    // And a retry works: nothing is left in its way.
+    expect((await addRepoToSession(id, 'web')).path).toBe(wt);
+  }, 120_000);
+
+  it('a session gone by the time it is recorded: the same', async () => {
+    const { id, folder } = await folderSession();
+    await expect(addRepoToSession(id, 'web', {}, { record: () => null })).rejects.toThrow(/the session is gone/);
+    expect(fs.existsSync(path.join(folder, 'web-repo'))).toBe(false);
+  }, 90_000);
+
+  it("one that can't be removed either names its folder", async () => {
+    const { id, folder } = await folderSession();
+    await expect(addRepoToSession(id, 'web', {}, { record: () => null, undoCheckout: () => false })).rejects.toThrow(
+      new RegExp(`still at .*web-repo: remove it by hand`),
+    );
+    expect(fs.existsSync(path.join(folder, 'web-repo'))).toBe(true);
+  }, 90_000);
+
+  it("the turns that can't be carried over: the repo stays added, and the result says why", async () => {
+    const { id } = await folderSession();
+    const r = await addRepoToSession(
+      id,
+      'web',
+      {},
+      {
+        migrate: async () => {
+          throw new Error('disk full');
+        },
+      },
+    );
+    expect(r.warnings).toEqual(["couldn't carry the Diff tab's turns over: disk full"]);
+    expect(row('api', 'feat/x')!.repos).toEqual(['api', 'web']);
+  }, 90_000);
+
+  it("the move's own problems are passed on", async () => {
+    const { id } = await folderSession();
+    const r = await addRepoToSession(
+      id,
+      'web',
+      {},
+      {
+        migrate: async (a, b) => ({ from: a.join(), to: b.join(), manifest: false, refs: 0, comments: 0, problems: ['x'] }),
+      },
+    );
+    expect(r.warnings).toEqual(["the Diff tab's turns: x"]);
+  }, 90_000);
+
+  it("an instructions file that can't be written: the repo stays added, not imported, said", async () => {
+    const { id } = await folderSession();
+    const r = await addRepoToSession(
+      id,
+      'web',
+      {},
+      {
+        instructions: () => {
+          throw new Error('EBUSY');
+        },
+      },
+    );
+    expect(r).toMatchObject({ imported: false, warnings: ["couldn't update the session folder's instructions file: EBUSY"] });
+    expect(row('api', 'feat/x')!.repos).toEqual(['api', 'web']);
+  }, 90_000);
+
+  it("an agent that can't import: the file left as it is, the repo not imported, said", async () => {
+    const { id } = await folderSession();
+    const r = await addRepoToSession(id, 'web', {}, { instructions: () => ({ file: 'AGENTS.md', imported: null }) });
+    expect(r).toMatchObject({ imported: false });
+    expect(r.warnings).toEqual(["its agent can't import files into AGENTS.md: the session folder's file is left as it is"]);
+  }, 90_000);
+
+  it('a checkout that failed (as the deps say) records nothing and moves nothing', async () => {
+    const { s, id } = await folderSession();
+    let moved = false;
+    await expect(
+      addRepoToSession(
+        id,
+        'web',
+        {},
+        {
+          checkout: () => ({ ok: false, error: 'git said no' }),
+          migrate: async () => {
+            moved = true;
+            throw new Error('never');
+          },
+        },
+      ),
+    ).rejects.toThrow('git said no');
+    expect(moved).toBe(false);
+    expect(row('api', 'feat/x')).toEqual(s);
+  }, 90_000);
+});
+
 describe('refusals change nothing', () => {
+  /** Everything an add could touch: the history, the folders, the instructions files, the repos' worktrees and branches, the turn lists. */
+  const snapshot = () => {
+    const files = fs.existsSync(config.worktreesRoot) ? (fs.readdirSync(config.worktreesRoot, { recursive: true }) as string[]).sort() : [];
+    const texts = files
+      .filter((f) => /(CLAUDE|AGENTS)\.md$/.test(f))
+      .map((f) => fs.readFileSync(path.join(config.worktreesRoot, f), 'utf8'));
+    const repos = Object.values(config.repos)
+      .filter((r) => fs.existsSync(r))
+      .map((r) => [git(['worktree', 'list', '--porcelain'], r).stdout, git(['branch', '--list'], r).stdout]);
+    const diffs = path.join(tmp, '.work', 'diffs');
+    const manifests = fs.existsSync(diffs) ? fs.readdirSync(diffs).sort() : [];
+    return { history: loadHistory(), files, texts, repos, manifests };
+  };
   const refused = async (id: string, alias: string, message: RegExp, opts: { base?: string } = {}) => {
-    const before = loadHistory();
-    const dirs = fs.existsSync(config.worktreesRoot) ? fs.readdirSync(config.worktreesRoot, { recursive: true }).sort() : [];
+    const before = snapshot();
+    // Refused before git is asked anything (but the checkout git itself refuses, which uses the real one).
     await expect(addRepoToSession(id, alias, opts)).rejects.toThrow(message);
-    expect(loadHistory()).toEqual(before);
-    expect(fs.existsSync(config.worktreesRoot) ? fs.readdirSync(config.worktreesRoot, { recursive: true }).sort() : []).toEqual(dirs);
+    expect(snapshot()).toEqual(before);
   };
 
   it('an unknown session', async () => {
@@ -239,13 +386,30 @@ describe('addRepoRefusal', () => {
     expect(addRepoRefusal({ ...s, archivedAt: 'x' }, 'web', cfg, () => false)?.status).toBe(409);
     expect(addRepoRefusal(s, 'web', cfg, () => false)).toBeNull();
   });
+
+  it('refuses a row from before with a folder no repo of its group has (it would record a made-up alias)', () => {
+    const legacy = { ...s, repos: undefined, paths: ['/w/shop/b/api-repo', '/w/shop/b/mystery'] };
+    const r = addRepoRefusal(legacy, 'web', { ...cfg, groups: { shop: ['api'] } }, () => false);
+    expect(r).toEqual({ status: 409, error: 'no repo of shop is in its folder mystery: add that repo back to the group first' });
+  });
+
+  it('a row from before whose folders all match: allowed', () => {
+    const legacy = { ...s, repos: undefined };
+    expect(addRepoRefusal(legacy, 'web', { ...cfg, groups: { shop: ['api'] } }, () => false)).toBeNull();
+  });
 });
 
 describe('addedRepoNote', () => {
   it('says where, on which branch, and from what', () => {
-    expect(addedRepoNote({ alias: 'web', path: '/w/x/web-repo', branch: 'feat/x', from: 'main' })).toBe(
+    expect(addedRepoNote({ alias: 'web', path: '/w/x/web-repo', branch: 'feat/x', from: 'main', imported: true })).toBe(
       "Added repo web to this session: ./web-repo on branch feat/x, made from main. Its CLAUDE.md is imported by the session's instructions file.",
     );
     expect(addedRepoNote({ alias: 'web', path: '/w/x/web-repo', branch: 'feat/x' })).not.toContain('made from');
+  });
+
+  it("doesn't claim an import that isn't there (no file, or an agent that can't import)", () => {
+    const note = addedRepoNote({ alias: 'web', path: '/w/x/web-repo', branch: 'feat/x', imported: false }, 'AGENTS.md');
+    expect(note).not.toContain('is imported');
+    expect(note).toContain('./web-repo/AGENTS.md');
   });
 });

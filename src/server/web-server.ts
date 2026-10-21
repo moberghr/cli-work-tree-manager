@@ -13,9 +13,11 @@ import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
 import { catchUp } from '../core/conversations/catch-up.js';
 import { mountForkRoutes } from './routes/fork-routes.js';
-import { addRepoInChild, mountSessionRepoRoutes } from './routes/session-repo-routes.js';
+import { mountSessionRepoRoutes } from './routes/session-repo-routes.js';
+import { noteThroughComments } from './session-note.js';
+import { addRepoInChild } from '../core/worktree/add-repo-child.js';
 import { defaultForkDeps } from '../core/sessions/fork-deps.js';
-import { createInChild, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
+import { createInChild, keyedQueue, oneAtATime, type CreateWorktree } from '../core/worktree/setup-child.js';
 import { allSnoozes } from '../core/rail/snooze-store.js';
 import { sessionsWithNotes } from '../core/rail/session-notes.js';
 import { mountNoteRoutes } from './routes/note-routes.js';
@@ -332,7 +334,9 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   // Behind main, per session: slow refresh (main moves slowly), a broadcast when it changes.
   // Making a worktree runs git synchronously: in a child `work tree --setup-only`,
   // so a slow fetch doesn't hold up every request (setup-child.ts).
-  const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config));
+  // One creation (or add of a repo to a session) at a time per project or repo: they fetch and add worktrees in the same repos.
+  const worktreeQueue = keyedQueue();
+  const makeWorktree: CreateWorktree = oneAtATime((req, config) => createInChild(getWorkBin())(req, config), worktreeQueue);
   const behindCache = new BehindCache({ onChange: () => broadcast('sessions-changed', { ts: Date.now() }) });
   const diffStats = new DiffStatCache({
     onChange: () => {
@@ -766,14 +770,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     startRun: () => activity.start('stacks', 'Updating stacked sessions'),
     busy: stackSyncing,
     shownState,
-    tell: async (s: WorktreeSession, body: string) => {
-      const res = await app.request(`/api/sessions/${encodeURIComponent(sessionIdFor(s))}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ side: 'general', status: 'published', body }),
-      });
-      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
-    },
+    tell: (s: WorktreeSession, body: string) => noteThroughComments(app)(sessionIdFor(s), body),
   };
   const syncStacksAfter = async (id: string) => {
     if (readStatus(id)?.state !== 'idle') return;
@@ -941,20 +938,14 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
   mountSessionRepoRoutes(app, {
     broadcast,
     run: addRepoInChild(getWorkBin),
+    queue: worktreeQueue,
     // The scope only: the session stays, and its file watcher keeps serving whoever listens.
     release: (_id, paths) => void scopeApi?.releaseSessionScope(paths, false),
     invalidate: (id) => {
       diffStats.invalidate(id);
       behindCache.invalidate(id);
     },
-    note: async (id, body) => {
-      const res = await app.request(`/api/sessions/${encodeURIComponent(id)}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ side: 'general', status: 'published', body }),
-      });
-      if (!res.ok) throw new Error(`posting the note failed: ${res.status}`);
-    },
+    note: noteThroughComments(app),
   });
 
   // The Time tab (core/time): each day's hours per ticket, kept current as you go.

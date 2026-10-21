@@ -31,8 +31,18 @@ export function headerRepos(s: Pick<SessionSummary, 'folder' | 'isGroup' | 'repo
   return s.repos?.length ? s.repos : s.paths.map(baseName);
 }
 
-/** "Added docs: ./straumur-documentation on feat/x" (made from main, when its branch is new). */
-export function addedRepoText(alias: string, w: Pick<AddRepoWire, 'path' | 'branch' | 'created' | 'from'>): string {
+/**
+ * The toast once a repo is in: "Added docs: ./straumur-documentation on feat/x"
+ * (made from main, when its branch is new), and — when something didn't go as
+ * it should after it was in (the turns, the instructions file, telling its
+ * Claude) — what, as a warning.
+ */
+export function addedRepoText(
+  alias: string,
+  w: Pick<AddRepoWire, 'path' | 'branch' | 'created' | 'from' | 'warnings'>,
+): { text: string; kind?: 'error' } {
   const made = w.created && w.from ? `, made from ${w.from}` : '';
-  return `Added ${alias}: ./${baseName(w.path)} on ${w.branch}${made}`;
+  const text = `Added ${alias}: ./${baseName(w.path)} on ${w.branch}${made}`;
+  const warnings = w.warnings ?? [];
+  return warnings.length ? { text: `${text} — but ${warnings.join('; ')}`, kind: 'error' } : { text };
 }

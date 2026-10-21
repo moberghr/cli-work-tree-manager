@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
 import { getWorktreeRoot, getMainRepoRoot, getCurrentBranch } from '../git/git.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
 
 export interface ProjectTarget {
   isGroup: boolean;
@@ -123,9 +124,23 @@ function safeRealpath(p: string): string {
  * Resolve the target, branch, and base-repo status from the current working
  * directory's git worktree. Uses git. Returns an `{ error }` object on failure.
  */
+/**
+ * The folder session (a group's, or a repo's made with `sessionFolders`) one
+ * of whose checkouts is `worktreeRoot`, or null. Its folder is named after its
+ * target, not after the repo found there: a repo added to it (another alias),
+ * or an alias whose repo folder has another name, can't be told from the path.
+ */
+export function folderSessionAt(sessions: WorktreeSession[], worktreeRoot: string): WorktreeSession | null {
+  const at = safeRealpath(worktreeRoot);
+  const live = sessions.filter((s) => s.isGroup && s.paths.some((p) => safeRealpath(p) === at));
+  return live.find((s) => !s.archivedAt) ?? live[0] ?? null;
+}
+
 export function resolveFromCwd(
   config: WorkConfig,
   cwd: string,
+  /** The sessions to look in first (a folder session's checkout belongs to it). */
+  sessions: WorktreeSession[] = [],
 ): { target: string; isGroup: boolean; branch: string; isBaseRepo: boolean } | { error: string } {
   const worktreeRoot = getWorktreeRoot(cwd);
   if (!worktreeRoot) {
@@ -139,7 +154,8 @@ export function resolveFromCwd(
     };
   }
 
-  let match = matchTargetByWorktreePath(config, worktreeRoot);
+  const own = folderSessionAt(sessions, worktreeRoot);
+  let match = own ? { target: own.target, isGroup: true } : matchTargetByWorktreePath(config, worktreeRoot);
 
   if (!match) {
     const mainRoot = getMainRepoRoot(worktreeRoot);

@@ -147,3 +147,44 @@ describe('matchTargetByRepoRoot', () => {
     expect(result).toEqual({ target: 'api', isGroup: false });
   });
 });
+
+describe('resolveFromCwd in a folder session (work tree --here)', () => {
+  it("a repo added to a session's folder resolves to that session, not to the repo found there", async () => {
+    const fs = (await import('node:fs')).default;
+    const os = (await import('node:os')).default;
+    const { git } = await import('../../../src/core/git/git.js');
+    const { resolveFromCwd, folderSessionAt } = await import('../../../src/core/worktree/resolve.js');
+    const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-here-')));
+    try {
+      // Two repos whose folders aren't named as their aliases.
+      const repos: Record<string, string> = {};
+      for (const [alias, folder] of [
+        ['api', 'api-repo'],
+        ['web', 'web-repo'],
+      ]) {
+        const dir = path.join(tmp, 'src', folder);
+        fs.mkdirSync(dir, { recursive: true });
+        git(['init', '-q', '-b', 'main'], dir);
+        fs.writeFileSync(path.join(dir, 'r.txt'), alias);
+        git(['add', '.'], dir);
+        git(['-c', 'user.email=t@t.t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init', '--no-gpg-sign'], dir);
+        repos[alias] = dir;
+      }
+      const root = path.join(tmp, 'wt');
+      const folder = path.join(root, 'api', 'feat-x');
+      const paths = ['api-repo', 'web-repo'].map((f) => path.join(folder, f));
+      git(['worktree', 'add', '-q', '-b', 'feat/x', paths[0]], repos.api);
+      git(['worktree', 'add', '-q', '-b', 'feat/x', paths[1]], repos.web);
+      const cfg: WorkConfig = { worktreesRoot: root, repos, groups: {}, copyFiles: [] };
+      const session = { target: 'api', isGroup: true, branch: 'feat/x', paths, repos: ['api', 'web'], createdAt: '', lastAccessedAt: '' };
+
+      expect(folderSessionAt([session], paths[1])).toBe(session);
+      // Inside the added repo: the session's target, as a folder session.
+      expect(resolveFromCwd(cfg, paths[1], [session])).toMatchObject({ target: 'api', isGroup: true, branch: 'feat/x' });
+      // Without the sessions (as before): the path names no group, and the repo there is web.
+      expect(resolveFromCwd(cfg, paths[1])).toMatchObject({ target: 'web', isGroup: false });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 60_000);
+});

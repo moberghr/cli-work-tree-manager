@@ -7,14 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { git } from '../../../src/core/git/git.js';
 import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
 import { setupWorktree } from '../../../src/core/worktree/worktree.js';
-import {
-  addRepoChildArgs,
-  addRepoInChild,
-  mountSessionRepoRoutes,
-  parseChildOutcome,
-  type AddRepoOutcome,
-  type SessionRepoRouteOptions,
-} from '../../../src/server/routes/session-repo-routes.js';
+import { mountSessionRepoRoutes, type SessionRepoRouteOptions } from '../../../src/server/routes/session-repo-routes.js';
+import { addRepoInChild, type AddRepoOutcome } from '../../../src/core/worktree/add-repo-child.js';
+import { keyedQueue } from '../../../src/core/worktree/setup-child.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -57,7 +52,15 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
-const wire = () => ({ ok: true as const, path: path.join(folder, 'web-repo'), branch: 'feat/x', created: true, from: 'main' });
+const wire = () => ({
+  ok: true as const,
+  path: path.join(folder, 'web-repo'),
+  branch: 'feat/x',
+  created: true,
+  from: 'main',
+  imported: true,
+  warnings: [] as string[],
+});
 
 function app(over: Partial<SessionRepoRouteOptions> = {}) {
   const events: string[] = [];
@@ -65,6 +68,7 @@ function app(over: Partial<SessionRepoRouteOptions> = {}) {
   const opts: SessionRepoRouteOptions = {
     broadcast: (e) => void events.push(e),
     run: vi.fn(async (): Promise<AddRepoOutcome> => (calls.push('run'), { ok: true, wire: wire() })),
+    queue: keyedQueue(),
     release: vi.fn(() => void calls.push('release')),
     invalidate: vi.fn(),
     note: vi.fn(async () => {}),
@@ -84,8 +88,10 @@ describe('POST /api/sessions/:id/repos', () => {
     const res = await post(a, id, { alias: 'web', base: ' dev ' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(wire());
-    expect(calls).toEqual(['release', 'run']); // the scope let go of before the paths change
-    expect(opts.release).toHaveBeenCalledWith(id, group.paths);
+    // The scope let go of before the paths change, and again after (a hook may have opened it meanwhile).
+    expect(calls).toEqual(['release', 'run', 'release']);
+    expect(opts.release).toHaveBeenNthCalledWith(1, id, group.paths);
+    expect(opts.release).toHaveBeenNthCalledWith(2, id, group.paths);
     expect(opts.run).toHaveBeenCalledWith(id, 'web', 'dev');
     expect(opts.invalidate).toHaveBeenCalledWith(id);
     expect(opts.note).toHaveBeenCalledWith(
@@ -127,18 +133,95 @@ describe('POST /api/sessions/:id/repos', () => {
     expect(opts.run).not.toHaveBeenCalled();
   });
 
-  it("a failure in the child is answered with its reason, and Claude isn't told", async () => {
-    const { a, opts, events } = app({ run: vi.fn(async () => ({ ok: false as const, error: "Base branch 'nope' does not exist" })) });
-    const res = await post(a, sessionIdFor(group), { alias: 'web', base: 'nope' });
-    expect(res.status).toBe(409);
+  it("a failure in the child is answered with its reason and status, the scope let go of again, and Claude isn't told", async () => {
+    const { a, opts, events, calls } = app({
+      run: vi.fn(
+        async (): Promise<AddRepoOutcome> => (calls.push('run'), { ok: false, error: "Base branch 'nope' does not exist", status: 500 }),
+      ),
+    });
+    const id = sessionIdFor(group);
+    const res = await post(a, id, { alias: 'web', base: 'nope' });
+    expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Base branch 'nope' does not exist" });
+    expect(calls).toEqual(['release', 'run', 'release']);
+    expect(opts.invalidate).toHaveBeenCalledWith(id);
     expect(opts.note).not.toHaveBeenCalled();
     expect(events).toContain('sessions-changed');
   });
 
-  it('a note that fails to post leaves the add done', async () => {
+  it("a refusal the child found keeps the child's status", async () => {
+    const { a } = app({ run: vi.fn(async (): Promise<AddRepoOutcome> => ({ ok: false, error: 'unknown session', status: 404 })) });
+    expect((await post(a, sessionIdFor(group), { alias: 'web' })).status).toBe(404);
+  });
+
+  it('a note that fails to post leaves the add done, and says so in its warnings', async () => {
     const { a } = app({ note: vi.fn(async () => Promise.reject(new Error('down'))) });
-    expect((await post(a, sessionIdFor(group), { alias: 'web' })).status).toBe(200);
+    const res = await post(a, sessionIdFor(group), { alias: 'web' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { warnings: string[] }).warnings).toEqual(["couldn't tell its Claude: down"]);
+  });
+
+  it("the child's warnings are in the answer", async () => {
+    const { a } = app({
+      run: vi.fn(async (): Promise<AddRepoOutcome> => ({ ok: true, wire: { ...wire(), warnings: ["the Diff tab's turns: x"] } })),
+    });
+    expect(((await (await post(a, sessionIdFor(group), { alias: 'web' })).json()) as { warnings: string[] }).warnings).toEqual([
+      "the Diff tab's turns: x",
+    ]);
+  });
+
+  it('runs the add only once the scope has been let go of', async () => {
+    let released: () => void = () => {};
+    const release = vi.fn(() => new Promise<void>((r) => (released = r)));
+    const { a, opts } = app({ release });
+    const pending = post(a, sessionIdFor(group), { alias: 'web' });
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(opts.run).not.toHaveBeenCalled();
+    released();
+    await vi.waitFor(() => expect(opts.run).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(2));
+    released();
+    expect((await pending).status).toBe(200);
+  });
+
+  it('a release that fails is answered cleanly, and the session is free again', async () => {
+    const release = vi.fn(async (): Promise<void> => Promise.reject(new Error('watcher stuck')));
+    const { a, opts } = app({ release });
+    const id = sessionIdFor(group);
+    const res = await post(a, id, { alias: 'web' });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/watcher stuck/);
+    expect(opts.run).not.toHaveBeenCalled();
+    release.mockImplementation(async () => {});
+    expect((await post(a, id, { alias: 'web' })).status).toBe(200);
+  });
+
+  it('a run that throws frees the session too', async () => {
+    const run = vi.fn(async (): Promise<AddRepoOutcome> => Promise.reject(new Error('boom')));
+    const { a } = app({ run });
+    const id = sessionIdFor(group);
+    expect((await post(a, id, { alias: 'web' })).status).toBe(500);
+    run.mockImplementation(async () => ({ ok: true, wire: wire() }));
+    expect((await post(a, id, { alias: 'web' })).status).toBe(200);
+  });
+
+  it('waits its turn behind a creation in the same repo, but not behind another repo', async () => {
+    const queue = keyedQueue();
+    let freeWeb: () => void = () => {};
+    void queue('web', () => new Promise<void>((r) => (freeWeb = r)));
+    const { a, opts } = app({ queue });
+    const pending = post(a, sessionIdFor(group), { alias: 'web' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(opts.run).not.toHaveBeenCalled();
+    // Another repo, another queue: a creation elsewhere doesn't hold it up.
+    let other = false;
+    await queue('docs', async () => {
+      other = true;
+    });
+    expect(other).toBe(true);
+    freeWeb();
+    expect((await pending).status).toBe(200);
   });
 
   it('one add per session at a time', async () => {
@@ -154,27 +237,9 @@ describe('POST /api/sessions/:id/repos', () => {
     finish({ ok: true, wire: wire() });
     expect((await first).status).toBe(200);
     // Done: the next one runs.
-    run.mockImplementationOnce(async () => ({ ok: false, error: 'again' }));
+    run.mockImplementationOnce(async () => ({ ok: false, error: 'again', status: 409 }));
     expect((await post(a, id, { alias: 'web' })).status).toBe(409);
     expect(run).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('the child', () => {
-  it('its arguments: values as --flag=value', () => {
-    expect(addRepoChildArgs('abc', 'web', undefined)).toEqual(['add-repo', 'web', '--session-id=abc', '--in-process', '--json']);
-    expect(addRepoChildArgs('abc', 'web', 'dev')).toContain('--base=dev');
-  });
-
-  it('its answer: the last JSON line, an error line, else stderr', () => {
-    const ok = JSON.stringify(wire());
-    expect(parseChildOutcome(`noise\n${ok}\n`, '', 0)).toEqual({ ok: true, wire: wire() });
-    expect(parseChildOutcome('{"error":"no repo called x in your config"}\n', 'warn line', 1)).toEqual({
-      ok: false,
-      error: 'no repo called x in your config',
-    });
-    expect(parseChildOutcome('', '\x1b[31mboom\x1b[0m\n  more\n', 1)).toEqual({ ok: false, error: 'boom more' });
-    expect(parseChildOutcome('', '', null)).toEqual({ ok: false, error: 'work add-repo exited (killed)' });
   });
 });
 
@@ -196,13 +261,13 @@ describe('a real child (`work add-repo --in-process --json`, under tsx)', () => 
     }
     const config = { worktreesRoot: path.join(tmp, 'real', 'wt'), repos, groups: {}, copyFiles: [], sessionFolders: true };
     saveConfig(config);
-    expect(await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false })).toBeTruthy();
+    expect(await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false })).toMatchObject({ isGroup: true });
     const id = sessionIdFor({ target: 'api', branch: 'feat/x' });
     const { a, opts } = app({ run: addRepoInChild(() => BIN, { execArgv: ['--import', 'tsx'], timeoutMs: 120_000 }) });
 
     // A base that doesn't exist: the child's own reason, nothing recorded.
     const bad = await post(a, id, { alias: 'web', base: 'nope' });
-    expect(bad.status).toBe(409);
+    expect(bad.status).toBe(500);
     expect(((await bad.json()) as { error: string }).error).toMatch(/nope/);
     expect(findSession(loadHistory(), 'api', 'feat/x')?.repos).toEqual(['api']);
 
@@ -212,7 +277,15 @@ describe('a real child (`work add-repo --in-process --json`, under tsx)', () => 
     clearInterval(tick);
     expect(res.status).toBe(200);
     const folder = path.join(config.worktreesRoot, 'api', 'feat-x');
-    expect(await res.json()).toEqual({ ok: true, path: path.join(folder, 'web-repo'), branch: 'feat/x', created: true, from: 'main' });
+    expect(await res.json()).toEqual({
+      ok: true,
+      path: path.join(folder, 'web-repo'),
+      branch: 'feat/x',
+      created: true,
+      from: 'main',
+      imported: false, // neither repo has a CLAUDE.md
+      warnings: [],
+    });
     expect(findSession(loadHistory(), 'api', 'feat/x')?.repos).toEqual(['api', 'web']);
     expect(opts.note).toHaveBeenCalledWith(id, expect.stringContaining('Added repo web'));
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git

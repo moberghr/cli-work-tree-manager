@@ -2,6 +2,7 @@ import { createCommentStore, type CommentStore } from '../../core/comments/comme
 import { parseGitDiff, type ParsedFile } from '../../core/diff/diff-parse.js';
 import { findOverlaps } from '../../core/diff/overlap.js';
 import { firstFreeBranch } from '../../core/worktree/branch-name.js';
+import { addedRepoNote, addRepoRefusal } from '../../core/worktree/add-repo-rules.js';
 import { createDemoRepos } from './demo-repos.js';
 import { prStageOf, STAGE_WANTS_YOU } from '../../core/pr/pr-stage.js';
 import { mergedParent, stackChildCounts, stackParents } from '../../core/stacks/stack.js';
@@ -1046,30 +1047,32 @@ export class DemoScenario {
     base?: string,
   ): { ok: true; wire: AddRepoWire } | { ok: false; status: 400 | 404 | 409; error: string } {
     const s = this.sessions.get(id);
-    if (!s) return { ok: false, status: 404, error: 'unknown session' };
-    if (!alias || alias.startsWith('-') || base?.startsWith('-'))
-      return { ok: false, status: 400, error: `not a valid repo or base: ${alias}` };
-    if (s.archivedAt) return { ok: false, status: 409, error: 'it is archived: restore it first' };
-    if (!s.isGroup)
-      return {
-        ok: false,
-        status: 409,
-        error: `${s.target} · ${s.branch} is a single repo's worktree, not a session folder: a repo can only be added to a session made as a folder (a group's, or a new session with config \`sessionFolders: true\`)`,
-      };
-    if (!this.projects().singles.some((p) => p.name === alias))
-      return { ok: false, status: 400, error: `no repo called ${alias} in your config` };
-    if (s.repos.some((r) => r.name === alias)) return { ok: false, status: 409, error: `${alias} is in this session already` };
+    // The real rules (add-repo-rules.ts, pure), over the demo's session and repos.
+    const paths = s ? this.wire(s).paths : [];
+    const repos = Object.fromEntries(this.projects().singles.map((p) => [p.name, `/demo/repos/${p.name}`]));
+    const shape = s
+      ? {
+          target: s.target,
+          branch: s.branch,
+          isGroup: s.isGroup,
+          paths,
+          repos: s.repos.map((r) => r.name),
+          archivedAt: s.archivedAt ?? undefined,
+        }
+      : null;
+    const refusal = addRepoRefusal(shape, alias, { repos, groups: {} }, () => false, base);
+    if (refusal || !s) return { ok: false, status: refusal?.status ?? 404, error: refusal?.error ?? 'unknown session' };
     s.repos.push({ name: alias, uncommitted: '', sinceBranch: '', published: false, pr: null });
     const from = base || 'main';
     const path = this.wire(s).paths[s.repos.length - 1];
     s.comments.post({
       side: 'general',
       status: 'published',
-      body: `Added repo ${alias} to this session: ./${alias} on branch ${s.branch}, made from ${from}. Its CLAUDE.md is imported by the session's instructions file.`,
+      body: addedRepoNote({ alias, path, branch: s.branch, from, imported: true }),
     });
     this.emit('comments-changed', { sessionId: id });
     this.changed();
-    return { ok: true, wire: { ok: true, path, branch: s.branch, created: true, from } };
+    return { ok: true, wire: { ok: true, path, branch: s.branch, created: true, from, imported: true, warnings: [] } };
   }
 
   // -- CI (the PR watch, simulated) ------------------------------------------

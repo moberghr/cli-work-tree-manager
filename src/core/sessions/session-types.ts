@@ -13,6 +13,11 @@ export interface WorktreeSession {
    *  now). Absent on rows from before it was recorded: read it through
    *  `sessionRepos` / `sessionAliases` (session-repos.ts), which derive those. */
   repos?: string[];
+  /** How its folder's instructions file is made, recorded when it is made so
+   *  a Restore makes it the same way whatever config says now: `imports` = a
+   *  work block importing each repo's own (session-instructions.ts). Absent:
+   *  a group's copied summary (`~/.work/<group>.claude.md`), as before. */
+  instructions?: 'imports';
   createdAt: string;
   lastAccessedAt: string;
   jiraKey?: string;

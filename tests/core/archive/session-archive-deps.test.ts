@@ -144,3 +144,39 @@ describe('defaultArchiveDeps().removable', () => {
     expect((await defaultArchiveDeps().removable(session([path.join(repo, '..', 'no-such-worktree')]))).ok).toBe(true);
   });
 });
+
+describe("defaultArchiveDeps().removable over a session's own repos (one its group doesn't name)", () => {
+  it('checks every repo the session records, so uncommitted work in it keeps the worktree', async () => {
+    const { git } = await import('../../../src/core/git/git.js');
+    const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'archive-own-repos-')));
+    try {
+      const repos: Record<string, string> = {};
+      for (const name of ['api', 'docs']) {
+        const dir = path.join(root, 'src', `${name}-repo`);
+        fs.mkdirSync(dir, { recursive: true });
+        git(['init', '-q', '-b', 'main'], dir);
+        fs.writeFileSync(path.join(dir, 'r.txt'), name);
+        git(['add', '.'], dir);
+        git(['-c', 'user.email=t@t.t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init', '--no-gpg-sign'], dir);
+        repos[name] = dir;
+      }
+      // The group names api only; the session also holds docs (added to it).
+      fs.writeFileSync(
+        path.join(os.homedir(), '.work', 'config.json'),
+        JSON.stringify({ worktreesRoot: path.join(root, 'wt'), repos, groups: { shop: ['api'] }, copyFiles: [] }),
+      );
+      const folder = path.join(root, 'wt', 'shop', 'feat-x');
+      const paths = ['api-repo', 'docs-repo'].map((f) => path.join(folder, f));
+      git(['worktree', 'add', '-q', '-b', 'feat/x', paths[0]], repos.api);
+      git(['worktree', 'add', '-q', '-b', 'feat/x', paths[1]], repos.docs);
+      fs.writeFileSync(path.join(paths[1], 'unsaved.txt'), 'work in docs\n');
+      const s = { target: 'shop', branch: 'feat/x', isGroup: true, paths, repos: ['api', 'docs'], createdAt: '', lastAccessedAt: '' };
+
+      const own = await defaultArchiveDeps().removable(s);
+      expect(own.ok).toBe(false);
+      expect(own.reason).toMatch(/uncommitted|docs/i);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 60_000);
+});

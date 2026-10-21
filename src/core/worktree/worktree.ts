@@ -5,6 +5,7 @@ import { isLeftover, putLeftoverBack, setLeftoverAside, takeLeftover } from './l
 import path from 'node:path';
 import { debug } from '../platform/logger.js';
 import type { WorkConfig } from '../platform/config.js';
+import type { WorktreeSession } from '../sessions/session-types.js';
 import { getConfigDir } from '../platform/config.js';
 import { resolveProjectTarget } from './resolve.js';
 import {
@@ -16,7 +17,7 @@ import {
   forgetOtherBaseCheckoutEntries,
 } from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
-import { recordedRepos } from '../sessions/session-repos.js';
+import { isFolderSession, recordedRepos, sessionRepos } from '../sessions/session-repos.js';
 import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
@@ -530,6 +531,10 @@ export async function setupWorktree(
   const repoAliases = asFolder
     ? groupReposFor(sessionTarget, branchName, explicit?.repos ?? target.repoAliases, config)
     : target.repoAliases;
+  if (asFolder && repoAliases.length === 0) {
+    report('error', `none of this session's repos are in your config: add them back (work config add) to open it`);
+    return null;
+  }
 
   // Coming back to an archived session whose merged branch archiving
   // deleted: put the branch back at the tip it had, so the worktree is that
@@ -579,7 +584,7 @@ export async function setupWorktree(
  */
 function folderSessionFor(alias: string, branch: string, config: WorkConfig): boolean {
   const known = findSession(loadHistory(), alias, branch);
-  if (known) return known.isGroup && recordedRepos(known) !== null;
+  if (known) return isFolderSession(known);
   if (config.sessionFolders !== true) return false;
   const repoPath = config.repos[alias];
   // Not there: the single-repo setup says so, as always.
@@ -618,8 +623,7 @@ function groupReposFor(sessionTarget: string, branch: string, configured: string
   if (!own) return configured;
   const gone = own.filter((r) => !config.repos[r.alias]).map((r) => r.alias);
   if (gone.length) report('warn', `not in your config any more, so not set up: ${gone.join(', ')}`);
-  const kept = own.map((r) => r.alias).filter((a) => !gone.includes(a));
-  return kept.length ? kept : configured;
+  return own.map((r) => r.alias).filter((a) => !gone.includes(a));
 }
 
 /** The same aliases, in any order (a new session made with the group's repos, or another list: a fork's). */
@@ -816,25 +820,33 @@ async function setupGroupWorktree(
   const configDir = getConfigDir();
   const claudeMdSrc = path.join(configDir, `${groupName}.claude.md`);
   const known = findSession(loadHistory(), groupName, branchName);
-  const instructionsFile = agentFor(config, known).instructionsFile;
+  const agent = agentFor(config, known);
+  const instructionsFile = agent.instructionsFile;
   const claudeMdDest = path.join(groupWorktreePath, instructionsFile);
-  // A session folder imports each repo's own file instead: a repo's folder session (no
-  // group to copy from), a new session with config `sessionFolders` on, or one made so before
-  // (its file has work's block; with the switch on, also one whose file is gone — a Restore).
-  const byImport =
-    !isConfiguredGroup ||
-    (known
-      ? hasInstructionsBlock(claudeMdDest) || (config.sessionFolders === true && !fs.existsSync(claudeMdDest))
-      : config.sessionFolders === true || !sameRepos(config.groups[groupName], repoAliases));
+  // A session folder imports each repo's own file instead, when its agent can import
+  // (`instructionsImport`): a session recorded so, or one whose file has work's block; a new
+  // one that is a repo's folder session (no group to copy from), made with config
+  // `sessionFolders` on, or with other repos than its group's. A session from before keeps
+  // the group's copy, whatever the switch says now.
+  const wantsImports = known
+    ? known.instructions === 'imports' || hasInstructionsBlock(claudeMdDest) || !isConfiguredGroup
+    : !isConfiguredGroup || config.sessionFolders === true || !sameRepos(config.groups[groupName], repoAliases);
+  const importLine = agent.instructionsImport;
+  const byImport = wantsImports && !!importLine;
 
-  if (byImport) {
+  if (byImport && importLine) {
     const imports = writeSessionInstructions(
       groupWorktreePath,
       createdWorktrees.map((wt) => path.basename(wt.worktreePath)),
       instructionsFile,
+      importLine,
     );
     report('info', '');
     report('success', `${instructionsFile} in the session folder imports ${imports.length} repo file(s)`);
+  } else if (wantsImports && !isConfiguredGroup) {
+    // No group summary to copy, and an agent that can't import: each repo's file is in its folder.
+    report('info', '');
+    report('warn', `${agent.name} can't import files into ${instructionsFile}: each repo's own is in its folder`);
   } else if (fs.existsSync(claudeMdSrc)) {
     fs.copyFileSync(claudeMdSrc, claudeMdDest);
     report('info', '');
@@ -852,16 +864,25 @@ async function setupGroupWorktree(
   // One for the whole group only when every repo has it: it is the fallback for a repo with none of its own.
   const everyRepo = Object.keys(baseBranches).length === allPaths.length;
   const representativeBase = spec.default ?? (distinctBases.length === 1 && everyRepo ? distinctBases[0] : undefined);
+  // What it owns: a new session records its repos (and how its instructions are made); one
+  // that records them keeps them — a repo no longer in the config, not set up, stays listed with
+  // its folder rather than forgotten. A row from before is left as it was: it goes on following
+  // its group's config, as it always did.
+  const own = known ? recordedRepos(known) : null;
+  const gone = (own ?? []).filter((r) => !config.repos[r.alias]);
+  const owns = !known || !!own;
   const { port } = await upsertSessionWithPort(
     groupName,
     true,
     branchName,
-    allPaths,
+    owns ? [...allPaths, ...gone.map((r) => r.path)] : allPaths,
     config,
     jiraKey,
     representativeBase,
     baseBranches,
-    repoAliases,
+    owns
+      ? { repos: [...repoAliases, ...gone.map((r) => r.alias)], ...(byImport && !known ? { instructions: 'imports' as const } : {}) }
+      : {},
   );
 
   report('info', '');
@@ -926,6 +947,8 @@ async function setupSingleWorktree(
   }
 
   const base = baseBranch ?? created.from;
+  // A new session records its repo; a row from before is left as it was (it reads the same).
+  const isNew = !findSession(loadHistory(), targetName, branchName);
   const { port } = await upsertSessionWithPort(
     targetName,
     false,
@@ -935,7 +958,7 @@ async function setupSingleWorktree(
     jiraKey,
     base,
     base ? { [workTreePath]: base } : undefined,
-    [targetName],
+    isNew ? { repos: [targetName] } : {},
   );
 
   report('info', `Branch: ${branchName}`);
@@ -976,7 +999,7 @@ export function teardownWorktree(
   // list, sessionRepos), at its recorded folders; a row from before over the group's config.
   // A repo's session folder (config `sessionFolders`) is one too, though its target is a repo
   // and a caller that resolved the target (`work remove <alias> <branch>`) says it isn't a group.
-  const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths) : null;
+  const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths, config) : null;
 
   if ((isGroup || own) && (own || config.groups[target])) {
     const groupWorktreePath = path.join(config.worktreesRoot, target, workTreeDirName);
@@ -990,7 +1013,14 @@ export function teardownWorktree(
 
     for (const { alias, path: subWorktreePath } of repos) {
       const repoPath = config.repos[alias];
-      if (!repoPath) continue;
+      if (!repoPath) {
+        // Not in the config any more: git can't be asked to remove its worktree. Kept, and said.
+        if (subWorktreePath && fs.existsSync(subWorktreePath)) {
+          report('warn', `[${alias}] isn't in your config any more: ${subWorktreePath} is left as it is`);
+          allRemoved = false;
+        }
+        continue;
+      }
       const repoName = path.basename(repoPath);
       report('step', `[${alias}] (${repoName}):`);
       if (!removeSingleWorktree(repoPath, subWorktreePath, branch, force)) {
@@ -1034,7 +1064,19 @@ export function teardownWorktree(
 /** The session for target + branch is recorded as a folder with its own repos (a group, or a repo's session folder). */
 function recordedFolderSession(target: string, branch: string): boolean {
   const s = findSession(loadHistory(), target, branch);
-  return !!s?.isGroup && recordedRepos(s) !== null;
+  return !!s && isFolderSession(s) && Array.isArray(s.repos);
+}
+
+/**
+ * The repos a session lists, at its folders: as recorded; a list that is
+ * there but doesn't line up with its paths (a damaged row), each folder
+ * matched by name (sessionRepos) — never the group's config in its place.
+ * Null for a row from before (no list at all).
+ */
+function listedRepos(s: WorktreeSession, config: WorkConfig): Array<{ alias: string; path: string }> | null {
+  const recorded = recordedRepos(s);
+  if (recorded) return recorded;
+  return Array.isArray(s.repos) && s.isGroup ? sessionRepos(s, config) : null;
 }
 
 /**
@@ -1042,11 +1084,21 @@ function recordedFolderSession(target: string, branch: string): boolean {
  * session found by target and branch; null for a row from before, or none.
  * The caller's folders, when given and the same in number, are the ones torn down.
  */
-function ownGroupRepos(target: string, branch: string, paths: string[] | undefined): Array<{ alias: string; path: string }> | null {
+function ownGroupRepos(
+  target: string,
+  branch: string,
+  paths: string[] | undefined,
+  config: WorkConfig,
+): Array<{ alias: string; path: string }> | null {
   const s = findSession(loadHistory(), target, branch);
-  const own = s ? recordedRepos(s) : null;
+  const own = s ? listedRepos(s, config) : null;
   if (!own) return null;
-  return paths && paths.length === own.length ? own.map((r, i) => ({ alias: r.alias, path: paths[i] })) : own;
+  // The caller's folder for each repo: the same folder (by path, never by place in the list), else the recorded one.
+  const given = paths ?? [];
+  return own.map((r) => ({
+    alias: r.alias,
+    path: given.find((p) => normalizeWorktreePath(p) === normalizeWorktreePath(r.path)) ?? r.path,
+  }));
 }
 
 /** What opening a repo's own checkout gave: the session it is, or why not. */

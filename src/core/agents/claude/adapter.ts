@@ -77,6 +77,8 @@ export const claudeAgent: AgentAdapter = {
   // `claude -p --tools "" --strict-mcp-config [--model haiku]` in a neutral folder, tagged internal.
   oneShot: { command: ({ small }) => ({ cmd: 'claude', ...internalClaudeSpawn(small ? { model: CLAUDE_SMALL_MODEL } : {}) }) },
   instructionsFile: 'CLAUDE.md',
+  // CLAUDE.md's own import syntax (Claude Code reads the file it names, relative to this one).
+  instructionsImport: (relPath) => `@${relPath}`,
   workspace: claudeWorkspace,
   skills: claudeSkills,
 };

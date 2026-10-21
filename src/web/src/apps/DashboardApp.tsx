@@ -1017,7 +1017,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           onAdded={(alias, w) => {
             setAddingRepo(null);
             refetch.trigger();
-            showToast({ text: addedRepoText(alias, w) });
+            showToast(addedRepoText(alias, w));
           }}
         />
       )}

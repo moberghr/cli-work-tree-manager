@@ -185,6 +185,9 @@ export interface AgentAdapter {
   oneShot?: AgentOneShot;
   /** The project instructions file it reads (CLAUDE.md; Codex, Copilot and opencode read AGENTS.md): a group's combined one is written under this name. */
   instructionsFile: string;
+  /** The line in an instructions file that makes it read another (Claude's `@api/CLAUDE.md`), for a
+   *  session folder's file (session-instructions.ts); absent: it can't import, and a group's combined file is copied instead. */
+  instructionsImport?(relPath: string): string;
   /** Folders whose changes mean it did something (its conversations, its process state): work web watches them to refresh the dashboard at once. */
   activityRoots?(): string[];
   /** Installing work's skills for it (skills.ts); absent: it isn't told about `work`'s commands. */

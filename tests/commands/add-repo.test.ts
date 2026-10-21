@@ -128,11 +128,14 @@ describe('work add-repo', () => {
       branch: 'feat/x',
       created: true,
       from: 'main',
+      imported: true,
+      warnings: [],
     });
     expect(readStoreComments(id)).toEqual([]);
     out.length = 0;
     await run({ alias: 'web', 'session-id': id, 'in-process': true, json: true });
-    expect(JSON.parse(out.at(-1)!)).toEqual({ error: 'web is in this session already' });
+    // A refusal carries its status, for the route to answer with.
+    expect(JSON.parse(out.at(-1)!)).toEqual({ error: 'web is in this session already', status: 409 });
     expect(process.exitCode).toBe(1);
   }, 60_000);
 

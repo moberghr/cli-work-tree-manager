@@ -1061,6 +1061,10 @@ export interface AddRepoWire {
   created: boolean;
   /** The branch a new one was made from. */
   from?: string;
+  /** The session folder's instructions file imports the repo's own now (absent from an older server). */
+  imported?: boolean;
+  /** What didn't go as it should once the repo was in (the turns, the instructions file, telling its Claude): it stands. */
+  warnings?: string[];
 }
 
 // ---- behind main (behind-main.ts) -------------------------------------------------

@@ -128,6 +128,13 @@ describe('forkSession', () => {
       [parent, 'bad name', {}, /not a valid branch name/],
       [parent, 'feat/x-2', { branchExists: () => true }, /already exists \(api\)/],
       [parent, 'feat/x-2', { branchOf: () => null }, /detached/],
+      // A session folder that records a repo the config no longer has: refused, not forked without it.
+      [
+        { ...parent, isGroup: true, paths: ['/wt/api/feat-x/api', '/wt/api/feat-x/docs'], repos: ['api', 'docs'] },
+        'feat/x-2',
+        {},
+        /not in your config any more: docs/,
+      ],
     ];
     for (const [s, branch, over, re] of cases) {
       const { d, calls } = deps(over);

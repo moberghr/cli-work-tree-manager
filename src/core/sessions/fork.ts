@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { BaseSpec } from '../git/base-spec.js';
 import type { WorkConfig } from '../platform/config.js';
 import type { WorktreeSession } from './session-types.js';
+import { recordedRepos } from './session-repos.js';
 
 /**
  * Fork a session: a new branch, in a new worktree, from where this session's
@@ -127,6 +128,14 @@ export async function forkSession(parent: WorktreeSession, req: ForkRequest, dep
   if (!config) return { ok: false, status: 400, error: 'no config' };
   const repos = deps.repos(parent.target, config, parent);
   if (!repos) return { ok: false, status: 400, error: `${parent.target} is no longer in the config` };
+  // A session that records its repos is forked whole: one of them no longer in the config would be left out unsaid.
+  const missing = (recordedRepos(parent) ?? []).map((r) => r.alias).filter((a) => !repos.some((r) => r.alias === a));
+  if (missing.length)
+    return {
+      ok: false,
+      status: 409,
+      error: `not in your config any more: ${missing.join(', ')} — add it back first, or the fork would leave it out`,
+    };
   // An existing branch would be checked out as it is, not forked.
   const taken = repos.filter((r) => deps.branchExists(r.repoPath, branch)).map((r) => r.alias);
   if (taken.length) return { ok: false, status: 409, error: `${branch} already exists (${taken.join(', ')}): pick another name` };

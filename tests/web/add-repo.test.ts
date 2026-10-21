@@ -83,12 +83,17 @@ describe('canAddRepo / headerRepos', () => {
     expect(headerRepos(single({ folder: undefined, repos: undefined }))).toEqual([]);
   });
   it('the toast says where it went, and what a new branch was made from', () => {
-    expect(addedRepoText('docs', { path: 'C:\\wt\\shop\\feat-x\\straumur-documentation', branch: 'feat/x', created: false })).toBe(
-      'Added docs: ./straumur-documentation on feat/x',
-    );
-    expect(addedRepoText('docs', { path: '/wt/shop/feat-x/docs', branch: 'feat/x', created: true, from: 'main' })).toBe(
-      'Added docs: ./docs on feat/x, made from main',
-    );
+    expect(addedRepoText('docs', { path: 'C:\\wt\\shop\\feat-x\\straumur-documentation', branch: 'feat/x', created: false })).toEqual({
+      text: 'Added docs: ./straumur-documentation on feat/x',
+    });
+    expect(addedRepoText('docs', { path: '/wt/shop/feat-x/docs', branch: 'feat/x', created: true, from: 'main' })).toEqual({
+      text: 'Added docs: ./docs on feat/x, made from main',
+    });
+  });
+  it("what didn't go as it should once the repo was in: said, as a warning", () => {
+    expect(
+      addedRepoText('docs', { path: '/wt/x/docs', branch: 'feat/x', created: false, warnings: ["couldn't tell its Claude: down", 'x'] }),
+    ).toEqual({ text: "Added docs: ./docs on feat/x — but couldn't tell its Claude: down; x", kind: 'error' });
   });
 });
 

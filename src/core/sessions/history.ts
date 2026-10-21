@@ -59,9 +59,16 @@ function putRow(d: Db, s: WorktreeSession): void {
 /**
  * A repo added to a session (add-repo.ts): its worktree appended to the
  * session's paths, its alias to its repos (a row from before gets its list
- * recorded first, as derived), and the base it was made from — in one
- * transaction over the row as it is now. Already there: unchanged. Null when
- * the session is gone.
+ * recorded first, as derived), and its base — in one transaction over the row
+ * as it is now. `before` is the paths it had, read in that transaction (the
+ * scope its turns move from). Already there: unchanged. Null when the session
+ * is gone. Throws, writing nothing, when a folder of a row from before can't
+ * be matched to a repo of its group (it would be recorded under a made-up alias).
+ *
+ * The base: one `baseBranch` stands for every repo only when every repo has it
+ * (as a group's is recorded). An added repo made from it keeps that; one made
+ * from another, or checked out on a branch it had (no base known), gets its own
+ * entry or none, and the others keep theirs — each in `baseBranches`.
  */
 export function appendSessionRepo(
   id: string,
@@ -69,18 +76,28 @@ export function appendSessionRepo(
   worktree: string,
   from: string | undefined,
   config: WorkConfig,
-): WorktreeSession | null {
+): { before: string[]; session: WorktreeSession } | null {
   return tx((d) => {
     const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(id) as { data: string } | undefined;
     const s = r ? json.parse(r.data) : null;
     if (!valid(s)) return null;
-    const repos = sessionRepos(s, config).map((x) => x.alias);
-    if (repos.includes(alias)) return s;
+    const own = sessionRepos(s, config);
+    const unknown = own.filter((x) => x.guessed).map((x) => path.basename(x.path));
+    if (unknown.length) throw new Error(`no repo of its group is in ${unknown.join(', ')}, so its repos can't be recorded`);
+    const repos = own.map((x) => x.alias);
+    const before = [...s.paths];
+    if (repos.includes(alias)) return { before, session: s };
+    if (s.baseBranch && from !== s.baseBranch) {
+      const perRepo = { ...(s.baseBranches ?? {}) };
+      for (const p of s.paths) perRepo[p] ??= s.baseBranch;
+      s.baseBranches = perRepo;
+      delete s.baseBranch;
+    }
     s.paths = [...s.paths, worktree];
     s.repos = [...repos, alias];
     if (from) s.baseBranches = { ...(s.baseBranches ?? {}), [worktree]: from };
     putRow(d, s);
-    return s;
+    return { before, session: s };
   });
 }
 
@@ -190,9 +207,11 @@ export async function upsertSessionWithPort(
   jiraKey?: string,
   baseBranch?: string,
   baseBranches?: Record<string, string>,
-  /** The repo alias of each of `paths` (WorktreeSession.repos); omitted keeps what the row has. */
-  repos?: string[],
+  /** What the session owns: the repo alias of each of `paths` (WorktreeSession.repos) and how
+   *  its instructions file is made (`instructions`). Each omitted keeps what the row has. */
+  own: { repos?: string[]; instructions?: 'imports' } = {},
 ): Promise<{ port?: number }> {
+  const { repos, instructions } = own;
   const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
   const id = sessionIdFor({ target, branch });
 
@@ -208,6 +227,7 @@ export async function upsertSessionWithPort(
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
       if (existing.port === undefined && port !== undefined) existing.port = port;
       if (repos) existing.repos = [...repos];
+      if (instructions) existing.instructions = instructions;
       putRow(d, existing);
       return existing.port;
     }
@@ -217,6 +237,7 @@ export async function upsertSessionWithPort(
     if (hasPerRepo) session.baseBranches = baseBranches;
     if (port !== undefined) session.port = port;
     if (repos) session.repos = [...repos];
+    if (instructions) session.instructions = instructions;
     putRow(d, session);
     return port;
   };

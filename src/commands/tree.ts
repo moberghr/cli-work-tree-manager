@@ -199,7 +199,7 @@ export const treeCommand: CommandModule = {
         process.exitCode = 1;
         return;
       }
-      const inferred = resolveFromCwd(config, process.cwd());
+      const inferred = resolveFromCwd(config, process.cwd(), loadHistory());
       if ('error' in inferred) {
         console.error(inferred.error);
         process.exitCode = 1;

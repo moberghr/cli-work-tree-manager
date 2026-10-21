@@ -79,24 +79,100 @@ export function childArgs(req: CreateRequest): string[] {
  * the same repos (git's own locks would turn two at once into a failure),
  * and a double-clicked create of the same branch gets the first one's answer.
  */
-export function oneAtATime(create: CreateWorktree): CreateWorktree {
-  const queues = new Map<string, Promise<unknown>>();
+export function oneAtATime(create: CreateWorktree, queue: KeyedQueue = keyedQueue()): CreateWorktree {
   const same = new Map<string, Promise<CreateResult>>();
   return (req, config) => {
     const key = `${req.target}\0${req.branch ?? ''}`;
     const running = same.get(key);
     if (running) return running;
-    const before = queues.get(req.target) ?? Promise.resolve();
-    const job = before.then(() => create(req, config));
-    const tail = job.catch(() => undefined);
-    queues.set(req.target, tail);
+    const job = queue(req.target, () => create(req, config));
     same.set(key, job);
-    void tail.then(() => {
-      if (same.get(key) === job) same.delete(key);
-      if (queues.get(req.target) === tail) queues.delete(req.target);
-    });
+    void job
+      .catch(() => undefined)
+      .then(() => {
+        if (same.get(key) === job) same.delete(key);
+      });
     return job;
   };
+}
+
+/** Runs jobs one after another per key (a project, or a repo), any number of keys at once. */
+export type KeyedQueue = <T>(key: string, job: () => Promise<T>) => Promise<T>;
+
+export function keyedQueue(): KeyedQueue {
+  const queues = new Map<string, Promise<unknown>>();
+  return <T>(key: string, job: () => Promise<T>): Promise<T> => {
+    const before = queues.get(key) ?? Promise.resolve();
+    const run = before.then(job);
+    const tail = run.catch(() => undefined);
+    queues.set(key, tail);
+    void tail.then(() => {
+      if (queues.get(key) === tail) queues.delete(key);
+    });
+    return run;
+  };
+}
+
+/** What a child `work` run gave back. */
+export interface ChildRun {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  /** Killed after its time ran out. */
+  timedOut: boolean;
+  /** It couldn't be started at all. */
+  spawnError?: string;
+}
+
+/**
+ * Run `node <work> <args…>` in a child process (no window, no colours),
+ * killed after `timeoutMs` (5 min). This process's node flags go with it:
+ * under tsx (dev) they are what loads a .ts entry (but not a debugger's,
+ * whose port is taken).
+ */
+export function runWorkChild(
+  workBin: string,
+  args: string[],
+  opts: { node?: string; execArgv?: string[]; timeoutMs?: number } = {},
+): Promise<ChildRun> {
+  return new Promise((resolve) => {
+    const child = crossSpawn(
+      opts.node ?? process.execPath,
+      [...(opts.execArgv ?? process.execArgv).filter((f) => !/^--inspect/.test(f)), workBin, ...args],
+      { windowsHide: true, env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' } },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
+    let timedOut = false;
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        child.kill();
+      },
+      opts.timeoutMs ?? 5 * 60_000,
+    );
+    let settled = false;
+    const done = (r: ChildRun) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    child.on('error', (err) => done({ stdout, stderr, code: null, timedOut, spawnError: err.message }));
+    child.on('close', (code) => done({ stdout, stderr, code, timedOut }));
+  });
+}
+
+/** What a child printed, in one line, its colours stripped. Pure. */
+export function childText(text: string): string {
+  return text
+    .replace(ANSI, '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .join(' ');
 }
 
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -123,60 +199,22 @@ function resultFromHistory(req: CreateRequest, config: WorkConfig): CreateResult
 
 /** Out of process (work web): `node <work> tree … --setup-only`, then the history. */
 export function createInChild(workBin: string, opts: { node?: string; execArgv?: string[]; timeoutMs?: number } = {}): CreateWorktree {
-  return (req, config) =>
-    new Promise((resolve) => {
-      const invalid = invalidRequest(req);
-      if (invalid) return resolve({ ok: false, error: invalid });
-      // This process's node flags too: under tsx (dev) they are what loads a .ts entry
-      // (but not a debugger's, whose port is taken).
-      const child = crossSpawn(
-        opts.node ?? process.execPath,
-        [...(opts.execArgv ?? process.execArgv).filter((f) => !/^--inspect/.test(f)), workBin, ...childArgs(req)],
-        {
-          windowsHide: true,
-          env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
-        },
-      );
-      let stdout = '';
-      let stderr = '';
-      child.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));
-      child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
-      let timedOut = false;
-      const timer = setTimeout(
-        () => {
-          timedOut = true;
-          child.kill();
-        },
-        opts.timeoutMs ?? 5 * 60_000,
-      );
-      let settled = false;
-      const done = (r: CreateResult) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(r);
-      };
-      child.on('error', (err) => done({ ok: false, error: `could not run work: ${err.message}` }));
-      child.on('close', (code) => {
-        if (timedOut) {
-          // Killed from outside, its own rollback never ran: drop what a
-          // half-made `git worktree add` registered, so a retry can make it.
-          void pruneWorktrees(req.target, req.branch, config).finally(() =>
-            done({ ok: false, error: 'setting it up took too long (stopped; run it again, or `work tree` it from a terminal to see why)' }),
-          );
-          return;
-        }
-        if (code === 0) return done(resultFromHistory(req, config));
-        // Its errors, as the CLI printed them (the reporter sends errors to stderr).
-        const why = (stderr || stdout)
-          .replace(ANSI, '')
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .join(' ');
-        done({ ok: false, error: why || (code === null ? 'setting it up took too long' : `work tree exited ${code}`) });
-      });
-    });
+  return async (req, config) => {
+    const invalid = invalidRequest(req);
+    if (invalid) return { ok: false, error: invalid };
+    const r = await runWorkChild(workBin, childArgs(req), opts);
+    if (r.spawnError) return { ok: false, error: `could not run work: ${r.spawnError}` };
+    if (r.timedOut) {
+      // Killed from outside, its own rollback never ran: drop what a
+      // half-made `git worktree add` registered, so a retry can make it.
+      await pruneWorktrees(req.target, req.branch, config);
+      return { ok: false, error: 'setting it up took too long (stopped; run it again, or `work tree` it from a terminal to see why)' };
+    }
+    if (r.code === 0) return resultFromHistory(req, config);
+    // Its errors, as the CLI printed them (the reporter sends errors to stderr).
+    const why = childText(r.stderr || r.stdout);
+    return { ok: false, error: why || (r.code === null ? 'setting it up took too long' : `work tree exited ${r.code}`) };
+  };
 }
 
 /**
