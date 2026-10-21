@@ -17,7 +17,7 @@ vi.mock('../../../src/core/sessions/session-meta.js', () => ({
 }));
 vi.mock('../../../src/core/conversations/context-usage.js', () => ({ readContextUsage: () => null }));
 
-import { reviewThreadsOf, sessionWire } from '../../../src/core/sessions/session-wire.js';
+import { reviewThreadsOf, sessionWire, wireRepos } from '../../../src/core/sessions/session-wire.js';
 import { OUTPUT_WORKING_MS, statusFromOutput } from '../../../src/core/pty/output-status.js';
 
 const s = {
@@ -61,6 +61,33 @@ describe('sessionWire', () => {
     expect(sessionWire(s, { outputStatusFor: () => working }).attention).toMatchObject({ state: 'working', seen: true });
     expect(sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' }, { outputStatusFor: () => working }).attention).toBeNull();
     expect(sessionWire(s, { shadowed: () => true, outputStatusFor: () => working }).attention).toBeNull();
+  });
+});
+
+describe('its repos on the wire', () => {
+  const group = {
+    ...s,
+    target: 'shop',
+    isGroup: true,
+    paths: ['/wt/shop/feat-x/backend-repo', '/wt/shop/feat-x/frontend', '/wt/shop/feat-x/docs'],
+  } as WorktreeSession;
+  const config = { repos: { backend: '/src/backend-repo', frontend: '/src/frontend' }, groups: { shop: ['backend', 'frontend'] } };
+
+  it('a single repo: its target, not a folder', () => {
+    expect(sessionWire(s)).toMatchObject({ repos: ['work-tree'], folder: false });
+  });
+
+  it('a recorded list as recorded (a repo its group lacks included), a folder; no config read', () => {
+    const config = vi.fn(() => null);
+    const recorded = { ...group, repos: ['backend', 'frontend', 'docs'] };
+    expect(wireRepos(recorded, config)).toEqual(['backend', 'frontend', 'docs']);
+    expect(config).not.toHaveBeenCalled();
+    expect(sessionWire(recorded)).toMatchObject({ repos: ['backend', 'frontend', 'docs'], folder: true });
+  });
+
+  it("a group's row from before: its config members by folder name, else the folder's name", () => {
+    expect(wireRepos(group, () => config)).toEqual(['backend', 'frontend', 'docs']);
+    expect(wireRepos(group, () => null)).toEqual(['backend-repo', 'frontend', 'docs']);
   });
 });
 

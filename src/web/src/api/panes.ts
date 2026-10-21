@@ -309,6 +309,21 @@ export function openInEditor(
   return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/open-editor`, file ?? {});
 }
 
+/**
+ * Add a repo to a session folder (add-repo.ts): checked out into the folder on the session's
+ * branch (the branch it has, else made from `base`). Throws with the server's reason when refused.
+ */
+export function addRepoToSession(
+  sessionId: string,
+  alias: string,
+  base?: string,
+): Promise<import('../../../core/api-types.js').AddRepoWire> {
+  return postJson<import('../../../core/api-types.js').AddRepoWire>(`/api/sessions/${encodeURIComponent(sessionId)}/repos`, {
+    alias,
+    ...(base?.trim() ? { base: base.trim() } : {}),
+  }).catch((e) => Promise.reject(reason(e)));
+}
+
 // ---- Repos and groups (the Repos page; repo-admin.ts) ----------------------
 
 /** A refusal from the Repos routes; `sessions` names the live sessions a 409 could be forced past. */

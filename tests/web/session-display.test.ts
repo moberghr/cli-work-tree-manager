@@ -140,6 +140,21 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(prsForSession(group, prs).map((p) => p.number)).toEqual([2]);
   });
 
+  it("a row with its own repos matches PRs in them only — a repo added to it too, never the group's others", () => {
+    const prs = [
+      pr({ number: 1, branch: 'feat/x', repoAlias: 'api' }),
+      pr({ number: 2, branch: 'feat/x', repoAlias: 'web' }),
+      pr({ number: 3, branch: 'feat/x', repoAlias: 'docs' }),
+    ];
+    const folder = s({ id: 'x', branch: 'feat/x', target: 'shop', isGroup: true, repos: ['api', 'docs'] });
+    expect(prsForSession(folder, prs, () => ['api', 'web']).map((p) => p.number)).toEqual([1, 3]);
+    // Without `repos` (an older server): the group's configured members, as before.
+    const old = s({ id: 'x', branch: 'feat/x', target: 'shop', isGroup: true });
+    expect(prsForSession(old, prs, () => ['api', 'web']).map((p) => p.number)).toEqual([1, 2]);
+    // A single repo's list is its target.
+    expect(prsForSession(s({ id: 'x', branch: 'feat/x', target: 'api', repos: ['api'] }), prs).map((p) => p.number)).toEqual([1]);
+  });
+
   it('formats diff stats, hiding empty ones', () => {
     expect(formatDiffStat(s({ id: 'a', diffStat: { added: 12, deleted: 3, files: 2 } }))).toBe('+12 −3');
     expect(formatDiffStat(s({ id: 'a', diffStat: { added: 0, deleted: 0, files: 0 } }))).toBeNull();

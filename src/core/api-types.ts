@@ -500,6 +500,12 @@ export interface SessionWire {
   onOtherBranch?: Array<{ repo: string; branch: string | null; noGit?: true }>;
   isGroup: boolean;
   paths: string[];
+  /** Its repos' aliases, one per path in the same order (session-repos.ts `sessionRepos`: the recorded list,
+   *  else a group's config members by folder name, a single repo's target). Absent from a server before this. */
+  repos?: string[];
+  /** A session folder (a group's, or one made with `sessionFolders`): its agent runs in the folder and a repo
+   *  can be added to it (POST …/repos). Absent from a server before this. */
+  folder?: boolean;
   baseBranch?: string;
   jiraKey?: string;
   createdAt: string;

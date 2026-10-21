@@ -1262,6 +1262,15 @@ a.wd-pr-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A session folder's repos, beside its name (SessionHeader). */
+.wd-session-repos {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Archive (or Restore) and ⋯: the header's only buttons. */
 .wd-session-actions {
   position: relative;
@@ -4091,13 +4100,15 @@ a.wd-pr-chip:hover {
   color: var(--status-deleted-fg);
 }
 
-/* Fork dialog (ForkSessionModal). */
-.wd-fork-note {
+/* Fork dialog (ForkSessionModal), and Add a repo (AddRepoDialog). */
+.wd-fork-note,
+.wd-add-repo-note {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--muted);
 }
-.wd-fork-busy {
+.wd-fork-busy,
+.wd-add-repo-busy {
   display: flex;
   align-items: center;
   gap: 8px;

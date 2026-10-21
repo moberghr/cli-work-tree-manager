@@ -23,6 +23,8 @@ import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/s
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
+import { recordedRepos, sessionRepos } from './session-repos.js';
+import { getConfigPath, loadConfig, type WorkConfig } from '../platform/config.js';
 
 /**
  * One session as every client sees it — the dashboard's /api/sessions rows
@@ -82,6 +84,8 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
     branch: s.branch,
     isGroup: s.isGroup,
     paths: s.paths,
+    repos: wireRepos(s),
+    folder: s.isGroup,
     baseBranch: s.baseBranch,
     jiraKey: s.jiraKey,
     createdAt: s.createdAt,
@@ -146,6 +150,37 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
   if (blockers.length) wire.blockedBy = blockers;
   return wire;
+}
+
+/**
+ * Its repos' aliases, one per path (`sessionRepos`). A recorded list needs no
+ * config; a group's row from before reads the group's members from the
+ * config, read once per change of the file (this runs per row of every list).
+ */
+export function wireRepos(
+  s: Pick<WorktreeSession, 'target' | 'isGroup' | 'paths' | 'repos'>,
+  config: () => Pick<WorkConfig, 'repos' | 'groups'> | null = repoConfig,
+): string[] {
+  const recorded = recordedRepos(s);
+  if (recorded) return recorded.map((r) => r.alias);
+  return sessionRepos(s, s.isGroup ? config() : null).map((r) => r.alias);
+}
+
+let configCache: { key: string; value: Pick<WorkConfig, 'repos' | 'groups'> | null } | null = null;
+
+function repoConfig(): Pick<WorkConfig, 'repos' | 'groups'> | null {
+  const file = getConfigPath();
+  let key: string;
+  try {
+    const st = fs.statSync(file);
+    key = `${file}|${st.size}|${st.mtimeMs}`;
+  } catch {
+    return null;
+  }
+  if (configCache?.key === key) return configCache.value;
+  const cfg = bestEffort('config for session repos', () => loadConfig(), null);
+  configCache = { key, value: cfg ? { repos: cfg.repos, groups: cfg.groups } : null };
+  return configCache.value;
 }
 
 /**

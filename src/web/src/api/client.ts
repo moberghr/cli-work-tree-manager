@@ -93,6 +93,10 @@ export interface SessionSummary {
   branch: string;
   isGroup: boolean;
   paths: string[];
+  /** Its repos' aliases, one per path (absent from a server before this). */
+  repos?: string[];
+  /** A session folder: a repo can be added to it (absent from a server before this: read `isGroup`). */
+  folder?: boolean;
   baseBranch?: string;
   jiraKey?: string;
   createdAt: string;

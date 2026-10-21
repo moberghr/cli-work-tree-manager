@@ -206,10 +206,15 @@ describe('demo server', () => {
     const list = await sessions();
     const group = list.find((s) => s.isGroup && !s.archivedAt)!;
     const single = list.find((s) => !s.isGroup && !s.archivedAt)!;
+    // On the wire as the real server sends them: a folder, with its repos (one per path); a single repo's is its target.
+    expect(group).toMatchObject({ folder: true });
+    expect(group.repos).toHaveLength(group.paths.length);
+    expect(single).toMatchObject({ folder: false, repos: [single.target] });
     const res = await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api', base: 'dev' });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, branch: group.branch, created: true, from: 'dev' });
     expect((await byBranch(group.branch)).paths).toHaveLength(group.paths.length + 1);
+    expect((await byBranch(group.branch)).repos).toEqual([...group.repos!, 'api']);
     const notes = (await get<Comments>(`/api/sessions/${group.id}/comments`)).comments;
     expect(notes.some((c) => c.status === 'published' && c.body.startsWith('Added repo api to this session'))).toBe(true);
     expect((await send('POST', `/api/sessions/${group.id}/repos`, { alias: 'api' })).status).toBe(409);

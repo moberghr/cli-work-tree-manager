@@ -102,18 +102,24 @@ export function sessionMatches(s: SessionSummary, query: string): boolean {
 }
 
 /**
- * Open PRs for a session: on its branch, in its repo — or, for a group, in
- * one of the group's repos (`membersOf`: the configured groups, /api/projects).
- * A group whose members aren't known yet takes any same-branch PR, as
- * before the list arrives. The branch is the session's or one a repo of it
- * has checked out now (`onOtherBranch`: Claude or you switched), as the PR
- * watch follows the real branch.
+ * Open PRs for a session: on its branch, in one of its repos — the session's
+ * own list (`repos`, a repo added to it included) when the row has one; else,
+ * from a server before that, its repo or, for a group, one of the group's
+ * repos (`membersOf`: the configured groups, /api/projects). A group whose
+ * members aren't known yet takes any same-branch PR, as before the list
+ * arrives. The branch is the session's or one a repo of it has checked out
+ * now (`onOtherBranch`: Claude or you switched), as the PR watch follows the
+ * real branch.
  */
 export function prsForSession(s: SessionSummary, prs: PrInfo[], membersOf?: (group: string) => string[] | undefined): PrInfo[] {
-  const members = s.isGroup ? membersOf?.(s.target) : undefined;
   // A repo's own checked-out branch counts for that repo only (a group's repo folder is named as its alias).
   const onBranch = (p: PrInfo) =>
     p.branch === s.branch || (s.onOtherBranch ?? []).some((o) => o.repo === p.repoAlias && o.branch === p.branch);
+  if (s.repos?.length) {
+    const own = s.repos;
+    return prs.filter((p) => onBranch(p) && own.includes(p.repoAlias));
+  }
+  const members = s.isGroup ? membersOf?.(s.target) : undefined;
   return prs.filter((p) => onBranch(p) && (p.repoAlias === s.target || (s.isGroup && (!members || members.includes(p.repoAlias)))));
 }
 

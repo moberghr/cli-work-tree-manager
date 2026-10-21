@@ -2,6 +2,7 @@ import type { DevServerState, SessionSummary } from '../api/client.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { formatTokens } from '../utils/tokens.js';
 import { sessionKey } from './shortcuts.js';
+import { canAddRepo } from './add-repo.js';
 
 /**
  * The session header's ⋯ menu. The header itself shows one action (Archive,
@@ -22,6 +23,8 @@ export interface HeaderMenuActions {
   devStop: () => void;
   rename: () => void;
   remove: () => void;
+  /** Open Add a repo… — offered only for a session folder that isn't archived (`canAddRepo`). */
+  addRepo?: () => void;
 }
 
 export function sessionHeaderItems(session: SessionSummary, dev: DevServerState | null, a: HeaderMenuActions): MenuItem[] {
@@ -34,6 +37,7 @@ export function sessionHeaderItems(session: SessionSummary, dev: DevServerState 
         { label: 'Reconnect terminal', hint: sessionKey('reconnect'), run: a.reconnectTerminal },
         { label: 'Open in terminal', hint: sessionKey('terminal'), run: a.openTerminal },
         { label: 'Ship (push, PR, merge)…', hint: sessionKey('ship'), run: a.ship },
+        ...(a.addRepo && canAddRepo(session) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: a.addRepo }] : []),
       ];
   const devItem: MenuItem[] =
     archived || !dev || dev.port === null || (!dev.command && !dev.running)

@@ -29,6 +29,7 @@ export type SessionAction =
   | 'editor'
   | 'copy'
   | 'fork'
+  | 'add-repo'
   | 'dev'
   | 'delete';
 
@@ -58,6 +59,7 @@ export const SESSION_KEYS: Record<SessionAction, KeyDef> = {
   editor: { key: 'o', label: 'Open in editor' },
   copy: { key: 'y', label: 'Copy branch name' },
   fork: { key: 'f', label: 'Fork…' },
+  'add-repo': { key: 'a', shift: true, label: 'Add a repo… (a session folder)' },
   dev: { key: 'd', shift: true, label: 'Start / stop the dev server' },
   delete: { key: 'Delete', shift: true, label: 'Delete…' },
 };
@@ -157,6 +159,8 @@ export interface SessionKeyHandlers {
   openEditor: () => void;
   copyBranch: () => void;
   fork: () => void;
+  /** Open Add a repo… (a session folder only). */
+  addRepo: () => void;
   remove: () => void;
   /** The rest are its header's (its menu, Ship, notes, a prompt, catch-up, the dev server, a terminal). */
   header: (a: SessionAction) => void;
@@ -186,6 +190,8 @@ export function runSessionKey(action: SessionAction, s: { archived: boolean }, h
       return h.copyBranch();
     case 'fork':
       return live ? h.fork() : undefined;
+    case 'add-repo':
+      return live ? h.addRepo() : undefined;
     case 'delete':
       return h.remove();
     default:

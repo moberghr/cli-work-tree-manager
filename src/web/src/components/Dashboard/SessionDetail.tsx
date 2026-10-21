@@ -30,6 +30,7 @@ import type { SessionSubTab } from '../../state/dashboard-route.js';
 import { contextFooter, sessionHeaderItems } from '../../state/session-header-menu.js';
 import { openInTerminal } from '../../api/panes.js';
 import { ARCHIVED_BY_SHORT, archivedLine } from '../../state/archive-view.js';
+import { headerRepos } from '../../state/add-repo.js';
 
 interface Props {
   session: SessionSummary;
@@ -37,6 +38,8 @@ interface Props {
   onSelectSubTab: (sub: SessionSubTab) => void;
   /** Opens the delete-session confirmation. */
   onDelete: () => void;
+  /** Opens Add a repo… (a session folder; the dashboard's dialog). */
+  onAddRepo?: () => void;
   /** Open PRs for this session (PRs pane data). */
   prs?: PrInfo[];
   /** A merge from the Ship panel went through (session now archived). */
@@ -74,6 +77,7 @@ export function SessionDetail({
   subTab,
   onSelectSubTab,
   onDelete,
+  onAddRepo,
   prs = [],
   onShipped,
   startOnLastTurn = false,
@@ -124,6 +128,7 @@ export function SessionDetail({
         session={session}
         prs={prs}
         onDelete={onDelete}
+        onAddRepo={onAddRepo}
         onShipped={onShipped}
         onOpenSession={onOpenSession}
         onOpenPr={subTab === 'pr' ? undefined : () => onSelectSubTab('pr')}
@@ -197,6 +202,7 @@ interface HeaderProps {
   session: SessionSummary;
   prs: PrInfo[];
   onDelete: () => void;
+  onAddRepo?: () => void;
   onShipped?: () => void;
   onOpenSession?: (id: string) => void;
   /** Open the PR tab (absent while it's the one shown). */
@@ -208,7 +214,17 @@ interface HeaderProps {
 }
 
 /** Title, Archive + ⋯, the status line, and what opens under them. One session's: keyed by its id. */
-function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpenPr, onShowTerminal, onShowTimeline }: HeaderProps) {
+function SessionHeader({
+  session,
+  prs,
+  onDelete,
+  onAddRepo,
+  onShipped,
+  onOpenSession,
+  onOpenPr,
+  onShowTerminal,
+  onShowTimeline,
+}: HeaderProps) {
   const archived = isArchived(session);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [shipOpen, setShipOpen] = useState(false);
@@ -277,7 +293,10 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
     devStop: () => dev.act('stop'),
     rename: () => setRenameKey((k) => k + 1),
     remove: onDelete,
+    ...(onAddRepo ? { addRepo: onAddRepo } : {}),
   });
+  // A session folder's repos, beside its name (a single repo's session: its target says it).
+  const repos = headerRepos(session);
 
   return (
     <>
@@ -289,6 +308,11 @@ function SessionHeader({ session, prs, onDelete, onShipped, onOpenSession, onOpe
           <OtherBranchChip session={session} />
           <SessionTitle key={renameKey} session={session} autoEdit={renameKey > 0} />
         </h1>
+        {repos.length > 0 && (
+          <span className="wd-session-repos" title={`Its repos: ${repos.join(', ')}`}>
+            {repos.join(' · ')}
+          </span>
+        )}
         {archived && (
           <span className="wd-archived-pill" title={archivedLine(session)}>
             archived{session.archive?.by ? ` · ${ARCHIVED_BY_SHORT[session.archive.by]}` : ''}

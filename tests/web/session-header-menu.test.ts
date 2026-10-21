@@ -59,6 +59,14 @@ describe('session header ⋯ menu', () => {
     expect(a.devStop).not.toHaveBeenCalled();
   });
 
+  it('Add a repo… (⇧A) for a session folder only, never an archived one', () => {
+    const items = (s: SessionSummary) =>
+      sessionHeaderItems(s, null, { ...actions(), addRepo: vi.fn() }).map((i) => i.label + (i.hint ?? ''));
+    expect(items(session({ isGroup: true, folder: true }))).toContain('Add a repo…⇧A');
+    expect(items(session({ isGroup: false, folder: false }))).not.toContain('Add a repo…⇧A');
+    expect(items(session({ isGroup: true, folder: true, archivedAt: '2026-10-01T00:00:00Z' }))).not.toContain('Add a repo…⇧A');
+  });
+
   it('footer: how full the conversation is, when known', () => {
     expect(contextFooter(session({ context: { used: 168_400, window: 200_000 } } as Partial<SessionSummary>))).toBe(
       'Context 84% · 168k of 200k tokens',

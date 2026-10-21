@@ -187,7 +187,9 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | **Jira** | Your assigned issues, each with **Start**. Optionally, newly assigned issues start themselves: Claude picks the right project, or asks you when it isn't sure. |
 | **Fork** | A new branch and worktree from where a session is, with a new Claude that gets a summary of the conversation so far. |
 | **Stacked sessions** | A session made from another session's branch follows it: it takes in the parent's new commits when clean, and moves onto main when the parent merges. |
-| **Groups (multi-repo)** | One worktree folder spanning several repos (backend + frontend), one Claude seeing all of them, with a combined `CLAUDE.md` written for the group. |
+| **Groups (multi-repo)** | One worktree folder spanning several repos (backend + frontend), one Claude seeing all of them, with a combined `CLAUDE.md` written for the group. A group is only the starting set: the session keeps its own list of repos. |
+| **Add a repo…** | Halfway through, the work needs the docs repo too: ⋯ → **Add a repo…** (`⇧A`) on a session folder checks it out into the folder on the session's branch (the branch it already has, else a new one from the base you pick). Claude is told and sees it at once; nothing restarts, and the Diff tab keeps its earlier turns. From a terminal: `work add-repo docs`. |
+| **Session folders (experimental)** | With `"sessionFolders": true` in the config, every new session is a folder, a single repo too, so any of them can take another repo later. Its `CLAUDE.md` imports each repo's own. Off by default; existing sessions keep their layout. |
 | **Local settings copied** | Git-ignored files you need to run the app (`appsettings.Development.json`, `.env.local`) are copied into every new worktree. |
 | **Dev server and preview** | Each worktree gets its own port; start its dev server from the session and open the preview. |
 | **Repos & groups page** | Every git repo in your folders, to add with one click, and groups to make from them. |
@@ -244,6 +246,7 @@ Want to look around first? `work web --demo` opens the real app on a made-up wor
 | `Ctrl+T` | Search the code (desktop app) | `f` | Fork |
 | `/` | Search sessions | `⇧S` | Ship |
 | `g i`, `g s`, `g d` | Inbox, Sessions, Today | `F2` | Rename |
+| | | `⇧A` | Add a repo (a session folder) |
 
 ---
 
@@ -260,6 +263,7 @@ work digest --since yesterday                  # what each session did, as Markd
 work search "rate limit"                       # every conversation, live and archived
 work read / screen / send -m "…" / wait        # another session's messages, screen; message it; wait for its turn
 work fork feat/login-v2                        # fork the session for this folder
+work add-repo docs [--base main]               # check another repo out into this session's folder
 work update                                    # bring the branch up to date from main (or its parent)
 work snooze --for 2h | pin | note | block      # the same as the app's menu
 work pr reply / post                           # drafts and posting review replies (Claude uses these)
@@ -306,6 +310,7 @@ Most of it is set in the app (Welcome, Repos & groups). Everything lives in `~/.
 | `sleepIdleAfterMinutes` | When an unused Claude is stopped to free memory (default 120; 0 = never). |
 | `time` | The Time tab: hours a day, tickets for gaps and days off, Tempo and Outlook settings. |
 | `aiCommand`, `aiCommandFlags` | The agent new sessions run (default Claude Code). |
+| `sessionFolders` | Experimental, off by default: `true` makes every new session a folder of repos (a single repo too), so **Add a repo…** works on all of them. |
 
 ---
 

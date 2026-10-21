@@ -66,6 +66,8 @@ import { nextInQueue, queuePosition, startQueue, type ReviewQueue } from '../sta
 import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
+import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
+import { addedRepoText, canAddRepo } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
 import {
@@ -202,6 +204,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
   // Session being forked (the Fork dialog).
   const [forking, setForking] = useState<SessionSummary | null>(null);
+  // Session folder a repo is being added to (Add a repo…).
+  const [addingRepo, setAddingRepo] = useState<SessionSummary | null>(null);
   // Session being snoozed until a time of your choosing.
   const [snoozingUntil, setSnoozingUntil] = useState<SessionSummary | null>(null);
   // Session being marked as waiting on other work.
@@ -251,6 +255,10 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
         ),
       remove: (x: SessionSummary) => setDeleting(x),
       fork: (x: SessionSummary) => setForking(x),
+      addRepo: (x: SessionSummary) =>
+        canAddRepo(x)
+          ? setAddingRepo(x)
+          : showToast({ text: 'A repo can be added only to a session folder (a group’s, or one made with sessionFolders)', kind: 'error' }),
       snooze: (x: SessionSummary, choice: SnoozeFor) =>
         void snoozeSession(x, choice).then(
           () => showToast({ text: `Snoozed ${x.title ?? x.branch}` }),
@@ -527,7 +535,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     [navigate, route.sessionId, route.tab],
   );
 
-  const modalOpen = newOpen || deleting !== null || forking !== null || snoozingUntil !== null || blocking !== null;
+  const modalOpen = newOpen || deleting !== null || forking !== null || addingRepo !== null || snoozingUntil !== null || blocking !== null;
 
   // Keyboard shortcuts. `g s/p/j/t` chord for tabs (gmail/github style);
   // `j/k` walks the rail. Ignore when typing in an input.
@@ -651,6 +659,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           openEditor: () => menuActions.openEditor(s),
           copyBranch: () => menuActions.copyBranch(s),
           fork: () => menuActions.fork(s),
+          addRepo: () => menuActions.addRepo(s),
           remove: () => menuActions.remove(s),
           header: (a) =>
             window.dispatchEvent(new CustomEvent<SessionActionDetail>(SESSION_ACTION_EVENT, { detail: { id: s.id, action: a } })),
@@ -770,6 +779,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
           subTab={route.sessionSubTab}
           onSelectSubTab={setSubTab}
           onDelete={() => setDeleting(activeSession)}
+          onAddRepo={() => menuActions.addRepo(activeSession)}
           prs={prsFor(activeSession)}
           onShipped={backFromSession}
         />
@@ -997,6 +1007,17 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
                 ? { text: `Forked ${from}, but its Claude didn't start: ${info.startError}`, kind: 'error' }
                 : { text: `Forked ${from}${info.summarized ? ', with a summary of the conversation' : ''}` },
             );
+          }}
+        />
+      )}
+      {addingRepo && (
+        <AddRepoDialog
+          session={addingRepo}
+          onClose={() => setAddingRepo(null)}
+          onAdded={(alias, w) => {
+            setAddingRepo(null);
+            refetch.trigger();
+            showToast({ text: addedRepoText(alias, w) });
           }}
         />
       )}

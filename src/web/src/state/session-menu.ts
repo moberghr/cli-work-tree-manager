@@ -2,6 +2,7 @@ import type { SessionSummary } from '../api/client.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
 import type { MenuItem } from '../components/Dashboard/RowMenu.js';
 import { sessionKey } from './shortcuts.js';
+import { canAddRepo } from './add-repo.js';
 
 /**
  * A session's right-click menu, after Rename (which the rail adds itself):
@@ -23,6 +24,8 @@ export interface SessionMenuActions {
   unsnooze: (s: SessionSummary) => void;
   /** Open the Fork dialog (a new branch from here, with a summary of the conversation). */
   fork?: (s: SessionSummary) => void;
+  /** Open Add a repo… (a session folder that isn't archived only). */
+  addRepo?: (s: SessionSummary) => void;
 }
 
 export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): MenuItem[] {
@@ -52,6 +55,7 @@ export function sessionMenuItems(s: SessionSummary, a: SessionMenuActions): Menu
           { label: 'Open in terminal', hint: sessionKey('terminal'), run: () => a.openTerminal(s), separated: true },
           { label: 'Open in editor', hint: sessionKey('editor'), run: () => a.openEditor(s) },
           ...(a.fork ? [{ label: 'Fork…', hint: sessionKey('fork'), run: () => a.fork!(s) }] : []),
+          ...(a.addRepo && canAddRepo(s) ? [{ label: 'Add a repo…', hint: sessionKey('add-repo'), run: () => a.addRepo!(s) }] : []),
         ]),
     { label: 'Copy branch name', hint: sessionKey('copy'), run: () => a.copyBranch(s), ...(archived ? { separated: true } : {}) },
     { label: 'Delete…', hint: sessionKey('delete'), run: () => a.remove(s), danger: true, separated: true },

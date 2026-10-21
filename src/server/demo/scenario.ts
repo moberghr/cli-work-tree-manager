@@ -789,6 +789,8 @@ export class DemoScenario {
       branch: s.branch,
       isGroup: s.isGroup,
       paths: s.repos.map((r) => `~/worktrees/${s.target}/${s.branch.replace(/\//g, '-')}${s.isGroup ? '/' + r.name : ''}`),
+      repos: s.isGroup ? s.repos.map((r) => r.name) : [s.target],
+      folder: s.isGroup,
       createdAt: s.createdAt,
       lastAccessedAt: s.lastAccessedAt,
       draftCount: comments.filter((c) => c.status === 'draft').length,
