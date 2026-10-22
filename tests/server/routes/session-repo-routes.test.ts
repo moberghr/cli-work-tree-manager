@@ -10,6 +10,7 @@ import { setupWorktree } from '../../../src/core/worktree/worktree.js';
 import { mountSessionRepoRoutes, scopeReleaser, type SessionRepoRouteOptions } from '../../../src/server/routes/session-repo-routes.js';
 import { addRepoInChild, type AddRepoOutcome } from '../../../src/core/worktree/add-repo-child.js';
 import { keyedQueue } from '../../../src/core/worktree/setup-child.js';
+import { flatFolderName } from '../../../src/core/worktree/session-folder.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -276,7 +277,7 @@ describe('a real child (`work add-repo --in-process --json`, under tsx)', () => 
     const res = await post(a, id, { alias: 'web' });
     clearInterval(tick);
     expect(res.status).toBe(200);
-    const folder = path.join(config.worktreesRoot, 'api', 'feat-x');
+    const folder = path.join(config.worktreesRoot, flatFolderName('api', 'feat/x'));
     expect(await res.json()).toEqual({
       ok: true,
       path: path.join(folder, 'web-repo'),

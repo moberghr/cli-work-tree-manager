@@ -6,6 +6,7 @@ import { git, parseWorktreeList } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 import { setupWorktree, teardownWorktree } from '../../../src/core/worktree/worktree.js';
 import { findSession, loadHistory, saveHistory } from '../../../src/core/sessions/history.js';
+import { flatFolderName } from '../../../src/core/worktree/session-folder.js';
 import { runInternal } from '../../../src/core/diff/checkpoint-summary.js';
 import { generateGroupInstructions } from '../../../src/core/agents/group-instructions.js';
 
@@ -80,9 +81,11 @@ const noSummaryRun = () => {
 };
 
 describe('sessionFolders on', () => {
-  it('a single repo gets <root>/<alias>/<branch-dir>/<repo-folder>/, recorded as a folder session', async () => {
+  it('a single repo gets <root>/<branch-dir>-<id6>/<repo-folder>/, recorded as a folder session', async () => {
     const made = await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false });
-    const folder = path.join(config.worktreesRoot, 'api', 'feat-x');
+    // Named by its branch, the session's id telling it from another project's session of that branch name.
+    const folder = path.join(config.worktreesRoot, flatFolderName('api', 'feat/x'));
+    expect(path.basename(folder)).toMatch(/^feat-x-[0-9a-f]{6}$/);
     const wt = path.join(folder, 'api-repo');
     expect(made).toMatchObject({ launchDir: folder, paths: [wt], isGroup: true });
     expect(listed(config.repos.api, wt)).toBe(true);
@@ -150,7 +153,7 @@ describe('sessionFolders on', () => {
 
   it('a group gets the import file, not the copied group summary, and no summary run', async () => {
     const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
-    const folder = path.join(config.worktreesRoot, 'shop', 'feat-g');
+    const folder = path.join(config.worktreesRoot, flatFolderName('shop', 'feat/g'));
     expect(made).toMatchObject({ launchDir: folder, isGroup: true });
     const text = fs.readFileSync(path.join(folder, 'CLAUDE.md'), 'utf8');
     expect(text).not.toContain('GROUP SUMMARY');

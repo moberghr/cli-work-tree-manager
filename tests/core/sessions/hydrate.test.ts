@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { git } from '../../../src/core/git/git.js';
 import type { WorkConfig } from '../../../src/core/platform/config.js';
+import { flatFolderName } from '../../../src/core/worktree/session-folder.js';
 import { hydrateHistoryFromDisk } from '../../../src/core/sessions/hydrate.js';
 import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
 
@@ -85,6 +86,24 @@ describe('hydrateHistoryFromDisk', () => {
     addWorktree('web', 'feat/g', 'shop', 'feat-g', 'web-repo');
     await hydrateHistoryFromDisk(config);
     expect(findSession(loadHistory(), 'shop', 'feat/g')).toMatchObject({ isGroup: true, repos: ['api', 'web'] });
+  }, 60_000);
+
+  it("a flat session folder (<branch>-<id6>/<repo-folder>) is found by its id: a repo's, a repo added to it, a group's", async () => {
+    const api = addWorktree('api', 'feat/f', flatFolderName('api', 'feat/f'), 'api-repo');
+    const web = addWorktree('web', 'feat/f', flatFolderName('api', 'feat/f'), 'web-repo');
+    // The same branch in the group: its own folder, its own session.
+    addWorktree('api', 'feat/f2', flatFolderName('shop', 'feat/f2'), 'api-repo');
+    await hydrateHistoryFromDisk(config);
+    const row = findSession(loadHistory(), 'api', 'feat/f');
+    expect(row).toMatchObject({ target: 'api', isGroup: true, repos: ['api', 'web'] });
+    expect(row?.paths.map(norm)).toEqual([norm(api), norm(web)]);
+    expect(findSession(loadHistory(), 'shop', 'feat/f2')).toMatchObject({ isGroup: true, repos: ['api'] });
+  }, 60_000);
+
+  it("a folder named like a flat one whose id is no project's is no folder session", async () => {
+    addWorktree('api', 'feat/n', 'feat-n-000000', 'api-repo');
+    await hydrateHistoryFromDisk(config);
+    expect(loadHistory().filter((s) => s.branch === 'feat/n' && s.isGroup)).toEqual([]);
   }, 60_000);
 
   it('a deeper path that is not a session folder (last part not the repo folder) is no session', async () => {

@@ -19,6 +19,7 @@ import {
 import { bestEffort } from '../platform/best-effort.js';
 import { isFolderSession, recordedRepos, sessionRepos, type SessionRepo } from '../sessions/session-repos.js';
 import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
+import { sessionFolderPath } from './session-folder.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
 import {
@@ -700,7 +701,8 @@ async function setupGroupWorktree(
   jiraKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
-  const groupWorktreePath = path.join(config.worktreesRoot, groupName, workTreeDirName);
+  // `<root>/<branch>-<id6>/` for a new one with `sessionFolders` on, else `<root>/<group>/<branch>/`; an existing one where it is.
+  const groupWorktreePath = sessionFolderPath(groupName, branchName, config, findSession(loadHistory(), groupName, branchName));
 
   // Pre-validate --base across all repos before creating anything. Each repo
   // resolves its own base: a per-repo override (`alias=branch`) if present,
@@ -1000,7 +1002,6 @@ export function teardownWorktree(
    *  have switched branches inside it). Without them, found by branch. */
   paths?: string[],
 ): boolean {
-  const workTreeDirName = branch.replace(/\//g, '-');
   // A group session that records its repos is torn down over exactly those (its own
   // list, sessionRepos), at its recorded folders; a row from before over the group's config.
   // A repo's session folder (config `sessionFolders`) is one too, though its target is a repo
@@ -1008,7 +1009,7 @@ export function teardownWorktree(
   const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths, config) : null;
 
   if ((isGroup || own) && (own || config.groups[target])) {
-    const groupWorktreePath = path.join(config.worktreesRoot, target, workTreeDirName);
+    const groupWorktreePath = sessionFolderPath(target, branch, config, findSession(loadHistory(), target, branch));
     const repos =
       own ??
       config.groups[target].map((alias) => ({

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { loadConfig } from '../core/platform/config.js';
 import { parseWorktreeList, getCurrentBranch } from '../core/git/git.js';
 import { resolveProjectTarget } from '../core/worktree/resolve.js';
+import { loadHistory } from '../core/sessions/history.js';
 
 type Done = (completions: string[]) => void;
 
@@ -164,9 +165,14 @@ function completeGroupBranches(
   config: NonNullable<ReturnType<typeof loadConfig>>,
   done: Done,
 ): void {
+  // Its sessions' branches as recorded (a flat session folder, `sessionFolders`, isn't under the group's folder).
+  const recorded = loadHistory()
+    .filter((s) => s.target === groupName && s.isGroup && !s.archivedAt)
+    .map((s) => s.branch);
+  const finish = (onDisk: string[]) => done([...new Set([...onDisk, ...recorded])].filter((b) => b.startsWith(current)));
   const groupDir = path.join(config.worktreesRoot, groupName);
   if (!fs.existsSync(groupDir)) {
-    done([]);
+    finish([]);
     return;
   }
 
@@ -188,8 +194,8 @@ function completeGroupBranches(
         return d.name;
       });
 
-    done(branchDirs.filter((b) => b.startsWith(current)));
+    finish(branchDirs);
   } catch {
-    done([]);
+    finish([]);
   }
 }

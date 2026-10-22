@@ -10,7 +10,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   session's branch. Its Claude is told, and the Diff tab keeps its turns.
 - **Session folders, opt in** (`"sessionFolders": true` in config.json,
   experimental). Every new session is a folder of repos, a single repo's
-  too, so a repo can be added to any new session. Its instructions file
+  too, so a repo can be added to any new session. Its folder is named after
+  its branch with a short id (`worktrees/fix-login-a3f9c2/<repo>/`), so the
+  same branch name in two projects never shares a folder. Its instructions file
   imports each repo's own instead of a generated summary. Sessions you
   already have keep their layout and instructions, whatever the switch says.
 - **A session keeps its own repo list.** New sessions record which repos

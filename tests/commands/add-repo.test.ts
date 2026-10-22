@@ -42,6 +42,7 @@ const { sessionIdFor } = await import('../../src/core/sessions/session-id.js');
 const { setupWorktree } = await import('../../src/core/worktree/worktree.js');
 const { readStoreComments } = await import('../../src/core/comments/comment-file-store.js');
 const { addRepoCommand } = await import('../../src/commands/add-repo.js');
+const { flatFolderName } = await import('../../src/core/worktree/session-folder.js');
 
 let fixture: string;
 let home: string;
@@ -83,7 +84,7 @@ beforeEach(async () => {
   };
   saveConfig(config);
   await setupWorktree('api', 'feat/x', config, undefined, undefined, { pull: false });
-  folder = path.join(config.worktreesRoot, 'api', 'feat-x');
+  folder = path.join(config.worktreesRoot, flatFolderName('api', 'feat/x'));
   vi.spyOn(console, 'log').mockImplementation((m: unknown) => void out.push(String(m)));
   vi.spyOn(console, 'error').mockImplementation((m: unknown) => void errors.push(String(m)));
   out.length = 0;

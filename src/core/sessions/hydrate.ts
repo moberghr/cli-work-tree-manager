@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { WorkConfig } from '../platform/config.js';
 import { parseWorktreeList } from '../git/git.js';
 import { type WorktreeSession, mergeHydratedSessions } from './history.js';
+import { flatFolderOwner } from '../worktree/session-folder.js';
 
 interface HydrateResult {
   discovered: number;
@@ -43,9 +44,15 @@ export async function hydrateHistoryFromDisk(config: WorkConfig): Promise<Hydrat
       // A session folder of a repo (config `sessionFolders`): `<root>/<alias>/<branch>/<repo-folder>`
       // — exactly that deep, `<alias>` a repo's alias (or its folder's name), the last part this repo's folder.
       const folderOwner = isGroup ? undefined : folderSessionOwner(parts, repoPath, config, folderNameToAlias);
+      // A flat session folder (`sessionFolders`): `<root>/<branch>-<id6>/<repo-folder>`, its project
+      // found by the id (the one whose session of this branch has this folder's name).
+      const flatOwner =
+        !isGroup && !folderOwner && parts.length === 2 && second.toLowerCase() === path.basename(repoPath).toLowerCase()
+          ? flatFolderOwner(first, entry.branch, config)
+          : undefined;
 
-      if (isGroup || folderOwner) {
-        const groupName = folderOwner ?? first;
+      if (isGroup || folderOwner || flatOwner) {
+        const groupName = flatOwner ?? folderOwner ?? first;
         const key = `${groupName}:${entry.branch}`;
         const existing = discovered.get(key);
         if (existing) {
