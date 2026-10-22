@@ -58,10 +58,11 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     force = false,
     merged = false,
     stopHolders = false,
-  ): Promise<{ ok: boolean; blocked?: string[]; message?: string; error?: string; holders?: string[] }> => {
+  ): Promise<{ ok: boolean; blocked?: string[]; message?: string; error?: string; holders?: string[]; warnings?: string[] }> => {
     const session = findSession(id);
     if (!session) return { ok: false };
     let ok: boolean;
+    let warnings: string[] = [];
     if (archived) {
       // `merged`: Ship's merge archives it; otherwise it's your Archive (the button, its key, the bulk bar).
       const out = await archiveSession(session, defaultArchiveDeps({ release: opts.release }), {
@@ -104,12 +105,13 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
         };
       }
       ok = true;
+      warnings = made.warnings ?? [];
     } else {
       restoreArchivedTranscripts(session);
       ok = await setSessionArchived(session.target, session.branch, false);
     }
     opts.broadcast('sessions-changed', { ts: Date.now() });
-    return { ok };
+    return warnings.length ? { ok, warnings } : { ok };
   };
 
   // Name a session ({title}; empty = back to the automatic name).
@@ -181,7 +183,7 @@ export function mountShipRoutes(app: Hono, opts: ShipRoutesOptions): void {
     // A Restore held up by what still runs from its old folder: say what, and let the user decide (stopHolders).
     if (r.holders) return c.json({ error: r.error, holders: r.holders }, 409);
     if (r.error) return c.json({ error: r.error }, 500);
-    return r.ok ? c.json({ ok: true }) : c.json({ error: 'unknown session' }, 404);
+    return r.ok ? c.json({ ok: true, ...(r.warnings?.length ? { warnings: r.warnings } : {}) }) : c.json({ error: 'unknown session' }, 404);
   });
 }
 

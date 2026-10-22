@@ -17,7 +17,7 @@ import {
   forgetOtherBaseCheckoutEntries,
 } from '../sessions/history.js';
 import { bestEffort } from '../platform/best-effort.js';
-import { isFolderSession, recordedRepos, sessionRepos } from '../sessions/session-repos.js';
+import { isFolderSession, recordedRepos, sessionRepos, type SessionRepo } from '../sessions/session-repos.js';
 import { hasInstructionsBlock, writeSessionInstructions } from './session-instructions.js';
 import { readArchive, restoreArchivedTranscripts } from '../archive/session-archive.js';
 import { sessionIdFor } from '../sessions/session-id.js';
@@ -619,7 +619,8 @@ function explicitRepos(
  */
 function groupReposFor(sessionTarget: string, branch: string, configured: string[], config: WorkConfig): string[] {
   const known = findSession(loadHistory(), sessionTarget, branch);
-  const own = known ? recordedRepos(known) : null;
+  // A list that is there but damaged is matched by folder name (listedRepos), never replaced by the config.
+  const own = known ? listedRepos(known, config) : null;
   if (!own) return configured;
   const gone = own.filter((r) => !config.repos[r.alias]).map((r) => r.alias);
   if (gone.length) report('warn', `not in your config any more, so not set up: ${gone.join(', ')}`);
@@ -824,17 +825,21 @@ async function setupGroupWorktree(
   const instructionsFile = agent.instructionsFile;
   const claudeMdDest = path.join(groupWorktreePath, instructionsFile);
   // A session folder imports each repo's own file instead, when its agent can import
-  // (`instructionsImport`): a session recorded so, or one whose file has work's block; a new
+  // (`instructionsImport`): a session recorded so (`instructions`; one a repo was added to
+  // keeps its group's summary above the block), or one whose file has work's block; a new
   // one that is a repo's folder session (no group to copy from), made with config
   // `sessionFolders` on, or with other repos than its group's. A session from before keeps
   // the group's copy, whatever the switch says now.
   const wantsImports = known
-    ? known.instructions === 'imports' || hasInstructionsBlock(claudeMdDest) || !isConfiguredGroup
+    ? !!known.instructions || hasInstructionsBlock(claudeMdDest) || !isConfiguredGroup
     : !isConfiguredGroup || config.sessionFolders === true || !sameRepos(config.groups[groupName], repoAliases);
   const importLine = agent.instructionsImport;
   const byImport = wantsImports && !!importLine;
 
   if (byImport && importLine) {
+    // A Restore of a group session a repo was added to: its summary first, as it had it.
+    if (known?.instructions === 'summary+imports' && !fs.existsSync(claudeMdDest) && fs.existsSync(claudeMdSrc))
+      fs.copyFileSync(claudeMdSrc, claudeMdDest);
     const imports = writeSessionInstructions(
       groupWorktreePath,
       createdWorktrees.map((wt) => path.basename(wt.worktreePath)),
@@ -868,8 +873,9 @@ async function setupGroupWorktree(
   // that records them keeps them — a repo no longer in the config, not set up, stays listed with
   // its folder rather than forgotten. A row from before is left as it was: it goes on following
   // its group's config, as it always did.
-  const own = known ? recordedRepos(known) : null;
-  const gone = (own ?? []).filter((r) => !config.repos[r.alias]);
+  const own = known ? listedRepos(known, config) : null;
+  // (A folder of a damaged list matched to no repo isn't recorded under a made-up alias.)
+  const gone = (own ?? []).filter((r) => !config.repos[r.alias] && !r.guessed);
   const owns = !known || !!own;
   const { port } = await upsertSessionWithPort(
     groupName,
@@ -1073,7 +1079,7 @@ function recordedFolderSession(target: string, branch: string): boolean {
  * matched by name (sessionRepos) — never the group's config in its place.
  * Null for a row from before (no list at all).
  */
-function listedRepos(s: WorktreeSession, config: WorkConfig): Array<{ alias: string; path: string }> | null {
+function listedRepos(s: WorktreeSession, config: WorkConfig): SessionRepo[] | null {
   const recorded = recordedRepos(s);
   if (recorded) return recorded;
   return Array.isArray(s.repos) && s.isGroup ? sessionRepos(s, config) : null;

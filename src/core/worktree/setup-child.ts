@@ -29,7 +29,26 @@ export interface CreateRequest {
   repos?: string[];
 }
 
-export type CreateResult = { ok: true; branch: string; launchDir: string; paths: string[] } | { ok: false; error: string };
+export type CreateResult =
+  { ok: true; branch: string; launchDir: string; paths: string[]; warnings?: string[] } | { ok: false; error: string };
+
+/** The line `work tree --setup-only` ends with on success: what it warned about (the parent reads only this). */
+export const SETUP_WARNINGS = 'work-setup-warnings ';
+
+/** The warnings a `--setup-only` child printed (its last such line); none when there is none. Pure. */
+export function setupWarningsOf(stdout: string): string[] {
+  const line = stdout
+    .split(/\r?\n/)
+    .reverse()
+    .find((l) => l.startsWith(SETUP_WARNINGS));
+  if (!line) return [];
+  try {
+    const v: unknown = JSON.parse(line.slice(SETUP_WARNINGS.length));
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 export type CreateWorktree = (req: CreateRequest, config: WorkConfig) => Promise<CreateResult>;
 
 /**
@@ -207,10 +226,14 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
     if (r.timedOut) {
       // Killed from outside, its own rollback never ran: drop what a
       // half-made `git worktree add` registered, so a retry can make it.
-      await pruneWorktrees(req.target, req.branch, config);
+      await pruneWorktrees(req.target, req.branch, config, req.repos);
       return { ok: false, error: 'setting it up took too long (stopped; run it again, or `work tree` it from a terminal to see why)' };
     }
-    if (r.code === 0) return resultFromHistory(req, config);
+    if (r.code === 0) {
+      const made = resultFromHistory(req, config);
+      const warnings = setupWarningsOf(r.stdout);
+      return made.ok && warnings.length ? { ...made, warnings } : made;
+    }
     // Its errors, as the CLI printed them (the reporter sends errors to stderr).
     const why = childText(r.stderr || r.stdout);
     return { ok: false, error: why || (r.code === null ? 'setting it up took too long' : `work tree exited ${r.code}`) };
@@ -222,9 +245,15 @@ export function createInChild(workBin: string, opts: { node?: string; execArgv?:
  * repos when it has a row (sessionAliases: one added to it, or a fork's list),
  * else the project's.
  */
-export async function pruneWorktrees(target: string, branch: string | undefined, config: WorkConfig): Promise<void> {
+export async function pruneWorktrees(
+  target: string,
+  branch: string | undefined,
+  config: WorkConfig,
+  /** The repos the run was asked for (a fork of a session folder: its own), when it has no row yet. */
+  repos?: string[],
+): Promise<void> {
   const known = branch ? findSession(loadHistory(), target, branch) : undefined;
-  const aliases = known ? sessionAliases(known, config) : (resolveProjectTarget(target, config)?.repoAliases ?? []);
+  const aliases = known ? sessionAliases(known, config) : repos?.length ? repos : (resolveProjectTarget(target, config)?.repoAliases ?? []);
   for (const alias of aliases) {
     const repo = config.repos[alias];
     if (repo) await defaultRunner('git', ['-C', repo, 'worktree', 'prune'], repo).catch(() => undefined);
@@ -249,6 +278,7 @@ export const createInProcess: CreateWorktree = async (req, config) => {
       ...(req.repos?.length ? { repos: req.repos } : {}),
     }),
   );
+  const warnings = reports.entries.filter((e) => e.level === 'warn' && e.text.trim()).map((e) => e.text.trim());
   if (!created)
     return {
       ok: false,
@@ -258,5 +288,5 @@ export const createInProcess: CreateWorktree = async (req, config) => {
           .map((e) => e.trim())
           .join(' ') || 'setup failed (target not found?)',
     };
-  return { ok: true, branch: req.branch, launchDir: created.launchDir, paths: created.paths };
+  return { ok: true, branch: req.branch, launchDir: created.launchDir, paths: created.paths, ...(warnings.length ? { warnings } : {}) };
 };

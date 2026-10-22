@@ -35,6 +35,17 @@ export interface SessionRepoRouteOptions {
   note: (sessionId: string, body: string) => Promise<void>;
 }
 
+/**
+ * The route's `release`: let go of the session's scope under its old paths — its watch and
+ * live state only. Its turn refs must stay (`clearRefs` false): the add moves them to the new
+ * scope (scope-migrate.ts), and refs dropped here would be turns lost.
+ */
+export function scopeReleaser(
+  api: { releaseSessionScope(paths: string[], clearRefs: boolean): unknown } | undefined,
+): SessionRepoRouteOptions['release'] {
+  return (_id, paths) => void api?.releaseSessionScope(paths, false);
+}
+
 export function mountSessionRepoRoutes(app: Hono, opts: SessionRepoRouteOptions): void {
   const schema = z.object({ alias: z.string().min(1).max(200), base: z.string().max(200).optional() });
   const running = new Set<string>();

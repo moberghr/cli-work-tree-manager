@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { git, parseWorktreeList } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 import { setupWorktree, teardownWorktree } from '../../../src/core/worktree/worktree.js';
-import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
+import { findSession, loadHistory, saveHistory } from '../../../src/core/sessions/history.js';
 import { runInternal } from '../../../src/core/diff/checkpoint-summary.js';
 import { generateGroupInstructions } from '../../../src/core/agents/group-instructions.js';
 
@@ -209,6 +209,36 @@ describe('sessionFolders on', () => {
     await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
     expect(fs.readFileSync(path.join(made!.launchDir, 'CLAUDE.md'), 'utf8')).toBe('GROUP SUMMARY\n');
   }, 60_000);
+
+  it('a single-repo row from before (no repo list) re-entered with the switch on: the same row, still without a list', async () => {
+    config = configWith(false);
+    saveConfig(config);
+    await setupWorktree('api', 'feat/old', config, undefined, undefined, { pull: false });
+    saveHistory(loadHistory().map(({ repos: _repos, ...s }) => s));
+    config = configWith(true);
+    saveConfig(config);
+    const again = await setupWorktree('api', 'feat/old', config, undefined, undefined, { pull: false });
+    expect(again?.isGroup).toBe(false);
+    const row = findSession(loadHistory(), 'api', 'feat/old');
+    expect(row?.isGroup).toBe(false);
+    expect(row).not.toHaveProperty('repos');
+  }, 60_000);
+
+  it('a group row from before, restored after its folder was removed (switch on): its summary, no list written', async () => {
+    config = configWith(false);
+    saveConfig(config);
+    const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    saveHistory(loadHistory().map(({ repos: _repos, ...s }) => s));
+    expect(teardownWorktree('shop', true, 'feat/g', config, true, made!.paths)).toBe(true);
+    config = configWith(true);
+    saveConfig(config);
+    const again = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    expect(again?.paths).toEqual(made!.paths);
+    expect(fs.readFileSync(path.join(made!.launchDir, 'CLAUDE.md'), 'utf8')).toBe('GROUP SUMMARY\n');
+    const row = findSession(loadHistory(), 'shop', 'feat/g');
+    expect(row).not.toHaveProperty('repos');
+    expect(row).not.toHaveProperty('instructions');
+  }, 90_000);
 
   it('a session made with imports records it, so it gets them again whatever the switch says later', async () => {
     const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });

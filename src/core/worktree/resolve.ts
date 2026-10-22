@@ -121,10 +121,6 @@ function safeRealpath(p: string): string {
 }
 
 /**
- * Resolve the target, branch, and base-repo status from the current working
- * directory's git worktree. Uses git. Returns an `{ error }` object on failure.
- */
-/**
  * The folder session (a group's, or a repo's made with `sessionFolders`) one
  * of whose checkouts is `worktreeRoot`, or null. Its folder is named after its
  * target, not after the repo found there: a repo added to it (another alias),
@@ -136,6 +132,10 @@ export function folderSessionAt(sessions: WorktreeSession[], worktreeRoot: strin
   return live.find((s) => !s.archivedAt) ?? live[0] ?? null;
 }
 
+/**
+ * Resolve the target, branch, and base-repo status from the current working
+ * directory's git worktree. Uses git. Returns an `{ error }` object on failure.
+ */
 export function resolveFromCwd(
   config: WorkConfig,
   cwd: string,

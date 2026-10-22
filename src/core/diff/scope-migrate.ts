@@ -87,7 +87,15 @@ function readEntries(hash: string): CheckpointEntry[] | null {
 
 const empty = JSON.stringify({ version: 1, entries: [] });
 
-export async function migrateScope(oldPaths: string[], newPaths: string[]): Promise<ScopeMigration> {
+/** The file writes of a move (tests make one fail). */
+export interface MigrateIo {
+  writeManifest: (file: string, text: string) => void;
+  removeManifest: (file: string) => void;
+}
+
+const realIo: MigrateIo = { writeManifest: atomicWriteFile, removeManifest: (file) => fs.unlinkSync(file) };
+
+export async function migrateScope(oldPaths: string[], newPaths: string[], io: MigrateIo = realIo): Promise<ScopeMigration> {
   const from = scopeHashForPaths(oldPaths);
   const to = scopeHashForPaths(newPaths);
   const out: ScopeMigration = { from, to, manifest: false, refs: 0, comments: 0, problems: [] };
@@ -103,13 +111,13 @@ export async function migrateScope(oldPaths: string[], newPaths: string[]): Prom
   ensureFile(newFile, empty);
   await withFileLock(newFile, () =>
     withFileLock(oldFile, () => {
-      moveUnderLocks(oldPaths, newPaths, from, to, out);
+      moveUnderLocks(oldPaths, newPaths, from, to, out, io);
     }),
   );
   return out;
 }
 
-function moveUnderLocks(oldPaths: string[], newPaths: string[], from: string, to: string, out: ScopeMigration): void {
+function moveUnderLocks(oldPaths: string[], newPaths: string[], from: string, to: string, out: ScopeMigration, io: MigrateIo): void {
   const old = readEntries(from);
   const already = readEntries(to);
   if (old === null || already === null) {
@@ -164,7 +172,7 @@ function moveUnderLocks(oldPaths: string[], newPaths: string[], from: string, to
 
   // 2. The manifest, under the new hash.
   try {
-    atomicWriteFile(manifestPath(to), JSON.stringify({ version: 1, scopeHash: to, entries: old }, null, 2));
+    io.writeManifest(manifestPath(to), JSON.stringify({ version: 1, scopeHash: to, entries: old }, null, 2));
   } catch (err) {
     undoAll();
     out.problems.push(`couldn't write the turn list (${(err as Error).message}): nothing moved`);
@@ -182,7 +190,7 @@ function moveUnderLocks(oldPaths: string[], newPaths: string[], from: string, to
     else out.problems.push(`the old snapshots' refs stay in ${repo} (${r.err || 'git failed'}); the turns are moved`);
   }
   try {
-    fs.unlinkSync(manifestPath(from));
+    io.removeManifest(manifestPath(from));
   } catch (err) {
     out.problems.push(`the old turn list stays at ${manifestPath(from)} (${(err as Error).message}); the turns are moved`);
   }

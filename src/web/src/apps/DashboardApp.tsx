@@ -67,7 +67,7 @@ import { NewWorktreeModal } from '../components/Sidebar/NewWorktreeModal.js';
 import { DeleteSessionModal } from '../components/Dashboard/DeleteSessionModal.js';
 import { ForkSessionModal } from '../components/Dashboard/ForkSessionModal.js';
 import { AddRepoDialog } from '../components/Dashboard/AddRepoDialog.js';
-import { addedRepoText, canAddRepo } from '../state/add-repo.js';
+import { addedRepoText, canAddRepo, withWarnings } from '../state/add-repo.js';
 import { SnoozeUntilDialog } from '../components/Dashboard/SnoozeUntilDialog.js';
 import { BlockedByDialog } from '../components/Dashboard/BlockedBy.js';
 import {
@@ -241,7 +241,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     () => ({
       setArchived: (x: SessionSummary, archived: boolean) =>
         void setArchived(x.id, archived).then(
-          () => showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
+          (r) => showToast(withWarnings(`${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}`, r.warnings)),
           (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),
         ),
       openTerminal: (x: SessionSummary) =>
@@ -927,9 +927,11 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
       {newOpen && (
         <NewWorktreeModal
           initial={newInitial ?? undefined}
-          onCreated={(id, _result) => {
+          onCreated={(id, result) => {
             setNewOpen(false);
             setNewInitial(null);
+            // What setting it up warned about (a repo not in your config any more…): said, not lost.
+            if (result?.warnings?.length) showToast(withWarnings('Created', result.warnings));
             // A new worktree has no diff yet: land on its terminal.
             openSession(id, 'term');
           }}

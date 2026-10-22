@@ -117,6 +117,8 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     expect(r).toMatchObject({ ok: true, branch: 'feat/a', paths: [path.join(config.worktreesRoot, 'api', 'feat-a')] });
     expect(fs.existsSync(path.join(config.worktreesRoot, 'api', 'feat-a', 'a.txt'))).toBe(true);
     expect(findSession(loadHistory(), 'api', 'feat/a')?.title).toBe('--unsafe');
+    // What the child warned about comes back with it (this repo has no upstream to pull its main from).
+    expect(r.ok && r.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
   }, 150_000);
 
@@ -125,6 +127,9 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
     const folder = path.join(config.worktreesRoot, 'api', 'feat-r');
     expect(r).toMatchObject({ ok: true, launchDir: folder, paths: [path.join(folder, 'api'), path.join(folder, 'web')] });
     expect(findSession(loadHistory(), 'api', 'feat/r')).toMatchObject({ isGroup: true, repos: ['api', 'web'] });
+    // In process (the CLI, tests) the same warnings come back as from the child.
+    const here = await createInProcess({ target: 'web', branch: 'feat/ip' }, config);
+    expect(here.ok && here.warnings?.join(' ')).toMatch(/Could not pull 'main'/);
     const unknown = await createInProcess({ target: 'api', branch: 'feat/s', repos: ['api', 'nope'] }, config);
     expect(unknown).toEqual({ ok: false, error: expect.stringContaining('not in your config: nope') });
   }, 150_000);
@@ -141,4 +146,43 @@ describe('createInChild (a real `work tree --setup-only`, under tsx)', () => {
       error: expect.stringContaining('not a valid branch name'),
     });
   }, 150_000);
+});
+
+describe('setupWarningsOf (what a --setup-only child warned about)', () => {
+  it('its last warnings line; none without one or with a broken one', async () => {
+    const { setupWarningsOf, SETUP_WARNINGS } = await import('../../../src/core/worktree/setup-child.js');
+    expect(setupWarningsOf(`noise\n${SETUP_WARNINGS}["a"]\n${SETUP_WARNINGS}["b","c"]\n`)).toEqual(['b', 'c']);
+    expect(setupWarningsOf('Worktree path: x\n')).toEqual([]);
+    expect(setupWarningsOf(`${SETUP_WARNINGS}{not json`)).toEqual([]);
+    expect(setupWarningsOf(`${SETUP_WARNINGS}[1,"x"]`)).toEqual(['x']);
+  });
+});
+
+describe('after a child that took too long', () => {
+  it("prunes what git left half-registered in the repos it was asked for (a fork's own, with no row yet)", async () => {
+    const { createInChild } = await import('../../../src/core/worktree/setup-child.js');
+    const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'setup-child-timeout-')));
+    try {
+      const web = path.join(project, 'web');
+      fs.mkdirSync(web);
+      git(['init', '-q', '-b', 'main'], web);
+      fs.writeFileSync(path.join(web, 'w.txt'), 'w');
+      git(['add', '.'], web);
+      git(['-c', 'user.email=t@t.t', '-c', 'user.name=T', 'commit', '-q', '-m', 'init', '--no-gpg-sign'], web);
+      // A half-made worktree: registered, its folder gone.
+      const half = path.join(project, 'wt', 'docs', 'feat-f', 'web');
+      git(['worktree', 'add', '-q', '-b', 'feat/f', half], web);
+      fs.rmSync(half, { recursive: true, force: true });
+      expect(git(['worktree', 'list'], web).stdout).toContain('feat-f');
+      const config: WorkConfig = { worktreesRoot: path.join(project, 'wt'), repos: { web }, groups: {}, copyFiles: [] };
+      // A "work" that never answers.
+      const slow = path.join(project, 'slow.mjs');
+      fs.writeFileSync(slow, 'setTimeout(() => {}, 60_000);\n');
+      const r = await createInChild(slow, { execArgv: [], timeoutMs: 300 })({ target: 'docs', branch: 'feat/f', repos: ['web'] }, config);
+      expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/took too long/) });
+      expect(git(['worktree', 'list'], web).stdout).not.toContain('feat-f');
+    } finally {
+      fs.rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 60_000);
 });

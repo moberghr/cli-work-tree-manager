@@ -42,7 +42,10 @@ export function addedRepoText(
   w: Pick<AddRepoWire, 'path' | 'branch' | 'created' | 'from' | 'warnings'>,
 ): { text: string; kind?: 'error' } {
   const made = w.created && w.from ? `, made from ${w.from}` : '';
-  const text = `Added ${alias}: ./${baseName(w.path)} on ${w.branch}${made}`;
-  const warnings = w.warnings ?? [];
-  return warnings.length ? { text: `${text} — but ${warnings.join('; ')}`, kind: 'error' } : { text };
+  return withWarnings(`Added ${alias}: ./${baseName(w.path)} on ${w.branch}${made}`, w.warnings);
+}
+
+/** A toast for something that was done, with what it warned about (then shown as a warning). Pure. */
+export function withWarnings(text: string, warnings: readonly string[] | undefined): { text: string; kind?: 'error' } {
+  return warnings?.length ? { text: `${text} — but ${warnings.join('; ')}`, kind: 'error' } : { text };
 }

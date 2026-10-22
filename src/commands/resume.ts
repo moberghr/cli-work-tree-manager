@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { select } from '@inquirer/prompts';
 import { ensureConfig } from '../core/platform/config.js';
-import { loadHistory, getRecentSessions, recordLaunch, upsertSession } from '../core/sessions/history.js';
+import { loadHistory, getRecentSessions, recordLaunch, touchSession } from '../core/sessions/history.js';
 import { effectiveLastAccessedAt } from '../core/sessions/session-activity.js';
 import { launchAi } from '../core/platform/launch.js';
 import { timeAgo } from '../core/platform/format.js';
@@ -62,7 +62,8 @@ export const resumeCommand: CommandModule = {
     // transcript, so fall back to a fresh session in that case.
     const { launchPath, hasConversation } = agentFor(config, choice).launch.resumeLaunch(choice);
 
-    await upsertSession(choice.target, choice.isGroup, choice.branch, choice.paths);
+    // Only its last access: the list was read before the picker waited on you, and a repo may have been added since.
+    touchSession(choice.target, choice.branch);
 
     const tool = agentFor(config, choice).launch.tool(config);
     console.log(chalk.cyan(`Resuming in: ${launchPath}`));

@@ -189,7 +189,7 @@ export function setArchived(
   sessionId: string,
   archived: boolean,
   confirm: (question: string) => boolean = (q) => window.confirm(q),
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; warnings?: string[] }> {
   // Every caller's button shows it running, wherever you come back to it.
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
 }
@@ -197,7 +197,11 @@ export function setArchived(
 /** An archive the user called off ("Archive it anyway?" → Cancel): their choice, not a failure to show. */
 export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?: unknown } | null)?.cancelled === true;
 
-async function sendArchived(sessionId: string, archived: boolean, confirm: (question: string) => boolean): Promise<{ ok: true }> {
+async function sendArchived(
+  sessionId: string,
+  archived: boolean,
+  confirm: (question: string) => boolean,
+): Promise<{ ok: true; warnings?: string[] }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean, stopHolders = false) =>
     fetch(url, {
@@ -223,9 +227,11 @@ async function sendArchived(sessionId: string, archived: boolean, confirm: (ques
     }
     res = await send(true);
   }
-  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string };
+  const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string; warnings?: unknown };
   if (!res.ok) throw new Error(json.error ?? `${res.status} for ${url}`);
-  return { ok: true };
+  // A Restore's warnings (a repo not in your config any more, so not set up): said where you clicked.
+  const warnings = Array.isArray(json.warnings) ? json.warnings.filter((w): w is string => typeof w === 'string') : [];
+  return warnings.length ? { ok: true, warnings } : { ok: true };
 }
 
 async function getJson<T>(path: string): Promise<T> {

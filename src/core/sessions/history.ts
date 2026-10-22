@@ -16,7 +16,7 @@ import { allocateFreePort } from '../worktree/port-allocator.js';
 import { removeSessionFiles, stopSessionDevServer, clearSessionCheckpoints } from './session-store.js';
 
 export type { WorktreeSession } from './session-types.js';
-import type { WorktreeSession } from './session-types.js';
+import type { SessionInstructions, WorktreeSession } from './session-types.js';
 import { recordedRepos, sessionRepos } from './session-repos.js';
 
 /**
@@ -76,6 +76,9 @@ export function appendSessionRepo(
   worktree: string,
   from: string | undefined,
   config: WorkConfig,
+  /** Its folder's file gets the repo's import (an agent that can import): recorded on the
+   *  session when it has no mode yet — a group's copied summary keeps it, the block after it. */
+  imports = false,
 ): { before: string[]; session: WorktreeSession } | null {
   return tx((d) => {
     const r = d.prepare('SELECT data FROM sessions WHERE id = ?').get(id) as { data: string } | undefined;
@@ -95,6 +98,7 @@ export function appendSessionRepo(
     }
     s.paths = [...s.paths, worktree];
     s.repos = [...repos, alias];
+    if (imports && !s.instructions) s.instructions = config.groups?.[s.target] ? 'summary+imports' : 'imports';
     if (from) s.baseBranches = { ...(s.baseBranches ?? {}), [worktree]: from };
     putRow(d, s);
     return { before, session: s };
@@ -138,6 +142,49 @@ export function findSession(sessions: WorktreeSession[], target: string, branch:
   return sessions.find((s) => s.target === target && s.branch === branch);
 }
 
+/**
+ * A session's folders as a writer gives them (`paths`, and `repos` when it knows
+ * them), over the row as it is NOW (inside the writer's transaction). A row that
+ * records its repos never loses one the writer didn't know of — a repo added to
+ * it (add-repo.ts) after the writer read the row, seconds of git work earlier —:
+ * those pairs are kept, after the writer's. A row from before (no list) takes
+ * what it's given, as it always did. Mutates `existing`.
+ */
+export function setOwnRepos(existing: WorktreeSession, paths: string[], repos?: string[]): void {
+  const recorded = recordedRepos(existing);
+  if (!recorded) {
+    existing.paths = paths;
+    if (repos) existing.repos = [...repos];
+    return;
+  }
+  // The writer's pairs: its own list, else (it knows only the folders) the recorded aliases by place.
+  const given =
+    repos && repos.length === paths.length
+      ? repos.map((alias, i) => ({ alias, path: paths[i] }))
+      : paths.length === recorded.length
+        ? recorded.map((r, i) => ({ alias: r.alias, path: paths[i] }))
+        : recorded;
+  const kept = recorded.filter((r) => !given.some((g) => g.alias === r.alias));
+  const all = [...given, ...kept];
+  existing.paths = all.map((r) => r.path);
+  existing.repos = all.map((r) => r.alias);
+}
+
+/**
+ * Coming back to a session without changing what it holds (`work resume`,
+ * `work recent`): its last access, and un-archived, in one write over the row
+ * as it is now — never a copy of its folders read before a picker waited on you.
+ */
+export function touchSession(target: string, branch: string): void {
+  tx((d) => {
+    const s = getRow(d, target, branch);
+    if (!s) return;
+    s.lastAccessedAt = new Date().toISOString();
+    delete s.archivedAt;
+    putRow(d, s);
+  });
+}
+
 export async function upsertSession(
   target: string,
   isGroup: boolean,
@@ -154,13 +201,12 @@ export async function upsertSession(
     const now = new Date().toISOString();
 
     if (existing) {
-      existing.paths = paths;
+      setOwnRepos(existing, paths, repos);
       existing.lastAccessedAt = now;
       delete existing.archivedAt; // coming back to it un-archives it
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (port !== undefined) existing.port = port;
-      if (repos) existing.repos = [...repos];
       putRow(d, existing);
     } else {
       const session: WorktreeSession = {
@@ -209,7 +255,7 @@ export async function upsertSessionWithPort(
   baseBranches?: Record<string, string>,
   /** What the session owns: the repo alias of each of `paths` (WorktreeSession.repos) and how
    *  its instructions file is made (`instructions`). Each omitted keeps what the row has. */
-  own: { repos?: string[]; instructions?: 'imports' } = {},
+  own: { repos?: string[]; instructions?: SessionInstructions } = {},
 ): Promise<{ port?: number }> {
   const { repos, instructions } = own;
   const hasPerRepo = baseBranches && Object.keys(baseBranches).length > 0;
@@ -219,14 +265,13 @@ export async function upsertSessionWithPort(
     const existing = getRow(d, target, branch);
     const now = new Date().toISOString();
     if (existing) {
-      existing.paths = paths;
+      setOwnRepos(existing, paths, repos);
       existing.lastAccessedAt = now;
       delete existing.archivedAt; // coming back to it un-archives it
       if (jiraKey) existing.jiraKey = jiraKey;
       if (baseBranch && !existing.baseBranch) existing.baseBranch = baseBranch;
       if (hasPerRepo && !existing.baseBranches) existing.baseBranches = baseBranches;
       if (existing.port === undefined && port !== undefined) existing.port = port;
-      if (repos) existing.repos = [...repos];
       if (instructions) existing.instructions = instructions;
       putRow(d, existing);
       return existing.port;

@@ -13,7 +13,7 @@ import { mountCatchUpRoutes } from './routes/catch-up-routes.js';
 import { askCatchUp, catchUpFacts } from '../core/conversations/catch-up-deps.js';
 import { catchUp } from '../core/conversations/catch-up.js';
 import { mountForkRoutes } from './routes/fork-routes.js';
-import { mountSessionRepoRoutes } from './routes/session-repo-routes.js';
+import { mountSessionRepoRoutes, scopeReleaser } from './routes/session-repo-routes.js';
 import { noteThroughComments } from './session-note.js';
 import { addRepoInChild } from '../core/worktree/add-repo-child.js';
 import { defaultForkDeps } from '../core/sessions/fork-deps.js';
@@ -940,7 +940,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     run: addRepoInChild(getWorkBin),
     queue: worktreeQueue,
     // The scope only: the session stays, and its file watcher keeps serving whoever listens.
-    release: (_id, paths) => void scopeApi?.releaseSessionScope(paths, false),
+    release: scopeReleaser(scopeApi),
     invalidate: (id) => {
       diffStats.invalidate(id);
       behindCache.invalidate(id);

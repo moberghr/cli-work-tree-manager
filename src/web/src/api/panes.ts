@@ -244,6 +244,8 @@ export interface CreateWorktreeResponse {
   started?: 'started' | 'queued';
   /** With a prompt: why Claude could not be started. */
   startError?: string;
+  /** What setting it up warned about (a repo not in your config any more, a pull that failed…). */
+  warnings?: string[];
 }
 
 export function createWorktree(req: CreateWorktreeRequest): Promise<CreateWorktreeResponse> {

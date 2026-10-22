@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { git } from '../../../src/core/git/git.js';
 import { findSession, loadHistory } from '../../../src/core/sessions/history.js';
 import { setupWorktree } from '../../../src/core/worktree/worktree.js';
-import { mountSessionRepoRoutes, type SessionRepoRouteOptions } from '../../../src/server/routes/session-repo-routes.js';
+import { mountSessionRepoRoutes, scopeReleaser, type SessionRepoRouteOptions } from '../../../src/server/routes/session-repo-routes.js';
 import { addRepoInChild, type AddRepoOutcome } from '../../../src/core/worktree/add-repo-child.js';
 import { keyedQueue } from '../../../src/core/worktree/setup-child.js';
 import { saveConfig } from '../../../src/core/platform/config.js';
@@ -284,10 +284,21 @@ describe('a real child (`work add-repo --in-process --json`, under tsx)', () => 
       created: true,
       from: 'main',
       imported: false, // neither repo has a CLAUDE.md
-      warnings: [],
+      // What the checkout warned about in the child reaches the answer (this repo has no upstream).
+      warnings: [expect.stringMatching(/Could not pull 'main'/)],
     });
     expect(findSession(loadHistory(), 'api', 'feat/x')?.repos).toEqual(['api', 'web']);
     expect(opts.note).toHaveBeenCalledWith(id, expect.stringContaining('Added repo web'));
     expect(ticks).toBeGreaterThan(5); // nothing here waited on git
   }, 240_000);
+});
+
+describe("the route's real release (web-server wires scopeReleaser)", () => {
+  it('lets go of the old scope keeping its turn refs, which the add moves', () => {
+    const releaseSessionScope = vi.fn();
+    void scopeReleaser({ releaseSessionScope })('s1', ['/a', '/b']);
+    expect(releaseSessionScope).toHaveBeenCalledWith(['/a', '/b'], false);
+    // No scope API yet (work web still starting): nothing to let go of.
+    expect(() => scopeReleaser(undefined)('s1', ['/a'])).not.toThrow();
+  });
 });

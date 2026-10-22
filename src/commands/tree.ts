@@ -6,6 +6,8 @@ import { ensureConfig } from '../core/platform/config.js';
 import { resolveProjectTarget, getAllTargetNames, resolveFromCwd } from '../core/worktree/resolve.js';
 import { openBaseCheckout, setupWorktree } from '../core/worktree/worktree.js';
 import { findSession, loadHistory, recordLaunch } from '../core/sessions/history.js';
+import { keepingWarnings } from '../core/platform/report.js';
+import { SETUP_WARNINGS } from '../core/worktree/setup-child.js';
 import { leftoversOf, openInLeftovers } from '../core/archive/restore-leftovers.js';
 import { attachSession } from './shared/attach-session.js';
 import { openVSCode, launchAi } from '../core/platform/launch.js';
@@ -270,11 +272,13 @@ export const treeCommand: CommandModule = {
             .map((a) => a.trim())
             .filter(Boolean)
         : [];
-    const result = await setupWorktree(targetName, branchName, config, baseSpec, jiraKey, {
-      pull,
-      name: argv.name as string | undefined,
-      ...(repos.length ? { repos } : {}),
-    });
+    const { value: result, warnings } = await keepingWarnings(() =>
+      setupWorktree(targetName, branchName, config, baseSpec, jiraKey, {
+        pull,
+        name: argv.name as string | undefined,
+        ...(repos.length ? { repos } : {}),
+      }),
+    );
     if (!result) {
       // Run by you (not work web's child, whose route says it): what keeps the old folder in use, by name.
       const left = setupOnly ? [] : leftoversOf(findSession(loadHistory(), targetName, branchName)?.paths ?? []);
@@ -291,6 +295,8 @@ export const treeCommand: CommandModule = {
     }
 
     console.log(`Worktree path: ${result.launchDir}`);
+    // work web's child: what it warned about, for the dashboard (it reads only this line).
+    if (setupOnly) console.log(`${SETUP_WARNINGS}${JSON.stringify(warnings)}`);
     if (!setupOnly) {
       await launchTool(result.launchDir, result.port, { target: targetName, branch: branchName });
     }

@@ -12,7 +12,7 @@ vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   addRepoToSession: (id: string, alias: string, base?: string) => api.addRepoToSession(id, alias, base),
   fetchProjects: () => api.fetchProjects(),
 }));
-const { addableRepos, addedRepoText, canAddRepo, headerRepos } = await import('../../src/web/src/state/add-repo.js');
+const { addableRepos, addedRepoText, canAddRepo, headerRepos, withWarnings } = await import('../../src/web/src/state/add-repo.js');
 const { sessionHeaderItems } = await import('../../src/web/src/state/session-header-menu.js');
 const { sessionMenuItems } = await import('../../src/web/src/state/session-menu.js');
 const { AddRepoDialog } = await import('../../src/web/src/components/Dashboard/AddRepoDialog.js');
@@ -196,5 +196,13 @@ describe('AddRepoDialog', () => {
     );
     expect(container.textContent).toContain('in this session already');
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+});
+
+describe('withWarnings (a toast for something done)', () => {
+  it('plain without warnings; a warning with them', () => {
+    expect(withWarnings('Restored x', undefined)).toEqual({ text: 'Restored x' });
+    expect(withWarnings('Restored x', [])).toEqual({ text: 'Restored x' });
+    expect(withWarnings('Restored x', ['docs not set up'])).toEqual({ text: 'Restored x — but docs not set up', kind: 'error' });
   });
 });

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { git, parseWorktreeList } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
-import { setupWorktree } from '../../../src/core/worktree/worktree.js';
+import { setupWorktree, teardownWorktree } from '../../../src/core/worktree/worktree.js';
 import { findSession, loadHistory, saveHistory, setSessionArchived } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { addedRepoNote, addRepoRefusal, addRepoToSession } from '../../../src/core/worktree/add-repo.js';
@@ -51,6 +51,15 @@ beforeAll(() => {
   git(['add', '.'], web);
   git(['commit', '-m', 'existing work', '--no-gpg-sign'], web);
   git(['checkout', '-q', 'main'], web);
+  // Each with an origin, as a real repo has (its own checkout's pull has an upstream to pull from).
+  for (const name of ['api', 'web', 'docs']) {
+    const dir = path.join(fixture, `${name}-repo`);
+    const origin = path.join(fixture, `${name}.git`);
+    git(['init', '-q', '--bare', '-b', 'main', origin], fixture);
+    git(['remote', 'add', 'origin', origin], dir);
+    git(['push', '-q', '--all', 'origin'], dir);
+    git(['branch', '-q', '--set-upstream-to=origin/main', 'main'], dir);
+  }
 }, 60_000);
 afterAll(() => fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
@@ -175,6 +184,38 @@ describe('addRepoToSession', () => {
     expect(text).toContain('<!-- work:repos -->');
     expect(text).toContain('@docs-repo/CLAUDE.md');
     expect(row('shop', 'feat/g')!.repos).toEqual(['api', 'web', 'docs']);
+    // How its file is made is recorded, so a Restore makes it the same way.
+    expect(row('shop', 'feat/g')!.instructions).toBe('summary+imports');
+  }, 90_000);
+
+  it("Restore after its worktree was removed: the group's summary and the added repo's import, as before", async () => {
+    config = configWith(false);
+    saveConfig(config);
+    const { id, folder } = await folderSession('shop', 'feat/g');
+    await addRepoToSession(id, 'docs');
+    const s = row('shop', 'feat/g')!;
+    // Archive removes the worktrees, the folder's file with them.
+    expect(teardownWorktree('shop', true, 'feat/g', config, true, s.paths)).toBe(true);
+    expect(fs.existsSync(path.join(folder, 'CLAUDE.md'))).toBe(false);
+    await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    const text = fs.readFileSync(path.join(folder, 'CLAUDE.md'), 'utf8');
+    expect(text.startsWith('GROUP SUMMARY\n')).toBe(true);
+    expect(text).toContain('@docs-repo/CLAUDE.md');
+    expect(row('shop', 'feat/g')!.repos).toEqual(['api', 'web', 'docs']);
+  }, 120_000);
+
+  it('a repo session folder records plain imports', async () => {
+    const { id } = await folderSession();
+    await addRepoToSession(id, 'web');
+    expect(row('api', 'feat/x')!.instructions).toBe('imports');
+  }, 90_000);
+
+  it("what the checkout warned about is in the result (work web's child answers with it alone)", async () => {
+    // The repo's own checkout isn't on main/master/dev: the new branch comes from it, and that's said.
+    git(['checkout', '-q', '-b', 'side'], config.repos.web);
+    const { id } = await folderSession();
+    const r = await addRepoToSession(id, 'web');
+    expect(r.warnings.join(' ')).toMatch(/base repo is on 'side'/);
   }, 90_000);
 
   it('a group row from before repos were recorded gets its list recorded with the new one', async () => {
@@ -208,6 +249,14 @@ describe('after the checkout', () => {
     // And a retry works: nothing is left in its way.
     expect((await addRepoToSession(id, 'web')).path).toBe(wt);
   }, 120_000);
+
+  it('a branch the repo had already is kept when the checkout is undone (only its worktree goes)', async () => {
+    const { id, folder } = await folderSession('api', 'feat/existing');
+    const tip = head(config.repos.web, 'feat/existing');
+    await expect(addRepoToSession(id, 'web', {}, { record: () => null })).rejects.toThrow(/removed again/);
+    expect(fs.existsSync(path.join(folder, 'web-repo'))).toBe(false);
+    expect(head(config.repos.web, 'feat/existing')).toBe(tip);
+  }, 90_000);
 
   it('a session gone by the time it is recorded: the same', async () => {
     const { id, folder } = await folderSession();

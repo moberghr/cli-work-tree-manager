@@ -20,7 +20,7 @@ interface Props {
   title?: string;
   /** Called with the new session id on successful create; `started` when
    *  Claude was started with the prompt (open its terminal). */
-  onCreated: (sessionId: string, result?: { started?: 'started' | 'queued' }) => void;
+  onCreated: (sessionId: string, result?: { started?: 'started' | 'queued'; warnings?: string[] }) => void;
   onClose: () => void;
   /** The Repos page, for a project that isn't in the list yet. */
   onManageRepos?: () => void;
@@ -224,7 +224,7 @@ export function NewWorktreeModal({
         setSubmitting(false);
         return;
       }
-      onCreated(res.sessionId, { started: res.started });
+      onCreated(res.sessionId, { started: res.started, ...(res.warnings?.length ? { warnings: res.warnings } : {}) });
     } catch (err) {
       setError((err as Error).message);
       setSubmitting(false);

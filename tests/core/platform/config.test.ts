@@ -82,6 +82,21 @@ describe('loadConfig', () => {
     expect(loadConfig()?.launchViaHost).toBeUndefined();
   });
 
+  it('loads sessionFolders only as a real boolean (the switch is off unless it is true)', () => {
+    const configDir = path.join(tmpDir, '.work');
+    fs.mkdirSync(configDir, { recursive: true });
+    const write = (v: unknown) =>
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ worktreesRoot: '/wt', sessionFolders: v }));
+    write(true);
+    expect(loadConfig()?.sessionFolders).toBe(true);
+    write(false);
+    expect(loadConfig()?.sessionFolders).toBe(false);
+    write('true');
+    expect(loadConfig()?.sessionFolders).toBeUndefined();
+    write(undefined);
+    expect(loadConfig()?.sessionFolders).toBeUndefined();
+  });
+
   it('loads the opt-in notifications flag', () => {
     const configDir = path.join(tmpDir, '.work');
     fs.mkdirSync(configDir, { recursive: true });

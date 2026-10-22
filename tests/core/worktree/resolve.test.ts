@@ -188,3 +188,17 @@ describe('resolveFromCwd in a folder session (work tree --here)', () => {
     }
   }, 60_000);
 });
+
+describe('folderSessionAt', () => {
+  it('the live session over an archived one at the same folder; a single repo or no match: none', async () => {
+    const { folderSessionAt } = await import('../../../src/core/worktree/resolve.js');
+    const base = { target: 'shop', branch: 'b', createdAt: '', lastAccessedAt: '' };
+    const archived = { ...base, isGroup: true, paths: ['/w/shop/b/api'], archivedAt: 'x' };
+    const live = { ...base, branch: 'c', isGroup: true, paths: ['/w/shop/b/api'] };
+    const single = { ...base, target: 'api', isGroup: false, paths: ['/w/api/x'] };
+    expect(folderSessionAt([archived, live], '/w/shop/b/api')).toBe(live);
+    expect(folderSessionAt([archived], '/w/shop/b/api')).toBe(archived);
+    expect(folderSessionAt([single], '/w/api/x')).toBeNull();
+    expect(folderSessionAt([live], '/w/elsewhere')).toBeNull();
+  });
+});

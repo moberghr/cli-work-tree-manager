@@ -15,6 +15,26 @@ vi.mock('../../src/core/platform/web-discovery.js', async (orig) => ({
   }),
 }));
 
+// A note that can't be left (the comment store refuses), when a test says so.
+const noteFails = vi.hoisted(() => ({ on: false }));
+vi.mock('../../src/core/comments/comment-file-store.js', async (orig) => {
+  const real = await orig<typeof import('../../src/core/comments/comment-file-store.js')>();
+  return {
+    ...real,
+    getCommentFileStore: (store: string) => {
+      const s = real.getCommentFileStore(store);
+      return noteFails.on
+        ? {
+            ...s,
+            post: () => {
+              throw new Error('database is locked');
+            },
+          }
+        : s;
+    },
+  };
+});
+
 const { git } = await import('../../src/core/git/git.js');
 const { saveConfig } = await import('../../src/core/platform/config.js');
 const { findSession, loadHistory } = await import('../../src/core/sessions/history.js');
@@ -41,6 +61,11 @@ beforeAll(() => {
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# ${name}\n`);
     git(['add', '.'], dir);
     git(['commit', '-m', 'init', '--no-gpg-sign'], dir);
+    // An origin, as a real repo has (its own checkout's pull has an upstream to pull from).
+    const origin = path.join(fixture, `${name}.git`);
+    git(['init', '-q', '--bare', '-b', 'main', origin], fixture);
+    git(['remote', 'add', 'origin', origin], dir);
+    git(['push', '-q', '-u', 'origin', 'main'], dir);
   }
 }, 60_000);
 afterAll(() => fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
@@ -65,6 +90,7 @@ beforeEach(async () => {
   errors.length = 0;
   calls.length = 0;
   answer = () => ({ ok: false, status: 0, error: 'work web is not running' });
+  noteFails.on = false;
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -102,6 +128,41 @@ describe('work add-repo', () => {
       expect.objectContaining({ side: 'general', status: 'published', body: expect.stringContaining('Added repo web to this session') }),
     ]);
     expect(process.exitCode ?? 0).toBe(0);
+  }, 60_000);
+
+  it("work web's warnings are printed under the outcome; the add stands", async () => {
+    answer = () => ({
+      ok: true,
+      body: { ok: true, path: path.join(folder, 'web-repo'), branch: 'feat/x', created: false, warnings: ["the Diff tab's turns: x"] },
+    });
+    await run({ alias: 'web', ...named });
+    expect(out.join('\n')).toMatch(/Added web to api · feat\/x/);
+    expect(out).toContain("  the Diff tab's turns: x");
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it('--json through work web: its answer as it came', async () => {
+    const body = {
+      ok: true,
+      path: path.join(folder, 'web-repo'),
+      branch: 'feat/x',
+      created: true,
+      from: 'main',
+      imported: true,
+      warnings: [],
+    };
+    answer = () => ({ ok: true, body });
+    await run({ alias: 'web', ...named, json: true });
+    expect(JSON.parse(out.at(-1)!)).toEqual(body);
+  });
+
+  it("with no work web, a note that can't be left is a warning, never the add failing", async () => {
+    noteFails.on = true;
+    await run({ alias: 'web', ...named });
+    expect(repos()).toEqual(['api', 'web']);
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(out.join('\n')).toMatch(/couldn't leave the note for its Claude: database is locked/);
+    expect(out.join('\n')).not.toMatch(/told on its next turn/);
   }, 60_000);
 
   it("work web that didn't answer in time: says so, does nothing here", async () => {

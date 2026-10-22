@@ -190,6 +190,42 @@ describe('migrateScope', () => {
     expect(readStoreComments(commentStoreIdForScope(oldHash)).map((c) => c.body)).toEqual(['keep this']);
   }, 60_000);
 
+  it("a turn list that can't be written: the copies undone, the old scope as it was, said", async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    const r = await migrateScope([A, B], [A, B, C], {
+      writeManifest: () => {
+        throw new Error('disk full');
+      },
+      removeManifest: () => {
+        throw new Error('never reached');
+      },
+    });
+    expect(r.manifest).toBe(false);
+    expect(r.refs).toBe(0);
+    expect(r.problems.join(' ')).toMatch(/couldn't write the turn list \(disk full\): nothing moved/);
+    for (const repo of [A, B]) {
+      expect(refs(repo, oldHash)).toHaveLength(3);
+      expect(refs(repo, newHash)).toEqual([]);
+    }
+    expect(loadManifest(oldHash).entries).toHaveLength(3);
+  }, 60_000);
+
+  it("an old turn list that can't be removed after the move: the turns moved, and said", async () => {
+    const { oldHash } = await sessionWithTurns();
+    const newHash = scopeHashForPaths([A, B, C]);
+    const r = await migrateScope([A, B], [A, B, C], {
+      writeManifest: (file, text) => fs.writeFileSync(file, text),
+      removeManifest: () => {
+        throw new Error('in use');
+      },
+    });
+    expect(r).toMatchObject({ manifest: true, refs: 6 });
+    expect(r.problems.join(' ')).toMatch(/old turn list stays .*in use.*the turns are moved/);
+    expect(loadManifest(newHash).entries).toHaveLength(3);
+    expect(refs(A, oldHash)).toEqual([]);
+  }, 60_000);
+
   it('a moved comment is answered and resolved through the new page', async () => {
     const { oldHash } = await sessionWithTurns();
     const newHash = scopeHashForPaths([A, B, C]);

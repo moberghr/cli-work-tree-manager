@@ -146,6 +146,23 @@ describe('POST /api/worktrees with a first prompt', () => {
     ]);
   });
 
+  it('what setting it up warned about comes back with the new worktree', async () => {
+    const warned = new Hono();
+    mountWorktreeRoutes(warned, {
+      broadcast,
+      create: async () => ({
+        ok: true,
+        branch: 'feat/w',
+        launchDir: '/wt/x',
+        paths: ['/wt/x'],
+        warnings: ['not in your config any more, so not set up: docs'],
+      }),
+    });
+    const res = await create(warned, { target: 'repo', branch: 'feat/w' });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { warnings?: string[] }).warnings).toEqual(['not in your config any more, so not set up: docs']);
+  });
+
   it('a start that fails still reports the created worktree', async () => {
     const failing = new Hono();
     mountWorktreeRoutes(failing, {

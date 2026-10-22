@@ -90,8 +90,12 @@ export function checkoutIntoSession(
     const from = exists ? undefined : (useBase ?? created.from);
     return { ok: true as const, created: !exists, ...(from ? { from } : {}), warnings };
   });
-  // What it said, to whoever called (the CLI prints it); its errors go in the answer instead.
-  for (const e of reports.entries) if (e.level !== 'error') report(e.level, e.text);
+  // What it said: its warnings into the answer (work web's child answers with one JSON line,
+  // so a report alone would reach no one), the rest to whoever called; its errors are the failure's reason.
+  for (const e of reports.entries) {
+    if (e.level === 'warn' && e.text.trim()) warnings.push(e.text.trim());
+    else if (e.level !== 'error') report(e.level, e.text);
+  }
   if (out) return out;
   const why = reports
     .errors()
@@ -162,7 +166,7 @@ export async function addRepoToSession(
   // Recorded on the session as it is now (its paths before: the scope its turns move from).
   let recorded: ReturnType<typeof appendSessionRepo>;
   try {
-    recorded = d.record(sessionIdFor(s), alias, worktree, made.from, config);
+    recorded = d.record(sessionIdFor(s), alias, worktree, made.from, config, !!agentFor(config, s).instructionsImport);
     if (!recorded) throw new Error('the session is gone');
   } catch (err) {
     // Never a checkout no session knows of: a retry would find its folder and refuse.

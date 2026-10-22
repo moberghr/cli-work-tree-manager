@@ -115,6 +115,7 @@ export function mountWorktreeRoutes(app: Hono, opts: WorktreeMutOptions): void {
         sessionId: id,
         launchDir: result.launchDir,
         paths: result.paths,
+        ...(made.warnings?.length ? { warnings: made.warnings } : {}),
         ...(started ? { started } : {}),
         ...(startError ? { startError } : {}),
       });
