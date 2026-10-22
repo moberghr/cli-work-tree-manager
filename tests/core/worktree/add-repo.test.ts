@@ -10,6 +10,7 @@ import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
 import { addedRepoNote, addRepoRefusal, addRepoToSession } from '../../../src/core/worktree/add-repo.js';
 import { loadManifest, takeCheckpoint } from '../../../src/core/diff/checkpoint.js';
 import { scopeHashForPaths } from '../../../src/core/diff/scope-manager.js';
+import { collectingReporter, withReporter } from '../../../src/core/platform/report.js';
 
 vi.mock('../../../src/core/diff/checkpoint-summary.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../src/core/diff/checkpoint-summary.js')>()),
@@ -211,11 +212,13 @@ describe('addRepoToSession', () => {
   }, 90_000);
 
   it("what the checkout warned about is in the result (work web's child answers with it alone)", async () => {
-    // The repo's own checkout isn't on main/master/dev: the new branch comes from it, and that's said.
+    // The repo's own checkout is on a branch with no upstream: its pull fails, and that's said.
     git(['checkout', '-q', '-b', 'side'], config.repos.web);
     const { id } = await folderSession();
     const r = await addRepoToSession(id, 'web');
-    expect(r.warnings.join(' ')).toMatch(/base repo is on 'side'/);
+    expect(r.warnings.join(' ')).toMatch(/Could not pull 'side'/);
+    // Where the branch came from is a note, not a warning (a team on `develop` would see it every time).
+    expect(r.warnings.join(' ')).not.toMatch(/base repo is on/);
   }, 90_000);
 
   it('a group row from before repos were recorded gets its list recorded with the new one', async () => {
@@ -322,6 +325,15 @@ describe('after the checkout', () => {
     const r = await addRepoToSession(id, 'web', {}, { instructions: () => ({ file: 'AGENTS.md', imported: null }) });
     expect(r).toMatchObject({ imported: false });
     expect(r.warnings).toEqual(["its agent can't import files into AGENTS.md: the session folder's file is left as it is"]);
+  }, 90_000);
+
+  it('a checkout git refuses: what it warned about on the way is said too, not lost with the failure', async () => {
+    const { id } = await folderSession();
+    // An origin that isn't there: the fetch fails (a warning), then the base that doesn't exist fails the checkout.
+    git(['remote', 'set-url', 'origin', path.join(tmp, 'no-such-origin.git')], config.repos.web);
+    const reports = collectingReporter();
+    await expect(withReporter(reports, () => addRepoToSession(id, 'web', { base: 'nope' }))).rejects.toThrow(/nope/);
+    expect(reports.entries.some((e) => e.level === 'warn' && /couldn't fetch web-repo/.test(e.text))).toBe(true);
   }, 90_000);
 
   it('a checkout that failed (as the deps say) records nothing and moves nothing', async () => {

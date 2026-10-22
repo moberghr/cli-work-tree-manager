@@ -12,7 +12,7 @@ import type { WorktreeSession } from '../sessions/session-types.js';
  * the session, so a Restore puts it back in the same folder (where Claude Code
  * finds its conversation), and it can be worked out from the session alone.
  * Otherwise, and for every session made before, `<worktreesRoot>/<target>/<branch-dir>/`,
- * as it always was. Pure.
+ * as it always was. Pure (the disk is looked at only through `exists`).
  */
 
 const ID_CHARS = 6;
@@ -25,13 +25,17 @@ export function flatFolderName(target: string, branch: string): string {
 /**
  * The session folder for target + branch. An existing session keeps the
  * layout it was made with (its recorded folder says which); a new one gets
- * the flat layout when config `sessionFolders` is on.
+ * the flat layout when config `sessionFolders` is on — unless a folder of the
+ * old layout is there already (a worktree whose session row was forgotten or
+ * lost): that one is used as it is, never a new one beside it. `exists` is the
+ * one look at the disk (none given: none looked).
  */
 export function sessionFolderPath(
   target: string,
   branch: string,
   config: Pick<WorkConfig, 'worktreesRoot' | 'sessionFolders'>,
   known?: Pick<WorktreeSession, 'paths'> | null,
+  exists: (p: string) => boolean = () => false,
 ): string {
   const flat = path.join(config.worktreesRoot, flatFolderName(target, branch));
   const old = path.join(config.worktreesRoot, target, branch.replace(/\//g, '-'));
@@ -39,7 +43,8 @@ export function sessionFolderPath(
     const recorded = known.paths[0] ? path.basename(path.dirname(known.paths[0])) : '';
     return recorded.toLowerCase() === flatFolderName(target, branch).toLowerCase() ? flat : old;
   }
-  return config.sessionFolders === true ? flat : old;
+  if (config.sessionFolders !== true || exists(old)) return old;
+  return flat;
 }
 
 /**

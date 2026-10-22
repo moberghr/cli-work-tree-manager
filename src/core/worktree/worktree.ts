@@ -199,7 +199,8 @@ function makeSingleWorktree(
     if (isGitRepo(worktreePath)) {
       const currentBranch = getCurrentBranch(worktreePath);
       if (currentBranch === branchName) {
-        report('warn', `  Worktree already exists at: ${worktreePath}`);
+        // Coming back to it is the common case, not a warning (the dashboard shows warnings).
+        report('info', `  Worktree already exists at: ${worktreePath}`);
         if (pull) pullLatestForBranch(worktreePath, branchName);
         return true;
       }
@@ -257,7 +258,8 @@ function makeSingleWorktree(
     const baseBranchLabel = baseRepoBranch ?? '(detached HEAD)';
     report('info', `  Pulling latest changes for main repo (on ${baseBranchLabel})...`);
     if (baseRepoBranch && !['master', 'main', 'dev'].includes(baseRepoBranch)) {
-      report('warn', `  ⚠ Warning: base repo is on '${baseRepoBranch}', not master/main/dev`);
+      // Where the new branch comes from, said; not a warning (a team on `develop` would see it on every worktree).
+      report('detail', `  Note: base repo is on '${baseRepoBranch}', not master/main/dev`);
     }
     const baseRepoPull = git(['pull', '--quiet'], repoPath);
     baseRepoPullFailed = baseRepoPull.exitCode !== 0;
@@ -519,7 +521,7 @@ export async function setupWorktree(
   const workTreeDirName = branchName.replace(/\//g, '-');
   const sessionTarget = target.isGroup ? target.name : targetName;
   // A repo's session made as a folder (config `sessionFolders`, or one recorded so): set
-  // up as a group of its own repos, in `<root>/<alias>/<branch>/<repo-folder>/`.
+  // up as a group of its own repos, in its session folder (session-folder.ts: `<root>/<branch>-<id6>/<repo-folder>/`).
   const explicit = explicitRepos(sessionTarget, branchName, opts.repos, config);
   if (explicit && 'error' in explicit) {
     report('error', explicit.error);
@@ -547,7 +549,7 @@ export async function setupWorktree(
   if (checkoutFor) opts = { ...opts, checkoutFor };
 
   const result = asFolder
-    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, workTreeDirName, config, spec, jiraKey, opts)
+    ? await setupGroupWorktree(sessionTarget, repoAliases, branchName, config, spec, jiraKey, opts)
     : await setupSingleWorktree(targetName, branchName, workTreeDirName, config, spec, jiraKey, opts);
   // Coming back to an archived session: put its conversation back where
   // Claude looks for it (only files that aren't there), so it continues.
@@ -695,14 +697,19 @@ async function setupGroupWorktree(
   groupName: string,
   repoAliases: string[],
   branchName: string,
-  workTreeDirName: string,
   config: WorkConfig,
   spec: BaseSpec,
   jiraKey?: string,
   opts: WorktreeSetupOptions = {},
 ): Promise<WorktreeSetupResult | null> {
   // `<root>/<branch>-<id6>/` for a new one with `sessionFolders` on, else `<root>/<group>/<branch>/`; an existing one where it is.
-  const groupWorktreePath = sessionFolderPath(groupName, branchName, config, findSession(loadHistory(), groupName, branchName));
+  const groupWorktreePath = sessionFolderPath(
+    groupName,
+    branchName,
+    config,
+    findSession(loadHistory(), groupName, branchName),
+    fs.existsSync,
+  );
 
   // Pre-validate --base across all repos before creating anything. Each repo
   // resolves its own base: a per-repo override (`alias=branch`) if present,
@@ -861,7 +868,7 @@ async function setupGroupWorktree(
   } else {
     report('info', '');
     report('warn', `Warning: the group's ${instructionsFile} not found at ${claudeMdSrc}`);
-    report('warn', `Run 'work config regengroup ${groupName}' to generate it.`);
+    report('warn', `Run 'work config group regen ${groupName}' to generate it.`);
   }
 
   const allPaths = createdWorktrees.map((wt) => wt.worktreePath);
@@ -1009,7 +1016,9 @@ export function teardownWorktree(
   const own = isGroup || recordedFolderSession(target, branch) ? ownGroupRepos(target, branch, paths, config) : null;
 
   if ((isGroup || own) && (own || config.groups[target])) {
-    const groupWorktreePath = sessionFolderPath(target, branch, config, findSession(loadHistory(), target, branch));
+    // No row (forgotten, or history lost): the caller's folders say where, else what's on disk.
+    const known = findSession(loadHistory(), target, branch) ?? (paths?.length ? { paths } : null);
+    const groupWorktreePath = sessionFolderPath(target, branch, config, known, fs.existsSync);
     const repos =
       own ??
       config.groups[target].map((alias) => ({

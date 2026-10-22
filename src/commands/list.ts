@@ -5,6 +5,7 @@ import type { CommandModule } from 'yargs';
 import { ensureConfig } from '../core/platform/config.js';
 import { parseWorktreeList, getCurrentBranch } from '../core/git/git.js';
 import { resolveProjectTarget, getAllTargetNames } from '../core/worktree/resolve.js';
+import { loadHistory, type WorktreeSession } from '../core/sessions/history.js';
 
 export const listCommand: CommandModule = {
   command: 'list [target]',
@@ -75,25 +76,34 @@ export const listCommand: CommandModule = {
     }
 
     // Show group worktrees
+    const sessions = showGroups.length ? loadHistory() : [];
     for (const groupName of showGroups) {
       const groupDir = path.join(worktreesRoot, groupName);
-      if (!fs.existsSync(groupDir)) continue;
+      // Its sessions in a flat session folder (`sessionFolders`), which isn't under the group's folder.
+      const flat = flatGroupSessions(groupName, groupDir, sessions).filter((f) => fs.existsSync(f.folder));
 
-      let branchDirs: string[];
+      let branchDirs: string[] = [];
       try {
-        branchDirs = fs
-          .readdirSync(groupDir, { withFileTypes: true })
-          .filter((d) => d.isDirectory())
-          .map((d) => d.name);
+        if (fs.existsSync(groupDir))
+          branchDirs = fs
+            .readdirSync(groupDir, { withFileTypes: true })
+            .filter((d) => d.isDirectory())
+            .map((d) => d.name);
       } catch {
-        continue;
+        branchDirs = [];
       }
 
-      if (branchDirs.length === 0) continue;
+      if (branchDirs.length === 0 && flat.length === 0) continue;
 
       foundAny = true;
-      const plural = branchDirs.length !== 1 ? 's' : '';
-      console.log(chalk.magenta(`${groupName} [group] (${branchDirs.length} worktree${plural}):`));
+      const count = branchDirs.length + flat.length;
+      const plural = count !== 1 ? 's' : '';
+      console.log(chalk.magenta(`${groupName} [group] (${count} worktree${plural}):`));
+      for (const f of flat) {
+        console.log(`  ${f.branch}`);
+        console.log(chalk.gray(`    ${f.folder}`));
+        if (f.repos.length) console.log(chalk.gray(`    Repos: ${f.repos.join(', ')}`));
+      }
 
       const repoAliases = config.groups[groupName] ?? [];
 
@@ -135,3 +145,22 @@ export const listCommand: CommandModule = {
     }
   },
 };
+
+/**
+ * A group's live sessions whose folder isn't under `<root>/<group>/` (a flat
+ * session folder, `sessionFolders`): their branch, folder and own repos. Pure.
+ */
+export function flatGroupSessions(
+  groupName: string,
+  groupDir: string,
+  sessions: WorktreeSession[],
+): Array<{ branch: string; folder: string; repos: string[] }> {
+  const under = (p: string) =>
+    path
+      .resolve(p)
+      .toLowerCase()
+      .startsWith(path.resolve(groupDir).toLowerCase() + path.sep);
+  return sessions
+    .filter((s) => s.target === groupName && s.isGroup && !s.archivedAt && s.paths[0] && !under(s.paths[0]))
+    .map((s) => ({ branch: s.branch, folder: path.dirname(s.paths[0]), repos: s.repos ?? [] }));
+}

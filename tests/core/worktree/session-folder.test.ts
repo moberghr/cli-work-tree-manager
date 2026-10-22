@@ -32,6 +32,12 @@ describe('sessionFolderPath', () => {
     expect(sessionFolderPath('shop', 'feat/x', off, flat)).toBe(path.join(root, flatFolderName('shop', 'feat/x')));
   });
 
+  it('no row, switch on: an old-layout folder already there is used, never a flat one beside it', () => {
+    const old = path.join(root, 'shop', 'feat-x');
+    expect(sessionFolderPath('shop', 'feat/x', on, null, (p) => p === old)).toBe(old);
+    expect(sessionFolderPath('shop', 'feat/x', on, null, () => false)).toBe(path.join(root, flatFolderName('shop', 'feat/x')));
+  });
+
   it('under the configured root (a moved root: there, not where it was)', () => {
     const flat = { paths: [path.join('/elsewhere', flatFolderName('shop', 'feat/x'), 'api')] };
     expect(sessionFolderPath('shop', 'feat/x', off, flat)).toBe(path.join(root, flatFolderName('shop', 'feat/x')));

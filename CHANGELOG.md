@@ -5,6 +5,9 @@ Notable changes per release. Releases up to 1.16.0 are described in the
 
 ## Unreleased
 
+- **The branch field starts empty.** In New worktree, the suggested branch
+  is only shown greyed out: type your own without deleting anything first.
+  Left empty with a prompt, the suggestion is used.
 - **Add a repo to a session** (⋯ → Add a repo…, `⇧A`, or `work add-repo
   <alias>`). A group session's folder gets another repo, checked out on the
   session's branch. Its Claude is told, and the Diff tab keeps its turns.

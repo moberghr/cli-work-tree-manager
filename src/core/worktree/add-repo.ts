@@ -97,6 +97,8 @@ export function checkoutIntoSession(
     else if (e.level !== 'error') report(e.level, e.text);
   }
   if (out) return out;
+  // Failed: what it warned about on the way is said too (the error is the answer).
+  for (const w of warnings) report('warn', `  ${w}`);
   const why = reports
     .errors()
     .map((e) => e.trim())

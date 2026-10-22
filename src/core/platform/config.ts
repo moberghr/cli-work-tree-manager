@@ -64,7 +64,7 @@ export interface WorkConfig {
   launchViaHost?: boolean;
   /**
    * Experimental, off by default: NEW sessions are made as a folder with one
-   * subfolder per repo — a single repo too (`<root>/<alias>/<branch>/<repo>/`) —
+   * subfolder per repo — a single repo too (`<root>/<branch>-<id6>/<repo>/`, session-folder.ts) —
    * and the agent runs in the folder, whose instructions file imports each
    * repo's own. Existing sessions keep the layout they were made with.
    */

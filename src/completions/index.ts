@@ -3,7 +3,6 @@ import path from 'node:path';
 import { loadConfig } from '../core/platform/config.js';
 import { parseWorktreeList, getCurrentBranch } from '../core/git/git.js';
 import { resolveProjectTarget } from '../core/worktree/resolve.js';
-import { loadHistory } from '../core/sessions/history.js';
 
 type Done = (completions: string[]) => void;
 
@@ -136,7 +135,7 @@ function completeTreeRemoveList(
     }
 
     if (target.isGroup) {
-      completeGroupBranches(target.name, target.repoAliases, current, config, done);
+      void completeGroupBranches(target.name, target.repoAliases, current, config, done);
     } else {
       completeRepoBranches(targetName, current, config, done);
     }
@@ -158,17 +157,28 @@ function completeRepoBranches(alias: string, current: string, config: NonNullabl
   done(branches);
 }
 
-function completeGroupBranches(
+/** A group's sessions' branches as recorded (a flat session folder, `sessionFolders`, isn't under the group's
+ *  folder). Loaded here, not at the top: every `work` start loads this module, and only this needs the database.
+ *  None when it can't be read — the folders on disk still answer. */
+async function recordedGroupBranches(groupName: string): Promise<string[]> {
+  try {
+    const { loadHistory } = await import('../core/sessions/history.js');
+    return loadHistory()
+      .filter((s) => s.target === groupName && s.isGroup && !s.archivedAt)
+      .map((s) => s.branch);
+  } catch {
+    return [];
+  }
+}
+
+export async function completeGroupBranches(
   groupName: string,
   repoAliases: string[],
   current: string,
   config: NonNullable<ReturnType<typeof loadConfig>>,
   done: Done,
-): void {
-  // Its sessions' branches as recorded (a flat session folder, `sessionFolders`, isn't under the group's folder).
-  const recorded = loadHistory()
-    .filter((s) => s.target === groupName && s.isGroup && !s.archivedAt)
-    .map((s) => s.branch);
+): Promise<void> {
+  const recorded = await recordedGroupBranches(groupName);
   const finish = (onDisk: string[]) => done([...new Set([...onDisk, ...recorded])].filter((b) => b.startsWith(current)));
   const groupDir = path.join(config.worktreesRoot, groupName);
   if (!fs.existsSync(groupDir)) {

@@ -36,7 +36,7 @@ export function branchNote(check: BranchCheck, suggested: boolean): { text: stri
   if (suggested) {
     // A suggestion is swapped for a free name (the dialog shows that one); say why.
     if (check.free && check.free !== check.branch) return { text: `${check.branch} is taken, so a new one: ${check.free}.` };
-    if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: Edit to name the branch.`, blocks: true };
+    if (!check.free) return { text: `${check.branch} and its -2 … -9 are all taken: type a name for the branch.`, blocks: true };
     return null;
   }
   if (check.session?.archived) return { text: `${check.branch} is an archived session: Create restores it and gives it the prompt.` };
@@ -53,7 +53,8 @@ export function moreLabel(name: string, base: string): string {
 
 /**
  * Modal for creating a worktree: a project and what Claude should do. The
- * branch is suggested from that (branch-suggest.ts; Edit to type your own),
+ * branch field starts empty, the name suggested from that (branch-suggest.ts)
+ * only its placeholder — used when it's left empty with a prompt; typing names your own,
  * and a name and a base branch are under "More options". Nothing for
  * Claude: just the worktree; no branch either: the project's own checkout.
  *
@@ -61,6 +62,15 @@ export function moreLabel(name: string, base: string): string {
  * branch), Jira (prefill jiraKey + branch slug), Tasks (prefill branch
  * as `todo/<slug>`), and the standalone "+ New" button.
  */
+/**
+ * The branch field's placeholder: the branch an empty field makes — the suggestion (or the free
+ * name it gave way to) when there is a prompt, else the project's own checkout. Pure.
+ */
+export function branchPlaceholder(branch: string, suggested: boolean, isGroup: boolean, hasPrompt: boolean): string {
+  if (suggested && branch && hasPrompt) return `${branch} (suggested; type to name your own)`;
+  return isGroup ? 'feat/whatever (a group needs one)' : 'empty: the project as it is, on its own checkout';
+}
+
 export function NewWorktreeModal({
   initial,
   title = 'New worktree',
@@ -77,7 +87,6 @@ export function NewWorktreeModal({
   const [target, setTarget] = useState(initial?.target ?? '');
   // The branch follows what Claude should do until you edit it (or a pick named one).
   const [branchTyped, setBranchTyped] = useState<string | null>(initial?.branch ?? null);
-  const [editingBranch, setEditingBranch] = useState(false);
   const [base, setBase] = useState(initial?.base ?? '');
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
   const [name, setName] = useState('');
@@ -120,7 +129,6 @@ export function NewWorktreeModal({
   // A suggestion that's taken gives way to a free name: new work never lands on an old branch unasked.
   const branch = suggested && checkFor?.free ? checkFor.free : wanted;
   const note = checkFor ? branchNote(checkFor, suggested) : null;
-  const setBranch = (b: string) => setBranchTyped(b);
   const checkRef = useRef(checkBranch);
   checkRef.current = checkBranch;
   useEffect(() => {
@@ -187,18 +195,15 @@ export function NewWorktreeModal({
     }
     // No branch: the project as it is, on its own checkout (`work tree <repo>`).
     if (!branch.trim() && isGroup) {
-      setEditingBranch(true);
       setError(`${target} is a group: give it a branch (a group has no one checkout to open).`);
       return;
     }
     if (!branch.trim() && base.trim()) {
-      setEditingBranch(true);
       setMore(true);
       setError('A base needs a branch to fork. Leave both empty to open the project as it is.');
       return;
     }
     if (note?.blocks) {
-      setEditingBranch(true);
       setError(note.text);
       return;
     }
@@ -330,32 +335,18 @@ export function NewWorktreeModal({
             />
             <span className="wd-modal-hint">Leave it empty to just make the worktree. Ctrl+Enter creates.</span>
           </label>
-          {editingBranch ? (
-            <label className="wd-modal-row">
-              <span>Branch {isGroup ? '' : '(empty: the project as it is)'}</span>
-              <input
-                autoFocus
-                type="text"
-                value={branch}
-                onChange={onBranchChange(setBranch)}
-                placeholder={isGroup ? 'feat/whatever' : 'feat/whatever, or empty: its current branch'}
-                disabled={submitting}
-                required={isGroup}
-              />
-            </label>
-          ) : (
-            <div className="wd-modal-branch">
-              Branch{' '}
-              {branch ? (
-                <code>{branch}</code>
-              ) : (
-                <span className="wd-modal-hint">{isGroup ? 'needed for a group' : 'none: the project as it is, on its own checkout'}</span>
-              )}{' '}
-              <button type="button" className="wd-link-button" onClick={() => setEditingBranch(true)} disabled={submitting}>
-                Edit
-              </button>
-            </div>
-          )}
+          <label className="wd-modal-row">
+            <span>Branch</span>
+            {/* Empty until you type: the suggestion is only its placeholder (nothing to delete to name your own). */}
+            <input
+              type="text"
+              name="branch"
+              value={branchTyped ?? ''}
+              onChange={onBranchChange((b) => setBranchTyped(b === '' ? null : b))}
+              placeholder={branchPlaceholder(branch, suggested, isGroup, prompt.trim() !== '')}
+              disabled={submitting}
+            />
+          </label>
           {note && (
             <p className={'wd-modal-branch-note' + (note.blocks ? ' wd-modal-branch-note-bad' : '')} role="status">
               {note.text}

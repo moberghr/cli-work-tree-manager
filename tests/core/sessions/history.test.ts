@@ -616,3 +616,14 @@ describe("a writer's stale copy never drops a repo added meanwhile (setOwnRepos,
     touchSession('nope', 'x'); // a session that is gone: nothing
   });
 });
+
+describe('upsertSessionWithPort keeps a repo added meanwhile (the writer that races with Add a repo)', () => {
+  it("re-entry's copy knew two of the three: the third stays, after them", async () => {
+    const paths = ['/w/shop/feat/api', '/w/shop/feat/web', '/w/shop/feat/docs'];
+    saveHistory([
+      { target: 'shop', isGroup: true, branch: 'feat', paths, repos: ['api', 'web', 'docs'], createdAt: 'c', lastAccessedAt: 'l' },
+    ]);
+    await upsertSessionWithPort('shop', true, 'feat', paths.slice(0, 2), {}, undefined, undefined, undefined, { repos: ['api', 'web'] });
+    expect(findSession(loadHistory(), 'shop', 'feat')).toMatchObject({ paths, repos: ['api', 'web', 'docs'] });
+  });
+});

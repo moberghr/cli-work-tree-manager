@@ -78,3 +78,36 @@ describe('archives in flight', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("a Restore's warnings", () => {
+  it('come back from setArchived and go out as one event the dashboard shows, whichever button restored it', async () => {
+    const { setArchived, RESTORE_WARNINGS } = await import('../../src/web/src/api/client.js');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, warnings: ['not in your config any more, so not set up: docs', 7] }), { status: 200 }),
+    );
+    const seen: unknown[] = [];
+    const listen = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener(RESTORE_WARNINGS, listen);
+    try {
+      const r = await setArchived('s1', false);
+      expect(r).toEqual({ ok: true, warnings: ['not in your config any more, so not set up: docs'] });
+      expect(seen).toEqual([{ sessionId: 's1', warnings: ['not in your config any more, so not set up: docs'] }]);
+    } finally {
+      window.removeEventListener(RESTORE_WARNINGS, listen);
+    }
+  });
+
+  it('none: no event, a plain ok', async () => {
+    const { setArchived, RESTORE_WARNINGS } = await import('../../src/web/src/api/client.js');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const seen: unknown[] = [];
+    const listen = (e: Event) => seen.push(e);
+    window.addEventListener(RESTORE_WARNINGS, listen);
+    try {
+      expect(await setArchived('s1', false)).toEqual({ ok: true });
+      expect(seen).toEqual([]);
+    } finally {
+      window.removeEventListener(RESTORE_WARNINGS, listen);
+    }
+  });
+});

@@ -6,6 +6,7 @@ import { git, parseWorktreeList } from '../../../src/core/git/git.js';
 import { saveConfig, type WorkConfig } from '../../../src/core/platform/config.js';
 import { setupWorktree, teardownWorktree } from '../../../src/core/worktree/worktree.js';
 import { findSession, loadHistory, saveHistory } from '../../../src/core/sessions/history.js';
+import { collectingReporter, withReporter } from '../../../src/core/platform/report.js';
 import { flatFolderName } from '../../../src/core/worktree/session-folder.js';
 import { runInternal } from '../../../src/core/diff/checkpoint-summary.js';
 import { generateGroupInstructions } from '../../../src/core/agents/group-instructions.js';
@@ -241,6 +242,32 @@ describe('sessionFolders on', () => {
     const row = findSession(loadHistory(), 'shop', 'feat/g');
     expect(row).not.toHaveProperty('repos');
     expect(row).not.toHaveProperty('instructions');
+  }, 90_000);
+
+  it('a group worktree whose row was forgotten, with the switch on: torn down and re-entered where it is', async () => {
+    config = configWith(false);
+    saveConfig(config);
+    const made = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    saveHistory([]); // "Delete … session only", or lost history: the worktrees stay, the row goes
+    config = configWith(true);
+    saveConfig(config);
+    // Re-entry adopts the old folder (not a new flat one beside it, which git would refuse: already checked out).
+    const again = await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    expect(again?.paths).toEqual(made!.paths);
+    saveHistory([]);
+    // And teardown removes it there, rather than reporting success over nothing.
+    expect(teardownWorktree('shop', true, 'feat/g', config, true)).toBe(true);
+    for (const p of made!.paths) expect(fs.existsSync(p)).toBe(false);
+  }, 90_000);
+
+  it('re-entering a group session warns about nothing routine (its worktrees being there is the point)', async () => {
+    config = configWith(false);
+    saveConfig(config);
+    await setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false });
+    const reports = collectingReporter();
+    await withReporter(reports, () => setupWorktree('shop', 'feat/g', config, undefined, undefined, { pull: false }));
+    expect(reports.entries.filter((e) => e.level === 'warn' && /already exists/.test(e.text))).toEqual([]);
+    expect(reports.entries.some((e) => /already exists/.test(e.text))).toBe(true); // still said, as info
   }, 90_000);
 
   it('a session made with imports records it, so it gets them again whatever the switch says later', async () => {

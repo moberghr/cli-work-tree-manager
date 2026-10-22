@@ -15,7 +15,7 @@ import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActi
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
 import { sessionMenuItems } from '../state/session-menu.js';
 import type { SnoozeFor } from '../../../core/rail/snooze.js';
-import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession } from '../api/client.js';
+import { changeRailSections, fetchHostHealth, fetchRailLayout, placeSession, RESTORE_WARNINGS } from '../api/client.js';
 import type { HostHealth } from '../../../core/pty/host-health.js';
 import { HostHealthBanner } from '../components/Dashboard/HostHealthBanner.js';
 import { EMPTY_RAIL_LAYOUT, type PlacePatch, type RailLayout, type SectionOp } from '../../../core/rail/rail-layout.js';
@@ -211,6 +211,16 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   // Session being marked as waiting on other work.
   const [blocking, setBlocking] = useState<SessionSummary | null>(null);
   const { toast, show: showToast, hide: hideToast } = useToast();
+
+  // What a Restore warned about (a repo not in your config any more…), from whichever button restored it.
+  useEffect(() => {
+    const onWarnings = (e: Event) => {
+      const warnings = (e as CustomEvent<{ warnings?: string[] }>).detail?.warnings ?? [];
+      if (warnings.length) showToast(withWarnings('Restored', warnings));
+    };
+    window.addEventListener(RESTORE_WARNINGS, onWarnings);
+    return () => window.removeEventListener(RESTORE_WARNINGS, onWarnings);
+  }, [showToast]);
   // `?`: every shortcut. And the menu a key opened (z: snooze), where the header is.
   const [helpOpen, setHelpOpen] = useState(false);
   // Updates and release notes: the strip, the Activity panel's line, What's new —
@@ -241,7 +251,8 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     () => ({
       setArchived: (x: SessionSummary, archived: boolean) =>
         void setArchived(x.id, archived).then(
-          (r) => showToast(withWarnings(`${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}`, r.warnings)),
+          // A Restore with warnings is toasted by the RESTORE_WARNINGS listener (for every Restore button).
+          (r) => !r.warnings?.length && showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
           (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),
         ),
       openTerminal: (x: SessionSummary) =>

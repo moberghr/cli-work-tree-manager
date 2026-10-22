@@ -107,11 +107,13 @@ describe('the project field', () => {
   });
 });
 
+/** The branch field: always there, empty until you type (the suggestion is its placeholder). */
+const branchInput = () => container.querySelector<HTMLInputElement>('input[name="branch"]')!;
+
 describe('typing a branch (#60)', () => {
   it('a space becomes a dash as you type or paste, and that is what is created', async () => {
     await open({ initial: { target: 'jobly' } });
-    act(() => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Edit')!.click());
-    const input = container.querySelector<HTMLInputElement>('input[placeholder^="feat/whatever"]')!;
+    const input = branchInput();
     act(() => type(input, 'fix login  bug'));
     expect(input.value).toBe('fix-login-bug');
     await flush();
@@ -165,12 +167,13 @@ describe('what Claude should do, and the branch it suggests', () => {
       typeof label === 'string' ? b.textContent === label : label.test(b.textContent ?? ''),
     )!;
 
-  it('two fields: the branch follows the prompt, and the button says it starts Claude', async () => {
+  it("the suggestion is only the empty field's placeholder: nothing to delete, and an empty field uses it", async () => {
     await open({ initial: { target: 'jobly' } });
-    expect(container.querySelectorAll('.wd-modal-row')).toHaveLength(2); // Project, What should Claude do?
+    expect(container.querySelectorAll('.wd-modal-row')).toHaveLength(3); // Project, What should Claude do?, Branch
     expect(container.textContent).toContain('Leave it empty to just make the worktree.');
     await act(async () => typeArea('Add CSV export to the invoices endpoint'));
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/csv-export-invoices');
+    expect(branchInput().value).toBe('');
+    expect(branchInput().placeholder).toBe('feat/csv-export-invoices (suggested; type to name your own)');
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.textContent).toBe('Create and start');
     await submit();
     expect(api.createWorktree).toHaveBeenCalledWith(
@@ -178,20 +181,42 @@ describe('what Claude should do, and the branch it suggests', () => {
     );
   });
 
-  it('Edit: your own branch, which the prompt no longer changes', async () => {
+  it('typing names your own (the prompt no longer changes it); emptied, the suggestion is back', async () => {
     await open({ initial: { target: 'jobly' } });
     await act(async () => typeArea('Fix the login redirect'));
-    await act(async () => button('Edit').click());
-    const input = container.querySelector<HTMLInputElement>('input[placeholder^="feat/whatever"]')!;
-    expect(input.value).toBe('fix/login-redirect');
+    const input = branchInput();
     await act(async () => type(input, 'fix/sso-loop'));
     await act(async () => typeArea('Fix the login redirect, and add a test'));
     expect(input.value).toBe('fix/sso-loop');
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/sso-loop' }));
+  });
+
+  it('emptied again: the suggestion is used', async () => {
+    await open({ initial: { target: 'jobly' } });
+    await act(async () => typeArea('Fix the login redirect'));
+    await act(async () => type(branchInput(), 'mine'));
+    await act(async () => type(branchInput(), ''));
+    expect(branchInput().placeholder).toMatch(/^fix\/login-redirect \(suggested/);
+    await submit();
+    expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/login-redirect' }));
+  });
+
+  it('what setting it up warned about is handed on, to be shown', async () => {
+    api.createWorktree.mockResolvedValue({ sessionId: 's1', launchDir: 'x', paths: ['x'], warnings: ['docs not set up'] });
+    const { onCreated } = await open({ initial: { target: 'jobly' } });
+    await submit();
+    expect(onCreated).toHaveBeenCalledWith('s1', expect.objectContaining({ warnings: ['docs not set up'] }));
+  });
+
+  it('no prompt and an empty field: the placeholder says the project opens as it is', async () => {
+    await open({ initial: { target: 'jobly' } });
+    expect(branchInput().placeholder).toBe('empty: the project as it is, on its own checkout');
   });
 
   it('a pick that names its branch (Jira, a PR) keeps it', async () => {
     await open({ initial: { target: 'jobly', branch: 'feat/PAY-12', prompt: 'Work on PAY-12: retries' } });
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('feat/PAY-12');
+    expect(branchInput().value).toBe('feat/PAY-12');
   });
 
   it('name and base wait under More options (open when a pick gave a base)', async () => {
@@ -235,7 +260,7 @@ describe('a branch that is not new', () => {
     await act(async () => typeArea('Fix tests'));
     await settle();
     expect(api.checkBranch).toHaveBeenCalledWith('jobly', 'fix/tests');
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests-2');
+    expect(branchInput().placeholder).toMatch(/^fix\/tests-2 \(suggested/);
     expect(container.querySelector('.wd-modal-branch-note')!.textContent).toBe('fix/tests is taken, so a new one: fix/tests-2.');
     await submit();
     expect(api.createWorktree).toHaveBeenCalledWith(expect.objectContaining({ branch: 'fix/tests-2' }));
@@ -265,7 +290,7 @@ describe('a branch that is not new', () => {
     }));
     await open({ initial: { target: 'jobly', branch: 'fix/tests' } });
     await settle();
-    expect(container.querySelector('.wd-modal-branch code')!.textContent).toBe('fix/tests'); // yours stays
+    expect(branchInput().value).toBe('fix/tests'); // yours stays
     expect(container.querySelector('.wd-modal-branch-note')!.textContent).toContain('already has a session');
   });
 

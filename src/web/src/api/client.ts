@@ -229,9 +229,19 @@ async function sendArchived(
   }
   const json = (await res.json().catch(() => ({}))) as { ok?: true; error?: string; warnings?: unknown };
   if (!res.ok) throw new Error(json.error ?? `${res.status} for ${url}`);
-  // A Restore's warnings (a repo not in your config any more, so not set up): said where you clicked.
+  // A Restore's warnings (a repo not in your config any more, so not set up): told to the dashboard, whichever
+  // button restored it (the header, a row, the bulk bar, a conversation hit, the rail's menu).
   const warnings = Array.isArray(json.warnings) ? json.warnings.filter((w): w is string => typeof w === 'string') : [];
+  if (warnings.length) announceRestoreWarnings(sessionId, warnings);
   return warnings.length ? { ok: true, warnings } : { ok: true };
+}
+
+/** The event a Restore's warnings go out as (`RESTORE_WARNINGS`, detail `{sessionId, warnings}`); DashboardApp shows them. */
+export const RESTORE_WARNINGS = 'work:restore-warnings';
+
+function announceRestoreWarnings(sessionId: string, warnings: string[]): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(RESTORE_WARNINGS, { detail: { sessionId, warnings } }));
 }
 
 async function getJson<T>(path: string): Promise<T> {
