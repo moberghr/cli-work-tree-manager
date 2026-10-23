@@ -87,3 +87,47 @@ describe('the languages highlight.js knows here (core + the ones mapped)', () =>
     expect(resolveHighlightLang('Dockerfile')).toBe('dockerfile');
   });
 });
+
+describe('C# 11\'s interpolated raw strings ($"""…""", $$"""…""")', () => {
+  // As reported: a test's JSON request body in a $$""" string came out as code, and "https://…" as a comment.
+  const src = [
+    '        var request = Parse<CreatePaymentParsedRequest>($$"""',
+    '            {',
+    '                "terminalIdentifier": "{{TerminalIdentifier}}",',
+    '                "amount": 48900,',
+    '                "origin": "https://shop.example",',
+    '                "returnUrl": "https://shop.example/3ds"',
+    '            }',
+    '            """);',
+    '        var validate = () => CreateValidator(f);',
+  ];
+
+  it('the whole string is one string: no comment from its //, no number from its JSON', () => {
+    const out = highlightToLines(src.join('\n'), 'csharp');
+    for (const line of out.slice(1, 7)) {
+      expect(line).not.toContain('hljs-comment');
+      expect(line).not.toContain('hljs-number');
+      expect(line.startsWith('<span class="hljs-string">')).toBe(true);
+    }
+    // The text is all still there.
+    expect(stripTags(out[4])).toContain('https://shop.example');
+  });
+
+  it('after it, code is code again', () => {
+    const out = highlightToLines(src.join('\n'), 'csharp');
+    expect(out[8]).toContain('hljs-keyword'); // var
+    expect(out[8]).not.toContain('hljs-string');
+  });
+
+  it('one $ and more quotes too; plain raw strings and ordinary ones as before', () => {
+    const one = highlightToLines(['var a = $"""', '    // not a comment', '    """;'].join('\n'), 'csharp');
+    expect(one[1]).not.toContain('hljs-comment');
+    const four = highlightToLines(['var b = $$""""', '    has """ inside', '    """";'].join('\n'), 'csharp');
+    expect(four[1]).toContain('hljs-string');
+    const plain = highlightToLines(['var c = """', '    // still a string', '    """;'].join('\n'), 'csharp');
+    expect(plain[1]).not.toContain('hljs-comment');
+    const [ordinary] = highlightToLines('var d = $"x {y}"; // a comment', 'csharp');
+    expect(ordinary).toContain('hljs-comment');
+    expect(ordinary).toContain('hljs-subst');
+  });
+});

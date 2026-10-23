@@ -1,4 +1,5 @@
 import hljs from 'highlight.js/lib/core';
+import type { HLJSApi, Language } from 'highlight.js';
 import cshtmlRazor from 'highlightjs-cshtml-razor';
 import langBash from 'highlight.js/lib/languages/bash';
 import langC from 'highlight.js/lib/languages/c';
@@ -30,6 +31,25 @@ import langTypescript from 'highlight.js/lib/languages/typescript';
 import langXml from 'highlight.js/lib/languages/xml';
 import langYaml from 'highlight.js/lib/languages/yaml';
 
+/**
+ * C# 11's interpolated raw strings (`$"""…"""`, `$$"""…"""`, any number of `$`
+ * and of quotes). highlight.js 11 knows the plain raw string but not these: it
+ * reads `$$"""` as a one-line `$"…"` from the second `$`, and from there pairs
+ * every quote with the wrong one — JSON in a test's request body came out as
+ * code, and `"https://…"` as a comment from its `//`. Tried before C#'s own
+ * rules, it starts at the first `$`, so it wins.
+ */
+export const INTERPOLATED_RAW_STRING = {
+  className: 'string',
+  begin: /\$+"""("*)(?!")[\s\S]*?"""\1/,
+  relevance: 1,
+};
+
+function csharpWithRawStrings(h: HLJSApi): Language {
+  const lang = langCsharp(h);
+  return { ...lang, contains: [INTERPOLATED_RAW_STRING, ...(lang.contains ?? [])] };
+}
+
 // highlight.js's core with only the languages EXT_TO_LANG names (the full
 // build's ~190 grammars were most of the dashboard's code), plus Razor
 // (.cshtml/.razor), which isn't in highlight.js. Both highlight consumers
@@ -39,7 +59,7 @@ import langYaml from 'highlight.js/lib/languages/yaml';
 hljs.registerLanguage('bash', langBash);
 hljs.registerLanguage('c', langC);
 hljs.registerLanguage('cpp', langCpp);
-hljs.registerLanguage('csharp', langCsharp);
+hljs.registerLanguage('csharp', csharpWithRawStrings);
 hljs.registerLanguage('css', langCss);
 hljs.registerLanguage('dart', langDart);
 hljs.registerLanguage('dockerfile', langDockerfile);
