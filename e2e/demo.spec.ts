@@ -296,7 +296,8 @@ test('a Jira issue on Start starts a session with a first prompt, opened on its 
   const dialog = page.getByRole('dialog');
   const prompt = dialog.locator('textarea');
   await expect(prompt).toHaveValue(/^Work on [A-Z]+-\d+: /);
-  await expect(dialog.locator('.wd-modal-branch code')).toHaveText(/^feat\/[A-Z]+-\d+$/);
+  // A pick that names its branch fills the field (the suggestion is only an empty field's placeholder).
+  await expect(dialog.locator('input[name="branch"]')).toHaveValue(/^feat\/[A-Z]+-\d+$/);
   await prompt.fill('Work on it: add the export button');
   await dialog.getByRole('button', { name: 'Create and start' }).click();
   await expect(page).toHaveURL(/\/term$/);
