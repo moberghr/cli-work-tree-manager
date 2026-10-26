@@ -30,11 +30,16 @@ function setup() {
   const subagents = path.join(project, 'conv-1', 'subagents');
   fs.mkdirSync(subagents, { recursive: true });
   fs.writeFileSync(conversation, '{}\n');
-  /** A subagent of it: its transcript (last written at `writtenAt`) and its meta. */
-  const agent = (id: string, requestShape: string | null, writtenAt: number) => {
+  /** A subagent of it: its transcript (last written at `writtenAt`) and its meta, written when it started (`startedAt`:
+   *  by default well before the turn ended, so only its writes say it's at work). */
+  const agent = (id: string, requestShape: string | null, writtenAt: number, startedAt = writtenAt - 3_600_000) => {
     const file = path.join(subagents, `agent-${id}.jsonl`);
     fs.writeFileSync(file, '{}\n');
-    if (requestShape) fs.writeFileSync(path.join(subagents, `agent-${id}.meta.json`), JSON.stringify({ agentType: 'fork', requestShape }));
+    if (requestShape) {
+      const meta = path.join(subagents, `agent-${id}.meta.json`);
+      fs.writeFileSync(meta, JSON.stringify({ agentType: 'fork', requestShape }));
+      at(startedAt, meta);
+    }
     at(writtenAt, file);
   };
   return { session, conversation, agent };
@@ -68,15 +73,30 @@ describe("backgroundWorkSince (Claude's: a background agent still at work after 
     expect(backgroundWorkSince(session, ended, now)).toBe(false);
   });
 
-  it('one quiet for 15 minutes is taken as done (hung or killed), so the session can read idle again', () => {
+  it('one quiet for an hour is taken as done (hung or killed); quiet for 20 minutes (a test run, its review lanes) is still at work', () => {
     const { session, conversation, agent } = setup();
     at(ended, conversation);
-    agent('hung', 'background', ended + 60_000);
-    expect(backgroundWorkSince(session, ended, ended + 60_000 + 14 * 60_000)).toBe(true);
+    agent('slow', 'background', ended + 60_000);
+    expect(backgroundWorkSince(session, ended, ended + 60_000 + 20 * 60_000)).toBe(true);
     const later = setup(); // a fresh folder: an answer is reused for two seconds
     at(ended, later.conversation);
     later.agent('hung', 'background', ended + 60_000);
-    expect(backgroundWorkSince(later.session, ended, ended + 60_000 + 16 * 60_000)).toBe(false);
+    expect(backgroundWorkSince(later.session, ended, ended + 60_000 + 61 * 60_000)).toBe(false);
+  });
+
+  it('one the turn started just before it ended counts before its first write after (reported: feat/stored-card-email read Idle)', () => {
+    const { session, conversation, agent } = setup();
+    at(ended, conversation);
+    // Started 6 s before the turn ended, last written 5 s before it: nothing written since, but it's this turn's.
+    agent('review', 'background', ended - 5_000, ended - 6_000);
+    expect(backgroundWorkSince(session, ended, ended + 90_000)).toBe(true);
+  });
+
+  it("one started long before the turn, quiet since it ended, isn't counted (an earlier turn's, finished)", () => {
+    const { session, conversation, agent } = setup();
+    at(ended, conversation);
+    agent('earlier', 'background', ended - 5_000, ended - 10 * 60_000);
+    expect(backgroundWorkSince(session, ended, ended + 90_000)).toBe(false);
   });
 
   it('asked again within two seconds, it answers without reading the folder again', () => {

@@ -27,8 +27,12 @@ export function latestTranscript(session: WorktreeSession): ConversationFile | n
 
 /** Only the conversations written around the turn that ended are looked in (the rest are other days' work). */
 const AROUND_TURN_MS = 60_000;
-/** A background agent quiet this long is taken as done (hung, killed): like a quiet "working" decays (session-status.ts). */
-const AGENT_QUIET_MS = 15 * 60_000;
+/**
+ * A background agent quiet this long is taken as done (hung, killed). Long, since quiet isn't done: one waiting on a
+ * test run or its own review lanes writes nothing for many minutes (15 read a running review as Idle), and the
+ * question is only asked while Claude Code itself still says busy (withLiveClaude), which ends with a killed one.
+ */
+const AGENT_QUIET_MS = 60 * 60_000;
 /** It is asked on every sessions list while it applies: an answer is reused this long. */
 const ANSWER_FOR_MS = 2_000;
 const answers = new Map<string, { at: number; yes: boolean }>();
@@ -43,14 +47,19 @@ export function backgroundWorkSince(session: WorktreeSession, sinceMs: number, n
   const key = `${session.paths.join('|')}|${sinceMs}`;
   const kept = answers.get(key);
   if (kept && now - kept.at >= 0 && now - kept.at < ANSWER_FOR_MS) return kept.yes;
-  const yes = lookForBackgroundWork(session, sinceMs, Math.max(sinceMs, now - AGENT_QUIET_MS));
+  const yes = lookForBackgroundWork(session, sinceMs, Math.max(sinceMs, now - AGENT_QUIET_MS), now - AGENT_QUIET_MS);
   if (answers.size > 200) answers.clear();
   answers.set(key, { at: now, yes });
   return yes;
 }
 
-/** A background subagent of a conversation written around `sinceMs` (the turn's end) wrote after `afterMs`. */
-function lookForBackgroundWork(session: WorktreeSession, sinceMs: number, afterMs: number): boolean {
+/**
+ * A background subagent of a conversation written around `sinceMs` (the turn's end), still at it: written within the
+ * quiet limit (after `afterMs` when it wrote since the turn ended), or — not written since — started for that turn
+ * (its meta written in the minute before the turn ended: the turn started it, then ended; reported: a review just
+ * started read Idle until its first write), and written within the quiet limit (`quietFrom`).
+ */
+function lookForBackgroundWork(session: WorktreeSession, sinceMs: number, afterMs: number, quietFrom = afterMs): boolean {
   for (const t of listTranscripts(session)) {
     if (t.mtimeMs < sinceMs - AROUND_TURN_MS) continue;
     const dir = path.join(t.file.replace(/\.jsonl$/, ''), 'subagents');
@@ -64,8 +73,12 @@ function lookForBackgroundWork(session: WorktreeSession, sinceMs: number, afterM
       if (!name.endsWith('.jsonl')) continue;
       const file = path.join(dir, name);
       try {
-        if (fs.statSync(file).mtimeMs <= afterMs) continue;
-        const meta: unknown = JSON.parse(fs.readFileSync(file.replace(/\.jsonl$/, '.meta.json'), 'utf8'));
+        const written = fs.statSync(file).mtimeMs;
+        if (written <= quietFrom) continue;
+        const metaFile = file.replace(/\.jsonl$/, '.meta.json');
+        const startedForTurn = fs.statSync(metaFile).mtimeMs >= sinceMs - AROUND_TURN_MS;
+        if (written <= afterMs && !startedForTurn) continue;
+        const meta: unknown = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
         if (meta && typeof meta === 'object' && (meta as { requestShape?: unknown }).requestShape === 'background') return true;
       } catch {
         /* gone meanwhile, or no meta beside it: not one we can tell is in the background */
