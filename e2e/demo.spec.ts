@@ -425,8 +425,15 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await page.keyboard.press('.');
   await expect(page.getByRole('menuitem', { name: /Catch me up/ })).toBeVisible();
   await page.keyboard.press('Escape');
+  // e asks first ("Archive …?"), and archives on yes.
+  let asked = '';
+  page.once('dialog', (d) => {
+    asked = d.message();
+    void d.accept();
+  });
   await page.keyboard.press('e');
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
+  expect(asked).toMatch(/^Archive “.+”\?/);
 });
 
 test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {
