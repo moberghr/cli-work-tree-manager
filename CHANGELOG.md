@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.4.1 — 2026-10-26
+
+- **C# raw strings are coloured right.** An interpolated raw string
+  (`$"""…"""`, `$$"""…"""`) is now one string in the Diff and Code tabs. Before,
+  a JSON body in one came out coloured as code, and a URL in it as a comment
+  from its `//`.
+
 ## 2.4.0 — 2026-10-22
 
 - **The branch field starts empty.** In New worktree, the suggested branch
