@@ -5,6 +5,7 @@ export type { DiffPoint } from '../../../core/diff/diff-points.js';
 export type { SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
+import { archiveQuestion } from '../state/archive-view.js';
 import type {
   ActivityState,
   AnswerRequest,
@@ -180,16 +181,21 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
 }
 
 /**
- * Archive or restore. When something is still waiting in the session
+ * Archive or restore. An Archive asks first (`archiveQuestion`, naming `opts.name`), unless the caller asked
+ * already (`opts.asked`: the bulk bar, once for all). When something is still waiting in the session
  * (replies to post, notes for its Claude, a Claude mid-turn), the server
  * says what; `confirm` asks whether to archive anyway (the browser's own
- * dialog by default). Declined: rejects with what was waiting.
+ * dialog by default). Declined: rejects, cancelled, with what was waiting.
  */
 export function setArchived(
   sessionId: string,
   archived: boolean,
   confirm: (question: string) => boolean = (q) => window.confirm(q),
+  opts: { name?: string; asked?: boolean } = {},
 ): Promise<{ ok: true; warnings?: string[] }> {
+  if (archived && !opts.asked && !confirm(archiveQuestion(opts.name))) {
+    return Promise.reject(Object.assign(new Error('Not archived'), { cancelled: true }));
+  }
   // Every caller's button shows it running, wherever you come back to it.
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
 }

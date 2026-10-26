@@ -47,7 +47,7 @@ interface Props {
 
 /** The bulk bar's calls: the same as the one-session buttons. Archive and delete never force: one with work waiting is refused, and listed. */
 export const defaultBulk: BulkActions = {
-  archive: (s) => setArchived(s.id, true, () => false),
+  archive: (s) => setArchived(s.id, true, () => false, { asked: true }), // the bar asked once for all
   restore: (s) => setArchived(s.id, false, () => false),
   snooze: (s, choice) => snoozeSession(s, choice),
   send: (s, text) => sendPromptToSession(s.id, text),
@@ -127,7 +127,9 @@ export function SessionsTab({
   const [actionError, setActionError] = useState<string | null>(null);
   const runArchive = (x: SessionSummary, archived: boolean) => {
     setActionError(null);
-    void setArchived(x.id, archived).catch((err: Error) => !archiveCancelled(err) && setActionError(err.message));
+    void setArchived(x.id, archived, undefined, { name: x.title ?? x.branch }).catch(
+      (err: Error) => !archiveCancelled(err) && setActionError(err.message),
+    );
   };
   const menuItems = (x: SessionSummary): MenuItem[] =>
     menuFor

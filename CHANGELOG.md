@@ -3,6 +3,14 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.5.1 — 2026-10-26
+
+- **Archive asks first.** Archiving a session from the dashboard (its button,
+  `e`, the rail's menu, a Sessions row) now asks before it goes, naming the
+  session; the bulk bar asks once for all the ticked ones. Restore doesn't ask,
+  and nothing asks when work archives a session itself (a merged pull request,
+  Ship, Clean up).
+
 ## 2.5.0 — 2026-10-26
 
 - **In background.** A session whose turn ended while a background agent it

@@ -53,3 +53,11 @@ export function archivedAge(iso: string, now = Date.now()): AgeBucket {
   if (!(age < WEEK_MS)) return Number.isFinite(age) ? 'older' : 'now';
   return age < 24 * 3_600_000 ? 'now' : 'week';
 }
+
+/** The question before an Archive (every button but the bulk bar's, which asks once for all): what it does, and that Restore undoes it. */
+export function archiveQuestion(name?: string): string {
+  return (
+    `Archive ${name ? `“${name}”` : 'this session'}?\n\n` +
+    'Its Claude stops, and its worktree goes once nothing would be lost (uncommitted files are saved). Restore brings it all back.'
+  );
+}

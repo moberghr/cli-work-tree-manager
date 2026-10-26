@@ -335,6 +335,7 @@ function SessionHeader({
           <PromptsMenu session={session} open={promptsOpen} onOpenChange={setPromptsOpen} />
           <ArchiveButton
             sessionId={session.id}
+            name={session.title ?? session.branch}
             archived={archived}
             // Why it didn't work, where the header says how things went (a Restore refused: what holds its folder).
             onStart={() => setArchiveNote(null)}
@@ -448,11 +449,14 @@ export function SessionTitle({ session, autoEdit = false }: { session: SessionSu
  *  conversation; it drops off the rail and inbox until unarchived. */
 export function ArchiveButton({
   sessionId,
+  name,
   archived,
   onStart,
   onError,
 }: {
   sessionId: string;
+  /** What the "Archive …?" question calls it. */
+  name?: string;
   archived: boolean;
   onStart?: () => void;
   /** Why it was refused, shown beside it (a tooltip alone went unseen). */
@@ -468,8 +472,8 @@ export function ArchiveButton({
   const onClick = () => {
     setError(null);
     onStart?.();
-    setArchived(sessionId, !archived).catch((err: Error) => {
-      if (archiveCancelled(err)) return; // "Archive it anyway?" → Cancel: your choice
+    setArchived(sessionId, !archived, undefined, { name }).catch((err: Error) => {
+      if (archiveCancelled(err)) return; // "Archive …?" / "Archive it anyway?" → Cancel: your choice
       setError(err.message);
       onError?.(err.message);
     });

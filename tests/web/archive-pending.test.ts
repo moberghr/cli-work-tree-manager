@@ -69,7 +69,7 @@ describe('archives in flight', () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }),
     );
-    const call = setArchived('s4', true);
+    const call = setArchived('s4', true, () => true); // "Archive …?" → yes
     expect(archivePending('s4')).toBe(true);
     d.resolve();
     await call;

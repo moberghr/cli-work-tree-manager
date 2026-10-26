@@ -250,7 +250,7 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
   const menuActions = useMemo(
     () => ({
       setArchived: (x: SessionSummary, archived: boolean) =>
-        void setArchived(x.id, archived).then(
+        void setArchived(x.id, archived, undefined, { name: x.title ?? x.branch }).then(
           // A Restore with warnings is toasted by the RESTORE_WARNINGS listener (for every Restore button).
           (r) => !r.warnings?.length && showToast({ text: `${archived ? 'Archived' : 'Restored'} ${x.title ?? x.branch}` }),
           (err: Error) => !archiveCancelled(err) && showToast({ text: err.message, kind: 'error' }),

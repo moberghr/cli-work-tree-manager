@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setArchived } from '../../src/web/src/api/client.js';
+import { archiveCancelled, setArchived } from '../../src/web/src/api/client.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -23,18 +23,43 @@ function fakeServer() {
 }
 
 describe('setArchived', () => {
+  it('an Archive asks first, naming the session; declined, nothing is sent (and it is your choice, not an error)', async () => {
+    const bodies = fakeServer();
+    const asked: string[] = [];
+    const err = await setArchived('s1', true, (q) => (asked.push(q), false), { name: 'feat/x' }).catch((e: unknown) => e);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].startsWith('Archive “feat/x”?')).toBe(true);
+    expect(asked[0]).toContain('Restore brings it all back');
+    expect(archiveCancelled(err)).toBe(true);
+    expect(bodies).toEqual([]);
+  });
+
+  it('a Restore and an Archive the caller asked about already (the bulk bar) are not asked', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => (bodies.push(JSON.parse(init.body)), new Response('{"ok":true}'))),
+    );
+    const confirm = vi.fn(() => false);
+    await expect(setArchived('s1', false, confirm)).resolves.toEqual({ ok: true });
+    await expect(setArchived('s1', true, confirm, { asked: true })).resolves.toEqual({ ok: true });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(bodies).toEqual([{ archived: false }, { archived: true }]);
+  });
+
   it('asks when something is still waiting, and archives anyway when you say so', async () => {
     const bodies = fakeServer();
     const asked: string[] = [];
     await expect(setArchived('s1', true, (q) => (asked.push(q), true))).resolves.toEqual({ ok: true });
-    expect(asked[0]).toContain('• 2 replies to post on review threads');
-    expect(asked[0]).toContain('• its Claude is working');
+    expect(asked[0].startsWith('Archive this session?')).toBe(true); // no name given
+    expect(asked[1]).toContain('• 2 replies to post on review threads');
+    expect(asked[1]).toContain('• its Claude is working');
     expect(bodies).toEqual([{ archived: true }, { archived: true, force: true }]);
   });
 
   it('declined: nothing more is sent, and it says what was waiting', async () => {
     const bodies = fakeServer();
-    await expect(setArchived('s1', true, () => false)).rejects.toThrow(
+    await expect(setArchived('s1', true, () => false, { asked: true })).rejects.toThrow(
       'Not archived: 2 replies to post on review threads; its Claude is working',
     );
     expect(bodies).toHaveLength(1);
