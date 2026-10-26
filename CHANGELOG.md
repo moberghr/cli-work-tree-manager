@@ -9,6 +9,8 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   (`$"""…"""`, `$$"""…"""`) is now one string in the Diff and Code tabs. Before,
   a JSON body in one came out coloured as code, and a URL in it as a comment
   from its `//`.
+- **zod 4.6.7**, past a high-severity advisory (GHSA-mrhx-c7xc-m3w5: memory
+  exhausted validating oversized collections).
 
 ## 2.4.0 — 2026-10-22
 
