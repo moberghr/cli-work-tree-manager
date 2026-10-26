@@ -3,7 +3,7 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
-## Unreleased
+## 2.5.0 — 2026-10-26
 
 - **In background.** A session whose turn ended while a background agent it
   started (a review, a long check) is still at work now says so: the same
