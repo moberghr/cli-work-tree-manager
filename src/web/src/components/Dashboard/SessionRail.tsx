@@ -60,15 +60,21 @@ interface Props {
   onShownChange?: (ids: string[]) => void;
 }
 
+/** "in background: /mtk:code-review-and-quality Re-review…" — what's running while its prompt is free. Pure. */
+export function backgroundLine(b: { what: string | null }): string {
+  return b.what ? `in background: ${b.what}` : 'a background agent is at work';
+}
+
 /**
- * What a rail row doesn't show on its face, for its tooltip: until when
- * it's snoozed, what it waits on, where its PRs stand (the pills show which
+ * What a rail row doesn't show on its face, for its tooltip: what runs in
+ * the background while its prompt is free, until when it's snoozed, what it waits on, where its PRs stand (the pills show which
  * are open), notes waiting for Claude, your note, where its Claude runs.
  * Not its +/− lines: those are the Diff tab's. Pure (`now` for the snooze's wording).
  */
 export function railDetails(s: SessionSummary, now = new Date()): string {
   const c = s.agents ?? s.claudes;
   const bits = [
+    s.attention?.background ? backgroundLine(s.attention.background) : '',
     s.snoozed ? `snoozed ${snoozeLabel(s.snoozed, now)}` : '',
     s.blockedBy?.length ? `waits on ${s.blockedBy.map((b) => b.label).join(', ')}` : '',
     s.prStage?.text ?? '',
@@ -87,6 +93,7 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
   if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
   if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
+  if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background' };
   if (kind === 'review') return { text: String(s.openReviewThreads), cls: 'wd-rail-slot-review' };
   if (kind === 'pr')
     return { text: s.prStage!.kind === 'ready' ? 'merge' : s.prStage!.kind === 'conflict' ? 'conflict' : 'CI', cls: 'wd-rail-slot-review' };

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { SessionAttention, SessionSummary } from '../../src/web/src/api/client.js';
 import type { PrInfo } from '../../src/web/src/api/panes.js';
 import {
+  DISPLAY_LABEL,
   agentCan,
   agentName,
   displayStatus,
@@ -70,6 +71,16 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(displayStatus(s({ id: 'a', lastAccessedAt: minsAgo(3 * 24 * 60), lastActivity: Date.now() - 2 * 3_600_000 }))).toBe('recent');
   });
 
+  it('working on a background agent its turn started is its own kind: In background (still busy, its prompt free)', () => {
+    const bg = { ...att('working', true), background: { what: '/mtk:code-review-and-quality Re-review' } };
+    expect(displayStatus(s({ id: 'a', attention: bg }))).toBe('background');
+    expect(DISPLAY_LABEL.background).toBe('In background');
+    // Busy, so it's "now", like working.
+    expect(ageBucket(s({ id: 'a', attention: bg, lastAccessedAt: minsAgo(30 * 24 * 60) }))).toBe('now');
+    // Without the mark (Claude's own turn, or an older server): working.
+    expect(displayStatus(s({ id: 'a', attention: att('working', true) }))).toBe('working');
+  });
+
   it('unresolved review comments make a session "Review comments" unless its Claude wants you or is mid-turn', () => {
     const r = { openReviewThreads: 2 };
     expect(displayStatus(s({ id: 'a', ...r }))).toBe('review'); // no hook status at all
@@ -105,6 +116,7 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(statusBucket('needs_input')).toBe('needs');
     expect(statusBucket('done')).toBe('needs');
     expect(statusBucket('working')).toBe('working');
+    expect(statusBucket('background')).toBe('working');
     expect(statusBucket('active')).toBe('working');
     expect(statusBucket('quiet')).toBe('idle');
     expect(statusBucket('open')).toBe('idle');

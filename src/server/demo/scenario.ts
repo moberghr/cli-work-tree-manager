@@ -334,7 +334,15 @@ export class DemoScenario {
     target: string,
     branch: string,
     repos: Array<Partial<DemoRepo> & { name: string }>,
-    state: { state: AgentState; seen: boolean; summary: string; minutesAgo: number; request?: PermissionRequest } | null,
+    state: {
+      state: AgentState;
+      seen: boolean;
+      summary: string;
+      minutesAgo: number;
+      request?: PermissionRequest;
+      /** Working on a background agent its turn started (In background): what it is. */
+      background?: string;
+    } | null,
     transcript: string[],
     lastAccessedMinutesAgo = 30,
   ): DemoSession {
@@ -355,6 +363,7 @@ export class DemoScenario {
             updatedAt: this.iso(state.minutesAgo),
             stale: false,
             ...(state.request ? { request: state.request } : {}),
+            ...(state.background ? { background: { what: state.background } } : {}),
           }
         : null,
       archivedAt: null,
@@ -430,6 +439,25 @@ export class DemoScenario {
         '✻ Wiring the steps into the checkout page…  (esc to interrupt)',
       ]),
       5,
+    );
+    // Its turn ended, and the review it started runs on in the background: In background (teal), its prompt free.
+    this.add(
+      'api',
+      'chore/dependency-audit',
+      [{ name: 'api' }],
+      {
+        state: 'working',
+        seen: true,
+        summary: 'Bumped the vulnerable packages; a review of the change is running in the background.',
+        minutesAgo: 4,
+        background: '/code-review Review the dependency bumps',
+      },
+      claudeScreen('Bump the packages npm audit flags, then review the change', [
+        '● Update(package.json)',
+        '● Bash(npm audit --omit=dev)',
+        '● Started a review in the background. I will report back when it finishes.',
+      ]),
+      6,
     );
     this.add(
       'web',

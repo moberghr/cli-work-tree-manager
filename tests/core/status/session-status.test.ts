@@ -428,17 +428,28 @@ describe("withLiveClaude (Claude Code's own state over the hooks, when newer)", 
     const ended = { ...rec('idle', 10), turnEndedAt: at(10).toISOString() };
     const busy = { state: 'busy' as const, stateAt: at(9).getTime() };
     const asked: string[] = [];
-    const background = (v: boolean) => () => (asked.push('asked'), v);
-    expect(withLiveClaude(ended, busy, { ...known, background: background(true) })).toMatchObject({ state: 'working', stale: false });
+    const review = { what: '/mtk:code-review-and-quality Re-review' };
+    const background = (v: { what: string | null } | null) => () => (asked.push('asked'), v);
+    // Working — in the background, saying what's at it (the dashboard: "In background", teal).
+    expect(withLiveClaude(ended, busy, { ...known, background: background(review) })).toMatchObject({
+      state: 'working',
+      stale: false,
+      background: review,
+    });
     // No background agent at work: the hook's idle stands, as before.
-    expect(withLiveClaude(ended, busy, { ...known, background: background(false) }).state).toBe('idle');
+    expect(withLiveClaude(ended, busy, { ...known, background: background(null) }).state).toBe('idle');
     expect(withLiveClaude(ended, busy, known).state).toBe('idle');
     // Claude Code said idle after the turn: nothing to ask, the turn is over.
     asked.length = 0;
-    expect(withLiveClaude(ended, { state: 'idle', stateAt: at(13).getTime() }, { ...known, background: background(true) }).state).toBe(
+    expect(withLiveClaude(ended, { state: 'idle', stateAt: at(13).getTime() }, { ...known, background: background(review) }).state).toBe(
       'idle',
     );
     expect(asked).toEqual([]);
+  });
+
+  it("Claude's own turn is working with no background mark (only a background agent's is)", () => {
+    expect(withLiveClaude(rec('working', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');
+    expect(withLiveClaude(rec('idle', 10), { state: 'busy', stateAt: at(11).getTime() }, known)).not.toHaveProperty('background');
   });
 
   it('nothing running anywhere: working / waiting is over at once — unless a PTY of ours runs it, or the process list was not read', () => {

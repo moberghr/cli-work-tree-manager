@@ -360,6 +360,9 @@
 .wd-rail-slot-working {
   color: var(--add-fg);
 }
+.wd-rail-slot-background {
+  color: var(--background-fg);
+}
 .wd-rail-slot-review {
   color: var(--review-fg);
   font-weight: 600;
@@ -413,6 +416,9 @@
   background: var(--add-fg);
   animation: wd-inbox-pulse 1.4s ease-in-out infinite;
 }
+.wd-rail-dot-background {
+  background: var(--background-fg);
+}
 .wd-rail-dot-active {
   background: var(--add-fg);
 }
@@ -460,6 +466,9 @@
 }
 .wd-status-icon.wd-rail-dot-working {
   color: var(--add-fg);
+}
+.wd-status-icon.wd-rail-dot-background {
+  color: var(--background-fg);
 }
 .wd-status-icon.wd-rail-dot-active {
   color: var(--add-fg);
@@ -1900,6 +1909,9 @@ a.wd-pr-chip:hover {
 }
 .wd-status-line-working .wd-status-label {
   color: var(--add-fg);
+}
+.wd-status-line-background .wd-status-label {
+  color: var(--background-fg);
 }
 .wd-status-since {
   color: var(--muted);

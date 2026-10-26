@@ -30,6 +30,8 @@
   --claude-bg: rgba(124, 58, 237, 0.07);
   /* Reviewers waiting on you: unresolved comments on a session's PR. */
   --review-fg: #bf3989;
+  /* Still busy, but not on your turn: a background agent its turn started (teal: near working's green). */
+  --background-fg: #0e7c86;
 }
 
 :root[data-theme='dark'] {
@@ -51,4 +53,5 @@
   --claude-fg: #d2a8ff;
   --claude-bg: rgba(188, 140, 255, 0.12);
   --review-fg: #db61a2;
+  --background-fg: #39c5cf;
 }

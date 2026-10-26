@@ -130,6 +130,8 @@ export const STALE_WORKING_MS = 15 * 60_000;
 export interface EffectiveStatus extends SessionStatus {
   /** True when `state` was downgraded from a stale "working". */
   stale: boolean;
+  /** Working because a background agent its turn started is still at it (its turn ended, its prompt is free): what it is. */
+  background?: { what: string | null };
 }
 
 /** Transcript activity this long after a needs-input notification means
@@ -190,8 +192,8 @@ export function withLiveClaude(
   opts: {
     known: boolean;
     hosted: boolean;
-    /** A background agent its conversation started wrote since its turn ended (asked only when it matters). */
-    background?: () => boolean;
+    /** A background agent its conversation started is still at it since its turn ended (asked only when it matters). */
+    background?: () => { what: string | null } | null;
   },
 ): EffectiveStatus {
   const recorded = Date.parse(status.updatedAt) || 0;
@@ -212,8 +214,10 @@ export function withLiveClaude(
   // Its turn ended, but Claude Code is still busy (said before that end, so older than the hook) and a background
   // agent it started has written since: the turn handed its work to that agent, which is still at it (reported:
   // "handing it to a background agent" read Idle). Its end comes back as a new turn, and Claude Code says idle then.
-  if (live?.state === 'busy' && status.state === 'idle' && opts.background?.()) {
-    return { ...status, state: 'working', seen: true, stale: false };
+  if (live?.state === 'busy' && status.state === 'idle') {
+    const work = opts.background?.();
+    // Working, but not on a turn of yours: its prompt is free (the dashboard says "In background", what it is).
+    if (work) return { ...status, state: 'working', seen: true, stale: false, background: { what: work.what } };
   }
   if (!live && opts.known && !opts.hosted && (status.state === 'working' || status.state === 'needs_input')) {
     return { ...status, state: 'idle', seen: true, stale: true };

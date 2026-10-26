@@ -3,6 +3,16 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **In background.** A session whose turn ended while a background agent it
+  started (a review, a long check) is still at work now says so: the same
+  turning arc in teal, "In background", and what the agent is in the rail's
+  tooltip. Its Claude's prompt is free, so you can talk to it meanwhile.
+- **Background work is seen sooner and longer.** An agent started just as the
+  turn ended counts right away (it read Idle until it wrote again), and one
+  waiting on a long run stays counted for an hour instead of 15 minutes.
+
 ## 2.4.1 — 2026-10-26
 
 - **C# raw strings are coloured right.** An interpolated raw string

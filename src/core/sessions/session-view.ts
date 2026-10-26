@@ -24,6 +24,8 @@ export interface SessionLike {
  *   needs_input — blocked on you (permission / question)
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
+ *   background  — its turn ended, a background agent that turn started is
+ *                 still at it: still busy, but its prompt is free
  *   review      — nothing running for you to answer, but reviewers left
  *                 unresolved comments on its open PR(s)
  *   pr          — its PR wants you: approved with checks passing (ready
@@ -36,7 +38,7 @@ export interface SessionLike {
  *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
-  'needs_input' | 'done' | 'working' | 'review' | 'pr' | 'in_review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
+  'needs_input' | 'done' | 'working' | 'background' | 'review' | 'pr' | 'in_review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -53,7 +55,7 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
   const a = s.attention;
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
-    if (a.state === 'working') return 'working';
+    if (a.state === 'working') return a.background ? 'background' : 'working';
     if (!a.seen) return 'done';
   }
   if ((s.openReviewThreads ?? 0) > 0) return 'review';
@@ -69,6 +71,7 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   needs_input: 'Needs your input',
   done: 'Done',
   working: 'Working',
+  background: 'In background',
   review: 'Review comments',
   pr: 'Pull request',
   in_review: 'In review',
@@ -84,6 +87,8 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   needs_input: 'Its Claude is waiting for you: a permission prompt or a question.',
   done: "Its Claude finished a turn you haven't looked at yet.",
   working: 'Its Claude is working on your last instruction right now.',
+  background:
+    'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
   review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
   pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks.',
   in_review:
@@ -102,6 +107,7 @@ export const LEGEND_KINDS: readonly DisplayKind[] = [
   'review',
   'pr',
   'working',
+  'background',
   'in_review',
   'active',
   'open',
@@ -137,6 +143,7 @@ export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
     kind === 'needs_input' ||
     kind === 'done' ||
     kind === 'working' ||
+    kind === 'background' ||
     kind === 'review' ||
     kind === 'pr' ||
     kind === 'active' ||
@@ -159,6 +166,7 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
     case 'pr':
       return 'needs';
     case 'working':
+    case 'background':
     case 'active':
       return 'working';
     case 'quiet':
@@ -166,8 +174,13 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
     case 'open':
     case 'recent':
       return 'idle';
-    default:
+    case 'stale':
       return 'stale';
+    default: {
+      // Every kind is named above: a new one fails the type check here instead of landing in "stale" unasked.
+      const unknown: never = kind;
+      return unknown;
+    }
   }
 }
 

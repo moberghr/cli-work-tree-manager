@@ -33,6 +33,13 @@ export function StatusIcon({
 
 const cut = 'var(--status-icon-cut, var(--bg))'; // the glyph inside a filled disc
 
+const ARC = (
+  <g className="wd-status-spin">
+    <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+    <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </g>
+);
+
 const GLYPH: Record<DisplayKind, ReactElement> = {
   // Blocked on you: "!" in a filled disc.
   needs_input: (
@@ -50,12 +57,9 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
     </>
   ),
   // Mid-turn: a turning arc.
-  working: (
-    <g className="wd-status-spin">
-      <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
-      <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </g>
-  ),
+  working: ARC,
+  // Its turn ended, a background agent it started is still at it: the same arc (still busy), its own colour (CSS).
+  background: ARC,
   // Reviewers are waiting: a speech bubble.
   review: (
     <path

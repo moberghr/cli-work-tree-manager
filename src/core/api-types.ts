@@ -67,6 +67,9 @@ export interface SessionAttention extends AttentionLike {
   stale: boolean;
   /** needs_input on a permission prompt: what it wants to run. */
   request?: PermissionRequest;
+  /** Working because a background agent its turn started is still at it: its turn ended, its prompt is free. `what`:
+   *  the agent's own description ("/mtk:code-review-and-quality Re-review…"), when it gives one. Absent: an older server. */
+  background?: { what: string | null };
 }
 
 /** Who archived a session: you (Archive, its key, the bulk bar), Ship's merge, the PR watch once its PR merged, or Clean up. */

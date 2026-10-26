@@ -61,8 +61,9 @@ export interface AgentConversation {
   restoreDir?(session: WorktreeSession): string | null;
   /** The newest write to its conversations for work in `cwd` (ms; 0: none): "is it busy in this folder right now?" without a session (a `wd` scope). */
   lastWriteMs?(cwd: string): number;
-  /** A background agent its conversation started (one that runs on after the turn that started it ended) wrote after `ms`: the session is still at work though its turn ended. */
-  backgroundWorkSince?(session: WorktreeSession, ms: number, now?: number): boolean;
+  /** A background agent its conversation started (one that runs on after the turn that started it ended) is still at it
+   *  after `ms` (the turn's end): the session is still at work though its turn ended — and what that agent is, when it says. */
+  backgroundWorkSince?(session: WorktreeSession, ms: number, now?: number): BackgroundWork | null;
 }
 
 /** Starting it: every agent has this. */
@@ -194,4 +195,9 @@ export interface AgentAdapter {
   skills?: AgentSkills;
   /** Its settings in a folder work runs it in (the Ctrl+K assistant); absent: only the instructions file is written, and it asks before every command. */
   workspace?: AgentWorkspace;
+}
+
+/** A background agent at work after its turn ended: what it is, in its own words (its description), when it says. */
+export interface BackgroundWork {
+  what: string | null;
 }

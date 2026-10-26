@@ -62,6 +62,11 @@ describe('demo server', () => {
     expect(list.find((s) => s.branch === 'feat/invoice-export')?.attention).toMatchObject({ state: 'needs_input', seen: false });
     expect(list.find((s) => s.branch === 'fix/login-redirect')?.diffStat).toMatchObject({ files: 2 });
     expect(list.find((s) => s.target === 'shop')?.isGroup).toBe(true);
+    // One shows "In background": working, its turn handed to a background agent.
+    expect(list.find((s) => s.branch === 'chore/dependency-audit')?.attention).toMatchObject({
+      state: 'working',
+      background: { what: '/code-review Review the dependency bumps' },
+    });
   });
 
   it('drives a session like work web: send queues a published note, start / stop / screen answer in the same shapes', async () => {

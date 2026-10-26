@@ -16,7 +16,7 @@ vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
 import { TopNav } from '../../src/web/src/components/Dashboard/TopNav.js';
 import { NowTodayToggle } from '../../src/web/src/components/Dashboard/NowTodayToggle.js';
 import { TasksPanel } from '../../src/web/src/components/Dashboard/TasksPanel.js';
-import { railDetails } from '../../src/web/src/components/Dashboard/SessionRail.js';
+import { backgroundLine, railDetails } from '../../src/web/src/components/Dashboard/SessionRail.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -101,6 +101,15 @@ describe('railDetails: what a one-line rail row keeps for its tooltip', () => {
     // Not its +/− lines (the Diff tab's), nor the PR numbers (the row's pills).
     expect(railDetails(s)).toBe('\n2 waiting for Claude · has notes · running in a terminal');
     expect(railDetails({} as SessionSummary)).toBe('');
+  });
+
+  it('what runs in the background while its prompt is free, first', () => {
+    const s = {
+      attention: { state: 'working', background: { what: '/mtk:code-review-and-quality Re-review' } },
+      hasNote: true,
+    } as unknown as SessionSummary;
+    expect(railDetails(s)).toBe('\nin background: /mtk:code-review-and-quality Re-review · has notes');
+    expect(backgroundLine({ what: null })).toBe('a background agent is at work');
   });
 
   it('until when it is snoozed, and what it waits on', () => {

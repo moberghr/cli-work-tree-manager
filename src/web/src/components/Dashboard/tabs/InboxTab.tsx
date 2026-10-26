@@ -55,22 +55,23 @@ const SECTIONS: Section[] = [
   },
 ];
 
-type RestCounts = { working: number; inReview: number; quiet: number; snoozed: number; waiting: number };
+type RestCounts = { working: number; background?: number; inReview: number; quiet: number; snoozed: number; waiting: number };
 
 /** The closing line's parts, each with what it counts ("2 snoozed" can be opened). Pure. */
 export function inboxRestParts(c: RestCounts): Array<{ key: keyof RestCounts; text: string }> {
   return [
     { key: 'working' as const, text: `${c.working} working` },
+    { key: 'background' as const, text: `${c.background ?? 0} in background` },
     { key: 'inReview' as const, text: `${c.inReview} in review` },
     { key: 'quiet' as const, text: `${c.quiet} quiet` },
     { key: 'snoozed' as const, text: `${c.snoozed} snoozed` },
     { key: 'waiting' as const, text: `${c.waiting} waiting on others` },
-  ].filter((p) => c[p.key] > 0);
+  ].filter((p) => (c[p.key] ?? 0) > 0);
 }
 
 /** "they're in the list on the left." (or "it's", for one). */
 const restTail = (c: RestCounts) =>
-  `${c.working + c.inReview + c.quiet + c.snoozed + c.waiting === 1 ? "it's" : "they're"} in the list on the left.`;
+  `${c.working + (c.background ?? 0) + c.inReview + c.quiet + c.snoozed + c.waiting === 1 ? "it's" : "they're"} in the list on the left.`;
 
 /** What the Inbox leaves to the rail, in a line: "1 working, 3 quiet — they're in the list on the left." Pure. */
 export function inboxRestLine(c: RestCounts): string | null {
@@ -132,7 +133,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
   const { bySection, rest, tracked, snoozed, waiting } = useMemo(() => {
     const sorted = sessions.filter((s) => !isArchived(s)).sort(compareInbox);
     const bySection = new Map<number, SessionSummary[]>();
-    const rest = { working: 0, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 };
+    const rest = { working: 0, background: 0, inReview: 0, quiet: 0, snoozed: 0, waiting: 0 };
     const snoozed: SessionSummary[] = [];
     const waiting: SessionSummary[] = [];
     let tracked = 0;
@@ -141,6 +142,7 @@ export function InboxTab({ sessions, onOpenSession, onMarkSeen = markSessionSeen
       if (s.attention || rank === 2) tracked++;
       if (rank === 6) snoozed.push(s);
       else if (rank === 7) waiting.push(s);
+      else if (rank === 3 && displayStatus(s) === 'background') rest.background++;
       else if (rank === 3) rest.working++;
       else if (rank > 3 && displayStatus(s) === 'in_review') rest.inReview++;
       else if (rank > 3) rest.quiet++;

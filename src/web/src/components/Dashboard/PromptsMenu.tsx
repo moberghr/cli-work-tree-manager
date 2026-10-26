@@ -74,7 +74,8 @@ export function PromptsMenu({ session, loadPrompts = fetchPrompts, send = sendPr
   // Where it will land: typed into a terminal the dashboard owns, after the
   // current turn, or on the next turn of a Claude running elsewhere.
   const whenDelivered = (label: string) =>
-    session.attention?.state === 'working'
+    // In the background its turn has ended: its prompt is free, so it is typed in at once (as the server does).
+    session.attention?.state === 'working' && !session.attention.background
       ? `"${label}" queued: Claude gets it when this turn ends`
       : session.ptyStatus === 'running'
         ? `"${label}" sent to Claude`
