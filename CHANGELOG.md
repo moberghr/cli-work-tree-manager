@@ -3,6 +3,13 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## Unreleased
+
+- **The terminal's last row shows.** A session's terminal sized its grid 16px
+  too tall and wide, so its bottom row (Claude's status line) was cut off, and
+  what the rows didn't cover showed as a black bar under it and down the right
+  edge. It now fits its box, in the terminal's own colour.
+
 ## 2.5.1 — 2026-10-26
 
 - **Archive asks first.** Archiving a session from the dashboard (its button,

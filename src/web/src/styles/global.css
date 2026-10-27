@@ -104,11 +104,23 @@ pre {
   overflow: hidden;
   background: #1e1e1e;
   padding: 8px;
+  /* xterm's FitAddon sizes the grid from this box's computed height and
+     width; with the page's border-box those include the padding, so the
+     grid came out 16px too tall and wide and the last row (Claude's status
+     line) was cut off at the bottom. */
+  box-sizing: content-box;
 }
 .wd-pty-host .xterm,
 .wd-pty-host .xterm-viewport,
 .wd-pty-host .xterm-screen {
   height: 100% !important;
+}
+/* xterm.css paints the viewport #000; the theme colours only the rows, so
+   what's left under the last row and the scrollbar column showed as a
+   black bar. One class more specific than xterm.css's `.xterm .xterm-viewport`,
+   which loads after this (with the terminal's chunk) and won a tie. */
+.wd-pty-host .xterm .xterm-viewport {
+  background-color: #1e1e1e;
 }
 
 /* Review mode: no sidebar, full-bleed diff. */
