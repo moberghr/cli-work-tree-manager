@@ -117,8 +117,9 @@ test('revert a file from the diff, and Claude is told', async ({ page }) => {
   const files = page.locator('.wd-web-review-main article');
   await expect(files).toHaveCount(2);
 
-  page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Revert file: src/auth.test.ts' }).click();
+  // Asked in the page (state/ask.ts), never the browser's own pop-up.
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Revert' }).click();
   await expect(files).toHaveCount(1);
   await expect(files).not.toContainText('auth.test.ts');
   await expect(page.locator('.wd-web-review-sidebar, .wd-comments-panel').first()).toContainText('I reverted your uncommitted change');
@@ -425,15 +426,12 @@ test('keyboard: ? lists the shortcuts, c opens New worktree, and an open session
   await page.keyboard.press('.');
   await expect(page.getByRole('menuitem', { name: /Catch me up/ })).toBeVisible();
   await page.keyboard.press('Escape');
-  // e asks first ("Archive …?"), and archives on yes.
-  let asked = '';
-  page.once('dialog', (d) => {
-    asked = d.message();
-    void d.accept();
-  });
+  // e asks first ("Archive …?", in the page), and archives on yes.
   await page.keyboard.press('e');
+  const ask = page.getByRole('alertdialog');
+  await expect(ask).toContainText(/^Archive “.+”\?/);
+  await ask.getByRole('button', { name: 'OK' }).click();
   await expect(page.locator('.wd-archived-pill')).toBeVisible();
-  expect(asked).toMatch(/^Archive “.+”\?/);
 });
 
 test('Jira has its own tab; Repos goes back to Start; the pages scroll when they are taller than the window', async ({ page }) => {

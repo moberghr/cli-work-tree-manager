@@ -70,7 +70,7 @@ describe('archives in flight', () => {
       }),
     );
     const call = setArchived('s4', true, () => true); // "Archive …?" → yes
-    expect(archivePending('s4')).toBe(true);
+    await vi.waitFor(() => expect(archivePending('s4')).toBe(true)); // from the answer on, not while it asks
     d.resolve();
     await call;
     await Promise.resolve();

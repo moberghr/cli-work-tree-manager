@@ -5,6 +5,7 @@ import { ReviewApp } from './apps/ReviewApp.js';
 import { FileApp } from './apps/FileApp.js';
 import { DiffModeProvider } from './state/DiffModeProvider.js';
 import { ThemeProvider } from './state/ThemeProvider.js';
+import { AskHost } from './components/AskHost.js';
 
 /**
  * Top-level router. Three modes:
@@ -25,12 +26,14 @@ import { ThemeProvider } from './state/ThemeProvider.js';
  */
 /** Wraps the router in the cross-cutting providers every view shares.
  *  ThemeProvider owns the light/dark preference; DiffModeProvider supplies
- *  the split/unified preference to the whole tree. */
+ *  the split/unified preference to the whole tree. AskHost shows every
+ *  "are you sure?" (state/ask.ts) — never window.confirm. */
 export function App() {
   return (
     <ThemeProvider>
       <DiffModeProvider>
         <AppRoutes />
+        <AskHost />
       </DiffModeProvider>
     </ThemeProvider>
   );

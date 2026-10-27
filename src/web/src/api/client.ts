@@ -6,6 +6,7 @@ export type { SessionCommit } from '../../../core/api-types.js';
 import type { SnoozeChoice } from '../../../core/rail/snooze.js';
 import { trackArchive } from './archive-pending.js';
 import { archiveQuestion } from '../state/archive-view.js';
+import { ask } from '../state/ask.js';
 import type {
   ActivityState,
   AnswerRequest,
@@ -184,17 +185,17 @@ export function ship(sessionId: string, body: ShipRequest): Promise<ShipResponse
  * Archive or restore. An Archive asks first (`archiveQuestion`, naming `opts.name`), unless the caller asked
  * already (`opts.asked`: the bulk bar, once for all). When something is still waiting in the session
  * (replies to post, notes for its Claude, a Claude mid-turn), the server
- * says what; `confirm` asks whether to archive anyway (the browser's own
- * dialog by default). Declined: rejects, cancelled, with what was waiting.
+ * says what; `confirm` asks whether to archive anyway (the page's own
+ * dialog by default, `ask`: the macOS desktop app's webview has no `window.confirm`). Declined: rejects, cancelled, with what was waiting.
  */
-export function setArchived(
+export async function setArchived(
   sessionId: string,
   archived: boolean,
-  confirm: (question: string) => boolean = (q) => window.confirm(q),
+  confirm: Confirm = ask,
   opts: { name?: string; asked?: boolean } = {},
 ): Promise<{ ok: true; warnings?: string[] }> {
-  if (archived && !opts.asked && !confirm(archiveQuestion(opts.name))) {
-    return Promise.reject(Object.assign(new Error('Not archived'), { cancelled: true }));
+  if (archived && !opts.asked && !(await confirm(archiveQuestion(opts.name)))) {
+    throw Object.assign(new Error('Not archived'), { cancelled: true });
   }
   // Every caller's button shows it running, wherever you come back to it.
   return trackArchive(sessionId, archived, sendArchived(sessionId, archived, confirm));
@@ -203,11 +204,10 @@ export function setArchived(
 /** An archive the user called off ("Archive it anyway?" → Cancel): their choice, not a failure to show. */
 export const archiveCancelled = (err: unknown): boolean => (err as { cancelled?: unknown } | null)?.cancelled === true;
 
-async function sendArchived(
-  sessionId: string,
-  archived: boolean,
-  confirm: (question: string) => boolean,
-): Promise<{ ok: true; warnings?: string[] }> {
+/** A yes/no question, answered now or later. */
+type Confirm = (question: string) => boolean | Promise<boolean>;
+
+async function sendArchived(sessionId: string, archived: boolean, confirm: Confirm): Promise<{ ok: true; warnings?: string[] }> {
   const url = `/api/sessions/${encodeURIComponent(sessionId)}/archive`;
   const send = (force: boolean, stopHolders = false) =>
     fetch(url, {
@@ -221,14 +221,14 @@ async function sendArchived(
     const body = (await res.json().catch(() => ({}))) as { holders?: string[]; error?: string };
     const holders = body.holders ?? [];
     if (holders.length === 0) throw new Error(body.error ?? `409 for ${url}`);
-    if (!confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`)) {
+    if (!(await confirm(`Still running from its old folder:\n\n• ${holders.join('\n• ')}\n\nStop it and restore?`))) {
       throw Object.assign(new Error(body.error ?? 'Not restored'), { cancelled: true });
     }
     res = await send(false, true);
   } else if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { blocked?: string[]; error?: string };
     const waiting = body.blocked ?? [];
-    if (!confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`)) {
+    if (!(await confirm(`Still waiting in this session:\n\n• ${waiting.join('\n• ')}\n\nArchive it anyway?`))) {
       throw Object.assign(new Error(`Not archived: ${waiting.join('; ')}`), { cancelled: true });
     }
     res = await send(true);

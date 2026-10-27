@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useRevertOptional } from '../../state/RevertProvider.js';
+import { ask } from '../../state/ask.js';
 
 interface Props {
   repo: string;
@@ -27,9 +28,12 @@ export function RevertButton({ repo, path, lines }: Props) {
         onClick={async (e) => {
           e.stopPropagation();
           if (
-            !confirm(`Revert ${what} back to HEAD?
+            !(await ask(
+              `Revert ${what} back to HEAD?
 
-This discards the uncommitted change; Claude is told not to reintroduce it.`)
+This discards the uncommitted change; Claude is told not to reintroduce it.`,
+              { ok: 'Revert' },
+            ))
           )
             return;
           setBusy(true);

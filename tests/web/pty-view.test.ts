@@ -344,18 +344,18 @@ describe('PtyView', () => {
     }
   });
 
-  it('when it is only a guess from activity, starting here needs a confirmation', () => {
+  it('when it is only a guess from activity, starting here needs a confirmation', async () => {
     const { ws } = mount();
     act(() => ws.control({ type: 'elsewhere', lastActivity: Date.now() - 40_000, state: 'idle' }));
     const start = buttons().find((b) => /start it here/.test(b.textContent ?? ''))!;
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
     const count = FakeWebSocket.instances.length;
-    act(() => start.click());
+    await act(async () => start.click());
     expect(confirm).toHaveBeenCalled();
     expect(FakeWebSocket.instances.length).toBe(count); // declined: nothing started
 
     confirm.mockReturnValueOnce(true);
-    act(() => start.click());
+    await act(async () => start.click());
     expect(FakeWebSocket.instances.at(-1)!.url).toMatch(/\/terminal\?force=1$/);
   });
 

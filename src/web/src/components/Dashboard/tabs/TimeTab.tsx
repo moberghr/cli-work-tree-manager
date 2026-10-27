@@ -18,6 +18,7 @@ import {
   saveTimeDay,
 } from '../../../api/panes.js';
 import { useSse } from '../../../api/events.js';
+import { ask } from '../../../state/ask.js';
 
 /** "Thu 8 Oct". Pure. */
 export function dayLabel(day: string): string {
@@ -193,9 +194,9 @@ export function TimeTab({
                 type="button"
                 className={'wd-time-day' + (d.day === chosen ? ' wd-time-day-on' : '')}
                 aria-current={d.day === chosen}
-                onClick={() => {
+                onClick={async () => {
                   // Unsaved rows would be lost: ask first.
-                  if (d.day !== chosen && dirty && !window.confirm('Leave this day without saving your changes?')) return;
+                  if (d.day !== chosen && dirty && !(await ask('Leave this day without saving your changes?', { ok: 'Leave' }))) return;
                   setChosen(d.day);
                 }}
               >
