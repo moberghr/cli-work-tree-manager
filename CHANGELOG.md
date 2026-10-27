@@ -14,6 +14,11 @@ Notable changes per release. Releases up to 1.16.0 are described in the
   handed it with Ask Claude to reply was refused ("wasn't handed to this
   session"). It's accepted now, as is a new reply to a thread the reviewer
   answered after your last one.
+- **A pull request that's ready to merge keeps its icon.** Once you had
+  looked at an approved, ready-to-merge PR (or one with a conflict or failing
+  checks), its session went back to a plain Idle ring on the rail. It now
+  keeps the Pull request icon until it's merged; looking only takes it out of
+  the Inbox.
 - More room between a PR's failing checks and Ask Claude to fix.
 
 ## 2.5.1 — 2026-10-26

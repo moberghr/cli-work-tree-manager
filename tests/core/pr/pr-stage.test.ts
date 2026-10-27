@@ -110,11 +110,13 @@ describe('what a stage does to the Inbox', () => {
     expect(prWantsYou({ prStage: null })).toBe(false);
   });
 
-  it('the status word: Pull request while it wants you, In review while it waits; review comments and a finished turn come first', () => {
+  it('the status word: Pull request while it wants you (looked at too), In review while it waits; review comments and a finished turn come first', () => {
     const row = { lastAccessedAt: '2026-10-01T10:00:00Z', attention: { ...quiet, updatedAt: quiet.since, stale: false } };
     expect(displayStatus({ ...row, prStage: ready })).toBe('pr');
     expect(displayStatus({ ...row, prStage: waiting })).toBe('in_review');
-    expect(displayStatus({ ...row, prStage: { ...ready, seen: true } })).toBe('quiet');
+    // Looked at: out of the Inbox, but still yours to merge (reported: approved PRs read Idle on the rail).
+    expect(displayStatus({ ...row, prStage: { ...ready, seen: true } })).toBe('pr');
+    expect(prWantsYou({ prStage: { ...ready, seen: true } })).toBe(false);
     expect(displayStatus({ ...row, prStage: ready, openReviewThreads: 1 })).toBe('review');
     expect(displayStatus({ ...row, attention: { ...row.attention, seen: false }, prStage: waiting })).toBe('done');
   });

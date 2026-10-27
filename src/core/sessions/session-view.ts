@@ -1,5 +1,5 @@
 import type { SessionAttention, ActivityState } from '../api-types.js';
-import { stageWaiting, stageWantsYou, type PrStageKind } from '../pr/pr-stage.js';
+import { STAGE_WANTS_YOU, stageWaiting, type PrStageKind } from '../pr/pr-stage.js';
 
 /** What the status vocabulary reads from a session: a dashboard row or
  *  a `work sessions` row (both are SessionWire-shaped). */
@@ -59,7 +59,8 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
     if (!a.seen) return 'done';
   }
   if ((s.openReviewThreads ?? 0) > 0) return 'review';
-  if (stageWantsYou(s.prStage)) return 'pr';
+  // Seen or not: a PR that's yours to merge (or fix) keeps saying so; seen only takes it out of the Inbox.
+  if (s.prStage && STAGE_WANTS_YOU.has(s.prStage.kind)) return 'pr';
   if (stageWaiting(s.prStage)) return 'in_review';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
@@ -90,7 +91,7 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   background:
     'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
   review: "Reviewers left comments on its pull request that you haven't answered or resolved.",
-  pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks.',
+  pr: 'Its pull request needs you: approved with checks passing (ready to merge), a merge conflict, or failing checks. In the Inbox until you have looked.',
   in_review:
     'Its pull request is open and waiting on reviewers or checks. It comes back to the Inbox when comments arrive, checks fail, or it is approved.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
