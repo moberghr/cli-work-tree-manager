@@ -56,7 +56,7 @@ export const prCommand: CommandModule = {
             ? fs.readFileSync(String(argv['body-file']), 'utf8')
             : ((argv.text as string[] | undefined) ?? []).join(' ');
           const id = sessionIdFor(s);
-          const r = saveDraft(id, String(argv.thread), text);
+          const r = saveDraft(id, String(argv.thread), text, new Date(), { unsafe: s.launchedUnsafe === true });
           if (!r.ok) {
             console.error(chalk.red(r.error));
             process.exit(1);

@@ -3,6 +3,19 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.5.2 — 2026-10-27
+
+- **A review thread resolved on GitHub leaves the dashboard.** Resolving a
+  thread doesn't change the pull request's last-updated time, which is what
+  the PR watch went by, so a thread you resolved on GitHub stayed "open" in
+  work until something else happened on the PR. A PR with open threads is now
+  read again every 10 minutes.
+- **Ask Claude to reply works.** A reply Claude drafted for a thread you
+  handed it with Ask Claude to reply was refused ("wasn't handed to this
+  session"). It's accepted now, as is a new reply to a thread the reviewer
+  answered after your last one.
+- More room between a PR's failing checks and Ask Claude to fix.
+
 ## 2.5.1 — 2026-10-26
 
 - **Archive asks first.** Archiving a session from the dashboard (its button,

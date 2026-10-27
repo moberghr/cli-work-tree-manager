@@ -66,10 +66,11 @@ export function mountPrReplyRoutes(
 
   app.put('/api/sessions/:id/replies/:thread', async (c) => {
     const id = c.req.param('id');
-    if (!findSession(id)) return c.json({ error: 'unknown session' }, 404);
+    const session = findSession(id);
+    if (!session) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
-    const r = saveDraft(id, c.req.param('thread'), b.body);
+    const r = saveDraft(id, c.req.param('thread'), b.body, new Date(), { unsafe: session.launchedUnsafe === true });
     if (!r.ok) return c.json({ error: r.error }, 400);
     changed(id);
     return c.json({ reply: r.reply });

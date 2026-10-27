@@ -15,6 +15,7 @@ import {
   saveDraft,
 } from '../../../src/core/pr/pr-replies.js';
 import type { SessionCi } from '../../../src/core/api-types.js';
+import { createCiStore } from '../../../src/core/pr/pr-watch-store.js';
 import { mountPrReplyRoutes, openThreadsOfCi } from '../../../src/server/routes/pr-reply-routes.js';
 import { saveHistory, type WorktreeSession } from '../../../src/core/sessions/history.js';
 import { sessionIdFor } from '../../../src/core/sessions/session-id.js';
@@ -75,11 +76,11 @@ function gh(fail = false) {
 }
 
 describe('reply drafts', () => {
-  it('only threads handed to the session can be answered; a draft is saved and counted', () => {
+  it('only threads handed to the session (or listed open for it) can be answered; a draft is saved and counted', () => {
     rememberSent('s1', [thread(T1), thread(T2)]);
     expect(saveDraft('s1', 'PRRT_notours', 'x')).toMatchObject({
       ok: false,
-      error: expect.stringContaining("wasn't handed to this session"),
+      error: expect.stringContaining("isn't an open review thread of this session's pull requests"),
     });
     expect(saveDraft('s1', 'not-a-thread', 'x')).toMatchObject({ ok: false, error: expect.stringContaining('not a review thread id') });
     expect(saveDraft('s1', T1, '   ')).toMatchObject({ ok: false, error: 'the reply is empty' });
@@ -93,6 +94,80 @@ describe('reply drafts', () => {
       [T2, 'sent'],
     ]);
     expect(draftCounts().get('s1')).toBe(1);
+  });
+
+  it('a thread the PR watch lists as open can be drafted though no note handed it over ("Ask Claude to reply"; reported: feat/webhook-wallet)', () => {
+    const ci = (threads: ReturnType<typeof thread>[]): SessionCi =>
+      ({
+        checkedAt: '2026-10-27T10:42:01.213Z',
+        repos: [
+          {
+            name: 'api',
+            pr: { number: 7, url: 'https://github.com/o/api/pull/7', state: 'OPEN', isDraft: false, checks: 'pass', headSha: 'abc' },
+            done: false,
+            openThreads: threads.length,
+            threads,
+          },
+        ],
+      }) as SessionCi;
+    createCiStore().save('s1', ci([thread(T1, { reviewer: 'github-actions' })]));
+    expect(saveDraft('s1', T1, 'Leaving this as is.')).toMatchObject({
+      ok: true,
+      reply: { threadId: T1, repo: 'api', prNumber: 7, reviewer: 'github-actions', status: 'draft', draft: 'Leaving this as is.' },
+    });
+    expect(listReplies('s1').map((r) => [r.threadId, r.status, r.url])).toEqual([[T1, 'draft', thread(T1).url]]);
+    // Not listed for this session (another's, or not open any more): refused, nothing written.
+    expect(saveDraft('s2', T1, 'x')).toMatchObject({ ok: false });
+    expect(saveDraft('s1', T2, 'x')).toMatchObject({ ok: false });
+    expect(listReplies('s2')).toEqual([]);
+  });
+
+  describe("a thread from the watch's list", () => {
+    const ci = (threads: ReturnType<typeof thread>[], checkedAt = '2026-10-27T10:00:00.000Z'): SessionCi =>
+      ({
+        checkedAt,
+        repos: [
+          {
+            name: 'api',
+            pr: { number: 7, url: 'https://github.com/o/api/pull/7', state: 'OPEN', isDraft: false, checks: 'pass', headSha: 'abc' },
+            done: false,
+            openThreads: threads.length,
+            threads,
+          },
+        ],
+      }) as SessionCi;
+    const posted = (postedAt: string) =>
+      withDb((d) =>
+        d
+          .prepare('INSERT OR REPLACE INTO pr_replies (session_id, thread_id, data) VALUES (?, ?, ?)')
+          .run('s1', T1, JSON.stringify({ ...thread(T1), status: 'posted', draft: 'Done', sentAt: postedAt, postedAt })),
+      );
+
+    it("its row is stamped with the draft's clock", () => {
+      createCiStore().save('s1', ci([thread(T1)]));
+      const now = new Date('2026-10-27T11:00:00.000Z');
+      expect(saveDraft('s1', T1, 'x', now)).toMatchObject({ ok: true, reply: { sentAt: now.toISOString(), draftedAt: now.toISOString() } });
+    });
+
+    it('answered before and listed open again since (the reviewer answered): starts over; listed only from before the reply: refused', () => {
+      posted('2026-10-27T09:00:00.000Z');
+      createCiStore().save('s1', ci([thread(T1, { excerpt: 'Still null here?' })], '2026-10-27T10:00:00.000Z'));
+      expect(saveDraft('s1', T1, 'Now it is')).toMatchObject({
+        ok: true,
+        reply: { status: 'draft', draft: 'Now it is', excerpt: 'Still null here?' },
+      });
+
+      posted('2026-10-27T10:30:00.000Z'); // the last check is older than the reply: it may not have seen it
+      expect(saveDraft('s1', T1, 'again')).toMatchObject({ ok: false, error: 'a reply to this thread was already posted' });
+    });
+
+    it('a session launched --unsafe drafts only what the watch handed it', () => {
+      createCiStore().save('s1', ci([thread(T1)]));
+      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: false });
+      expect(listReplies('s1')).toEqual([]);
+      rememberSent('s1', [thread(T1)]);
+      expect(saveDraft('s1', T1, 'x', new Date(), { unsafe: true })).toMatchObject({ ok: true });
+    });
   });
 
   it('a thread handed over again (a reviewer answered) starts over', () => {

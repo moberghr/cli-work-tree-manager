@@ -103,6 +103,15 @@ describe("PR watch's last check", () => {
     expect(isSessionCi({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, openThreads: 'two' }] })).toBe(false);
     expect(isSessionCi(null)).toBe(false);
     expect(isSessionCi([])).toBe(false);
+    // Its open threads too: an entry missing what readers use (a reply's row is made from it) refuses the check.
+    const withThread = (t: unknown) => ({ checkedAt: 'x', repos: [{ name: 'api', pr: null, done: false, threads: [t] }] });
+    const ok = { threadId: 'PRRT_abcd', repo: 'api', prNumber: 7, url: 'u', where: null, reviewer: 'dana', excerpt: 'e', trusted: true };
+    expect(isSessionCi(withThread(ok))).toBe(true);
+    expect(isSessionCi(withThread({ ...ok, where: 'src/a.ts:3' }))).toBe(true);
+    expect(isSessionCi(withThread(null))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, where: 3 }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, reviewer: undefined }))).toBe(false);
+    expect(isSessionCi(withThread({ ...ok, prNumber: '7' }))).toBe(false);
   });
 
   it("a database it can't read gives none, rather than stopping work web from starting", () => {

@@ -4496,6 +4496,10 @@ a.wd-pr-chip:hover {
 .wd-pr-checks-fail a {
   color: inherit;
 }
+/* Ask Claude to fix: apart from the failing names it follows, and a line of its own when it wraps. */
+.wd-pr-checks > .wd-btn-secondary {
+  margin: 4px 0 0 8px;
+}
 .wd-pr-actions {
   margin-bottom: 8px;
 }

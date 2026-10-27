@@ -5,6 +5,7 @@ import {
   ciFixMessage,
   conflictMessage,
   savedChecks,
+  THREADS_RECHECK_MS,
   withoutThread,
   type PrWatchDeps,
 } from '../../../src/core/pr/pr-watch.js';
@@ -657,6 +658,28 @@ describe('PR watch', () => {
       expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
       await h.watch.tick();
       expect(told(h)).toHaveLength(1);
+    });
+
+    it("a thread resolved on GitHub (which leaves the PR's updatedAt as it was) is closed here at the next read after THREADS_RECHECK_MS (reported: feat/webhook-wallet)", async () => {
+      let t = LATER;
+      let current = fb([thread('1', 'alice')]);
+      const h = harness([repo('api', pr({ updatedAt: '2026-10-26T12:53:12Z' }))], ON, false, null, { now: () => t });
+      h.deps.reviewFeedback.mockImplementation(async () => current);
+      await h.watch.tick();
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(1);
+      current = fb([thread('1', 'alice', true)]); // resolved on GitHub; the PR's updatedAt doesn't move
+      t += THREADS_RECHECK_MS - 1;
+      await h.watch.tick();
+      expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(1); // still believed
+      t += 2;
+      await h.watch.tick();
+      expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(2);
+      expect(h.watch.state('s1')?.repos[0].openThreads).toBe(0);
+      expect(h.watch.state('s1')?.repos[0].threads ?? []).toEqual([]);
+      // None open now: nothing can close, so it waits for the PR to change again.
+      t += 10 * THREADS_RECHECK_MS;
+      await h.watch.tick();
+      expect(h.deps.reviewFeedback).toHaveBeenCalledTimes(2);
     });
 
     it('never hands review text to a session running with permission checks off', async () => {

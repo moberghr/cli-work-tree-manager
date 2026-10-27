@@ -1,7 +1,8 @@
-import { json, tx, withDb } from '../platform/db.js';
+import { json, tx, withDb, type Db } from '../platform/db.js';
 import type { PrReply, SessionCi } from '../api-types.js';
 import type { CommandRunner } from './ship.js';
 import { sessionIdFor } from '../sessions/session-id.js';
+import { isSessionCi } from './pr-watch-store.js';
 
 /**
  * Replies to PR review threads, drafted by the session's Claude and posted
@@ -14,7 +15,9 @@ import { sessionIdFor } from '../sessions/session-id.js';
  * assistant's allow list, so Claude Code asks you as well).
  *
  * Rows live in state.db `pr_replies`, keyed by session + thread, and go
- * with the session (purgeSessionRows).
+ * with the session (purgeSessionRows). A thread the PR watch lists as open
+ * for the session (its last check, `pr_watch_state`) can be drafted too:
+ * "Ask Claude to reply" hands one over as a plain note, with no row here.
  */
 
 /** GitHub review-thread node ids. Checked before a thread id reaches gh or the database. */
@@ -87,8 +90,47 @@ export function rememberSent(
 
 export type DraftResult = { ok: true; reply: PrReply } | { ok: false; error: string };
 
-/** Claude's (or your edited) answer to a thread it was handed. */
-export function saveDraft(sessionId: string, threadId: string, body: string, now = new Date()): DraftResult {
+/**
+ * The thread as the PR watch's last check of the session lists it, open (as of `checkedAt`): a reply's row is
+ * made from it, never from what the drafter typed.
+ */
+function openThreadOf(d: Db, sessionId: string, threadId: string, now: Date): { reply: PrReply; checkedAt: string } | null {
+  const row = d.prepare('SELECT data FROM pr_watch_state WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
+  const ci = row ? json.parse(row.data) : null;
+  if (!isSessionCi(ci)) return null;
+  for (const r of ci.repos) {
+    const t = r.threads?.find((x) => x.threadId === threadId);
+    if (!t) continue;
+    const { repo, prNumber, url, where, reviewer, excerpt } = t;
+    const reply: PrReply = {
+      threadId,
+      repo,
+      prNumber,
+      url,
+      where,
+      reviewer,
+      excerpt,
+      status: 'sent',
+      draft: null,
+      sentAt: now.toISOString(),
+    };
+    return { reply, checkedAt: ci.checkedAt };
+  }
+  return null;
+}
+
+/**
+ * Claude's (or your edited) answer to a thread it was handed, or one the PR watch lists as open for the session.
+ * A thread answered before and listed open again since (the reviewer answered) starts over, as `rememberSent` does.
+ * A session launched `--unsafe` (`opts.unsafe`) drafts only what the watch handed it: review text never reaches it.
+ */
+export function saveDraft(
+  sessionId: string,
+  threadId: string,
+  body: string,
+  now = new Date(),
+  opts: { unsafe?: boolean } = {},
+): DraftResult {
   if (!THREAD_ID.test(threadId)) return { ok: false, error: `not a review thread id: ${threadId}` };
   const text = body.trim();
   if (!text) return { ok: false, error: 'the reply is empty' };
@@ -96,15 +138,23 @@ export function saveDraft(sessionId: string, threadId: string, body: string, now
   return tx((d) => {
     const row = d.prepare('SELECT data FROM pr_replies WHERE session_id = ? AND thread_id = ?').get(sessionId, threadId) as
       { data: string } | undefined;
-    const cur = row ? parseRow(row.data) : null;
+    const handed = row ? parseRow(row.data) : null;
+    const listed = opts.unsafe ? null : openThreadOf(d, sessionId, threadId, now);
+    const raisedAgain =
+      handed?.status === 'posted' && listed && Date.parse(listed.checkedAt) > Date.parse(handed.postedAt ?? '') ? listed.reply : null;
+    const cur = raisedAgain ?? handed ?? listed?.reply ?? null;
     if (!cur)
       return {
         ok: false,
-        error: `thread ${threadId} wasn't handed to this session (only threads from its PR feedback notes can be answered)`,
+        error: `thread ${threadId} isn't an open review thread of this session's pull requests (as work last checked them)`,
       } as const;
     if (cur.status === 'posted') return { ok: false, error: 'a reply to this thread was already posted' } as const;
     const next: PrReply = { ...cur, status: 'draft', draft: text, draftedAt: now.toISOString() };
-    d.prepare('UPDATE pr_replies SET data = ? WHERE session_id = ? AND thread_id = ?').run(JSON.stringify(next), sessionId, threadId);
+    d.prepare('INSERT OR REPLACE INTO pr_replies (session_id, thread_id, data) VALUES (?, ?, ?)').run(
+      sessionId,
+      threadId,
+      JSON.stringify(next),
+    );
     return { ok: true, reply: next } as const;
   });
 }

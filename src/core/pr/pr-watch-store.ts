@@ -42,7 +42,18 @@ export interface CiStore {
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const PR_STATES = new Set(['OPEN', 'MERGED', 'CLOSED']);
 
-/** A stored check as the watch wrote it (the fields its readers rely on); anything else is dropped. */
+/** A stored open thread as the watch wrote it (`OpenReviewThread`). */
+function isOpenThread(t: unknown): boolean {
+  return (
+    isObject(t) &&
+    ['threadId', 'repo', 'url', 'reviewer', 'excerpt'].every((k) => typeof t[k] === 'string') &&
+    typeof t.prNumber === 'number' &&
+    (t.where === null || typeof t.where === 'string') &&
+    (t.trusted === undefined || typeof t.trusted === 'boolean')
+  );
+}
+
+/** A stored check as the watch wrote it (the fields its readers rely on, its open threads' too); anything else is dropped. */
 export function isSessionCi(v: unknown): v is SessionCi {
   if (!isObject(v) || typeof v.checkedAt !== 'string' || !Array.isArray(v.repos)) return false;
   return v.repos.every(
@@ -58,7 +69,7 @@ export function isSessionCi(v: unknown): v is SessionCi {
           PR_STATES.has(r.pr.state) &&
           typeof r.pr.headSha === 'string')) &&
       (r.openThreads === undefined || typeof r.openThreads === 'number') &&
-      (r.threads === undefined || Array.isArray(r.threads)),
+      (r.threads === undefined || (Array.isArray(r.threads) && r.threads.every(isOpenThread))),
   );
 }
 

@@ -116,6 +116,8 @@ const CONCURRENCY = 3;
 export const RATE_LIMITED = /rate limit/i;
 /** How long the sweeps rest after GitHub said so. */
 export const RATE_LIMIT_PAUSE_MS = 10 * 60_000;
+/** How long a PR's review threads, read while some were open, are believed: resolving one doesn't move the PR's updatedAt. */
+export const THREADS_RECHECK_MS = 10 * 60_000;
 
 export function ciFixMessage(
   failing: Array<{ repo: string; number: number; checks: string[] }>,
@@ -288,8 +290,8 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
   /** Sessions checked since this watch was made: each one's first check is announced even when it
    *  matches the saved one, so what listens (the stage tracker, the thread counts) sees it as before. */
   const checked = new Set<string>();
-  /** The last review feedback per session + repo, and the PR's updatedAt it was read at. */
-  const feedbackCache = new Map<string, { number: number; updatedAt: string; fb: ReviewFeedback }>();
+  /** The last review feedback per session + repo, the PR's updatedAt it was read at, and when. */
+  const feedbackCache = new Map<string, { number: number; updatedAt: string; at: number; fb: ReviewFeedback }>();
   /** A session's check in flight: a refresh joins it instead of starting another. */
   const inflight = new Map<string, Promise<SessionCi | null>>();
   /** Sweeps skip until then: GitHub's API limit was spent (see check). */
@@ -386,12 +388,19 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
       for (const r of pre.repos) {
         if (r.pr?.state !== 'OPEN' || theirs.has(r.name)) continue;
         // Nothing new can have been said on a PR that hasn't changed since
-        // the last read (a comment or review moves its updatedAt).
+        // the last read (a comment or review moves its updatedAt). A resolve
+        // doesn't move it, though: a read with open threads goes stale after
+        // THREADS_RECHECK_MS, or a thread resolved on GitHub stays open here.
         const key = `${id}:${r.name}`;
         const cached = feedbackCache.get(key);
-        const fresh = cached && r.pr.updatedAt && cached.number === r.pr.number && cached.updatedAt === r.pr.updatedAt;
+        const fresh =
+          cached &&
+          r.pr.updatedAt &&
+          cached.number === r.pr.number &&
+          cached.updatedAt === r.pr.updatedAt &&
+          (openThreadCount(cached.fb) === 0 || now() - cached.at < THREADS_RECHECK_MS);
         const fb = fresh ? cached.fb : await deps.reviewFeedback(r.path, r.pr.number).catch(() => null);
-        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, fb });
+        if (fb && !fresh && r.pr.updatedAt) feedbackCache.set(key, { number: r.pr.number, updatedAt: r.pr.updatedAt, at: now(), fb });
         if (!fb) {
           // gh couldn't say this time: keep the last count for the same PR rather than drop to none.
           const was = states.get(id)?.repos.find((p) => p.name === r.name);
