@@ -4,7 +4,7 @@ import { loadHistory } from '../../core/sessions/history.js';
 import { disposePty, ensurePty, peekPty, ptyPids, readPtyScreen } from '../../core/pty/pty-pool.js';
 import { agentsBySession } from '../../core/sessions/live-agents.js';
 import { liveAgents } from '../../core/agents/index.js';
-import { readStatus } from '../../core/status/session-status.js';
+import { markAgentStopped, readStatus } from '../../core/status/session-status.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { sendToSession, type SendDeps } from '../../core/sessions/session-control.js';
@@ -56,7 +56,11 @@ function realDeps(app: Hono): ControlDeps {
     state: (id) => readStatus(id)?.state ?? null,
     unsafe: (id) => !!findSession(id)?.launchedUnsafe || dbPtySessions.read()[id]?.unsafe === true,
     archived: (id) => !!findSession(id)?.archivedAt,
-    stop: disposePty,
+    // `work stop`: recorded like a sleep, so the Terminal tab starts it again when opened.
+    stop: async (id) => {
+      await disposePty(id);
+      await markAgentStopped(id).catch(() => {});
+    },
     screen: readPtyScreen,
     lastReply: (id) => {
       const s = findSession(id);

@@ -46,7 +46,13 @@ export function CommentItem({ comment, currentLineContent }: Props) {
   if (isResolved && !expandedResolved && !replyOpen) {
     const firstLine = comment.body.split('\n')[0];
     return (
-      <button type="button" className="wd-comment-resolved-bar" onClick={() => setExpandedResolved(true)} title="Resolved — click to show">
+      <button
+        type="button"
+        className="wd-comment-resolved-bar"
+        data-comment-id={comment.id}
+        onClick={() => setExpandedResolved(true)}
+        title="Resolved — click to show"
+      >
         <span className="wd-resolved-check" aria-hidden="true">
           ✓
         </span>
@@ -115,7 +121,7 @@ export function CommentItem({ comment, currentLineContent }: Props) {
 
   return (
     <>
-      <div className={itemClasses}>
+      <div className={itemClasses} data-comment-id={comment.id}>
         {head}
         <div className="wd-comment-body">
           <Markdown source={comment.body} />

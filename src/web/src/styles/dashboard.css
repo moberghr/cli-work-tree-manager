@@ -3616,7 +3616,7 @@ a.wd-pr-chip:hover {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .wd-reply-actions .wd-link-button {
   appearance: none;
@@ -4229,6 +4229,7 @@ a.wd-pr-chip:hover {
   align-items: center;
   gap: 10px;
   font-size: 12px;
+  margin-top: 8px;
 }
 .wd-notes-status {
   flex: 1;

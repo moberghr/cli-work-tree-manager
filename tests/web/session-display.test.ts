@@ -66,6 +66,12 @@ describe('displayStatus — one vocabulary for every view', () => {
     expect(ageBucket(s({ id: 'b', archiving: true, lastAccessedAt: minsAgo(60 * 24 * 30) }))).toBe('now');
     expect(displayStatus(s({ id: 'c', restoring: true, archivedAt: minsAgo(60) }))).toBe('restoring');
     expect(DISPLAY_LABEL.restoring).toBe('Restoring');
+    // Asleep (stopped while idle) in place of the idle ring — never over what wants you.
+    expect(displayStatus(s({ id: 'd', asleep: true, attention: att('idle', true) }))).toBe('asleep');
+    expect(displayStatus(s({ id: 'e', asleep: true, attention: att('idle', false) }))).toBe('done');
+    expect(displayStatus(s({ id: 'f', asleep: true }))).toBe('asleep');
+    expect(DISPLAY_LABEL.asleep).toBe('Asleep');
+    expect(statusBucket('asleep')).toBe('idle');
   });
 
   it('prefers hook attention and falls back to transcript activity', () => {

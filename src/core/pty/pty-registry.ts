@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { agentById } from '../agents/index.js';
+import { ASSISTANT_ID } from '../agents/assistant.js';
 import { loadConfig } from '../platform/config.js';
 import { PtySession } from './pty-session.js';
 import { atomicWriteFile, ensureFile, withFileLockSync } from '../platform/fs-safe.js';
@@ -453,13 +454,15 @@ export class PtyRegistry {
 
   /**
    * Respawn everything in the persisted list. Called once at host startup.
-   * Worktrees that no longer exist are dropped.
+   * Worktrees that no longer exist are dropped, and so is the Ctrl+K
+   * assistant: it starts when you open it (its conversation resumes then) —
+   * restored, one opened once ran for good, a Claude nobody used.
    */
   async restore(): Promise<string[]> {
     const saved = this.readPersisted();
     const restored: string[] = [];
     for (const [id, entry] of Object.entries(saved)) {
-      if (!this.cwdExists(entry.cwd)) continue;
+      if (id === ASSISTANT_ID || !this.cwdExists(entry.cwd)) continue;
       try {
         this.spawn(id, entry, true);
         restored.push(id);

@@ -64,6 +64,9 @@ export interface AgentConversation {
   /** A background agent its conversation started (one that runs on after the turn that started it ended) is still at it
    *  after `ms` (the turn's end): the session is still at work though its turn ended — and what that agent is, when it says. */
   backgroundWorkSince?(session: WorktreeSession, ms: number, now?: number): BackgroundWork | null;
+  /** Background commands (a build, tests, a dev server) its conversation started since `sinceMs` — the agent
+   *  process's start — and that haven't ended: stopping the agent would stop them (idle sleep keeps it awake). */
+  backgroundCommands?(session: WorktreeSession, sinceMs: number): number;
 }
 
 /** Starting it: every agent has this. */

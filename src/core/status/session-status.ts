@@ -38,6 +38,9 @@ export interface SessionStatus {
    *  idle → idle stop, and `updatedAt` moves on seen and on the idle nudge;
    *  this is what transcript activity is compared with (effectiveStatus). */
   turnEndedAt?: string;
+  /** When work itself last stopped its Claude (idle sleep, `work stop`, `markAgentStopped`): signs of a
+   *  Claude from before then are that one's, and it's gone — not one open in another terminal. */
+  stoppedAt?: string;
 }
 
 export type { StatusEvent } from './status-event.js';
@@ -316,6 +319,16 @@ export function turnInProgress(s: Pick<SessionStatus, 'state' | 'since' | 'turnE
   if (s.state !== 'needs_input') return false;
   const ended = s.turnEndedAt ? Date.parse(s.turnEndedAt) : NaN;
   return !(ended >= Date.parse(s.since));
+}
+
+/**
+ * Work stopped the session's Claude itself (idle sleep, `work stop`): the
+ * Terminal tab's "running in another terminal" check (`claudeElsewhere`)
+ * then ignores the turn that ended just before, and starts it again. A
+ * session with no status yet has nothing that check could misread.
+ */
+export async function markAgentStopped(sessionId: string, now: Date = new Date()): Promise<void> {
+  await updateStatus(sessionId, (prev) => (prev ? { ...prev, stoppedAt: now.toISOString() } : prev));
 }
 
 /** The user looked at it (opened it in the dashboard). */

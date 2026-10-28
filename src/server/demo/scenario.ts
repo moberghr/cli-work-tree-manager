@@ -835,6 +835,10 @@ export class DemoScenario {
       activityState: s.attention?.state === 'working' ? 'active' : s.attention ? 'open' : 'stale',
       pendingForClaudeCount: 0,
       attention: s.attention,
+      // One quiet session shows Asleep: its Claude stopped to free memory (idle sleep).
+      ...(s.branch === 'feat/invoice-pdf' && !s.archivedAt && s.attention?.state === 'idle' && s.attention.seen
+        ? { asleep: true as const }
+        : {}),
       diffStat: stat.files ? stat : null,
       archivedAt: s.archivedAt,
       ...(s.archivedAt && s.archivedBy

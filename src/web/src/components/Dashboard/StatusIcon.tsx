@@ -64,6 +64,17 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
   archiving: ARC,
   // Being restored: the same grey arc, on its way back.
   restoring: ARC,
+  // Its Claude stopped while idle (asleep): a small "z z", grey — opening it starts it again.
+  asleep: (
+    <path
+      d="M2 2.5h6.5L2 9.5h6.5M9.5 8.5h4.5L9.5 13.5h4.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
   // Finished and seen: an empty ring.
   quiet: <circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" strokeWidth="1.8" />,
   // Writing right now, no hook status: a pulse line.

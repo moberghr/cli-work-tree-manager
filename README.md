@@ -307,7 +307,7 @@ Most of it is set in the app (Welcome, Repos & groups). Everything lives in `~/.
 | `notifications` | `true` for a desktop toast when no dashboard can notify you. |
 | `prompts` | Your own saved prompts for **Send a prompt** (replacing the defaults; each can be limited to some repos). |
 | `prWatch` | `trustedBots` (whose review comments reach Claude), `wakeClaude` (start a stopped Claude for a PR note), `fixConflicts: false` (don't ask Claude to resolve merge conflicts). |
-| `sleepIdleAfterMinutes` | When an unused Claude is stopped to free memory (default 120; 0 = never). |
+| `sleepIdleAfterMinutes` | When an unused, truly idle Claude is stopped to free memory (default 10, at least 5; 0 = never). Never one that is working, waiting on you, or has a background command, agent or dev server still running; opening the session resumes it. |
 | `time` | The Time tab: hours a day, tickets for gaps and days off, Tempo and Outlook settings. |
 | `aiCommand`, `aiCommandFlags` | The agent new sessions run (default Claude Code). |
 | `sessionFolders` | Experimental, off by default: `true` makes every new session a folder of repos (a single repo too), so **Add a repo…** works on all of them. |

@@ -570,6 +570,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A comment not in the changes on screen, opened in place: whole, with its replies. */
+.wd-comments-panel-inline {
+  font-size: 12px;
+  color: var(--fg);
+  margin-top: 4px;
+}
+.wd-comments-panel-why {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+}
+.wd-comments-panel-full,
+.wd-comments-panel-reply {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wd-comments-panel-reply {
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.wd-comments-panel-who {
+  font-weight: 600;
+}
 .wd-comments-panel-empty {
   font-size: 11px;
   color: var(--muted);
@@ -628,7 +653,7 @@
 .wd-general-pane-actions {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 8px;
   justify-content: flex-end;
 }
 .wd-general-pane-actions button {
@@ -990,7 +1015,7 @@ button.wd-comment-fold:hover,
 .wd-comment-form-actions {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 8px;
   justify-content: flex-end;
 }
 .wd-comment-form button {
@@ -1094,6 +1119,10 @@ button.wd-comment-fold:hover,
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+/* Whatever comes last before the buttons keeps a paragraph's gap to them (the review summary's textarea sat flush). */
+.wd-modal > :has(+ .wd-modal-actions) {
+  margin-bottom: 14px;
 }
 /* Every dialog button, except the ones that read as links (.wd-link-button). */
 .wd-modal button:not(.wd-link-button) {

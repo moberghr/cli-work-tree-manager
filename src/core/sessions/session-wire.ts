@@ -154,9 +154,20 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.merged) wire.stackParentMerged = stack.merged;
   if (opts.hasNote?.(id)) wire.hasNote = true;
   if (isArchiving(id)) wire.archiving = true;
+  if (!s.archivedAt && isAsleep(readStatus(id)?.stoppedAt, wire.ptyStatus === 'running', wire.lastActivity ?? 0)) wire.asleep = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
   if (blockers.length) wire.blockedBy = blockers;
   return wire;
+}
+
+/**
+ * Asleep: work stopped its Claude (idle sleep, `work stop`: `stoppedAt`), it
+ * isn't running now, and its conversation wasn't written since — one started
+ * again (opened, sent a note, started in a terminal) is awake. Pure.
+ */
+export function isAsleep(stoppedAt: string | undefined, ptyRunning: boolean, lastActivityMs: number): boolean {
+  const stopped = stoppedAt ? Date.parse(stoppedAt) : NaN;
+  return Number.isFinite(stopped) && !ptyRunning && lastActivityMs <= stopped;
 }
 
 /** The row, marked Restoring while a Restore of it runs (a copy: archived rows are cached). */

@@ -3,6 +3,7 @@ import { useExpandOptional } from '../../state/ExpandProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { gapOffset, hiddenRemaining, nextBottomRange, nextTopRange, type DiffGap } from '../../utils/expand.js';
 import { highlightBlock } from '../../utils/highlight.js';
+import type { FileContext } from './DiffHunk.js';
 
 interface RevealedLine {
   newNum: number;
@@ -16,6 +17,9 @@ interface Props {
   gap: DiffGap;
   /** Resolved hljs language for this file, or null to render plain text. */
   lang?: string | null;
+  /** The file's newer side highlighted whole (DiffFile's useFileContext): a revealed line takes its colouring from
+   *  there, so lines revealed from inside a string or comment are coloured as the file is. */
+  context?: FileContext | null;
   /** Notifies the parent when this gap becomes fully revealed (no hidden
    *  lines left between its anchors) so it can drop the now-redundant `@@`
    *  header on the hunk below. Only fires for gaps with a lower anchor —
@@ -35,7 +39,7 @@ interface Props {
  * mounted (static `wd --static`, which has no server) this renders
  * nothing, so the diff degrades to plain hunks.
  */
-export function GapRegion({ repo, file, gap, lang, onClosedChange, belowHeading }: Props) {
+export function GapRegion({ repo, file, gap, lang, context = null, onClosedChange, belowHeading }: Props) {
   const exp = useExpandOptional();
   const mode = useDiffMode();
   const [topLines, setTopLines] = useState<RevealedLine[]>([]);
@@ -59,6 +63,14 @@ export function GapRegion({ repo, file, gap, lang, onClosedChange, belowHeading 
     if (!lang) return null;
     const m = new Map<RevealedLine, string>();
     const fill = (run: RevealedLine[]) => {
+      // The whole file's colouring when it has these very lines; else the run alone, as before.
+      if (context?.lang === lang && run.every((l) => context.lines[l.newNum - 1] === l.content)) {
+        for (const l of run) {
+          const h = context.html[l.newNum - 1];
+          if (h) m.set(l, h);
+        }
+        return;
+      }
       const html = highlightBlock(
         run.map((l) => l.content),
         lang,
@@ -71,7 +83,7 @@ export function GapRegion({ repo, file, gap, lang, onClosedChange, belowHeading 
     fill(topLines);
     fill(bottomLines);
     return m;
-  }, [lang, topLines, bottomLines]);
+  }, [lang, context, topLines, bottomLines]);
 
   if (!exp) return null;
 

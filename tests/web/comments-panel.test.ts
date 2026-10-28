@@ -84,3 +84,56 @@ describe('CommentsPanel: every comment of the review, in one list', () => {
     expect(container.textContent).toContain('Comments (3)');
   });
 });
+
+describe('a click on a comment always shows it (reported: a resolved one did nothing)', () => {
+  it('not in the changes on screen: opened in place, whole, with its replies; a second click folds it', () => {
+    h.comments = [
+      c({
+        id: 'a',
+        repo: 'backend',
+        file: 'src/Preprocessing/Author.cs',
+        line: 12,
+        side: 'right',
+        body: 'This should not be adyen,\nsomething outside it',
+        resolved: true,
+      }),
+      c({
+        id: 'r',
+        repo: 'backend',
+        file: 'src/Preprocessing/Author.cs',
+        line: 12,
+        side: 'right',
+        body: 'Moved it out.',
+        author: 'claude',
+        parentId: 'a',
+      }),
+    ];
+    act(() => root.render(createElement(CommentsPanel, { repoName: 'backend' })));
+    act(() => (rows()[0] as HTMLElement).click());
+    const inline = container.querySelector('.wd-comments-panel-inline')!;
+    expect(inline.querySelector('.wd-comments-panel-full')!.textContent).toBe('This should not be adyen,\nsomething outside it');
+    expect(inline.querySelector('.wd-comments-panel-reply')!.textContent).toBe('Claude: Moved it out.');
+    expect(inline.textContent).toContain('Not in the changes on screen');
+    act(() => (rows()[0] as HTMLElement).click());
+    expect(container.querySelector('.wd-comments-panel-inline')).toBeNull();
+  });
+
+  it('on screen as a resolved thread folded to one line: opened and scrolled to, not shown in the panel', () => {
+    h.comments = [c({ id: 'a', repo: 'backend', file: 'src/a.ts', line: 3, side: 'right', body: 'Rename this', resolved: true })];
+    const bar = document.createElement('button');
+    bar.className = 'wd-comment-resolved-bar';
+    bar.dataset.commentId = 'a';
+    const opened = vi.fn();
+    bar.addEventListener('click', opened);
+    bar.scrollIntoView = vi.fn();
+    document.body.appendChild(bar);
+    try {
+      act(() => root.render(createElement(CommentsPanel, { repoName: 'backend' })));
+      act(() => (rows()[0] as HTMLElement).click());
+      expect(opened).toHaveBeenCalled();
+      expect(container.querySelector('.wd-comments-panel-inline')).toBeNull();
+    } finally {
+      bar.remove();
+    }
+  });
+});

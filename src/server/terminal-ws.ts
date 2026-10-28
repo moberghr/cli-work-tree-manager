@@ -102,14 +102,21 @@ async function defaultElsewhere(sessionId: string): Promise<TerminalElsewhere | 
   const hostPids = ptyPids();
   const runningOutside = (agentsBySession(liveAgents(), loadHistory()).get(sessionId) ?? []).filter((c) => !hostPids.has(c.pid));
   const archivedAt = Date.parse(readArchive(sessionId)?.archivedAt ?? '');
+  const stoppedAt = Date.parse(raw?.stoppedAt ?? '');
   return claudeElsewhere({
     hasPty: peekPty(sessionId),
     lastActivityMs: activity.lastActivity,
     status: elsewhereStatus(raw, status),
     runningOutside,
-    // Archiving stopped its Claude: what that one did before isn't a Claude open somewhere now.
-    stoppedAtMs: Number.isFinite(archivedAt) ? archivedAt : null,
+    // Work stopped its Claude (archiving, idle sleep, `work stop`): what that one did before isn't a Claude open somewhere now.
+    stoppedAtMs: lastStop(archivedAt, stoppedAt),
   });
+}
+
+/** The later of the times work stopped its Claude, or null for none. */
+export function lastStop(...ms: number[]): number | null {
+  const known = ms.filter(Number.isFinite);
+  return known.length ? Math.max(...known) : null;
 }
 
 export interface TerminalWsOptions {

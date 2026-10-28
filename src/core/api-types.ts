@@ -482,6 +482,9 @@ export interface SessionWire {
   id: string;
   /** Being archived right now (archiving.ts: the button, Ship, the PR watch, cleanup): shown as Archiving until it's gone. */
   archiving?: true;
+  /** Its Claude was stopped by work while idle (idle sleep, `work stop`) and hasn't run since: Asleep —
+   *  opening the session starts it again, conversation and all (session-wire.ts `isAsleep`). */
+  asleep?: true;
   /** Being restored right now (archiving.ts): listed with the live sessions meanwhile, still `archivedAt` until it's done. */
   restoring?: true;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */

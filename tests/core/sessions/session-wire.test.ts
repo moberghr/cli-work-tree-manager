@@ -30,6 +30,15 @@ const s = {
 } as WorktreeSession;
 
 describe('sessionWire', () => {
+  it('isAsleep: work stopped its Claude while idle and it has not run since; started again (running, or written since): awake', async () => {
+    const { isAsleep } = await import('../../../src/core/sessions/session-wire.js');
+    const stopped = '2026-10-28T15:00:00Z';
+    expect(isAsleep(stopped, false, Date.parse('2026-10-28T14:50:00Z'))).toBe(true);
+    expect(isAsleep(stopped, true, 0)).toBe(false); // running again
+    expect(isAsleep(stopped, false, Date.parse('2026-10-28T15:02:00Z'))).toBe(false); // wrote since (a terminal outside)
+    expect(isAsleep(undefined, false, 0)).toBe(false); // never stopped by work
+  });
+
   it('behindFor is told its agent last wrote, so one entered long ago but worked in today counts as in use', () => {
     const behindFor = vi.fn(() => null);
     sessionWire(s, { behindFor });

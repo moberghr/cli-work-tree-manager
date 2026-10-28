@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { backgroundWorkSince, listTranscripts } from './files.js';
+import { backgroundCommandsRunning } from './background-commands.js';
 import { getAiTool } from '../../platform/ai-launcher.js';
 import { claudeProjectsRoot, encodeProjectDir, getClaudeActivityMs, hasClaudeConversation, resolveResumeLaunch } from './activity.js';
 import { withoutParentSession } from './env.js';
@@ -60,6 +61,7 @@ export const claudeAgent: AgentAdapter = {
     // Its projects folder for the folder Claude runs in (the worktree, or a group's root): `--continue` finds it there.
     lastWriteMs: (cwd) => getClaudeActivityMs(cwd),
     backgroundWorkSince,
+    backgroundCommands: backgroundCommandsRunning,
     restoreDir: (s) => {
       const cwd = s.isGroup && s.paths[0] ? path.dirname(s.paths[0]) : s.paths[0];
       return cwd ? path.join(claudeProjectsRoot(), encodeProjectDir(cwd)) : null;

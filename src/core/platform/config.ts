@@ -100,7 +100,8 @@ export interface WorkConfig {
   /**
    * Stop a session's Claude in the PTY host after this many minutes idle with
    * no window attached; opening the session resumes its conversation. Frees
-   * memory (each Claude holds a few hundred MB). Default 240; 0 = never.
+   * memory (each Claude holds a few hundred MB). Default 10, at least 5; 0 = never.
+   * Only a truly idle one: never working, waiting on you, or with background work still running (idle-sleep.ts).
    */
   sleepIdleAfterMinutes?: number;
   /**

@@ -10,6 +10,7 @@ import { hunkContentKey } from '../../utils/hunk-key.js';
 import { computeGaps } from '../../utils/expand.js';
 import { hunkHeading } from '../../utils/hunk-heading.js';
 import { useExpandOptional } from '../../state/ExpandProvider.js';
+import { useFileContext } from '../../hooks/use-file-context.js';
 import { useReviewOptional, useReview } from '../../state/ReviewProvider.js';
 import { useDiffMode } from '../../state/DiffModeProvider.js';
 import { CommentItem } from '../Review/CommentItem.js';
@@ -62,6 +63,8 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
   // line-by-line highlighting would lose it. React owns the DOM via
   // dangerouslySetInnerHTML — no post-paint mutation.
   const lang = useMemo(() => (file.isBinary ? null : resolveHighlightLang(file.path)), [file.isBinary, file.path]);
+  // The file above each hunk, so one starting inside a string or comment is coloured right (use-file-context.ts).
+  const context = useFileContext(file, repo, lang, expand);
 
   // Large-file gate. Auto-generated migrations / lockfile churn / bundle
   // diffs can have tens of thousands of rows; rendering them all at once
@@ -307,6 +310,7 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
             <tbody>
               {repo && gapByKey.has('head') && (
                 <GapRegion
+                  context={context}
                   repo={repo}
                   file={file.path}
                   gap={gapByKey.get('head')!}
@@ -339,9 +343,18 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
                   // the same file (same content hash) still get distinct
                   // React keys.
                   <Fragment key={`${hunkKey}#${i}`}>
-                    <DiffHunk hunk={h} review={review} repo={repo} file={file.path} lang={lang} showHeading={showOwnHeading} />
+                    <DiffHunk
+                      hunk={h}
+                      review={review}
+                      repo={repo}
+                      file={file.path}
+                      lang={lang}
+                      context={context}
+                      showHeading={showOwnHeading}
+                    />
                     {repo && midGap && (
                       <GapRegion
+                        context={context}
                         repo={repo}
                         file={file.path}
                         gap={midGap}
@@ -353,7 +366,9 @@ export function DiffFile({ file, anchor, review, repo, viewed, onToggleViewed }:
                   </Fragment>
                 );
               })}
-              {repo && gapByKey.has('tail') && <GapRegion repo={repo} file={file.path} gap={gapByKey.get('tail')!} lang={lang} />}
+              {repo && gapByKey.has('tail') && (
+                <GapRegion context={context} repo={repo} file={file.path} gap={gapByKey.get('tail')!} lang={lang} />
+              )}
             </tbody>
           </table>
         ))}

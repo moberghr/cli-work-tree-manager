@@ -118,9 +118,10 @@ import {
 import { busyForRestart, createRestarter, installedAtCache, QUEUE_RECHECK_MS, restartNotesSummary } from '../core/pty/agent-restart.js';
 import { mountAgentRestartRoutes } from './routes/agent-restart-routes.js';
 import { hostHealth, type HostHealth } from '../core/pty/host-health.js';
-import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates } from '../core/pty/idle-sleep.js';
+import { DEFAULT_SLEEP_AFTER_MINUTES, sleepAfterMs, sleepCandidates, sleepPlan } from '../core/pty/idle-sleep.js';
+import { sleepChecks } from '../core/pty/sleep-checks.js';
 import { loadConfig } from '../core/platform/config.js';
-import { readStatus } from '../core/status/session-status.js';
+import { markAgentStopped, readStatus } from '../core/status/session-status.js';
 import { resolveWebRoot } from '../core/platform/web-static.js';
 import { serveSpa } from './spa-handler.js';
 import { launch, type DiffServerHandle, type SseEvent } from './diff-server.js';
@@ -609,16 +610,29 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       return activity.skip('idle-sleep', 'Looking for idle Claudes', 'turned off (sleepIdleAfterMinutes: 0)');
     const run = activity.start('idle-sleep', 'Looking for idle Claudes');
     const ptys = await listHostPtys().catch(() => []);
-    const ids = sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), agentBusy);
+    // Quiet and unattended (sleepCandidates), and nothing still at work: idle means idle (stillAtWork).
+    const quiet = new Set(sleepCandidates(ptys, Date.now(), sleepAfterMs(minutes), agentBusy));
+    const plan = await sleepPlan(
+      ptys.filter((p) => quiet.has(p.id)),
+      sleepChecks(),
+    );
+    for (const { id, why } of plan.awake) {
+      const s = findSession(id);
+      run.note(`${s ? `${s.target} ${s.branch}` : id}: kept awake: ${why}`, { sessionId: s ? id : undefined });
+    }
+    const ids = plan.sleep;
     for (const id of ids) {
       report('detail', `[sleep] ${id}: idle ${minutes} min with nothing attached; stopping its Claude (opening the session resumes it)`);
       const s = findSession(id);
+      // Recorded, so opening it starts it again rather than taking it for one open in another terminal.
       await disposePty(id).then(
-        () =>
+        async () => {
+          await markAgentStopped(id).catch(() => {});
           run.note(
-            `${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${Math.max(minutes, 30)} min, nothing attached; opening it resumes the conversation)`,
+            `${s ? `${s.target} ${s.branch}` : id}: put its Claude to sleep (printed nothing for ${sleepAfterMs(minutes) / 60_000} min, nothing attached; opening it resumes the conversation)`,
             { level: 'action', sessionId: id },
-          ),
+          );
+        },
         (err: Error) => run.note(`${id}: couldn't stop its Claude: ${err.message}`, { level: 'warn', sessionId: id }),
       );
     }

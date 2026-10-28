@@ -140,6 +140,19 @@ describe('PtyRegistry', () => {
     expect(spawned[1].spec).toMatchObject({ cwd: '/x', port: 4000, resume: true });
   });
 
+  it('never restores the Ctrl+K assistant: it starts when opened (restored, one opened once ran for good)', async () => {
+    const first = makeRegistry();
+    first.spawn('a', { cwd: '/x', tool });
+    first.spawn('assistant', { cwd: '/home/.work/assistant', tool });
+    await first.flush();
+    first.disposeAllKeepingState();
+    await first.flush();
+    const second = makeRegistry(() => true);
+    expect(await second.restore()).toEqual(['a']);
+    expect(second.get('assistant')).toBeNull();
+    expect(Object.keys(readSaved())).toEqual(['a']); // and it's off the list from then on
+  });
+
   it('does not restore sessions whose worktree is gone', async () => {
     fs.writeFileSync(sessionsPath, JSON.stringify({ a: { cwd: '/gone', tool, startedAt: '' } }));
     const reg = new PtyRegistry({ spawner, hasConversation: () => false, sessionsPath, cwdExists: () => false });

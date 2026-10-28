@@ -19,6 +19,8 @@ export interface SessionLike {
   archiving?: boolean;
   /** Being restored right now (SessionWire.restoring). */
   restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep). */
+  asleep?: boolean;
 }
 
 /**
@@ -37,6 +39,8 @@ export interface SessionLike {
  *   working     — mid-turn
  *   background  — its turn ended, a background agent that turn started is
  *                 still at it: still busy, but its prompt is free
+ *   asleep      — its Claude was stopped while idle (idle sleep, `work stop`)
+ *                 and hasn't run since: opening it starts it again
  *   quiet       — finished, and you've seen it
  *   active/open/recent/stale — no hook status yet (its Claude has not
  *     taken a turn since the dashboard's hooks went in, or runs a tool
@@ -44,7 +48,18 @@ export interface SessionLike {
  *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
-  'archiving' | 'restoring' | 'needs_input' | 'done' | 'working' | 'background' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
+  | 'archiving'
+  | 'restoring'
+  | 'needs_input'
+  | 'done'
+  | 'working'
+  | 'background'
+  | 'asleep'
+  | 'quiet'
+  | 'active'
+  | 'open'
+  | 'recent'
+  | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -66,6 +81,8 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
     if (a.state === 'working') return a.background ? 'background' : 'working';
     if (!a.seen) return 'done';
   }
+  // Below what wants you (a finished turn you haven't seen still says Done): in place of the idle ring.
+  if (s.asleep) return 'asleep';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
   if (s.activityState === 'open') return 'open';
@@ -79,6 +96,7 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
   done: 'Done',
   working: 'Working',
   background: 'In background',
+  asleep: 'Asleep',
   quiet: 'Idle',
   active: 'Active',
   open: 'Open',
@@ -97,6 +115,8 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   working: 'Its Claude is working on your last instruction right now.',
   background:
     'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
+  asleep:
+    'Its Claude was stopped to free memory: idle for a while, nothing attached, nothing of it still running. Opening the session starts it again, where it left off.',
   quiet: "Its Claude finished, and you've seen it. Nothing to do.",
   active: "Its Claude wrote in the last 30 seconds (it isn't reporting its status, so this is from its transcript).",
   open: 'Its Claude wrote in the last 5 minutes, or is open and idle at its prompt.',
@@ -110,6 +130,7 @@ export const LEGEND_KINDS: readonly DisplayKind[] = [
   'done',
   'working',
   'background',
+  'asleep',
   'archiving',
   'restoring',
   'active',
@@ -174,6 +195,7 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
     case 'active':
       return 'working';
     case 'quiet':
+    case 'asleep':
     case 'open':
     case 'recent':
       return 'idle';

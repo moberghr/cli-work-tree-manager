@@ -3,6 +3,30 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.6.3 — 2026-10-28
+
+- **Idle Claudes sleep after 10 minutes, and only when truly idle.** The
+  default was 2 hours (at least 30 minutes); it's now 10 (at least 5). A
+  Claude is stopped only when nothing is attached, it printed nothing for
+  that long, and nothing of it is still at work: not working or waiting on
+  you, no background agent, no background command it started still running,
+  nothing running from its folder. When a check can't tell, it stays awake,
+  and the Activity panel says why. Opening a slept session starts it again
+  at once (it used to say "running in another terminal" for half an hour).
+- **Asleep:** a session whose Claude was put to sleep shows a grey "z z"
+  instead of the idle ring.
+- **The Ctrl+K assistant runs only when you use it:** it's no longer
+  brought back by every PTY host restart, and it sleeps like a session.
+- **Diff colours:** a hunk starting inside a raw string or a comment was
+  coloured from the middle — the closing `"""` read as an opening one, and
+  everything after it as a string. Each file is now coloured whole, hunks
+  and the lines you expand alike.
+- **Comments in the diff's side panel:** a click on one that isn't in the
+  changes on screen (a resolved one, often) used to do nothing; it now opens
+  there, in full with its replies. One on screen that's resolved is unfolded.
+- More room between text boxes and their buttons: the Submit review
+  summary, line comments, the general note, notes and reply drafts.
+
 ## 2.6.2 — 2026-10-28
 
 - **PR replies never get stuck.** A session entered with `work tree` more

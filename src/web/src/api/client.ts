@@ -94,6 +94,8 @@ export interface SessionSummary {
   archiving?: boolean;
   /** Being restored right now (SessionWire.restoring, or this window's own click): in the rail again meanwhile. */
   restoring?: boolean;
+  /** Its Claude was stopped while idle and hasn't run since (SessionWire.asleep): opening the session starts it again. */
+  asleep?: boolean;
   target: string;
   branch: string;
   isGroup: boolean;

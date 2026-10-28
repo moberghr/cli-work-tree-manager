@@ -14,6 +14,7 @@ import {
   effectiveStatus,
   lastTurnEntryMs,
   withLiveClaude,
+  markAgentStopped,
   markSeen,
   notifyKindForTransition,
   oneLine,
@@ -328,6 +329,16 @@ describe('notifyKindForTransition', () => {
     // Approving the prompt fires no hook, so the stored state is still
     // needs_input when the turn's Stop arrives.
     expect(notifyKindForTransition({ state: 'needs_input' }, { state: 'idle' })).toBe('idle');
+  });
+
+  it('markAgentStopped: work stopped its Claude (idle sleep, `work stop`) is kept on the record, and nothing else moves', async () => {
+    await recordStatusEvent('p9', { kind: 'stop', lastMessage: 'done' }, T0);
+    const before = readStatus('p9')!;
+    await markAgentStopped('p9', at(600));
+    expect(readStatus('p9')).toEqual({ ...before, stoppedAt: at(600).toISOString() });
+    // No status yet: nothing the Terminal tab could misread, so nothing written.
+    await markAgentStopped('never-seen', at(600));
+    expect(readStatus('never-seen')).toBeNull();
   });
 
   it('a Stop with no prompt hook before it (a `!` command, a background task) still notifies "Finished"', async () => {
