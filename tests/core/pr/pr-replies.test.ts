@@ -6,12 +6,15 @@ import { Hono } from 'hono';
 import {
   discardReply,
   draftCounts,
+  draftReply,
+  liveOpenThread,
   listReplies,
   markPostedAnswered,
   postDrafts,
   postReply,
   postedSince,
   rememberSent,
+  retireResolvedReplies,
   saveDraft,
 } from '../../../src/core/pr/pr-replies.js';
 import type { SessionCi } from '../../../src/core/api-types.js';
@@ -394,5 +397,155 @@ describe('postedSince / markPostedAnswered', () => {
     };
     expect(markPostedAnswered(id, watch)).toEqual([T1]);
     expect(marked).toEqual([T1]);
+  });
+});
+
+describe('never stuck on a stale check: the thread read from GitHub now (liveOpenThread, draftReply)', () => {
+  const T = 'PRRT_kwDOlive789';
+  const repos = [
+    { name: 'straumur-backend', path: '/wt/b', github: 'kvika/straumur-backend', branch: 'feat/api-key-origin' },
+    { name: 'straumur-frontend', path: '/wt/f', github: 'kvika/straumur-frontend', branch: 'feat/api-key-origin' },
+  ];
+  /** gh's answer for the thread: on kvika/straumur-frontend #2000, from feat/api-key-origin, its last word the bot's. */
+  const answer = (over: { repo?: string; head?: string; resolved?: boolean; lastBy?: string } = {}) =>
+    JSON.stringify({
+      data: {
+        viewer: { login: 'domagojmedo' },
+        node: {
+          isResolved: over.resolved ?? false,
+          path: 'src/apiKeys.ts',
+          line: 42,
+          first: { nodes: [{ author: { login: 'github-actions' }, body: 'Allow http:// origins?', url: 'https://x/c1' }] },
+          last: { nodes: [{ author: { login: over.lastBy ?? 'github-actions' }, url: 'https://x/c2' }] },
+          pullRequest: {
+            number: 2000,
+            url: 'https://github.com/kvika/straumur-frontend/pull/2000',
+            headRefName: over.head ?? 'feat/api-key-origin',
+            repository: { nameWithOwner: over.repo ?? 'kvika/Straumur-Frontend' },
+          },
+        },
+      },
+    });
+  const gh = (stdout: string, code = 0) => vi.fn<CommandRunner>(async () => ({ code, stdout, stderr: code ? 'boom' : '' }));
+
+  it('accepts an open thread of a PR of this session, as the watch would list it', async () => {
+    const run = gh(answer());
+    const r = await liveOpenThread(T, repos, run);
+    expect(r).toMatchObject({
+      reply: {
+        threadId: T,
+        repo: 'straumur-frontend',
+        prNumber: 2000,
+        where: 'src/apiKeys.ts:42',
+        reviewer: 'github-actions',
+        url: 'https://x/c2',
+      },
+    });
+    expect(run.mock.calls[0][1]).toContain(`threadId=${T}`);
+    expect(run.mock.calls[0][2]).toBe('/wt/b');
+  });
+
+  it('refuses one on another repo or branch, resolved, answered by you last, or when gh fails', async () => {
+    const err = async (stdout: string, code = 0) => ((await liveOpenThread(T, repos, gh(stdout, code))) as { error: string }).error;
+    expect(await err(answer({ repo: 'kvika/other' }))).toMatch(/not a pull request of this session/);
+    expect(await err(answer({ head: 'feat/someone-else' }))).toMatch(/not a pull request of this session/);
+    expect(await err(answer({ resolved: true }))).toMatch(/resolved/);
+    expect(await err(answer({ lastBy: 'DomagojMedo' }))).toMatch(/already yours/);
+    expect(await err('', 1)).toMatch(/couldn't read the thread/);
+    expect(await err(JSON.stringify({ data: { viewer: { login: 'me' }, node: null } }))).toMatch(/isn't a review thread/);
+  });
+
+  it("draftReply: work's own record first (no GitHub call); else GitHub's, saved; never for an --unsafe session", async () => {
+    const id = 'sess1';
+    rememberSent(id, [thread(T1)]);
+    const run = gh(answer());
+    const io = { unsafe: false, repos: () => repos, run };
+    expect(await draftReply(id, T1, 'Known one', io)).toMatchObject({ ok: true });
+    expect(run).not.toHaveBeenCalled();
+    // Not in work's last check (reported: two new bot threads, and `work pr reply` refused them).
+    const got = await draftReply(id, T, 'We keep http:// for local development.', io);
+    expect(got).toMatchObject({
+      ok: true,
+      reply: { threadId: T, status: 'draft', prNumber: 2000, draft: 'We keep http:// for local development.' },
+    });
+    expect(listReplies(id).map((r) => r.threadId)).toContain(T);
+    const unsafe = await draftReply('sess2', T, 'x', { ...io, unsafe: true, run: gh(answer()) });
+    expect(unsafe).toMatchObject({ ok: false });
+    expect(listReplies('sess2')).toEqual([]);
+  });
+
+  it('draftReply: answered before, and the reviewer answered since (work has yet to see it): GitHub says so, it starts over', async () => {
+    withDb((d) =>
+      d.prepare('INSERT OR REPLACE INTO pr_replies (session_id, thread_id, data) VALUES (?, ?, ?)').run(
+        'sess4',
+        T,
+        JSON.stringify({
+          ...thread(T),
+          status: 'posted',
+          draft: 'Old',
+          sentAt: '2026-10-27T10:00:00Z',
+          postedAt: '2026-10-27T10:00:00Z',
+        }),
+      ),
+    );
+    const r = await draftReply('sess4', T, 'New answer', { unsafe: false, repos: () => repos, run: gh(answer()) });
+    expect(r).toMatchObject({ ok: true, reply: { status: 'draft', draft: 'New answer' } });
+    // …but not when the last word is still yours: the earlier reply stands.
+    const mine = await draftReply('sess4', T, 'Again', { unsafe: false, repos: () => repos, run: gh(answer({ lastBy: 'domagojmedo' })) });
+    expect(mine).toMatchObject({ ok: true }); // the draft above is a draft now, not posted
+  });
+
+  it("draftReply: GitHub's refusal is said, with that work's check didn't list it either", async () => {
+    const r = await draftReply('sess3', T, 'x', { unsafe: false, repos: () => repos, run: gh(answer({ resolved: true })) });
+    expect(r).toEqual({
+      ok: false,
+      error: "the thread is resolved on GitHub: nothing to answer (work's last check didn't list it either)",
+    });
+  });
+});
+
+describe('retireResolvedReplies — a draft for a thread resolved on GitHub goes (it stayed "1 reply to post" forever)', () => {
+  const resolved = (map: Record<string, boolean | null>) =>
+    vi.fn<CommandRunner>(async (_cmd, args) => {
+      const id = args.find((a) => a.startsWith('threadId='))!.slice('threadId='.length);
+      const v = map[id];
+      if (v === null) return { code: 1, stdout: '', stderr: 'boom' };
+      return { code: 0, stdout: JSON.stringify({ data: { node: { isResolved: v } } }), stderr: '' };
+    });
+  const ci = (open: string[]): SessionCi =>
+    ({
+      checkedAt: '2026-10-28T12:00:00Z',
+      repos: [{ name: 'api', pr: null, done: false, threads: open.map((t) => ({ ...thread(t), trusted: true })) }],
+    }) as unknown as SessionCi;
+
+  it('only what GitHub says is resolved, and only rows not listed open nor posted; a failed lookup keeps it', async () => {
+    const id = 'r1';
+    rememberSent(id, [thread(T1), thread(T2), thread('PRRT_kwDOstillopen'), thread('PRRT_kwDOghfails')]);
+    saveDraft(id, T1, 'An answer to a resolved thread');
+    const run = resolved({ [T1]: true, [T2]: false, PRRT_kwDOghfails: null });
+    const gone = await retireResolvedReplies(id, ci(['PRRT_kwDOstillopen']), '/wt/api', run);
+    expect(gone).toEqual([T1]);
+    expect(
+      listReplies(id)
+        .map((r) => r.threadId)
+        .sort(),
+    ).toEqual([T2, 'PRRT_kwDOghfails', 'PRRT_kwDOstillopen'].sort());
+    // Listed open: never asked about.
+    expect(run.mock.calls.some((c) => c[1].includes('threadId=PRRT_kwDOstillopen'))).toBe(false);
+  });
+
+  it('a posted reply is history, never retired; no folder to ask from: nothing asked', async () => {
+    const id = 'r2';
+    withDb((d) =>
+      d
+        .prepare('INSERT OR REPLACE INTO pr_replies (session_id, thread_id, data) VALUES (?, ?, ?)')
+        .run(id, T1, JSON.stringify({ ...thread(T1), status: 'posted', draft: 'Done', sentAt: 'x', postedAt: 'x' })),
+    );
+    const run = resolved({ [T1]: true });
+    expect(await retireResolvedReplies(id, ci([]), '/wt/api', run)).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
+    rememberSent(id, [thread(T2)]);
+    expect(await retireResolvedReplies(id, ci([]), null, run)).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
   });
 });

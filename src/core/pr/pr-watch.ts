@@ -61,6 +61,11 @@ export interface PrWatchDeps {
       excerpt: string;
     }>,
   ) => void;
+  /**
+   * Reply rows (handed over or drafted) whose thread this check doesn't list as open: the ones
+   * GitHub says are resolved go (pr-replies.ts `retireResolvedReplies`). Returns what went.
+   */
+  retireReplies?: (sessionId: string, ci: SessionCi) => Promise<string[]>;
   /** How full the session's Claude conversation is (share of its window), for the sub-agent hint. */
   contextShare?: (session: WorktreeSession) => number | null;
   /** What archiving it now would leave unfinished (replies to post, undelivered notes). Merged work
@@ -284,6 +289,28 @@ export function savedChecks(
   return rows.filter(([id, ci]) => created.has(id) && (Date.parse(ci.checkedAt) || 0) >= created.get(id)!);
 }
 
+/** How long a session goes on being watched after it was last used. */
+export const WATCH_RECENT_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether the PR watch looks at a session: not archived, a folder of it
+ * still there, and used in the last 30 days. "Used" is its last `work tree`
+ * entry OR its agent's last write (`lastWriteMs`, read only when the entry
+ * is older): a session you entered five weeks ago and work in every day
+ * through the dashboard dropped out of the watch (reported: its new review
+ * threads were never read, so `work pr reply` refused them, and its PR
+ * stage, CI notes and auto-archive stopped too).
+ */
+export function watchable(
+  s: WorktreeSession,
+  now: number,
+  io: { exists: (p: string) => boolean; lastWriteMs: (s: WorktreeSession) => number },
+): boolean {
+  if (s.archivedAt || !s.paths.some(io.exists)) return false;
+  const cutoff = now - WATCH_RECENT_MS;
+  return (Date.parse(s.lastAccessedAt) || 0) >= cutoff || io.lastWriteMs(s) >= cutoff;
+}
+
 export function createPrWatch(deps: PrWatchDeps): PrWatch {
   const now = deps.now ?? Date.now;
   const states = new Map<string, SessionCi>(deps.saved ? savedChecks(deps.saved.load(), deps.sessions()) : []);
@@ -441,6 +468,14 @@ export function createPrWatch(deps: PrWatchDeps): PrWatch {
     checked.add(id);
 
     if (!act) return ci;
+    // A draft for a thread resolved on GitHub (a bot resolves its own outdated ones) has nothing to
+    // answer: it went on saying "1 reply to post", and Post could only refuse.
+    const retired = (await deps.retireReplies?.(id, ci).catch(() => [] as string[])) ?? [];
+    if (retired.length)
+      note(
+        `${retired.length} repl${retired.length === 1 ? 'y' : 'ies'} dropped: ${retired.length === 1 ? 'its thread was' : 'their threads were'} resolved on GitHub`,
+        'action',
+      );
     if (feedback.length) {
       const n = feedback.reduce((k, f) => k + f.items.length, 0);
       const prs = feedback.map((f) => `#${f.number}`).join(', ');

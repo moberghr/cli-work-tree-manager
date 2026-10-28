@@ -3,6 +3,21 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.6.2 — 2026-10-28
+
+- **PR replies never get stuck.** A session entered with `work tree` more
+  than 30 days ago dropped out of the PR watch, even when you worked in it
+  every day: its new review threads were never read, so Claude's
+  `work pr reply` refused them, and the session got no PR stage, CI notes or
+  auto-archive. The watch now counts the agent's work too. `work pr reply`
+  also asks GitHub itself when work's last check doesn't have a thread
+  (accepted on the same terms: open, on this session's PR, last word not
+  yours). And a draft whose thread was resolved on GitHub (a bot resolves
+  its own outdated ones) is cleared, instead of saying "1 reply to post"
+  forever.
+- **Bold and italic copy from the terminal**, and paragraphs keep a blank
+  line between them when pasted into Teams or Outlook.
+
 ## 2.6.1 — 2026-10-28
 
 - **One update, not two.** When an update had downloaded and was waiting

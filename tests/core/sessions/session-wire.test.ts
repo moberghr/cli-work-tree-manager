@@ -30,6 +30,12 @@ const s = {
 } as WorktreeSession;
 
 describe('sessionWire', () => {
+  it('behindFor is told its agent last wrote, so one entered long ago but worked in today counts as in use', () => {
+    const behindFor = vi.fn(() => null);
+    sessionWire(s, { behindFor });
+    expect(behindFor).toHaveBeenCalledWith(expect.any(String), s, expect.any(Number));
+  });
+
   it('says when it is being archived, only while it is', async () => {
     const { whileArchiving } = await import('../../../src/core/archive/archiving.js');
     const { sessionIdFor } = await import('../../../src/core/sessions/web-state.js');

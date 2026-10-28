@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LatencyMeter } from '../../state/keystroke-latency.js';
 import { onTerminalReconnect } from '../../state/terminal-reconnect.js';
 import { WebglRecovery } from '../../state/webgl-recovery.js';
-import { terminalCopy } from '../../state/terminal-copy.js';
+import { selectionText, terminalCopy } from '../../state/terminal-copy.js';
 import { writeRich } from '../../state/rich-copy.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -182,8 +182,8 @@ export function PtyView({ sessionId, target, branch, active = true }: Props) {
     //    selection it stays an interrupt.
     // Every copy is put back together first (terminal-copy.ts): Claude Code's
     // wrapping, indent and padding taken out.
-    // A table in it goes as HTML too, so Teams or Outlook paste it as a table (rich-copy.ts).
-    const selected = () => terminalCopy(term.getSelection(), term.cols, term.getSelectionPosition()?.start.x ?? 0);
+    // A table, bold or italic in it goes as HTML too, so Teams or Outlook paste it formatted (rich-copy.ts).
+    const selected = () => terminalCopy(selectionText(term), term.cols, term.getSelectionPosition()?.start.x ?? 0);
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey) {

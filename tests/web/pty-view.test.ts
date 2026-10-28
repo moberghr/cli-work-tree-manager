@@ -28,6 +28,8 @@ const h = vi.hoisted(() => {
     textarea = document.createElement('textarea');
     /** Its root (the browser's copy event arrives on it). */
     element = document.createElement('div');
+    /** Its cells (none here: the copy falls back to the plain selection, as it does when they disagree). */
+    buffer = { active: { getLine: () => undefined } };
     /** Where the selection starts (its column: the first line's text began there). */
     selectionStart = { x: 0, y: 0 };
     constructor(readonly opts: unknown) {

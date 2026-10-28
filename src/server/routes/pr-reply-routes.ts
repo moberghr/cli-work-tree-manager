@@ -6,7 +6,8 @@ import {
   markPostedAnswered,
   MAX_REPLY_CHARS,
   postReply,
-  saveDraft,
+  draftReply,
+  sessionRepoRefs,
   THREAD_ID,
 } from '../../core/pr/pr-replies.js';
 import { defaultRunner, type CommandRunner } from '../../core/pr/ship.js';
@@ -70,7 +71,12 @@ export function mountPrReplyRoutes(
     if (!session) return c.json({ error: 'unknown session' }, 404);
     const b = await body(c);
     if (typeof b.body !== 'string') return c.json({ error: 'body: string' }, 400);
-    const r = saveDraft(id, c.req.param('thread'), b.body, new Date(), { unsafe: session.launchedUnsafe === true });
+    // What work knows, else the thread as GitHub has it now (draftReply): never stuck on a stale check.
+    const r = await draftReply(id, c.req.param('thread'), b.body, {
+      unsafe: session.launchedUnsafe === true,
+      repos: () => sessionRepoRefs(session),
+      run,
+    });
     if (!r.ok) return c.json({ error: r.error }, 400);
     changed(id);
     return c.json({ reply: r.reply });

@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { cleanTerminalCopy, tableRows, terminalCopy } from '../../src/web/src/state/terminal-copy.js';
+import {
+  cleanTerminalCopy,
+  markedSelection,
+  plain,
+  selectionText,
+  tableRows,
+  terminalCopy,
+} from '../../src/web/src/state/terminal-copy.js';
 
 /** A row as the terminal draws it: `text`, padded with spaces to the screen's width (Claude Code pads some). */
 const row = (text: string, pad = 0) => text + ' '.repeat(pad);
@@ -80,7 +87,7 @@ describe('a table copied from the terminal pastes as a table (Teams, Outlook, Wo
     ].join('\n');
     const { text, html } = terminalCopy(drawn, 120);
     expect(text).toBe(drawn);
-    expect(html).toContain('<p>Here is the comparison:</p>');
+    expect(html).toMatch(/^<div>Here is the comparison:<table /);
     const doc = new DOMParser().parseFromString(html!, 'text/html');
     expect([...doc.querySelectorAll('th')].map((c) => c.textContent)).toEqual(['Option', 'Cost']);
     expect([...doc.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((c) => c.textContent))).toEqual([
@@ -123,5 +130,107 @@ describe('a table copied from the terminal pastes as a table (Teams, Outlook, Wo
     const { html } = terminalCopy(['│ <b>x</b> │ a & b │', '├───┼───┤', '│ 1 │ 2 │'].join('\n'), 80);
     expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
     expect(html).toContain('a &amp; b');
+  });
+});
+
+/** A terminal buffer as xterm has it: rows of cells, `**x**` marking bold cells and `_x_` italic ones. */
+function buffer(rows: string[], wrapped: number[] = []) {
+  const parsed = rows.map((r) => {
+    const cells: Array<{ ch: string; b: boolean; i: boolean }> = [];
+    let b = false;
+    let it = false;
+    for (let k = 0; k < r.length; k++) {
+      if (r.startsWith('**', k)) {
+        b = !b;
+        k++;
+        continue;
+      }
+      if (r[k] === '_') {
+        it = !it;
+        continue;
+      }
+      cells.push({ ch: r[k], b, i: it });
+    }
+    return cells;
+  });
+  return {
+    getLine: (y: number) =>
+      parsed[y] && {
+        isWrapped: wrapped.includes(y),
+        length: parsed[y].length,
+        getCell: (x: number) =>
+          parsed[y][x] && {
+            getChars: () => parsed[y][x].ch,
+            getWidth: () => 1,
+            isBold: () => (parsed[y][x].b ? 1 : 0),
+            isItalic: () => (parsed[y][x].i ? 1 : 0),
+          },
+      },
+  };
+}
+const whole = (rows: string[]) => ({ start: { x: 0, y: 0 }, end: { x: 80, y: rows.length - 1 } });
+
+describe('bold and italic from the terminal, and a blank line between paragraphs (pasted into Teams)', () => {
+  it('markedSelection reads the cells: plain, it is exactly the selected text', () => {
+    const rows = ['**1. A long paragraph.** Make it _wrap_.   ', '', 'Then **paste** it.'];
+    const m = markedSelection(buffer(rows), whole(rows));
+    expect(plain(m)).toBe('1. A long paragraph. Make it wrap.\n\nThen paste it.');
+    expect(m).not.toBe(plain(m));
+  });
+
+  it('bold and italic become <b> and <i>; a run broken only by a space is one; the plain text has none of it', () => {
+    const rows = ['**1. A long paragraph.** Make it _wrap_ now.', '', '**Two** **words**'];
+    const { text, html } = terminalCopy(markedSelection(buffer(rows), whole(rows)), 80);
+    expect(text).toBe('1. A long paragraph. Make it wrap now.\n\nTwo words');
+    expect(html).toBe('<div><b>1. A long paragraph.</b> Make it <i>wrap</i> now.<br><br><b>Two words</b></div>');
+  });
+
+  it('bold ending while italic goes on: the tags never cross', () => {
+    const rows = ['**bold _both** italic_ plain'];
+    const { html } = terminalCopy(markedSelection(buffer(rows), whole(rows)), 80);
+    expect(html).toBe('<div><b>bold <i>both</i></b> <i>italic</i> plain</div>');
+  });
+
+  it('a style survives the line being joined back, and each line stays balanced', () => {
+    const rows = ['  **This bold sentence was wrapped by Claude Code at the edge of the screen right**', '  **before here.**'];
+    const { text, html } = terminalCopy(markedSelection(buffer(rows), whole(rows)), 80);
+    expect(text).toBe('This bold sentence was wrapped by Claude Code at the edge of the screen right before here.');
+    expect(html).toBe('<div><b>This bold sentence was wrapped by Claude Code at the edge of the screen right before here.</b></div>');
+  });
+
+  it('a row the terminal wrapped itself runs on with no line break, its space at the edge kept', () => {
+    const rows = ['one two ', 'three'];
+    expect(plain(markedSelection(buffer(rows, [1]), whole(rows)))).toBe('one two three');
+  });
+
+  it('only the selected columns: from the start column on the first row, up to (not including) the end one on the last', () => {
+    const rows = ['● **Done**: all good', 'more text here'];
+    expect(plain(markedSelection(buffer(rows), { start: { x: 2, y: 0 }, end: { x: 4, y: 1 } }))).toBe('Done: all good\nmore');
+  });
+
+  it('plain text with no table and no style needs no HTML', () => {
+    expect(terminalCopy('First paragraph.\n\nSecond.', 80).html).toBeNull();
+  });
+});
+
+describe('selectionText — the styles, never at the cost of the text', () => {
+  const term = (rows: string[], text: string, range = whole(rows)) => ({
+    getSelection: () => text,
+    getSelectionPosition: () => range,
+    buffer: { active: buffer(rows) },
+  });
+  it('the marked text when it reads the same as the selection', () => {
+    const rows = ['**Done**: all good'];
+    expect(selectionText(term(rows, 'Done: all good'))).toBe(markedSelection(buffer(rows), whole(rows)));
+  });
+  it('several lines too: xterm ends them with \\r\\n on Windows (every multi-line copy lost its bold to that, in a real browser)', () => {
+    const rows = ['**Done**: all good   ', 'next line'];
+    const styled = selectionText(term(rows, 'Done: all good\r\nnext line'));
+    expect(styled).toBe(markedSelection(buffer(rows), whole(rows)));
+    expect(terminalCopy(styled, 80).html).toBe('<div><b>Done</b>: all good<br>next line</div>');
+  });
+  it("the plain selection when they don't (a column selection, a buffer that moved), or there's no range", () => {
+    expect(selectionText(term(['**Done**: all good'], 'something else'))).toBe('something else');
+    expect(selectionText({ ...term(['x'], 'x'), getSelectionPosition: () => undefined })).toBe('x');
   });
 });

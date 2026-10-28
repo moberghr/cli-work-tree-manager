@@ -62,7 +62,12 @@ export interface SessionWireOptions {
   /** Its snooze, if any (snooze-store.ts); shown only while it holds. */
   snoozeFor?: (id: string) => Snooze | null;
   /** How far behind main — or the session it is stacked on — it is (behind-main.ts's cache). */
-  behindFor?: (id: string, s: WorktreeSession) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
+  /** `lastActivity`: its agent's last write (ms; 0 none), so a session entered long ago but worked in today counts as in use. */
+  behindFor?: (
+    id: string,
+    s: WorktreeSession,
+    lastActivity: number,
+  ) => { base: string; commits: number; conflicts: boolean; stacked?: true } | null;
   /** Where it sits in a stack (stack-sessions.ts). */
   stackFor?: (id: string) => {
     parent: { id: string; branch: string; title?: string } | null;
@@ -141,7 +146,7 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   const snooze = s.archivedAt ? null : (opts.snoozeFor?.(id) ?? null);
   if (snooze && snoozeActive(snooze, { attention: readStatus(id), openReviewThreads: wire.openReviewThreads, prStage: wire.prStage }))
     wire.snoozed = { until: snooze.until };
-  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s) ?? null);
+  const behind = s.archivedAt ? null : (opts.behindFor?.(id, s, wire.lastActivity ?? 0) ?? null);
   if (behind && behind.commits > 0) wire.behind = behind;
   const stack = s.archivedAt ? null : (opts.stackFor?.(id) ?? null);
   if (stack?.parent) wire.stackedOn = stack.parent;

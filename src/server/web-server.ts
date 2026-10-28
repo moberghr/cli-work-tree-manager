@@ -394,7 +394,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
                 claudesFor,
                 liveKnown: !!table && table.size > 0,
                 snoozeFor: (id) => snoozes.get(id) ?? null,
-                behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
+                behindFor: (id, s, lastActivity) =>
+                  wantsDiffStat(s, false, Date.now(), lastActivity) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null,
                 stackFor: (id) => {
                   const p = stacks.parentOf.get(id);
                   const m = stacks.mergedParentOf.get(id);

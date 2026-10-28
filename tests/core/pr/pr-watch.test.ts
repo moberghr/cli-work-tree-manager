@@ -6,6 +6,7 @@ import {
   conflictMessage,
   savedChecks,
   THREADS_RECHECK_MS,
+  watchable,
   withoutThread,
   type PrWatchDeps,
 } from '../../../src/core/pr/pr-watch.js';
@@ -865,5 +866,56 @@ describe('PR watch: a merge conflict goes to its Claude (on by default, prWatch.
     expect(conflictMessage([{ repo: 'api', number: 3, base: null }], false)).toContain(
       "PR #3 can't merge into its base branch: merge its base branch from origin",
     );
+  });
+});
+
+describe('PR watch: replies whose thread was resolved on GitHub go', () => {
+  it('a sweep asks retireReplies with its check, and the Activity panel says what went; a report-only refresh does not', async () => {
+    const activity = createActivityLog();
+    const retireReplies = vi.fn(async () => ['PRRT_old']);
+    const h = harness([repo('api', pr())], ON, false, null, { retireReplies, activity });
+    await h.watch.refresh('s1', { act: false });
+    expect(retireReplies).not.toHaveBeenCalled();
+    await h.watch.tick();
+    expect(retireReplies).toHaveBeenCalledWith('s1', expect.objectContaining({ repos: [expect.objectContaining({ name: 'api' })] }));
+    const notes = activity.snapshot().recent.flatMap((r) => r.notes.map((n) => n.text));
+    expect(notes.some((t) => t.includes('1 reply dropped: its thread was resolved on GitHub'))).toBe(true);
+  });
+
+  it("its failure is the check's business only: nothing else stops", async () => {
+    const retireReplies = vi.fn(async () => Promise.reject(new Error('gh down')));
+    const h = harness([repo('api', failing())], ON, false, null, { retireReplies });
+    await h.watch.tick();
+    expect(h.deps.tell).toHaveBeenCalledTimes(1); // the CI note still went
+  });
+});
+
+describe('which sessions the PR watch looks at (watchable)', () => {
+  const now = Date.parse('2026-10-28T12:00:00Z');
+  const s = (over: Partial<WorktreeSession> = {}) =>
+    ({
+      target: 'straumur',
+      branch: 'feat/api-key-origin',
+      isGroup: true,
+      paths: ['/wt/a'],
+      createdAt: '',
+      lastAccessedAt: '2026-10-20T00:00:00Z',
+      ...over,
+    }) as WorktreeSession;
+  const io = (lastWrite = 0, exists = true) => ({ exists: () => exists, lastWriteMs: vi.fn(() => lastWrite) });
+
+  it('entered five weeks ago but its Claude wrote today: watched (reported: its new review threads were never read)', () => {
+    const entered = s({ lastAccessedAt: '2026-09-23T16:52:41Z' });
+    expect(watchable(entered, now, io(Date.parse('2026-10-28T11:27:31Z')))).toBe(true);
+    expect(watchable(entered, now, io(Date.parse('2026-09-24T00:00:00Z')))).toBe(false);
+    expect(watchable(entered, now, io(0))).toBe(false);
+  });
+
+  it('entered lately: watched, with no transcript read; archived or gone from disk: never', () => {
+    const recent = io(0);
+    expect(watchable(s(), now, recent)).toBe(true);
+    expect(recent.lastWriteMs).not.toHaveBeenCalled();
+    expect(watchable(s({ archivedAt: '2026-10-27T00:00:00Z' }), now, io(now))).toBe(false);
+    expect(watchable(s(), now, io(now, false))).toBe(false);
   });
 });

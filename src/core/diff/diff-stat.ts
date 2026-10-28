@@ -213,12 +213,13 @@ export class DiffStatCache {
   }
 }
 
-/** Which sessions are worth computing for: not archived, touched in the
- *  last two weeks or reporting a status. Keeps hundreds of old worktrees
- *  from costing git calls on every refresh. */
-export function wantsDiffStat(s: WorktreeSession, hasStatus: boolean, now = Date.now()): boolean {
+/** Which sessions are worth computing for: not archived, used in the
+ *  last two weeks (entered, or its agent wrote: `lastActivity`) or
+ *  reporting a status. Keeps hundreds of old worktrees from costing git
+ *  calls on every refresh. */
+export function wantsDiffStat(s: WorktreeSession, hasStatus: boolean, now = Date.now(), lastActivity = 0): boolean {
   if (s.archivedAt) return false;
   if (hasStatus) return true;
-  const last = Date.parse(s.lastAccessedAt) || 0;
+  const last = Math.max(Date.parse(s.lastAccessedAt) || 0, lastActivity);
   return now - last < 14 * 24 * 60 * 60_000;
 }

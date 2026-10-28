@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import type { CommandModule } from 'yargs';
 import { findSessionForCwd } from '../core/comments/pending-delivery.js';
 import { sessionIdFor } from '../core/sessions/session-id.js';
-import { listReplies, postDrafts, saveDraft } from '../core/pr/pr-replies.js';
+import { draftReply, listReplies, postDrafts, sessionRepoRefs } from '../core/pr/pr-replies.js';
 import { defaultRunner } from '../core/pr/ship.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 
@@ -56,7 +56,12 @@ export const prCommand: CommandModule = {
             ? fs.readFileSync(String(argv['body-file']), 'utf8')
             : ((argv.text as string[] | undefined) ?? []).join(' ');
           const id = sessionIdFor(s);
-          const r = saveDraft(id, String(argv.thread), text, new Date(), { unsafe: s.launchedUnsafe === true });
+          // What work knows, else the thread as GitHub has it now: never stuck on a stale check.
+          const r = await draftReply(id, String(argv.thread), text, {
+            unsafe: s.launchedUnsafe === true,
+            repos: () => sessionRepoRefs(s),
+            run: defaultRunner,
+          });
           if (!r.ok) {
             console.error(chalk.red(r.error));
             process.exit(1);

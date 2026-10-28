@@ -10,10 +10,11 @@ import { defaultRunner, shipPreflight } from '../../core/pr/ship.js';
 import { fetchReviewFeedback, viewerLogin } from '../../core/pr/pr-review.js';
 import { dbPtySessions } from '../../core/pty/pty-sessions-file.js';
 import { readStatus, turnInProgress } from '../../core/status/session-status.js';
-import { createPrWatch, type PrWatch } from '../../core/pr/pr-watch.js';
+import { createPrWatch, watchable, type PrWatch } from '../../core/pr/pr-watch.js';
+import { lastConversationWriteMs } from '../../core/sessions/session-activity.js';
 import type { ActivityLog } from '../../core/platform/activity.js';
 import type { WakeResult } from '../../core/pr/pr-watch.js';
-import { rememberSent } from '../../core/pr/pr-replies.js';
+import { rememberSent, retireResolvedReplies } from '../../core/pr/pr-replies.js';
 import { NOTE_NUDGE } from '../../core/comments/pending-delivery.js';
 import { archiveWaiting } from '../../core/archive/session-archive-deps.js';
 import { readContextUsage } from '../../core/conversations/context-usage.js';
@@ -53,7 +54,6 @@ async function wakeForNote(id: string): Promise<WakeResult> {
 
 // Sessions checked: used in the last 30 days (a PR is often merged days after
 // you last touched the session — that is when it should archive itself).
-const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 const FRESH_MS = 60_000;
 
 /** The PR watch's `busy`: its Claude is in the middle of a turn — working, or at a permission dialog mid-turn (turnInProgress). A finished turn's question for you doesn't hold merged work back (the archive keeps it). */
@@ -74,9 +74,10 @@ export function mountCiRoutes(
   const watch = createPrWatch({
     lookOnly: opts.lookOnly,
     sessions: () => {
-      const cutoff = Date.now() - RECENT_MS;
+      const now = Date.now();
+      // Used lately: entered with `work tree`, or its agent wrote (watchable).
       return loadHistory()
-        .filter((s) => !s.archivedAt && Date.parse(s.lastAccessedAt) >= cutoff && s.paths.some((p) => fs.existsSync(p)))
+        .filter((s) => watchable(s, now, { exists: (p) => fs.existsSync(p), lastWriteMs: lastConversationWriteMs }))
         .map((session) => ({ id: sessionIdFor(session), session }));
     },
     // Never-pushed branches can't have a PR: don't ask GitHub about them,
@@ -114,6 +115,12 @@ export function mountCiRoutes(
         reviewComments: w?.reviewComments !== false,
         ...(w?.trustedBots ? { trustedBots: w.trustedBots } : {}),
       };
+    },
+    retireReplies: async (id, ci) => {
+      const s = findSession(id);
+      const gone = await retireResolvedReplies(id, ci, s?.paths.find((p) => fs.existsSync(p)) ?? null, defaultRunner);
+      if (gone.length) opts.broadcast('replies-changed', { sessionId: id });
+      return gone;
     },
     rememberThreads: (id, threads) => {
       rememberSent(id, threads);
