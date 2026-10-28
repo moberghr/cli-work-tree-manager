@@ -121,7 +121,11 @@ describe('what a stage does to the Inbox', () => {
     expect(waitingOnOthers({ ...row, prStage: waiting })).toBe(true);
     expect(waitingOnOthers({ ...row, prStage: waiting, openReviewThreads: 1 })).toBe(false);
     expect(owedBadge({ ...row, prStage: ready, openReviewThreads: 1 })).toMatchObject({ text: '1 thread +1' });
-    expect(displayStatus({ ...row, attention: { ...row.attention, seen: false }, prStage: waiting })).toBe('done');
+    // A finished turn you haven't seen, its PR in review: idle to the icon, the review badge (not "in review") on the right.
+    const unseen = { ...row, attention: { ...row.attention, seen: false }, prStage: waiting };
+    expect(displayStatus(unseen)).toBe('quiet');
+    expect(owedBadge(unseen)).toMatchObject({ kind: 'turn', text: 'review' });
+    expect(waitingOnOthers(unseen)).toBe(false);
   });
 
   it('prStageWire reads "seen" only for a stage that wants you, by its key', () => {
