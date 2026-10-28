@@ -64,6 +64,7 @@ export interface InboxSubject {
  * What waits on YOU about a session, apart from what its Claude is doing —
  * the second of a session's two signals (its status icon is the first, and
  * says only what Claude is doing). Most pressing first:
+ *   turn     — its Claude finished a turn you haven't looked at (to review)
  *   reply    — replies drafted to its PR's review threads, waiting for your Post
  *   thread   — review threads on its open PRs whose last word isn't yours
  *   conflict — a PR of it conflicts with its base
@@ -72,7 +73,7 @@ export interface InboxSubject {
  * Every view reads this one list (the rail's badge, the header's Needs you
  * line, the Sessions table, the Inbox), so they can't disagree.
  */
-export type OwedKind = 'reply' | 'thread' | 'conflict' | 'checks' | 'merge';
+export type OwedKind = 'turn' | 'reply' | 'thread' | 'conflict' | 'checks' | 'merge';
 export interface Owed {
   kind: OwedKind;
   count: number;
@@ -80,8 +81,10 @@ export interface Owed {
 
 const OPEN_PR = (k: string) => k !== 'merged' && k !== 'closed';
 
-export function owedToYou(s: Pick<InboxSubject, 'openReviewThreads' | 'replyDrafts' | 'prStage'>): Owed[] {
+export function owedToYou(s: Pick<InboxSubject, 'attention' | 'openReviewThreads' | 'replyDrafts' | 'prStage'>): Owed[] {
   const out: Owed[] = [];
+  // Finished, and you haven't looked: yours to review — not something its Claude is doing (reported: it took the icon).
+  if (s.attention?.state === 'idle' && !s.attention.seen) out.push({ kind: 'turn', count: 1 });
   if ((s.replyDrafts ?? 0) > 0) out.push({ kind: 'reply', count: s.replyDrafts! });
   if ((s.openReviewThreads ?? 0) > 0) out.push({ kind: 'thread', count: s.openReviewThreads! });
   const stage = s.prStage;

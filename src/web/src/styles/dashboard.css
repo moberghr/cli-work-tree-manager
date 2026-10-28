@@ -354,9 +354,6 @@
   color: var(--del-fg);
   font-weight: 600;
 }
-.wd-rail-slot-done {
-  color: var(--accent);
-}
 .wd-rail-slot-working {
   color: var(--add-fg);
 }
@@ -370,6 +367,11 @@
   background: color-mix(in srgb, var(--review-fg) 14%, transparent);
   border-radius: 8px;
   padding: 0 6px;
+}
+/* A finished turn you haven't looked at: the same pill, in Done's blue. */
+.wd-rail-slot-owed-turn {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 /* Its PR waits on reviewers or checks: said, quietly. */
 .wd-st-owed {

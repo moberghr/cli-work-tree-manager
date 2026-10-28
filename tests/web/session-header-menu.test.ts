@@ -109,6 +109,10 @@ describe('Needs you (the header line, from the session row: no fetch)', () => {
     ).toBe('1 open review thread · #7 merge conflict');
     // Ready to merge is something you do too (it was left out, so the line and the rail disagreed).
     expect(prNeedsLine({ prStage: { kind: 'ready', text: '', key: '', prs: [pr('api', 9, 'ready')] } } as never)).toBe('#9 ready to merge');
+    // A finished turn to review is the Diff's, not GitHub's: not on this line.
+    const unseen = { state: 'idle', seen: false, since: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    expect(prNeedsLine({ attention: unseen } as never)).toBeNull();
+    expect(prNeedsLine({ attention: unseen, replyDrafts: 1 } as never)).toBe('1 reply to post');
   });
 
   it("a draft's failing checks count too: its stage says draft, its checks say failing", () => {

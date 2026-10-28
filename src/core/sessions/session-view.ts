@@ -79,9 +79,9 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
     if (a.state === 'working') return a.background ? 'background' : 'working';
-    if (!a.seen) return 'done';
   }
-  // Below what wants you (a finished turn you haven't seen still says Done): in place of the idle ring.
+  // A finished turn you haven't looked at is yours to review, not Claude's state: the blue "review" badge says it
+  // (owedToYou's 'turn'); the icon says what its Claude is — idle, or asleep.
   if (s.asleep) return 'asleep';
   if (a) return 'quiet';
   if (s.activityState === 'active') return 'active';
@@ -111,7 +111,7 @@ export const DISPLAY_MEANING: Record<DisplayKind, string> = {
   restoring:
     'Being restored: its worktree is made again from its branch, with its uncommitted files and conversation put back. Then it carries on where it was.',
   needs_input: 'Its Claude is waiting for you: a permission prompt or a question.',
-  done: "Its Claude finished a turn you haven't looked at yet.",
+  done: "Its Claude finished a turn you haven't looked at yet: the Inbox's Done section. On a row it's the blue review badge, beside what its Claude is now.",
   working: 'Its Claude is working on your last instruction right now.',
   background:
     'Its Claude finished its turn, and a background agent that turn started is still at work. Its prompt is free: you can talk to it. The agent’s result comes back as a new turn.',
@@ -226,6 +226,7 @@ export function statusHint(kind: DisplayKind): string | undefined {
  * all of them; the Sessions table and the Inbox say the same.
  */
 export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
+  turn: () => 'review',
   reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`,
   thread: (n) => `${n} ${n === 1 ? 'thread' : 'threads'}`,
   conflict: () => 'conflict',
@@ -233,6 +234,7 @@ export const OWED_SHORT: Record<Owed['kind'], (n: number) => string> = {
   merge: () => 'merge',
 };
 export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
+  turn: () => 'a finished turn to review',
   reply: (n) => `${n} ${n === 1 ? 'reply' : 'replies'} to post`,
   thread: (n) => `${n} review ${n === 1 ? 'thread' : 'threads'} with no answer`,
   conflict: (n) => (n === 1 ? 'a merge conflict' : `${n} PRs with merge conflicts`),
@@ -241,8 +243,10 @@ export const OWED_LONG: Record<Owed['kind'], (n: number) => string> = {
 };
 
 export interface OwedBadge {
-  /** "1 reply", "merge +1". */
+  /** "1 reply", "merge +1", "review". */
   text: string;
+  /** What it leads with: a finished turn to review is blue (Done's colour), the rest pink. */
+  kind: Owed['kind'];
   /** "Needs you: 1 reply to post · ready to merge". */
   title: string;
 }
@@ -253,6 +257,7 @@ export function owedBadge(s: SessionLike): OwedBadge | null {
   if (!owed.length) return null;
   const [first, ...more] = owed;
   return {
+    kind: first.kind,
     text: OWED_SHORT[first.kind](first.count) + (more.length ? ` +${more.length}` : ''),
     title: `Needs you: ${owed.map((o) => OWED_LONG[o.kind](o.count)).join(' · ')}`,
   };

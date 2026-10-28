@@ -17,6 +17,11 @@ export function agentCan(s: Pick<SessionSummary, 'agent'>, what: keyof NonNullab
   return s.agent ? s.agent.can[what] : true;
 }
 
+/** The badge's pill: blue for a finished turn to review (Done's colour), pink for what waits on you on GitHub. */
+export function owedClass(owed: { kind: string }): string {
+  return 'wd-rail-slot-owed' + (owed.kind === 'turn' ? ' wd-rail-slot-owed-turn' : '');
+}
+
 export function isArchived(s: SessionSummary): boolean {
   return !!s.archivedAt;
 }

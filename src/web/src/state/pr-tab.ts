@@ -182,6 +182,8 @@ export function prNeedsLine(s: SessionPrFacts): string | null {
   };
   const parts = owedToYou(s).flatMap((o) => {
     switch (o.kind) {
+      case 'turn':
+        return []; // a finished turn is the Diff's, not GitHub's
       case 'reply':
         return [`${o.count} ${o.count === 1 ? 'reply' : 'replies'} to post`];
       case 'thread':

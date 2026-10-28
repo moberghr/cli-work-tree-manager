@@ -19,6 +19,7 @@ import {
   DISPLAY_LABEL,
   displayStatus,
   owedBadge,
+  owedClass,
   railGroups,
   waitingOnOthers,
   railSessions,
@@ -98,10 +99,9 @@ function statusSlot(s: SessionSummary, kind: DisplayKind): { text: string; cls: 
   if (kind === 'restoring') return { text: 'restoring…', cls: 'wd-rail-slot-archiving' };
   if (s.snoozed) return { text: 'snoozed', cls: 'wd-rail-slot-snoozed' };
   const owed = owedBadge(s);
-  if (owed) return { text: owed.text, cls: 'wd-rail-slot-owed', title: owed.title };
+  if (owed) return { text: owed.text, cls: owedClass(owed), title: owed.title };
   const since = s.attention?.since ?? s.lastAccessedAt;
   if (kind === 'needs_input') return { text: relativeTime(since), cls: 'wd-rail-slot-needs' };
-  if (kind === 'done') return { text: relativeTime(since), cls: 'wd-rail-slot-done' };
   if (kind === 'working') return { text: relativeTime(since), cls: 'wd-rail-slot-working' };
   if (kind === 'background') return { text: relativeTime(since), cls: 'wd-rail-slot-background' };
   if (waitingOnOthers(s)) return { text: 'in review', cls: 'wd-rail-slot-waiting', title: s.prStage?.text };
@@ -337,7 +337,7 @@ export function SessionRail({
           className={
             'wd-dash-rail-item' +
             (isActive ? ' wd-dash-rail-item-active' : '') +
-            ((kind === 'needs_input' || kind === 'done' || !!owedBadge(s)) && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
+            ((kind === 'needs_input' || !!owedBadge(s)) && !s.snoozed ? ' wd-dash-rail-item-unseen' : '')
           }
           onClick={() => onSelect(s.id)}
           onContextMenu={(e) => {

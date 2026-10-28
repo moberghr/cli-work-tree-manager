@@ -268,7 +268,14 @@ describe('SessionRail with attention', () => {
     expect(blocked.className).toContain('wd-dash-rail-item-unseen');
     expect(blocked.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-needs_input');
     expect(blocked.getAttribute('title')).toContain('Claude needs your permission to use Edit');
-    expect(byName('done').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-done');
+    // A finished turn you haven't seen: the icon says idle, the blue review badge (and bold) that it's yours to look at.
+    const done = byName('done');
+    expect(done.querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-quiet');
+    expect(done.querySelector('.wd-rail-dot-done')).toBeNull();
+    const pill = done.querySelector('.wd-rail-slot-owed')!;
+    expect(text(pill)).toBe('review');
+    expect(pill.className).toContain('wd-rail-slot-owed-turn');
+    expect(done.className).toContain('wd-dash-rail-item-unseen');
   });
 
   it('two signals on a row: the icon is what its Claude is doing, the pink badge what waits on you', () => {
@@ -289,6 +296,7 @@ describe('SessionRail with attention', () => {
     expect(row('busy').querySelector('.wd-rail-dot')!.className).toContain('wd-rail-dot-working');
     const busy = row('busy').querySelector('.wd-rail-slot-owed')!;
     expect(text(busy)).toBe('1 reply +1');
+    expect(busy.className).not.toContain('wd-rail-slot-owed-turn'); // pink: GitHub's
     expect(busy.getAttribute('title')).toBe('Needs you: 1 reply to post · 1 review thread with no answer');
     expect(row('plain').querySelector('.wd-rail-slot-owed')).toBeNull();
     expect(row('plain').className).not.toContain('wd-dash-rail-item-unseen');

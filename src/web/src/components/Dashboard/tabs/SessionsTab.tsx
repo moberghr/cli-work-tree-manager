@@ -21,6 +21,7 @@ import {
   displayStatus,
   isArchived,
   owedBadge,
+  owedClass,
   sessionBucket,
   waitingOnOthers,
   CONTEXT_WARN,
@@ -731,7 +732,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
       className={
         'wd-session-row' +
         (archived ? ' wd-session-row-archived' : '') +
-        (kind === 'needs_input' || kind === 'done' || (owed && !archived) ? ' wd-session-row-unseen' : '')
+        (kind === 'needs_input' || (owed && !archived) ? ' wd-session-row-unseen' : '')
       }
       onClick={onOpen}
       onContextMenu={(e) => {
@@ -765,7 +766,7 @@ function SessionRow({ session: s, onOpen, onMenu, selecting, picked, onPick, rai
         </span>
         {/* What waits on you, beside what its Claude is doing (the rail's badge). */}
         {owed && !archived ? (
-          <span className="wd-rail-slot-owed wd-st-owed" title={owed.title}>
+          <span className={owedClass(owed) + ' wd-st-owed'} title={owed.title}>
             {owed.text}
           </span>
         ) : !archived && waitingOnOthers(s) ? (

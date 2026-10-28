@@ -3,6 +3,15 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.6.4 — 2026-10-28
+
+- **A finished turn to review is a badge, not the status.** The status icon
+  now says only what its Claude is doing: a session that finished a turn
+  you haven't looked at reads Idle (or Asleep, "z z"), with a blue
+  **review** pill on the right, beside the pink ones for what waits on you
+  on GitHub. The Inbox's Done section, bold rows, `n` and Review all are
+  as they were.
+
 ## 2.6.3 — 2026-10-28
 
 - **Idle Claudes sleep after 10 minutes, and only when truly idle.** The
