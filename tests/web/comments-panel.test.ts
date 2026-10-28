@@ -137,3 +137,23 @@ describe('a click on a comment always shows it (reported: a resolved one did not
     }
   });
 });
+
+describe('the jump that waits for another repo to draw', () => {
+  it('is dropped when the panel goes first (it ran on a page torn down, failing CI)', () => {
+    vi.useFakeTimers();
+    try {
+      const onOpenRepo = vi.fn();
+      const query = vi.spyOn(document, 'querySelector');
+      act(() => root.render(createElement(CommentsPanel, { repoName: 'backend', onOpenRepo })));
+      act(() => (rows()[2] as HTMLElement).click());
+      expect(onOpenRepo).toHaveBeenCalledWith('frontend');
+      act(() => root.unmount());
+      query.mockClear();
+      vi.advanceTimersByTime(200);
+      expect(query).not.toHaveBeenCalled();
+      root = createRoot(container); // afterEach unmounts it again
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
