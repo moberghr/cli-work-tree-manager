@@ -90,6 +90,10 @@ export type DiffBase = 'uncommitted' | 'branch';
 
 export interface SessionSummary {
   id: string;
+  /** Being archived right now (SessionWire.archiving; this window's own click marks it at once, archive-pending.ts). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring, or this window's own click): in the rail again meanwhile. */
+  restoring?: boolean;
   target: string;
   branch: string;
   isGroup: boolean;

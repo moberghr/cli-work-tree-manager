@@ -56,6 +56,16 @@ const pr = (over: Partial<PrInfo>): PrInfo => ({
 });
 
 describe('displayStatus — one vocabulary for every view', () => {
+  it('being archived wins over everything: it is on its way out, and something is happening', () => {
+    const k = displayStatus(s({ id: 'a', archiving: true, attention: att('needs_input', false), openReviewThreads: 2 }));
+    expect(k).toBe('archiving');
+    expect(DISPLAY_LABEL[k]).toBe('Archiving');
+    expect(statusBucket(k)).toBe('working');
+    expect(ageBucket(s({ id: 'b', archiving: true, lastAccessedAt: minsAgo(60 * 24 * 30) }))).toBe('now');
+    expect(displayStatus(s({ id: 'c', restoring: true, archivedAt: minsAgo(60) }))).toBe('restoring');
+    expect(DISPLAY_LABEL.restoring).toBe('Restoring');
+  });
+
   it('prefers hook attention and falls back to transcript activity', () => {
     expect(displayStatus(s({ id: 'a', attention: att('needs_input', false) }))).toBe('needs_input');
     expect(displayStatus(s({ id: 'a', attention: att('idle', false) }))).toBe('done');
@@ -185,6 +195,24 @@ describe('SessionRail rows', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it('a session being archived says so: the Archiving icon and "archiving…", whatever its Claude was doing', () => {
+    const sessions = [s({ id: 'feat/x', archiving: true, attention: att('needs_input', false) })];
+    act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const row = container.querySelector('.wd-dash-rail-item')!;
+    expect(row.querySelector('.wd-rail-dot-archiving')).not.toBeNull();
+    expect(row.textContent).toContain('archiving…');
+  });
+
+  it('an archived session being restored is back in the rail at once, as Restoring; one that is not stays out', () => {
+    const sessions = [s({ id: 'back', archivedAt: minsAgo(60), restoring: true }), s({ id: 'gone', archivedAt: minsAgo(60) })];
+    act(() => root.render(createElement(SessionRail, { sessions, activeSessionId: null, onSelect: () => {}, onNewWorktree: () => {} })));
+    const rows = container.querySelectorAll('.wd-dash-rail-item');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('.wd-dash-rail-name')?.textContent).toBe('back');
+    expect(rows[0].querySelector('.wd-rail-dot-restoring')).not.toBeNull();
+    expect(rows[0].textContent).toContain('restoring…');
   });
 
   it('two lines a row, the same for every row: branch and time, then project and PRs; the rest is in its tooltip; hides archived', () => {

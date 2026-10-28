@@ -12,6 +12,10 @@ export interface SessionLike {
   openReviewThreads?: number;
   /** Where its pull request stands (SessionWire, pr-stage.ts). */
   prStage?: { kind: PrStageKind; text: string; seen?: boolean } | null;
+  /** Being archived right now (SessionWire.archiving). */
+  archiving?: boolean;
+  /** Being restored right now (SessionWire.restoring). */
+  restoring?: boolean;
 }
 
 /**
@@ -21,6 +25,10 @@ export interface SessionLike {
  * back to the older transcript-activity signal, so a session never shows two
  * contradicting states in two places.
  *
+ *   archiving   — being archived right now (its Claude stopped, the rest
+ *                 being saved); it leaves the list when done
+ *   restoring   — being restored (its worktree made again, the conversation
+ *                 put back); in the rail again from the click
  *   needs_input — blocked on you (permission / question)
  *   done        — finished a turn you haven't looked at
  *   working     — mid-turn
@@ -38,7 +46,20 @@ export interface SessionLike {
  *     Idle (recent) within a day, Stale after that.
  */
 export type DisplayKind =
-  'needs_input' | 'done' | 'working' | 'background' | 'review' | 'pr' | 'in_review' | 'quiet' | 'active' | 'open' | 'recent' | 'stale';
+  | 'archiving'
+  | 'restoring'
+  | 'needs_input'
+  | 'done'
+  | 'working'
+  | 'background'
+  | 'review'
+  | 'pr'
+  | 'in_review'
+  | 'quiet'
+  | 'active'
+  | 'open'
+  | 'recent'
+  | 'stale';
 
 /** Used today = not stale, whatever the hooks know. */
 export const RECENT_MS = 24 * 3_600_000;
@@ -52,6 +73,8 @@ export function lastActiveAt(s: SessionLike): string {
 }
 
 export function displayStatus(s: SessionLike, now: number = Date.now()): DisplayKind {
+  if (s.archiving) return 'archiving';
+  if (s.restoring) return 'restoring';
   const a = s.attention;
   if (a) {
     if (a.state === 'needs_input') return 'needs_input';
@@ -69,6 +92,8 @@ export function displayStatus(s: SessionLike, now: number = Date.now()): Display
 }
 
 export const DISPLAY_LABEL: Record<DisplayKind, string> = {
+  archiving: 'Archiving',
+  restoring: 'Restoring',
   needs_input: 'Needs your input',
   done: 'Done',
   working: 'Working',
@@ -85,6 +110,10 @@ export const DISPLAY_LABEL: Record<DisplayKind, string> = {
 
 /** What each status means, in words — the legend and the dots' tooltips. */
 export const DISPLAY_MEANING: Record<DisplayKind, string> = {
+  archiving:
+    'Being archived: its Claude is stopped, its conversation and uncommitted files are saved, and its worktree goes once nothing would be lost. It leaves the list when done; Restore brings it back.',
+  restoring:
+    'Being restored: its worktree is made again from its branch, with its uncommitted files and conversation put back. Then it carries on where it was.',
   needs_input: 'Its Claude is waiting for you: a permission prompt or a question.',
   done: "Its Claude finished a turn you haven't looked at yet.",
   working: 'Its Claude is working on your last instruction right now.',
@@ -109,6 +138,8 @@ export const LEGEND_KINDS: readonly DisplayKind[] = [
   'pr',
   'working',
   'background',
+  'archiving',
+  'restoring',
   'in_review',
   'active',
   'open',
@@ -145,6 +176,8 @@ export function ageBucket(s: SessionLike, now: number = Date.now()): AgeBucket {
     kind === 'done' ||
     kind === 'working' ||
     kind === 'background' ||
+    kind === 'archiving' ||
+    kind === 'restoring' ||
     kind === 'review' ||
     kind === 'pr' ||
     kind === 'active' ||
@@ -168,6 +201,8 @@ export function statusBucket(kind: DisplayKind): StatusBucket {
       return 'needs';
     case 'working':
     case 'background':
+    case 'archiving':
+    case 'restoring':
     case 'active':
       return 'working';
     case 'quiet':

@@ -20,6 +20,7 @@ import type {
   PrStageWire,
 } from '../api-types.js';
 import { archiveDirFor, archivedByOf, keptList, readArchive } from '../archive/session-archive.js';
+import { isArchiving, isRestoring } from '../archive/archiving.js';
 import { sessionTitle } from '../conversations/session-title.js';
 import { prStageOf, STAGE_WANTS_YOU, type StagePr } from '../pr/pr-stage.js';
 import { isLeftover } from '../worktree/leftover.js';
@@ -147,9 +148,15 @@ export function sessionWire(s: WorktreeSession, opts: SessionWireOptions = {}): 
   if (stack?.children) wire.stackedChildren = stack.children;
   if (stack?.merged) wire.stackParentMerged = stack.merged;
   if (opts.hasNote?.(id)) wire.hasNote = true;
+  if (isArchiving(id)) wire.archiving = true;
   const blockers = s.archivedAt ? [] : (opts.blockedByFor?.(id) ?? []);
   if (blockers.length) wire.blockedBy = blockers;
   return wire;
+}
+
+/** The row, marked Restoring while a Restore of it runs (a copy: archived rows are cached). */
+export function withRestoring(w: SessionWire): SessionWire {
+  return isRestoring(w.id) ? { ...w, restoring: true } : w;
 }
 
 /**

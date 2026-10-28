@@ -51,6 +51,7 @@ import { mountShipRoutes } from './routes/ship-routes.js';
 import { mountSessionOrderRoutes } from './routes/session-order-routes.js';
 import { mountRailRoutes } from './routes/rail-routes.js';
 import { onArchived } from '../core/archive/session-archive.js';
+import { isRestoring, onArchivingChange } from '../core/archive/archiving.js';
 import { defaultArchiveDeps, archiveMergedSession } from '../core/archive/session-archive-deps.js';
 import { agentsBySession, summarizeAgents } from '../core/sessions/live-agents.js';
 import { liveAgents, activityRoots } from '../core/agents/index.js';
@@ -63,7 +64,7 @@ import { afterArchive } from '../core/archive/after-archive.js';
 import { devPresence } from './presence.js';
 import { readWebUrl } from '../core/platform/web-discovery.js';
 import { VERSION } from '../version.js';
-import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire } from '../core/sessions/session-wire.js';
+import { createArchivedRows, prStageWire, reviewThreadsOf, sessionWire, withRestoring } from '../core/sessions/session-wire.js';
 import { createStageTracker, prStageOf } from '../core/pr/pr-stage.js';
 import { createSeenStores } from '../core/pr/pr-watch-store.js';
 import { createDigestSource } from '../core/conversations/digest-source.js';
@@ -383,41 +384,44 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
       // Stacked sessions (stack.ts): behind and Update measure against the parent.
       const stacks = sessionStacks(history, loadConfig());
       const sessions = history
-        .filter((s) => withArchived || !s.archivedAt)
+        // One being restored is listed with the live ones at once (Restoring), before it's back.
+        .filter((s) => withArchived || !s.archivedAt || isRestoring(sessionIdFor(s)))
         .map((s) =>
-          archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
-            sessionWire(s, {
-              diffStatFor,
-              claudesFor,
-              liveKnown: !!table && table.size > 0,
-              snoozeFor: (id) => snoozes.get(id) ?? null,
-              behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
-              stackFor: (id) => {
-                const p = stacks.parentOf.get(id);
-                const m = stacks.mergedParentOf.get(id);
-                return {
-                  parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
-                  children: stacks.children.get(id) ?? 0,
-                  merged: m ? { id: m.id, branch: m.branch } : null,
-                };
-              },
-              hostedLive: (id) => peekPty(id),
-              outputStatusFor: (id) => outputStatus(id),
-              shadowed: (id) => shadow.has(id),
-              reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
-              prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
-              replyDraftsFor: (id) => drafts.get(id) ?? 0,
-              hasNote: (id) => noted.has(id),
-              blockedByFor: (id) =>
-                (blocks.get(id)?.by ?? [])
-                  .filter((b) => !blockerDone(b, (x) => !live.has(x)))
-                  .map((b) => ({
-                    key: blockKey(b),
-                    kind: b.kind,
-                    label: b.label,
-                    ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
-                  })),
-            }),
+          withRestoring(
+            archivedRow(s, { hasNote: noted.has(sessionIdFor(s)) }, () =>
+              sessionWire(s, {
+                diffStatFor,
+                claudesFor,
+                liveKnown: !!table && table.size > 0,
+                snoozeFor: (id) => snoozes.get(id) ?? null,
+                behindFor: (id, s) => (wantsDiffStat(s, false) ? behindCache.get(id, s.paths, stacks.parentOf.get(id)?.branch) : null),
+                stackFor: (id) => {
+                  const p = stacks.parentOf.get(id);
+                  const m = stacks.mergedParentOf.get(id);
+                  return {
+                    parent: p ? { id: p.id, branch: p.branch, ...(p.title ? { title: p.title } : {}) } : null,
+                    children: stacks.children.get(id) ?? 0,
+                    merged: m ? { id: m.id, branch: m.branch } : null,
+                  };
+                },
+                hostedLive: (id) => peekPty(id),
+                outputStatusFor: (id) => outputStatus(id),
+                shadowed: (id) => shadow.has(id),
+                reviewThreadsFor: (id) => reviewThreadsOf(prWatch.state(id)),
+                prStageFor: (id) => prStageWire(prWatch.state(id), (k) => stageSeen(id).has(k)),
+                replyDraftsFor: (id) => drafts.get(id) ?? 0,
+                hasNote: (id) => noted.has(id),
+                blockedByFor: (id) =>
+                  (blocks.get(id)?.by ?? [])
+                    .filter((b) => !blockerDone(b, (x) => !live.has(x)))
+                    .map((b) => ({
+                      key: blockKey(b),
+                      kind: b.kind,
+                      label: b.label,
+                      ...(b.kind === 'session' ? { sessionId: b.id } : { url: b.url, ...(b.state ? { state: b.state } : {}) }),
+                    })),
+              }),
+            ),
           ),
         );
       // Sessions changing the same files — from the same background cache
@@ -848,6 +852,8 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
           ...(jobs ? { sweepBlocks: sweepBlocksNow } : {}),
         }),
       );
+  // Archiving takes a while (stop Claude, copy the conversation, save the files, remove the worktree): every view shows it meanwhile.
+  const offArchiving = onArchivingChange(() => broadcast('sessions-changed', { ts: Date.now() }));
 
   // Update from main (behind-main.ts): its numbers move, so look again.
   mountUpdateRoutes(app, {
@@ -1054,6 +1060,7 @@ export async function startWebServer(opts: WebServerOptions = {}): Promise<WebSe
     stop: async () => {
       clearInterval(revPoll);
       offArchived();
+      offArchiving();
       if (blocksTimer) clearInterval(blocksTimer);
       if (hostTick) clearInterval(hostTick);
       loop.stop();

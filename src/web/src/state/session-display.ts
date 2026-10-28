@@ -53,7 +53,8 @@ export function railSessions(
   const current: SessionSummary[] = [];
   const older: SessionSummary[] = [];
   for (const s of sessions) {
-    if (isArchived(s)) continue;
+    // One being restored is back in the rail at once, as Restoring.
+    if (isArchived(s) && !s.restoring) continue;
     const recent = now - (Date.parse(s.lastAccessedAt) || 0) < RAIL_RECENT_MS;
     const live = !!s.attention || s.ptyStatus === 'running' || s.activityState === 'active' || s.activityState === 'open';
     (recent || live ? current : older).push(s);

@@ -10,6 +10,7 @@ import { AgentsRestartCard } from '../components/Dashboard/AgentsRestartCard.js'
 import { outdatedNames } from '../state/agent-restart-view.js';
 import { desktopWire, useDesktop } from '../hooks/use-desktop.js';
 import { versionMismatch } from '../../../core/updates/updates.js';
+import { useMarkArchiving } from '../api/archive-pending.js';
 import { RowMenu, type MenuItem } from '../components/Dashboard/RowMenu.js';
 import { runSessionKey, SESSION_ACTION_EVENT, sessionActionFor, type SessionActionDetail } from '../state/shortcuts.js';
 import { Toast, useToast } from '../components/Dashboard/Toast.js';
@@ -124,7 +125,9 @@ export function DashboardApp({ dev = false }: { dev?: boolean } = {}) {
     return parseHash(hash);
   });
   useEffect(() => saveLastRoute(route, safeLocalStorage()), [route]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionRows, setSessions] = useState<SessionSummary[]>([]);
+  // Archiving shows from the click (archive-pending.ts), before the server's own flag comes.
+  const sessions = useMarkArchiving(sessionRows);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   // Archived sessions come only while something on screen shows them (wantsArchived):

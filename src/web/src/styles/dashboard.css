@@ -367,6 +367,9 @@
   color: var(--review-fg);
   font-weight: 600;
 }
+.wd-rail-slot-archiving {
+  font-style: italic;
+}
 .wd-dash-rail-sub {
   font-size: 12px;
   font-weight: 400;
@@ -2943,7 +2946,13 @@ a.wd-pr-chip:hover {
   border-radius: 6px;
 }
 .wd-archive-hits {
-  margin-top: 18px;
+  margin: 18px 24px 16px;
+}
+/* The Sessions tab's tables and conversation hits scroll as one: a block, so neither is squeezed by the other. */
+.wd-session-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .wd-archive-hit-list {
   list-style: none;

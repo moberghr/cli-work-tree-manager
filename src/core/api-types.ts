@@ -480,6 +480,10 @@ export interface SessionOverlap {
  *  work web and the demo) sends. */
 export interface SessionWire {
   id: string;
+  /** Being archived right now (archiving.ts: the button, Ship, the PR watch, cleanup): shown as Archiving until it's gone. */
+  archiving?: true;
+  /** Being restored right now (archiving.ts): listed with the live sessions meanwhile, still `archivedAt` until it's done. */
+  restoring?: true;
   /** Snoozed out of the Inbox right now (snooze.ts): until when, or null for "until it changes". */
   snoozed?: { until: string | null };
   /** Behind its main branch (behind-main.ts, as of the last fetch) — or, when stacked, behind the

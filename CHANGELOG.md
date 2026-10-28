@@ -3,6 +3,19 @@
 Notable changes per release. Releases up to 1.16.0 are described in the
 [GitHub Releases](https://github.com/moberghr/cli-work-tree-manager/releases).
 
+## 2.5.3 — 2026-10-28
+
+- **Archiving and restoring show.** A session being archived — by you, by
+  Ship, by a merged pull request or by Clean up — shows **Archiving** (a grey
+  turning icon, "archiving…" on the rail) everywhere until it's gone. A
+  session you restore is back on the rail at once as **Restoring**, until it's
+  ready. Both show in every open window.
+- **Searching Sessions no longer hides the list.** The matches in
+  conversations squeezed the table above them away a few seconds into a
+  search; they now come after it, in one scrolling list. Archived shows only
+  archived conversations.
+- The CHANGELOG's 2.5.1 entry is put right (it repeated 2.5.2's).
+
 ## 2.5.2 — 2026-10-27
 
 - **A review thread resolved on GitHub leaves the dashboard.** Resolving a

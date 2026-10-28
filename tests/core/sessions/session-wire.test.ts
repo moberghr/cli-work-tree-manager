@@ -30,6 +30,32 @@ const s = {
 } as WorktreeSession;
 
 describe('sessionWire', () => {
+  it('says when it is being archived, only while it is', async () => {
+    const { whileArchiving } = await import('../../../src/core/archive/archiving.js');
+    const { sessionIdFor } = await import('../../../src/core/sessions/web-state.js');
+    expect(sessionWire(s).archiving).toBeUndefined();
+    let during: unknown;
+    await whileArchiving(sessionIdFor(s), async () => {
+      during = sessionWire(s).archiving;
+    });
+    expect(during).toBe(true);
+    expect(sessionWire(s).archiving).toBeUndefined();
+  });
+
+  it('withRestoring marks a row Restoring while its Restore runs, on a copy (archived rows are cached)', async () => {
+    const { whileRestoring } = await import('../../../src/core/archive/archiving.js');
+    const { withRestoring } = await import('../../../src/core/sessions/session-wire.js');
+    const row = sessionWire({ ...s, archivedAt: '2026-09-02T00:00:00Z' });
+    expect(withRestoring(row)).toBe(row);
+    let during: ReturnType<typeof withRestoring> | null = null;
+    await whileRestoring(row.id, async () => {
+      during = withRestoring(row);
+    });
+    expect(during).toMatchObject({ id: row.id, restoring: true, archivedAt: '2026-09-02T00:00:00Z' });
+    expect(row.restoring).toBeUndefined();
+    expect(withRestoring(row)).toBe(row);
+  });
+
   it('a running Claude makes a quiet session open, and busy makes it active', () => {
     const idle = { inTerminal: 1, inApp: 0, busy: false, duplicate: false };
     expect(sessionWire(s, { claudesFor: () => idle })).toMatchObject({ activityState: 'open', claudes: idle });

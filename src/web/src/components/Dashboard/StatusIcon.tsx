@@ -60,6 +60,10 @@ const GLYPH: Record<DisplayKind, ReactElement> = {
   working: ARC,
   // Its turn ended, a background agent it started is still at it: the same arc (still busy), its own colour (CSS).
   background: ARC,
+  // Being archived: the same arc (something is happening), grey — it is on its way out.
+  archiving: ARC,
+  // Being restored: the same grey arc, on its way back.
+  restoring: ARC,
   // Reviewers are waiting: a speech bubble.
   review: (
     <path

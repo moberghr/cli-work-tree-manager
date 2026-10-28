@@ -22,7 +22,7 @@ vi.mock('../../src/web/src/api/panes.js', async (orig) => ({
   openInTerminal: h.openInTerminal,
 }));
 
-import { SessionsTab } from '../../src/web/src/components/Dashboard/tabs/SessionsTab.js';
+import { hitsInScope, SessionsTab } from '../../src/web/src/components/Dashboard/tabs/SessionsTab.js';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -413,6 +413,46 @@ describe('Sessions table', () => {
 });
 
 describe('Sessions tab search', () => {
+  it('the table and the conversation hits are in one scroller, so the hits never squeeze the table away', async () => {
+    vi.useFakeTimers();
+    try {
+      h.search.mockResolvedValue([
+        {
+          sessionId: 'x',
+          target: 'api',
+          branch: 'feat/x',
+          archived: false,
+          archivedAt: null,
+          worktreeRemoved: false,
+          lastAt: null,
+          snippets: [],
+        },
+      ]);
+      render();
+      const box = container.querySelector<HTMLInputElement>('.wd-tab-search')!;
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      act(() => {
+        setValue.call(box, 'work');
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      const scroller = container.querySelector('.wd-session-scroll')!;
+      expect(scroller.querySelector('.wd-archive-hits')).not.toBeNull();
+      expect(scroller.querySelectorAll('tbody tr').length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Archived lists only archived conversations; Live and All every one', () => {
+    const hits = [{ archived: true }, { archived: false }];
+    expect(hitsInScope(hits, 'archived')).toEqual([{ archived: true }]);
+    expect(hitsInScope(hits, 'live')).toBe(hits);
+    expect(hitsInScope(hits, 'all')).toBe(hits);
+  });
+
   it('filters the table by text, and Esc clears it', () => {
     render();
     const box = container.querySelector<HTMLInputElement>('.wd-tab-search')!;
